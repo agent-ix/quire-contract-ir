@@ -4,7 +4,7 @@
 //! TC-060 and TC-061: public V2 read/write vectors for the two new body forms.
 
 use crate::support::checked_package::{
-    canonical, domain_package_digest, evidence_for, family_key, family_model_document,
+    canonical, evidence_for, evidence_with_document, family_key, family_model_document,
     fixture_source, model_owner, node_id, refresh_identity, settle, sha256_hex, source_owner,
     structural_key, v2_all_families,
 };
@@ -159,8 +159,6 @@ fn package_with_nodes(nodes: Vec<Value>) -> Value {
 
 fn terminal_with_self(target_model: &str, parameter_name: &str, level: &str) -> Value {
     let mut package = v2_all_families();
-    package["lock"]["model_selections"][0]["digest"] =
-        json!(domain_package_digest(&population_document()));
     let model = family_key("1515");
     let reference_body = json!({"term": "aggregate", "members": [reference(target_model)]});
     let reference_type = structural_key("composite_type", "reference", None, &reference_body);
@@ -246,8 +244,6 @@ fn other_object_node() -> Value {
 
 fn terminal_for_selected_model(model: &str) -> Value {
     let mut package = v2_all_families();
-    package["lock"]["model_selections"][0]["digest"] =
-        json!(domain_package_digest(&population_document()));
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -304,10 +300,7 @@ fn read_with_population_limited(
     limits: CheckedPackageReadLimits,
 ) -> CheckedPackageV2ReadResult {
     let document = population_document();
-    let mut evidence = evidence_for(package);
-    evidence
-        .insert_domain_package_document(domain_package_digest(&document), canonical(&document))
-        .expect("selected population document");
+    let evidence = evidence_with_document(package, "test/families", &document);
     CheckedPackageV2::read(&canonical(package), limits, &evidence)
 }
 
@@ -429,7 +422,6 @@ fn encoded(package: &Value) -> Vec<u8> {
         edition: &preimage.edition,
         profile_selections: &preimage.profile_selections,
         definition_selections: &preimage.definition_selections,
-        model_selections: &preimage.model_selections,
         required_features: &preimage.required_features,
         dependency_selections: &preimage.dependency_selections,
         identity_projection: &graph.nodes,

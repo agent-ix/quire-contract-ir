@@ -1235,10 +1235,10 @@ mod tests {
             "contract_version":"quire.checked-package/v2",
             "identity_preimage":{"version":"quire.checked-package-id/v2",
                 "edition":{"role":"edition","definition":{"authority":"test","identity":"edition"}},
-                "profile_selections":[],"definition_selections":[],"model_selections":[],"required_features":[],"dependency_selections":[]},
+                "profile_selections":[],"definition_selections":[],"required_features":[],"dependency_selections":[]},
             "package_id":{"domain":"quire.package.semantic/v2","algorithm":"sha256","digest":"a".repeat(64)},
             "lock":{"sources":[],"edition":{"role":"edition","definition":{"authority":"test","identity":"edition"}},
-                "profile_selections":[],"definition_selections":[],"model_selections":[],"required_features":[],"dependency_selections":[]},
+                "profile_selections":[],"definition_selections":[],"required_features":[],"dependency_selections":[]},
             "semantic_graph":{"graph_version":"quire.checked-semantic-graph/v2","nodes":[
                 node('1',"scalar_type","boolean",'1',empty.clone()),
                 node('2',"scalar_type","integer",'2',empty.clone()),

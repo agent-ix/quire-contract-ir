@@ -5,9 +5,9 @@
 //!
 //! The four steps, as this module implements them:
 //!
-//! 1. **Selection evidence** ([`admit_selection`]). Each `model_selections`
-//!    row's document is looked up by digest in the caller's evidence, its
-//!    RFC 8785 digest recomputed, its own identity compared with the row's
+//! 1. **Selection evidence** ([`admit_selection`]). Each `model_root` owner's
+//!    identity selects one document, looked up by identity in the caller's
+//!    evidence; its own identity is compared with the selected one
 //!    (selections bind by identity; no version is read), and its
 //!    declarations read ([`read_semantic_ir`]).
 //! 2. **Owner recovery** ([`ModelOwners::recover`]). Every object type, record
@@ -44,14 +44,14 @@ use super::model_fields::{
     DeclarationIndex, DeclaredNode, FieldTables, RecordBinderTypes, Selected,
 };
 use super::{
-    member_pointer, CheckedDeclaration, CheckedDomainPackageRef, CheckedNodeOwner, CheckedNodeTag,
-    CheckedSemanticNodeV2, CheckedTerm, ValidationFailure, WorkMeter,
+    CheckedDeclaration, CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm,
+    ValidationFailure, WorkMeter,
 };
 use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedSemanticId, JsonPointer,
+    JsonPointer,
 };
 use ix_trace_rs::string_edge;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
@@ -74,7 +74,6 @@ impl EmptyAggregateBody for CheckedTerm {
         matches!(self, Self::Aggregate { members } if members.is_empty())
     }
 }
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -487,6 +486,8 @@ pub(super) enum ValueBounds {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct DomainModel {
     pub(super) identity: Box<str>,
+    /// Node position of this package's `model_root`.
+    pub(super) root: usize,
     /// The reader's byte limit, under which every key derived from this
     /// model's declarations is hashed.
     pub(super) bytes: u64,
@@ -1114,28 +1115,25 @@ impl From<ValidationFailure> for ModelFailure {
 }
 
 /// Work charged to the reader's `work` limit on behalf of one
-/// `lock.model_selections` row; an exhausted limit is the read's
+/// selected package root; an exhausted limit is the read's
 /// `incomplete` result at that row.
 pub(super) struct Budget<'w> {
     meter: &'w mut WorkMeter,
-    selection: usize,
+    /// Node position of the selected package's `model_root`.
+    root: usize,
     /// The reader's byte limit: the ceiling of every encode the row's
     /// document and declarations reach.
     bytes: u64,
 }
 
 impl<'w> Budget<'w> {
-    pub(super) fn new(meter: &'w mut WorkMeter, selection: usize, bytes: u64) -> Self {
-        Self {
-            meter,
-            selection,
-            bytes,
-        }
+    pub(super) fn new(meter: &'w mut WorkMeter, root: usize, bytes: u64) -> Self {
+        Self { meter, root, bytes }
     }
 
-    /// The pointer of the row this budget is charged at.
+    /// The pointer of the root owner this budget is charged at.
     pub(super) fn row(&self) -> JsonPointer {
-        member_pointer(&["lock", "model_selections"]).index(self.selection)
+        crate::checked_package::common::node_pointer(self.root).key("owner")
     }
 
     pub(super) fn charge(&mut self, work: u64) -> Result<(), ValidationFailure> {
@@ -1717,7 +1715,7 @@ pub(super) struct Owner<'m> {
     pub(super) form: DeclarationForm,
     /// The declaration's IR node identity.
     pub(super) node: &'m str,
-    /// The `lock.model_selections` row of `package`.
+    /// The index of `package` among the selected packages.
     pub(super) selection: usize,
 }
 
@@ -1733,6 +1731,8 @@ pub(super) struct ModelOperationClass {
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
     by_key: BTreeMap<String, Owner<'m>>,
+    /// The identity of every selected domain package.
+    identities: BTreeSet<&'m str>,
 }
 
 impl<'m> ModelOwners<'m> {
@@ -1748,6 +1748,11 @@ impl<'m> ModelOwners<'m> {
         } else {
             "enum"
         })
+    }
+
+    /// Whether a domain package of `identity` is selected.
+    pub(super) fn selects(&self, identity: &str) -> bool {
+        self.identities.contains(identity)
     }
 
     pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
@@ -1774,7 +1779,7 @@ impl<'m> ModelOwners<'m> {
             {
                 continue;
             }
-            let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+            let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
             let names = owner
                 .package
                 .effective_operation_names(owner.node, &mut budget)?;
@@ -1813,7 +1818,9 @@ impl<'m> ModelOwners<'m> {
         mut charge: impl FnMut(usize) -> Result<(), ValidationFailure>,
     ) -> Result<Self, ValidationFailure> {
         let mut by_key = BTreeMap::new();
+        let mut identities = BTreeSet::new();
         for (index, package) in models.iter().enumerate() {
+            identities.insert(package.identity.as_ref());
             let objects = package.object_types.iter().map(|(node, declared)| {
                 let form = if package.state_machines.contains(node.as_ref()) {
                     DeclarationForm::StateMachine
@@ -1859,7 +1866,7 @@ impl<'m> ModelOwners<'m> {
                 .chain(populations)
                 .chain(persistence_interfaces)
             {
-                charge(index)?;
+                charge(package.root)?;
                 // A key the encoder refuses (a preimage past the byte limit)
                 // refuses the read as `invalid_semantic_graph` at the
                 // selection row the declaration belongs to.
@@ -1867,7 +1874,7 @@ impl<'m> ModelOwners<'m> {
                     |_| {
                         ValidationFailure::refused(
                             CheckedPackageRefusalCode::InvalidSemanticGraph,
-                            member_pointer(&["lock", "model_selections"]).index(index),
+                            crate::checked_package::common::node_pointer(package.root).key("owner"),
                         )
                     },
                 )?;
@@ -1882,7 +1889,7 @@ impl<'m> ModelOwners<'m> {
                 );
             }
         }
-        Ok(Self { by_key })
+        Ok(Self { by_key, identities })
     }
 
     /// Whether `node` is a model declaration node: a `model` or `relation`
@@ -1992,7 +1999,7 @@ impl<'m> ModelOwners<'m> {
         if owner.form == DeclarationForm::Population {
             return Ok(Err(ModelRefusal::ineligible()));
         }
-        let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+        let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
         match owner.package.resolve(owner.node, kind, name, &mut budget) {
             Ok(member) => Ok(Ok((owner, member))),
             Err(ModelFailure::Refused(refusal)) => Ok(Err(refusal)),
@@ -2025,7 +2032,6 @@ pub(super) struct SelectionRefusal {
     pub(super) declaration_path: Option<Vec<Segment>>,
     /// A selected-document pointer that the public refusal contract locates.
     pub(super) document_pointer: Option<JsonPointer>,
-    pub(super) mismatch: Option<(CheckedSemanticId, CheckedSemanticId)>,
 }
 
 impl SelectionRefusal {
@@ -2041,22 +2047,7 @@ impl SelectionRefusal {
             declaration_origin: None,
             declaration_path: None,
             document_pointer: None,
-            mismatch: None,
         }
-    }
-
-    fn mismatch(
-        cause: CheckedPackageRefusalCause,
-        expected: CheckedSemanticId,
-        actual: CheckedSemanticId,
-    ) -> Self {
-        let mut refusal = Self::at(
-            CheckedPackageRefusalCode::StaleDependency,
-            cause,
-            Some("digest"),
-        );
-        refusal.mismatch = Some((expected, actual));
-        refusal
     }
 
     fn located(
@@ -2073,7 +2064,6 @@ impl SelectionRefusal {
             declaration_origin: retained_origin(node.get("origin"), budget)?,
             declaration_path: None,
             document_pointer: None,
-            mismatch: None,
         })
     }
 
@@ -2144,14 +2134,14 @@ fn selected_tuple_refusal(
     Ok(selected)
 }
 
-/// Why FR-322 step 1 stopped at one `model_selections` row: a refusal, or a
-/// reader limit exhausted while reading the row's document.
+/// Why FR-322 step 1 stopped at one selected package: a refusal, or a
+/// reader limit exhausted while reading its document.
 #[derive(Debug)]
 pub(super) enum SelectionFailure {
     Refused(Box<SelectionRefusal>),
     Limit(ValidationFailure),
     /// The document holds a number with no exact RFC 8785 spelling:
-    /// `noncanonical_wire` at the row's `digest`, with the pointer of the
+    /// `noncanonical_wire` at the root owner's `identity`, with the pointer of the
     /// first such number in the document and the cause `inexact-integer` or
     /// `inexact-number`.
     InexactNumber {
@@ -2182,20 +2172,15 @@ impl From<ModelRefusal> for SelectionFailure {
     }
 }
 
-/// FR-322 step 1's four admission checks, in FR-154's order, over the
-/// document supplied under the row's digest. `identity_of` reads the
-/// document's own identity (its `package.version`, if any, is never read).
+/// FR-322 step 1's admission checks over the document supplied under the
+/// selected identity: it parses, holds no number without an exact RFC 8785
+/// spelling, and carries the selected identity as its own `package.identity`.
 /// Parsing is charged to the reader's `work` limit before it starts, one unit
 /// per [`DOCUMENT_BYTES_PER_WORK`] bytes, so a document too large for the
-/// limit is `incomplete` at its row (`/lock/model_selections/<i>`) and is
-/// never parsed. The reader recomputes
-/// the RFC 8785 digest from the supplied bytes and compares it with the
-/// digest the lock selected, so the model actually parsed is the one the
-/// package was compiled against: a content identity check, not a comparison
-/// of the lock with itself. Returns the parsed document.
-// Intake: checks the fixed digest domain of a selected domain package document.
+/// limit is `incomplete` at its root and is never parsed. Returns the parsed
+/// document.
 pub(super) fn admit_document(
-    selection: &CheckedDomainPackageRef,
+    identity: &str,
     supplied: Option<&[u8]>,
     identity_of: fn(&Value) -> Option<&str>,
     budget: &mut Budget<'_>,
@@ -2206,22 +2191,16 @@ pub(super) fn admit_document(
         return Err(SelectionRefusal::at(
             Code::MissingImport,
             Cause::MissingSelection,
-            Some("digest"),
+            Some("identity"),
         )
         .into());
     };
     budget.charge(units(bytes.len().div_ceil(DOCUMENT_BYTES_PER_WORK)))?;
-    let expected = CheckedSemanticId {
-        domain: super::DOMAIN_PACKAGE_DIGEST.into(),
-        algorithm: "sha256".into(),
-        digest: selection.digest.clone(),
-    };
     // The document is read once, by `quire-canonical`, which keeps each
-    // number's text. Bytes that are not strict JSON have no RFC 8785 form, so
-    // their raw digest decides the next refusal; bytes past the reader's
-    // limit are the read's `incomplete` for `bytes`; a number past the double
-    // range has no exact RFC 8785 spelling, so the read names it by pointer
-    // and text and it is refused as any other inexact number is.
+    // number's text. Bytes past the reader's limit are the read's
+    // `incomplete` for `bytes`; a number past the double range has no exact
+    // RFC 8785 spelling, so the read names it by pointer and text and it is
+    // refused as any other inexact number is.
     let reading = match quire_canonical::read(bytes, budget.bytes) {
         Ok(reading) => reading,
         Err(quire_canonical::ReadError::Limit(limit)) => {
@@ -2244,76 +2223,31 @@ pub(super) fn admit_document(
             });
         }
         Err(_) => {
-            let raw = format!("{:x}", Sha256::digest(bytes));
-            if raw == selection.digest.as_ref() {
-                return Err(SelectionRefusal::at(
-                    Code::InvalidModelBinding,
-                    Cause::WrongModelSelection,
-                    Some("identity"),
-                )
-                .into());
-            }
-            return Err(SelectionRefusal::mismatch(
-                Cause::ByteDigestMismatch,
-                expected,
-                CheckedSemanticId {
-                    domain: "raw-artifact-digest".into(),
-                    algorithm: "sha256".into(),
-                    digest: raw.into(),
-                },
+            return Err(SelectionRefusal::at(
+                Code::MalformedWire,
+                Cause::MalformedJson,
+                Some("identity"),
             )
             .into());
         }
     };
-    // Decided on the text of each number, before any rounding to a double and
-    // before any digest, so two documents that differ in such a number never
-    // share one.
+    // Decided on the text of each number, before any rounding to a double.
     if let Some((document_pointer, cause)) = first_inexact_number(&reading) {
         return Err(SelectionFailure::InexactNumber {
             document_pointer,
             cause,
         });
     }
-    let digest = match quire_canonical::sha256(&reading, quire_canonical::Limits::new(budget.bytes))
-    {
-        Ok(digest) => digest,
-        Err(quire_canonical::Error::Limit(limit)) => return Err(bytes_exceeded(limit).into()),
-        Err(_) => {
-            return Err(SelectionRefusal::at(
-                Code::MalformedWire,
-                Cause::MalformedJson,
-                Some("digest"),
-            )
-            .into());
-        }
-    };
-    if digest.to_string() != selection.digest.as_ref() {
-        return Err(SelectionRefusal::mismatch(
-            Cause::ContentMismatch,
-            expected,
-            CheckedSemanticId {
-                domain: super::DOMAIN_PACKAGE_DIGEST.into(),
-                algorithm: "sha256".into(),
-                digest: digest.to_string().into(),
-            },
-        )
-        .into());
-    }
     // The declarations are read from the one reading of the document, as a
-    // `Value` view of it: the document is not parsed a second time, so the
-    // number decision above, the digest and the declarations are about the
-    // same reading.
+    // `Value` view of it: the document is not parsed a second time.
     let document = document_value(&reading);
-    let wrong = |member| {
-        SelectionFailure::from(SelectionRefusal::at(
+    let refusal = match identity_of(&document) {
+        Some(found) if found == identity => return Ok(document),
+        Some(_) | None => SelectionFailure::from(SelectionRefusal::at(
             Code::InvalidModelBinding,
             Cause::WrongModelSelection,
-            Some(member),
-        ))
-    };
-    let refusal = match identity_of(&document) {
-        Some(identity) if identity == selection.identity.as_ref() => return Ok(document),
-        Some(_) | None => wrong("identity"),
+            Some("identity"),
+        )),
     };
     quire_canonical::drop_value(document);
     Err(refusal)
@@ -2590,23 +2524,23 @@ fn parse_exponent(text: &str) -> i64 {
 
 /// A Semantic IR 2.0.0 document's own `package.identity`. The document's
 /// `package.version` is neither required nor read: a selection binds by
-/// identity and content digest alone.
+/// identity alone.
 pub(super) fn semantic_ir_identity(document: &Value) -> Option<&str> {
     document.get("package")?.get("identity")?.as_str()
 }
 
-/// FR-322 step 1 for one `model_selections` row: admission, then the
+/// FR-322 step 1 for one selected identity: admission, then the
 /// document's declarations. The document's parse and read are charged to
-/// the reader's `work` limit at the row.
+/// the reader's `work` limit at the identity's root.
 pub(super) fn admit_selection(
-    selection: &CheckedDomainPackageRef,
+    identity: &str,
     evidence: &CheckedPackageEvidence,
     budget: &mut Budget<'_>,
     unit_refs: &UnitRefs,
 ) -> Result<DomainModel, SelectionFailure> {
     let document = admit_document(
-        selection,
-        evidence.domain_package_document(&selection.digest),
+        identity,
+        evidence.domain_package_document(identity),
         semantic_ir_identity,
         budget,
     )?;
@@ -3297,6 +3231,7 @@ pub(super) fn read_semantic_ir(
     });
     let mut model = DomainModel {
         identity: identity.into(),
+        root: budget.root,
         bytes: budget.bytes,
         object_types: BTreeMap::new(),
         state_machines: BTreeSet::new(),

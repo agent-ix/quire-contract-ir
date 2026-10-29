@@ -19,10 +19,10 @@ pub enum CheckedPackageEvidenceInsertionError {
         identity: Box<str>,
     },
     /// Different document bytes were supplied under an occupied exact key.
-    #[error("conflicting domain document under {digest}")]
+    #[error("conflicting domain document under {identity}")]
     DomainDocumentConflict {
-        /// The exact supplied domain document key.
-        digest: Box<str>,
+        /// The exact supplied domain package identity.
+        identity: Box<str>,
     },
     /// Different admitted content was supplied under an occupied exact identity.
     #[error("conflicting dependency package under {identity}")]
@@ -95,11 +95,9 @@ pub struct CheckedExtensionClauseSchema {
 /// Domain package documents, dependency packages and reader-supported
 /// features for one read.
 ///
-/// A domain package is supplied as its document bytes, keyed by the
-/// `sha256-jcs` digest the caller supplies them under; the reader recomputes
-/// that digest itself (FR-154 admission, FR-322 "Model-owned members"
-/// step 1). The lock's raw-artifact digests are not checked against any
-/// evidence: the package's `package_id` is the content identity.
+/// A domain package is supplied as its document bytes, keyed by the domain
+/// package identity a `model_root` owner names; one document is held per
+/// identity (FR-154 admission, FR-322 "Model-owned members" step 1).
 ///
 /// A library dependency is supplied as its already admitted
 /// [`CheckedPackageV2`] under the identity its `import` names (FR-322
@@ -147,21 +145,21 @@ impl CheckedPackageEvidence {
         Self::default()
     }
 
-    /// Supplies one domain package document's bytes under the lowercase
-    /// `sha256-jcs` digest a `model_selections` row names. The reader
-    /// recomputes the digest from the bytes, so a document supplied under
-    /// another document's digest is refused, not trusted.
+    /// Supplies one domain package document's bytes under the domain package
+    /// identity a `model_root` owner names. One document is held per
+    /// identity. The reader checks that the document's own `package.identity`
+    /// equals the identity it was supplied under.
     ///
     /// An occupied exact key retains its first bytes: an equal raw-byte repeat
     /// succeeds, and different bytes return a keyed conflict without changing
     /// any evidence. Insertion performs no document admission or normalization.
     pub fn insert_domain_package_document(
         &mut self,
-        digest: impl Into<Box<str>>,
+        identity: impl Into<Box<str>>,
         document: impl Into<Box<[u8]>>,
     ) -> Result<(), CheckedPackageEvidenceInsertionError> {
         let document = document.into();
-        match self.domain_packages.entry(digest.into()) {
+        match self.domain_packages.entry(identity.into()) {
             Entry::Vacant(entry) => {
                 entry.insert(document);
                 Ok(())
@@ -172,7 +170,7 @@ impl CheckedPackageEvidence {
                 } else {
                     Err(
                         CheckedPackageEvidenceInsertionError::DomainDocumentConflict {
-                            digest: entry.key().clone(),
+                            identity: entry.key().clone(),
                         },
                     )
                 }
@@ -229,8 +227,8 @@ impl CheckedPackageEvidence {
         self.dependency_packages.get(identity).cloned()
     }
 
-    pub(super) fn domain_package_document(&self, digest: &str) -> Option<&[u8]> {
-        self.domain_packages.get(digest).map(AsRef::as_ref)
+    pub(super) fn domain_package_document(&self, identity: &str) -> Option<&[u8]> {
+        self.domain_packages.get(identity).map(AsRef::as_ref)
     }
 
     /// Declares one exact required feature this reader implements.

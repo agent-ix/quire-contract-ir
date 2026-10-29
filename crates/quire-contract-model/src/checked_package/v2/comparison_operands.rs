@@ -754,7 +754,7 @@ mod tests {
             "identity_preimage": {
                 "version": "quire.checked-package-id/v2",
                 "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
-                "profile_selections": [], "definition_selections": [], "model_selections": [],
+                "profile_selections": [], "definition_selections": [],
                 "required_features": [], "dependency_selections": [],
             },
             "package_id": {"domain": "quire.package.semantic/v2", "algorithm": "sha256",
@@ -762,7 +762,7 @@ mod tests {
             "lock": {
                 "sources": [],
                 "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
-                "profile_selections": [], "definition_selections": [], "model_selections": [],
+                "profile_selections": [], "definition_selections": [],
                 "required_features": [], "dependency_selections": [],
             },
             "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": [

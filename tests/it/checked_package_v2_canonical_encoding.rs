@@ -168,7 +168,6 @@ fn borrowed<'a>(
         edition: &selection.edition,
         profile_selections: &selection.profile_selections,
         definition_selections: &selection.definition_selections,
-        model_selections: &selection.model_selections,
         required_features: &selection.required_features,
         dependency_selections: &selection.dependency_selections,
         identity_projection: &graph.nodes,
@@ -344,14 +343,10 @@ fn tc_048_graph_bytes_equal_serde_json_for_every_fixture_and_crafted_graph() {
 // diagnostics.
 // ---------------------------------------------------------------------------
 
-/// A lock holding a model selection and two dependency selections, with
-/// non-ASCII and astral identities.
+/// A lock holding two dependency selections, with non-ASCII and astral
+/// identities.
 fn crafted_lock(package: &Value) -> CheckedPackageLockV2 {
     let mut lock = package["lock"].clone();
-    lock["model_selections"] = json!([{
-        "identity": "dom\u{e9}ine/\u{1F600}", "digest_domain": "sha256-jcs",
-        "digest": "5".repeat(64),
-    }]);
     lock["dependency_selections"] = json!([
         {"identity": "a/\u{e9}", "package_id": {
             "domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": "3".repeat(64)}},
@@ -636,7 +631,6 @@ fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
             edition: &preimage.edition,
             profile_selections: &preimage.profile_selections,
             definition_selections: &preimage.definition_selections,
-            model_selections: &preimage.model_selections,
             required_features: &preimage.required_features,
             dependency_selections: &preimage.dependency_selections,
             identity_projection: &graph.nodes,
@@ -685,7 +679,6 @@ fn tc_451_deep_borrowed_projection_matches_owned_on_a_small_stack() {
                     edition: &preimage.edition,
                     profile_selections: &preimage.profile_selections,
                     definition_selections: &preimage.definition_selections,
-                    model_selections: &preimage.model_selections,
                     required_features: &preimage.required_features,
                     dependency_selections: &preimage.dependency_selections,
                     identity_projection: &graph.nodes,
@@ -1071,7 +1064,7 @@ fn implemented_encode(source: &str) -> BTreeSet<String> {
 /// The fixed-depth types FR-038 names, by role: the artifact-reference types
 /// are `CheckedArtifactRef` and `CheckedSourceRef` (FR-038-AC-46 through
 /// FR-038-AC-61).
-const FIXED_DEPTH: [&str; 25] = [
+const FIXED_DEPTH: [&str; 24] = [
     "CheckedSemanticId",
     "CheckedSourceMapEntry",
     "CheckedCapability",
@@ -1082,7 +1075,6 @@ const FIXED_DEPTH: [&str; 25] = [
     "CheckedArtifactRef",
     "CheckedSourceRef",
     "CheckedSelection",
-    "CheckedDomainPackageRef",
     "CheckedDependencySelection",
     "CheckedOccurrence",
     "CheckedDeclaration",

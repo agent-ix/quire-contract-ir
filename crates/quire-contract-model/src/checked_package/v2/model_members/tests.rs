@@ -4,7 +4,6 @@ use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
-use crate::checked_package::v2::DOMAIN_PACKAGE_DIGEST;
 use ix_trace_rs::trace;
 
 /// Preserve the actual native converter's closed outputs and typed refusal.
@@ -331,7 +330,7 @@ fn tc_048_a_declaration_key_over_the_byte_limit_refuses_at_its_selection_row() {
             assert_eq!(refusal.code, Code::InvalidSemanticGraph);
             assert_eq!(
                 refusal.path.map(|path| path.to_string()).as_deref(),
-                Some("/lock/model_selections/0")
+                Some("/semantic_graph/nodes/0/owner")
             );
         }
         other => panic!("expected a refusal, got {other:?}"),
@@ -354,7 +353,7 @@ fn tc_056_record_owner_index_uses_selected_row_work_budget() {
             "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
         }));
     let model = read(&selected).expect("selected object and record");
-    let row = || member_pointer(&["lock", "model_selections"]).index(0);
+    let row = || crate::checked_package::common::node_pointer(0).key("owner");
     let index = |limit| {
         let mut meter = WorkMeter::new(limit);
         ModelOwners::new(std::slice::from_ref(&model), |_| meter.charge(1, row))
@@ -365,7 +364,7 @@ fn tc_056_record_owner_index_uses_selected_row_work_budget() {
             assert_eq!(record.limit_kind, CheckedPackageLimit::Work);
             assert_eq!(
                 record.path.as_ref().map(|path| path.as_str()),
-                Some("/lock/model_selections/0")
+                Some("/semantic_graph/nodes/0/owner")
             );
         }
         other => panic!("one less owner-index unit must be incomplete: {other:?}"),
@@ -1095,7 +1094,7 @@ fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
             );
             assert_eq!(
                 incomplete.path.as_ref().map(ToString::to_string).as_deref(),
-                Some("/lock/model_selections/0")
+                Some("/semantic_graph/nodes/0/owner")
             );
         }
         other => panic!("expected selected-row work exhaustion, got {other:?}"),
@@ -1267,46 +1266,39 @@ fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
     );
 }
 
-/// FR-322 step 1 over a Semantic IR document: the digest is recomputed from
-/// the bytes and the document's own `package` identity compared; no version
-/// is read.
+/// FR-322 step 1 over a Semantic IR document: the document's own `package`
+/// identity is compared with the selected identity; no version is read.
 #[trace("TC-048", "FR-038-AC-27")]
 #[test]
 fn tc_048_a_selection_admits_only_the_document_it_names() {
     let document = document(vec![object_type(WIDGET, &[], vec![])]);
     let bytes = serde_json::to_vec(&document).expect("bytes");
-    let digest = quire_canonical::sha256(&document, quire_canonical::Limits::new(BYTES))
-        .expect("digest")
-        .to_string();
-    let selection = |identity: &str, digest: &str| CheckedDomainPackageRef {
-        identity: identity.into(),
-        digest_domain: DOMAIN_PACKAGE_DIGEST.into(),
-        digest: digest.into(),
-    };
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(digest.clone(), bytes.clone())
+        .insert_domain_package_document("acme/orders", bytes.clone())
         .expect("first domain evidence insertion succeeds");
-    let admit = |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| {
+    let admit = |identity: &str, evidence: &CheckedPackageEvidence| {
         let mut meter = WorkMeter::new(u64::MAX);
         admit_selection(
-            selection,
+            identity,
             evidence,
             &mut Budget::new(&mut meter, 0, BYTES),
             &Arc::new(BTreeMap::new()),
         )
     };
-    let admitted = admit(&selection("acme/orders", &digest), &evidence).expect("admitted");
+    let admitted = admit("acme/orders", &evidence).expect("admitted");
     assert!(admitted.object_types.contains_key(WIDGET));
     let refusal =
-        |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| match admit(
-            selection, evidence,
-        ) {
+        |identity: &str, evidence: &CheckedPackageEvidence| match admit(identity, evidence) {
             Err(SelectionFailure::Refused(refusal)) => *refusal,
             other => panic!("expected a refusal, got {other:?}"),
         };
+    let mut other = CheckedPackageEvidence::new();
+    other
+        .insert_domain_package_document("acme/other", bytes)
+        .expect("first domain evidence insertion succeeds");
     assert_eq!(
-        refusal(&selection("acme/other", &digest), &evidence),
+        refusal("acme/other", &other),
         SelectionRefusal::at(
             Code::InvalidModelBinding,
             Cause::WrongModelSelection,
@@ -1314,34 +1306,20 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
         )
     );
     assert_eq!(
-        refusal(&selection("acme/orders", &"0".repeat(64)), &evidence),
-        SelectionRefusal::at(Code::MissingImport, Cause::MissingSelection, Some("digest"))
+        refusal("acme/orders", &other),
+        SelectionRefusal::at(
+            Code::MissingImport,
+            Cause::MissingSelection,
+            Some("identity")
+        )
     );
-    let mut forged = CheckedPackageEvidence::new();
-    forged
-        .insert_domain_package_document(digest.clone(), b"{}".to_vec())
+    let mut unreadable = CheckedPackageEvidence::new();
+    unreadable
+        .insert_domain_package_document("acme/orders", b"{".to_vec())
         .expect("first domain evidence insertion succeeds");
     assert_eq!(
-        refusal(&selection("acme/orders", &digest), &forged),
-        SelectionRefusal::mismatch(
-            Cause::ContentMismatch,
-            CheckedSemanticId {
-                domain: DOMAIN_PACKAGE_DIGEST.into(),
-                algorithm: "sha256".into(),
-                digest: digest.into(),
-            },
-            CheckedSemanticId {
-                domain: DOMAIN_PACKAGE_DIGEST.into(),
-                algorithm: "sha256".into(),
-                digest: quire_canonical::sha256(
-                    &serde_json::json!({}),
-                    quire_canonical::Limits::new(BYTES)
-                )
-                .expect("empty document digest")
-                .to_string()
-                .into(),
-            },
-        )
+        refusal("acme/orders", &unreadable),
+        SelectionRefusal::at(Code::MalformedWire, Cause::MalformedJson, Some("identity"))
     );
 }
 
@@ -1484,7 +1462,7 @@ fn tc_048_nodes_with_no_identity_are_malformed_not_conflicting() {
 }
 
 /// FR-322 step 1: reading a document and resolving a member are charged to
-/// the reader's `work` limit at the document's `model_selections` row; a
+/// the reader's `work` limit at the package's root owner; a
 /// limit one below what a read used is `incomplete` there.
 #[trace("TC-048", "FR-038-AC-30")]
 #[test]
@@ -1531,7 +1509,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     };
     assert_eq!(
         incomplete_at(failure).as_deref(),
-        Some("/lock/model_selections/2")
+        Some("/semantic_graph/nodes/2/owner")
     );
     // Resolution: the same.
     let model = read(&document).expect("reads");
@@ -1557,7 +1535,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     };
     assert_eq!(
         incomplete_at(failure).as_deref(),
-        Some("/lock/model_selections/1")
+        Some("/semantic_graph/nodes/1/owner")
     );
 }
 

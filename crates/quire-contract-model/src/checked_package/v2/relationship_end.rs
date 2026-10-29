@@ -342,14 +342,10 @@ pub(super) mod tests {
         nodes[at]["dependencies"] = json!(application_dependencies);
 
         let document = document();
-        let document_digest = digest_of(&document);
         let edition =
             json!({"role": "edition", "definition": {"authority": "test", "identity": "edition"}});
-        let model_selections = json!([{
-            "identity": IDENTITY, "digest_domain": "sha256-jcs", "digest": document_digest,
-        }]);
         let root_owner = json!({
-            "kind": "model_root", "identity": IDENTITY, "digest": document_digest,
+            "kind": "model_root", "identity": IDENTITY,
         });
         let root_body = json!({"term": "aggregate", "members": []});
         let root_preimage = json!({
@@ -386,7 +382,7 @@ pub(super) mod tests {
         let preimage = json!({
             "version": "quire.checked-package-id/v2", "edition": edition,
             "profile_selections": [], "definition_selections": [],
-            "model_selections": model_selections, "required_features": [],
+            "required_features": [],
             "dependency_selections": [], "identity_projection": projection,
         });
         let mut wire_selection = preimage.clone();
@@ -400,7 +396,7 @@ pub(super) mod tests {
                 "digest": digest_of(&preimage)},
             "identity_preimage": wire_selection,
             "lock": {"sources": [source], "edition": edition, "profile_selections": [],
-                "definition_selections": [], "model_selections": model_selections,
+                "definition_selections": [],
                 "required_features": [], "dependency_selections": []},
             "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
             "source_map": source_map, "capability_report": [],
@@ -410,7 +406,7 @@ pub(super) mod tests {
         let mut evidence = CheckedPackageEvidence::new();
         evidence
             .insert_domain_package_document(
-                document_digest,
+                IDENTITY,
                 serde_json::to_vec(&document).expect("document bytes"),
             )
             .expect("evidence");

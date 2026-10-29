@@ -12,9 +12,9 @@
 //! fixtures are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, fixture_source, mint_ungrouped_structural_keys,
-    model_owner, node_id, owned_structural_node, settle, sha256_hex, source_owner, structural_key,
-    typed_node_id, v2_all_families,
+    canonical, evidence_with_document, family_key, fixture_source, mint_ungrouped_structural_keys,
+    model_owner, node_id, owned_structural_node, select_model, settle, sha256_hex, source_owner,
+    structural_key, typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -95,7 +95,7 @@ fn model_key(node: &str) -> String {
     model_key_in(ORDERS, node)
 }
 
-/// Reads `package` with [`orders_document`] supplied under its digest.
+/// Reads `package` with [`orders_document`] supplied under its identity.
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
     read_limited(package, CheckedPackageReadLimits::bounded())
 }
@@ -109,10 +109,7 @@ fn read_with_model(
     document: &Value,
     limits: CheckedPackageReadLimits,
 ) -> CheckedPackageV2ReadResult {
-    let mut evidence = evidence_for(package);
-    evidence
-        .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(package, ORDERS, document);
     CheckedPackageV2::read(&canonical(package), limits, &evidence)
 }
 
@@ -369,20 +366,10 @@ fn at_node(position: usize, tail: &str) -> String {
     format!("/semantic_graph/nodes/{position}{tail}")
 }
 
-/// The domain package, its model declaration nodes and the lock's selection of
-/// it, added to `package`.
+/// The model root selecting the domain package and its model declaration
+/// nodes, added to `package`.
 fn with_model(package: &mut Value) {
-    let document = orders_document();
-    package["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("model selections")
-        .insert(
-            0,
-            json!({
-                "identity": ORDERS,
-                "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
-            }),
-        );
+    select_model(package, ORDERS);
     for declared in [ORDER_NODE, SUB_NODE, LEFT_NODE, RIGHT_NODE, BOTH_NODE] {
         let key = model_key(declared);
         let mut node = node_with_key(
@@ -1183,8 +1170,6 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::DeclarationNominalMismatch => "declaration-nominal-mismatch",
         Cause::AmbiguousName => "ambiguous-name",
         Cause::MissingSelection => "missing-selection",
-        Cause::DigestDomainMismatch => "digest-domain-mismatch",
-        Cause::ByteDigestMismatch => "byte-digest-mismatch",
         Cause::WrongModelSelection => "wrong-model-selection",
         Cause::ConflictingBinding => "conflicting-binding",
         Cause::UnpreservedModelMeaning => "unpreserved-model-meaning",
@@ -2051,7 +2036,6 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
     })));
     let (mut package, fair) =
         with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     let mut interface_node = node_with_key(
         &interface_key,
         "model",
@@ -2118,15 +2102,7 @@ fn fairness_resolves_the_most_derived_operation_redefinition() {
         }
         document["types"][4]["supertypes"] = json!([SUB_NODE]);
         let declaration = model_key(BOTH_NODE);
-        let (mut package, _) = with_fairness(INFINITE, fairness_member(&declaration, "scaled"));
-        let selection = package["lock"]["model_selections"]
-            .as_array_mut()
-            .expect("model selections")
-            .iter_mut()
-            .find(|row| row["identity"] == ORDERS)
-            .expect("orders selection");
-        selection["digest"] = json!(sha256_hex(&canonical(&document)));
-        settle(&mut package);
+        let (package, _) = with_fairness(INFINITE, fairness_member(&declaration, "scaled"));
         let result = read_with_model(&package, &document, CheckedPackageReadLimits::bounded());
         if redefined {
             assert!(

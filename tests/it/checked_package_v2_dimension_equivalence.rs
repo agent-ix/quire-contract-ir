@@ -67,7 +67,6 @@ fn encode(value: &Value) -> Vec<u8> {
         edition: &owned.edition,
         profile_selections: &owned.profile_selections,
         definition_selections: &owned.definition_selections,
-        model_selections: &owned.model_selections,
         required_features: &owned.required_features,
         dependency_selections: &owned.dependency_selections,
         identity_projection: &graph.nodes,

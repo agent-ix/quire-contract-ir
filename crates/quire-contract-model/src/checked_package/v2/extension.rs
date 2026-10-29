@@ -389,7 +389,7 @@ fn type_matches(
                 if actual.form == DeclarationForm::RecordValueType
                     && actual.package.record_types.contains_key(expected)
                 {
-                    let mut budget = Budget::new(meter, actual.selection, actual.package.bytes);
+                    let mut budget = Budget::new(meter, actual.package.root, actual.package.bytes);
                     return actual
                         .package
                         .conforms_to(actual.node, expected, &mut budget);
@@ -479,13 +479,13 @@ mod tests {
                 "contract_version": super::super::CHECKED_PACKAGE_V2,
                 "identity_preimage": {
                     "version": "quire.checked-package-id/v2", "edition": edition,
-                    "profile_selections": [], "definition_selections": [], "model_selections": [],
+                    "profile_selections": [], "definition_selections": [],
                     "required_features": [], "dependency_selections": []
                 },
                 "package_id": {"domain": super::super::PACKAGE_DOMAIN_V2,
                     "algorithm": "sha256", "digest": "a".repeat(64)},
                 "lock": {"sources": [], "edition": edition, "profile_selections": [],
-                    "definition_selections": [definition], "model_selections": [],
+                    "definition_selections": [definition],
                     "required_features": [], "dependency_selections": []},
                 "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": []},
                 "source_map": [], "capability_report": [],

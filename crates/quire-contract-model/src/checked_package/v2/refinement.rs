@@ -2575,8 +2575,11 @@ impl CatalogSignatures<'_, '_> {
                 let Some(owner) = owners.owner_by_key(context) else {
                     return Ok(None);
                 };
-                let mut budget =
-                    super::model_members::Budget::new(meter, owner.selection, owner.package.bytes);
+                let mut budget = super::model_members::Budget::new(
+                    meter,
+                    owner.package.root,
+                    owner.package.bytes,
+                );
                 owner
                     .package
                     .effective_operation_binder_types(owner.node, name, &mut budget)

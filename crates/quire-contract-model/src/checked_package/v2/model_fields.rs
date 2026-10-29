@@ -158,8 +158,8 @@ pub(super) fn build_field_tables(
     models: &mut [DomainModel],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    for (row, model) in models.iter_mut().enumerate() {
-        let mut budget = Budget::new(meter, row, model.bytes);
+    for model in models.iter_mut() {
+        let mut budget = Budget::new(meter, model.root, model.bytes);
         let tables = tables_of(model, &mut budget)?;
         model.fields = tables;
     }
@@ -513,7 +513,7 @@ fn build_component(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct DeclaredNode {
     pub(super) form: DeclarationForm,
-    /// The `lock.model_selections` row of the declaring document.
+    /// The index of the declaring document among the selected packages.
     pub(super) selection: usize,
     /// The declaration's IR node identity.
     pub(super) node: Box<str>,
@@ -594,7 +594,7 @@ impl RetainedModels {
             {
                 continue;
             }
-            let mut budget = Budget::new(meter, declared.selection, model.bytes);
+            let mut budget = Budget::new(meter, model.root, model.bytes);
             for operation in model.effective_operation_names(&declared.node, &mut budget)? {
                 let binder_types =
                     model.model_operation_binder_types(&declared.node, &operation, &mut budget)?;
@@ -724,7 +724,7 @@ impl RetainedModels {
         let Some(model) = self.models.get(declared.selection) else {
             return Ok(None);
         };
-        let mut budget = Budget::new(meter, declared.selection, model.bytes);
+        let mut budget = Budget::new(meter, model.root, model.bytes);
         model.effective_operation_binder_types(&declared.node, name, &mut budget)
     }
 

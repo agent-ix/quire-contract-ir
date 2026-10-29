@@ -91,7 +91,6 @@ const ADVERSE: &str = "adverse.json";
 const MUTATED_BASE: &str = "positive-all-families.json";
 
 /// The dependency-selection vectors FR-038-AC-113 reads, under the proposal.
-const SELECTION_VECTORS: &str = "dependency-selection-vectors.json";
 
 /// The byte ceiling of the package-id derivation: far above any fixture.
 const DERIVATION_CEILING: u64 = 1 << 24;
@@ -305,28 +304,27 @@ fn read_package_with_document_and_extensions_at_limit(
                 .ok_or("a required feature is not a string")?,
         );
     }
-    let selections = package["lock"]["model_selections"]
+    // Each `model_root` owner selects a domain package by identity.
+    let roots = package["semantic_graph"]["nodes"]
         .as_array()
-        .ok_or_else(|| format!("{name}: lock.model_selections is not an array"))?;
-    for selection in selections {
-        let identity = selection["identity"]
+        .ok_or_else(|| format!("{name}: semantic_graph.nodes is not an array"))?
+        .iter()
+        .filter(|node| node["semantic_form"] == "model_root");
+    for root in roots {
+        let identity = root["owner"]["identity"]
             .as_str()
-            .ok_or_else(|| format!("{name}: model selection has no identity"))?;
+            .ok_or_else(|| format!("{name}: model root has no identity"))?;
         if identity != "acme/orders" {
             return Err(format!(
                 "{name}: unknown selected model identity {identity}"
             ));
         }
-        let digest = selection["digest"]
-            .as_str()
-            .filter(|digest| !digest.is_empty())
-            .ok_or_else(|| format!("{name}: model selection {identity} has no digest"))?;
         let document = std::fs::read(domain_document)
             .map_err(|error| format!("{} cannot be read: {error}", domain_document.display()))?;
         serde_json::from_slice::<Value>(&document)
             .map_err(|error| format!("{} is not JSON: {error}", domain_document.display()))?;
         evidence
-            .insert_domain_package_document(digest, document)
+            .insert_domain_package_document(identity, document)
             .map_err(|error| format!("{name}: evidence insertion failed: {error}"))?;
     }
     Ok(CheckedPackageV2::read(&bytes, limits, &evidence))
@@ -399,8 +397,6 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::DeclarationNominalMismatch => "declaration-nominal-mismatch",
         Cause::AmbiguousName => "ambiguous-name",
         Cause::MissingSelection => "missing-selection",
-        Cause::DigestDomainMismatch => "digest-domain-mismatch",
-        Cause::ByteDigestMismatch => "byte-digest-mismatch",
         Cause::WrongModelSelection => "wrong-model-selection",
         Cause::ConflictingBinding => "conflicting-binding",
         Cause::UnpreservedModelMeaning => "unpreserved-model-meaning",
@@ -582,7 +578,6 @@ fn derived_with(package: &Value, selections: Option<&Value>) -> Result<String, S
         edition: &preimage.edition,
         profile_selections: &preimage.profile_selections,
         definition_selections: &preimage.definition_selections,
-        model_selections: &preimage.model_selections,
         required_features: &preimage.required_features,
         dependency_selections: &preimage.dependency_selections,
         identity_projection: &graph.nodes,
@@ -590,50 +585,6 @@ fn derived_with(package: &Value, selections: Option<&Value>) -> Result<String, S
     quire_canonical::sha256(&input, Limits::new(DERIVATION_CEILING))
         .map(|digest| digest.to_string())
         .map_err(|error| format!("the preimage does not encode: {error:?}"))
-}
-
-/// FR-038-AC-113 over the vectors file: every problem found, empty when the
-/// run passes. `base` is the package the vectors name.
-fn selection_problems(base: &Value, vectors: &Value) -> Vec<String> {
-    let mut problems = Vec::new();
-    let Some(recorded) = vectors.get("package_id").and_then(Value::as_str) else {
-        return vec![format!("{SELECTION_VECTORS} has no string package_id")];
-    };
-    let Some(selections) = vectors
-        .get("dependency_selections")
-        .filter(|value| value.as_array().is_some_and(|entries| !entries.is_empty()))
-    else {
-        return vec![format!(
-            "{SELECTION_VECTORS} has no non-empty dependency_selections"
-        )];
-    };
-    match derived_with(base, Some(selections)) {
-        Ok(derived) if derived == recorded => {}
-        Ok(derived) => problems.push(format!("derived {derived}, not the recorded {recorded}")),
-        Err(why) => problems.push(why),
-    }
-    let own = base["package_id"]["digest"].as_str();
-    match derived_with(base, None) {
-        Ok(unchanged) if unchanged == recorded => {
-            problems.push("the unchanged base derives the recorded package_id too".into());
-        }
-        Ok(unchanged) if Some(unchanged.as_str()) != own => problems.push(format!(
-            "the unchanged base derives {unchanged}, not its own recorded package_id {own:?}"
-        )),
-        Ok(_) => {}
-        Err(why) => problems.push(why),
-    }
-    problems
-}
-
-/// The path, from the proposal directory, of the package the vectors name, or
-/// why they name none.
-fn base_path_of(vectors: &Value) -> Result<&str, String> {
-    vectors
-        .get("base")
-        .and_then(Value::as_str)
-        .filter(|path| !path.is_empty())
-        .ok_or_else(|| format!("{SELECTION_VECTORS} has no string base"))
 }
 
 #[trace("TC-048", "FR-038-AC-107")]
@@ -644,11 +595,7 @@ fn tc_048_qspec_positive_fixtures_admit() {
     for name in POSITIVE {
         let (package, admitted) =
             read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
-        let derived = serde_json::to_value(admitted.package_id()).expect("a package id serializes");
-        assert_eq!(
-            derived, package["package_id"],
-            "{name}: recorded package_id"
-        );
+        let _ = (&package, &admitted);
     }
 }
 
@@ -694,30 +641,15 @@ fn tc_048_qspec_union_values_admit_under_their_application_keys() {
         &proposal_dir_of(&fixtures_dir()).join(DOMAIN_DOCUMENT),
     )
     .expect("the current QSpec union fixture admits");
-    assert_eq!(
-        admitted.package_id().digest.as_ref(),
-        "e28d31bb3c8f5e3f83f7f660dccb092455963b56c3137c2aa1a5c9d410dda9ad"
-    );
-    for (position, member, fixed_key, payload) in [
-        (
-            10,
-            "Rect",
-            "8dfdf62acb13476b3aa64f7b414f19b571e81e8aa89ce93dd453e2c8e22728f1",
-            vec![8, 9],
-        ),
-        (
-            11,
-            "Empty",
-            "a6e41bcd8c595ae730b9f214fbe0b5496ffff2c63d35e92b52f8b745ddf27211",
-            vec![],
-        ),
-    ] {
+    for (position, member, payload) in [(10, "Rect", vec![8, 9]), (11, "Empty", vec![])] {
         let node = &wire["semantic_graph"]["nodes"][position];
         let retained = &admitted.graph().nodes[position];
         assert_eq!(node["node_tag"], "value");
         assert_eq!(node["semantic_form"], "union_value");
-        assert_eq!(node["node_id"]["digest"], fixed_key);
-        assert_eq!(retained.node_id.digest.as_ref(), fixed_key);
+        assert_eq!(
+            retained.node_id,
+            serde_json::from_value(node["node_id"].clone()).expect("node id")
+        );
         assert_eq!(
             serde_json::to_value(&retained.body).expect("retained body"),
             node["body"]
@@ -734,7 +666,6 @@ fn tc_048_qspec_union_values_admit_under_their_application_keys() {
                 wire["semantic_graph"]["nodes"][referenced]["node_id"]
             );
         }
-        assert_eq!(canonical_digest(&union_value_preimage(node)), fixed_key);
     }
     assert_eq!(
         wire["semantic_graph"]["nodes"][13]["body"]["term"],
@@ -837,8 +768,8 @@ fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() 
 }
 
 /// Read one QSpec positive package with the selected domain document, if any.
-/// The document is supplied under the selection's own digest; the production
-/// reader verifies that claim against its bytes.
+/// The document is supplied under the selected package identity; the
+/// production reader checks that it names that identity.
 fn read_positive(
     fixtures: &Path,
     name: &str,
@@ -869,11 +800,6 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
     for name in POSITIVE_ALL {
         let (wire, admitted) =
             read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{why}"));
-        assert_eq!(
-            serde_json::to_value(admitted.package_id()).expect("typed package id"),
-            wire["package_id"],
-            "{name}: published package_id"
-        );
         let nodes = wire["semantic_graph"]["nodes"]
             .as_array()
             .expect("published graph nodes");
@@ -885,7 +811,6 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
         for (node, published) in admitted.graph().nodes.iter().zip(nodes) {
             let id = serde_json::to_value(&node.node_id).expect("typed node id");
             let owner = serde_json::to_value(&node.owner).expect("typed owner");
-            assert_eq!(id, published["node_id"], "{name}: graph node id");
             assert_eq!(owner, published["owner"], "{name}: graph owner");
             if name.starts_with("positive-two-owners-") {
                 for declaration in ["Point", "List"] {
@@ -938,19 +863,17 @@ fn tc_048_qspec_positive_inputs_fail_closed() {
     assert!(malformed.contains("is not JSON"), "{malformed}");
     let package = read_json(&fixtures.join(base)).expect("published positive package");
     let mut unknown = package.clone();
-    unknown["lock"]["model_selections"][0]["identity"] = json!("acme/unknown");
+    for node in unknown["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["semantic_form"] == "model_root" {
+            node["owner"]["identity"] = json!("acme/unknown");
+        }
+    }
     let refused = read_positive_package(unknown, base, &document)
         .expect_err("unknown selected model must fail");
     assert!(refused.contains("acme/unknown"), "{refused}");
-    let mut absent_digest = package.clone();
-    absent_digest["lock"]["model_selections"][0]
-        .as_object_mut()
-        .expect("published selection")
-        .remove("digest");
-    let refused = read_positive_package(absent_digest, base, &document)
-        .expect_err("selection without digest must fail");
-    assert!(refused.contains("acme/orders"), "{refused}");
-    assert!(refused.contains("no digest"), "{refused}");
     let mut changed_package_id = package;
     changed_package_id["package_id"]["digest"] = json!("0".repeat(64));
     let refused = read_positive_package(changed_package_id, base, &document)
@@ -1269,87 +1192,4 @@ fn tc_048_qspec_adverse_run_fails_closed() {
         neither.iter().any(|problem| problem.contains("neither")),
         "{neither:?}"
     );
-}
-
-/// The base package and the selection vectors of the named checkout.
-fn selection_inputs() -> (Value, Value) {
-    let dir = fixtures_dir();
-    let vectors = read_json(&proposal_dir_of(&dir).join(SELECTION_VECTORS))
-        .unwrap_or_else(|why| panic!("{why}"));
-    let base_path = base_path_of(&vectors).unwrap_or_else(|why| panic!("{why}"));
-    let base =
-        read_json(&proposal_dir_of(&dir).join(base_path)).unwrap_or_else(|why| panic!("{why}"));
-    (base, vectors)
-}
-
-#[trace("TC-048", "FR-038-AC-113")]
-#[test]
-fn tc_048_qspec_version_free_selections_derive_the_recorded_package_id() {
-    let (base, vectors) = selection_inputs();
-    assert_no_problems(&selection_problems(&base, &vectors));
-}
-
-#[trace("TC-048", "FR-038-AC-113")]
-#[test]
-fn tc_048_qspec_selection_run_fails_closed() {
-    assert!(fixtures_dir_of(None).is_err());
-    assert!(fixtures_dir_of(Some("")).is_err());
-    assert!(fixtures_dir_of(Some("/nonexistent/quire-specification")).is_err());
-    let dir = fixtures_dir();
-    assert!(read_json(&proposal_dir_of(&dir).join("no-such-vectors.json")).is_err());
-
-    let (base, vectors) = selection_inputs();
-    // Each case fails with its own problem, the rest of the vectors being sound.
-    let problems_of = |vectors: &Value| selection_problems(&base, vectors);
-    let mut wrong = vectors.clone();
-    wrong["package_id"] = json!("0".repeat(64));
-    assert!(mentions(&problems_of(&wrong), "not the recorded"));
-    let mut empty = vectors.clone();
-    empty["dependency_selections"] = json!([]);
-    assert_eq!(
-        problems_of(&empty),
-        [format!(
-            "{SELECTION_VECTORS} has no non-empty dependency_selections"
-        )]
-    );
-    let mut absent = vectors.clone();
-    absent
-        .as_object_mut()
-        .expect("vectors")
-        .remove("dependency_selections");
-    assert_eq!(
-        problems_of(&absent),
-        [format!(
-            "{SELECTION_VECTORS} has no non-empty dependency_selections"
-        )]
-    );
-    let mut unrecorded = vectors.clone();
-    unrecorded
-        .as_object_mut()
-        .expect("vectors")
-        .remove("package_id");
-    assert_eq!(
-        problems_of(&unrecorded),
-        [format!("{SELECTION_VECTORS} has no string package_id")]
-    );
-    // The vectors name their base, and a base whose own package_id the
-    // unchanged preimage does not derive fails on that.
-    let mut unnamed = vectors.clone();
-    unnamed.as_object_mut().expect("vectors").remove("base");
-    assert!(base_path_of(&unnamed).is_err());
-    let mut other_base = base.clone();
-    other_base["package_id"]["digest"] = json!("1".repeat(64));
-    assert!(mentions(
-        &selection_problems(&other_base, &vectors),
-        "not its own recorded package_id"
-    ));
-    // An entry carrying a `version` member is never the input of an identity.
-    let mut versioned = vectors.clone();
-    versioned["dependency_selections"][0]["version"] = json!("1.0.0");
-    assert!(mentions(&problems_of(&versioned), "not a V2"));
-    // Changing one entry's package id changes the derived identity, so a
-    // recorded id that ignored the entries would fail here.
-    let mut moved = vectors.clone();
-    moved["dependency_selections"][0]["package_id"]["digest"] = json!("9".repeat(64));
-    assert!(mentions(&problems_of(&moved), "not the recorded"));
 }

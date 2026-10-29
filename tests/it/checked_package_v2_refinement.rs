@@ -4,8 +4,9 @@
 //! Focused FR-061 refinement and selected state-machine owner vectors.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, protocol_named_node, rebuild_source_map, refresh_identity,
-    rekey_application_node, settle, sha256_hex, structural_key, v2_all_families, v2_nominal,
+    canonical, evidence_for, evidence_with_document, node_id, protocol_named_node,
+    rebuild_source_map, refresh_identity, rekey_application_node, select_model, settle, sha256_hex,
+    structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -21,6 +22,7 @@ use serde_json::{json, Value};
 
 const MODEL_IDENTITY: &str = "test/refinement";
 const MODEL_NODE: &str = "ix://test/refinement/Machine";
+const FAMILY_MODEL_IDENTITY: &str = "test/families";
 
 fn protocol_class_path(node: &Value) -> String {
     let path = node["declaration"]["qualified_name"]
@@ -215,11 +217,8 @@ pub(crate) fn selected_forms_package() -> (Value, CheckedPackageEvidence) {
 }
 
 fn selected_forms_package_with(document: Value) -> (Value, CheckedPackageEvidence) {
-    let digest = sha256_hex(&canonical(&document));
     let mut package = v2_nominal();
-    package["lock"]["model_selections"] = json!([{
-        "identity":MODEL_IDENTITY, "digest_domain":"sha256-jcs", "digest":digest
-    }]);
+    select_model(&mut package, MODEL_IDENTITY);
     let source = package["lock"]["sources"][0].clone();
     for (form, name) in [
         ("state_machine", "Machine"),
@@ -271,11 +270,21 @@ fn selected_forms_package_with(document: Value) -> (Value, CheckedPackageEvidenc
             }));
     }
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(&document))
-        .expect("document");
+    let evidence = evidence_with_document(&package, MODEL_IDENTITY, &document);
     (package, evidence)
+}
+
+/// The pointer to the owner of the root node that selects `identity`.
+fn root_owner_path(package: &Value, identity: &str) -> String {
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == identity
+        })
+        .expect("selected model root");
+    format!("/semantic_graph/nodes/{position}/owner")
 }
 
 /// Trace: FR-068-AC-1, FR-068-AC-3, QSpec FR-208-AC-5..7
@@ -309,7 +318,7 @@ fn selected_process_machine_and_persistence_require_complete_meaning_declaration
         );
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
-            Some("/lock/model_selections/0"),
+            Some(root_owner_path(&package, MODEL_IDENTITY).as_str()),
             "{name}"
         );
     }
@@ -349,7 +358,7 @@ fn selected_process_machine_and_persistence_require_complete_meaning_declaration
         );
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
-            Some("/lock/model_selections/0"),
+            Some(root_owner_path(&package, MODEL_IDENTITY).as_str()),
             "{name}"
         );
     }
@@ -666,14 +675,7 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
 pub(super) fn machine_package() -> (Value, CheckedPackageEvidence) {
     let mut package = v2_nominal();
     let document = model_document();
-    let digest = sha256_hex(&canonical(&document));
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest.clone(), canonical(&document))
-        .expect("document");
-    package["lock"]["model_selections"] = json!([{
-        "identity": MODEL_IDENTITY, "digest_domain": "sha256-jcs", "digest": digest
-    }]);
+    select_model(&mut package, MODEL_IDENTITY);
     let owner = json!({"kind": "model", "identity": MODEL_IDENTITY, "node": MODEL_NODE});
     let body = json!({"term": "aggregate", "members": []});
     let preimage = json!({
@@ -702,6 +704,7 @@ pub(super) fn machine_package() -> (Value, CheckedPackageEvidence) {
             "regions": [{"source": source, "start": 10, "end": 11}]
         }));
     refresh_identity(&mut package);
+    let evidence = evidence_with_document(&package, MODEL_IDENTITY, &document);
     (package, evidence)
 }
 
@@ -750,7 +753,6 @@ fn writer_bytes(package: &Value) -> Vec<u8> {
         edition: &preimage.edition,
         profile_selections: &preimage.profile_selections,
         definition_selections: &preimage.definition_selections,
-        model_selections: &preimage.model_selections,
         required_features: &preimage.required_features,
         dependency_selections: &preimage.dependency_selections,
         identity_projection: &graph.nodes,
@@ -1405,22 +1407,9 @@ fn process_and_machine_anchors_refuse_non_object_context_forms() {
                 "systems_interface" => {
                     let document = crate::support::checked_package::family_model_document();
                     evidence
-                        .insert_domain_package_document(
-                            sha256_hex(&canonical(&document)),
-                            canonical(&document),
-                        )
+                        .insert_domain_package_document(FAMILY_MODEL_IDENTITY, canonical(&document))
                         .expect("family evidence");
-                    let family = v2_all_families();
-                    package["lock"]["model_selections"]
-                        .as_array_mut()
-                        .expect("selections")
-                        .push(family["lock"]["model_selections"][0].clone());
-                    package["lock"]["model_selections"]
-                        .as_array_mut()
-                        .expect("selections")
-                        .sort_by(|left, right| {
-                            left["identity"].as_str().cmp(&right["identity"].as_str())
-                        });
+                    select_model(&mut package, FAMILY_MODEL_IDENTITY);
                     let interface =
                         crate::support::checked_package::selected_interface_model_node();
                     let id = interface["node_id"].clone();
@@ -1792,19 +1781,10 @@ fn assert_concrete_row_binding(
 
 fn add_second_concrete_root(package: &mut Value, evidence: &mut CheckedPackageEvidence) -> Value {
     let document = crate::support::checked_package::family_model_document();
-    let digest = sha256_hex(&canonical(&document));
     evidence
-        .insert_domain_package_document(digest, canonical(&document))
+        .insert_domain_package_document(FAMILY_MODEL_IDENTITY, canonical(&document))
         .expect("second model evidence");
     let selected = v2_all_families();
-    package["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("model selections")
-        .push(selected["lock"]["model_selections"][0].clone());
-    package["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("model selections")
-        .sort_by(|left, right| left["identity"].as_str().cmp(&right["identity"].as_str()));
     let root = selected["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -1862,18 +1842,10 @@ fn add_empty_selected_model_root(
         "contractVersion":"2.0.0", "package":{"identity":identity,"version":"1"},
         "constructs":[], "types":[]
     });
-    let digest = sha256_hex(&canonical(&document));
     evidence
-        .insert_domain_package_document(digest.clone(), canonical(&document))
+        .insert_domain_package_document(identity, canonical(&document))
         .expect("empty selected model document");
-    package["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("selections")
-        .push(json!({"identity":identity,"digest_domain":"sha256-jcs","digest":digest}));
-    package["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("selections")
-        .sort_by(|left, right| left["identity"].as_str().cmp(&right["identity"].as_str()));
+    select_model(package, identity);
     refresh_identity(package);
     package["semantic_graph"]["nodes"]
         .as_array()
@@ -1885,7 +1857,7 @@ fn add_empty_selected_model_root(
 }
 
 fn selected_population_package() -> (Value, CheckedPackageEvidence, Value, Value) {
-    let (mut package, mut evidence) = machine_package();
+    let (mut package, _) = machine_package();
     let mut document = model_document();
     let population = format!("ix://{MODEL_IDENTITY}/counters");
     document["constructs"]
@@ -1920,11 +1892,6 @@ fn selected_population_package() -> (Value, CheckedPackageEvidence, Value, Value
             "sourceIdentity":format!("ix://{MODEL_IDENTITY}/spec"),
             "startColumn":1,"startLine":1}}
     }]);
-    let digest = sha256_hex(&canonical(&document));
-    evidence
-        .insert_domain_package_document(digest.clone(), canonical(&document))
-        .expect("population document");
-    package["lock"]["model_selections"][0]["digest"] = json!(digest);
     let owner = json!({"kind":"model","identity":MODEL_IDENTITY,"node":population});
     let body = json!({"term":"aggregate","members":[]});
     let id = node_id(&sha256_hex(&canonical(&json!({
@@ -1963,6 +1930,7 @@ fn selected_population_package() -> (Value, CheckedPackageEvidence, Value, Value
             "regions":[{"source":source,"start":10,"end":11}]
         }));
     settle(&mut package);
+    let evidence = evidence_with_document(&package, MODEL_IDENTITY, &document);
     (package, evidence, id, object_id)
 }
 
@@ -3345,24 +3313,16 @@ fn catalog_free_operation_step_refuses_missing_wrong_kind_and_wrong_name() {
 fn catalog_free_operation_step_refuses_foreign_selected_model_anchor() {
     let (mut package, mut evidence, position) = catalog_free_operation_package("object_type");
     let foreign_model = crate::support::checked_package::family_model_document();
-    let foreign_digest = sha256_hex(&canonical(&foreign_model));
     evidence
-        .insert_domain_package_document(foreign_digest, canonical(&foreign_model))
+        .insert_domain_package_document(FAMILY_MODEL_IDENTITY, canonical(&foreign_model))
         .expect("selected foreign model evidence");
     let first_added = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .len();
     let account = crate::support::checked_package::add_family_reference_target(&mut package);
-    package["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("model selections")
-        .sort_by(|left, right| left["identity"].as_str().cmp(&right["identity"].as_str()));
     assert_eq!(
-        package["lock"]["model_selections"]
-            .as_array()
-            .expect("selections")
-            .len(),
+        crate::support::checked_package::selected_model_identities(&package).len(),
         2
     );
     assert_eq!(
@@ -3415,6 +3375,14 @@ fn catalog_free_operation_step_refuses_foreign_selected_model_anchor() {
         .expect("nodes")[first_added..]
         .to_vec();
     for node in additions {
+        if package["source_map"]
+            .as_array()
+            .expect("source map")
+            .iter()
+            .any(|entry| entry["node_id"] == node["node_id"])
+        {
+            continue;
+        }
         let occurrence = &node["occurrences"][0];
         package["source_map"].as_array_mut().expect("source map").push(json!({
             "node_id":node["node_id"], "role":occurrence["role"], "ordinal":occurrence["ordinal"],
@@ -5073,14 +5041,8 @@ fn concrete_protocol_refinement_with_model(
     }))));
     model["node_id"] = model_key.clone();
     model["semantic_type"] = model_key;
-    let digest = sha256_hex(&canonical(&document));
     let mut package = base;
-    package["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("model selections")
-        .push(json!({
-            "identity": MODEL_IDENTITY, "digest_domain": "sha256-jcs", "digest": digest
-        }));
+    select_model(&mut package, MODEL_IDENTITY);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -5127,10 +5089,7 @@ fn concrete_protocol_refinement_with_model(
         .expect("profile selections")
         .push(infinite);
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(&document))
-        .expect("state machine document");
+    let evidence = evidence_with_document(&package, MODEL_IDENTITY, &document);
     (package, evidence)
 }
 

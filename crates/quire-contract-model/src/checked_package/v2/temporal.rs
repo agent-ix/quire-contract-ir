@@ -1164,7 +1164,6 @@ mod tests {
             },
             profile_selections: Vec::new(),
             definition_selections: Vec::new(),
-            model_selections: Vec::new(),
             required_features: Vec::new(),
             dependency_selections: Vec::new(),
         }

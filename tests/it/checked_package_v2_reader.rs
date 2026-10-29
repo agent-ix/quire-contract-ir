@@ -5,11 +5,11 @@
 //! refusals, resource limits, package identity, and nominal node identity.
 
 use crate::support::checked_package::{
-    self, all_families_read_work, canonical, domain_package_digest, domain_package_document,
-    evidence_for, family_key, incomplete, node_id, nominal_fixture_members, nominal_package,
-    pointer as support_pointer, positive_operation_identities, refresh_identity, refusal,
-    refusal_at, refusal_bytes, refusal_cause, rekey, sha256_hex, unknown_version, v2_all_families,
-    v2_nominal, ExpectedRefusal, COMPLETE_VALUE_FEATURE,
+    self, all_families_read_work, canonical, domain_package_document, evidence_for,
+    evidence_with_document, family_key, incomplete, node_id, nominal_fixture_members,
+    nominal_package, pointer as support_pointer, positive_operation_identities, refresh_identity,
+    refusal, refusal_at, refusal_bytes, refusal_cause, rekey, select_model, sha256_hex,
+    unknown_version, v2_all_families, v2_nominal, ExpectedRefusal, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -735,10 +735,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     let mut unsupported = CheckedPackageEvidence::new();
     let family_document = checked_package::family_model_document();
     unsupported
-        .insert_domain_package_document(
-            sha256_hex(&canonical(&family_document)),
-            canonical(&family_document),
-        )
+        .insert_domain_package_document("test/families", canonical(&family_document))
         .expect("domain evidence declarations agree on exact bytes");
     assert_eq!(
         refused(&base, &unsupported),
@@ -959,18 +956,6 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
                     json!([{"role":"profile","definition": v["lock"]["definition_selections"][0]}]);
             }),
         ),
-        (
-            // `evidence_for` attests the selected domain package, so the
-            // unmirrored refusal is the lock/preimage mismatch, not evidence.
-            "model selection",
-            Box::new(|v| {
-                v["lock"]["model_selections"] = json!([{
-                    "identity": "test/orders",
-                    "digest_domain": "sha256-jcs",
-                    "digest": domain_package_digest_of("test/orders")
-                }]);
-            }),
-        ),
     ];
     for (name, mutate) in included {
         let mut changed = base.clone();
@@ -981,17 +966,6 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
             CheckedPackageRefusalCode::StaleDependency,
             "{name}"
         );
-        if name == "model selection" {
-            // The lock's array differs from its preimage mirror in length, so
-            // the array itself is the value at fault.
-            assert_eq!(
-                stale,
-                refusal(
-                    CheckedPackageRefusalCode::StaleDependency,
-                    "/lock/model_selections"
-                )
-            );
-        }
         refresh_identity(&mut changed);
         let mut evidence = evidence_for(&changed);
         evidence.support_feature("quire.extra/v1");
@@ -1274,26 +1248,10 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
     }
 }
 
-const DOMAIN_PACKAGE_DIGEST: &str =
-    "5555555555555555555555555555555555555555555555555555555555555555";
-
-/// The digest `evidence_for` supplies the document under, for `identity`
-/// at version `1`.
-fn domain_package_digest_of(identity: &str) -> String {
-    domain_package_digest(&domain_package_document(identity, "1", Vec::new()))
-}
-
-fn domain_package(identity: &str) -> Value {
-    json!({
-        "identity": identity,
-        "digest_domain": "sha256-jcs", "digest": domain_package_digest_of(identity)
-    })
-}
-
 /// The recorded nominal package with its enum declaration owned by `owner`,
-/// re-keyed through every dependant, and `models` as the locked domain
-/// package selections.
-fn model_owned_package(owner: Value, models: Value) -> Value {
+/// re-keyed through every dependant, and `models` as the selected domain
+/// package identities (one `model_root` each).
+fn model_owned_package(owner: Value, models: &[&str]) -> Value {
     let recorded = v2_nominal();
     let nodes = recorded["semantic_graph"]["nodes"]
         .as_array()
@@ -1318,7 +1276,9 @@ fn model_owned_package(owner: Value, models: Value) -> Value {
     let fresh = rekey(&mut preimages, &keys);
     let members = preimages.into_iter().zip(fresh).collect::<Vec<_>>();
     let mut package = nominal_package(&members);
-    package["lock"]["model_selections"] = models;
+    for identity in models {
+        select_model(&mut package, identity);
+    }
     refresh_identity(&mut package);
     package
 }
@@ -1329,56 +1289,27 @@ fn model_owner(identity: &str, node: &str) -> Value {
 
 #[trace("TC-048", "FR-038-AC-45", "FR-063-AC-5")]
 #[test]
-fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_version() {
+fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_document() {
     // A content-only package (owner `{kind, identity, node}`, no `version`)
     // admits against the selected domain package.
     let owner = model_owner("test/orders", "ix://test/orders/Status");
-    let at_one = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
+    let at_one = model_owned_package(owner.clone(), &["test/orders"]);
     admitted(&at_one);
 
-    // The model declaration owner is the whole preimage input: a change of
-    // the selected document's version leaves its keyed declaration nodes
-    // unchanged. The selection-bound root changes with the document digest.
-    let mut other_selection = domain_package("test/orders");
+    // The model declaration owner is the whole preimage input: a different
+    // document supplied under the identity leaves the keyed declaration
+    // nodes and the selected root unchanged.
     let other_document = domain_package_document("test/orders", "2", Vec::new());
-    other_selection["digest"] = json!(domain_package_digest(&other_document));
-    let at_two = model_owned_package(owner.clone(), json!([other_selection]));
-    let mut other_evidence = evidence_for(&at_two);
-    other_evidence
-        .insert_domain_package_document(
-            domain_package_digest(&other_document),
-            canonical(&other_document),
-        )
-        .expect("domain evidence declarations agree on exact bytes");
+    let other_evidence = evidence_with_document(&at_one, "test/orders", &other_document);
     assert!(matches!(
-        read(&at_two, &other_evidence),
+        read(&at_one, &other_evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    let declarations = |package: &Value| {
-        package["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("graph nodes")
-            .iter()
-            .filter(|node| node["semantic_form"] != "model_root")
-            .cloned()
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(declarations(&at_one), declarations(&at_two));
-    let root_key = |package: &Value| {
-        package["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("graph nodes")
-            .iter()
-            .find(|node| node["semantic_form"] == "model_root")
-            .expect("selected root")["node_id"]
-            .clone()
-    };
-    assert_ne!(root_key(&at_one), root_key(&at_two));
 
     // A `version` member on a model owner violates its closed wire shape.
     let mut versioned = owner.clone();
     versioned["version"] = json!("1.0.0");
-    let versioned = model_owned_package(versioned, json!([domain_package("test/orders")]));
+    let versioned = model_owned_package(versioned, &["test/orders"]);
     assert_eq!(
         refused(&versioned, &evidence_for(&versioned)),
         refusal(
@@ -1392,7 +1323,7 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_ver
         ("identity", model_owner("", "ix://test/orders/Status")),
         ("node", model_owner("test/orders", "")),
     ] {
-        let package = model_owned_package(empty, json!([domain_package("test/orders")]));
+        let package = model_owned_package(empty, &["test/orders"]);
         assert_eq!(
             refused(&package, &evidence_for(&package)),
             nominal("/semantic_graph/nodes/0/nominal_identity_preimage/owner"),
@@ -1403,37 +1334,27 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_ver
 
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-5", "FR-038-AC-64")]
 #[test]
-fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
+fn tc_048_model_owners_join_model_roots_by_identity() {
     let owner = model_owner("test/orders", "ix://test/orders/Status");
-    let base = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
-    let package = admitted(&base);
-    let typed: Value = serde_json::to_value(package.lock()).expect("typed lock");
-    assert_eq!(typed, base["lock"]);
-    assert_eq!(
-        serde_json::to_value(&package.identity_preimage().model_selections)
-            .expect("preimage models"),
-        json!([domain_package("test/orders")])
-    );
+    let base = model_owned_package(owner.clone(), &["test/orders"]);
+    admitted(&base);
 
-    // Owner-to-lock join: by domain package identity, with a present node.
+    // Owner-to-root join: by domain package identity, with a present node.
     let joins = [
         (
-            "owner identity outside lock",
+            "owner identity names no root",
             model_owned_package(
                 model_owner("test/other", "ix://test/orders/Status"),
-                json!([domain_package("test/orders")]),
+                &["test/orders"],
             ),
         ),
         (
             "no domain package selected",
-            model_owned_package(owner.clone(), json!([])),
+            model_owned_package(owner.clone(), &[]),
         ),
         (
             "empty owner node",
-            model_owned_package(
-                model_owner("test/orders", ""),
-                json!([domain_package("test/orders")]),
-            ),
+            model_owned_package(model_owner("test/orders", ""), &["test/orders"]),
         ),
     ];
     for (name, mutated) in joins {
@@ -1444,23 +1365,14 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
         );
     }
 
-    // A lock reference or owner carrying `authority`, `revision` or `export`
-    // is an unknown member.
-    let compiled_ref = json!({
-        "authority": "agent-ix", "identity": "test/orders",
-        "revision": {"namespace": "git", "value": "1"},
-        "digest_domain": "quire.compiled-model.bytes/v1",
-        "digest": DOMAIN_PACKAGE_DIGEST, "export": "Status"
-    });
-    // Each points at the first unknown member, inside the internally tagged
-    // preimage and owner as well as in the lock.
+    // An owner carrying `authority`, `revision` or `export` is an unknown member.
     let retired = [
         (
             "compiled-model owner with export",
             model_owned_package(
                 json!({"kind": "model", "authority": "agent-ix",
                        "identity": "test/orders", "export": "Status"}),
-                json!([domain_package("test/orders")]),
+                &["test/orders"],
             ),
             // The decoder names the first unknown owner member on the graph node.
             "/semantic_graph/nodes/0/nominal_identity_preimage/owner/authority",
@@ -1470,29 +1382,9 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
             model_owned_package(
                 json!({"kind": "model", "identity": "test/orders",
                        "node": "ix://test/orders/Status", "export": "Status"}),
-                json!([domain_package("test/orders")]),
+                &["test/orders"],
             ),
             "/semantic_graph/nodes/0/nominal_identity_preimage/owner/export",
-        ),
-        (
-            "compiled-model lock reference",
-            {
-                let mut value = base.clone();
-                value["lock"]["model_selections"] = json!([compiled_ref]);
-                refresh_identity(&mut value);
-                value
-            },
-            "/identity_preimage/model_selections/0/authority",
-        ),
-        (
-            "domain package reference with export",
-            {
-                let mut value = base.clone();
-                value["lock"]["model_selections"][0]["export"] = json!("Status");
-                refresh_identity(&mut value);
-                value
-            },
-            "/identity_preimage/model_selections/0/export",
         ),
     ];
     let evidence = evidence_for(&base);
@@ -1504,521 +1396,91 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
         );
     }
 
-    // Domain, shape and evidence are checked in the domain package domain,
-    // each at the member of the one selection it is about.
-    let model = |member: &str| format!("/lock/model_selections/0/{member}");
-    let mut compiled_domain = base.clone();
-    compiled_domain["lock"]["model_selections"][0]["digest_domain"] =
-        json!("quire.compiled-model.bytes/v1");
-    refresh_identity(&mut compiled_domain);
+    // The selected document must name the root's identity.
+    let wrong_document = domain_package_document("test/other", "1", Vec::new());
+    let wrong = evidence_with_document(&base, "test/orders", &wrong_document);
+    let root = base["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("root");
     assert_eq!(
-        refused(&compiled_domain, &evidence),
-        refusal(
-            CheckedPackageRefusalCode::DigestDomainMismatch,
-            &model("digest_domain")
-        )
-    );
-    let mut empty_identity = base.clone();
-    empty_identity["lock"]["model_selections"][0]["identity"] = json!("");
-    refresh_identity(&mut empty_identity);
-    assert_eq!(
-        refused(&empty_identity, &evidence),
-        refusal(CheckedPackageRefusalCode::MalformedWire, &model("identity"))
-    );
-    let mut other_identity = base.clone();
-    other_identity["lock"]["model_selections"][0]["identity"] = json!("test/other");
-    refresh_identity(&mut other_identity);
-    assert_eq!(
-        refused(&other_identity, &evidence),
+        refused(&base, &wrong),
         refusal_cause(
             CheckedPackageRefusalCode::InvalidModelBinding,
-            &model("identity"),
+            &format!("/semantic_graph/nodes/{root}/owner/identity"),
             CheckedPackageRefusalCause::WrongModelSelection
         ),
-        "the supplied document names test/orders, not the selected test/other"
+        "the supplied document names test/other, not the selected test/orders"
     );
 }
 
-/// A `model_selections` row is exactly `{identity, digest_domain, digest}`: a
-/// row that also carries `version` refuses as `unknown_member` at that member
-/// (the first in document order, which is the identity preimage's when both
-/// copies carry it) and returns no package; a row lacking a member or holding
-/// one of the wrong kind refuses as `malformed_wire`.
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-62")]
 #[test]
-fn tc_048_a_model_row_is_exactly_identity_digest_domain_and_digest() {
+fn tc_048_a_model_root_owner_is_exactly_kind_and_identity() {
     let owner = model_owner("test/orders", "ix://test/orders/Status");
-    let base = model_owned_package(
-        owner,
-        json!([domain_package("test/orders"), domain_package("test/other")]),
-    );
+    let base = model_owned_package(owner, &["test/orders"]);
+    let root = base["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("root");
+    let at = format!("/semantic_graph/nodes/{root}/owner");
     let evidence = evidence_for(&base);
-    let package = admitted(&base);
-    assert_eq!(
-        serde_json::to_value(package.lock()).expect("typed lock")["model_selections"],
-        base["lock"]["model_selections"],
-        "the rows read back exactly as supplied, with no version member"
-    );
-
-    let unknown = |mutated: &Value, path: &str, case: &str| {
+    for member in ["digest", "version"] {
+        let mut extra = base.clone();
+        extra["semantic_graph"]["nodes"][root]["owner"][member] = json!("1");
+        refresh_identity(&mut extra);
         assert_eq!(
-            refused(mutated, &evidence),
-            refusal(CheckedPackageRefusalCode::UnknownMember, path),
-            "{case}"
-        );
-    };
-    let mut lock_only = base.clone();
-    lock_only["lock"]["model_selections"][0]["version"] = json!("1");
-    unknown(&lock_only, "/lock/model_selections/0/version", "lock only");
-    let mut preimage_only = base.clone();
-    preimage_only["identity_preimage"]["model_selections"][1]["version"] = json!("1");
-    unknown(
-        &preimage_only,
-        "/identity_preimage/model_selections/1/version",
-        "preimage only, beside a well-formed row",
-    );
-    let mut both = base.clone();
-    both["lock"]["model_selections"][1]["version"] = json!("1");
-    refresh_identity(&mut both);
-    unknown(
-        &both,
-        "/identity_preimage/model_selections/1/version",
-        "both copies, beside a well-formed row",
-    );
-
-    // Each required member, absent and of the wrong kind.
-    for member in ["identity", "digest_domain", "digest"] {
-        let mut absent = base.clone();
-        absent["lock"]["model_selections"][0]
-            .as_object_mut()
-            .expect("row")
-            .remove(member);
-        refresh_identity(&mut absent);
-        assert_eq!(
-            refused(&absent, &evidence),
-            refusal(
-                CheckedPackageRefusalCode::MalformedWire,
-                "/identity_preimage/model_selections/0"
-            ),
-            "{member} absent"
-        );
-        let mut wrong_kind = base.clone();
-        wrong_kind["lock"]["model_selections"][0][member] = json!(7);
-        refresh_identity(&mut wrong_kind);
-        assert_eq!(
-            refused(&wrong_kind, &evidence),
-            refusal(
-                CheckedPackageRefusalCode::MalformedWire,
-                &format!("/identity_preimage/model_selections/0/{member}")
-            ),
-            "{member} not a string"
+            refused(&extra, &evidence),
+            refusal(CheckedPackageRefusalCode::MalformedWire, &at),
+            "{member}"
         );
     }
+    let mut lock_member = base.clone();
+    lock_member["lock"]["model_selections"] = json!([]);
+    assert_eq!(
+        refused(&lock_member, &evidence),
+        refusal(
+            CheckedPackageRefusalCode::UnknownMember,
+            "/lock/model_selections"
+        )
+    );
+    let mut preimage_member = base;
+    preimage_member["identity_preimage"]["model_selections"] = json!([]);
+    assert_eq!(
+        refused(&preimage_member, &evidence),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            "/identity_preimage/model_selections"
+        )
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]
 fn tc_048_domain_package_selection_with_no_supplied_document_refuses_as_missing_import() {
     let owner = model_owner("test/orders", "ix://test/orders/Status");
-    let base = model_owned_package(owner, json!([domain_package("test/orders")]));
+    let base = model_owned_package(owner, &["test/orders"]);
+    let root = base["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("root");
     let mut evidence = CheckedPackageEvidence::new();
     evidence.support_feature(COMPLETE_VALUE_FEATURE);
     assert_eq!(
         refused(&base, &evidence),
         refusal_cause(
             CheckedPackageRefusalCode::MissingImport,
-            "/lock/model_selections/0/digest",
+            &format!("/semantic_graph/nodes/{root}/owner/identity"),
             CheckedPackageRefusalCause::MissingSelection
         )
     );
     admitted(&base);
-}
-
-#[trace("TC-048", "FR-038-AC-10")]
-#[test]
-fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
-    let owner = model_owner("test/orders", "ix://test/orders/Status");
-
-    // A verbatim repeat (identity, digest_domain and digest all equal)
-    // violates the closed schema's `uniqueItems` on `model_selections`;
-    // `model_owned_package` mirrors the lock into the identity preimage via
-    // `refresh_identity`, so the repeat is present in both members at once
-    // and reaches the new uniqueness check.
-    let duplicated = model_owned_package(
-        owner.clone(),
-        json!([domain_package("test/orders"), domain_package("test/orders")]),
-    );
-    assert_eq!(
-        refused(&duplicated, &evidence_for(&duplicated)),
-        // The second occurrence is the repeat.
-        refusal(
-            CheckedPackageRefusalCode::MalformedWire,
-            "/lock/model_selections/1"
-        )
-    );
-
-    // The same repeat, confined to the lock and left unmirrored in the
-    // identity preimage, never reaches that check: `same_non_graph_lock`
-    // requires `identity_preimage.model_selections` to equal
-    // `lock.model_selections` element-for-element before either is examined
-    // further, and a two-entry lock against a one-entry preimage fails that
-    // equality first.
-    let single = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
-    let mut lock_only = single.clone();
-    lock_only["lock"]["model_selections"] =
-        json!([domain_package("test/orders"), domain_package("test/orders")]);
-    assert_ne!(
-        lock_only["lock"]["model_selections"], lock_only["identity_preimage"]["model_selections"],
-        "the repeat is confined to the lock, not mirrored into the preimage"
-    );
-    assert_eq!(
-        refused(&lock_only, &evidence_for(&lock_only)),
-        // The lock's array differs from its preimage mirror in length.
-        refusal(
-            CheckedPackageRefusalCode::StaleDependency,
-            "/lock/model_selections"
-        )
-    );
-
-    // Two selections sharing an identity but differing in digest are
-    // distinct JSON items under whole-value `uniqueItems` equality, so this
-    // criterion never refuses them. The lock selects two documents for one
-    // identity, so the input is still refused, but as class 4's
-    // `stale_dependency` (FR-038-AC-20), not by this uniqueness check as
-    // `malformed_wire`.
-    let mut other_digest = domain_package("test/orders");
-    other_digest["digest"] = json!("9".repeat(64));
-    let distinct_digest =
-        model_owned_package(owner, json!([domain_package("test/orders"), other_digest]));
-    assert_eq!(
-        refused(&distinct_digest, &evidence_for(&distinct_digest)),
-        refusal(
-            CheckedPackageRefusalCode::StaleDependency,
-            // The later row names a second digest for one identity.
-            "/lock/model_selections/1/digest"
-        ),
-        "same identity but differing digest is not a duplicate under this criterion"
-    );
-}
-
-/// The uniqueness check runs over the whole `model_selections` array before
-/// any entry's digest is evaluated against evidence, so an array carrying
-/// both a repeated entry and an entry the evidence does not attest refuses
-/// as `malformed_wire` regardless of which defect appears first.
-#[trace("TC-048", "FR-038-AC-11")]
-#[test]
-fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position() {
-    let owner = model_owner("test/orders", "ix://test/orders/Status");
-    let single = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
-    // Evidence attests only the single "test/orders" selection, so a third
-    // entry naming a different identity is never attested — it is stale
-    // wherever it appears in the array.
-    let evidence = evidence_for(&single);
-    let stale_entry = json!({
-        "identity": "test/other",
-        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
-    });
-    let duplicate_before_stale = model_owned_package(
-        owner.clone(),
-        json!([
-            domain_package("test/orders"),
-            domain_package("test/orders"),
-            stale_entry.clone()
-        ]),
-    );
-    let stale_before_duplicate = model_owned_package(
-        owner,
-        json!([
-            stale_entry,
-            domain_package("test/orders"),
-            domain_package("test/orders")
-        ]),
-    );
-    // The code never depends on position; the pointer names the repeat's
-    // second occurrence wherever it sits.
-    for (name, package, repeat) in [
-        (
-            "duplicate before stale",
-            &duplicate_before_stale,
-            "/lock/model_selections/1",
-        ),
-        (
-            "stale before duplicate",
-            &stale_before_duplicate,
-            "/lock/model_selections/2",
-        ),
-    ] {
-        assert_eq!(
-            refused(package, &evidence),
-            refusal(CheckedPackageRefusalCode::MalformedWire, repeat),
-            "{name}: the uniqueness check runs over the whole array before any digest is evaluated"
-        );
-    }
-}
-
-/// Each `model_selections` defect class is swept over the whole array before
-/// the next class is evaluated over any of it, so an array carrying two
-/// classes refuses for the earlier class whichever entry comes first. This
-/// function pins the boundaries among FR-038's four classes -- repeated
-/// entry (1), then declared-domain mismatch (2), then shape defect (3), then
-/// the selection's evidence, a digest the evidence does not attest (4). A
-/// same-identity pair of different digests is class 4 as well and is pinned
-/// against classes 2 and 3 by
-/// `tc_048_model_selection_same_identity_different_digest_refuses_as_stale_dependency`
-/// below.
-///
-/// Three of the four adjacent boundaries are pinned below: (2,3) and (3,4)
-/// through `boundaries`, (1,4) through
-/// `tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position`
-/// above. The fourth,
-/// repeated-entry (1) against declared-domain-mismatch (2), is pinned at the
-/// end of this function -- separately, since a repeated entry needs two
-/// physical array slots rather than the single entry each other class uses.
-/// Unlike the other boundaries, this one does not regress under the
-/// per-entry short-circuit this ticket replaces: #122 already made the
-/// repeated-entry check a whole-array pass that runs before any per-entry
-/// class check, so it was already position-independent against every other
-/// class. Pinned anyway as a stated invariant, not a reproduction of a bug
-/// that predates this fix.
-#[trace("TC-048", "FR-038-AC-19")]
-#[test]
-fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position() {
-    let owner = model_owner("test/orders", "ix://test/orders/Status");
-    // The owner joins this selection, so every array below carries it; the
-    // evidence built from it attests this entry and no other.
-    let joined = domain_package("test/orders");
-    let evidence = evidence_for(&model_owned_package(owner.clone(), json!([joined.clone()])));
-    // One entry per defect class, each naming its own identity so that no
-    // array below also repeats an entry.
-    let cross_domain = json!({
-        "identity": "test/cross-domain",
-        "digest_domain": "quire.compiled-model.bytes/v1", "digest": DOMAIN_PACKAGE_DIGEST
-    });
-    let malformed = json!({
-        "identity": "",
-        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
-    });
-    let unattested = json!({
-        "identity": "test/other",
-        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
-    });
-    // Each adjacent class boundary, pinned in both orderings against the same
-    // expected code: an outcome decided by array position fails one ordering
-    // of each pair rather than passing both. The pointer follows the
-    // earlier-class entry to wherever it sits, at the member at fault.
-    let boundaries = [
-        (
-            "cross-domain outranks malformed shape",
-            CheckedPackageRefusalCode::DigestDomainMismatch,
-            &cross_domain,
-            &malformed,
-            "digest_domain",
-        ),
-        (
-            "malformed shape outranks unattested digest",
-            CheckedPackageRefusalCode::MalformedWire,
-            &malformed,
-            &unattested,
-            "identity",
-        ),
-    ];
-    for (boundary, code, earlier, later, member) in boundaries {
-        let earlier_first = model_owned_package(
-            owner.clone(),
-            json!([joined.clone(), earlier.clone(), later.clone()]),
-        );
-        let later_first = model_owned_package(
-            owner.clone(),
-            json!([joined.clone(), later.clone(), earlier.clone()]),
-        );
-        for (order, package, at) in [
-            ("earlier class first", &earlier_first, 1),
-            ("later class first", &later_first, 2),
-        ] {
-            assert_eq!(
-                refused(package, &evidence),
-                refusal(code, &format!("/lock/model_selections/{at}/{member}")),
-                "{boundary}, {order}: the refusal is decided by defect class, not array position"
-            );
-        }
-    }
-    // The remaining boundary, class 1 (repeated entry, #122's whole-array uniqueness check)
-    // against class 2 (declared-domain mismatch): a repeated entry needs two physical array
-    // slots, so it doesn't fit the single-entry `boundaries` loop above. Both orderings still
-    // refuse `MalformedWire`, the duplicate check's own code, regardless of whether the
-    // repeated pair or the mismatched entry appears first.
-    let duplicated = json!({
-        "identity": "test/duplicated",
-        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
-    });
-    let duplicate_first = model_owned_package(
-        owner.clone(),
-        json!([
-            joined.clone(),
-            duplicated.clone(),
-            duplicated.clone(),
-            cross_domain.clone()
-        ]),
-    );
-    let mismatch_first = model_owned_package(
-        owner.clone(),
-        json!([
-            joined.clone(),
-            cross_domain.clone(),
-            duplicated.clone(),
-            duplicated.clone()
-        ]),
-    );
-    for (order, package, repeat) in [
-        (
-            "duplicate pair first",
-            &duplicate_first,
-            "/lock/model_selections/2",
-        ),
-        (
-            "mismatched entry first",
-            &mismatch_first,
-            "/lock/model_selections/3",
-        ),
-    ] {
-        assert_eq!(
-            refused(package, &evidence),
-            refusal(CheckedPackageRefusalCode::MalformedWire, repeat),
-            "repeated entry outranks declared-domain mismatch, {order}: the refusal is decided \
-             by defect class, not array position"
-        );
-    }
-}
-
-/// Evidence supplying the version-`1` document of each identity in
-/// `identities` under its digest, plus each of `extra` under its own digest.
-fn evidence_of(identities: &[&str], extra: &[Value]) -> CheckedPackageEvidence {
-    let mut evidence = CheckedPackageEvidence::new();
-    evidence.support_feature(COMPLETE_VALUE_FEATURE);
-    for identity in identities {
-        let document = domain_package_document(identity, "1", Vec::new());
-        evidence
-            .insert_domain_package_document(domain_package_digest(&document), canonical(&document))
-            .expect("domain evidence declarations agree on exact bytes");
-    }
-    for document in extra {
-        evidence
-            .insert_domain_package_document(domain_package_digest(document), canonical(document))
-            .expect("domain evidence declarations agree on exact bytes");
-    }
-    evidence
-}
-
-/// A selection binds by identity, so a `lock.model_selections` array holds at
-/// most one entry per identity: two entries naming one identity with
-/// different digests refuse as `stale_dependency` at the later entry's
-/// `digest`, in both orders, even when both are well-formed and each names a
-/// document the evidence supplies, and before any document is read, so the
-/// same refusal stands when a document is missing, forged or names another
-/// identity. This is class 4 of FR-038's four-class `model_selections` order,
-/// so a domain mismatch (class 2) in either entry of the pair outranks it.
-#[trace("TC-048", "FR-038-AC-20")]
-#[test]
-fn tc_048_model_selection_same_identity_different_digest_refuses_as_stale_dependency() {
-    let owner = model_owner("test/orders", "ix://test/orders/Status");
-    let stale = |index: usize| {
-        refusal(
-            CheckedPackageRefusalCode::StaleDependency,
-            &format!("/lock/model_selections/{index}/digest"),
-        )
-    };
-    let package = |models: &[&Value]| model_owned_package(owner.clone(), json!(models));
-
-    // The same package at another version is another document, so another
-    // digest: both rows are well-formed and both documents are supplied.
-    let first = domain_package("test/orders");
-    let second_document = domain_package_document("test/orders", "2", Vec::new());
-    let mut second = domain_package("test/orders");
-    second["digest"] = json!(domain_package_digest(&second_document));
-    let both = evidence_of(&["test/orders"], std::slice::from_ref(&second_document));
-    for (name, rows) in [
-        ("first then second", [&first, &second]),
-        ("second then first", [&second, &first]),
-    ] {
-        assert_eq!(
-            refused(&package(&rows), &both),
-            stale(1),
-            "{name}: one identity selected twice, both documents supplied"
-        );
-    }
-
-    // Before any document is read: the same refusal, in both orders, whatever
-    // the evidence holds for the pair.
-    let mut forged = evidence_of(&["test/orders"], &[]);
-    forged
-        .insert_domain_package_document(second["digest"].as_str().expect("digest"), b"{}".to_vec())
-        .expect("domain evidence declarations agree on exact bytes");
-    let named_other = domain_package_document("test/other", "1", Vec::new());
-    let mut names_another = first.clone();
-    names_another["digest"] = json!(domain_package_digest(&named_other));
-    let other_evidence = evidence_of(&["test/orders"], std::slice::from_ref(&named_other));
-    let cases = [
-        (
-            "no document for the later row",
-            &second,
-            &first,
-            evidence_of(&["test/orders"], &[]),
-        ),
-        (
-            "no document for the earlier row",
-            &first,
-            &second,
-            evidence_of(&[], std::slice::from_ref(&second_document)),
-        ),
-        ("a forged document", &first, &second, forged),
-        (
-            "a document naming another identity",
-            &second,
-            &names_another,
-            other_evidence,
-        ),
-    ];
-    for (name, left, right, evidence) in cases {
-        for (order, rows) in [("as given", [left, right]), ("reversed", [right, left])] {
-            assert_eq!(
-                refused(&package(&rows), &evidence),
-                stale(1),
-                "{name}, {order}: refused before any document is read"
-            );
-        }
-    }
-
-    // An earlier row with no document does not change which entry of the pair
-    // is the later one.
-    let missing = domain_package("test/missing");
-    assert_eq!(
-        refused(&package(&[&missing, &first, &second]), &both),
-        stale(2),
-        "an earlier row's missing document is not read before the pair is refused"
-    );
-
-    // A domain mismatch (class 2) in either entry of the pair outranks it.
-    let mut second_wrong_domain = second.clone();
-    second_wrong_domain["digest_domain"] = json!("quire.compiled-model.bytes/v1");
-    let mut first_wrong_domain = first.clone();
-    first_wrong_domain["digest_domain"] = json!("quire.compiled-model.bytes/v1");
-    for (name, rows, index) in [
-        ("later entry", [&first, &second_wrong_domain], 1),
-        ("earlier entry", [&first_wrong_domain, &second], 0),
-    ] {
-        assert_eq!(
-            refused(&package(&rows), &both),
-            refusal(
-                CheckedPackageRefusalCode::DigestDomainMismatch,
-                &format!("/lock/model_selections/{index}/digest_domain")
-            ),
-            "{name} outside sha256-jcs: class 2 outranks class 4"
-        );
-    }
-
-    // Two different identities never trigger the rule and still admit.
-    let other_identity = domain_package("test/other");
-    admitted(&package(&[&first, &other_identity]));
 }
 
 #[trace("TC-048", "FR-038-AC-2")]

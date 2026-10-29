@@ -47,7 +47,7 @@ FR-038-AC-46 through FR-038-AC-61 (QSpec FR-322 `lock`, `DefinitionRef` and
 `RawSourceRef`) against the artifact references of a self-built package and the
 operation catalog's `law_roles` entries, and FR-038-AC-62 through FR-038-AC-64
 (QSpec FR-322 `ModelRef` and `DependencySelection`) against the
-`model_selections` rows and `dependency_selections` entries of a self-built
+`model_root` owners and `dependency_selections` entries of a self-built
 package, and FR-038-AC-65 through FR-038-AC-69 against the operation catalog's
 words and the applications of a self-built package that name them, and
 FR-038-AC-70 through FR-038-AC-72 against self-built compared types that reach
@@ -104,10 +104,9 @@ FR-038-AC-228 through FR-038-AC-231 are planned public-reader controls for
 the catalog's three leaf-source selectors, earlier first-operand family
 refusals, nested IEEE ineligibility and result-inner sequence exception. They
 do not claim a runtime result until IR-491 implements and runs tagged tests.
-FR-038-AC-215 through FR-038-AC-218 (merged QSpec FR-272 and QSL FR-056) are against the
-split of a stale digest into `content-mismatch` (a document that reads, a dependency
-entry that recomputes) and `byte-digest-mismatch` (bytes the shared reader refuses), the
-raw-digest `wrong-model-selection`, and the `expected` and `actual` digests the two causes carry.
+FR-038-AC-217 and FR-038-AC-218 (merged QSpec FR-272) are against the
+`content-mismatch` of a dependency entry that recomputes, and the `expected` and `actual`
+identities it carries. FR-038-AC-215 and FR-038-AC-216 are withdrawn.
 
 ## Test Procedure
 
@@ -238,11 +237,10 @@ each authored invalid nominal mutation with
 the retained digest, remove or swap a preimage, and change a retained
 preimage's enum case, `semantic_type`, dependency and unit target while
 mirroring the identity projection and package id. Re-own the nominal enum
-declaration by a model owner (`identity`, `node`) over a locked `sha256-jcs`
-domain package and re-read it; then name an unselected package, select none,
-empty the node, restore a compiled-model owner or lock shape carrying
-`authority`, `revision`, `export` or `version`, change the selection's digest
-domain or evidence domain, and set a model node to `model_export`.
+declaration by a model owner (`identity`, `node`) over a selected
+domain package (a `model_root`) and re-read it; then name an unselected package, select none,
+empty the node, restore a compiled-model owner carrying
+`authority`, `revision`, `export` or `version`, and set a model node to `model_export`.
 
 For AC-18, mutate authenticated structural and application bodies to embed
 their own retained node key at a body-root `literal.type`, nested
@@ -315,8 +313,8 @@ its own cycle edge, while nested and other reference sites retain one. Every
 nominal preimage digest matches its node key; every nominal mutation and contradictory cross-field join
 refuses as `invalid_semantic_graph`. The model-owned package admits; each model join mismatch refuses as
 `invalid_semantic_graph`, a compiled-model owner or lock shape carrying
-`authority`, `revision`, `export` or `version` as `unknown_member`, a foreign digest
-domain as `digest_domain_mismatch`, a domain package digest with no supplied
+`authority`, `revision`, `export` or `version` as `unknown_member`, a selected
+domain package with no supplied
 document as `missing_import`, and `model_export` as `invalid_semantic_graph`.
 A model owner of `{kind, identity, node}` with no `version` admits and its node
 keys, nominal and declaration, are unchanged when another document of the same
@@ -515,41 +513,38 @@ The catalogue's `result: member` entries with `member: type_argument` are
 
 ## Selections bind by identity (FR-038-AC-62 through FR-038-AC-64)
 
-Build a package whose lock and identity preimage carry the same
-`model_selections` rows `{identity, digest_domain, digest}` and the same
+Build a package that selects one domain package by a `model_root` owner
+`{kind, identity}` and whose lock and identity preimage carry the same
 `dependency_selections` entries `{identity, package_id}`, re-derive its
-`package_id` and read it: it admits. Add a `version` member to a model row in
-the lock, then only in the identity preimage, then to a dependency entry in the
-lock and then only in the preimage, and to a row beside an otherwise well-formed
-row, and read each: each refuses `unknown_member` at that `version` member, the
-first in document order, and no package is returned. Give a dependency entry
+`package_id` and read it: it admits. Add a `digest` member and then a `version`
+member to the root owner and read each: each refuses `unknown_member`/
+`malformed_wire` at the owner. Add a `model_selections` member to the lock, then
+only to the identity preimage, and read each: each refuses `unknown_member` at that
+member. Add a `version` member to a dependency entry in the lock and then only
+in the preimage, and to an entry beside an otherwise well-formed entry, and read
+each: each refuses `unknown_member` at that `version` member, the first in
+document order, and no package is returned. Give a dependency entry
 `{identity, version}` with no `package_id` and read: it refuses `malformed_wire`
-at the entry. Remove `identity`,
-`digest_domain` and `digest` in turn from a model row and give each a non-string,
-and read. Select the same domain package as two documents at different
-versions, each in its own package under its own `sha256-jcs` digest, and read
+at the entry. Remove `identity` from a root owner and give it a non-string and an
+empty value, and read. Select the same domain package as two documents at
+different versions, each in its own package under the same identity, and read
 both: each admits and they yield the same model-owned node keys. Read a
 matching document that has no `package.version`, and one whose `package.version`
-is not a string: each admits. Give a model
-owner an identity no row names and read it. Supply a dependency package under
-its entry's `identity` and read it, supply it under another identity, and supply
-a package of another `package_id`. Put two rows of one identity and different
-digests in the lock, each document supplied, in both orders, and read: each
-refuses `stale_dependency` at the later row's `digest`; repeat it with no
-document supplied for one of the pair, with a forged one, with one naming
-another identity, and with an earlier row whose document is missing: each
-refuses the same way, before any document is read; give one of the two a digest domain other than
-`sha256-jcs` and read: it refuses `digest_domain_mismatch`.
+is not a string: each admits. Give a model owner an identity no root names and
+read it. Supply a dependency package under its entry's `identity` and read it,
+supply it under another identity, and supply a package of another `package_id`.
+Put two roots of one identity in the graph, in both orders, and read: each refuses
+`invalid_semantic_graph` at the later root's `owner`.
 
-Expected: the package admits; a `version` member at any of the four places
-refuses `unknown_member` at that member; a dependency entry lacking `package_id`
-and a model row or entry with a missing or wrong-kind member refuse
+Expected: the package admits; a `digest`, `version` or `model_selections` member at
+any of those places refuses at that member; a dependency entry lacking
+`package_id` and a root owner or entry with a missing or wrong-kind member refuse
 `malformed_wire`; both documents admit with equal node keys, and so do the
 documents with no or a non-string `package.version`; the unnamed owner
 refuses `invalid_semantic_graph`; the dependency supplied under its identity
 with its `package_id` admits, under another identity `missing_import`/
 `missing-selection`, and with another `package_id`
-`stale_dependency`/`content-mismatch`; the same-identity pair refuses as
+`stale_dependency`/`content-mismatch`; the repeated-identity pair refuses as
 stated. Compare the whole refusal code, cause and pointer.
 
 ## Catalog words (FR-038-AC-65, FR-038-AC-67 through FR-038-AC-69)
@@ -763,8 +758,7 @@ it admits. Rename the called operation to one the document does not declare
 and read it: it refuses `ill_typed`/`operator-ineligible` at the member's
 `name`. Give `Order` a supertype the document does not declare and read it:
 the refusal is the document's, `missing_declaration`/`missing-name`, at
-`/lock/model_selections/0`. Read the document directly: supply none, one
-under another digest, forged bytes, another identity, and the matching one;
+the root's `/semantic_graph/nodes/<i>/owner`. Read the document directly: supply none, forged bytes, another identity, and the matching one;
 give a node an invalid object id and refer to it as a supertype and a
 `typeRef` from nodes on both sides of it; give one field a dangling `typeRef`
 and a multiplicity of `lower > upper` in both member orders; name a
@@ -1487,9 +1481,8 @@ the independent expectations. Qualified Inspection separately checks the
 negative `FixedShape` and `serde_json::Value` constraints; TC-048 tests do not
 scan source files to claim that evidence. Read a package that selects a model document
 holding 9007199254740993, -9007199254740993, 9.007199254740993e15, 1e20 and
-18446744073709551617 at `/package/count`, under the document's own digest and
-under another, and check `noncanonical_wire` at
-`/lock/model_selections/0/digest` with `document_pointer` `/package/count` and no
+18446744073709551617 at `/package/count`, and check `noncanonical_wire` at
+`/semantic_graph/nodes/<i>/owner/identity` with `document_pointer` `/package/count` and no
 pointer on a package-stream refusal; repeat with 9007199254740992,
 -9007199254740992, 9.007199254740992e15 and `0.5` and check none refuses for it;
 put two such numbers in the document and check the first in document order is
@@ -1533,15 +1526,14 @@ FR-056, QSL #625) in `tc_048_the_first_reader_fault_decides_when_faults_coexist`
 (IR-573). The causes are those
 of quire-specification:FR-271 and FR-272. Read a package that selects a model
 document holding `0.1000000000000000000001`, `9007199254740993.5`,
-`-0.1000000000000000000001`, `4.9e-324` and `1e-400` at `/package/ratio`, under
-the document's own digest and under another, and check `noncanonical_wire` at
-`/lock/model_selections/0/digest` with `document_pointer` `/package/ratio` and
+`-0.1000000000000000000001`, `4.9e-324` and `1e-400` at `/package/ratio`, and check `noncanonical_wire` at
+`/semantic_graph/nodes/<i>/owner/identity` with `document_pointer` `/package/ratio` and
 cause `inexact-number`; repeat with `0.1`, `0.5`, `1.5`, `-0.25`, `5e-324`,
-`2.5e-10`, `1.0`, `-0` and `1e2` and check none refuses for it; repeat with the tie texts `1125899906842624.2`, `1500000000000000.2` and `2.9802322387695312e-8` and check none refuses, and with `1125899906842624.3`, `1500000000000000.3` and `2.9802322387695313e-8` and check each refuses `inexact-number`; digest two documents differing only in
+`2.5e-10`, `1.0`, `-0` and `1e2` and check none refuses for it; repeat with the tie texts `1125899906842624.2`, `1500000000000000.2` and `2.9802322387695312e-8` and check none refuses, and with `1125899906842624.3`, `1500000000000000.3` and `2.9802322387695313e-8` and check each refuses `inexact-number`; read two documents differing only in
 `0.1` and `0.1000000000000000000001` and check the second refuses
 (FR-038-AC-109). Repeat the numbers of FR-038-AC-93 (including the integer value type
 upper bound), `9007199254740993.0`, `1e400` and `-1e400` and check cause
-`inexact-integer` and `noncanonical_wire`, not `content-mismatch`; check `9007199254740992.5` refuses
+`inexact-integer` and `noncanonical_wire`; check `9007199254740992.5` refuses
 `inexact-number` and the admitted whole numbers still admit; put an inexact
 number and a whole number past 2^53 in one document in both orders and check the
 first in document order is named with its own cause; put a number past the
@@ -1549,11 +1541,9 @@ double range after an inexact number (`{"b":0.1000000000000000000001,"a":[1e400]
 `{"b":9007199254740993,"a":[1e400]}`) and check the out-of-range number is named
 (`/a/0`, `inexact-integer`); read `{"a":1,"a":2,"n":1e400}` and `[1e400` and
 check `/n` and `/0` are named, and `[{"a":1,"a":2},1e400]` and
-`{"a":1,"a":2,"n":1e-400}` and `[1e400,"<0xFF>"]` under a digest that is not
-their raw digest and check `stale_dependency`/`byte-digest-mismatch`, and
+`{"a":1,"a":2,"n":1e-400}` and `[1e400,"<0xFF>"]` and check `malformed_wire`/`malformed-json`, and
 `[1e400,"\ud800"]` and check `/0`, the first fault `read` returns deciding
-(FR-038-AC-110; the outcome under a raw-path document's own raw digest is
-`wrong-model-selection`, FR-038-AC-216). Read a
+(FR-038-AC-110). Read a
 package document holding `0.1000000000000000000001` and `9007199254740993.5` in a
 node body and check `noncanonical_wire` with no pointer, no `document_pointer`
 and no cause, and `0.1`, `1.2793061557049685`, `1.2106592671318679` and `1.3567384036451073` not refused for it; read the manifest of the crate that holds the
@@ -2594,16 +2584,10 @@ call path used by the reader and the FR-046 ordinary-application helper. The
 helper remains a candidate API for body-root applications; no independent IR
 preimage encoder or new byte ceiling is permitted.
 
-## Content and byte digest mismatches (FR-038-AC-215 through FR-038-AC-218)
+## Content mismatch of a dependency (FR-038-AC-217, FR-038-AC-218)
 
-Read a self-built package whose one `model_selections` row selects a self-built
-domain package document under its RFC 8785 digest, with an expected digest written
-out in the test. Edit one member value of the supplied document, supply the
-whitespace-respelled document, and supply the document under the plain SHA-256 of
-its raw bytes. Supply each of a truncated array, invalid UTF-8, `{"a":1,"a":2}`
-and a lone surrogate escape under a digest that is not their plain SHA-256, then
-under their plain SHA-256. Supply a document holding a number AC-93 refuses, and
-one past the byte limit. Read a package whose one `dependency_selections` entry
+FR-038-AC-215 and FR-038-AC-216 are withdrawn: a selected domain package document has
+no digest. Read a self-built package whose one `dependency_selections` entry
 selects a self-built dependency, supplying a dependency package with another
 `package_id`, none, and the matching one. Compare `code`, `cause`, `path`,
 `expected`, `actual` and `document_pointer` of every refusal, including each
@@ -2611,26 +2595,13 @@ identity's domain, algorithm and digest, and the cause set of
 `CheckedPackageRefusalCause`. Compare the QSpec FR-272 cause-key projection
 (`code`, tag, ordered expected/actual pair) separately from whole-refusal equality:
 two mismatch refusals with one tag and distinct pairs have distinct cause keys,
-changing only path does not change that key, and two typed identities with
-equal SHA-256 bytes under `sha256-jcs` and `raw-artifact-digest` compare unequal.
+and changing only path does not change that key.
 
-Expected: the edited document refuses `stale_dependency`/`content-mismatch` at
-`/lock/model_selections/0/digest` carrying the row's selected and the
-written-out edited-document RFC 8785 digests, both under `sha256-jcs`/`sha256`;
-the unedited and respelled documents admit; the
-raw-digest selection of a parseable document whose raw and RFC 8785 digests differ
-refuses `content-mismatch`; each unreadable input under another digest refuses
-`byte-digest-mismatch` at that `digest` carrying the selected
-`sha256-jcs` identity and the bytes' `raw-artifact-digest` identity, and under
-its own plain SHA-256 refuses
-`invalid_model_binding`/`wrong-model-selection` at `/lock/model_selections/0/identity`
-with no `expected` or `actual`; the AC-93 number refuses `noncanonical_wire` and the
-oversize document `incomplete` as before; the other dependency package refuses
-`content-mismatch` at `/lock/dependency_selections/0/package_id/digest` carrying the
-entry's and supplied package's complete `quire.package.semantic/v2` identities;
-none refuses `missing_import`/
-`missing-selection` at the entry, and the matching one admits; and no other refusal
-carries `expected` or `actual`.
+Expected: the other dependency package refuses `content-mismatch` at
+`/lock/dependency_selections/0/package_id/digest` carrying the entry's and supplied
+package's complete `quire.package.semantic/v2` identities; none refuses
+`missing_import`/`missing-selection` at the entry, and the matching one admits; and
+no other refusal carries `expected` or `actual`.
 
 ## Structural type forwarding work (FR-038-AC-224)
 

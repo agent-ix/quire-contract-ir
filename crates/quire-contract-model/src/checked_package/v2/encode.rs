@@ -282,21 +282,19 @@ impl Encode for CheckedPackageIdentityPreimageV2 {
         member(writer, "edition", &self.edition)?;
         member(writer, "profile_selections", &self.profile_selections)?;
         member(writer, "definition_selections", &self.definition_selections)?;
-        member(writer, "model_selections", &self.model_selections)?;
         member(writer, "required_features", &self.required_features)?;
         member(writer, "dependency_selections", &self.dependency_selections)?;
         writer.end_object()
     }
 }
 
-/// The seven wire selections; graph nodes are only encoded under semantic_graph.
+/// The six wire selections; graph nodes are only encoded under semantic_graph.
 #[derive(serde::Serialize, FixedShape)]
 pub(super) struct SelectionFields<'a> {
     version: &'a str,
     edition: &'a crate::checked_package::shared::CheckedSelection,
     profile_selections: &'a [crate::checked_package::shared::CheckedSelection],
     definition_selections: &'a [crate::checked_package::shared::CheckedArtifactRef],
-    model_selections: &'a [super::CheckedDomainPackageRef],
     required_features: &'a [Box<str>],
     dependency_selections: &'a [super::CheckedDependencySelection],
 }
@@ -308,7 +306,6 @@ impl<'a, Body> From<&CheckedPackageIdentityPreimageRefV2<'a, Body>> for Selectio
             edition: value.edition,
             profile_selections: value.profile_selections,
             definition_selections: value.definition_selections,
-            model_selections: value.model_selections,
             required_features: value.required_features,
             dependency_selections: value.dependency_selections,
         }
@@ -323,7 +320,6 @@ impl<Body: Encode> Encode for CheckedPackageIdentityPreimageRefV2<'_, Body> {
         member(writer, "edition", self.edition)?;
         member(writer, "profile_selections", self.profile_selections)?;
         member(writer, "definition_selections", self.definition_selections)?;
-        member(writer, "model_selections", self.model_selections)?;
         member(writer, "required_features", self.required_features)?;
         member(writer, "dependency_selections", self.dependency_selections)?;
         writer.name("identity_projection")?;

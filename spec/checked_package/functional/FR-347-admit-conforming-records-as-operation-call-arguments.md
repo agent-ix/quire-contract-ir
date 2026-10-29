@@ -174,11 +174,11 @@ stop at the parameter's (or `P`'s) record, and it charges one `work` unit for
 every `supertypes` edge reachable from the argument's record, each ancestor's
 edges followed once, to the same meter as the member resolution of
 FR-038-AC-30. The row charged, and reported as `incomplete` at
-`/lock/model_selections/<i>`, is the selection of the document that declares
+`/semantic_graph/nodes/<i>/owner`, is the root of the package whose document declares
 the expected record (the parameter's, the case result's, the payload's, the
 callee parameter's or the body result's type), because the walk runs in that
 document; the operation-call and field-read rules have the declaring owner's
-row. A `GiftTaxedMoney` argument therefore costs 2 units at a
+root. A `GiftTaxedMoney` argument therefore costs 2 units at a
 `Money` parameter and also at a `TaxedMoney` parameter. In a diamond (`D`
 with supertypes `B` and `C`, each with supertype `A`) the walk costs 4 at any
 ancestor. An exact match charges none. A limit one below the work a read used

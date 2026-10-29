@@ -154,10 +154,6 @@ fn assert_tc_935_failed_work(
     assert!(wire.wire().semantic_graph.nodes.is_empty());
     assert_eq!(emitted["package"]["source"]["lock"], source["lock"]);
     assert_eq!(
-        emitted["package"]["source"]["package_id"],
-        source["package_id"]
-    );
-    assert_eq!(
         emitted["package"]["lowering_profile"],
         json!({"authority":"quire","identity":"complete-v1"})
     );
@@ -218,10 +214,6 @@ fn tc_935_required_source_rows_match_exactly_without_changing_provenance() {
             .expect("refusal package is still encoded");
         let serialized = serde_json::to_value(wire.wire()).expect("wire");
         assert_eq!(serialized["package"]["source"]["lock"], source["lock"]);
-        assert_eq!(
-            serialized["package"]["source"]["package_id"],
-            source["package_id"]
-        );
         assert_eq!(
             serialized["package"]["lowering_profile"],
             json!({"authority":"quire","identity":"complete-v1"})

@@ -1339,7 +1339,6 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
             "edition",
             "profile_selections",
             "definition_selections",
-            "model_selections",
             "required_features",
             "dependency_selections",
         ],
@@ -1349,7 +1348,6 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
         "sources",
         "profile_selections",
         "definition_selections",
-        "model_selections",
         "required_features",
         "dependency_selections",
     ] {
@@ -1630,9 +1628,7 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::InvalidDerivedShape
         | Cause::DeclarationNominalMismatch => code == Code::InvalidPackage,
         Cause::AmbiguousName => code == Code::AmbiguousDeclaration,
-        Cause::ByteDigestMismatch | Cause::DigestDomainMismatch | Cause::ContentMismatch => {
-            code == Code::StaleDependency
-        }
+        Cause::ContentMismatch => code == Code::StaleDependency,
         Cause::InsufficientNextCharge => false,
         Cause::OperatorIneligible
         | Cause::TypeMismatch
@@ -1702,7 +1698,6 @@ enum ContractWireTag {
     PackageDomain,
     Sha256,
     SourceBytes,
-    ModelDigest,
     GraphVersion,
     ResultDomain,
     NodeDomain,
@@ -1716,7 +1711,6 @@ impl ContractWireTag {
             super::PACKAGE_DOMAIN_V2 => Some(Self::PackageDomain),
             "sha256" => Some(Self::Sha256),
             super::SOURCE_BYTES => Some(Self::SourceBytes),
-            super::DOMAIN_PACKAGE_DIGEST => Some(Self::ModelDigest),
             "quire.checked-semantic-graph/v2" => Some(Self::GraphVersion),
             CONTRACT_IR_SEMANTIC_DOMAIN => Some(Self::ResultDomain),
             NODE_DOMAIN => Some(Self::NodeDomain),
@@ -1835,22 +1829,6 @@ impl ContractPackageWireV1 {
             if feature.is_empty() || !features.insert(feature) {
                 return Err(malformed(
                     lock_at.clone().key("required_features").index(index),
-                    CheckedPackageRefusalCause::InvalidValue,
-                ));
-            }
-        }
-        let mut models = BTreeSet::new();
-        let mut model_identities = BTreeSet::new();
-        for (index, selected) in source.lock.model_selections.iter().enumerate() {
-            if selected.identity.is_empty()
-                || ContractWireTag::from_wire(&selected.digest_domain)
-                    != Some(ContractWireTag::ModelDigest)
-                || !valid_digest(&selected.digest)
-                || !models.insert(selected)
-                || !model_identities.insert(selected.identity.as_ref())
-            {
-                return Err(malformed(
-                    lock_at.clone().key("model_selections").index(index),
                     CheckedPackageRefusalCause::InvalidValue,
                 ));
             }

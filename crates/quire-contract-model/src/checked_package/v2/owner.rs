@@ -5,7 +5,7 @@ use super::{
     DomainModel, LiteralKind, ProtocolForm, RawCheckedPackageWireV2 as CheckedPackageWireV2,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, WorkMeter,
 };
-use crate::checked_package::common::{body_term, is_digest, node_pointer, ValidationFailure};
+use crate::checked_package::common::{body_term, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -78,8 +78,8 @@ fn check_one(
         (OwnerRequirement::Model, Some(CheckedNodeOwner::Model { identity, node })) => {
             !identity.is_empty() && !node.is_empty()
         }
-        (OwnerRequirement::ModelRoot, Some(CheckedNodeOwner::ModelRoot { identity, digest })) => {
-            !identity.is_empty() && is_digest(digest)
+        (OwnerRequirement::ModelRoot, Some(CheckedNodeOwner::ModelRoot { identity })) => {
+            !identity.is_empty()
         }
         _ => false,
     };
@@ -276,12 +276,6 @@ pub(super) fn validate_owner_joins(
         .iter()
         .map(|model| (model.identity.as_ref(), model))
         .collect();
-    let selected_model_roots: BTreeSet<_> = wire
-        .lock
-        .model_selections
-        .iter()
-        .map(|selection| (selection.identity.as_ref(), selection.digest.as_ref()))
-        .collect();
     let model_operations: BTreeMap<_, BTreeSet<_>> = models
         .iter()
         .map(|model| {
@@ -374,11 +368,6 @@ pub(super) fn validate_owner_joins(
                 }) {
                     return Err(missing_owner(node, at));
                 }
-            }
-            Some(CheckedNodeOwner::ModelRoot { identity, digest })
-                if !selected_model_roots.contains(&(identity.as_ref(), digest.as_ref())) =>
-            {
-                return Err(missing_owner(node, node_pointer(position).key("owner")));
             }
             Some(CheckedNodeOwner::ModelRoot { .. }) | None => {}
         }

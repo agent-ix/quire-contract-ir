@@ -4,10 +4,10 @@
 //! Public reader checks for the first protocol validation passes.
 
 use crate::support::checked_package::{
-    admitted_protocol_families, application_node_key, canonical, domain_package_digest,
-    domain_package_document, evidence_for, family_key, family_model_document,
-    mint_ungrouped_structural_keys, node_id, protocol_named_node, protocol_role_node,
-    rebuild_source_map, refresh_identity, refusal, refusal_at, rekey_application_node, rename_node,
+    admitted_protocol_families, application_node_key, canonical, evidence_for,
+    evidence_with_document, family_key, family_model_document, mint_ungrouped_structural_keys,
+    node_id, protocol_named_node, protocol_role_node, rebuild_source_map, refresh_identity,
+    refusal, refusal_at, rekey_application_node, rename_node, select_model,
     selected_interface_model_node, settle, sha256_hex, structural_key, v2_all_families,
 };
 use ix_trace_rs::trace;
@@ -2606,8 +2606,6 @@ fn protocol_owner_selected_state_machine_and_record_value_type_refuse_at_edge() 
                 "trigger":format!("{owner}/toggle"), "emits":[]
             }]);
         }
-        let digest = domain_package_digest(&document);
-        package["lock"]["model_selections"][0]["digest"] = json!(digest);
 
         let mut declaration = selected_interface_model_node();
         declaration["semantic_form"] = json!(form);
@@ -2630,10 +2628,7 @@ fn protocol_owner_selected_state_machine_and_record_value_type_refuse_at_edge() 
             .push(declaration);
         settle(&mut package);
 
-        let mut evidence = evidence_for(&package);
-        evidence
-            .insert_domain_package_document(digest, canonical(&document))
-            .expect("selected model document");
+        let evidence = evidence_with_document(&package, "test/families", &document);
         let baseline = read_with_model(&package, &evidence);
         assert!(
             matches!(baseline, CheckedPackageV2ReadResult::Admitted(_)),
@@ -8182,14 +8177,7 @@ fn protocol_whole_model_role_admits_selected_text_without_model_dependency() {
     ));
 
     let first_key = package["semantic_graph"]["nodes"][role]["node_id"].clone();
-    let other = domain_package_document("test/other", "1", Vec::new());
-    package["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("model selections")
-        .push(json!({
-            "identity": "test/other", "digest_domain": "sha256-jcs",
-            "digest": domain_package_digest(&other),
-        }));
+    select_model(&mut package, "test/other");
     refresh_identity(&mut package);
     assert_eq!(
         package["semantic_graph"]["nodes"][role]["node_id"],
@@ -8238,14 +8226,7 @@ fn protocol_clause_admits_two_whole_model_roles_across_over_types() {
             .as_array_mut()
             .expect("nodes")
             .push(over_parameter);
-        let other = domain_package_document("test/other", "1", Vec::new());
-        package["lock"]["model_selections"]
-            .as_array_mut()
-            .expect("model selections")
-            .push(json!({
-                "identity": "test/other", "digest_domain": "sha256-jcs",
-                "digest": domain_package_digest(&other),
-            }));
+        select_model(&mut package, "test/other");
 
         let mut second_body = package["semantic_graph"]["nodes"][first]["body"].clone();
         second_body["arguments"][0]["value"]["value"] = json!("test/other");
@@ -8293,14 +8274,21 @@ fn protocol_clause_admits_two_whole_model_roles_across_over_types() {
             read(&package)
         );
 
-        package["lock"]["model_selections"]
+        package["semantic_graph"]["nodes"]
             .as_array_mut()
-            .expect("model selections")
-            .pop();
-        refresh_identity(&mut package);
-        let key = package["semantic_graph"]["nodes"][second]["node_id"]["digest"]
-            .as_str()
-            .expect("role key");
+            .expect("nodes")
+            .retain(|node| {
+                !(node["semantic_form"] == "model_root"
+                    && node["owner"]["identity"] == "test/other")
+            });
+        settle(&mut package);
+        let second = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"] == second_key)
+            .expect("second role");
+        let key = second_key["digest"].as_str().expect("role key");
         assert_eq!(
             read(&package),
             refusal_at(

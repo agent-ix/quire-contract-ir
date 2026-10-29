@@ -157,8 +157,6 @@ pub const PACKAGE_DOMAIN_V2: &str = "quire.package.semantic/v2";
 const IDENTITY_PREIMAGE_V2: &str = "quire.checked-package-id/v2";
 const GRAPH_V2: &str = "quire.checked-semantic-graph/v2";
 const SOURCE_BYTES: &str = "quire.source.bytes/v1";
-/// The digest domain of a selected domain package.
-pub const DOMAIN_PACKAGE_DIGEST: &str = "sha256-jcs";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum PackageWireTag {
@@ -168,7 +166,6 @@ enum PackageWireTag {
     GraphVersion,
     NodeDomain,
     SourceBytes,
-    ModelDigest,
     Sha256,
 }
 
@@ -182,7 +179,6 @@ impl PackageWireTag {
             GRAPH_V2 => Some(Self::GraphVersion),
             NODE_DOMAIN => Some(Self::NodeDomain),
             SOURCE_BYTES => Some(Self::SourceBytes),
-            DOMAIN_PACKAGE_DIGEST => Some(Self::ModelDigest),
             "sha256" => Some(Self::Sha256),
             _ => None,
         }
@@ -255,12 +251,10 @@ pub struct CheckedDeclaration {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedNodeOwner {
-    /// The selected domain package as a whole, bound to its content digest.
+    /// The selected domain package as a whole, named by its identity.
     ModelRoot {
         /// Selected domain package identity.
         identity: Box<str>,
-        /// Selected domain package canonical content digest.
-        digest: Box<str>,
     },
     /// A declared node owned by one selected raw source unit.
     Source {
@@ -532,18 +526,6 @@ impl<Body: Clone> From<&CheckedSemanticNodeV2<Body>> for CheckedNodeProjectionV2
     }
 }
 
-/// One selected `sha256-jcs` domain package (QSpec `ModelRef`).
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
-#[serde(deny_unknown_fields)]
-pub struct CheckedDomainPackageRef {
-    /// Domain package identity.
-    pub identity: Box<str>,
-    /// Must be `sha256-jcs`.
-    pub digest_domain: Box<str>,
-    /// Lowercase SHA-256 of the package's RFC 8785 canonical bytes.
-    pub digest: Box<str>,
-}
-
 /// One selected library dependency (QSpec `DependencySelection`, FR-322
 /// `dependency_selections`): the library identity an import names, and the
 /// dependency's own semantic package identity.
@@ -568,15 +550,13 @@ pub struct CheckedPackageLockV2 {
     pub profile_selections: Vec<CheckedSelection>,
     /// Selected definitions.
     pub definition_selections: Vec<CheckedArtifactRef>,
-    /// Selected domain packages.
-    pub model_selections: Vec<CheckedDomainPackageRef>,
     /// Required features.
     pub required_features: Vec<Box<str>>,
     /// Dependency selections: one per library identity, ascending.
     pub dependency_selections: Vec<CheckedDependencySelection>,
 }
 
-/// The seven wire selections of the V2 package identity preimage.
+/// The six wire selections of the V2 package identity preimage.
 /// The graph projection is derived only when computing the package identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -589,8 +569,6 @@ pub struct CheckedPackageIdentityPreimageV2 {
     pub profile_selections: Vec<CheckedSelection>,
     /// Selected definitions.
     pub definition_selections: Vec<CheckedArtifactRef>,
-    /// Selected domain packages.
-    pub model_selections: Vec<CheckedDomainPackageRef>,
     /// Required features.
     pub required_features: Vec<Box<str>>,
     /// Dependency selections: one per library identity, ascending.
@@ -600,7 +578,7 @@ pub struct CheckedPackageIdentityPreimageV2 {
 /// Borrowed producer view of the V2 package identity preimage.
 ///
 /// Its projection selects identity fields from graph nodes without retaining
-/// another owned copy of any node body. The reader retains the seven wire
+/// another owned copy of any node body. The reader retains the six wire
 /// selections separately; the complete graph projection appears only in hash input.
 #[derive(Clone, Copy, Debug)]
 pub struct CheckedPackageIdentityPreimageRefV2<'a, Body = CheckedTerm> {
@@ -612,8 +590,6 @@ pub struct CheckedPackageIdentityPreimageRefV2<'a, Body = CheckedTerm> {
     pub profile_selections: &'a [CheckedSelection],
     /// Selected definitions.
     pub definition_selections: &'a [CheckedArtifactRef],
-    /// Selected domain packages.
-    pub model_selections: &'a [CheckedDomainPackageRef],
     /// Required features.
     pub required_features: &'a [Box<str>],
     /// Dependency selections, sorted by library identity.
@@ -1483,7 +1459,6 @@ fn validate(
         edition: &selections.edition,
         profile_selections: &selections.profile_selections,
         definition_selections: &selections.definition_selections,
-        model_selections: &selections.model_selections,
         required_features: &selections.required_features,
         dependency_selections: &selections.dependency_selections,
         identity_projection: &wire.semantic_graph.nodes,
@@ -1576,13 +1551,6 @@ fn non_graph_lock_difference(
                 "definition_selections",
                 &lock.definition_selections,
                 &preimage.definition_selections,
-            )
-        })
-        .or_else(|| {
-            differing(
-                "model_selections",
-                &lock.model_selections,
-                &preimage.model_selections,
             )
         })
         .or_else(|| {
@@ -1691,43 +1659,13 @@ fn validate_lock<'a>(
             member_pointer(&["lock", "definition_selections"]).index(index)
         })?;
     }
-    // Whole-array uniqueness is checked before any entry's digest is
-    // evaluated against evidence: a `model_selections` array that repeats an
-    // entry (identity, digest_domain and digest all equal — whole-item
-    // equality, matching the schema's `uniqueItems`; two entries naming the
-    // same identity with different digests are not a repeat, they are class 4
-    // in `validate_domain_packages`) is a defect in the shape of the wire,
-    // and evidence for an already-malformed array is not meaningful to check.
-    // This order — not the reverse, and not interleaved per entry — is what
-    // keeps the outcome for an array carrying both defects independent of
-    // which one comes first in the array.
-    // Class 1 (repeated entry) of the four classes FR-038 orders this array's
-    // refusal code by; the remaining three, in their own stated order, are
-    // checked by `validate_domain_packages` below — so the code is decided by
-    // defect class throughout and never by array position. Only the lock's copy is
-    // checked: the `same_non_graph_lock` equality above already requires
-    // `identity_preimage.model_selections` to equal `lock.model_selections`
-    // element-for-element, so a duplicate-free lock guarantees the mirrored
-    // preimage is too.
-    let models_pointer = || member_pointer(&["lock", "model_selections"]);
-    let mut models = BTreeSet::new();
-    if let Some(repeat) = lock
-        .model_selections
-        .iter()
-        .position(|model| !models.insert(model))
-    {
-        return Err(refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            models_pointer().index(repeat),
-        ));
-    }
-    let unit_refs = if lock.model_selections.is_empty() {
+    let roots = selected_model_roots(&wire.semantic_graph.nodes)?;
+    let unit_refs = if roots.is_empty() {
         std::sync::Arc::new(BTreeMap::new())
     } else {
         checked_unit_refs(&wire.semantic_graph.nodes, meter)?
     };
-    let mut models =
-        validate_domain_packages(&lock.model_selections, evidence, meter, bytes, &unit_refs)?;
+    let mut models = validate_domain_packages(&roots, evidence, meter, bytes, &unit_refs)?;
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
@@ -1825,81 +1763,53 @@ fn validate_dependency_selections(
     Ok(())
 }
 
-/// Checks every domain package selection's domain and shape, then admits
-/// each selection's document (FR-322 "Model-owned members" step 1) and
-/// returns its declarations, in lock order. Raw artifact evidence is never
-/// consulted, so equal digest bytes in another domain cannot satisfy it.
-///
-/// Checks classes 2 to 4 of FR-038's four-class `model_selections` order,
-/// each sweeping the whole array before the next begins, so the refusal an
-/// array carrying two different defects draws is decided by defect class
-/// and not by which defective entry the reader reaches first:
-/// declared-domain mismatch (`digest_domain_mismatch`, class 2) outranks a
-/// shape defect (`malformed_wire`, class 3). Class 1 (repeated entry) is
-/// checked by the caller before any of these. Class 4, the selection's
-/// evidence, is FR-322 step 1: each row in lock order is admitted under
-/// FR-154's four checks and its declarations read, and the first refusal is
-/// the read's, at the row (or the row member it is about). The parse and
-/// read of each document are charged to `meter`, and an exhausted `work`
-/// limit is `incomplete` at the row (`/lock/model_selections/<i>`). Two rows
-/// sharing one identity but naming different digests are one identity
-/// selected twice: the later row refuses `stale_dependency` at its `digest`
-/// before any document is read, whatever documents the caller supplied.
-// Intake: checks the fixed digest domain of each domain package selection.
+/// The selected domain packages: one per `model_root` node owner, in
+/// ascending identity order. Each is the node position of its root. Two roots
+/// naming one identity refuse as an invalid graph at the later root's owner.
+fn selected_model_roots(
+    nodes: &[RawSemanticNodeV2],
+) -> Result<Vec<(Box<str>, usize)>, ValidationFailure> {
+    let mut roots: BTreeMap<Box<str>, usize> = BTreeMap::new();
+    for (position, node) in nodes.iter().enumerate() {
+        if let Some(CheckedNodeOwner::ModelRoot { identity }) = &node.owner {
+            if roots.insert(identity.clone(), position).is_some() {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    node_pointer(position).key("owner"),
+                ));
+            }
+        }
+    }
+    Ok(roots.into_iter().collect())
+}
+
+/// Admits the document supplied under each selected domain package identity
+/// (FR-322 "Model-owned members" step 1) and returns its declarations, in
+/// ascending identity order. Each document is charged to `meter` at its
+/// root's owner (`/semantic_graph/nodes/<i>/owner`), and an exhausted `work`
+/// limit is `incomplete` there.
 fn validate_domain_packages(
-    models: &[CheckedDomainPackageRef],
+    roots: &[(Box<str>, usize)],
     evidence: &CheckedPackageEvidence,
     meter: &mut WorkMeter,
     bytes: u64,
     unit_refs: &UnitRefs,
 ) -> Result<Vec<DomainModel>, ValidationFailure> {
-    let row = |index: usize| member_pointer(&["lock", "model_selections"]).index(index);
-    let at = |index: usize, member: &str| row(index).key(member);
-    if let Some(index) = models.iter().position(|model| {
-        PackageWireTag::from_wire(&model.digest_domain) != Some(PackageWireTag::ModelDigest)
-    }) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::DigestDomainMismatch,
-            at(index, "digest_domain"),
-        ));
-    }
-    let malformed = models.iter().enumerate().find_map(|(index, model)| {
-        if !is_nonempty(&model.identity) {
-            Some(at(index, "identity"))
-        } else if !is_digest(&model.digest) {
-            Some(at(index, "digest"))
-        } else {
-            None
-        }
-    });
-    if let Some(path) = malformed {
-        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, path));
-    }
-    let mut digests: BTreeMap<&str, &str> = BTreeMap::new();
-    for (index, model) in models.iter().enumerate() {
-        if digests
-            .insert(model.identity.as_ref(), model.digest.as_ref())
-            .is_some_and(|earlier| earlier != model.digest.as_ref())
-        {
-            return Err(refuse(
-                CheckedPackageRefusalCode::StaleDependency,
-                at(index, "digest"),
-            ));
-        }
-    }
-    models
+    let row = |root: usize| node_pointer(root).key("owner");
+    let at = |root: usize, member: &str| row(root).key(member);
+    roots
         .iter()
-        .enumerate()
-        .map(|(index, model)| {
-            let mut budget = Budget::new(meter, index, bytes);
-            admit_selection(model, evidence, &mut budget, unit_refs).map_err(
-                |failure| match failure {
+        .map(|(identity, root)| {
+            let root = *root;
+            let mut budget = Budget::new(meter, root, bytes);
+            admit_selection(identity, evidence, &mut budget, unit_refs).map_err(|failure| {
+                match failure {
                     SelectionFailure::Limit(failure) => failure,
                     SelectionFailure::InexactNumber {
                         document_pointer,
                         cause,
                     } => ValidationFailure::refused_number_in_document(
-                        at(index, "digest"),
+                        at(root, "identity"),
                         document_pointer,
                         cause,
                     ),
@@ -1911,20 +1821,12 @@ fn validate_domain_packages(
                             declaration_origin,
                             declaration_path,
                             document_pointer,
-                            mismatch,
                         } = *refused;
                         // Intake metadata is private. Its owning lifetime ends at
                         // this projection; none is attached to the public refusal.
                         drop((declaration_identity, declaration_origin, declaration_path));
-                        let path = member.map_or_else(|| row(index), |member| at(index, member));
-                        if let Some((expected, actual)) = mismatch {
-                            ValidationFailure::Refused(Box::new(CheckedPackageRefusal::mismatch(
-                                path,
-                                refusal.cause,
-                                expected,
-                                actual,
-                            )))
-                        } else if let Some(document_pointer) = document_pointer {
+                        let path = member.map_or_else(|| row(root), |member| at(root, member));
+                        if let Some(document_pointer) = document_pointer {
                             ValidationFailure::refused_because_in_document(
                                 refusal.code,
                                 path,
@@ -1935,8 +1837,8 @@ fn validate_domain_packages(
                             ValidationFailure::refused_because(refusal.code, path, refusal.cause)
                         }
                     }
-                },
-            )
+                }
+            })
         })
         .collect()
 }
@@ -2788,7 +2690,6 @@ fn validate_graph(
         meter,
         limits.bytes,
     )?;
-    model_root::validate_completeness(&graph.nodes, &kinds, &wire.lock)?;
     validate_declaration_names(&graph.nodes, &kinds, &index)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
@@ -2796,10 +2697,8 @@ fn validate_graph(
     validate_protocol_references(&graph.nodes, &kinds, &index)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
-    let owners = ModelOwners::new(models, |selection| {
-        meter.charge(1, || {
-            member_pointer(&["lock", "model_selections"]).index(selection)
-        })
+    let owners = ModelOwners::new(models, |root| {
+        meter.charge(1, || node_pointer(root).key("owner"))
     })?;
     extension::validate(wire, &kinds, &terms, &index, evidence, &owners, meter)?;
     let declarations = owners.index();
@@ -3487,13 +3386,13 @@ mod tests {
             "contract_version": super::CHECKED_PACKAGE_V2,
             "identity_preimage": {
                 "version": "quire.checked-package-id/v2", "edition": edition,
-                "profile_selections": [], "definition_selections": [], "model_selections": [],
+                "profile_selections": [], "definition_selections": [],
                 "required_features": [], "dependency_selections": []
             },
             "package_id": {"domain": super::PACKAGE_DOMAIN_V2, "algorithm": "sha256", "digest": "a".repeat(64)},
             "lock": {
                 "sources": [], "edition": edition, "profile_selections": [],
-                "definition_selections": [], "model_selections": [],
+                "definition_selections": [],
                 "required_features": [], "dependency_selections": []
             },
             "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": []},
@@ -3512,7 +3411,6 @@ mod tests {
             edition: &wire.identity_preimage.edition,
             profile_selections: &wire.identity_preimage.profile_selections,
             definition_selections: &wire.identity_preimage.definition_selections,
-            model_selections: &wire.identity_preimage.model_selections,
             required_features: &wire.identity_preimage.required_features,
             dependency_selections: &wire.identity_preimage.dependency_selections,
             identity_projection: &wire.semantic_graph.nodes,
@@ -3590,7 +3488,6 @@ mod tests {
                         edition: &wire.identity_preimage.edition,
                         profile_selections: &wire.identity_preimage.profile_selections,
                         definition_selections: &wire.identity_preimage.definition_selections,
-                        model_selections: &wire.identity_preimage.model_selections,
                         required_features: &wire.identity_preimage.required_features,
                         dependency_selections: &wire.identity_preimage.dependency_selections,
                         identity_projection: &wire.semantic_graph.nodes,

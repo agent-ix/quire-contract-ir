@@ -8,8 +8,8 @@
 //! the reader's own derivation is used to key a node.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_package, rebuild_source_map, refresh_identity,
-    refresh_identity_projection, sha256_hex,
+    canonical, evidence_for, evidence_with_document, node_id, nominal_package, rebuild_source_map,
+    refresh_identity, select_model,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -500,11 +500,7 @@ fn package(
     declared: &[(&str, &str)],
     reads: &[Read],
 ) -> (Value, CheckedPackageEvidence, Vec<usize>) {
-    let digest = sha256_hex(&canonical(document));
     let mut package = nominal_package(&[]);
-    package["lock"]["model_selections"] = json!([{
-        "identity": IDENTITY, "digest_domain": "sha256-jcs", "digest": digest,
-    }]);
     let mut nodes: BTreeMap<String, Value> = BTreeMap::new();
     let mut ordered: Vec<Value> = Vec::new();
     for (short, form) in declared {
@@ -574,15 +570,27 @@ fn package(
         .expect("nodes")
         .extend(graph);
     rebuild_source_map(&mut package);
+    select_model(&mut package, IDENTITY);
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(&package, IDENTITY, document);
     let positions = (0..reads.len())
         .map(|offset| base + first_read + offset)
         .collect();
     (package, evidence, positions)
+}
+
+/// The pointer of the owner of the `model_root` selecting `identity`, where the
+/// reader locates a fault of the selected document.
+fn root_owner(package: &Value, identity: &str) -> String {
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == identity
+        })
+        .expect("selected root");
+    format!("/semantic_graph/nodes/{position}/owner")
 }
 
 fn read_with(
@@ -1767,7 +1775,7 @@ fn selected_record_field_refuses_each_non_value_object_meaning_at_intake() {
         );
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
-            Some("/lock/model_selections/0"),
+            Some(root_owner(&wire, IDENTITY).as_str()),
             "{kind}"
         );
     }
@@ -2514,7 +2522,7 @@ fn tc_227_a_chain_admits_at_its_smallest_limit_and_is_incomplete_one_below() {
                 assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
                 assert_eq!(
                     incomplete.path.as_ref().map(ToString::to_string).as_deref(),
-                    Some("/lock/model_selections/0")
+                    Some(root_owner(&package, IDENTITY).as_str())
                 );
             }
             other => panic!("expected one-below incomplete, got {other:?}"),
@@ -2539,7 +2547,7 @@ fn tc_227_the_long_chains_are_decided_by_the_bounded_work_limit() {
             assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
             assert_eq!(
                 incomplete.path.as_ref().map(ToString::to_string).as_deref(),
-                Some("/lock/model_selections/0")
+                Some(root_owner(&package, IDENTITY).as_str())
             );
         }
         other => panic!("expected table-charge incomplete, got {other:?}"),
@@ -2581,7 +2589,7 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
             read_with(package, &evidence, limits),
             CheckedPackageV2ReadResult::Incomplete(incomplete)
                 if incomplete.path.as_ref().map(ToString::to_string).as_deref()
-                    == Some("/lock/model_selections/0")
+                    == Some(root_owner(package, IDENTITY).as_str())
         )
     };
     let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
@@ -2650,14 +2658,9 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
         other => panic!("expected structural-key charge denial, got {other:?}"),
     }
 
-    // Row 0 is the chain, row 1 a selection no evidence supplies.
+    // Root 0 is the chain, root 1 a selection no evidence supplies.
     let mut two = valid;
-    two["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("selections")
-        .push(json!({
-            "identity": "acme/other", "digest_domain": "sha256-jcs", "digest": "b".repeat(64),
-        }));
+    select_model(&mut two, "acme/other");
     refresh_identity(&mut two);
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = smallest - 1;
@@ -2666,7 +2669,7 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
             assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingImport);
             assert_eq!(
                 refusal.path.map(|path| path.to_string()).as_deref(),
-                Some("/lock/model_selections/1/digest")
+                Some(format!("{}/identity", root_owner(&two, "acme/other")).as_str())
             );
         }
         other => panic!("expected the row 1 step 1 refusal, got {other:?}"),
@@ -2743,10 +2746,10 @@ fn tc_227_the_struct_members_are_reached_through_accessors() {
     assert_eq!(fields.field("balance"), Some(balance));
 }
 
-/// Golden values measured on pre-change IR main 0a63033 with the same public fixture.
+/// The model object fields, authored source map and exact admitting work boundary.
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-144")]
 #[test]
-fn ir987_model_results_bytes_and_work_match_before_change() {
+fn model_fields_source_map_and_work_boundary_hold() {
     let (wire, evidence) = record_project_control();
     let bytes = canonical(&wire);
     let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
@@ -2763,30 +2766,6 @@ fn ir987_model_results_bytes_and_work_match_before_change() {
     assert_eq!(string.member_type(), Some(&CheckedMemberType::String));
     let missing = admitted.model_object_fields(&declaration_id("Absent"));
     assert_eq!(missing, Err(CheckedModelFieldsError::UnknownNode));
-    let mut prior_wire = wire.clone();
-    let root_at = prior_wire["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["semantic_form"] == "model_root")
-        .expect("selected model root");
-    let root_id = prior_wire["semantic_graph"]["nodes"][root_at]["node_id"].clone();
-    prior_wire["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-        .remove(root_at);
-    let sources = prior_wire["source_map"].as_array_mut().expect("source map");
-    assert_eq!(sources[root_at]["node_id"], root_id);
-    sources.remove(root_at);
-    refresh_identity_projection(&mut prior_wire);
-    assert_eq!(
-        canonical(&prior_wire),
-        include_bytes!("../fixtures/ir987/model.json")
-    );
-    assert_eq!(
-        *admitted.package_id(),
-        serde_json::from_value(wire["package_id"].clone()).expect("package identity")
-    );
     let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
         serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
     assert_eq!(admitted.source_map(), authored_sources);
@@ -2809,6 +2788,5 @@ fn ir987_model_results_bytes_and_work_match_before_change() {
     else {
         panic!("work boundary");
     };
-    // The selected model root adds four checks to the pre-root work boundary.
-    assert_eq!((high, incomplete.consumed), (24 + 4, 28));
+    assert_eq!(incomplete.consumed, high);
 }

@@ -162,7 +162,7 @@ pub use checked_package::{
     CheckedCompositeOperandDomain, CheckedCompositeOperandError, CheckedCompositeOperands,
     CheckedCompositeOperator, CheckedCompositeShapeEntry, CheckedDeclaration,
     CheckedDependencySelection, CheckedDiagnosticCause, CheckedDiagnosticCode,
-    CheckedDiagnosticStage, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedDomainPackageRef,
+    CheckedDiagnosticStage, CheckedDiagnosticV2, CheckedDiagnosticsV2,
     CheckedExtensionClauseSchema, CheckedExtensionDefinition, CheckedExtensionGrammarSchema,
     CheckedExtensionNodeSchema, CheckedExtensionProduction, CheckedExtensionRefusalDetail,
     CheckedExtensionTypedNodeSchema, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
@@ -204,7 +204,7 @@ pub use checked_package::{
     NominalOwner, ProtocolForm, RelationForm, ScalarTypeForm, SourceOwner, SourceOwnerKind,
     StateForm, StructuralCandidateError, StructuralCandidates, TemporalForm, TimedModelForm,
     UnitPreimage, ValueForm, CHECKED_PACKAGE_V2, CONTRACT_IR_SEMANTIC_DOMAIN,
-    CONTRACT_PACKAGE_VERSION, DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
+    CONTRACT_PACKAGE_VERSION, PACKAGE_DOMAIN_V2,
 };
 
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};

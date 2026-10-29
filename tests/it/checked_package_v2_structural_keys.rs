@@ -15,12 +15,12 @@
 //! conformance counterpart (AC-133) is read by `make conformance-qspec`.
 
 use crate::support::checked_package::{
-    application_node_key, bounds_body, canonical, evidence_for, family_key, grouped_local_key,
-    integer_range_key, mint_grouped_structural_keys, mint_ungrouped_structural_keys, model_owner,
-    node_id, nominal_package, over_body, owned_structural_node, rebuild_source_map,
-    refresh_identity, refusal_at, rename_node, settle, sha256_hex, source_owner, structural_key,
-    typed_node_id, v2_all_families, v2_nominal, ExpectedNodeId, ExpectedRefusal, BOOLEAN_KEY,
-    INTEGER_KEY,
+    application_node_key, bounds_body, canonical, evidence_for, evidence_with_document, family_key,
+    grouped_local_key, integer_range_key, mint_grouped_structural_keys,
+    mint_ungrouped_structural_keys, model_owner, node_id, nominal_package, over_body,
+    owned_structural_node, rebuild_source_map, refresh_identity, refusal_at, rename_node,
+    select_model, settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families,
+    v2_nominal, ExpectedNodeId, ExpectedRefusal, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -568,19 +568,12 @@ fn order_key() -> String {
     })))
 }
 
-/// A package whose lock selects `document` and whose one model-owned field
+/// A package that selects `document` and whose one model-owned field
 /// read, `Order.count` through `quire.op.record.project`, has the result type
-/// `result`. Returns it with the evidence that supplies exactly `supplied`.
-fn member_read(
-    document: &Value,
-    result: &str,
-    supplied: &[&Value],
-) -> (Value, CheckedPackageEvidence) {
+/// `result`. Returns it with the evidence that supplies `document`.
+fn member_read(document: &Value, result: &str) -> (Value, CheckedPackageEvidence) {
     let mut package = nominal_package(&[]);
-    package["lock"]["model_selections"] = json!([{
-        "identity": ORDERS, "digest_domain": "sha256-jcs",
-        "digest": sha256_hex(&canonical(document)),
-    }]);
+    select_model(&mut package, ORDERS);
     let order = order_key();
     let empty = json!({"term": "aggregate", "members": []});
     let body = json!({
@@ -648,12 +641,7 @@ fn member_read(
         .extend(nodes);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    for document in supplied {
-        evidence
-            .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
-            .expect("domain evidence declarations agree on exact bytes");
-    }
+    let evidence = evidence_with_document(&package, ORDERS, document);
     (package, evidence)
 }
 
@@ -742,7 +730,7 @@ fn tc_226_a_tampered_range_is_refused_at_its_node_wherever_it_is_reached_from() 
     // `Int[0, 1000]` in the selected document.
     let document = orders_document(1000);
     let wide = integer_range_key("0", "1000");
-    let (member_read, evidence) = member_read(&document, &wide, &[&document]);
+    let (member_read, evidence) = member_read(&document, &wide);
     match read(&member_read, &evidence) {
         CheckedPackageV2ReadResult::Admitted(_) => {}
         other => panic!("the unmutated member read: expected admission, read {other:?}"),
@@ -991,7 +979,7 @@ fn tc_226_a_body_reference_re_pointed_at_a_narrower_range_is_refused_at_its_node
             });
         }
         let key = structural_key("composite_type", form, None, &over_body(&base.wide));
-        let (package, evidence) = member_read(&document, &key, &[&document]);
+        let (package, evidence) = member_read(&document, &key);
         match read(&package, &evidence) {
             CheckedPackageV2ReadResult::Admitted(_) => {}
             other => panic!("{what}: expected admission, read {other:?}"),
@@ -1026,7 +1014,7 @@ fn tc_226_a_body_reference_re_pointed_at_a_narrower_range_is_refused_at_its_node
                              "ordered": false, "unique": true}
         }
     }]);
-    let (mut package, evidence) = member_read(&document, &base.wide, &[&document]);
+    let (mut package, evidence) = member_read(&document, &base.wide);
     let order = order_key();
     let (reference, reference_node) = collection("reference", &order);
     let (receiver, receiver_node) = parameter("receiver", "0", &reference);
@@ -1258,7 +1246,7 @@ fn tc_226_bounds_are_compared_exactly_at_the_i128_extremes() {
         document["types"][1]["constraints"][0]["operands"]["value"] = json!(min);
         document["types"][1]["constraints"][1]["operands"]["value"] = json!(max);
         let key = integer_range_key(min, max);
-        let (package, evidence) = member_read(&document, &key, &[&document]);
+        let (package, evidence) = member_read(&document, &key);
         match read(&package, &evidence) {
             CheckedPackageV2ReadResult::Admitted(_) => {}
             other => panic!("{what}: expected admission, read {other:?}"),
@@ -1271,42 +1259,6 @@ fn tc_226_bounds_are_compared_exactly_at_the_i128_extremes() {
                 "{what}: {member} changed to {changed}"
             );
         }
-    }
-}
-
-/// ACs: FR-038-AC-129
-#[trace("TC-226", "FR-038-AC-129")]
-#[test]
-fn tc_226_a_re_pointed_model_selection_is_decided_by_the_evidence_the_caller_holds() {
-    let original = orders_document(1000);
-    let narrow_document = orders_document(10);
-    let narrow = integer_range_key("0", "10");
-    // The selection re-pointed at the narrower document, its node re-keyed to
-    // `Int[0, 10]`, its `package_id` recomputed.
-    let (package, with_both) =
-        member_read(&narrow_document, &narrow, &[&original, &narrow_document]);
-    let (_, only_original) = member_read(&narrow_document, &narrow, &[&original]);
-
-    let refusal = refusal_of("the original document only", &package, &only_original);
-    assert_eq!(
-        (
-            refusal.code,
-            refusal.cause,
-            refusal.path.as_ref().map(|p| p.as_str())
-        ),
-        (
-            Code::MissingImport,
-            Some(Cause::MissingSelection),
-            Some("/lock/model_selections/0/digest"),
-        )
-    );
-    // The reader admits a package against whatever evidence it is given: with
-    // the re-pointed document supplied the package admits. This records the
-    // limit of the trust root; which document is authoritative is the
-    // caller's decision.
-    match read(&package, &with_both) {
-        CheckedPackageV2ReadResult::Admitted(_) => {}
-        other => panic!("the re-pointed document supplied: expected admission, read {other:?}"),
     }
 }
 
@@ -2526,7 +2478,7 @@ fn dependent_bounds_semantic_type_waits_for_target_key() {
 fn dependent_reference_target_waits_for_model_key() {
     let document = orders_document(1000);
     let range = integer_range_key("0", "1000");
-    let (package, evidence) = member_read(&document, &range, &[&document]);
+    let (package, evidence) = member_read(&document, &range);
     let order = order_key();
     let (reference, reference_node) = collection("reference", &order);
     let mut package = with_nodes(package, vec![reference_node]);

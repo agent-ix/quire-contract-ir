@@ -111,7 +111,7 @@ term-validation visits — as stable API, every member finite so that the defaul
 admits no unbounded read, and no member a nesting depth, the reader having no
 depth limit (see "Reading"); package evidence holding
 each selected domain package's Semantic IR 2.0.0 document
-supplied as bytes under its `sha256-jcs` digest, each selected dependency's
+supplied as bytes under its identity, each selected dependency's
 admitted V2 package supplied under its library identity, and the reader-supported
 required features; for lowering, requested node keys and a
 lowering profile (supported node tags, bounded-domain requirement, work
@@ -136,12 +136,12 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   canonical-order defect, of the frame node itself, so a caller need not
   re-derive from the path alone why admission failed or at which node.
   The public model-intake refusal conversion retains its existing code, cause
-  and selection-row pointer. Declaration identity/origin retention below is
+  and root-owner pointer. Declaration identity/origin retention below is
   implemented at the private intake return and checked by crate-local tests,
   not part of this public output.
-  A `stale_dependency` refusal with cause `content-mismatch` or
-  `byte-digest-mismatch` also carries the two typed digest identities it compares, as
-  `expected` and `actual` ("Digest mismatches: content and byte").
+  A `stale_dependency` refusal with cause `content-mismatch`
+  also carries the two typed digest identities it compares, as
+  `expected` and `actual` ("Content mismatch").
 - One lowering record per requested item, drawn from a closed seven-member
   vocabulary: `lowered`, `unsupported`, `requires_bound`, `invalid_input`,
   `failed`, `invalid_body` and `body_incomplete`. The last two are defensive:
@@ -218,13 +218,11 @@ them), its `declaration.qualified_name`, one frame entry, one `aggregate`
 member, or an `operation` law, mode or member. A reference that resolves to no
 node points at that reference. A stale preimage or lock mirror points at the
 first value, in document order, where the retained copy differs from the one
-the reader derived. Within a `lock.model_selections` defect class, the
-pointer names the first entry of that class in array order. The array
-position never decides the code. A cycle without one shared
+the reader derived. A cycle without one shared
 `recursion_group` points at the lowest-positioned member at fault: at its
 `recursion_group` when it carries a different one, else at the node, which
 lacks the member. Where this specification names the location of a refusal
-as a dotted member path, such as `lock.model_selections`, the returned
+as a dotted member path, such as `lock.sources`, the returned
 pointer names that member at its concrete indices, or the object that lacks
 it.
 
@@ -331,7 +329,7 @@ declaration, recursion and nominal-preimage fields. The reader SHALL encode
 this borrowed graph view through `CheckedPackageIdentityPreimageRefV2` and
 `quire_canonical::Encode`, without retaining another body collection.
 The wire `CheckedPackageIdentityPreimageV2` SHALL retain only `version`,
-`edition`, `profile_selections`, `definition_selections`, `model_selections`,
+`edition`, `profile_selections`, `definition_selections`,
 `required_features` and `dependency_selections`; its lock selections SHALL
 equal the corresponding lock members. The reader SHALL refuse an extra immediate selection member as `malformed_wire`
 at that member's pointer. In particular, a shipped `identity_projection`,
@@ -341,97 +339,56 @@ package identity or graph validation. There is no old-wire compatibility path. C
 checks SHALL use the existing header decoder before hashing, so the published
 unsupported-tag and wrong-form vectors retain their first refusal. It shall check each digest's declared domain before its bytes,
 each selected domain package by reading the document the
-evidence supplies under its `sha256-jcs` digest (see "Model-owned members"
+evidence supplies under its identity (see "Model-owned members"
 below), every required feature against
 the reported `available` capability and the reader-supported feature set,
 every node tag, family form and semantic term, reference and dependency
 resolution, cycles outside one explicit `recursion_group`, and the total
 source map.
 
-For `model_selections`, whole-array uniqueness is checked before any entry's
-digest is checked against the document the evidence supplies, so an array
-carrying both a repeated entry and an entry whose document is missing or does
-not match has one determined outcome
-rather than a position-dependent one: the reader shall first refuse, as
-`malformed_wire` at `lock.model_selections`, an array that repeats an entry
-anywhere in it (identity, digest domain and digest all equal), and
-only once no
-entry repeats shall it check any entry's digest against the domain package
-evidence. An array carrying both a repeated entry and an entry whose digest
-no supplied document satisfies therefore always refuses as `malformed_wire`,
-never as `stale_dependency`, regardless of which defect appears first.
-
-Every other `model_selections` defect is decided the same way.
-
-The reader shall select the array's single refusal under this total order over
-defect classes, so that an array carrying two defects has one determined
-outcome rather than a position-dependent one:
-
-1. A repeated entry anywhere in the array refuses as `malformed_wire` at
-   `lock.model_selections`.
-2. An entry whose `digest_domain` is not `sha256-jcs` refuses as
-   `digest_domain_mismatch` at `lock.model_selections`.
-3. An entry with an empty `identity` or a `digest` that is not a SHA-256 hex
-   digest refuses as `malformed_wire` at `lock.model_selections`.
-4. An entry whose selection evidence FR-322 step 1 does not admit (see
-   "Model-owned members" below) refuses with that step's code and cause:
-   `missing_import`/`missing-selection` at the entry's `digest` when the
-   evidence supplies no document under it, `noncanonical_wire` at its `digest`
-   with a `document_pointer` and a cause (FR-038-AC-109) when the document holds a number whose exact value its RFC 8785 encoding loses (quire-specification:FR-272), among them one whose text denotes a magnitude past 2^53 (this
-   precedes the digest comparison), `stale_dependency`/`content-mismatch` at
-   its `digest` when the document reads and its RFC 8785 SHA-256 is another
-   digest than the row's, `stale_dependency`/`byte-digest-mismatch` at its
-   `digest` when the bytes do not read and their plain SHA-256 is another
-   digest than the row's (both carry the two digests; see "Digest mismatches:
-   content and byte"), `invalid_model_binding`/`wrong-model-selection` at its
-   `identity` when the document names another identity or when the bytes do
-   not read and the row's digest is their plain SHA-256, and the first FR-154 declaration refusal
-   of the document at the entry. Two entries naming one `identity` but
-   different digests are one identity selected twice: the later entry refuses
-   `stale_dependency` at its `digest`, whatever documents the evidence
-   supplies, before any document is read.
+A domain package is selected by a `model_root` node's owner, not by a lock
+member: the lock holds no domain-package row, the identity preimage mirrors none
+and the package identity hashes none. The selected identities are the
+`ModelRootOwner` identities of the graph, one root per identity; a second root
+naming one identity refuses `invalid_semantic_graph` at the later root's
+`owner` (`/semantic_graph/nodes/<i>/owner`). The reader admits each selected
+package in ascending identity order under FR-322 step 1 (see "Model-owned
+members" below): `missing_import`/`missing-selection` at the root's
+`owner/identity` when the evidence supplies no document under that identity,
+`malformed_wire`/`malformed-json` at that pointer when the bytes do not read,
+`noncanonical_wire` at that pointer with a `document_pointer` and a cause
+(FR-038-AC-109) when the document holds a number whose exact value its RFC 8785
+encoding loses (quire-specification:FR-272), among them one whose text denotes a
+magnitude past 2^53, `invalid_model_binding`/`wrong-model-selection` at that
+pointer when the document names another identity, and the first FR-154
+declaration refusal of the document at the root's `owner`.
 
 For an operation in a selected domain document, FR-154-AC-14 validates each
 parameter's declared `name` before any frame entry reads the operation. A
 missing, non-string, empty, syntactically invalid or identity-mismatched name
-refuses `invalid_model_binding`/`malformed-declaration` at that selection row.
+refuses `invalid_model_binding`/`malformed-declaration` at that package's root `owner`.
 Repeated parameter identities refuse `invalid_model_binding`/
 `conflicting-binding` first, suppressing the name checks of both colliding
 parameters. The private intake refusal retains the operation's identity,
 origin and `TypeDefinition.operations[k].params[s].name` member path for a
-name defect; the public refusal has the row pointer above. For a repeated
+name defect; the public refusal has the root `owner` pointer above. For a repeated
 identity the private refusal retains the shared parameter identity and later
 parameter's `TypeDefinition.operations[k].params[s]` path without an origin.
 
 A selection is bound by `identity` alone (see "Selections bind by identity"
-below), and the nominal `model` owner joins `lock.model_selections` by
-identity, so the lock must hold at most one row per model identity for that
-join to be sound. The classes guarantee it: two rows of one identity are
-either a repeat (class 1) or differ in `digest` (class 4), and both refuse.
-The guarantee is scoped to one lock: the nominal `Model`-owned node key is
+below), and the nominal `model` owner joins the `model_root` of that identity.
+The graph holds at most one root per identity, so the join is sound. The
+guarantee is scoped to one package: the nominal `Model`-owned node key is
 derived from content alone, so two different packages that each select one
 document of the same identity derive the same node key for the same content.
 That is the intended content-only identity (QSpec STD-145), not a defect.
-QSpec's `ModelRef` has no `version` member, so there is no second selection of
-one identity "at another version" for the lock to contain: a row that carries
-`version` is refused by its shape (FR-038-AC-62), before any class above.
-
-Each class is evaluated over the whole array before the next class is
-evaluated over any of it. The refusal an array draws is therefore the code of
-the least class it carries a defect of, whatever order the defective entries
-appear in. Within one class the reader draws no distinction: every entry of a
-class refuses with that class's own code at the one array path, so which entry
-of a class is named is not an observable of the contract. An exact repeated
-entry is also a same-identity pair; class 1 is evaluated first, so it refuses
-as `malformed_wire` and never as the class 4 `stale_dependency` of a pair that
-differs in `digest`.
 
 When a node is an enum declaration, enum member, dimension or declared unit, the
 reader shall reconstruct the closed nominal preimage, require
 `node_id.digest` to equal the SHA-256 of its canonical bytes, require the owner
-to join an exact lock selection (source and definition owners by authority and
-identity, model owners by domain package identity with a nonempty IR node
-identity), and enforce identifier, canonical-integer,
+to join an exact selection (source and definition owners by authority and
+identity in the lock, model owners by the identity of a `model_root` with a
+nonempty IR node identity), and enforce identifier, canonical-integer,
 reduced-rational, member/term order, duplicate/zero-exponent, root/non-root
 unit, base-dimension and cross-field (`semantic_type`, dependencies, enum
 literal body) rules. Any violation refuses as `invalid_semantic_graph`; a
@@ -451,9 +408,9 @@ model-owned node key, in both places, from the owner's three members alone,
 so a node key depends only on content, never on the version of the domain
 package that declares it, and shall recover a declaring node's owner (step 2
 of "Model-owned members") and compare a reference's member type against those
-version-free keys. The lock's `model_selections` row carries no `version`
-either (QSpec `ModelRef`, "Selections bind by identity"), so the owner's
-`identity` joins the row by identity and nothing else. The reader shall
+version-free keys. The `model_root` owner carries no `version` and no digest either
+("Selections bind by identity"), so the owner's `identity` joins the root of
+that identity and nothing else. The reader shall
 refuse an owner of kind `model` that carries a `version` member, or any member
 outside `kind`, `identity` and `node`, as `unknown_member` at that member, as
 every closed shape does; this is the closed shape QSpec publishes, not a
@@ -514,8 +471,8 @@ its own: there is no `value_to_vec` in `checked_package/v2/encode.rs`
 | `CheckedSemanticId` | `FixedShape` | three strings |
 | `CheckedSourceMapEntry` | `FixedShape` | `CheckedNodeId`, `CheckedOccurrenceRole`, an integer and `CheckedSourceRegion`s of `CheckedArtifactRef`s: every member nests to a depth fixed by its type |
 | `CheckedCapability` | `FixedShape` | a string and the closed `CheckedCapabilityDisposition` |
-| `CheckedPackageLockV2` | `FixedShape` | arrays of `CheckedArtifactRef`, `CheckedSelection`, `CheckedDomainPackageRef`, `CheckedDependencySelection` and strings: no `Value` and no recursive member |
-| `CheckedPackageIdentityPreimageV2` | `Encode` | seven fixed-depth selection members; no node bodies |
+| `CheckedPackageLockV2` | `FixedShape` | arrays of `CheckedArtifactRef`, `CheckedSelection`, `CheckedDependencySelection` and strings: no `Value` and no recursive member |
+| `CheckedPackageIdentityPreimageV2` | `Encode` | six fixed-depth selection members; no node bodies |
 | `CheckedPackageIdentityPreimageRefV2` | `Encode` | borrowed graph nodes supply the derived hash projection; node bodies delegate to iterative `Value` encoding |
 | `CheckedSemanticGraphV2` | `Encode` | every `CheckedSemanticNodeV2` has a `body` that is a `Value` |
 | `CheckedDiagnosticsV2` | `Encode` | every `CheckedDiagnosticV2` carries `details: Vec<Value>` |
@@ -523,7 +480,7 @@ its own: there is no `value_to_vec` in `checked_package/v2/encode.rs`
 | `LoweredNodePreimage` | `Encode` | it holds the lowered node, whose `body` is a `Value` |
 | `ContractPackagePreimage` | `Encode` | it holds every lowered node and dependency node |
 | `NominalIdentityPreimage` | `FixedShape` | four closed preimage structs of strings, `CheckedRational`s and `DimensionTerm`s, its owner a `NominalOwner` |
-| the structural node preimage of a model declaration node | `FixedShape` | a fixed body (`aggregate` with no members), `null` for the members the shape declares null, and a `ModelOwner` of three strings |
+| the structural node preimage of a model declaration node | `FixedShape` | a fixed body (`aggregate` with no members), `null` for the members the shape declares null, and a `ModelOwner` of three strings, or a `ModelRootOwner` of two |
 
 Each fixed-depth type derives `FixedShape`, and so does every type it holds, so
 a member that later grows a recursive or `Value` member stops compiling instead
@@ -531,7 +488,7 @@ of recursing. The types held by the four `FixedShape` types are the node
 identity `CheckedNodeId`, `CheckedOccurrenceRole`, `CheckedSourceRegion`, the
 artifact-reference types `CheckedArtifactRef` and `CheckedSourceRef` (the
 reference shape of FR-038-AC-46 through FR-038-AC-61), `CheckedSelection`, `CheckedSelectionRole`, `CheckedCapabilityDisposition`,
-`CheckedDomainPackageRef` and `CheckedDependencySelection`. The `Encode`
+and `CheckedDependencySelection`. The `Encode`
 types delegate their fixed-depth members to `Writer::serialize`, which
 requires `FixedShape`, so these derive it as well: `CheckedOccurrence`,
 `CheckedDeclaration`, `NominalIdentityPreimage` with `EnumDeclarationPreimage`,
@@ -796,134 +753,79 @@ pre-order, after the closed-schema decode and before any identity is recomputed
 ### A model document is a value inside a supplied document
 
 A selected domain package's Semantic IR 2.0.0 document is evidence the caller
-supplies under its `sha256-jcs` digest, and the reader recomputes that digest
-(FR-322 step 1) through `quire-canonical`: the document is read with
-`quire_canonical::read`, which keeps each number's text, and encoded from that
-reading, under the reader's byte limit. It is not parsed a second time into a
-`serde_json::Value`, so there is one reader for the document and the decision
-below is made on the number's text before any rounding to a double. Two
-refusals about it are different in kind and are not two forms of one refusal:
+supplies under the package's identity (FR-322 step 1). The document is read
+once with `quire_canonical::read`, which keeps each number's text, under the
+reader's byte limit. It is not parsed a second time into a `serde_json::Value`
+for the number decision, which is made on the number's text before any rounding
+to a double. Two refusals about it are different in kind:
 
 - A refusal about the checked package's own byte stream (malformed JSON,
   non-canonical bytes: FR-038-AC-79) is about the document the reader was handed
   as the package. It carries no pointer, because no value of that document is
   the fault: the bytes as a whole are.
 - A refusal about a value located inside a supplied domain document is about
-  one number of that document (any number whose text denotes a magnitude past
-  2^53, however spelled), which is not the package. It carries the RFC 6901
-  pointer of that number into the model document.
+  one number of that document, which is not the package. It carries the RFC 6901
+  pointer of that number into the model document, as `document_pointer`.
 
-Before the digest is computed, the reader refuses a model document that holds,
-at any depth, a number whose text denotes a value of magnitude greater than 2^53
-(9007199254740992), however it is spelled: `9007199254740993`,
-`9.007199254740993e15`, `1e20` and an integer spelling past the 64-bit range
-are all refused, and `9007199254740992`, `-9007199254740992` and
-`9.007199254740992e15` are admitted. The decision is on the text, so a
-spelling a double would round to 2^53 is still refused. RFC 8785 has no exact
-number past 2^53, so two different documents would otherwise share one digest.
-This is this repository's own rule, not one a consumer or the specification
-requires of it: IR refuses because two documents that differ in such a number
-must not share a digest. It is a reader change: a bound such as an integer
-type's `Int[lo, hi]` past 2^53 in a model document, which this reader accepts
-exactly today, is refused. The refusal is `noncanonical_wire`, located at the
-selection row's `digest` (`/lock/model_selections/<i>/digest`) and carrying a
-`document_pointer`, the pointer of the first such number in document order, except
-that a number with no finite double is named when the reader reaches it (see the
-first-fault rule below) (`/package/count` for a member `count` of the object `package` at the document's
-root). It is decided at the place the digest comparison is: after the supplied
-document is read and before any digest is computed, so it precedes the
-`content-mismatch` and the identity refusals of the same row. The document is
-read and encoded under the reader's byte limit: bytes that exceed it return
-`incomplete` for `bytes` with that limit and the document's length as consumed
-and no pointer, as every byte-limit outcome is (FR-038-AC-26); the `work` limit
-charged for the same document is located at the row (FR-038-AC-30), and the two
-are different limits with different locations.
+The reader refuses a model document that holds, at any depth, a number whose
+text denotes a value of magnitude greater than 2^53 (9007199254740992), however
+it is spelled: `9007199254740993`, `9.007199254740993e15`, `1e20` and an integer
+spelling past the 64-bit range are all refused, and `9007199254740992`,
+`-9007199254740992` and `9.007199254740992e15` are admitted. The decision is on
+the text, so a spelling a double would round to 2^53 is still refused. The
+refusal is `noncanonical_wire`, located at the root's owner identity
+(`/semantic_graph/nodes/<i>/owner/identity`) and carrying a `document_pointer`,
+the pointer of the first such number in document order, except that a number
+with no finite double is named when the reader reaches it (`/package/count` for
+a member `count` of the object `package` at the document's root). The document
+is read under the reader's byte limit: bytes that exceed it return `incomplete`
+for `bytes` with that limit and the document's length as consumed and no
+pointer, as every byte-limit outcome is (FR-038-AC-26); the `work` limit charged
+for the same document is located at the root's `owner` (FR-038-AC-30), and the
+two are different limits with different locations.
 
 The same check refuses a number whose exact value its RFC 8785 encoding loses,
 by the requirements of the QSpec native `noncanonical_wire` diagnostic
 (quire-specification:FR-271) and its two causes (quire-specification:FR-272):
 `inexact-integer` for a number whose text denotes a whole value past 2^53,
-however spelled, which is every number FR-038-AC-93 refuses, and
-`inexact-number` for any other number that FR-272 defines as inexact; a number
-that matches both reports `inexact-integer`. A model document is read once by
-`quire_canonical::read`, which keeps each number's text next to its double, and
-is digested through `quire-canonical`; because the reader refuses a number whose
-text is not the exact spelling of its double's value, two model documents that
-differ only in such a number (`0.1000000000000000000001` and `0.1`,
-`9007199254740993.5` and `9007199254740994.0`) no longer share one digest: the
-first of each pair is refused. A
-number past the double range (`1e400`, `-1e400`) is an `inexact-integer`
-(FR-038-AC-110; see the QSL ruling below). `quire_canonical::read` refuses such
-a number with `ReadError::NumberOutOfRange`, which carries the number's RFC 6901
-pointer and source text, and `admit_document` maps it to that refusal, with the
-cause `inexact-integer` when the text denotes a whole value past 2^53 and
-`inexact-number` otherwise (a literal such as 400 nines followed by `.5`);
-every other read failure but the byte limit is a document with no RFC 8785
-form, decided under the raw-bytes rule of "Digest mismatches: content and
-byte" below (`stale_dependency`/`byte-digest-mismatch` at the row's `digest`
-under any digest but the bytes' own plain SHA-256, which is
-`invalid_model_binding`/`wrong-model-selection` at the row's `identity`).
+however spelled, and `inexact-number` for any other number that FR-272 defines
+as inexact; a number that matches both reports `inexact-integer`. The text a
+number is compared with is the one `quire-canonical` writes for it, whose
+tie-breaking is the even last digit. `quire_canonical::read` refuses a number
+past the double range with `ReadError::NumberOutOfRange`, which carries the
+number's RFC 6901 pointer and source text, and `admit_document` maps it to that
+refusal, with the cause `inexact-integer` when the text denotes a whole value
+past 2^53 and `inexact-number` otherwise. Every other read failure but the byte
+limit is bytes that are not strict JSON (a truncation, a repeated member name,
+a lone surrogate escape, invalid UTF-8): `malformed_wire`/`malformed-json` at
+the root's `owner/identity`, with no `document_pointer`.
 
 When one document carries several faults, the first fault `quire_canonical::read`
-returns decides, as QSL's merged FR-056 says (QSL #625). The read checks, in
-this order: the byte limit; that the whole input is UTF-8; then one pass in
-document order, in which a number past the double range is raised when it is
-read, a repeated member name only when its object closes, and any other
-malformation (truncation, a lone surrogate escape) at its offset. It stops at the
-first fault. So invalid UTF-8 anywhere in the bytes is the first fault even after
-an out-of-range number (`[1e400,"<0xFF>"]` refuses `byte-digest-mismatch` with no
-pointer), whereas a lone surrogate escape after the number is read after it
-(`[1e400,"\ud800"]` names `/0`). An
-out-of-range number is named ahead of every earlier inexact number, which is
-decided only after a read that finds no fault (`{"b":0.1000000000000000000001,"a":[1e400]}`
-and `{"b":9007199254740993,"a":[1e400]}` name `/a/0` as `inexact-integer`). A
-repeated name in an object that closes before the out-of-range number decides
-first and the bytes refuse `byte-digest-mismatch` (`[{"a":1,"a":2},1e400]`); a
-repeated name in the object that still holds the number open is not yet
-detected, so the number is named (`{"a":1,"a":2,"n":1e400}` names `/n`); a
-truncation after the number is read after it (`[1e400` names `/0`); and `1e-400`,
-which the read accepts, decides nothing ahead of a repeated name
-(`{"a":1,"a":2,"n":1e-400}` refuses `byte-digest-mismatch`). The "first in
-document order" of FR-038-AC-93 and FR-038-AC-110, and of this note's
-`document_pointer` sentence, is the first number, among the numbers this
-reader decides on their text after a read that succeeds, in document order; a
-number with no finite double is named when the read reaches it, as QSL's
-FR-056 excepts it. That ordering of the faults is QSL's rule, which this reader
-implements through the one read; it is not an IR choice. The `byte-digest-mismatch`
-outcome of a raw-path document is the outcome under a digest that is not the
-document's raw digest; under its own raw digest QSL's merged FR-056 refuses
-unparseable bytes `invalid_model_binding`/`wrong-model-selection`, and so does
-this reader (FR-038-AC-216). A number below the double range (`1e-400`) reads as zero with
-its text kept, so it is an `inexact-number` through the rule above. The reader decides each number of a model document from
-its text, through no `serde_json` value. The package document is a different
-read: it is parsed through `serde_json` and its bytes compared with the
-canonical bytes of the value read, so the crate's own manifest declares
-`serde_json` with the feature `float_roundtrip` (FR-038-AC-111), which makes
-that parse of a shortest round-trip text exact whatever other crates in the
-build turn on. `CheckedPackageRefusalCause` carries the members
-`inexact-integer` and `inexact-number`. The refusal is the one of FR-038-AC-93,
-located at the row's `digest` with the `document_pointer` of the first such
-number in document order, and carries the cause (FR-038-AC-109 through
-FR-038-AC-111). The package's
+returns decides. The read checks, in this order: the byte limit; that the whole
+input is UTF-8; then one pass in document order, in which a number past the
+double range is raised when it is read, a repeated member name only when its
+object closes, and any other malformation at its offset. It stops at the first
+fault. So invalid UTF-8 anywhere in the bytes is the first fault even after an
+out-of-range number (`[1e400,"<0xFF>"]` is `malformed-json` with no pointer),
+whereas a lone surrogate escape after the number is read after it
+(`[1e400,"\ud800"]` names `/0`). An out-of-range number is named ahead of every
+earlier inexact number, which is decided only after a read that finds no fault.
+A repeated name in an object that closes before the out-of-range number decides
+first (`[{"a":1,"a":2},1e400]` is `malformed-json`); a repeated name in the
+object that still holds the number open is not yet detected, so the number is
+named (`{"a":1,"a":2,"n":1e400}` names `/n`); a truncation after the number is
+read after it (`[1e400` names `/0`). A number below the double range (`1e-400`)
+reads as zero with its text kept, so it is an `inexact-number`. The "first in
+document order" of FR-038-AC-93 and FR-038-AC-110 is the first number, among the
+numbers this reader decides on their text after a read that succeeds, in
+document order. The package document is a different read: it is parsed through
+`serde_json` and its bytes compared with the canonical bytes of the value read,
+so the crate's own manifest declares `serde_json` with the feature
+`float_roundtrip` (FR-038-AC-111), which makes that parse of a shortest
+round-trip text exact whatever other crates in the build turn on. The package's
 own byte stream already refuses such a number, because its text is not the
 canonical bytes of the value read, and carries neither cause nor pointer
-(FR-038-AC-79). The whole-number rule of FR-038-AC-93 is unchanged. QSL
-never emits such a number, so this change has no lockstep with QSL. The text a
-number is compared with is the one `quire-canonical` writes for it, whose
-tie-breaking is the even last digit, as QSL's merged intake rule (FR-056-AC-13
-and FR-056-AC-14, quire-spec-language #617, merged as
-8244dd2b4a63b312ca36a8f254cdc096590eb9b9) takes it, so the two readers agree on
-every number with a finite IEEE 754 double. For a number with no finite double,
-such as `1e400` and `-1e400`, QSL's merged FR-056 (AC-2 and TC-145) says it
-refuses `noncanonical_wire`/`inexact-integer` (`1e-400`: `inexact-number`) with the
-number's `document_pointer`, as QSpec FR-272 (`inexact-integer`, "however
-spelled") does, unless an earlier reader fault decides, and names the first fault
-`read` returns when faults coexist (QSL #625). `quire-canonical`'s `read` carries
-the number's pointer and lexeme and IR maps it (IR-555), so the two readers agree
-on these documents too, and on the raw-digest case above (FR-038-AC-216). QSL's rule also checks the members of an invocation or snapshot
-document it admits (QSL FR-106-AC-11); this reader reads no invocation or
-snapshot document, only the selected model documents and the package document,
-so that clause has no counterpart here.
+(FR-038-AC-79).
 
 ### Artifact references
 
@@ -1026,53 +928,47 @@ only that one-time read of the build's own bytes may stop the process
 
 ### Selections bind by identity
 
-QSpec's `ModelRef` is the closed shape `{identity, digest_domain, digest}` and
-its `DependencySelection` the closed shape `{identity, package_id}` (FR-322
+QSpec's `DependencySelection` is the closed shape `{identity, package_id}` (FR-322
 `lock` and `identity_preimage`; QSpec `schema.json`), and this reader's
-`CheckedDomainPackageRef` and `CheckedDependencySelection` are exactly those
-shapes. Neither carries a `version`: the content identity of what a selection
-names lives in its `digest` or `package_id`, which the reader checks against
-the supplied evidence, and not in a version label the reader could compare with
-nothing authoritative. The same rows are mirrored in `identity_preimage`, so
-the version member is absent from the bytes that enter `package_id` as well.
-QSpec's `ModelOwner`, `DefinitionRef` and `RawSourceRef` already carry none
+`CheckedDependencySelection` is exactly that shape. It carries no `version`: the
+content identity of what a dependency selection names lives in its `package_id`,
+which the reader checks against the supplied evidence. A domain package carries
+neither a version nor a digest anywhere in the package: it is selected by its
+`model_root` owner `{kind: "model_root", identity}` alone, there is no
+`model_selections` lock member and no `identity_preimage` mirror of one, and the
+package identity hashes only the identity inside the root's owner. QSpec's
+`ModelOwner`, `ModelRootOwner`, `DefinitionRef` and `RawSourceRef` carry none
 (FR-038-AC-45, "Artifact references").
 
-A selection binds to its evidence, to the owner that names it and to the rest
-of the lock by `identity`, with the content digest as the only other
-comparison:
+A selection binds to its evidence, to the owner that names it and to the rest of
+the package by `identity`:
 
-- A `model_selections` row binds the document the evidence supplies under its
-  `digest` when that document's own `package` identity equals the row's
+- A `model_root` owner binds the document the evidence supplies under its
+  `identity` when that document's own `package` identity equals the owner's
   `identity`. Step 1 reads the document's `package.identity` alone:
   `package.version` is neither required nor read, so a document with no
-  `package.version`, or a non-string one, admits when its identity and digest
-  match. A model
-  owner, and the owner of a model declaration node, joins the row whose
+  `package.version`, or a non-string one, admits when its identity matches. A
+  model owner, and the owner of a model declaration node, joins the root whose
   `identity` equals the owner's `identity`.
 - A `dependency_selections` entry binds the package the evidence supplies under
-  its `identity` when that package's recomputed `package_id` equals the
-  entry's. No version is compared.
+  its `identity` when that package's recomputed `package_id` equals the entry's.
+  No version is compared.
 - Two selections of one kind are the same selection when their `identity` is
-  equal, so the lock holds at most one entry per identity. The two kinds refuse
-  a second entry of one identity under different rules. For
-  `model_selections` it is class 1 (an exact repeat, `malformed_wire`) or class 4
-  (a different digest, `stale_dependency`); the `stale_dependency` code is this
-  reader's own choice, kept from FR-038-AC-10, because QSpec's reader assigns no
-  code to a repeated model identity (its FR-321 checker refuses it, which is not
-  a reader code). For `dependency_selections` it is `invalid_package` with cause
-  `conflicting-definition`, which QSpec FR-322 states ("Dependency selections").
+  equal. The graph holds at most one `model_root` per identity (a second refuses
+  `invalid_semantic_graph` at its `owner`), and the lock holds at most one
+  `dependency_selections` entry per identity (`invalid_package` with cause
+  `conflicting-definition`, which QSpec FR-322 states, "Dependency selections").
 
-No version evidence remains in the lock row: the reader holds no member that
-records, mirrors or checks the version of a selected domain package or library.
-A package whose `model_selections` row or `dependency_selections` entry carries
-a `version` member, in the lock or in the identity preimage, is refused by the
-closed shape as `unknown_member` at that member when it otherwise has every
-required member (FR-038-AC-62, FR-038-AC-63); a dependency entry that also lacks
-`package_id` is `malformed_wire` at the entry ("Dependency selections").
-This is a refusal control, not a compatibility layer: the reader never drops,
-ignores, relabels or compares the extra member, and keeps no reader for the
-earlier shape.
+A `model_root` owner carrying a `digest` or a `version` member, or any member
+outside `kind` and `identity`, is refused by the closed shape as `unknown_member`
+at that member. A `lock` or `identity_preimage` carrying a `model_selections`
+member is refused as `unknown_member` at that member. A `dependency_selections`
+entry carrying a `version` member, in the lock or in the identity preimage, is
+refused by the closed shape as `unknown_member` at that member when it otherwise
+has every required member (FR-038-AC-63); a dependency entry that also lacks
+`package_id` is `malformed_wire` at the entry ("Dependency selections"). This is
+a refusal control, not a compatibility layer: the reader never drops, ignores,
+relabels or compares the extra member, and keeps no reader for the earlier shape.
 
 ### Model-owned members
 
@@ -1082,15 +978,14 @@ body is `aggregate{[]}` and names no member (QSpec FR-322 "Model-owned
 members" and "Reference conformance"; FR-154 for the declaration read). The
 reader runs FR-322's four steps:
 
-1. **Selection evidence**, before graph admission, for each `model_selections`
-   row in lock order: the digest domain, the document supplied under the
-   digest, the check that the document holds no number whose text denotes a magnitude past 2^53, the
-   recomputed RFC 8785 SHA-256 and the document's own identity, in
-   that order (class 4 above). The reader then reads the
+1. **Selection evidence**, before graph admission, for each `model_root` owner in
+   ascending identity order: the document supplied under the identity, the check
+   that the document holds no number whose text denotes a magnitude past 2^53
+   and its own identity, in that order. The reader then reads the
    document's object types, record value types, systems interfaces, integer
    value types and relationships, node by node in ascending IR node identity,
-   and refuses with the first declaration refusal at the row
-   (`/lock/model_selections/<i>`).
+   and refuses with the first declaration refusal at the root's `owner`
+   (`/semantic_graph/nodes/<i>/owner`).
    Within one node its failures report in FR-154's table order (a `typeRef`
    naming no node before a multiplicity with `lower > upper`), and a reference
    to a node refused for its own object id, kind or repeated identity is not
@@ -1148,7 +1043,7 @@ against those authoritative schema definitions, including the origin's
 referenced common-schema branch and closed shape. An absent, null,
 wrong-typed, unsupported-enum or otherwise schema-invalid non-end member
 refuses `invalid_model_binding`/`malformed-declaration` in step 1 at the
-selection row with its typed code, cause and RFC 6901 pointer. This public
+package's root `owner` with its typed code, cause and RFC 6901 pointer. This public
 conversion does not retain FCD origin or declaration identity; the private
 intake return's planned retention is governed below. A generated origin has
 no source span. The schema is
@@ -1262,7 +1157,7 @@ traversal remains FR-043's owner responsibility; this reader checks the static
 package binding only.
 
 These declaration checks run in step 1 above, including for an otherwise
-unused relationship. Their outer pointer is `/lock/model_selections/<i>`.
+unused relationship. Their outer pointer is the root's `owner`, `/semantic_graph/nodes/<i>/owner`.
 The reader SHALL retain the selected declaration's authentic
 identity and valid origin in the private intake refusal under the retention contract below. A nested relationship
 refusal shall retain that relationship's context, not its enclosing object type.
@@ -1277,12 +1172,12 @@ multiplicity. A reference to a declaration refused for its identity or kind
 keeps that declaration's own refusal, independent of node order; it SHALL NOT
 be recast as a missing end type. Selected-document parsing and each
 relationship node and member read are charged through the existing work meter
-at the selection row. Exhaustion of that selection-stage charge returns
+at the root's `owner`. Exhaustion of that selection-stage charge returns
 `incomplete` there and no partial package. The complete read also charges
 operation validation and later graph-body reference edges in its existing
 order. A total-reader work limit one below the measured successful total
 reports the first unpayable charge at its own stage pointer, which may be a
-graph argument target; it does not necessarily report the selection row.
+graph argument target; it does not necessarily report the root's `owner`.
 
 ### Declaration-refusal identity and origin retention
 
@@ -1417,10 +1312,10 @@ in step 3 for an operation, the build of the field tables and the table entries 
 resolution (a read, a frame entry, an abstraction relation's field entry) ("Typed accessor for a model object type's fields", which replace
 the step 3 walk for a field), the conformance walk of `conforming_reference`, and the parse and
 read of each selected document (one unit per 1024 document bytes, then one per
-node and member) are charged to the `work` limit at the row of the selection
+node and member) are charged to the `work` limit at the root of the package
 they belong to, so an exhausted limit is `incomplete` with the pointer
-`/lock/model_selections/<i>`. Each model declaration node key computed in step
-2 is one validation visit at its row.
+`/semantic_graph/nodes/<i>/owner`. Each model declaration node key computed in step
+2 is one validation visit at its root.
 
 ### Dependency selections
 
@@ -1465,89 +1360,42 @@ the consumer supplies. This binding runs before any node is read, so before any
 `dependency_selections` entry's package, under its library identity, with
 `insert_dependency_package`.
 
-### Digest mismatches: content and byte
+### Content mismatch
 
 A `stale_dependency` refusal says that what the package selects or pins is not
-what the reader found. Its cause says which comparison failed, and follows
-what was compared, as merged QSpec FR-272 (its `stale_dependency` row; QSpec
-#187) and FR-154 define (this repository holds no copy of either):
+what the reader found. Its cause follows what was compared, as merged QSpec
+FR-272 (its `stale_dependency` row) defines (this repository holds no copy):
 
 - `content-mismatch` is a selected or pinned content identity against the
-  identity the reader recomputed from what was supplied. Its contract has
-  three comparison sites: a selected model document that reads as strict JSON and whose
-  RFC 8785 SHA-256 is another digest than the row's (FR-154 check 3,
-  FR-322 step 1), at the row's `digest`; a `dependency_selections`
-  entry whose supplied package recomputes to another `package_id` than the
-  entry's, at the entry's `package_id.digest`; and this package's declared
-  `package_id.digest` against the identity recomputed from its own
-  `identity_preimage`, at `/package_id/digest` (QSpec FR-272). All three
-  comparisons return `stale_dependency`/`content-mismatch` with the complete
-  selected or declared identity as `expected` and the recomputed identity as
-  `actual` (IR-238; FR-038-AC-215, AC-217, AC-218).
-- `byte-digest-mismatch` is a raw-bytes digest against its declared digest.
-  It has one site in this reader: the supplied bytes of a selected model
-  document that `quire_canonical::read` refuses (not strict JSON, a repeated
-  member name, a lone surrogate escape, and every other fault except the byte
-  limit and a number past the double range, which have their own outcomes).
-  Such bytes have no RFC 8785 form, so check 3 compares the row's digest with
-  the plain SHA-256 of the supplied bytes, at the row's `digest`.
-- When those bytes are selected under their own plain SHA-256, check 3 passes
-  and no identity can be read for check 4, so the refusal is
-  `invalid_model_binding`/`wrong-model-selection` at the row's `identity`, as
-  merged QSL FR-056 states for the same case. No declaration is admitted.
+  identity the reader recomputed from what was supplied. Its contract has two
+  comparison sites in this reader: a `dependency_selections` entry whose
+  supplied package recomputes to another `package_id` than the entry's, at the
+  entry's `package_id.digest`; and this package's declared `package_id.digest`
+  against the identity recomputed from its own `identity_preimage`, at
+  `/package_id/digest` (QSpec FR-272). Both return
+  `stale_dependency`/`content-mismatch` with the complete selected or declared
+  identity as `expected` and the recomputed identity as `actual` (FR-038-AC-217,
+  AC-218). A selected domain package document has no digest to compare and no
+  such site; a selected domain package document is not compared by content.
 
 This reader reads no source bytes, no `quire.source.bytes/v1` entry and no
 replay `byte_provision`, so QSpec's source-bytes and `byte_provision` rules
 (FR-323) have no site here. The nearest IR input, a model document or a
 dependency package the evidence does not supply, already refuses
-`missing_import`/`missing-selection`, at the row's `digest` or the entry: the
-pointer names the member of the package that requests it, and the requested
-digest record is the row that member belongs to (FR-038-AC-27, AC-37).
+`missing_import`/`missing-selection`, at the root's `owner/identity` or the
+dependency entry (FR-038-AC-27, AC-37).
 
-Both mismatches carry `expected` and `actual` as `CheckedSemanticId` values:
-each has its own domain, the `sha256` algorithm and a lowercase 64-character
-hexadecimal digest. Both are present or both absent; every other refusal has
-neither. For a readable selected model document, `content-mismatch` carries
-the row's selected `sha256-jcs` digest as `expected` and the document's
-recomputed RFC 8785 `sha256-jcs` digest as `actual`. For a dependency package,
-`content-mismatch` carries the entry's complete
-`quire.package.semantic/v2` `package_id` as `expected` and the admitted
-package's complete recomputed `package_id` as `actual`. For unreadable model
-bytes, `byte-digest-mismatch` carries the row's selected `sha256-jcs` digest
-as `expected` and the plain SHA-256 of the supplied bytes under
-`raw-artifact-digest` as `actual`. QSL FR-056's raw-byte digest comparison
-chooses which *refusal* follows a failed read; even equal digest bytes do not
-make the raw identity a `sha256-jcs` identity, admit a declaration or erase
-the domain difference. Two typed identities with equal algorithm and digest
-but different domains compare unequal (QSpec FR-201), including that
-`sha256-jcs`/`raw-artifact-digest` pair.
+`expected` and `actual` are `CheckedSemanticId` values: each has its own domain,
+the `sha256` algorithm and a lowercase 64-character hexadecimal digest. Both are
+present or both absent; every other refusal has neither.
 
-`CheckedPackageRefusal` gains two public `Option<CheckedSemanticId>` members,
-`expected` and `actual`, beside `document_pointer`; the latter is a location
-inside a supplied document, whereas the two new members are identities and
-neither can be recovered from the package pointer. The existing
-`CheckedPackageRefusalCause` remains a `Copy` tag and gains `ContentMismatch`.
-This is an IR public-layout choice, not QSpec's cause representation: QSpec
-FR-272's cause identity is the tuple (`code`, cause tag, required payload).
-For either mismatch, its required payload is the ordered pair of complete
-`expected` and `actual` identities. A consumer projecting an IR refusal into
-that QSpec cause key SHALL include the pair and compare each identity's
-domain, algorithm and digest; comparing the `cause` tag alone compares only
-tags. Two mismatch refusals with the same code and tag but different pairs
-have different cause keys. The whole `CheckedPackageRefusal` value retains
-its derived componentwise equality, including the pair and its location;
-location is not part of the QSpec cause key. A missing member of the required
-pair is not a valid mismatch refusal and is never defaulted.
-
-This is a break in the crate's public API and behaviour, with no
-compatibility layer: `CheckedPackageRefusal` gains two public members (an
-external struct literal stops compiling, as with `document_pointer`),
-`CheckedPackageRefusalCause` gains a member (an exhaustive match stops
-compiling), a selected document that reads and a dependency entry that
-recomputes differently change from `byte-digest-mismatch` to
-`content-mismatch`, and unparseable bytes under their own plain SHA-256 change
-from `stale_dependency` to `invalid_model_binding`. The refusal is a Rust
-value this crate does not serialize, so no wire form changes.
+`CheckedPackageRefusal` carries two public `Option<CheckedSemanticId>` members,
+`expected` and `actual`, beside `document_pointer`. A consumer projecting an IR
+refusal into the QSpec cause key SHALL include the pair and compare each
+identity's domain, algorithm and digest; comparing the `cause` tag alone compares
+only tags. Two mismatch refusals with the same code and tag but different pairs
+have different cause keys. A missing member of the required pair is not a valid
+mismatch refusal and is never defaulted.
 
 ### Local protocol references
 
@@ -2250,7 +2098,7 @@ fixes, with these entry-specific rules and no `unsupported_construct`:
      those checks make, and ahead of the frame and state-clause step and the
      temporal step; it runs before the model-selection owners step (the derivation
      of each selected model declaration's node key, which can refuse
-     `invalid_semantic_graph` at `/lock/model_selections/{i}`), an IR reading, so a
+     `invalid_semantic_graph` at the root's `/semantic_graph/nodes/{i}/owner`), an IR reading, so a
      package with a non-reduced bound and such a selection defect refuses at the bound, at the first such bound in ascending
      `node_id` digest order and
      then member order, located at the bound (the same pointer as stage 1). So a
@@ -2837,8 +2685,8 @@ match a `lock.sources` row by (`authority`, `identity`). Every source-map
 region of that node's `declaration` occurrence SHALL name that same source
 pair; a mismatch SHALL refuse `invalid_package`/`invalid-value` at the
 occurrence's source-map entry, even when the other source is lock-selected.
-A `ModelOwner` SHALL match a `lock.model_selections` row by `identity`, and
-its `node` SHALL resolve in that selection's admitted document to the kind
+A `ModelOwner` SHALL match a `model_root` owner by `identity`, and
+its `node` SHALL resolve in that package's admitted document to the kind
 the node represents: `model`/`object_type` requires an object type without
 `interfaceFeatures`, `model`/`systems_interface` requires an object type with
 `interfaceFeatures`, `relation`/`relationship` requires a relationship, and
@@ -3123,14 +2971,12 @@ A correctly keyed owner-free self-option group (QSL G1), and correctly keyed
 an old key does not authenticate its body.
 
 **Trust root.** The member type step 4 derives comes from the domain document
-that the caller's evidence supplies under the `model_selections` digest, whose
-RFC 8785 digest and identity the reader recomputes (FR-038-AC-27). The check is
-sound relative to that evidence. A tamperer who re-points `model_selections` at
-a document declaring a narrower range changes `package_id` and, with no such
-document in the caller's evidence, is refused `missing_import`/`missing-selection`
-at the row's `digest` (FR-038-AC-27); which document is authoritative for a
-lock is the caller's decision and is outside this reader, which admits a package
-against whatever evidence it is given.
+that the caller's evidence supplies under the selected identity, whose own
+identity the reader checks (FR-038-AC-27). The check is sound relative to that
+evidence. The reader does not authenticate the content of the document supplied
+under an identity: which document is authoritative for an identity is the
+caller's decision and is outside this reader, which admits a package against
+whatever evidence it is given.
 
 **Implemented baseline and planned extension.** The existing re-derivation
 excludes owner-bearing and declared structural nodes and most grouped forms,
@@ -3276,7 +3122,7 @@ piece is a typed way out of it and the package keeping what it derives from.
 Each of the following is its own requirement:
 
 1. At admission, the reader shall compute, for every object type and systems interface declaration of each
-   admitted `lock.model_selections` document, a field table holding that
+   admitted selected domain package document, a field table holding that
    declaration's exposed effective fields (the members of `MemberKind::Field`
    that FR-322 step 3 exposes: its own and inherited fields, less every field a
    redefinition hides and every redefining field of a less derived owner), each
@@ -3305,8 +3151,8 @@ Each of the following is its own requirement:
    of the declarations; the `MemberKind::Operation` case of `resolve` is not
    changed.
 8. The reader shall charge the build of each table to the `work` limit at the
-   row of its selection, so that an exhausted limit is `incomplete` with the
-   pointer `/lock/model_selections/<i>`.
+   root of its package, so that an exhausted limit is `incomplete` with the
+   pointer `/semantic_graph/nodes/<i>/owner`.
 9. The charge of one table (one per component, not per member of a cycle) shall
    be one unit per own field of each member, one per declared supertype edge of
    each member, and one per exposed or hidden entry copied from the table of a
@@ -3318,10 +3164,10 @@ Each of the following is its own requirement:
     charge, in place of the step 3 walk, one unit per exposed or hidden entry of
     the table it selects from, at the selection's row.
 11. The reader shall build and charge the tables as the last act of the lock
-    stage: after step 1 has admitted every `lock.model_selections` row, in lock
-    order of the rows, and before the graph stage (`validate_graph`).
+    stage: after step 1 has admitted every selected package, in ascending
+    identity order, and before the graph stage (`validate_graph`).
 12. The reader shall retain the field tables, and an owned index from each
-    selected declaration's model declaration node key to its selection row, form
+    selected declaration's model declaration node key to its package, form
     and node identity, in the admitted `CheckedPackageV2`.
 13. Where the exposed fields of an object type include two of one name, the
     reader shall retain that table as ambiguous, carrying the name.
@@ -3409,7 +3255,7 @@ selected documents' total table charge, added to their present work, exceeds the
 caller's `work` limit: under `CheckedPackageReadLimits::bounded()` (work
 1,000,000), an unread chain of N = 1500 types with one field each charges
 1,500 × 1,501 / 2 + 1,499 = 1,127,249 and is `incomplete` at
-`/lock/model_selections/<i>`, where it admits today; a chain of N = 1000 charges
+`/semantic_graph/nodes/<i>/owner`, where it admits today; a chain of N = 1000 charges
 1,000 × 1,001 / 2 + 999 = 501,499 and still admits (its document charge is
 linear). A cyclic document is charged once per component: a type that extends
 itself with one field charges 2 (one own field, one edge, nothing copied), two
@@ -3478,10 +3324,9 @@ type. The accessor therefore depends on no node body: the IR-627 tamper (an
 `Int[0, 1000]`-keyed node with body bounds 0 and 10) does not reach it, and it is
 sound on a reader without IR-627's stage. It is sound relative to the same
 evidence IR-627's "Trust root" paragraph names: the document is the one the
-caller's evidence supplied under the `model_selections` digest, whose RFC 8785
-digest and identity the reader recomputed (FR-038-AC-27), so a package re-pointed
-at a document declaring a narrower range, admitted with that document in
-evidence, returns that document's bounds (FR-038-AC-129); which document is
+caller's evidence supplied under the selected identity, whose identity the reader
+checked (FR-038-AC-27), so a package whose evidence holds a document declaring a
+narrower range returns that document's bounds (FR-038-AC-129); which document is
 authoritative is the caller's decision. For a field no read names, admission
 checked only the selected document's digest, identity and declarations (step 1),
 not that field's type against a node, because no node names it; the accessor's
@@ -5244,7 +5089,7 @@ limits and the public key-derivation surface remain unchanged.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-038-AC-1 | Each positive V2 package fixture this repository builds from its own public vocabulary admits; an unknown, empty, absent or malformed `contract_version` refuses as `unknown_contract_version` or `malformed_wire` before any version-specific decoding; and the strict parse (duplicate-member, noncanonical) refusals occur before a version is selected. | Test (TC-048) |
-| FR-038-AC-2 | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every authored adverse structural mutation returns its declared outcome, before exposing a package; a domain package selection or model owner carrying `authority`, `revision`, `export` or `version` refuses as `unknown_member`, a domain package selection outside `sha256-jcs` as `digest_domain_mismatch`, one with no supplied document as `missing_import` with cause `missing-selection`, and a `model_export` semantic form as `invalid_semantic_graph`. In an otherwise valid package, replacing `/semantic_graph/nodes/0/occurrences/0/role` with the literal string `unknown field` refuses as `malformed_wire`, not `unknown_member`: a value outside the closed occurrence-role vocabulary is a malformed value even when its text resembles a decoder error. A genuine extra member still refuses as `unknown_member`, and a required member of the wrong kind still refuses as `malformed_wire`; the value's text never selects the refusal code. | Test (TC-048) |
+| FR-038-AC-2 | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every authored adverse structural mutation returns its declared outcome, before exposing a package; a model owner or `model_root` owner carrying `authority`, `revision`, `export`, `digest` or `version` refuses as `unknown_member`, a `model_root` with no supplied document as `missing_import` with cause `missing-selection`, and a `model_export` semantic form as `invalid_semantic_graph`. In an otherwise valid package, replacing `/semantic_graph/nodes/0/occurrences/0/role` with the literal string `unknown field` refuses as `malformed_wire`, not `unknown_member`: a value outside the closed occurrence-role vocabulary is a malformed value even when its text resembles a decoder error. A genuine extra member still refuses as `unknown_member`, and a required member of the wrong kind still refuses as `malformed_wire`; the value's text never selects the refusal code. | Test (TC-048) |
 | FR-038-AC-3 | Exact byte, node, edge, occurrence, diagnostic and work limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package; no limit kind is a depth (FR-038-AC-117). | Test (TC-048) |
 | FR-038-AC-4 | The package id is derived from the seven wire selections plus every graph node with only occurrences excluded. Published positive identities are preserved. A full nominal-body mutation with the nominal key kept changes the derived id and refuses stale_dependency/content-mismatch at /package_id/digest under the original id; node reordering changes identity while occurrences remain excluded. | Test |
 | FR-038-AC-5 | Every nominal preimage of the in-repo nominal fixture re-derives the node key it is keyed by and round-trips its own wire form; every authored invalid nominal mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`; a model owner admits when its identity names a selected domain package and refuses as `invalid_semantic_graph` when it names none or carries an empty node. | Test (TC-048) |
@@ -5252,26 +5097,26 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those six finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
 | FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families, carrying no `recursion_group`, does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
-| FR-038-AC-10 | A `lock.model_selections` entry that repeats an earlier entry's identity, digest domain and digest verbatim, mirrored identically into `identity_preimage.model_selections`, refuses as `malformed_wire` at `lock.model_selections`; the same lock-side repeat left unmirrored in the identity preimage refuses earlier, as `stale_dependency` at `lock`, because the preimage/lock equality check runs first; two entries sharing an identity but differing in digest are not a repeat and are owned by FR-038-AC-20 (`stale_dependency`, never `malformed_wire`). | Test (TC-048) |
-| FR-038-AC-11 | A `lock.model_selections` array carrying both a repeated entry and an entry whose digest no document the package evidence supplies satisfies refuses as `malformed_wire` at `lock.model_selections`, never as `stale_dependency`, regardless of whether the repeated entry or the stale entry appears first in the array — the uniqueness check runs over the whole array before any entry's digest is checked against the supplied documents, so the outcome does not depend on array position. | Test (TC-048) |
+| FR-038-AC-10 | Withdrawn: the lock holds no domain-package row and no digest, so there is no `lock.model_selections` array whose entries can repeat. | Test (TC-048) |
+| FR-038-AC-11 | Withdrawn: the lock holds no domain-package row and no digest, so there is no `lock.model_selections` array to order by defect class. | Test (TC-048) |
 | FR-038-AC-12 | A `creates` or `deletes` entry's eligibility is exactly `model`/`object_type` and `model`/`process`, and this eligibility predicate is checked against every `(member, tag, form)` triple the closed node taxonomy can produce, not sampled; the `modifies` entry shape and its eligibility are [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md)'s. The refusal an ineligible triple drives — `invalid_model_binding` with cause `malformed-declaration`, located at the offending entry — is verified end-to-end through the reader for a representative ineligible triple in each of `creates` and `deletes` and every node family; the reader's mapping from an ineligible predicate result to that refusal depends only on which member the entry sits in, never on its tag or form, so this sample together with the exhaustive predicate check covers the full triple space without driving every one of it through the reader. Each of the two eligible triples the published all-families fixture's own frame body does not already exercise (`process` in `creates`, `object_type` in `deletes`) is independently shown admitted. | Test (TC-053) |
 | FR-038-AC-13 | An entry naming a digest that is not among the frame node's own `dependencies` refuses as `missing_declaration` with cause `missing-name`, located at that entry, whether the digest resolves to no node the frame declared as a dependency (a real node elsewhere in the graph) or to no node anywhere in the graph at all — both conditions are the same refusal, never `invalid_model_binding` and never the graph's generic unresolved-reference `invalid_semantic_graph`. | Test (TC-053) |
 | FR-038-AC-14 | A frame node carrying both a meaning-join defect and a canonical-order defect refuses for the meaning-join defect; among two meaning-join defects in different members, the earlier member (`modifies` before `creates` before `deletes`) is selected regardless of which defect's entry digest is lower, except that a `conflicting-binding` defect ranks after every other meaning-join defect (FR-040-AC-25); among two meaning-join defects in the same member, the lower entry digest is selected; a member array not in strictly ascending digest order, with no meaning-join defect present, refuses as `invalid_semantic_graph` at the frame body path, located at the frame node itself and carrying no cause. | Test (TC-053) |
 | FR-038-AC-15 | A package carrying two defective `state`/`frame` nodes refuses at the one with the lower `node_id` digest, reporting only that frame's own defect, even when the other frame's defect would otherwise outrank it under FR-038-AC-14's precedence — the visit order is ascending node-id digest across frames, and the reader reports the first defective frame it reaches rather than comparing every frame's defect. | Test (TC-053) |
 | FR-038-AC-17 | Each required declaration, literal type, application operation and result_type is read from the graph and enters the derived hash projection. With the graph-derived package id refreshed to reach the member check, deleting one refuses invalid_semantic_graph at the existing node declaration or body pointer before admission. All fifteen expression forms remain admitted through the same closed taxonomy. | Test |
 | FR-038-AC-18 | For a keyed input that reaches the graph-reference stage, a self-typed node's own body-root `literal.type` naming itself is exempt from the reference-cycle check and needs no declared `recursion_group`. The same self-reference nested in an `aggregate` member, `binding` value or `application` argument is not exempt and refuses as `invalid_semantic_graph` at `/semantic_graph/nodes/<n>` (the node object lacking `recursion_group`), as do a self-typed node's `reference` body and `application.result_type` naming itself. Public admission authenticates content-derived structural and application keys before that stage; a body embedding its own final key has no constructible honest preimage. Public tests assert that first stale-key refusal, and a private graph-stage test verifies the conditional carve-out. | Test (TC-048) |
-| FR-038-AC-19 | A `lock.model_selections` array carrying two entries of different defect classes refuses for the earlier class under the stated total order, at `lock.model_selections`, regardless of which of the two entries appears first in the array: an entry outside `sha256-jcs` beside an entry of empty `identity` refuses as `digest_domain_mismatch`, and an entry of empty `identity` beside an entry whose digest no supplied document satisfies refuses as `malformed_wire`. Both orderings of each pairing are pinned and refuse with the same code, so a refusal decided by array position rather than by defect class fails this criterion rather than passing it as "some refusal occurred". | Test (TC-048) |
-| FR-038-AC-20 | A selection binds by `identity`, so a `lock.model_selections` array holds at most one entry per identity: two entries naming the same `identity` and differing in `digest` refuse as `stale_dependency` at the later entry's `digest` (`/lock/model_selections/<i>/digest`), whichever of the two entries appears first in the array, even when both entries are independently well-formed and each names a document the package evidence supplies, and never as `malformed_wire`; the pair is refused before any document is read, so it refuses the same way, in both orders, when an entry of the pair or an earlier row has no supplied document, a forged one or one naming another identity, and never as that document's own `missing_import`, `content-mismatch`, `byte-digest-mismatch` or `invalid_model_binding` refusal; an array whose two entries name different identities still admits (each other check passing). An entry carries no `version`, so the identity is the whole locator (FR-038-AC-62). A same-identity, different-digest pair is decided by the total order above, so it refuses `digest_domain_mismatch` when one of its entries is outside `sha256-jcs`, whichever of the two carries that second defect. | Test (TC-048) |
+| FR-038-AC-19 | Withdrawn: the lock holds no domain-package row and no digest, so there is no `lock.model_selections` array whose entries can carry classed defects. | Test (TC-048) |
+| FR-038-AC-20 | Two `model_root` nodes naming one `identity` refuse `invalid_semantic_graph` at the later root's `owner` (`/semantic_graph/nodes/<i>/owner`), whichever order the graph holds them in; two roots naming different identities admit, each other check passing. A root carries no `version` and no `digest`, so the identity is the whole locator (FR-038-AC-62). | Test (TC-048) |
 | FR-038-AC-21 | A node whose declared `qualified_name` differs from its nominal preimage's `qualified_declaration` refuses as `invalid_package` with cause `declaration-nominal-mismatch` at that node; two nodes in the same namespace declaring one name refuse as `ambiguous_declaration` with cause `ambiguous-name` at the later node in node-id order, while the same name across namespaces admits; a package carrying both defects refuses for the nominal mismatch; and a package also carrying a frame or an operation defect still refuses for its declaration defect. | Test (TC-048, TC-230) |
 | FR-038-AC-22 | A QSL-shaped package holding a function whose body applies an operation to its parameters, each a `value`/`parameter` node, and a `scalar_type`/`compound_unit` node, admits and lowers; a parameter with a negative, non-canonical or missing level, an empty, non-identifier or wrongly typed name, or an extra binding refuses as `invalid_semantic_graph` at the node's `body`; a parameter with a dependency, itself as its type or a `declaration`, and a compound unit with a zero exponent, a term naming a non-unit, a repeated unit, a dependency list other than its unit keys or a type other than itself, each refuses as `invalid_semantic_graph` at the member it breaks; the empty compound unit admits. | Test (TC-048) |
 | FR-038-AC-23 | An application node whose `dependencies` omits a body reference target, lists them out of digest order, repeats one, or adds its `result_type` refuses as `invalid_semantic_graph` at `semantic_graph.nodes.dependencies`, located at that node. | Test (TC-048) |
 | FR-038-AC-24 | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position: member names escaped (`~` as `~0`, `/` as `~1`), array elements by index, resolving in the document read — an unknown member (including one whose name holds `~` or `/`) at that member, a repeated member at that member, a missing member at the object lacking it, a wrongly typed value at that value, a stale mirror at the first differing value, and each graph, lock, source-map, capability and diagnostic refusal at the member its failed check read; malformed JSON and non-canonical bytes carry no pointer. The `unknown field` occurrence-role value of FR-038-AC-2 points exactly at `/semantic_graph/nodes/0/occurrences/0/role`; the genuine extra-member and wrong-kind controls each point at the member or value they change. No refusal code changes. | Test (TC-048) |
 | FR-038-AC-25 | An `unknown_contract_version` refusal points at `/contract_version` and carries the exact `contract_version` string the reader read, including an empty one; no other refusal carries a version. | Test (TC-048) |
 | FR-038-AC-26 | Each one-over limit other than the byte limit returns `incomplete` carrying the RFC 6901 pointer of the value whose charge failed, which resolves in the document read: nodes at the first node past it, edges at the dependency and occurrences at the source-map entry or region that took the count past it, diagnostics at the first entry past it, and work at the value whose validation took the meter past it; the byte limit carries none. | Test (TC-048) |
-| FR-038-AC-27 | A domain package selection is admitted only by the document the evidence supplies under its digest: a document supplied under no digest of the row refuses `missing_import`/`missing-selection` at the row's `digest`; a document holding a number whose text denotes a magnitude past 2^53 refuses `noncanonical_wire` at the `digest` before any digest is computed (FR-038-AC-93); a document whose RFC 8785 SHA-256 is not the digest it was supplied under refuses `stale_dependency`/`content-mismatch` at the `digest` (and bytes that do not read, `byte-digest-mismatch`, FR-038-AC-216); a document naming another identity refuses `invalid_model_binding`/`wrong-model-selection` at the row's `identity`; and a matching document admits. The document's `package.version` is neither required nor read: a matching document with no `package.version`, or a non-string one, admits, and the same package supplied as two documents at different versions admits when each is selected in its own package under its own digest (FR-038-AC-64). | Test (TC-048) |
+| FR-038-AC-27 | A domain package selection is admitted only by the document the evidence supplies under its identity: no document under the root's identity refuses `missing_import`/`missing-selection` at the root's `owner/identity` (`/semantic_graph/nodes/<i>/owner/identity`); a document holding a number whose text denotes a magnitude past 2^53 refuses `noncanonical_wire` at that pointer (FR-038-AC-93); bytes that do not read refuse `malformed_wire`/`malformed-json` there with no `document_pointer`; a document naming another identity refuses `invalid_model_binding`/`wrong-model-selection` there; and a matching document admits. The document's `package.version` is neither required nor read: a matching document with no `package.version`, or a non-string one, admits, and two documents of one package at different versions admit when each is selected in its own package under the same identity (FR-038-AC-64). | Test (TC-048) |
 | FR-038-AC-28 | A domain package document's declarations refuse at the row, in FR-154's order: a node whose object id is invalid, whose `kind` names no construct, or that shares its identity, refuses for itself and any reference to it reports that refusal, never `missing_declaration`/`missing-name`, wherever the two sort; a node failing two rows reports the earlier (a dangling `typeRef` before a multiplicity with `lower > upper`, a malformed member before both); a `typeRef` naming a relationship refuses `invalid_model_binding`/`malformed-declaration` wherever its declaring node sorts; two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. | Test (TC-048) |
 | FR-038-AC-29 | A package whose lock selects a domain package document with declared types, and whose graph holds a `dispatch_call` on one of its operations, admits; the same call naming an operation the document does not declare refuses `ill_typed`/`operator-ineligible` at the member's `name`; an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; a field typed at an `Int[lo, hi]` value type has the integer-range member type `[lo, hi]`. | Test (TC-048) |
-| FR-038-AC-30 | Reading a selected domain package and resolving a model-owned member are charged to the `work` limit: a limit one below the work a read used returns `incomplete` for `work` with the pointer `/lock/model_selections/<i>` of the row, and the exact work admits. | Test (TC-048) |
+| FR-038-AC-30 | Reading a selected domain package and resolving a model-owned member are charged to the `work` limit: a limit one below the work a read used returns `incomplete` for `work` with the pointer `/semantic_graph/nodes/<i>/owner` of the package's root, and the exact work admits. | Test (TC-048) |
 | FR-038-AC-31 | A package whose lock and identity preimage carry the same `dependency_selections` of two `DependencySelection` entries `{identity, package_id}`, one per identity in ascending identity order, admits when each selected dependency's admitted package is supplied, and both members read back as the supplied entries; changing one entry's `package_id` changes the package's `package_id`. | Test (TC-048) |
 | FR-038-AC-32 | A `dependency_selections` entry whose `package_id.domain` is another digest domain refuses `digest_domain_mismatch` at that `domain`; one with an empty `identity`, a short `digest` or a bare-digest `package_id` refuses `malformed_wire` at that member; one that lacks `package_id` or `identity` while carrying a `Selection` or `DefinitionRef` member refuses `malformed_wire` at the entry. | Test (TC-048) |
 | FR-038-AC-33 | A `dependency_selections` entry repeating an earlier entry's `identity`, adjacent or not, refuses `invalid_package`/`conflicting-definition` at the repeating entry; an entry not strictly after its predecessor in UTF-8 byte order refuses `invalid_package`/`invalid-value` at that entry; entries in UTF-8 byte order where UTF-16 code-unit order differs admit. | Test (TC-048) |
@@ -5286,7 +5131,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-42 | An enum's operand family is `ordered_enum` when its nominal preimage is `ordered` and `enum` otherwise (QSpec FR-322): `quire.op.enum.lt`, `le`, `gt` and `ge` over two operands of an ordered enum, member literals or parameters, admit; the same operations over an unordered enum refuse `ill_typed`/`operator-ineligible` at the first argument (QSpec FR-141-AC-5), and over operands of two different enums at the second; `quire.op.enum.eq` and `ne` admit over either. | Test (TC-048) |
 | FR-038-AC-43 | `structural.eq` over an all-integer record, and `collection.contains` over a set of integers, admit with `leaves` empty, because the compared type has no text leaf; the same operations over a record with a nested `text` field, or a set of `text`, refuse `invalid_package`/`operation-law-missing` at `operation.leaves` when `leaves` is empty, and one supplied leaf over two text fields refuses the same way; `collection.flatten` to a `sequence` of text admits with `leaves` empty, while a `set` of text result refuses; a compared type that names a missing node, or that reaches an option or collection again with no record or tuple between the two visits, refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, while a compared type that reaches itself through a record or tuple admits (FR-038-AC-70 through FR-038-AC-72); and a chain of 12 record levels of 4 fields naming the next level is decided inside the work budget. | Test (TC-048) |
 | FR-038-AC-44 | `operation.leaves` is exactly the derived leaves, the text leaves and, for a type that reaches itself, its recursion leaves (FR-038-AC-70, FR-038-AC-71): a record with `a`, `b` and `c` (an option of text) fields over a `text_bounds` text type that binds the `nfc` profile admits the leaves `["field:a"]`, `["field:b"]` and `["field:c", "inner"]`, a tuple the `position:<n>` segments, and `collection.contains` over a set of text the one empty path, each carrying exactly one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}`; a text leaf whose type binds no profile refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; a leaf with no mode refuses `operation-mode-mismatch` at its `mode`, one of another kind at `mode/kind`, one of an uncatalogued value at `mode/value`, and a catalogued value other than the pinned one `operation-mode-type-mismatch` at `mode/value`; `collection.flatten` to a `sequence` of text refuses one supplied leaf `operation-law-mismatch` at `operation.leaves/0` and admits none; an entry with a law the lock does not select and a supplied leaf but no leaf source refuses `operation-law-mismatch`, not `operation-law-unselected`; two leaves over an all-integer record, one leaf more than the text leaves, and an entry that names no leaf source with a leaf refuse `invalid_package`/`operation-law-mismatch` at the first extra leaf; three unrelated paths, a wrong or missing `inner` segment, two leaves out of order and a wrong segment kind refuse the same way at that leaf's `path`; a leaf with no law, two laws, a law of another role and a law outside the catalogued `text_profile` definitions refuse the same way at that leaf's `laws`; a leaf law the lock does not select refuses `operation-law-unselected` at its `definition`; and 16 levels of 10 fields all naming the next level over text refuse `operation-law-missing` without listing its 10^16 leaves, while the one leaf of a 16-level path with nine integer fields per level admits at its exact path and refuses at a wrong segment. | Test (TC-048) |
-| FR-038-AC-45 | A package a producer emits under the content-only `ModelOwner` identity (QSpec FR-322-AC-28), whose model-owned nominal preimages carry the owner `{kind: model, identity, node}` and no `version`, admits when the owner's identity names a selected domain package; its model-owned node keys are the SHA-256 of that preimage's canonical bytes and do not change when only the selected row's `digest` changes (the lock row carries no `version` to change, FR-038-AC-62). A package whose lock selects a domain package and whose graph holds a model declaration node keyed under the version-free `ModelOwner` (`ModelDeclarationNode`) resolves a model-owned `field` or `operation` member against it and admits, the declaration node's key is unchanged when only the selected row's `digest` changes, and the same node keyed under another domain package's identity refuses `missing_declaration`/`missing-selection` at the member's `declaration`. An owner of kind `model` that carries a `version` member refuses as `unknown_member` at that member, and one with an empty `identity` or `node` refuses as `invalid_semantic_graph`. | Test (TC-048) |
+| FR-038-AC-45 | A package a producer emits under the content-only `ModelOwner` identity (QSpec FR-322-AC-28), whose model-owned nominal preimages carry the owner `{kind: model, identity, node}` and no `version`, admits when the owner's identity names a `model_root`; its model-owned node keys are the SHA-256 of that preimage's canonical bytes and do not change with the content of the selected document (the owner carries no `version` and no `digest` to change, FR-038-AC-62). A package whose graph holds a `model_root` selecting a domain package and a model declaration node keyed under the version-free `ModelOwner` (`ModelDeclarationNode`) resolves a model-owned `field` or `operation` member against it and admits, the declaration node's key is unchanged with the content of the selected document, and the same node keyed under another domain package's identity refuses `missing_declaration`/`missing-selection` at the member's `declaration`. An owner of kind `model` that carries a `version` member refuses as `unknown_member` at that member, and one with an empty `identity` or `node` refuses as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-46 | A package whose definition references are exactly `{authority, identity}` with nonempty strings, at `lock.edition.definition`, each `lock.profile_selections[].definition`, each `lock.definition_selections` entry, the same three in `identity_preimage`, `diagnostics.catalog` and each `operation.laws[].definition`, admits, each other check passing. | Test (TC-048) |
 | FR-038-AC-47 | A package whose source references are exactly `{authority, identity, digest_domain, digest}`, at each `lock.sources` row, each `source_map` region `source` and each `diagnostics.entries[].loci[].source`, admits, each other check passing. | Test (TC-048) |
 | FR-038-AC-48 | A definition reference at a lock, `identity_preimage` or `diagnostics.catalog` site that carries `revision`, `digest_domain`, `digest` or `export` refuses as `unknown_member` at the first such member in document order and returns no package; a reference of the earlier five-member shape (`authority`, `identity`, `revision`, `digest_domain`, `digest`) refuses at its first extra member and is never read, relabeled or admitted. | Test (TC-048) |
@@ -5303,9 +5148,9 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-59 | A `lock.definition_selections` row that differs from its `identity_preimage` mirror in `authority` or `identity` refuses as `stale_dependency` at the first differing value. | Test (TC-048) |
 | FR-038-AC-60 | A package whose one definition row's `identity` is edited in the lock and the preimage and whose `package_id` is re-derived admits under the new `package_id`, and the same edit under the old `package_id` refuses as `stale_dependency`. | Test (TC-048) |
 | FR-038-AC-61 | A `source` or `definition` nominal owner whose `{authority, identity}` pair is the pair of no `lock.sources` or `lock.definition_selections` row respectively refuses as `invalid_semantic_graph`. | Test (TC-048) |
-| FR-038-AC-62 | A package whose `lock.model_selections` rows are exactly `{identity, digest_domain, digest}`, mirrored identically in `identity_preimage.model_selections`, admits, each other check passing; a row carrying every one of those members plus `version`, in the lock or in the identity preimage, refuses as `unknown_member` at that `version` member, the first in document order, and returns no package (a row that also lacks a required member is the missing-member case below, and this criterion pins no outcome for that combination); a row lacking `identity`, `digest_domain` or `digest`, or holding one of the wrong kind, refuses as `malformed_wire` at the row or the value; and the reader never reads, drops or compares the extra `version`. | Test (TC-048) |
+| FR-038-AC-62 | A package whose `lock` holds exactly `sources`, `edition`, `profile_selections`, `definition_selections`, `required_features` and `dependency_selections`, mirrored identically in `identity_preimage` for the five selection members, admits, each other check passing; a `lock` or `identity_preimage` carrying a `model_selections` member, a `model_root` owner carrying a `digest` or a `version` member, or any member outside `kind` and `identity`, refuses as `unknown_member` at that member, the first in document order, and returns no package; a `model_root` owner lacking `identity`, or holding one of the wrong kind or empty, refuses as `malformed_wire` at the owner or the value; and the reader never reads, drops or compares the extra member. | Test (TC-048) |
 | FR-038-AC-63 | A package whose `lock.dependency_selections` entries are exactly `{identity, package_id}`, mirrored identically in `identity_preimage.dependency_selections`, admits, each other check passing; an entry carrying both `identity` and `package_id` plus `version`, in the lock or in the identity preimage, alone or beside an otherwise well-formed entry, refuses as `unknown_member` at that `version` member, the first in document order, and returns no package; an old-shape entry `{identity, version}` that lacks `package_id` refuses as `malformed_wire` at the entry; and the reader never reads, drops or compares the extra `version`. | Test (TC-048) |
-| FR-038-AC-64 | Selections bind by identity and content digest alone: a `model_selections` row admits when the document supplied under its `digest` names the row's `identity`, so two documents of one package at different versions, each selected in its own package under its own digest, both admit and yield the same model-owned node keys; a model owner joins the row whose `identity` equals its own, and an owner naming another identity refuses as `invalid_semantic_graph`; and a `dependency_selections` entry admits when the package supplied under its `identity` has the entry's `package_id`, with no version supplied or compared, and refuses `missing_import`/`missing-selection` for a package supplied under another identity and `stale_dependency`/`content-mismatch` for another `package_id`. | Test (TC-048) |
+| FR-038-AC-64 | Selections bind by identity alone: a `model_root` owner admits when the document supplied under its `identity` names that `identity`, so two documents of one package at different versions, each selected in its own package under the same identity, both admit and yield the same model-owned node keys; a model owner joins the root whose `identity` equals its own, and an owner naming another identity refuses as `invalid_semantic_graph`; and a `dependency_selections` entry admits when the package supplied under its `identity` has the entry's `package_id`, with no version supplied or compared, and refuses `missing_import`/`missing-selection` for a package supplied under another identity and `stale_dependency`/`content-mismatch` for another `package_id`. | Test (TC-048) |
 | FR-038-AC-65 | Every application operator class, operation member kind and constraint kind the operation catalog declares decodes to a member of its closed vocabulary, so the production catalog, whose `law_roles` entries carry no `revision`, reads once FR-038-AC-46 through FR-038-AC-61 are also implemented; each of `case`, `temporal_formula`, `temporal_fairness`, `temporal_interval`, `fairness` and `union_arms` converts wire string to enum member and back to the same string; catalog bytes that name an operator class, member kind or constraint kind outside its vocabulary return the typed error of the catalog read of FR-038-AC-58, naming the word, instead of a catalog; and a package application whose `operator` is outside the closed operator vocabulary refuses `invalid_semantic_graph` at that term. | Test (TC-048) |
 | FR-038-AC-67 | An unknown identity refuses `unknown-operation` and an `operator` that differs from the catalogued class refuses `operation-class-mismatch`, each ahead of every other check of the entry at the operation step, so `quire.op.control.case` under the operator `unary` refuses `operation-class-mismatch`; and of two defective body-root nodes the one with the lower `node_id` digest is reported when both defects are operation refusals. A placement defect of the temporal step (FR-038-AC-102) is reported ahead of every operation refusal, whatever the digest order. (Amended by IR-549: the earlier text ordered both refusals ahead of blanket temporal/case `unsupported_construct`, which IR-549 removed, and put the placement of these applications inside the operation step.) | Test (TC-048) |
 | FR-038-AC-68 | At the operation check of a `quire.op.temporal.clause` application, observed on that node as a unit-level check of the node's operation step and, since IR-549, also as an admitted package whose formula node is a `temporal_formula` application (FR-038-AC-96), an application with the one selected `temporal_profile` law, no member and six arguments (a `reference` to a `value`/`parameter` node of any type, a `text` literal, three `aggregate` terms and a `reference` to a `temporal`/`formula` node) passes; five or seven arguments refuse `ill_typed`/`operator-ineligible` at `arguments`; a first argument that is not a `reference` term and a sixth that references a Boolean node each refuse the same way at that argument; a `reference` to a `temporal`/`formula` node fits the sixth operand and an `any_term` position and no `boolean` operand position; and a member of kind `profile_operator` or any other kind refuses `invalid_package`/`operation-member-mismatch` at `operation.member`. | Test (TC-048) |
@@ -5333,8 +5178,8 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-90 | `NominalIdentityPreimage::digest` takes a byte limit: called with the limit equal to the canonical byte length of a preimage of each of its four versions it returns the digest the node key holds, and one byte lower it returns the encoder's byte-limit refusal and no digest. The reader passes its configured `limits.bytes` to this operation: changing that limit changes the exact admission/refusal boundary for the same preimage without an artificial lower cap. | Test (TC-048) |
 | FR-038-AC-91 | For a representative nominal, structural, application, lowered-node and lowered-package preimage, the canonical bytes used for the public node-key or lowered-identity result equal independently authored expected bytes; the result equals SHA-256 of those expected bytes. Changing one semantic member changes the expected bytes and derived result, while changing only excluded source provenance leaves both unchanged. The bound V1 result of FR-023 has no digest or digest preimage. | Test (TC-048) |
 | FR-038-AC-92 | Compile-time trait-bound probes establish that the application node preimage, `LoweredNodePreimage` and `ContractPackagePreimage` implement `quire_canonical::Encode`, and that `NominalIdentityPreimage` with its four preimage structs and the structural node preimage implement `FixedShape`. Qualified Inspection confirms that none of the three input-dependent preimages derives `FixedShape`, none of the fixed-depth preimages hand-implements `FixedShape`, and none of those preimages or their members holds `serde_json::Value`; this is not an automated source-file scan. Representative nested application and lowered-package preimages encode their complete semantic members under the reader byte ceiling; fixed-depth nominal and structural preimages produce the independently authored canonical bytes of AC-89 and AC-91. FR-023 has no bound identity envelope. | Test (TC-048), Inspection |
-| FR-038-AC-93 | A selected model document holding the number `9007199254740993`, `-9007199254740993`, `9.007199254740993e15`, `1e20` or `18446744073709551617` at `/package/count` refuses `noncanonical_wire` at `/lock/model_selections/0/digest` with `document_pointer` equal to `/package/count`, whether the row selects the document's own digest or another digest, so the refusal precedes `content-mismatch`; a document holding such numbers at `/b` and then `/a/0` names `/b`, the first in document order (except that a number with no finite double is named when the reader reaches it, FR-038-AC-110); the same document holding `9007199254740992`, `-9007199254740992`, `9.007199254740992e15` or `0.5` at that pointer is not refused for it and is digested; an integer value type whose upper bound is `9007199254740993` in a document that is otherwise admitted refuses the same way, where today it is admitted (the reader change); and a package document refused `noncanonical_wire` for its own bytes (FR-038-AC-79) carries no pointer and no `document_pointer`. | Test (TC-048) |
-| FR-038-AC-94 | A selected model document whose bytes are exactly `limits.bytes` long is read, digested and matches its row, with the package itself shorter than that limit; read with a `limits.bytes` one lower the same package returns `incomplete` for `bytes` with that limit and the document's length reported and no pointer, as FR-038-AC-26 states for the byte limit, while a `work` limit one below the work of the same read still returns the row pointer `/lock/model_selections/0` (FR-038-AC-30). | Test (TC-048) |
+| FR-038-AC-93 | A selected model document holding the number `9007199254740993`, `-9007199254740993`, `9.007199254740993e15`, `1e20` or `18446744073709551617` at `/package/count` refuses `noncanonical_wire` at `/semantic_graph/nodes/<i>/owner/identity` with `document_pointer` equal to `/package/count`; a document holding such numbers at `/b` and then `/a/0` names `/b`, the first in document order (except that a number with no finite double is named when the reader reaches it, FR-038-AC-110); the same document holding `9007199254740992`, `-9007199254740992`, `9.007199254740992e15` or `0.5` at that pointer is not refused for it ; an integer value type whose upper bound is `9007199254740993` in a document that is otherwise admitted refuses the same way, where today it is admitted (the reader change); and a package document refused `noncanonical_wire` for its own bytes (FR-038-AC-79) carries no pointer and no `document_pointer`. | Test (TC-048) |
+| FR-038-AC-94 | A selected model document whose bytes are exactly `limits.bytes` long is read and admitted, with the package itself shorter than that limit; read with a `limits.bytes` one lower the same package returns `incomplete` for `bytes` with that limit and the document's length reported and no pointer, as FR-038-AC-26 states for the byte limit, while a `work` limit one below the work of the same read still returns the root pointer `/semantic_graph/nodes/<i>/owner` (FR-038-AC-30). | Test (TC-048) |
 | FR-038-AC-95 | Lowering encodes under the byte limit the package was read under: through the unit seam `identify_node`, which takes the ceiling as an argument as FR-034-AC-6's package step does, a node whose retained limit equals the length of its preimage is identified and with the retained limit one byte lower is refused, and that refusal's record is `failed` for the `bytes` limit with `limit` equal to the retained limit and `consumed` equal to the `required` of encoding the same preimage under that limit, which is greater than `limit` and at most the preimage's canonical length, and the same equality holds at a ceiling chosen for the fixture inside a string value of at least two bytes (not at a byte the encoder writes alone, such as a quote, colon, comma or brace, nor inside an escape run), roughly mid-way through the encoding, where `consumed` is neither `limit + 1` nor the full length; a node preimage built in memory holding an integer past 2^53, which no admitted package holds and which the reader would have refused, so the in-memory preimage skips the reader, is refused by the same seam as `failed` for the `bytes` limit with `consumed` equal to `limit + 1`, under a ceiling at or above the length of the encoding up to that number and below `u64::MAX`; through a whole call of `lower` at a ceiling the package fits under but one of the requested nodes' preimages does not, that node's record is `failed` as above and the sibling records are equal to the records the same call returns with that request removed, with the siblings `lowered` in both calls, so the comparison cannot pass because every record failed; a lowered package whose bytes exceed the ceiling, checked through a whole call of `lower` at a ceiling one byte below the package's canonical length, makes every requested record `failed` for the `bytes` limit with `limit` equal to the retained limit and `consumed` equal to the `required` of encoding the package under that limit, returns no lowered node, no dependency node, no package bytes and no id, and does not panic, while a call at a ceiling equal to that length lowers; a work-budget failure still records the `work` limit; no `failed` record has `consumed` at or below its `limit` unless the limit is `u64::MAX`; and package encoding failures return the typed failed record without panic or partial package. | Test (TC-048) |
 | FR-038-AC-96 | Each of the fifteen `temporal_formula` identities (`holds`, `true`, `false`, `not`, `and`, `or`, `implies`, `eventually`, `always`, `once`, `historically`, `until`, `release`, `since`, `triggered`) admits as the body root of a `temporal`/`formula` node, with operator `temporal_formula`, no law, `mode` `null`, no leaves, its catalogued member (`temporal_interval` with a closed interval on the eight interval operators, `null` on the other seven, under a clause selecting a bounded `temporal_profile`) and its catalogued operands (`holds` over one `boolean` operand, `true` and `false` over none, `not` and the four unary interval operators over one `reference` to a `temporal`/`formula` node, `and`, `or`, `implies` and the four binary interval operators over two); each formula node is referenced from a clause's formula argument or a formula operand; `quire.op.temporal.fair` admits as the body root of a `temporal`/`fairness` node with a well-formed `fairness` member and no operand, referenced from the fairness argument of a clause selecting `quire.temporal.infinite-trace/v1` (a bounded profile admits no fairness argument); and a package holding a `quire.op.temporal.clause` node whose sixth argument references a `temporal`/`formula` node applying `quire.op.temporal.eventually` with the member `{kind: temporal_interval, interval: {lower: "0", upper: "3"}}` over a second formula node applying `quire.op.temporal.holds` admits with every node key and its `package_id` re-derived, and lowers under a profile that supports the `temporal` tag and returns `unsupported` naming `temporal` under one that does not. | Test (TC-048) |
 | FR-038-AC-97 | On each of the eight interval operators the member `{kind: temporal_interval, interval}` admits, under `quire.temporal.infinite-trace/v1`, with `interval` `{lower: "0", upper: "3"}`, `{lower: "9", upper: "10"}`, `{lower: "2", upper: null}` and `null`; `{lower: "-1", upper: "3"}` refuses `invalid_package`/`invalid-value` at the bound (`/semantic_graph/nodes/{n}/body/operation/member/interval/lower`), `{lower: "0", upper: "-2"}` refuses the same way at `.../interval/upper`, and `{lower: "-5", upper: "-2"}` refuses at `.../interval/lower`, the first bound in member order, each in strict wire validation, before any identity check and any temporal step and under every profile (merged QSpec FR-370-AC-9 and the schema's non-negative bound pattern); every other bound outside the pattern (`"1.5"`, `"01"`, `"+1"`, `""`, `"3x"`, and the JSON integer `0`, which is no string) refuses `invalid_package`/`invalid-value` at that bound, `{lower: "1.5", upper: "0"}` at `.../interval/lower`, in the same early stage and first in member order (`lower`, then `upper`), never `operation-member-mismatch` (merged FR-370: "a bound outside its form's pattern ... refuses `invalid_package`/`invalid-value` at that bound's pointer during strict wire validation"); `{lower: "3", upper: "0"}` and `{lower: "10", upper: "9"}` refuse `invalid_package`/`invalid-value` at the application (`/semantic_graph/nodes/{n}/body`), also when the formula node is reached by no clause (the sweep after every clause, an IR reading) and `{lower: "18446744073709551617", upper: "18446744073709551616"}` refuses the same way, so the comparison is numeric and neither lexicographic nor fixed-width; a member of kind `fairness` and an interval holding a third member each refuse `invalid_package`/`operation-member-mismatch` at `operation.member` (an IR reading, merged text silent), and a `null` member on an interval-capable operator refuses `invalid_package`/`operation-member-mismatch` at the application (`/semantic_graph/nodes/{n}/body`, merged FR-370); and any member on `quire.op.temporal.holds`, `quire.op.temporal.not` or `quire.op.temporal.clause` refuses `operation-member-mismatch` at `operation.member`. | Test (TC-048) |
@@ -5349,8 +5194,8 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-105 | The temporal and case operands are checked at the operation step, after the temporal step: `quire.op.temporal.holds` over a `reference` to a `temporal`/`formula` node, and over a Boolean-family `reference`, admits only the latter, the former refusing `ill_typed`/`operator-ineligible` at the argument; `quire.op.temporal.until` with one argument, `quire.op.temporal.not` with two, `quire.op.temporal.true` with one, and `quire.op.temporal.and` over a Boolean-family `reference` each refuse `ill_typed`/`operator-ineligible` at `arguments` or at the argument; and `quire.op.temporal.not` over a `reference` to a `temporal`/`formula` node admits. | Test (TC-048) |
 | FR-038-AC-106 | `quire.op.structural.eq` over two values of the `Shape` union admits, and over a `Shape` value and a value of another union refuses `ill_typed`/`operator-ineligible` at `arguments/1` by its `same_type` constraint (QSpec FR-440-AC-6); over a union whose payload types reach no `text` type, `leaves` empty admits; and over `union Label { Named(Text[0, 8; nfc]), Tagged(Integer, Text[0, 8; nfc]), Empty }`, a comparison admits with exactly the leaves `["member:Named", "position:0"]` and `["member:Tagged", "position:1"]` in member declaration order, and, following FR-038-AC-70's convention, a list holding only the `Named` leaf, and a list holding only the `Tagged` leaf, each refuse `invalid_package`/`operation-law-missing` at `operation.leaves`, while the list of both leaves followed by the `Named` leaf again, and the list of both followed by a leaf `["member:Empty"]`, each refuse `invalid_package`/`operation-law-mismatch` at `operation.leaves/2` (the `member:<Ident>` segment is merged QSpec FR-322-AC-45); and over the recursive unions `union IntList { Cons(Integer, IntList), Nil }` and `union TextList { Cons(Text[0, 8; nfc], TextList), Nil }`, `structural.eq` admits (a cycle through a union is never refused `ill_typed`/`operator-ineligible`, merged QSpec FR-322-AC-46 and FR-440-AC-8): over `IntList`, which reaches no `text`, with `leaves` empty; over `TextList` with exactly the leaves `["member:Cons", "position:0"]` and the recursion leaf `["member:Cons", "position:1", "recursion:0"]` (`d` is 0, the segments the path held when `TextList` was entered, as for a record's `recursion:<d>`), a list lacking the recursion leaf refusing `operation-law-missing` at `operation.leaves`, one whose recursion leaf reads `recursion:1` refusing `operation-law-mismatch` at that leaf's `path`, and a recursion leaf at a reentry of `IntList` refusing `operation-law-mismatch` at its `path`. | Test (TC-048) |
 | FR-038-AC-107 | Read from the authoritative `quire-specification` checkout, never copied into this repository, the QSpec positive fixtures `positive-all-families.json` (the clause, `quire.op.temporal.holds` and `quire.op.temporal.eventually` with the interval `{lower: "0", upper: "3"}`), `positive-clause-operations.json` and `positive-union-nodes.json` (`quire.op.control.case`) each admit end to end with their recorded `package_id`. The test is named `tc_048_qspec_positive_fixtures_admit`, lives in its own test target, outside the run of `make test`, which has no checkout; it is run by a dedicated target, `make conformance-qspec`, which reads the root of a `quire-specification` checkout from the environment variable `QUIRE_SPECIFICATION_DIR` and fails, not skips, when the variable is unset, when it names a path that does not hold `proposals/checked-package-v2/fixtures/`, or when a fixture does not admit. The criterion is verified by that target alone and never counted from `make test`; wiring the target into CI is a separate decision this specification does not make. Nothing is copied from QSpec into this repository. The self-built packages of FR-038-AC-96 and FR-038-AC-99 reproduce the fixtures' features: a clause with the `temporal_profile` law `quire.temporal.event-position.false-extension/v1`, formula nodes whose body root is the application, a `case` scrutinee that is a `value`/`parameter` node typed at the union, union value payloads that are references to value nodes, arm binders that are `value`/`parameter` nodes whose body is the `{name, level}` aggregate, and the `case` node's `dependencies` as the digest-ascending reference targets. | Test (TC-048) |
-| FR-038-AC-109 | A selected model document holding at `/package/ratio` the number `0.1000000000000000000001`, `9007199254740993.5`, `-0.1000000000000000000001`, `4.9e-324` or `1e-400` refuses `noncanonical_wire` at `/lock/model_selections/0/digest` with `document_pointer` equal to `/package/ratio` and cause `inexact-number` (quire-specification:FR-272), whether the row selects the document's own digest or another digest, so the refusal precedes `content-mismatch`; the same document holding `0.1`, `0.5`, `1.5`, `-0.25`, `5e-324`, `2.5e-10`, `1.0`, `-0` or `1e2` at that pointer (`1.0`, `-0` and `1e2` are spelled other than the text `quire-canonical` writes, `1`, `0` and `100`, and each is admitted because the value is the same), each a number whose exact decimal value equals that of its double's shortest round-trip text, is not refused for it and is digested; the text that decides is the one `quire-canonical` writes for the number, which where two shortest texts are equally close to the double is the one with the even last digit, so a document holding `1125899906842624.2`, `1500000000000000.2` or `2.9802322387695312e-8` at that pointer (each the even-digit text of a tie) is not refused and one holding `1125899906842624.3`, `1500000000000000.3` or `2.9802322387695313e-8` refuses `inexact-number`, and the two texts are compared by their digits and scale, never as doubles; two documents that differ only in `0.1` and `0.1000000000000000000001` at that pointer are not both admitted, the second refusing as above where today both digest alike; the decision is made on the number's text read by `quire-canonical`, through no `serde_json` value, so it is the same whatever features other crates in the build turn on. | Test (TC-048) |
-| FR-038-AC-110 | The cause of each refusal FR-038-AC-93 names is `inexact-integer`, with the `document_pointer` AC-93 gives, for `9007199254740993`, `-9007199254740993`, `9.007199254740993e15`, `1e20`, `18446744073709551617`, `9007199254740993.0`, `1e400` and `-1e400`, and for an integer value type whose upper bound is `9007199254740993`; `9007199254740993.0` is `inexact-integer` and never `inexact-number` although its text also differs from its double's shortest round-trip text, and `1e400` and `-1e400` refuse `noncanonical_wire` at that `digest` with the `document_pointer` of the number; `9007199254740992`, `-9007199254740992` and `9.007199254740992e15` are unchanged and admitted, while `9007199254740992.5` (whose nearest double is `9007199254740992`) refuses `inexact-number`; a document holding an inexact number at `/b` and then a whole number past 2^53 at `/a/0` names `/b` with `inexact-number`, the first in document order, and the reverse order names the whole number with `inexact-integer`, except that a number with no finite double is named when the reader reaches it, and so can be named ahead of an earlier inexact number; when faults coexist the first fault `quire_canonical::read` returns decides (QSL FR-056), so `{"b":0.1000000000000000000001,"a":[1e400]}` and `{"b":9007199254740993,"a":[1e400]}` each refuse `noncanonical_wire`/`inexact-integer` with `document_pointer` `/a/0`, `{"a":1,"a":2,"n":1e400}` names `/n`, `{"n":1e400,"a":1,"a":2}` names `/n` and `[1e400` names `/0`, while `[1e400,"<0xFF>"]` (invalid UTF-8, which the read checks over the whole input first) refuses with no `document_pointer`, and, as this reader's reading, `[{"a":1,"a":2},1e400]`, `{"a":1,"a":2,"n":1e-400}` and `[1e400,"<0xFF>"]` offered under a digest that is not their raw digest refuse `stale_dependency`/`byte-digest-mismatch` at the row's `digest` because a reader fault other than an out-of-range number comes first; `1e-400` and `-1e-400` refuse `inexact-number`. | Test (TC-048) |
+| FR-038-AC-109 | A selected model document holding at `/package/ratio` the number `0.1000000000000000000001`, `9007199254740993.5`, `-0.1000000000000000000001`, `4.9e-324` or `1e-400` refuses `noncanonical_wire` at `/semantic_graph/nodes/<i>/owner/identity` with `document_pointer` equal to `/package/ratio` and cause `inexact-number` (quire-specification:FR-272); the same document holding `0.1`, `0.5`, `1.5`, `-0.25`, `5e-324`, `2.5e-10`, `1.0`, `-0` or `1e2` at that pointer (`1.0`, `-0` and `1e2` are spelled other than the text `quire-canonical` writes, `1`, `0` and `100`, and each is admitted because the value is the same), each a number whose exact decimal value equals that of its double's shortest round-trip text, is not refused for it ; the text that decides is the one `quire-canonical` writes for the number, which where two shortest texts are equally close to the double is the one with the even last digit, so a document holding `1125899906842624.2`, `1500000000000000.2` or `2.9802322387695312e-8` at that pointer (each the even-digit text of a tie) is not refused and one holding `1125899906842624.3`, `1500000000000000.3` or `2.9802322387695313e-8` refuses `inexact-number`, and the two texts are compared by their digits and scale, never as doubles; two documents that differ only in `0.1` and `0.1000000000000000000001` at that pointer are not both admitted, the second refusing as above where today both digest alike; the decision is made on the number's text read by `quire-canonical`, through no `serde_json` value, so it is the same whatever features other crates in the build turn on. | Test (TC-048) |
+| FR-038-AC-110 | The cause of each refusal FR-038-AC-93 names is `inexact-integer`, with the `document_pointer` AC-93 gives, for `9007199254740993`, `-9007199254740993`, `9.007199254740993e15`, `1e20`, `18446744073709551617`, `9007199254740993.0`, `1e400` and `-1e400`, and for an integer value type whose upper bound is `9007199254740993`; `9007199254740993.0` is `inexact-integer` and never `inexact-number` although its text also differs from its double's shortest round-trip text, and `1e400` and `-1e400` refuse `noncanonical_wire` at that `owner/identity` with the `document_pointer` of the number; `9007199254740992`, `-9007199254740992` and `9.007199254740992e15` are unchanged and admitted, while `9007199254740992.5` (whose nearest double is `9007199254740992`) refuses `inexact-number`; a document holding an inexact number at `/b` and then a whole number past 2^53 at `/a/0` names `/b` with `inexact-number`, the first in document order, and the reverse order names the whole number with `inexact-integer`, except that a number with no finite double is named when the reader reaches it, and so can be named ahead of an earlier inexact number; when faults coexist the first fault `quire_canonical::read` returns decides (QSL FR-056), so `{"b":0.1000000000000000000001,"a":[1e400]}` and `{"b":9007199254740993,"a":[1e400]}` each refuse `noncanonical_wire`/`inexact-integer` with `document_pointer` `/a/0`, `{"a":1,"a":2,"n":1e400}` names `/n`, `{"n":1e400,"a":1,"a":2}` names `/n` and `[1e400` names `/0`, while `[1e400,"<0xFF>"]` (invalid UTF-8, which the read checks over the whole input first) refuses with no `document_pointer`, and, as this reader's reading, `[{"a":1,"a":2},1e400]`, `{"a":1,"a":2,"n":1e-400}` and `[1e400,"<0xFF>"]` refuse `malformed_wire`/`malformed-json` at that `owner/identity` because a reader fault other than an out-of-range number comes first; `1e-400` and `-1e-400` refuse `inexact-number`. | Test (TC-048) |
 | FR-038-AC-111 | A package document holding the number `0.1000000000000000000001` or `9007199254740993.5` in a node body refuses `noncanonical_wire` with no pointer, no `document_pointer` and no cause, as it does today, each refused before any grammar, `package_id` or graph refusal the same document also earns; the same document holding `0.1` in that place is not refused `noncanonical_wire`; the package document is parsed through `serde_json`, so the manifest of the crate that holds the reader declares `serde_json` with the feature `float_roundtrip`, which makes the parse of a shortest round-trip text exact, so that a package document holding `1.2793061557049685`, `1.2106592671318679` or `1.3567384036451073` in a node body (each its double's shortest round-trip text, which `serde_json` without that feature reads as a neighbouring double and so would re-encode to different bytes) is not refused `noncanonical_wire`, whatever other crates in the build turn on. | Test (TC-048) |
 | FR-038-AC-112 | `make conformance-qspec` reads `proposals/checked-package-v2/fixtures/adverse.json` from the checkout named by `QUIRE_SPECIFICATION_DIR` (never copied into this repository) and applies every mutation of its `structural_mutations` and `body_grammar_mutations` lists, each at its `pointer` with its `replacement`, to a fresh copy of the `positive-all-families.json` package, reading the result with the production reader; each mutation refuses with exactly the code its `outcome` names (`refused:<code>`, and the cause after a `/` where it gives one). The harness refreshes no identity after a mutation: `node_id`, the references to it, the seven wire selection fields in `identity_preimage` and `package_id` stay as the fixture holds them; the reader derives the logical identity projection from the mutated `semantic_graph.nodes` rather than reading a shipped projection, as QSpec's TC-427 BG-02 applies the same mutations, because merged FR-322 has the reader validate the wire, body grammar included, ahead of every identity check, so a mutation under test is the first check that can refuse; a mutation the reader refuses at an identity check (`stale-node-key`, `stale_dependency`, `invalid_semantic_graph`) instead of its recorded code fails. For each `body_grammar_mutations` entry the harness also applies its `flattened` replacement at the same `pointer` in a fresh copy as a positive control, and the reader does not refuse that package `malformed_wire`; it may refuse it at a later identity check, the package being unrefreshed. The run fails, never skips, when the variable is unset or empty, when the file is missing or not JSON, when a list is absent or empty, when a `body_grammar_mutations` entry has no `flattened` member, or when a mutation does not refuse as recorded. A mutation the reader does not yet refuse as recorded is named in the harness's expected-failure list, each entry holding the mutation `id`, the refusal the reader gives it today, which differs from the recorded `outcome`, and the open ticket that owns the missing refusal; the run passes only while every listed id's refusal equals its listed one, and fails when a listed id is absent from `adverse.json`, when a listed id's refusal equals the recorded `outcome` (a stale entry, until it is deleted), when it equals neither, and when an unlisted mutation does not refuse as recorded. | Test (TC-048) |
 | FR-038-AC-113 | `make conformance-qspec` reads `proposals/checked-package-v2/dependency-selection-vectors.json` from the checkout named by `QUIRE_SPECIFICATION_DIR` (never copied into this repository) and replaces `dependency_selections` with the file's version-free `{identity, package_id}` entries in both the `lock` and the `identity_preimage` of its `base` fixture, as QSpec's README states, then derives the `package_id` by calling this repository's own derivation, the reader's `CheckedPackageIdentityPreimageRefV2` built from the seven wire selection fields and `semantic_graph.nodes` in graph order, excluding only occurrences, and encoded through `quire-canonical` (FR-038-AC-89), so a harness that hashes the JSON itself cannot pass; the result equals the file's recorded `package_id`, and the `base` fixture unchanged derives its own different `package_id`, so an entry carrying a `version` member, which is refused `unknown_member` (FR-038-AC-62 through FR-038-AC-64), is never the input of the recomputed identity. The run fails, never skips, when the variable is unset or empty, when the file is missing or not JSON, or when the recomputed identity differs from the file's. | Test (TC-048) |
@@ -5369,7 +5214,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-126 | Indirect redirection (IR-627; implemented over the in-repo fixture and selected-document field and operation contexts). Over fields and operations declared `Option<Int[0, 1000]>`, `Set<Int[0, 1000]>`, `Sequence<Int[0, 1000]>`, `Reference<O>` and an operation parameter typed `Int[0, 1000]`, a package in which the `option`, a collection or `reference` node keeps its stored key while its body `reference` is re-pointed at a genuinely keyed `Int[0, 10]` node, and one in which the parameter's type node holds the body `max` `10`, each refuses `invalid_package`/`stale-node-key` at the re-pointed or tampered node's `node_id`, and never `ill_typed`. A reader that re-derived only `integer_range` nodes admits the re-pointed `option`, collection and `reference` rows and fails. | Test (TC-226) |
 | FR-038-AC-127 | Stage and order (IR-627 baseline implemented; extended IR-630 two-pass controls PLANNED and UNRUN). The derived-shape re-derivation, both IR-630 passes included, runs after the graph-shape, application-key and nominal-key stages and before every declaration, frame, state, temporal, abstraction and operation step. Owner joins precede both structural passes: an owner defect wins over a stale structural key even on a lower-key node, while a stale nominal key wins over that owner defect. Within IR-630 the complete first pass precedes group-label comparisons. A package holding a graph-shape defect and a tampered node reports the graph-shape defect; one holding a stale application key and a tampered node reports the stale application key; one holding a tampered node and an `ill_typed` defect in an application that reads it reports the tampered node; one holding two tampered structural nodes reports the one whose own `node_id` digest is lower. Each report is `invalid_package`/`stale-node-key` at that node's `node_id` and never at the reading application. | Test (TC-226) |
 | FR-038-AC-128 | Exact bounds at the extremes (IR-627; implemented over declared fields and in-repo fixture nodes). Over fields declared `Int[0, 0]` and `Int[-170141183460469231731687303715884105728, 170141183460469231731687303715884105727]` (the `i128` extremes), a node holding the declared bounds, the `i128` minimum as `min` included, admits and a node whose `max` differs from the declared bound by one in either direction refuses as AC-123 does. A comparison through a lossy float conversion would admit `"170141183460469231731687303715884105726"` against the `i128` maximum and fails this row. | Test (TC-226) |
-| FR-038-AC-129 | Trust root (IR-627; implemented). A package whose `model_selections` row is re-pointed at a document declaring `Int[0, 10]`, whose node is re-keyed to `Int[0, 10]` and whose `package_id` is recomputed refuses `missing_import`/`missing-selection` at the row's `digest` when the evidence holds only the original document (FR-038-AC-27). The same package admits when the caller's evidence also holds the re-pointed document, because the reader admits a package against the evidence it is given, and the test records that admission as the stated limit of the trust root. | Test (TC-226) |
+| FR-038-AC-129 | Trust root (IR-627; implemented). The reader admits a package against the evidence it is given and does not authenticate the content of the document supplied under an identity: a package whose node is keyed `Int[0, 10]` admits when the caller's evidence holds, under the root's identity, a document declaring `Int[0, 10]`, and refuses when the evidence holds the document declaring `Int[0, 1000]`; the test records that admission as the stated limit of the trust root. | Test (TC-226) |
 | FR-038-AC-130 | One derivation (IR-627; implemented by the unit test of `v2/derived_keys.rs`). For each of the ten derived shapes the key the admission stage derives from a node's own body equals the key `MemberType::node_key` derives from the matching member type, and a node whose body is built from the derived key's own preimage admits. A test derives both for each shape over the bounds of AC-128 and compares them. | Test (TC-226) |
 | FR-038-AC-131 | PLANNED; new IR-630 controls UNRUN. Every structural form, declared or not and owner-bearing or not, is re-derived from its actual node members under the one QSL FR-092/FR-094 production authority. Nominal and application nodes retain their own key authorities; only correspondence/abstraction_relation is excluded from structural derivation. One-body-value mutations retaining old keys cover rational_range, decimal_range, float_rounding, text_bounds, model_population, compound_unit, text, parameter, union, record, tuple, value forms and owner-bearing clause functions. Each reaches invalid_package/stale-node-key at the least first-pass stale node_id. Existing owner-free ungrouped controls remain baseline evidence only; they do not prove the extended rows. | Test (TC-226) |
 | FR-038-AC-132 | No copy (IR-627 checkout-reference harness implemented; IR-630 extended conformance PLANNED and UNRUN). Authoritative vectors for owner-bearing, declared and labelled-group forms remain at their owning QSL or QSpec checkout and are read there, not copied into this repository. A conformance read fails closed when its source is absent or malformed, as FR-038-AC-112 and AC-176 require. Test-side derivation controls do not replace published goldens. | Test (TC-226) |
@@ -5384,7 +5229,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-141 | One derivation with admission (IR-628; implemented, ungated). For each field of AC-138 whose type is a range, `Reference`, `Option` or collection, a read keyed by the key the test recomputes through `quire-canonical` from the accessor's returned type admits, and the same read keyed from the perturbed type refuses `ill_typed`/`operator-ineligible` at the read. The perturbation is: for an `IntRange`, `upper - 1` when `upper > lower`, `upper + 1` when `lower == upper < i128::MAX`, and `lower - 1` when `lower == upper == i128::MAX`; for a collection's bounds, `upper - 1` when `upper > lower`, `upper + 1` when `lower == upper < u64::MAX`, and `lower - 1` when `lower == upper == u64::MAX`; so every perturbed type node stays well-formed (`min <= max`) and is refused at the read as `ill_typed`, never for its own shape; for a `Reference`, the key of another object type's model declaration node; for `Boolean` and `Integer`, the other scalar; for an `Option` or a collection, the same wrapper over the perturbed element. Mutation rows: an accessor that derives types by its own copy of `field_type` which differs in the optional wrapper, a collection's bounds, or a `Reference` target. | Test (TC-227) |
 | FR-038-AC-142 | Public shape and stability (IR-628; implemented, ungated). A compile-time API fixture shows `model_object_fields` takes `&self` and one `&CheckedNodeId` and no evidence; an exhaustive match over `CheckedMemberType`, `CheckedCollectionKind` and `CheckedModelFieldsError` with no wildcard arm compiles; code constructing `CheckedModelObjectFields` or `CheckedModelField` by struct literal fails to compile; the criterion is the compile fixtures: the exhaustive matches compile from an external crate (`tests/it`) only while the enums are closed. Mutation rows: `#[non_exhaustive]` added to an enum (the wildcard-free match fails to compile); a public field on either struct (the struct-literal fixture compiles); a variant added to an enum (the exhaustive match fails to compile). | Test (TC-227) |
 | FR-038-AC-143 | Pure, total, bounded (IR-628; implemented, ungated). Two calls on one package return equal results; a clone of the package returns an equal result; two admissions of the same bytes under different byte limits (both admitting) are equal as packages and return equal results; a package admitted (under a `work` limit set high enough) from a document with an inheritance chain of 200 object types and 100 redefinitions of one field has a call that returns the fields without panic or stack overflow, and the call does no resolution (a counter on the table-building function of items 2 and 7 reads the same value before and after the call); a node of AC-139's refusal cases returns its error and never panics. Equality of two packages admitted from the same bytes is unchanged by the retained tables. Mutation rows: the accessor panics on an unwrap of a missing owner; it recurses over a 20,000-type chain on a 256 KiB thread stack; it resolves per call; equality of packages gains the retained tables (compared with a crate-internal package holding the same admitted content and cleared tables). | Test (TC-227) |
-| FR-038-AC-144 | Resolution is charged once, at admission (IR-628; implemented, ungated). Cost model of items 8 and 9, with the arithmetic. For a chain of N object types, the first declaring one field and each later one declaring one field and extending the previous, the charge is 1 for the first type and k + 1 for the type at depth k >= 2 (one own field, one supertype edge, k - 1 copied entries), in all N(N + 1)/2 + N - 1: 13 for N = 4 (1 + 3 + 4 + 5) and 43 for N = 8. A crate-internal test reads the table-building counter and asserts 13 and 43. For the same chains, the smallest whole-read `work` limit that admits is M; M - 1 returns `incomplete` at the final selected-owner charge (`/lock/model_selections/0`), which follows graph structural-key validation. Separately, the limit one below the selected chain's last table-building charge returns `incomplete` at `/lock/model_selections/0`, preserving the table-before-graph precedence; these are distinct charges at the same pointer. A stale-key chain control finds the first budget that reaches its graph-stage stale-key refusal and shows that one below it returns work-`incomplete` at that node's `/semantic_graph/nodes/<n>/node_id` structural-key charge. Under `CheckedPackageReadLimits::bounded()` (work 1,000,000), a chain of N = 1000 (charge 1,000 x 1,001 / 2 + 999 = 501,499) admits and a chain of N = 1500 (1,500 x 1,501 / 2 + 1,499 = 1,127,249) returns `incomplete` at `/lock/model_selections/0`. Precedence (item 11), over one package each: a table charge that exhausts the limit together with a graph-stage refusal (a stale node key) returns `incomplete`, because tables precede `validate_graph`; a step 1 refusal at row 1 together with a table charge that exhausts the limit at row 0 returns the step 1 refusal, because every row's step 1 precedes any table charge. An object type with an ambiguous name (AC-139, package A) admits, and its table is charged as any other. Read charge (item 10): a read of a field of the N = 4 chain's deepest type charges 4 units (the four entries of its table, no hidden entries), a read of the root charges 1, and a read of an operation charges the unchanged step 3 walk; a frame entry naming a field and an abstraction relation's field entry on that deepest type each charge the same 4 units, a relationship edge read charges the entries of its table, and none runs the ancestor walk for a field (a counter on the walk stays at its pre-resolution value); a state clause resolves only operations and is unchanged. Cycles (items 4 to 6, 9), each pinned against what `resolve` returns today (the expected tables are recorded by running the pre-change `resolve` over each document before the code change and stored as the test's expected values, so they are not asserted from reading the code): a type `A extends A` declaring one field `f` admits, its table is `{f}` and the charge is 2; types `A extends B` with field `a` and `B extends A` with field `b` admit, the tables of `A` and `B` are the one shared table `{a, b}` and the charge is 4; `A extends A` declaring `f` and `g` where `g` redefines `f` admits and its table equals what `resolve` returns for `A` today (by reading `resolve`, `g` hides `f` and, since `A` is its own ancestor, itself, so neither is exposed); a document with a third type `C extends A` (outside the cycle) has a table equal to `resolve`'s for `C`, charged with the entries copied from the cycle's table. Mutation rows: tables computed after admission or per call (the limit never exhausts); the charge omitted for an unread object (the one-below limit admits); tables built after the graph stage (the precedence row returns the graph refusal); a per-type ancestor re-walk (the counter exceeds 13 for N = 4); an ambiguous table refusing admission; a field resolution (read, frame entry, abstraction field entry) that still runs the walk or charges nothing; a cycle refused at admission, built without termination, or built per member (the charge exceeds 4 for the two-cycle); a cyclic table differing from `resolve`'s. | Test (TC-227) |
+| FR-038-AC-144 | Resolution is charged once, at admission (IR-628; implemented, ungated). Cost model of items 8 and 9, with the arithmetic. For a chain of N object types, the first declaring one field and each later one declaring one field and extending the previous, the charge is 1 for the first type and k + 1 for the type at depth k >= 2 (one own field, one supertype edge, k - 1 copied entries), in all N(N + 1)/2 + N - 1: 13 for N = 4 (1 + 3 + 4 + 5) and 43 for N = 8. A crate-internal test reads the table-building counter and asserts 13 and 43. For the same chains, the smallest whole-read `work` limit that admits is M; M - 1 returns `incomplete` at the final selected-owner charge (`/semantic_graph/nodes/<i>/owner`), which follows graph structural-key validation. Separately, the limit one below the selected chain's last table-building charge returns `incomplete` at `/semantic_graph/nodes/<i>/owner`, preserving the table-before-graph precedence; these are distinct charges at the same pointer. A stale-key chain control finds the first budget that reaches its graph-stage stale-key refusal and shows that one below it returns work-`incomplete` at that node's `/semantic_graph/nodes/<n>/node_id` structural-key charge. Under `CheckedPackageReadLimits::bounded()` (work 1,000,000), a chain of N = 1000 (charge 1,000 x 1,001 / 2 + 999 = 501,499) admits and a chain of N = 1500 (1,500 x 1,501 / 2 + 1,499 = 1,127,249) returns `incomplete` at `/semantic_graph/nodes/<i>/owner`. Precedence (item 11), over one package each: a table charge that exhausts the limit together with a graph-stage refusal (a stale node key) returns `incomplete`, because tables precede `validate_graph`; a step 1 refusal at row 1 together with a table charge that exhausts the limit at row 0 returns the step 1 refusal, because every row's step 1 precedes any table charge. An object type with an ambiguous name (AC-139, package A) admits, and its table is charged as any other. Read charge (item 10): a read of a field of the N = 4 chain's deepest type charges 4 units (the four entries of its table, no hidden entries), a read of the root charges 1, and a read of an operation charges the unchanged step 3 walk; a frame entry naming a field and an abstraction relation's field entry on that deepest type each charge the same 4 units, a relationship edge read charges the entries of its table, and none runs the ancestor walk for a field (a counter on the walk stays at its pre-resolution value); a state clause resolves only operations and is unchanged. Cycles (items 4 to 6, 9), each pinned against what `resolve` returns today (the expected tables are recorded by running the pre-change `resolve` over each document before the code change and stored as the test's expected values, so they are not asserted from reading the code): a type `A extends A` declaring one field `f` admits, its table is `{f}` and the charge is 2; types `A extends B` with field `a` and `B extends A` with field `b` admit, the tables of `A` and `B` are the one shared table `{a, b}` and the charge is 4; `A extends A` declaring `f` and `g` where `g` redefines `f` admits and its table equals what `resolve` returns for `A` today (by reading `resolve`, `g` hides `f` and, since `A` is its own ancestor, itself, so neither is exposed); a document with a third type `C extends A` (outside the cycle) has a table equal to `resolve`'s for `C`, charged with the entries copied from the cycle's table. Mutation rows: tables computed after admission or per call (the limit never exhausts); the charge omitted for an unread object (the one-below limit admits); tables built after the graph stage (the precedence row returns the graph refusal); a per-type ancestor re-walk (the counter exceeds 13 for N = 4); an ambiguous table refusing admission; a field resolution (read, frame entry, abstraction field entry) that still runs the walk or charges nothing; a cycle refused at admission, built without termination, or built per member (the charge exceeds 4 for the two-cycle); a cyclic table differing from `resolve`'s. | Test (TC-227) |
 | FR-038-AC-145 | PLANNED (IR-630); UNRUN. Correctly keyed and labelled record List { next?: List; }, record Tree { kids: Sequence<Tree>[0, 3]; } and the owner-free QSL G1 self-option group admit through both structural-key and group-digest passes. Every structural member is authenticated, including the declared record, option, sequence and collection_bounds nodes. The source-owned positives use actual joined wire owners. An application member retains its separate application key check and contributes its local preimage to the group digest. A reader that still skips any member fails the tamper controls of AC-148. | Test (TC-226) |
 | FR-038-AC-146 | PLANNED (IR-630); UNRUN; retires ordinary-ungrouped-key-plus-label admission. Boolean, Integer, integer_range and reference retain their existing closed-shape checks and are never skipped because of a label or cycle. Adding a lone label to a correctly keyed ungrouped Int[0, 1000] node while retaining its key, mirroring projection and recomputing package identity now refuses invalid_package/stale-node-key at its node_id, with or without changing max to 10. The same stale-key mutations over Boolean, Integer and reference refuse. Correctly rekeyed and labelled nodes are judged by both published passes and existing shape checks, without an invented SCC-membership refusal. | Test (TC-226) |
 | FR-038-AC-147 | PLANNED (IR-630); UNRUN; retires off-cycle-same-label-ordinary-key admission. All nodes sharing a retained label participate in its wire-order group preimages, even off the names cycle. Adding an off-cycle Set<Int[0, 1000]> node carrying the Tree group label and its unchanged ordinary ungrouped key, then mirroring projection and refreshing package identity, refuses invalid_package/stale-node-key at the least first-pass stale node_id; it cannot admit by verifying the extra node as ungrouped. A lone labelled acyclic collection_bounds node with its old key also refuses. Dependencies do not supply group ordinals or a skip exemption; existing dependency/reference graph checks retain their precedence. A fully rekeyed and relabelled group containing an off-cycle member is judged by FR-322, not refused merely for being off-cycle. | Test (TC-226) |
@@ -5404,8 +5249,8 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-164 | An external Rust API fixture calls the accessor with `&CheckedNodeId` and `&CheckedOccurrence`, exhaustively matches the child-identity and error enums, and reads each ordinal, node id or inline selector and range through typed fields; it does not read `graph().nodes[*].body` or deserialize JSON. Repeated calls and a cloned admitted package return equal results, and neither call changes package equality. | Test (TC-048) |
 | FR-038-AC-165 | PLANNED / UNRUN (IR-661). A selected, independently authored FCD-shaped document with a global `relationship` slot identity admits, while an owner-nested relationship, a foreign-package identity and a wrong-slot identity each refuse `invalid_model_binding`/`malformed-declaration`. Owner-nested fields, operations and operation parameters still admit; moving a field or operation into the global relationship slot refuses `invalid_model_binding`/`malformed-declaration`. | Test (TC-048) |
 | FR-038-AC-166 | PLANNED / UNRUN (IR-661). Changing only an authored role makes the old name refuse `missing_declaration`/`missing-name` and the new name resolve on the same selected relationship. Destination-type and multiplicity changes are observed through the admitted navigation result nodes of AC-170, not through an unspecified retention accessor. Omitting only `targetEnd.role` admits the document with only its forward named end. Removing `sourceEnd.role`, or setting either present role to null, empty or a non-string, refuses `invalid_model_binding`/`malformed-declaration`; no role is synthesized or checked against an inverse registry. | Test (TC-048) |
-| FR-038-AC-167 | PLANNED / UNRUN (IR-661). An unresolved `sourceEnd.type` or `targetEnd.type` refuses `missing_declaration`/`missing-name`; a type naming a relationship or another declaration of the wrong meaning refuses `invalid_model_binding`/`malformed-declaration`, independent of declaration order. A source end naming another owning type, a malformed end or multiplicity refuses `invalid_model_binding`/`malformed-declaration`; `lower > upper` alone refuses `invalid_model_binding`/`unpreserved-model-meaning`. Each declaration refusal keeps its typed code, cause and selection-row pointer. This criterion verifies refusal semantics only; private metadata retention is verified separately by the dedicated criteria under the declaration-refusal retention contract. | Test (TC-048) |
-| FR-038-AC-168 | PLANNED / UNRUN (IR-661). Repeating a relationship identity, including under two different owners, refuses `invalid_model_binding`/`conflicting-binding` at the selection row. Two missing relationship identities are malformed declarations, not conflicting identities. A malformed role beats an unresolved end type and reversed multiplicity on that relationship; an unresolved end type beats reversed multiplicity. Referencing a node refused for identity or kind keeps its own refusal rather than reporting a missing end type. With other limits sufficient, the measured successful selection-stage work admits that stage; one below its cumulative charge threshold returns `incomplete` at `/lock/model_selections/<i>` with no admitted package. This is separate from AC-171's total-reader work limit. | Test (TC-048) |
+| FR-038-AC-167 | PLANNED / UNRUN (IR-661). An unresolved `sourceEnd.type` or `targetEnd.type` refuses `missing_declaration`/`missing-name`; a type naming a relationship or another declaration of the wrong meaning refuses `invalid_model_binding`/`malformed-declaration`, independent of declaration order. A source end naming another owning type, a malformed end or multiplicity refuses `invalid_model_binding`/`malformed-declaration`; `lower > upper` alone refuses `invalid_model_binding`/`unpreserved-model-meaning`. Each declaration refusal keeps its typed code, cause and root-owner pointer. This criterion verifies refusal semantics only; private metadata retention is verified separately by the dedicated criteria under the declaration-refusal retention contract. | Test (TC-048) |
+| FR-038-AC-168 | PLANNED / UNRUN (IR-661). Repeating a relationship identity, including under two different owners, refuses `invalid_model_binding`/`conflicting-binding` at the root's `owner`. Two missing relationship identities are malformed declarations, not conflicting identities. A malformed role beats an unresolved end type and reversed multiplicity on that relationship; an unresolved end type beats reversed multiplicity. Referencing a node refused for identity or kind keeps its own refusal rather than reporting a missing end type. With other limits sufficient, the measured successful selection-stage work admits that stage; one below its cumulative charge threshold returns `incomplete` at `/semantic_graph/nodes/<i>/owner` with no admitted package. This is separate from AC-171's total-reader work limit. | Test (TC-048) |
 | FR-038-AC-169 | PLANNED / UNRUN (IR-661). `relationship_end.declaration` names the selected relationship's `relation`/`relationship` graph node and resolves through its content-only `ModelOwner`, with an empty body; a valid source or target object node used as its declaration refuses `ill_typed`/`operator-ineligible` at `member.declaration` after owner recovery and before role lookup, without invalidating that object owner. Source role lookup yields the forward end and a present target role yields the inverse end, by exact role bytes rather than the terminal identity segment. An unknown role or absent inverse refuses `missing_declaration`/`missing-name` at the member's `name` before receiver, direction or result checks; two matching roles refuse `ambiguous_declaration`/`ambiguous-name`. A wrong-kind or missing relationship owner keeps the existing owner-join refusal, with no role fallback. | Test (TC-048) |
 | FR-038-AC-170 | PLANNED / UNRUN (IR-661). Forward and inverse navigation choose opposite receiver/destination endpoints and admit the canonical result nodes specified by QSpec FR-152 Navigation. The independently authored finite cases in TC-048 exercise Reference, Option, Set and Bag results; changing only destination type or bounds changes which result node admits. An inherited end admits on a subtype receiver with the same destination type; an unrelated object receiver refuses `ill_typed`/`operator-ineligible`. Wrong result or direction refuses `ill_typed`/`operator-ineligible` at the declared IR path. An eligible direction with an unbounded or ordered destination refuses `unsupported_construct`/`expression-form` at `member.name`, using the relationship-navigation-only variants named in AC-101. A named inverse on a source-to-target relationship refuses direction before unsupported destination multiplicity. | Test (TC-048) |
 | FR-038-AC-171 | PLANNED / UNRUN (IR-661). For `quire.op.model.navigate`, the new relationship-end checks follow the specified operation-step order, explicit calling-node locus and RFC 6901 paths: owner recovery and declaration-kind eligibility before roles; roles before receiver, direction, multiplicity and result comparison. A missing role combined with a wrong receiver, disallowed direction and wrong result reports `missing_declaration`/`missing-name` at `.../operation/member/name`; a valid role with wrong receiver reports at `.../body/arguments/0`; a mismatched result reports at `.../body/result_type`. A successful complete read admits at its measured exact total work limit. One less returns `incomplete` at the first unpayable charge in the existing stage order, without a partial package: operation validation precedes later graph-body reference-edge charges, so the pointer may be `.../body/arguments/0/target`, not the selection row. Selection-stage-minus-one has the separate selection-row oracle of AC-168. | Test (TC-048) |
@@ -5413,7 +5258,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-173 | PLANNED / UNRUN (IR-661). Removing direction, category, composite or origin, setting each to null or a wrong type, using an unsupported direction/category value, or supplying a malformed common-schema origin branch refuses `invalid_model_binding`/`malformed-declaration` at the selection row before application resolution. Code/cause/pointer and check order remain unchanged. Schema-valid source and generated origins admit without a default direction. This criterion verifies origin validation and admission/refusal semantics only; private metadata retention is verified separately by the dedicated criteria under the declaration-refusal retention contract. | Test (TC-048) |
 | FR-038-AC-174 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN, full gates pending (IR-663 identity retention). When FR-154 intake selects an offending declaration with a supplied string identity, the reader retains that exact FCD identity in the private refusal returned by `admit_selection`, including refused object-id spelling. Missing or non-string identity yields None; no graph digest, inferred owner, repaired string or separate artifact id supplies it. | Test (TC-048) |
 | FR-038-AC-175 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN, full gates pending (IR-663 private constructors). Each private `SelectionRefusal` constructor and declaration-to-`SelectionFailure::Refused` conversion preserves the selected retained metadata record through the private `admit_selection` return after document release. Independently dropping available identity/origin or substituting a different declaration's record fails the typed return assertion. Pre-declaration constructors preserve genuine metadata absence. | Test (TC-048) |
-| FR-038-AC-176 | IMPLEMENTED (IR-654 code; external conformance target passes). With `QUIRE_SPECIFICATION_DIR` naming the authoritative QSpec checkout, `make conformance-qspec` requires all nine `positive-*.json` packages under `proposals/checked-package-v2/fixtures/`: `positive-all-families.json`, `positive-clause-operations.json`, `positive-control-operations.json`, `positive-nominal-identities.json`, `positive-operation-identities.json`, `positive-recursive-records.json`, `positive-two-owners-a.json`, `positive-two-owners-b.json` and `positive-union-nodes.json`. Each admits through the production reader with its published `package_id`. For a package selecting `acme/orders`, the harness supplies `proposals/checked-package-v2/domain-package-acme-orders.json` from the same checkout under its selected `sha256-jcs` digest and the reader checks the bytes against that selection; this extends AC-107's existing positive read for packages with `model_selections`, not a second skipped read. A missing or malformed document, absent required positive fixture, unknown selected model identity, missing selection digest or non-admitted package fails the run. For the two-owner fixtures, read each node id and owner back through the admitted package's graph accessor and compare with the published graph and its derived identity-projection entries: the corresponding declared structural nodes have different ids across source owners, as AC-153 requires. This existing control checks published wire/admission. The planned IR-630 extension passes only when those production reads additionally authenticate the actual-owner structural keys and group labels. That extension is UNRUN, and the existing trace tags are not evidence for it. For every `model_declaration_nodes[*].preimage` in `proposals/checked-package-v2/model-member-type-vectors.json`, compare its `sha256` with the digest from the reader's production `declaration_key` path (`StructuralPreimage`/`structural_key` in `model_members.rs`), or admit its published wire node through that same production derivation; a harness that only hashes the vector's JSON preimage cannot pass. `node-identity-vectors.json` in that proposal remains the separate nominal/application-vector source; `model-effective-declaration-vectors.json` describes another model artifact and is not the structural-key oracle. No fixture document, source pin or digest catalog is copied into this repository. Live QSL emission followed by IR reading belongs to integration work outside this criterion. | Test (TC-048) |
+| FR-038-AC-176 | IMPLEMENTED (IR-654 code; external conformance target passes). With `QUIRE_SPECIFICATION_DIR` naming the authoritative QSpec checkout, `make conformance-qspec` requires all nine `positive-*.json` packages under `proposals/checked-package-v2/fixtures/`: `positive-all-families.json`, `positive-clause-operations.json`, `positive-control-operations.json`, `positive-nominal-identities.json`, `positive-operation-identities.json`, `positive-recursive-records.json`, `positive-two-owners-a.json`, `positive-two-owners-b.json` and `positive-union-nodes.json`. Each admits through the production reader with its published `package_id`. For a package selecting `acme/orders`, the harness supplies `proposals/checked-package-v2/domain-package-acme-orders.json` from the same checkout under its selected identity and the reader checks the document names that identity; this extends AC-107's existing positive read for packages with a `model_root`, not a second skipped read. A missing or malformed document, absent required positive fixture, unknown selected model identity or non-admitted package fails the run. For the two-owner fixtures, read each node id and owner back through the admitted package's graph accessor and compare with the published graph and its derived identity-projection entries: the corresponding declared structural nodes have different ids across source owners, as AC-153 requires. This existing control checks published wire/admission. The planned IR-630 extension passes only when those production reads additionally authenticate the actual-owner structural keys and group labels. That extension is UNRUN, and the existing trace tags are not evidence for it. For every `model_declaration_nodes[*].preimage` in `proposals/checked-package-v2/model-member-type-vectors.json`, compare its `sha256` with the digest from the reader's production `declaration_key` path (`StructuralPreimage`/`structural_key` in `model_members.rs`), or admit its published wire node through that same production derivation; a harness that only hashes the vector's JSON preimage cannot pass. `node-identity-vectors.json` in that proposal remains the separate nominal/application-vector source; `model-effective-declaration-vectors.json` describes another model artifact and is not the structural-key oracle. No fixture document, source pin or digest catalog is copied into this repository. Live QSL emission followed by IR reading belongs to integration work outside this criterion. | Test (TC-048) |
 | FR-038-AC-177 | Implemented by `composite_application_operands`; verified by the TC-048 composite operand tests. An admitted structural.eq over supported parameter references returns the actual application and supplied occurrence with two typed operands in argument order, ordinals 0 and 1. Swapping arguments swaps entries; repeating a parameter retains two entries. A second authentic occurrence is retained exactly; an absent occurrence refuses MissingOccurrence with the supplied application and occurrence. | Test (TC-048) |
 | FR-038-AC-178 | Implemented by `composite_application_operands`; verified by the TC-048 composite operand tests. A supported closed graph composite literal retains its own GraphChild id and Literal disposition with no introduced positions even under a wider type. A value subtree reading a parameter refuses UnsupportedOperand with enclosing ordinal and reason NonliteralGraphValue; an application subterm refuses reason ApplicationSubterm. Defensive inline integer and noninteger term cases refuse reasons InlineInteger and InlineNonInteger, without fabricated identity or value. No publicly admitted structural.eq or structural.ne integer-inline success is claimed: both owning catalog entries exclude Integer from structural_kind; future success requires an owning eligibility/value specification. | Test (TC-048) |
 | FR-038-AC-179 | Implemented by `composite_application_operands`; verified by the TC-048 composite operand tests. A record containing bounded Sequence of integer-range elements returns its exact field/collection/element paths, Node keys rooted at the operand, and both collection endpoints. Changing only one path's source type changes that descriptor. Bounds beyond i128/u64 retain canonical decimal text; unbounded integer/collection have explicit unbounded descriptors without guessed maxima. | Test (TC-048) |
@@ -5459,10 +5304,10 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-250 | Implemented (IR-225). Through the public reader, valid `quire.op.numeric.narrow` and `quire.op.quantity.convert` applications each admit with equal member declaration and `result_type`, and each refuses a mismatched `result_type` as `ill_typed`/`operator-ineligible` at `/semantic_graph/nodes/{i}/body/result_type` with the application node as locus, after re-deriving affected identities. These two non-IEEE catalogue entries demonstrate entry-driven selection beyond the IEEE conversion identities. The `field`, `position`, `element`, `relationship_end` and `operation` member-result kinds do not acquire the type-argument equality rule; in particular, valid `tuple.project` and `collection.index` packages with member declarations distinct from their `result_type` remain admitted. | Test (TC-048) |
 | FR-038-AC-251 | Implemented (IR-225; amended from an expected-set shape guard because the reader selects from the current catalogue entry). Member-result checking is selected by the catalogue entry shape alone (`result: member` and `member: type_argument`). Every other catalogued operation, including `model.lookup`, `model.all_instances` and the other member kinds, keeps its pre-IR-225 admission outcome; `collection.fold` and `collection.reduce`, which have no `member_family`, are checked for result-type/declaration equality only. A catalogue-wide differential test reads every entry from the same published catalogue as the reader, requires admission for each constructible control, and names the exact unavailable fixture set. | Test (TC-048) |
 | FR-038-AC-214 | CODE-GATED (IR-575; isolated 2026-10-10 measurement passed, final repo gates pending). The production `CheckedPackageV2::read` path directly decodes the closed wire into the typed package without ever constructing a full-document `serde_json::Value` tree or allocating a second full-document canonical byte buffer; `Value` terms inside the typed wire remain permitted. Source inspection and the real-reader adverse corpus confirm unchanged duplicate-member, noncanonical-byte, unknown-member and first-refusal code/pointer outcomes, unchanged identity and source-map content, and the same public typed result. In three fresh Linux x86_64 reader processes built with the repository's debug `cargo test --locked --test` profile and Rust's default System allocator, using this repository's canonical 100000-reference-chain fixture prebuilt by a separate generator process, `CheckedPackageV2::read` admits the full package under nonbinding limits and uses at most 1.50 GiB (1572864 KiB) additional peak resident memory during the call. Each reader loads input bytes and prepares evidence before recording baseline VmRSS and VmHWM. A run whose pre-read VmHWM differs from pre-read VmRSS is invalid setup and must be recorded and retried in a fresh process, never counted as passing. For each valid run, sample VmRSS during `read`, record VmHWM immediately after return while retaining the admitted package, and compute additional peak as `max(sampled peak VmRSS, post-read VmHWM) - pre-read VmRSS`. Fixture generation, lowering and runtime startup lie outside the interval. Every valid run records input size, admitted node count, baseline/peak/post RSS and HWM, elapsed read time, compiler version, allocator and platform; an over-ceiling run fails. The existing AC-117 admission and stack obligations remain. | Test, Inspection (TC-048) |
-| FR-038-AC-215 | A selected model document that reads as strict JSON, supplied under its row's `digest`, then edited in one member value so that its RFC 8785 SHA-256 changes, refuses `stale_dependency`/`content-mismatch` at `/lock/model_selections/0/digest` with `expected` equal to `{domain: "sha256-jcs", algorithm: "sha256", digest: <row digest>}` and `actual` equal to the edited document's RFC 8785 identity under that same domain and algorithm (the expected digest bytes are written out in the test, not recomputed by the reader's digest function), before identity or declaration checks and never as `byte-digest-mismatch`; the unedited document and a whitespace-respelled copy under their RFC 8785 digest admit; a parseable document selected under the plain SHA-256 of its raw bytes when that differs from its RFC 8785 SHA-256 refuses `content-mismatch`, not `wrong-model-selection`; a document holding a number FR-038-AC-93 or FR-038-AC-109 refuses `noncanonical_wire` first. | Test (TC-048) |
-| FR-038-AC-216 | Bytes of a selected model document that `quire_canonical::read` refuses (a truncated array, invalid UTF-8, `{"a":1,"a":2}`, a lone surrogate escape), supplied under a row `digest` other than their plain SHA-256, refuse `stale_dependency`/`byte-digest-mismatch` at `/lock/model_selections/0/digest` with `expected` `{domain: "sha256-jcs", algorithm: "sha256", digest: <row digest>}` and `actual` `{domain: "raw-artifact-digest", algorithm: "sha256", digest: <plain SHA-256 of supplied bytes>}`; the same bytes supplied under the row whose digest bytes equal their plain SHA-256 refuse `invalid_model_binding`/`wrong-model-selection` at `/lock/model_selections/0/identity` with neither payload, admit no declaration and read no identity from the bytes. Equal digest bytes in those different domains remain unequal typed identities. The outcomes of FR-038-AC-93, AC-109 and AC-110 for a number past the double range and of FR-038-AC-26 for the byte limit are unchanged by the raw digest. | Test (TC-048) |
+| FR-038-AC-215 | Withdrawn: a selected domain package document has no digest to recompute, compare or refuse as `content-mismatch`. | Test (TC-048) |
+| FR-038-AC-216 | Withdrawn: a selected domain package document has no digest, so there is no `byte-digest-mismatch`; bytes that do not read refuse `malformed_wire`/`malformed-json` (FR-038-AC-27). | Test (TC-048) |
 | FR-038-AC-217 | A `dependency_selections` entry whose supplied admitted package recomputes to another `package_id` than the entry's refuses `stale_dependency`/`content-mismatch` at `/lock/dependency_selections/0/package_id/digest` with `expected` equal to the entry's complete `CheckedSemanticId` (`quire.package.semantic/v2`, `sha256`, its digest) and `actual` equal to the supplied package's complete recomputed `package_id`, and never `byte-digest-mismatch`; no package supplied refuses `missing_import`/`missing-selection` at `/lock/dependency_selections/0` with neither payload, and a supplied package with the selected `package_id` admits. | Test (TC-048) |
-| FR-038-AC-218 | The `expected` and `actual` members of `CheckedPackageRefusal` are either both absent or both complete `CheckedSemanticId` values with exact domain, `sha256` algorithm and lowercase 64-character hexadecimal digest, and are present exactly for `stale_dependency`/`content-mismatch` and `stale_dependency`/`byte-digest-mismatch`. A `noncanonical_wire`, `missing_import`/`missing-selection`, `digest_domain_mismatch`, `invalid_model_binding`/`wrong-model-selection`, `invalid_semantic_graph` and `malformed_wire` refusal each carries neither. `ContentMismatch` is paired only with `StaleDependency`; two mismatch refusals with the same code and cause tag but different expected/actual identities have different QSpec FR-272 cause keys, while changing only path leaves that cause key unchanged. Typed identities with equal algorithm and digest but different `sha256-jcs` and `raw-artifact-digest` domains compare unequal. | Test (TC-048) |
+| FR-038-AC-218 | The `expected` and `actual` members of `CheckedPackageRefusal` are either both absent or both complete `CheckedSemanticId` values with exact domain, `sha256` algorithm and lowercase 64-character hexadecimal digest, and are present exactly for `stale_dependency`/`content-mismatch`. A `noncanonical_wire`, `missing_import`/`missing-selection`, `digest_domain_mismatch`, `invalid_model_binding`/`wrong-model-selection`, `invalid_semantic_graph` and `malformed_wire` refusal each carries neither. `ContentMismatch` is paired only with `StaleDependency`; two mismatch refusals with the same code and cause tag but different expected/actual identities have different QSpec FR-272 cause keys, while changing only path leaves that cause key unchanged. | Test (TC-048) |
 | FR-038-AC-224 | PLANNED/UNRUN (IR-490). A private operation-stage meter probe over an alias or non-population bounded-domain chain of N distinct forwarding nodes charges exactly N structural-resolution units on its first successful lookup, zero on another lookup of the same head or an already resolved suffix within that application's operation validation, and N again for the same chain in a second application. The terminal type adds zero forwarding units; the first lookup's exact limit succeeds and a limit one below returns typed Work before the failed forwarding node's `semantic_type` is read. For a 300-field record naming different entries of one 300-alias chain, measure total operation work W under a nonbinding limit: W reaches the ordinary `operation-law-missing` decision and W-1 returns typed Work when the required leaves are missing; this case measures the count pass only. In a separate version with every derived leaf and its selected law supplied, both leaf passes execute and the application admits at its measured total work limit W; W-1 returns typed Work. Across those two passes each of the 300 structural forwarding nodes charges once, while leaf-visit and `text_profile` pin charges remain independent and repeated pin lookups retain their separate first-visit charge rule. For each of `union_arms`, `inner:0`, `result_inner`, and a leaf edge, an otherwise valid operation whose remaining work limit is exhausted by structural forwarding returns the reader's `incomplete`/`work` at that operation, with no `ill_typed`/`operator-ineligible`, skipped constraint, or unchecked leaf. | Test (TC-048) |
 | FR-038-AC-225 | IMPLEMENTED (IR-739; tagged reader and conformance tests passed). `CheckedPackageV2::read` admits QSpec's current `positive-union-nodes.json`, read directly from an authoritative checkout by `make conformance-qspec`, with both its payload-bearing `Shape::Rect` and nullary `Shape::Empty` aggregate-bodied `value`/`union_value` nodes keyed under `quire.application-node/v1`. The test compares each retained key with an independently fixed QSpec preimage/key vector, its exact aggregate body and the fixture's recorded `package_id`; an ordinary application still admits, while application-free `record_value` and `tuple_value` controls retain structural-key selection. A private key-helper success alone is insufficient. | Test (TC-048) |
 | FR-038-AC-226 | IMPLEMENTED (IR-739; tagged reader and conformance tests passed). For each of the two authentic QSpec union values of AC-225, changing its retained key to the prior structural key, rewriting every reference and source-map occurrence of that key, mirroring the identity projection and recomputing only the package identity needed to reach node-key validation, yields `invalid_package`/`stale-node-key` at that node's `node_id`; `locus` is the supplied typed key and `expected_node_id()` is the distinct current application-derived typed key. The untampered package admits, so an earlier graph or package refusal cannot pass this control. Changing one key-covered body member without rekeying also refuses at that node. | Test (TC-048) |

@@ -101,22 +101,12 @@ fn tc_233_published_model_owned_time_graph_admits_as_one_class() {
         node["occurrences"][0]["role"] = json!("type");
         package["source_map"][position]["role"] = json!("type");
     }
-    let mut selections = members[..3]
-        .iter()
-        .map(|(preimage, _)| {
-            let identity = preimage["owner"]["identity"]
-                .as_str()
-                .expect("model identity");
-            let document = fixture_support::domain_package_document(identity, "1", Vec::new());
-            json!({
-                "identity": identity,
-                "digest_domain": "sha256-jcs",
-                "digest": fixture_support::domain_package_digest(&document),
-            })
-        })
-        .collect::<Vec<_>>();
-    selections.sort_by(|left, right| left["identity"].as_str().cmp(&right["identity"].as_str()));
-    package["lock"]["model_selections"] = Value::Array(selections);
+    for (preimage, _) in &members[..3] {
+        let identity = preimage["owner"]["identity"]
+            .as_str()
+            .expect("model identity");
+        fixture_support::select_model(&mut package, identity);
+    }
     fixture_support::refresh_identity(&mut package);
 
     let admitted = match CheckedPackageV2::read(
@@ -142,25 +132,22 @@ fn tc_233_published_model_owned_time_graph_admits_as_one_class() {
             .collect::<Vec<_>>(),
         [0, 1, 2]
     );
-    for (offset, selection) in package["lock"]["model_selections"]
-        .as_array()
-        .expect("three selected models")
+    let mut identities = members[..3]
         .iter()
-        .enumerate()
-    {
-        let root = &admitted.graph().nodes[names.len() + offset];
-        assert_eq!(root.semantic_form.as_ref(), "model_root");
-        let Some(CheckedNodeOwner::ModelRoot { identity, digest }) = root.owner.as_ref() else {
-            panic!("selected model root owner at {offset}");
+        .map(|(preimage, _)| preimage["owner"]["identity"].as_str().expect("identity"))
+        .collect::<Vec<_>>();
+    identities.sort_unstable();
+    identities.dedup();
+    let roots = admitted.graph().nodes[names.len()..]
+        .iter()
+        .filter(|node| node.semantic_form.as_ref() == "model_root")
+        .collect::<Vec<_>>();
+    assert_eq!(roots.len(), identities.len());
+    for root in roots {
+        let Some(CheckedNodeOwner::ModelRoot { identity, .. }) = root.owner.as_ref() else {
+            panic!("selected model root owner");
         };
-        assert_eq!(
-            identity.as_ref(),
-            selection["identity"].as_str().expect("identity")
-        );
-        assert_eq!(
-            digest.as_ref(),
-            selection["digest"].as_str().expect("digest")
-        );
+        assert!(identities.contains(&identity.as_ref()));
         assert_eq!(root.occurrences[0].ordinal, 0);
     }
 }

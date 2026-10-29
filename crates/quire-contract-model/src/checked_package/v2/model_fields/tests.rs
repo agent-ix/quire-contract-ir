@@ -400,7 +400,7 @@ fn tc_056_record_field_ambiguity_and_table_limit() {
             assert_eq!(record.limit_kind, CheckedPackageLimit::Work);
             assert_eq!(
                 record.path.as_ref().map(|path| path.as_str()),
-                Some("/lock/model_selections/0")
+                Some("/semantic_graph/nodes/0/owner")
             );
         }
         other => panic!("expected selected row work limit: {other:?}"),
@@ -497,7 +497,7 @@ fn tc_227_a_chain_charges_the_sum_of_its_tables() {
             assert_eq!(record.limit_kind, CheckedPackageLimit::Work);
             assert_eq!(
                 record.path.map(|path| path.to_string()).as_deref(),
-                Some("/lock/model_selections/0")
+                Some("/semantic_graph/nodes/0/owner")
             );
         }
         other => panic!("expected an incomplete read, got {other:?}"),
@@ -723,7 +723,6 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             "edition": edition,
             "profile_selections": [],
             "definition_selections": [],
-            "model_selections": [],
             "required_features": [],
             "dependency_selections": [],
         },
@@ -737,7 +736,6 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             "edition": edition,
             "profile_selections": [],
             "definition_selections": [],
-            "model_selections": [],
             "required_features": [],
             "dependency_selections": [],
         },
