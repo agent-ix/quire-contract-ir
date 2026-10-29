@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1103. Reviewed frozen PR #680 against QSpec origin/main FR-477 and TC-962, with FR-322, FR-341 and FR-402 as controlling context. The review covered every FR-477 acceptance criterion, the IR reader's stage and refusal order, typed retention, selected-model joins, binder identity, writer roundtrip and external QSL readback.
+Ticket: IR-1103. Reviewed PR #680 against QSpec origin/main FR-477 and TC-962, with FR-322, FR-341 and FR-402 as controlling context. The review covered every FR-477 acceptance criterion, the IR reader's stage and refusal order, typed retention, selected-model joins, binder identity, writer roundtrip and external QSL readback.
 
 Historical review provenance: PR #680 reviewed the step-relation requirement as FR-350.
 The requirement was later renamed FR-351 to resolve an identifier collision; the

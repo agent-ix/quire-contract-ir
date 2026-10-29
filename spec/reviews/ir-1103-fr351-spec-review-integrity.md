@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1103. Frozen PR #684. The ID rename leaves the checked-package requirement and its five obligations intact. The historical review preserves PR #680 wording and points its relationship to live FR-351.
+Ticket: IR-1103. Reviewed PR #684. The ID rename leaves the checked-package requirement and its five obligations intact. The historical review preserves PR #680 wording and points its relationship to live FR-351.
 
 ## Verdict
 

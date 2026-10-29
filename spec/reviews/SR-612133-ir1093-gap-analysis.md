@@ -36,7 +36,7 @@ CONDITIONAL: the computed matrix tag for FR-038-AC-329 does not prove its contro
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | adds rekeyed Main-ancestor fork and join refusal cases with exact code/locus and a tagged prefix-related nested-clause admission and wrong-class refusal case. |
+| FND-001 | fixed | In the reviewed PR, the test adds rekeyed Main-ancestor fork and join refusal cases with exact code/locus and a tagged prefix-related nested-clause admission and wrong-class refusal case. |
 
 ## Disposition verdict
 

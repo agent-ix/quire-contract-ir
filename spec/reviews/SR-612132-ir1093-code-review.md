@@ -37,7 +37,7 @@ FAIL: an admitted pair of protocol clauses with prefix-related qualified names c
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | maps members only to the closest admitted clause path with the required fixed member-kind segment; the new prefix-related two-clause case admits the complete catalog and refuses an outer-derived spelling. |
+| FND-001 | fixed | In the reviewed PR, the reader maps members only to the closest admitted clause path with the required fixed member-kind segment; the new prefix-related two-clause case admits the complete catalog and refuses an outer-derived spelling. |
 
 ## Disposition verdict
 

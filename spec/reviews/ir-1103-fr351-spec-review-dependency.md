@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1103. Frozen PR #684. FR-351 retains its StR-001 trace and FR-038, FR-040, FR-346 and FR-349 prerequisites. The temporal FR-350 to TC-461 relationship remains intact; no new dependency cycle was introduced.
+Ticket: IR-1103. Reviewed PR #684. FR-351 retains its StR-001 trace and FR-038, FR-040, FR-346 and FR-349 prerequisites. The temporal FR-350 to TC-461 relationship remains intact; no new dependency cycle was introduced.
 
 ## Verdict
 

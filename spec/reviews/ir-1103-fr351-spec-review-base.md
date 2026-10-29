@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1103. Frozen PR #684. FR-351 is unique; its five AC texts and Test verification cells exactly match the former step-relation FR-350. Temporal FR-350 and TC-461 remain untouched.
+Ticket: IR-1103. Reviewed PR #684. FR-351 is unique; its five AC texts and Test verification cells exactly match the former step-relation FR-350. Temporal FR-350 and TC-461 remain untouched.
 
 ## Verdict
 
