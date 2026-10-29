@@ -48,6 +48,22 @@ fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
 fn timed_clause_published_vectors_match_the_production_reader() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
+    let dense = read_json(&fixtures.join("positive-timed-model-nodes.json"))
+        .expect("published dense model fixture");
+    let dense_result = read_package(&dense).expect("dense model reader result");
+    assert!(
+        matches!(dense_result, CheckedPackageV2ReadResult::Admitted(_)),
+        "dense model fixture: {dense_result:?}"
+    );
+    let slot = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
+        .expect("published slot fixture");
+    let slot_document = proposal.join("domain-package-acme-timed-slots.json");
+    let slot_result = read_package_with_document(&slot, "dense slot fixture", &slot_document)
+        .expect("slot fixture reader result");
+    assert!(
+        matches!(slot_result, CheckedPackageV2ReadResult::Admitted(_)),
+        "slot fixture: {slot_result:?}"
+    );
     let vectors = read_json(&proposal.join("timed-clause-node-vectors.json"))
         .expect("published clause vectors");
     let cases = vectors["cases"].as_array().expect("published clause cases");
