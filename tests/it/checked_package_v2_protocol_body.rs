@@ -4128,6 +4128,214 @@ fn holder_position(package: &Value) -> usize {
         .expect("holder")
 }
 
+fn predicate_join_protocol_cycle(mixed_carrier_cycle: bool) -> (Value, Vec<usize>) {
+    let (mut package, _) = protocol_holder_case("parallel");
+    let clause = clause_position(&package);
+    let holder = holder_position(&package);
+    let run_control = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "protocol"
+                && node["semantic_form"] == "control"
+                && node["declaration"]["qualified_name"]
+                    == json!(["Example", "OrderFlow", "run", "Main"])
+        })
+        .expect("protocol run control");
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        let qualified = node["declaration"]["qualified_name"].as_array();
+        if qualified.is_some_and(|name| {
+            name.first().and_then(Value::as_str) == Some("Example")
+                && name.get(1).and_then(Value::as_str) == Some("OrderFlow")
+        }) {
+            node["declaration"]["qualified_name"][1] = json!("Flow");
+        }
+    }
+    settle(&mut package);
+    let boolean_type = node_id(&family_key("aaaa"));
+    let clause_id = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
+
+    let run_control_id = package["semantic_graph"]["nodes"][run_control]["node_id"].clone();
+    let mut group_positions = vec![run_control, holder];
+    let function_target = if mixed_carrier_cycle {
+        group_positions.push(clause);
+        let body = json!({"term": "reference", "target": clause_id});
+        let carrier_key = structural_key(
+            "protocol",
+            "protocol_reference",
+            Some(&family_key("aaaa")),
+            &body,
+        );
+        let carrier_id = node_id(&carrier_key);
+        let carrier = json!({
+            "node_id": carrier_id,
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "protocol",
+            "semantic_form": "protocol_reference",
+            "semantic_type": boolean_type,
+            "dependencies": [clause_id],
+            "occurrences": [{"role": "expression", "ordinal": 0}],
+            "body": body,
+        });
+        let position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len();
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(carrier);
+        group_positions.push(position);
+        carrier_id
+    } else {
+        run_control_id
+    };
+
+    let function_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "function"
+                && node["semantic_form"] == "pure_function"
+                && node["node_id"]["digest"] == family_key("8080")
+        })
+        .expect("source-owned predicate function");
+    let function_id = package["semantic_graph"]["nodes"][function_position]["node_id"].clone();
+    package["semantic_graph"]["nodes"][function_position]["body"] =
+        json!({"term": "reference", "target": function_target});
+    package["semantic_graph"]["nodes"][function_position]["dependencies"] =
+        json!([function_target]);
+    group_positions.push(function_position);
+
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"] = json!([
+        {"term": "binding", "name": "policy", "value": {
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": "predicate"
+        }},
+        {"term": "binding", "name": "predicate", "value": {
+            "term": "reference", "target": function_id
+        }}
+    ]);
+    settle(&mut package);
+    for &position in &group_positions {
+        package["semantic_graph"]["nodes"][position]["recursion_group"] =
+            json!("predicate-protocol-cycle");
+    }
+    mint_reader_grouped_keys(&mut package, &group_positions);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    (package, group_positions)
+}
+
+fn mint_reader_grouped_keys(package: &mut Value, positions: &[usize]) {
+    let nodes: Vec<quire_contract_model::CheckedSemanticNodeV2> =
+        serde_json::from_value(package["semantic_graph"]["nodes"].clone()).expect("typed nodes");
+    let candidates = quire_contract_model::derive_structural_candidates(&nodes, 1 << 20, u64::MAX)
+        .expect("group candidate keys");
+    let labels = candidates
+        .groups()
+        .iter()
+        .map(|label| {
+            (
+                label.retained_label().to_owned(),
+                label.candidate_label().to_owned(),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let members = positions
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    let mut replacements = std::collections::BTreeMap::new();
+    for candidate in candidates.nodes() {
+        let position = usize::try_from(candidate.position()).expect("graph index fits usize");
+        if members.contains(&position) {
+            let old = nodes[position].node_id.digest.to_string();
+            let new = candidate.candidate_node_id().digest.to_string();
+            replacements.insert(old, new);
+        }
+    }
+    for position in positions {
+        if matches!(
+            nodes[*position].body,
+            quire_contract_model::CheckedTerm::Application { .. }
+        ) {
+            let draft = quire_contract_model::ApplicationNodeDraft::new(&nodes[*position]);
+            let context = quire_contract_model::ApplicationIdentityContext::try_new(&nodes, draft)
+                .expect("group application context");
+            let candidate =
+                quire_contract_model::derive_application_node_id(draft, Some(&context), 1 << 20)
+                    .expect("group application key");
+            replacements.insert(
+                nodes[*position].node_id.digest.to_string(),
+                candidate.candidate_node_id().digest.to_string(),
+            );
+        }
+    }
+    for (position, node) in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .enumerate()
+    {
+        if members.contains(&position) {
+            let retained = node["recursion_group"].as_str().expect("group label");
+            node["recursion_group"] = json!(labels[retained]);
+        }
+    }
+    for (old, new) in replacements {
+        rename_node(package, &old, &new);
+    }
+    settle(package);
+}
+
+#[trace("FR-038-AC-241", "TC-946")]
+#[test]
+fn tc_946_predicate_join_function_cycle_uses_the_full_protocol_component() {
+    let (package, positions) = predicate_join_protocol_cycle(false);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+        panic!("the protocol predicate cycle admits: {:?}", read(&package));
+    };
+    assert_exact_protocol_cycle_group(admitted.graph().nodes.as_slice(), &positions);
+}
+
+#[trace("FR-038-AC-241", "TC-946")]
+#[test]
+fn tc_946_mixed_protocol_carrier_and_function_cycle_admits() {
+    let (package, positions) = predicate_join_protocol_cycle(true);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+        panic!("the mixed protocol cycle admits: {:?}", read(&package));
+    };
+    assert_exact_protocol_cycle_group(admitted.graph().nodes.as_slice(), &positions);
+}
+
+fn assert_exact_protocol_cycle_group(
+    nodes: &[quire_contract_model::CheckedSemanticNodeV2],
+    positions: &[usize],
+) {
+    let group = nodes[positions[0]]
+        .recursion_group
+        .as_deref()
+        .expect("group label")
+        .to_owned();
+    let members = positions
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    for (position, node) in nodes.iter().enumerate() {
+        assert_eq!(
+            node.recursion_group.as_deref() == Some(&group),
+            members.contains(&position),
+            "recursion group membership at graph position {position}"
+        );
+    }
+}
+
 fn holder_refusal(
     package: &Value,
     code: CheckedPackageRefusalCode,

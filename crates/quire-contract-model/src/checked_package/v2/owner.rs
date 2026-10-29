@@ -114,6 +114,8 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
             super::validate_node_id(owner_model, || node_pointer(position).key("owner_model"))?;
         }
         if kind == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)) {
+            // A local reference carrier may participate in a protocol SCC;
+            // its group label is authenticated by structural-key and SCC validation.
             let forbidden = [
                 ("declaration", node.declaration.is_some()),
                 ("owner", node.owner.is_some()),
@@ -121,7 +123,6 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
                     "nominal_identity_preimage",
                     node.nominal_identity_preimage.is_some(),
                 ),
-                ("recursion_group", node.recursion_group.is_some()),
             ];
             if let Some((member, _)) = forbidden.into_iter().find(|(_, present)| *present) {
                 return Err(ValidationFailure::refused(

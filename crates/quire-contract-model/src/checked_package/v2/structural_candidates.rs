@@ -16,7 +16,7 @@ use super::{
 use crate::checked_package::common::{TermField, TermTag, WireTerm, NODE_DOMAIN};
 use crate::checked_package::shared::CheckedNodeId;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Candidate identities and labels in supplied graph order.
 ///
@@ -266,19 +266,20 @@ fn derive_structural_candidates_raw(
         consumed: 0,
     };
     let mut groups: BTreeMap<&str, Group<'_>> = BTreeMap::new();
+    let mut seen_node_ids = HashMap::with_capacity(nodes.len());
     let mut kinds = Vec::with_capacity(nodes.len());
     for (position, node) in nodes.iter().enumerate() {
         let position_u64 = index(position)?;
-        for (first, previous) in nodes.iter().take(position).enumerate() {
-            work.charge(position)?;
-            if previous.node_id == node.node_id {
-                return Err(StructuralCandidateError::RepeatedKey {
-                    node_id: node.node_id.clone(),
-                    first_position: index(first)?,
-                    repeated_position: position_u64,
-                });
-            }
+        work.charge(position)?;
+        let key = (node.node_id.domain.as_ref(), node.node_id.digest.as_ref());
+        if let Some(&first) = seen_node_ids.get(&key) {
+            return Err(StructuralCandidateError::RepeatedKey {
+                node_id: node.node_id.clone(),
+                first_position: index(first)?,
+                repeated_position: position_u64,
+            });
         }
+        seen_node_ids.insert(key, position);
         let kind = CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
             .ok_or_else(|| StructuralCandidateError::InvalidTagForm {

@@ -130,6 +130,16 @@ positive control must fail if the target join recognizes only
 `protocol_clause`; it must not be satisfied by merely recognizing the
 carrier's `protocol_reference` form at wire decode.
 
+For FR-038-AC-241's recursion-group control, create two distinct
+`protocol_reference` carriers with the same semantic type and reciprocal local
+reference bodies and dependencies. Give both the same provisional
+`recursion_group`, independently derive their FR-322 group label and member
+keys using graph-order ordinals, and refresh package identity. Assert both
+carriers admit with the same retained label and reciprocal typed targets. A
+carrier carrying a declaration, owner or nominal identity preimage still
+refuses at that member; a stale grouped key or a cycle whose members do not
+share one group label refuses under the existing FR-322 rule.
+
 From that admitting control, separately author an extra dependency and an
 unequal dependency, then a changed body target with the old carrier key.
 Check graph-shape and stale-key refusals before target resolution. For the
@@ -142,7 +152,8 @@ dependency package containing that same typed key but no local copy. Pair a
 carrier join defect with a valid-key frame or operation defect to check
 declaration-stage precedence. Finally try a non-reference body, a
 `dependency_reference` body, an extra body member, and
-each forbidden declaration, owner, nominal preimage and recursion member.
+each forbidden declaration, owner and nominal preimage member. Exercise a
+malformed or incomplete recursion group under FR-322's existing group tests.
 Keep the QSpec fixture in its authoritative checkout; derive the local
 controls and identities in this repository's test builder.
 
@@ -173,7 +184,8 @@ occurrence ordinals. Keep canonical encoding and semantic identities valid
 in every mutation, deriving the graph identity projection anew for the
 added-node control. Do not use a stale identity refusal as evidence for
 source-map or graph uniqueness. Preserve the existing target/dependency,
-closed-body and forbidden-member controls of AC-239 through AC-241.
+closed-body, grouped-cycle and forbidden-member controls of AC-239 through
+AC-241.
 Producer conformance may additionally use freshly produced bytes through
 the producer's public interface, with exact source-region assertions;
 neither copied upstream fixtures nor a QSL internal dependency replaces the
