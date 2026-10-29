@@ -4300,6 +4300,7 @@ fn step_relation_package() -> Value {
         .find(|node| {
             node["node_tag"] == "value"
                 && node["semantic_form"] == "parameter"
+                && node["body"]["members"][0]["value"]["value"] == "self"
                 && node["body"]["members"][1]["value"]["value"] == "1"
         })
         .expect("second binder")["node_id"]
