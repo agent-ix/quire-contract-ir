@@ -416,6 +416,55 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
     );
 }
 
+/// Trace: FR-038-AC-358, TC-048.
+#[test]
+fn timed_clause_first_of_two_unlisted_nodes_follows_node_digest_order() {
+    let fixtures = fixtures_dir();
+    let mut wire = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
+        .expect("published clause fixture");
+    let reset = wire["semantic_graph"]["nodes"][85]["node_id"].clone();
+    let constraint = wire["semantic_graph"]["nodes"][76]["node_id"].clone();
+    assert!(
+        reset["digest"].as_str() < constraint["digest"].as_str(),
+        "the later graph node has the earlier digest"
+    );
+    let root = &mut wire["semantic_graph"]["nodes"][52];
+    let resets = root["body"]["members"][4]["value"]["members"]
+        .as_array_mut()
+        .expect("root resets");
+    let reset_count = resets.len();
+    resets.retain(|reference| reference["target"] != reset);
+    assert_eq!(resets.len(), reset_count - 1);
+    let constraints = root["body"]["members"][8]["value"]["members"]
+        .as_array_mut()
+        .expect("root constraints");
+    let constraint_count = constraints.len();
+    constraints.retain(|reference| reference["target"] != constraint);
+    assert_eq!(constraints.len(), constraint_count - 1);
+    root["dependencies"]
+        .as_array_mut()
+        .expect("root dependencies")
+        .retain(|dependency| dependency != &reset && dependency != &constraint);
+    fixture_support::mint_ungrouped_structural_keys(&mut wire);
+    sort_timed_graph_dependencies(&mut wire);
+    fixture_support::refresh_identity(&mut wire);
+    let document = proposal_dir_of(&fixtures).join("domain-package-acme-timed-clauses.json");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package_with_document(&wire, "two unlisted timed nodes", &document)
+            .expect("selected package read")
+    else {
+        panic!("the first unlisted timed node must refuse")
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::TimedNodeReference))
+    );
+    assert_eq!(
+        refusal.path.unwrap().to_string(),
+        "/semantic_graph/nodes/85/body"
+    );
+}
+
 fn sort_timed_graph_dependencies(package: &mut Value) {
     for node in package["semantic_graph"]["nodes"]
         .as_array_mut()
