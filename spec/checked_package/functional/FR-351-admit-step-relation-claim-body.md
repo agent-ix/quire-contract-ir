@@ -1,5 +1,5 @@
 ---
-id: FR-350
+id: FR-351
 title: "Admit the checked-package step-relation claim body"
 type: FR
 relationships:
@@ -22,7 +22,7 @@ relationships:
   - target: ix://agent-ix/quire-specification/FR-402
     type: references
 ---
-# FR-350: Admit the checked-package step-relation claim body
+# FR-351: Admit the checked-package step-relation claim body
 
 ## Description
 
@@ -122,11 +122,11 @@ FR-322 stage before this body's semantic joins.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-350-AC-1 | Reading a canonical two-execution determinism relation over `V::Vault::step(i)` with an abstraction binding exposes one typed `claim`/`step_relation` node: four ordered root bindings; `V` once in subjects; `x` and `y` in source order, each with six ordered bindings, the same operation anchor, distinct `self` and `i` nodes at levels `[0, 1]` and `[2, 3]`, the operation's exact precondition/postcondition sets, the Vault invariant set, and a bound implementation; declaration `Det`, its source owner, one declaration and one claim occurrence are retained. Its body reading `pre(x.self.l) = pre(y.self.l)` reaches distinct self nodes. | Test |
-| FR-350-AC-2 | Without an abstraction binding, both implementation members are empty aggregates and the reader exposes the model claim alone; with the binding, both model and code claims are requested from the one claim occurrence with different FR-402 obligation identities. | Test |
-| FR-350-AC-3 | Adding a Vault invariant, changing `step`'s precondition, or swapping `x` and `y` changes the correctly rekeyed node id and package id; whitespace/comment changes preserve the node id. Writing an admitted typed package and reading its canonical bytes preserves body, typed form and identities; canonical output from the external QSL producer reads back as an admitted typed step relation. | Test |
-| FR-350-AC-4 | A missing execution `implementation` binding refuses `invalid_semantic_graph`; an unknown alias refuses `missing_declaration`/`missing-name`; an operation target naming an object type and an implementation relation lacking the operation's frame each refuse `invalid_model_binding`/`malformed-declaration`; omitted precondition or invariant references refuse the same at their aggregate; an integer-typed body expression refuses `ill_typed`/`non-boolean-root`, each at FR-477's locus and first applicable reader step. | Test |
-| FR-350-AC-5 | Replacing `y`'s `self` and `i` parameter references with `x`'s nodes, while recomputing graph identity and dependencies, refuses `invalid_model_binding`/`malformed-declaration` at `y`'s `parameters`; a simultaneous earlier-stage defect wins before this semantic refusal. | Test |
+| FR-351-AC-1 | Reading a canonical two-execution determinism relation over `V::Vault::step(i)` with an abstraction binding exposes one typed `claim`/`step_relation` node: four ordered root bindings; `V` once in subjects; `x` and `y` in source order, each with six ordered bindings, the same operation anchor, distinct `self` and `i` nodes at levels `[0, 1]` and `[2, 3]`, the operation's exact precondition/postcondition sets, the Vault invariant set, and a bound implementation; declaration `Det`, its source owner, one declaration and one claim occurrence are retained. Its body reading `pre(x.self.l) = pre(y.self.l)` reaches distinct self nodes. | Test |
+| FR-351-AC-2 | Without an abstraction binding, both implementation members are empty aggregates and the reader exposes the model claim alone; with the binding, both model and code claims are requested from the one claim occurrence with different FR-402 obligation identities. | Test |
+| FR-351-AC-3 | Adding a Vault invariant, changing `step`'s precondition, or swapping `x` and `y` changes the correctly rekeyed node id and package id; whitespace/comment changes preserve the node id. Writing an admitted typed package and reading its canonical bytes preserves body, typed form and identities; canonical output from the external QSL producer reads back as an admitted typed step relation. | Test |
+| FR-351-AC-4 | A missing execution `implementation` binding refuses `invalid_semantic_graph`; an unknown alias refuses `missing_declaration`/`missing-name`; an operation target naming an object type and an implementation relation lacking the operation's frame each refuse `invalid_model_binding`/`malformed-declaration`; omitted precondition or invariant references refuse the same at their aggregate; an integer-typed body expression refuses `ill_typed`/`non-boolean-root`, each at FR-477's locus and first applicable reader step. | Test |
+| FR-351-AC-5 | Replacing `y`'s `self` and `i` parameter references with `x`'s nodes, while recomputing graph identity and dependencies, refuses `invalid_model_binding`/`malformed-declaration` at `y`'s `parameters`; a simultaneous earlier-stage defect wins before this semantic refusal. | Test |
 
 ## Dependencies
 
