@@ -488,6 +488,7 @@ fn profile_supporting(tags: &[CheckedNodeTag]) -> CompleteLoweringProfileV2 {
             authority: "quire".into(),
             identity: "complete-v1".into(),
         },
+        required_source_selections: Vec::new(),
         supported_tags: tags.iter().copied().collect(),
         require_bounds: false,
         work_limit: u64::MAX,

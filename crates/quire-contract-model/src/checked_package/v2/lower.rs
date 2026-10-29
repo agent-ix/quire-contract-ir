@@ -21,7 +21,7 @@ use super::{
 use super::{ReferenceMember, Step, Trail};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
-    CheckedSemanticId, CheckedSourceMapEntry,
+    CheckedSelection, CheckedSemanticId, CheckedSourceMapEntry,
 };
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits, Sink, Writer};
 use serde::{Deserialize, Serialize, Serializer};
@@ -236,6 +236,8 @@ pub struct LoweringProfileRef {
 pub struct CompleteLoweringProfileV2 {
     /// Explicit selected lowering profile, distinct from source-language selections.
     pub reference: LoweringProfileRef,
+    /// Exact source selections required by the resolved lowering profile.
+    pub required_source_selections: Vec<CheckedSelection>,
     /// Node families the backend supports.
     pub supported_tags: BTreeSet<CheckedNodeTag>,
     /// Whether unbounded numeric, text and collection types must be bounded.
@@ -807,6 +809,28 @@ impl CheckedPackageV2 {
                 node_id: request.clone(),
             };
         };
+        for required in &profile.required_source_selections {
+            work = work.saturating_add(1);
+            if work > profile.work_limit {
+                return failed(work);
+            }
+            let mut matched = false;
+            for selected in &self.lock().profile_selections {
+                work = work.saturating_add(1);
+                if work > profile.work_limit {
+                    return failed(work);
+                }
+                if selected == required {
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                return CompleteLoweringRecordV2::InvalidInput {
+                    node_id: request.clone(),
+                };
+            }
+        }
         let nodes = &self.graph().nodes;
         let kinds = self.node_kinds();
         let mut visited = BTreeSet::from([start]);

@@ -275,6 +275,7 @@ fn profile() -> CompleteLoweringProfileV2 {
             authority: "quire".into(),
             identity: "complete-v1".into(),
         },
+        required_source_selections: Vec::new(),
         supported_tags: BTreeSet::from([CheckedNodeTag::ScalarType]),
         require_bounds: false,
         work_limit: u64::MAX,

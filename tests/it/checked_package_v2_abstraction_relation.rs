@@ -2335,6 +2335,7 @@ fn tc_225_an_admitted_relation_node_lowers_like_any_admitted_node() {
             authority: "quire".into(),
             identity: "complete-v1".into(),
         },
+        required_source_selections: Vec::new(),
         supported_tags: [CheckedNodeTag::Correspondence, CheckedNodeTag::Model]
             .into_iter()
             .collect(),
