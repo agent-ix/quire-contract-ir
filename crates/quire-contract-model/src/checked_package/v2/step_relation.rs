@@ -25,6 +25,8 @@ pub struct CheckedStepExecution {
     pub variable: Box<str>,
     /// Selected model alias.
     pub alias: Box<str>,
+    /// Text scalar type of the alias literal.
+    pub alias_type: CheckedNodeId,
     /// Operation anchor.
     pub operation: CheckedNodeId,
     /// This execution's binders in FR-341 postcondition order.
@@ -173,12 +175,12 @@ fn parse(term: &CheckedTerm, at: JsonPointer) -> Result<CheckedStepRelationBody,
                 ],
                 path.clone().key("value"),
             )?;
-        let alias = match alias {
+        let (alias, alias_type) = match alias {
             CheckedTerm::Literal {
                 value_kind: LiteralKind::Text,
                 value,
-                ..
-            } => value.as_str(),
+                type_id,
+            } => value.as_str().map(|name| (name, type_id.clone())),
             _ => None,
         }
         .ok_or_else(|| {
@@ -229,6 +231,7 @@ fn parse(term: &CheckedTerm, at: JsonPointer) -> Result<CheckedStepRelationBody,
         variables.push(CheckedStepExecution {
             variable: Box::from(variable),
             alias: Box::from(alias),
+            alias_type,
             operation,
             parameters,
             preconditions,
@@ -344,7 +347,32 @@ pub(super) fn validate_step_relations(
             }
         }
         let mut named = BTreeSet::new();
+        let mut variables = BTreeSet::new();
         for (i, entry) in body.executions.iter().enumerate() {
+            if !variables.insert(entry.variable.as_ref()) {
+                return Err(refuse(
+                    Code::InvalidSemanticGraph,
+                    None,
+                    execution_at.clone().index(i),
+                    &node.node_id,
+                ));
+            }
+            if graph
+                .node(&entry.alias_type)
+                .is_none_or(|(_, kind)| kind != CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
+            {
+                return Err(refuse(
+                    Code::InvalidSemanticGraph,
+                    None,
+                    execution_at
+                        .clone()
+                        .index(i)
+                        .key("value")
+                        .key("members")
+                        .index(0),
+                    &node.node_id,
+                ));
+            }
             if !aliases.contains_key(entry.alias.as_ref()) {
                 return Err(refuse(
                     Code::MissingDeclaration,
