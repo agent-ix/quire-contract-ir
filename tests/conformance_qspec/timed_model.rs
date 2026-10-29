@@ -112,7 +112,7 @@ fn timed_equal_region_rational_order_charges_before_big_integer_work() {
     );
 }
 
-/// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-361.
+/// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-360, FR-038-AC-361, FR-038-AC-362, TC-048.
 /// Provenance: IR-1109; QSpec CL-25 and CL-54.
 #[test]
 fn timed_clause_published_vectors_match_reader() {
@@ -1079,7 +1079,7 @@ fn timed_model_published_schema_vectors_precede_stale_identity() {
     }
 }
 
-#[trace("TC-048", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30")]
+#[trace("TC-048", "FR-038-AC-320", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30")]
 #[test]
 fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
     let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
@@ -1587,8 +1587,8 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
 }
 
 /// A root that stops listing an existing guard still leaves a real guard node.
-/// STD-540 owns GD-03's exact locus; this control checks its published code
-/// and cause after authenticated package identities are rebuilt.
+/// This control checks GD-03's published code, cause and locus after
+/// authenticated package identities are rebuilt.
 /// Provenance: IR-1083, QSpec STD-526 GD-03.
 #[trace("TC-048")]
 #[test]
@@ -1630,6 +1630,10 @@ fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
         (refusal.code, refusal.cause),
         (Code::InvalidPackage, Some(Cause::TimedNodeReference)),
         "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        gd03["locus"].as_str()
     );
 }
 
