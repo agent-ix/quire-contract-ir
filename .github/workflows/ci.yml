@@ -29,6 +29,12 @@ jobs:
       - name: Lint
         run: make lint
 
+      - name: Install declared minimum Rust toolchain
+        run: |
+          msrv=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "quire-contract-ir") | .rust_version')
+          test -n "$msrv" && test "$msrv" != null
+          rustup toolchain install "$msrv" --profile minimal
+
       - name: Test
         run: make test
 
