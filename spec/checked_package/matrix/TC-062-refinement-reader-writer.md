@@ -26,23 +26,27 @@ package abstract-subject and row-empty controls. Recompute the graph keys,
 refinement's `{version, semantic_type, body}` node id and `package_id`
 through the repository's production identity path. Read, write and reread
 each positive package, checking its body, target joins, dependencies,
-canonical array order and occurrences.
+canonical order of the five non-step arrays, retained `steps` declaration
+order and occurrences. Include two valid, distinct step rows in both orders;
+check that each order admits and survives read/write/read unchanged, with
+generated occurrence ordinals and source regions following the received order.
 
 Apply the adverse mutations of FR-061-AC-2 through AC-9 one at a time.
 Include each step target kind, `open` in and outside argument position, a
 local and a directly selected dependency protocol key, wrong local/external
 key forms, an unselected package, each row array's missing/extra member,
-noncanonical ordering, a history initial of both admitted forms and of an
-application, missing/extra dependencies, two row-empty concrete subjects,
+noncanonical ordering of a non-step array, a history initial of both admitted
+forms and of an application, missing/extra dependencies, two row-empty concrete subjects,
 proof-eligible and ineligible occurrence sets, and pairs of simultaneous
-defects at the earlier/meaning stages. For a missing generated occurrence,
+defects at the earlier/meaning stages. Do not treat a `steps` permutation as
+an order defect. For a missing generated occurrence,
 remove its `source_map` entry and assert `/source_map`; for duplicate,
 extra-role, extra-ordinal and wrong-region entries, assert the offending
 entry's pointer. For within-node precedence, combine a retained stale
-refinement key with an unsorted `steps` array and assert the stale-key
-refusal; with identities recomputed, combine an unsorted `steps` array with
-a wrong-kind `abstract` header and assert the first out-of-order `steps`
-entry. Repair the array and assert the `abstract` join refusal. Combine a
+refinement key with a valid permutation of `steps` and assert the stale-key
+refusal; with identities recomputed, combine that permutation with a
+wrong-kind `abstract` header and assert the `abstract` join refusal, then
+repair the header and assert admission with the received step order. Combine a
 wrong-kind `semantic_type` with wrong-kind `abstract`, optional `protocol`
 and `profile` headers and assert `semantic_type` first, then repair each
 header in that order and assert the next. Combine a bad `profile` header
@@ -50,7 +54,7 @@ with a wrong-kind population row and assert the profile refusal first;
 repair the header and assert the row refusal. Within the canonical and row
 stages, place defects in different arrays and nested `fields`/`updates`,
 then two entries of one array and two properties of one row entry; assert
-FR-375 array/nested-array order, ascending indices and schema-declared
+the five non-step array/nested-array order, ascending indices and schema-declared
 entry-member order where FR-375 fixes no further tie-break. Rebuild
 identities after every body mutation except the stale-key control; keep
 the same selected packages in the identity comparisons.
@@ -92,10 +96,9 @@ defect and make a separate combined control for **each** earlier stage:
    refusal `invalid_semantic_graph` at the body before the row mismatch.
 2. Retain a stale refinement node id after a body mutation; assert
    `invalid_package`/`stale-node-key` at `node_id` before the row mismatch.
-3. Reverse two otherwise valid step rows by their canonical keys while one
-   retains the name mismatch; after recomputing identities, assert
-   `invalid_semantic_graph` at the first out-of-order `steps` entry before
-   the row mismatch.
+3. Reverse two object field rows while retaining the step name mismatch;
+   after recomputing identities, assert `invalid_semantic_graph` at the first
+   out-of-order field before the row mismatch.
 4. Select a wrong profile in the refinement header; after recomputing
    identities, assert `invalid_model_binding`/`malformed-declaration` at
    `body/profile` before the row mismatch.
@@ -107,8 +110,10 @@ defect and make a separate combined control for **each** earlier stage:
 
 For each control, assert the earlier stage, exact code, cause when defined,
 and RFC 6901 pointer; then repair only its earlier defect and assert the
-remaining row mismatch at `source_class`. Put defects in two ordered steps
-and assert the first row wins. Finally use a separate valid
+remaining row mismatch at `source_class`. Put defects in two steps
+and assert the first row in received declaration order wins. Reverse those
+two step rows, recompute identities and check the mismatch follows its row
+to the new index without an order refusal. Finally use a separate valid
 protocol refinement with a present catalog; change its row class to one
 absent from the concrete catalog, then restore the class and change its
 `source_node` away from the matching catalog entry. Confirm the existing
@@ -122,8 +127,9 @@ Each positive vector admits and round-trips with the same complete node,
 node id and package id. Every adverse vector refuses the entire package with
 FR-061's code, cause and pointer; no row is defaulted, reordered, omitted or
 interpreted under another form. The two concrete subjects produce distinct
-node ids despite equal bodies, and only the canonical meaning-bearing edits
-change identity. Earlier reader stages win over later refinement joins.
+node ids despite equal bodies; a changed received `steps` order changes the
+complete body under the existing identity rules. Earlier reader stages win
+over later refinement joins.
 The simultaneous body defects report the first FR-375 stage, then the first
 header or array and nested array in that stage, then the first array index
 and schema-declared entry member where FR-375 fixes no further tie-break.
