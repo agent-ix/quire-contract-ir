@@ -1477,10 +1477,13 @@ published model-declaration vector through the private production function; ordi
 
 Call
 `NominalIdentityPreimage::digest` for a preimage of each of the four versions with
-a limit equal to its canonical length and one byte lower (FR-038-AC-90). For FR-038-AC-91, compare canonical bytes and derived results for
+a limit equal to its canonical length and one byte lower; repeat through the
+reader with those configured limits (FR-038-AC-90). For FR-038-AC-91, compare canonical bytes and derived results for
 representative preimages against independently authored expected bytes and
 SHA-256 values, then mutate a semantic member and excluded provenance
-separately. FR-038-AC-92 checks the assigned preimage type shapes. Read a package that selects a model document
+separately. For FR-038-AC-92, compile trait-bound probes for the assigned
+preimage types and compare representative nested and fixed-depth bytes with
+the independent expectations. Read a package that selects a model document
 holding 9007199254740993, -9007199254740993, 9.007199254740993e15, 1e20 and
 18446744073709551617 at `/package/count`, under the document's own digest and
 under another, and check `noncanonical_wire` at
@@ -1507,7 +1510,8 @@ record names the `bytes` limit with the retained limit as `limit` and as
 `limit`, at most the canonical length; at the mid-string ceiling neither `limit + 1`
 nor the full length; `limit + 1` for the integer past 2^53), that a
 package over the ceiling returns no lowered node and no dependency node, and
-that a work-budget failure still names `work` (FR-038-AC-95).
+that a work-budget failure still names `work`, and that package encoding
+failures return typed records without panic or partial package (FR-038-AC-95).
 
 For FR-038-AC-309, choose a retained byte ceiling that admits every one-key
 package but refuses their union. Assert that `lower` on the union keeps its
