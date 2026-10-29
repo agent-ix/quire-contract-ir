@@ -1382,7 +1382,12 @@ fn quantity_key(term: Option<&CheckedTerm>) -> Option<OrderPart> {
 /// Flatten the nested structural term key with explicit list delimiters.
 /// A reference is replaced by its target's form and body; node ids and
 /// source regions therefore cannot decide the order of a shared term.
-fn term_key(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<Vec<OrderPart>> {
+fn term_key(
+    graph: &Graph<'_>,
+    term: Option<&CheckedTerm>,
+    meter: &mut WorkMeter,
+    at: &JsonPointer,
+) -> Result<Option<Vec<OrderPart>>, ValidationFailure> {
     enum Visit<'a> {
         Term(&'a CheckedTerm),
         Atom(OrderPart),
@@ -1390,26 +1395,34 @@ fn term_key(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<Vec<OrderPa
     }
     let mut key = Vec::new();
     let mut active = BTreeSet::new();
-    let mut pending = vec![Visit::Term(term?)];
+    let Some(term) = term else {
+        return Ok(None);
+    };
+    let mut pending = vec![Visit::Term(term)];
     while let Some(visit) = pending.pop() {
+        meter.charge(1, || at.clone())?;
         match visit {
             Visit::Atom(atom) => key.push(atom),
             Visit::Exit(position) => {
                 active.remove(&position);
             }
             Visit::Term(CheckedTerm::Reference { target }) => {
-                let position = *graph.index.get(target)?;
+                let Some(&position) = graph.index.get(target) else {
+                    return Ok(None);
+                };
                 if !active.insert(position) {
-                    return None;
+                    return Ok(None);
                 }
-                let body = graph.terms.get(position)?.as_ref()?;
+                let Some(body) = graph.terms.get(position).and_then(Option::as_ref) else {
+                    return Ok(None);
+                };
+                let Some(kind) = graph.kinds.get(position) else {
+                    return Ok(None);
+                };
                 pending.push(Visit::Exit(position));
                 pending.push(Visit::Atom(OrderPart::End));
                 pending.push(Visit::Term(body));
-                pending.push(Visit::Atom(OrderPart::Word(format!(
-                    "{:?}",
-                    graph.kinds.get(position)?
-                ))));
+                pending.push(Visit::Atom(OrderPart::Word(format!("{kind:?}"))));
                 pending.push(Visit::Atom(OrderPart::Start));
             }
             Visit::Term(CheckedTerm::Aggregate { members }) => {
@@ -1450,10 +1463,10 @@ fn term_key(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<Vec<OrderPa
             }
             // These closed bodies cannot be owner, slot, binder or predicate
             // terms. Leave their typed refusal to the later per-node join.
-            Visit::Term(_) => return None,
+            Visit::Term(_) => return Ok(None),
         }
     }
-    Some(key)
+    Ok(Some(key))
 }
 
 fn place_path_key(graph: &Graph<'_>, place: usize) -> Option<Vec<OrderPart>> {
@@ -1495,7 +1508,11 @@ fn operation_name(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<Strin
     bound(body, 1).and_then(spelling).map(str::to_owned)
 }
 
-fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderPart>> {
+fn structural_order_key_inner(
+    graph: &Graph<'_>,
+    position: usize,
+    term_shape: &mut impl FnMut(Option<&CheckedTerm>) -> Option<Vec<OrderPart>>,
+) -> Option<Vec<OrderPart>> {
     let body = graph.terms.get(position)?.as_ref()?;
     let kind = graph.kinds.get(position)?;
     let mut key = Vec::new();
@@ -1508,10 +1525,10 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
                 key.push(OrderPart::Number(0));
                 let place = *graph.index.get(typed_target(bound(body, 1)?)?)?;
                 key.extend(place_path_key(graph, place)?);
-                key.extend(term_key(graph, bound(body, 2))?);
+                key.extend(term_shape(bound(body, 2))?);
                 key.push(OrderPart::Start);
                 for slot in bound(body, 3).map(typed_members)? {
-                    key.extend(term_key(graph, Some(slot))?);
+                    key.extend(term_shape(Some(slot))?);
                 }
                 key.push(OrderPart::End);
                 key.push(OrderPart::Number(comparison_rank(
@@ -1534,16 +1551,16 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
                 let place = *graph.index.get(typed_target(bound(body, 2)?)?)?;
                 key.extend(place_path_key(graph, place)?);
                 key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
-                key.extend(term_key(graph, bound(body, 6))?);
+                key.extend(term_shape(bound(body, 6))?);
                 key.push(OrderPart::Start);
                 for binder in bound(body, 5).map(typed_members)? {
-                    key.extend(term_key(graph, Some(binder))?);
+                    key.extend(term_shape(Some(binder))?);
                 }
                 key.push(OrderPart::End);
-                key.extend(term_key(graph, bound(body, 3))?);
+                key.extend(term_shape(bound(body, 3))?);
                 key.push(OrderPart::Start);
                 for slot in bound(body, 4).map(typed_members)? {
-                    key.extend(term_key(graph, Some(slot))?);
+                    key.extend(term_shape(Some(slot))?);
                 }
                 key.push(OrderPart::End);
                 key.push(quantity_key(bound(body, 7))?);
@@ -1561,10 +1578,14 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
             key.push(OrderPart::Start);
             for bound_term in bound(body, 1).map(typed_members)? {
                 let bound_position = *graph.index.get(typed_target(bound_term)?)?;
-                key.extend(structural_order_key(graph, bound_position)?);
+                key.extend(structural_order_key_inner(
+                    graph,
+                    bound_position,
+                    term_shape,
+                )?);
             }
             key.push(OrderPart::End);
-            key.extend(term_key(graph, bound(body, 0))?);
+            key.extend(term_shape(bound(body, 0))?);
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Urgency) => {
             key.push(OrderPart::Word(text_member(body, 0)?.to_owned()));
@@ -1575,6 +1596,28 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
         _ => return None,
     }
     Some(key)
+}
+
+fn structural_order_key(
+    graph: &Graph<'_>,
+    position: usize,
+    meter: &mut WorkMeter,
+    at: &JsonPointer,
+) -> Result<Option<Vec<OrderPart>>, ValidationFailure> {
+    let mut work_failure = None;
+    let key = structural_order_key_inner(graph, position, &mut |term| match term_key(
+        graph, term, meter, at,
+    ) {
+        Ok(key) => key,
+        Err(failure) => {
+            work_failure = Some(failure);
+            None
+        }
+    });
+    match work_failure {
+        Some(failure) => Err(failure),
+        None => Ok(key),
+    }
 }
 
 fn comparison_rank(value: &str) -> Option<u64> {
@@ -1626,12 +1669,11 @@ fn check_reference_order(
         let Some(target) = typed_target(member) else {
             continue;
         };
-        let key = keys.get(target).copied().zip(
-            graph
-                .index
-                .get(target)
-                .and_then(|&target| structural_order_key(graph, target)),
-        );
+        let member_key = match graph.index.get(target) {
+            Some(&target) => structural_order_key(graph, target, meter, &member_at)?,
+            None => None,
+        };
+        let key = keys.get(target).copied().zip(member_key);
         // Graph-shape and source-map checks have already validated every
         // reference and region. Their refusal has precedence over this step.
         let Some(key) = key else {
