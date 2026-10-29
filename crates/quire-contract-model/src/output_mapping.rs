@@ -3019,7 +3019,7 @@ mod tests {
     /// record a different value here.
     #[trace("TC-043", "FR-032-AC-6", "FR-033-AC-6", "FR-034-AC-6")]
     #[test]
-    fn tc_043_each_identity_step_hands_the_encoder_the_request_byte_limit() {
+    fn tc_043_each_material_step_hands_the_encoder_the_request_byte_limit() {
         for ceiling in [4_096, 5_000] {
             let seen = Cell::new(None);
             request_bytes_with(1, ceiling, |material, limits| {

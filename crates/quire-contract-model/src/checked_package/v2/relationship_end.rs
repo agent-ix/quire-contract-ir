@@ -361,8 +361,7 @@ pub(super) mod tests {
             "dependencies": [], "occurrences": [{"role": "generated", "ordinal": 0}],
             "owner": root_owner, "body": root_body,
         }));
-        let source = json!({"authority": "test", "identity": "relationship-end",
-            "digest_domain": "quire.source.bytes/v1", "digest": "a".repeat(64)});
+        let source = json!({"authority": "test", "identity": "relationship-end"});
         let source_map: Vec<Value> = nodes
             .iter()
             .enumerate()

@@ -188,8 +188,6 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     let source = json!({
         "authority": "agent-ix",
         "identity": "source",
-        "digest_domain": "quire.source.bytes/v1",
-        "digest": "1".repeat(64),
     });
     let node = |fill: char, semantic_type: char, declaration: Option<&str>| {
         let mut node = json!({

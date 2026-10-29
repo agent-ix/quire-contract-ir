@@ -1921,7 +1921,7 @@ fn tc_043_record_material_is_metered_by_the_request_byte_limit() {
     );
     assert_eq!(
         refusal.path(),
-        "record.identity",
+        "record",
         "the request still admits one byte lower, so the record step refuses"
     );
     // The same candidate maps under a larger limit.
@@ -1961,7 +1961,7 @@ fn tc_043_package_material_is_metered_by_the_request_byte_limit() {
     );
     assert_eq!(
         refusal.path(),
-        "package.identity",
+        "package",
         "the request and the records still pass one byte lower, so the package step refuses"
     );
 }

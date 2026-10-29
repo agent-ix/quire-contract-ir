@@ -1268,7 +1268,7 @@ mod tests {
                 replace_id(&mut wire, &raw_id(digit), &fresh);
                 ids.insert(digit,fresh);
             }
-            let source = json!({"authority":"test","identity":"composite","digest_domain":"quire.source.bytes/v1","digest":"a".repeat(64)});
+            let source = json!({"authority":"test","identity":"composite"});
             wire["lock"]["sources"] = json!([source]);
             wire["semantic_graph"]["nodes"][3]["dependencies"] = json!([ids[&'1']]);
             wire["semantic_graph"]["nodes"][6]["dependencies"] = json!([ids[&'1']]);

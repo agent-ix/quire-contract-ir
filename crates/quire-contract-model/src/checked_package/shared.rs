@@ -624,16 +624,13 @@ pub struct CheckedPackageIncomplete {
     pub path: Option<JsonPointer>,
 }
 
-/// The identity of one locked artifact, used to group a source map's regions
-/// by the source they fall in.
+/// The nominal identity of one source artifact.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct CheckedArtifactLocator {
     /// Artifact identity authority.
     pub authority: Box<str>,
     /// Artifact identity.
     pub identity: Box<str>,
-    /// Identity domain of the bytes.
-    pub domain: Box<str>,
 }
 
 /// A semantic digest with an explicit domain and algorithm.
@@ -744,9 +741,8 @@ pub struct CheckedArtifactRef {
     pub identity: Box<str>,
 }
 
-/// A raw source document bound to the exact bytes the producer read: QSpec's
-/// `RawSourceRef`, the closed shape `{authority, identity, digest_domain,
-/// digest}`.
+/// A source document named by the producer, with no byte authentication.
+/// The closed shape is `{authority, identity}`.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedSourceRef {
@@ -754,10 +750,6 @@ pub struct CheckedSourceRef {
     pub authority: Box<str>,
     /// Source identity.
     pub identity: Box<str>,
-    /// Typed byte-digest domain, `quire.source.bytes/v1`.
-    pub digest_domain: Box<str>,
-    /// Lowercase SHA-256 digest of the source bytes.
-    pub digest: Box<str>,
 }
 
 /// A selected definition-role identity.

@@ -120,7 +120,7 @@ use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
     count, exceeds, first_difference, is_digest, is_nonempty, node_pointer, read_typed_prefix,
-    validate_definition_ref, validate_locked_artifact, validate_source_map_entries, validate_term,
+    validate_definition_ref, validate_locked_source, validate_source_map_entries, validate_term,
     ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
     NODE_DOMAIN,
 };
@@ -156,7 +156,6 @@ pub const CHECKED_PACKAGE_V2: &str = "quire.checked-package/v2";
 pub const PACKAGE_DOMAIN_V2: &str = "quire.package.semantic/v2";
 const IDENTITY_PREIMAGE_V2: &str = "quire.checked-package-id/v2";
 const GRAPH_V2: &str = "quire.checked-semantic-graph/v2";
-const SOURCE_BYTES: &str = "quire.source.bytes/v1";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum PackageWireTag {
@@ -165,7 +164,6 @@ enum PackageWireTag {
     IdentityVersion,
     GraphVersion,
     NodeDomain,
-    SourceBytes,
     Sha256,
 }
 
@@ -178,7 +176,6 @@ impl PackageWireTag {
             IDENTITY_PREIMAGE_V2 => Some(Self::IdentityVersion),
             GRAPH_V2 => Some(Self::GraphVersion),
             NODE_DOMAIN => Some(Self::NodeDomain),
-            SOURCE_BYTES => Some(Self::SourceBytes),
             "sha256" => Some(Self::Sha256),
             _ => None,
         }
@@ -1639,7 +1636,7 @@ fn validate_lock<'a>(
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
     for (index, source) in lock.sources.iter().enumerate() {
-        validate_locked_artifact(source, SOURCE_BYTES, &|| {
+        validate_locked_source(source, &|| {
             member_pointer(&["lock", "sources"]).index(index)
         })?;
     }

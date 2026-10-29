@@ -64,8 +64,8 @@
 )]
 //! The artifact references have closed member sets (FR-019-AC-6, FR-038
 //! "Artifact references"): a definition reference is `{authority, identity}`, a
-//! source reference `{authority, identity, digest_domain, digest}` and a locator
-//! `{authority, identity, domain}`. Each builds with exactly its members,
+//! source reference `{authority, identity}` and a locator
+//! `{authority, identity}`. Each builds with exactly its members,
 //!
 //! ```
 //! use quire_contract_model::{CheckedArtifactLocator, CheckedArtifactRef, CheckedSourceRef};
@@ -73,13 +73,10 @@
 //! let _ = CheckedSourceRef {
 //!     authority: "a".into(),
 //!     identity: "i".into(),
-//!     digest_domain: "d".into(),
-//!     digest: "x".into(),
 //! };
 //! let _ = CheckedArtifactLocator {
 //!     authority: "a".into(),
 //!     identity: "i".into(),
-//!     domain: "d".into(),
 //! };
 //! ```
 //!
@@ -103,8 +100,6 @@
 //! let _ = quire_contract_model::CheckedSourceRef {
 //!     authority: "a".into(),
 //!     identity: "i".into(),
-//!     digest_domain: "d".into(),
-//!     digest: "x".into(),
 //!     revision: "r".into(),
 //! };
 //! ```
@@ -113,7 +108,6 @@
 //! let _ = quire_contract_model::CheckedArtifactLocator {
 //!     authority: "a".into(),
 //!     identity: "i".into(),
-//!     domain: "d".into(),
 //!     revision: "r".into(),
 //! };
 //! ```
