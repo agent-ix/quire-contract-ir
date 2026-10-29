@@ -2939,9 +2939,11 @@ For AC-335, inspect the admitted template path and selector node identity,
 not merely the selector's semantic type. Assert one place node for three
 Sequence instances; separate Set, Bag, OrderedSet and nested-Sequence paths;
 the exact Text key type node for Map; and the slot-step refusal for a literal,
-an expression or the wrong domain type node. For AC-336, admit empty guard
-aggregates on a guard-free root and place, then assert a changed guard changes
-the place key while a duplicate path refuses, and an unlisted guard refuses.
+an expression or the wrong domain type node. For AC-336, admit an empty guard aggregate on a guard-free root. Add one
+root-listed guard and verify its own and the root key change while the place
+path template key does not. A place `guards` binding refuses at strict wire
+validation; an otherwise ordered duplicate path refuses as a duplicate place,
+and an unlisted guard refuses at its own `body`.
 
 For AC-337 and AC-338, admit `present(other.v)`, `present(self.q[i])` and the
 quantifier's `present(e)` with Boolean result and ordered place, owner and slot
@@ -2956,63 +2958,103 @@ rows to the selected declaration's member type and optional presence. Assert
 that Option adds no path step, the terminal inner Clock is accepted, and a
 missing or mismatched selected member is refused at the place join.
 
-## Timed aggregate source order (FR-038-AC-342)
+## Timed aggregate and clause reader (FR-038-AC-342, FR-038-AC-357 through FR-038-AC-362)
 
-Status: PLANNED/UNRUN (IR-1096). Read the `aggregate_order` section of QSpec's
-published `proposals/checked-package-v2/timed-slot-selector-vectors.json`
-from the selected QSpec checkout. Apply `AO-01` through `AO-07` to the public
-V2 reader without copying the selected package or patches into IR. Assert
-`AO-01` and `AO-05` admit; assert `AO-02`, `AO-03`, `AO-04`, `AO-06` and
-`AO-07` refuse with the vector's exact code, null cause and RFC 6901 locus.
-Inspect the root's six reference aggregates and each place's `guards`: their
-member order uses the minimum (`source.identity`, `start`, `end`) across every
-region of every source-map entry of the referenced node. Compare source
-identity as UTF-8 bytes, then numeric start and end; `AO-06` discriminates
-the equal-start case and `AO-07` discriminates a later source-map entry with
-an earlier region. Assert `AO-03` refuses even though its references are in
-node-id digest order.
+Status: PLANNED/UNRUN (IR-1096, IR-1109). Read QSpec's published
+`proposals/checked-package-v2/timed-slot-selector-vectors.json` and
+`proposals/checked-package-v2/timed-clause-node-vectors.json` through the
+selected checkout. Apply `AO-01`..`AO-10` and `CL-01`..`CL-53` to the public
+V2 reader with their selected packages; never store local copies. For every
+vector compare admission or exact code, cause and RFC 6901 locus. Assert
+`AO-01`, `AO-05`, `AO-08`, `CL-01` and each in-key-order `CL` pair admit;
+assert all published reverse-order and equal-key cases refuse
+`invalid_semantic_graph` with null cause at the first offending member.
 
-Build an identity-current two-reference control for a root aggregate and a
-place `guards` aggregate with equal minimum keys, and assert the second
-reference's exact `invalid_semantic_graph`/null-cause locus in each. Keep an
-ordered duplicate-place control and an ordered unlisted-guard control to
-show their existing refusal codes and loci still apply after order checking.
-For each remaining aggregate branch—root `resets` (binding 4), `guards` (5),
-`invariants` (6), `constraints` (8), and each place's `guards` (binding 3)—
-build an admissible two-reference control with distinct member nodes and
-strictly increasing source-region keys. For each control, swap the two
-references, rebuild the containing node key, its source-map entry and the
-package identity, and require `invalid_semantic_graph` with null cause at
-`/semantic_graph/nodes/{i}/body/members/{b}/value/members/1`, using that
-control's actual graph index `i` and binding index `b`. Retain the admitted
-original of each pair, and check its exact dependency, declaration and
-source-map joins, so an unrelated defect cannot pass the negative control.
-AO-02/03 cover root `clock_places`, and AO-04 covers root `urgencies`.
+For AC-342 and AC-359, test all six root aggregates, guard-part constraint
+lists and invariant bound lists with source-region minimum first and QSpec
+FR-322-AC-265 structural tie-break second. `AO-02`..`AO-07` distinguish
+reversed references, digest order, tied starts and an earlier extra region.
+`AO-08`..`AO-10` distinguish ordered, reversed and equal place-path keys on
+one region. `CL-29`..`CL-53` distinguish constraint, reset and invariant
+keys, including comparison rank, rational numeric bound, owner and slot
+terms, operation, condition, value, binder order, all invariant bounds and
+predicate. `CL-47` changes a shared term's region without changing either
+clause's position. Keep an otherwise canonical repeated-place path control
+that reaches `duplicate-clock-place` after aggregate ordering.
 
-For **each** of the five out-of-order AO patches (`AO-02`, `AO-03`, `AO-04`,
-`AO-06`, `AO-07`), make three independent mutations without removing its
-order defect. First replace the timed root's required `occurrences` array
-with a text value and require `malformed_wire` at
-`/semantic_graph/nodes/{i}/occurrences`, before any identity or order check.
-Second remove one still-referenced root dependency and, with the rest of the
-package kept identity-current, require `invalid_semantic_graph` with null
-cause at `/semantic_graph/nodes/{i}/dependencies`, before the key or timed
-step. Third create a stale root key while leaving the AO order defect in
-place: for `AO-02`, `AO-03` and `AO-04`, retain their changed root bodies but
-restore the root's pre-patch `node_id` and self `semantic_type`; for `AO-06`
-and `AO-07`, whose patches change only `source_map` and therefore do not
-stale a structural key, append one more reference to the last clock place
-at the end of the root's `clock_places` aggregate, retaining its existing
-first out-of-order pair and its original `node_id` and self `semantic_type`.
-The appended reference names a node already in the root's dependencies, so
-this extra body change leaves graph-shape validation satisfied while making
-the root's retained key stale. In all five cases retain the corresponding
-root source-map reference, recompute the package identity, and require
-`invalid_package`/`stale-node-key` at `/semantic_graph/nodes/{i}/node_id`
-before the timed step. Verify that each unmodified AO patch still reaches
-its published order refusal, so none of these earlier-stage controls
-substitutes for the AO result. Rebuild all affected keys and package
-identity except the intentionally stale root key in the third mutation.
+For each remaining root branch—`resets` (binding 4), `guards` (5),
+`invariants` (6) and `constraints` (8)—build an admissible two-reference
+control with distinct member nodes and strictly increasing full order keys.
+For each, reverse the references, rebuild the root key, its source-map entry
+and the package identity, and require `invalid_semantic_graph` with null
+cause at `/semantic_graph/nodes/{i}/body/members/{b}/value/members/1`,
+using that control's actual graph index `i` and branch index `b`. Retain
+the admitted original and verify its exact dependencies, selected
+declarations and source-map joins, so a foreign defect cannot pass the
+negative control. For each branch also give two distinct member nodes one
+minimum region triple and distinct structural keys: their structural order
+admits and its reverse refuses at the same second-member locus. Repeat a reference to give two equal full keys (minimum region and
+structural tie-break) and require the same refusal at the second member. `AO-02`/`AO-03` already
+cover root `clock_places` and `AO-04` covers root `urgencies`; the deleted
+place `guards` branch has no aggregate-order control.
+
+For **each** of `AO-02`, `AO-03`, `AO-04`, `AO-06` and `AO-07`, make three
+independent mutations that keep its first out-of-order pair. First replace
+the timed root's required `occurrences` array with text and require
+`malformed_wire` at `/semantic_graph/nodes/{i}/occurrences` before any
+identity or order check. Second remove one still-referenced root dependency,
+keep the rest of the package identity-current and require
+`invalid_semantic_graph` with null cause at
+`/semantic_graph/nodes/{i}/dependencies` before key or timed-body checks.
+Third create a stale root key while preserving the order defect: for
+`AO-02`, `AO-03` and `AO-04`, retain the patched root body but restore its
+pre-patch `node_id` and self `semantic_type`; for `AO-06` and `AO-07`,
+whose patches change only `source_map`, append one more reference to the
+last clock place at the end of root `clock_places`, retaining its original
+`node_id` and self `semantic_type`. That appended reference names a node
+already in root dependencies, so graph shape still passes while the key is
+stale. In all five cases retain the matching root source-map reference,
+recompute package identity and require `invalid_package`/`stale-node-key`
+at `/semantic_graph/nodes/{i}/node_id` before timed order. Rebuild all
+affected keys and package identity except the intentionally stale root key
+in the third mutation. Verify each unmodified AO patch still reaches its
+published order refusal after the three precedence probes.
+
+For AC-357, inspect each admitted form and exact binding order in `CL-01`.
+Assert `CL-17`..`CL-20`, `CL-27` and `CL-28` refuse at strict wire validation
+before any semantic check: empty parts, empty bounds, unknown comparison,
+empty part constraints, place `guards` and a conditional parameter reset.
+Include an admitted `eq` comparison in a guard and refuse `eq` in an
+invariant through `CL-24` at the semantic join stage.
+
+For AC-358, make `CL-05` and `CL-26` compete with an otherwise later per-node
+join defect and assert the first unlisted node by node-id digest refuses at
+its own `/body`; use a root-omitted guard as a third form. `CL-04` refuses a
+second guard for one anchor at that guard's operation binding. `CL-06`
+refuses a listed but unused constraint at the root member. Keep `CL-01` as
+an admitted control for both membership paths.
+
+For AC-360 and AC-361, assert the operation-anchor join for `CL-02`, `CL-03`
+and `CL-25` and the exact typed/locus refusals of `CL-07`..`CL-15` and
+`CL-21`..`CL-24`. `CL-03` is a reader-level test only while STD-555 leaves
+an `execution_point` binding schema-invalid; do not count it as a schema-valid
+package. A guard/reset/parameter constraint uses the anchor of its own root
+model, while an operation urgency retains model plus operation name. Check
+place owner and selector-domain terms, binder order, frame writes, Boolean
+conditions/predicates, Clock parameter declarations, same-operation guard
+constraints and upper-only invariant bounds. For each mutated semantic case,
+rebuild dependent node and package identities before calling the reader.
+
+For AC-362, inspect the positive dense timed-model and timed-slot fixtures
+for the same closed clause forms with current keys, then replay every `CL`
+patch on the selected clause fixture. Independently check the staged first
+refusal order: strict wire, graph shape, stale key, aggregate order,
+unlisted timed nodes, per-node joins, model-wide checks, followed by protocol
+and operation steps. Use a combined-defect case at each adjacent boundary;
+a vector's expected label alone is not evidence of stage order. Quantified
+source guard and invariant refusals `QN-01` and `QN-02` remain QSpec producer
+controls for STD-554; IR's reader cannot recover a quantifier omitted by a
+producer, so TC-048 does not claim that source evidence.
 
 ## Admitted operation-view provenance (FR-038-AC-341)
 
