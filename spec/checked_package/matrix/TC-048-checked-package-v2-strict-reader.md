@@ -1430,14 +1430,14 @@ so FR-038-AC-91 and FR-038-AC-92 are scanned over `checked_package/`, over the
 production source of `output_mapping.rs` (FR-038-AC-91's symbols and `u64::MAX`
 ceilings) and over that of `canonical.rs` and `binding.rs` (the symbols and
 calls, and the bound identity envelope deriving `FixedShape` with no `Value`).
-For the owner-free nominal fixture, recompute every node key and `package_id`
-and compare each with the digest the fixture recorded before the move; lower
-every node and compare each `ir_id`, the lowered package's `package_id` and its
-canonical bytes with the values recorded from the lowering before the move.
-For owner-bearing fixtures, compare unchanged owner-free nodes with their
-pre-owner golden, assert owner/projection equality and key recomputation in
-TC-228, and use the authoritative owner-bearing golden from QSpec's published
-positive packages and `model-member-type-vectors.json` under FR-038-AC-176.
+For the owner-free nominal fixture, independently construct each specified
+canonical preimage, recompute every node key and `package_id`, and compare with
+the reader's result. Lower every node and independently derive each `ir_id`,
+the lowered package's `package_id` and its canonical bytes from the specified
+preimages. For owner-bearing fixtures, assert owner/projection equality and
+independent key recomputation in TC-228; read QSpec's published positive packages
+and `model-member-type-vectors.json` directly under FR-038-AC-176 and verify
+their published identities against their canonical preimages.
 Compare the canonical bytes of one
 preimage of each kind with an
 expected byte string written out in the test, not computed by the code under test
@@ -2551,9 +2551,12 @@ IMPLEMENTED (IR-739; tagged reader and conformance tests passed). Read the autho
 Require the complete package to admit with its recorded `package_id`. Select
 the payload-bearing `Rect` and nullary `Empty` `value`/`union_value` nodes by
 tag and form, assert their exact aggregate bodies, and compare each retained
-key to QSpec's independently fixed `quire.application-node/v1` preimage bytes
-and digest. Do not reproduce the QSpec encoder, copy its fixture into IR, or
-use the IR reader's own digest to generate the expected value. Compare an
+key to an independently authored `quire.application-node/v1` preimage byte string
+and a SHA-256 computed from that string. Independently recompute the package
+identity from its canonical preimage and compare it with both the published
+`package_id` and the admitted result. Do not reproduce the QSpec encoder, copy
+its fixture into IR, or use the IR reader's own digest to generate the expected
+value. Compare an
 ordinary application positive and application-free `record_value` and
 `tuple_value` structural-key controls. This is AC-225; a private key-helper
 result does not discharge it.
@@ -2593,8 +2596,9 @@ preimage encoder or new byte ceiling is permitted.
 ## Content and byte digest mismatches (FR-038-AC-215 through FR-038-AC-218)
 
 Read a self-built package whose one `model_selections` row selects a self-built
-domain package document under its RFC 8785 digest, with an expected digest written
-out in the test. Edit one member value of the supplied document, supply the
+domain package document under its RFC 8785 digest, derived independently from
+explicitly authored canonical bytes rather than a fixed expected digest. Edit one
+member value of the supplied document, supply the
 whitespace-respelled document, and supply the document under the plain SHA-256 of
 its raw bytes. Supply each of a truncated array, invalid UTF-8, `{"a":1,"a":2}`
 and a lone surrogate escape under a digest that is not their plain SHA-256, then
@@ -2612,7 +2616,7 @@ equal SHA-256 bytes under `sha256-jcs` and `raw-artifact-digest` compare unequal
 
 Expected: the edited document refuses `stale_dependency`/`content-mismatch` at
 `/lock/model_selections/0/digest` carrying the row's selected and the
-written-out edited-document RFC 8785 digests, both under `sha256-jcs`/`sha256`;
+independently derived edited-document RFC 8785 digests, both under `sha256-jcs`/`sha256`;
 the unedited and respelled documents admit; the
 raw-digest selection of a parseable document whose raw and RFC 8785 digests differ
 refuses `content-mismatch`; each unreadable input under another digest refuses

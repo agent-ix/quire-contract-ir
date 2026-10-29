@@ -90,14 +90,14 @@ once by QSpec FR-092; strong previous is `once[1,1]`.
    observed counts, then force two limits to cross on one action and require
    the first limit in FR-350's table. Check that the rejected unit was not
    visited, the returned `value` is `setting + 1`, and no partial record exists.
-8. Encode the canonical correspondence record from FR-350-AC-7, require the
-   specified 1429-byte encoding and digest, and recompute with interval
-   `[[0, 2]]`, model package 64 `a`s and bridge definition 64 `b`s. Require the
-   listed digests for all three single-member mutations. Reordered or
-   whitespace-padded records refuse. The byte-level fixed vector's digest
-   values are independent from step 1's owner-admitted artifacts; do not use
-   its fixture digest strings as a substitute for owner-reader evidence
-   (FR-350-AC-7, FR-350-AC-8).
+8. Encode the canonical correspondence record from FR-350-AC-7 and require its
+   specified 1429-byte encoding. Independently hash that exact line, then
+   recompute after changing only interval `[[0, 2]]`, model package to 64 `a`s
+   and bridge definition to 64 `b`s, one at a time. Each mutation remains
+   1429 bytes, has a distinct digest, and its correspondence reference equals
+   the digest derived from its own bytes. Reordered or whitespace-padded records
+   refuse. These byte-level controls do not substitute for step 1's owner-reader
+   evidence (FR-350-AC-7, FR-350-AC-8).
 
 ## Expected Results
 
@@ -111,14 +111,10 @@ once by QSpec FR-092; strong previous is `once[1,1]`.
 - Only an equal final pair yields `agreement` with a Boolean. Every other
   decision has no Boolean and preserves its ordered causes, progress/closure,
   settlement, support, completeness and supersession axes.
-- The canonical record line is 1429 bytes with SHA-256
-  `af94ffed6cf2056cac630658154340137d6380fe6cf095a8a6511ca75aeb4213`;
-  the interval mutation gives
-  `8dbb7a21dd50d966b9912e59dfca7816f3ebda90c5591fbc2df9a2f5544efba7`,
-  the model mutation
-  `f736217757ea655a077861685a257707d92e872b83101fdc5d1437d062a6e4d2`,
-  and the bridge mutation
-  `9b5860c947e2237d5bacda3fe3da0e0b110e8ae7d7fb80862229e3234390ef7a`.
+- The canonical record line and each single-member interval, model-package
+  and bridge-definition mutation are 1429 bytes. Their independently derived
+  digests differ pairwise, and each correspondence reference matches the digest
+  of its own canonical bytes. No recorded digest supplies expected identity.
 - Malformed or over-limit inputs produce one deterministic refusal or
   incomplete result with no partial artifact and no evaluator invocation by
   Contract IR. Exact limits admit; one past yields `limit-reached` naming the

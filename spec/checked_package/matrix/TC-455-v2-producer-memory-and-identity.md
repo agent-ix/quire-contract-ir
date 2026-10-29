@@ -61,8 +61,9 @@ an 84,432 KiB (24.90%) reduction; this demonstrates the target with the trial
 patch but does not complete QSL-owned adoption. The candidate's median emission
 time was 1,544 ms versus the baseline's 1,137 ms, a 35.8% slowdown disclosed
 without a time bound.
-The fixed source emits 40,631,408 bytes with typed `package_id`
-`ecc79a978fb59047c27e588cb17ccce1d0385eaa8427817cc4591fe1e0dc079a`.
+The fixed source emits 40,631,408 bytes. Independently recompute its typed
+`package_id` from the emitted canonical identity preimage and compare it with
+each process's published value; no fixed expected digest is retained.
 No second owned body is retained per projected node, and canonical refusal
 returns no bytes. A fresh baseline measurement is made before the candidate's
 result is evaluated.

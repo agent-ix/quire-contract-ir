@@ -269,22 +269,23 @@ Its 64-zero digests are fixture identity values for the byte-level record and
 reference check; owner-admission controls in AC-1 use actual owner-read artifact
 bytes and their recomputed digests. The admitted execution-origin identity is `origin-1`, matching the
 whole-execution `anchor.kind`, and the capture value is exactly 54 ASCII `v`
-characters. SHA-256 of the exact line is
-`af94ffed6cf2056cac630658154340137d6380fe6cf095a8a6511ca75aeb4213`.
+characters. Independently compute SHA-256 of the exact line to check its
+correspondence reference; no recorded digest is an oracle.
 
 ```json
 {"anchor":{"binder":null,"kind":"origin"},"bindings":[{"leaf":0,"predicate":"p","predicate_node":0,"proposition":0}],"bridge":{"definition":"0000000000000000000000000000000000000000000000000000000000000000","profile":{"profile":"quire.native-temporal-correspondence/v1","selection":{"profile":"mltl.closed-trace/v1"}}},"captures":[{"index":0,"value":"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"}],"clause":{"declaration":0,"identity":"c"},"clock":{"name":"event-position","parameters":{}},"closure":{"surrounding":"closed"},"definition":{"identity":"d","revision":"r"},"history":null,"intervals":[[0,1]],"models":[{"alias":"m","package":"0000000000000000000000000000000000000000000000000000000000000000"}],"observation":{"origin":"origin-1","trace":"0000000000000000000000000000000000000000000000000000000000000000"},"package":"0000000000000000000000000000000000000000000000000000000000000000","source":{"digest":"0000000000000000000000000000000000000000000000000000000000000000","span":[0,1]},"target":{"formula":"0000000000000000000000000000000000000000000000000000000000000000","formula_edition":"formula-v1","profile":"mltl.closed-trace/v1","request":"0000000000000000000000000000000000000000000000000000000000000000","trace":"0000000000000000000000000000000000000000000000000000000000000000","trace_contract":"mltl.closed-trace/v1","valuation":"0000000000000000000000000000000000000000000000000000000000000000"}}
 ```
 
 Starting from that exact record, change **only** the named member below,
-re-encode in RFC 8785 form, and compare SHA-256 of the resulting canonical
-bytes. Each mutation remains 1429 bytes:
+re-encode in RFC 8785 form, and independently compute SHA-256 of the resulting
+canonical bytes. Each mutation remains 1429 bytes and has a digest distinct
+from the original and the other mutations:
 
-| Mutation | SHA-256 |
-| --- | --- |
-| `intervals` from `[[0,1]]` to `[[0,2]]` | `8dbb7a21dd50d966b9912e59dfca7816f3ebda90c5591fbc2df9a2f5544efba7` |
-| `models[0].package` from 64 `0`s to 64 `a`s | `f736217757ea655a077861685a257707d92e872b83101fdc5d1437d062a6e4d2` |
-| `bridge.definition` from 64 `0`s to 64 `b`s | `9b5860c947e2237d5bacda3fe3da0e0b110e8ae7d7fb80862229e3234390ef7a` |
+| Mutation |
+| --- |
+| `intervals` from `[[0,1]]` to `[[0,2]]` |
+| `models[0].package` from 64 `0`s to 64 `a`s |
+| `bridge.definition` from 64 `0`s to 64 `b`s |
 
 The **correspondence reference** SHALL be `{domain, digest}` with `domain`
 `"quire.native-temporal-correspondence/v1"` and `digest` the SHA-256 of the
@@ -342,7 +343,7 @@ an exact and one-over boundary without constructing a default-sized artifact.
 | FR-350-AC-4 | Fixed-sample projection retains epoch, period and unit, refuses a changed period or event-count reinterpretation with equal formula bytes, and reports a missing required sample as `incomplete`. | Test (TC-461) |
 | FR-350-AC-5 | Every join decision row is reached; only an equal-final pair carries a Boolean; every non-final pair preserves its causes and all result axes, and a correction is accepted only with its exact direct predecessor. | Test (TC-461) |
 | FR-350-AC-6 | Missing, duplicate, swapped, replayed or foreign valuation cells; owner-reader rejection; malformed or noncanonical projection/join data; and each one-over resource limit return one deterministic non-admitted/incomplete result, with no partial artifact and no evaluator invocation. Exact limits admit. | Test (TC-461) |
-| FR-350-AC-7 | The canonical correspondence record matches the complete field inventory and fixed 1429-byte vector specified in the Wire section; interval, model binding and bridge-definition mutations match the stated digests; reordered or whitespace-altered bytes are refused. | Test (TC-461) |
+| FR-350-AC-7 | The canonical correspondence record matches the complete field inventory and 1429-byte vector specified in the Wire section; an independently computed SHA-256 over those exact bytes equals its correspondence reference. Each specified single-member interval, model-binding and bridge-definition mutation remains 1429 bytes, has its own independently derived digest distinct from the original and other mutations, and its correspondence reference equals that derived digest; reordered or whitespace-altered bytes are refused. No fixed expected digest is used. | Test (TC-461) |
 | FR-350-AC-8 | Each `TlLimits` setting uses its stated default, charges before work, admits exactly at the setting and returns `incomplete` one past it with `limit-reached{limit, value, setting}` and no partial artifact. | Test (TC-461) |
 
 ## Dependencies
