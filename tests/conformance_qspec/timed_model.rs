@@ -319,7 +319,7 @@ fn sort_timed_graph_dependencies(package: &mut Value) {
 }
 
 /// Public-reader evidence over QSpec's selected package and exact AO patches.
-#[trace("TC-048", "FR-038-AC-336", "FR-038-AC-342")]
+#[trace("TC-048")]
 #[test]
 fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
     let fixtures = fixtures_dir();
@@ -408,7 +408,7 @@ fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
 
 /// Each published order defect remains present while an earlier reader stage
 /// refuses a second, independent defect.
-#[trace("TC-048", "FR-038-AC-342")]
+#[trace("TC-048")]
 #[test]
 fn timed_aggregate_order_preserves_earlier_refusal_stages() {
     let fixtures = fixtures_dir();
@@ -559,7 +559,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
 
 /// Distinct place paths remain ordered by their structural key when their
 /// minimum source regions coincide.
-#[trace("TC-048", "FR-038-AC-342")]
+#[trace("TC-048")]
 #[test]
 fn timed_aggregate_equal_regions_use_place_path_tie_break() {
     let fixtures = fixtures_dir();
@@ -603,7 +603,7 @@ fn timed_aggregate_equal_regions_use_place_path_tie_break() {
     );
 }
 
-/// Trace: FR-038-AC-342, TC-048.
+/// Trace: TC-048.
 #[test]
 fn timed_aggregate_repeated_reference_refuses_as_order_defect() {
     let fixtures = fixtures_dir();
@@ -633,7 +633,7 @@ fn timed_aggregate_repeated_reference_refuses_as_order_defect() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-342")]
+#[trace("TC-048")]
 #[test]
 fn timed_aggregate_source_identity_precedes_region_start() {
     let fixtures = fixtures_dir();
@@ -706,7 +706,7 @@ fn timed_aggregate_source_identity_precedes_region_start() {
 
 /// Each remaining timed-root aggregate has an admitted two-member control
 /// and an identity-current swapped reference that the public reader rejects.
-#[trace("TC-048", "FR-038-AC-342")]
+#[trace("TC-048")]
 #[test]
 fn timed_aggregate_each_root_branch_enforces_source_order() {
     let fixtures = fixtures_dir();
@@ -762,7 +762,7 @@ fn timed_aggregate_each_root_branch_enforces_source_order() {
     }
 }
 
-/// Trace: FR-038-AC-342, FR-038-AC-360, TC-048.
+/// Trace: TC-048.
 #[test]
 fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() {
     let fixtures = fixtures_dir();
@@ -1645,7 +1645,7 @@ fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
     );
 }
 
-/// Trace: FR-038-AC-336, TC-048.
+/// Trace: TC-048.
 #[test]
 fn timed_root_without_guards_keeps_the_place_template() {
     let mut wire = published();
