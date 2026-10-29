@@ -1441,7 +1441,7 @@ fn term_key(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<Vec<OrderPa
 
 fn place_path_key(graph: &Graph<'_>, place: usize) -> Option<Vec<OrderPart>> {
     let body = graph.terms.get(place)?.as_ref()?;
-    let mut key = Vec::new();
+    let mut key = vec![OrderPart::Start];
     for step in bound(body, 1).map(typed_members)? {
         match path_step_kind(step)? {
             PathStepKind::Field => {
@@ -1468,6 +1468,7 @@ fn place_path_key(graph: &Graph<'_>, place: usize) -> Option<Vec<OrderPart>> {
             }
         }
     }
+    key.push(OrderPart::End);
     Some(key)
 }
 
@@ -1491,9 +1492,11 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
                 let place = *graph.index.get(typed_target(bound(body, 1)?)?)?;
                 key.extend(place_path_key(graph, place)?);
                 key.extend(term_key(graph, bound(body, 2))?);
+                key.push(OrderPart::Start);
                 for slot in bound(body, 3).map(typed_members)? {
                     key.extend(term_key(graph, Some(slot))?);
                 }
+                key.push(OrderPart::End);
                 key.push(OrderPart::Number(comparison_rank(
                     bound(body, 4).and_then(spelling)?,
                 )?));
@@ -1515,13 +1518,17 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
                 key.extend(place_path_key(graph, place)?);
                 key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
                 key.extend(term_key(graph, bound(body, 6))?);
+                key.push(OrderPart::Start);
                 for binder in bound(body, 5).map(typed_members)? {
                     key.extend(term_key(graph, Some(binder))?);
                 }
+                key.push(OrderPart::End);
                 key.extend(term_key(graph, bound(body, 3))?);
+                key.push(OrderPart::Start);
                 for slot in bound(body, 4).map(typed_members)? {
                     key.extend(term_key(graph, Some(slot))?);
                 }
+                key.push(OrderPart::End);
                 key.push(quantity_key(bound(body, 7))?);
             } else {
                 key.push(OrderPart::Number(1));
@@ -1534,10 +1541,12 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
             key.push(OrderPart::Word(operation_name(graph, bound(body, 0))?))
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Invariant) => {
+            key.push(OrderPart::Start);
             for bound_term in bound(body, 1).map(typed_members)? {
                 let bound_position = *graph.index.get(typed_target(bound_term)?)?;
                 key.extend(structural_order_key(graph, bound_position)?);
             }
+            key.push(OrderPart::End);
             key.extend(term_key(graph, bound(body, 0))?);
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Urgency) => {
@@ -1611,6 +1620,9 @@ fn check_reference_order(
         let Some(key) = key else {
             continue;
         };
+        meter.charge(u64::try_from(key.1.len()).unwrap_or(u64::MAX), || {
+            member_at.clone()
+        })?;
         if previous.as_ref().is_some_and(|before| &key <= before) {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -2175,6 +2187,12 @@ pub(super) fn validate_models<'a>(
         let body = graph.body(root)?;
         let mut anchors = BTreeSet::new();
         let mut used_constraints = BTreeSet::new();
+        let listed_constraints: BTreeSet<_> = bound(body, 8)
+            .map(typed_members)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(typed_target)
+            .collect();
         for guard in bound(body, 5).map(typed_members).unwrap_or_default() {
             let Some(&guard) = typed_target(guard).and_then(|id| index.get(id)) else {
                 continue;
@@ -2189,9 +2207,29 @@ pub(super) fn validate_models<'a>(
                     ));
                 }
             }
-            for part in bound(guard_body, 1).map(typed_members).unwrap_or_default() {
-                used_constraints
-                    .extend(typed_members(part).iter().skip(1).filter_map(typed_target));
+            for (part_index, part) in bound(guard_body, 1)
+                .map(typed_members)
+                .unwrap_or_default()
+                .iter()
+                .enumerate()
+            {
+                for (constraint_index, member) in typed_members(part).iter().enumerate().skip(1) {
+                    if let Some(target) = typed_target(member) {
+                        if !listed_constraints.contains(target) {
+                            return Err(graph.issue(
+                                guard,
+                                Cause::TimedNodeReference,
+                                binding_at(guard, 1)
+                                    .key("members")
+                                    .index(part_index)
+                                    .key("members")
+                                    .index(constraint_index)
+                                    .key("target"),
+                            ));
+                        }
+                        used_constraints.insert(target);
+                    }
+                }
             }
         }
         for invariant in bound(body, 6).map(typed_members).unwrap_or_default() {
@@ -2199,13 +2237,26 @@ pub(super) fn validate_models<'a>(
                 continue;
             };
             let invariant_body = graph.body(invariant)?;
-            used_constraints.extend(
-                bound(invariant_body, 1)
-                    .map(typed_members)
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(typed_target),
-            );
+            for (bound_index, member) in bound(invariant_body, 1)
+                .map(typed_members)
+                .unwrap_or_default()
+                .iter()
+                .enumerate()
+            {
+                if let Some(target) = typed_target(member) {
+                    if !listed_constraints.contains(target) {
+                        return Err(graph.issue(
+                            invariant,
+                            Cause::TimedNodeReference,
+                            binding_at(invariant, 1)
+                                .key("members")
+                                .index(bound_index)
+                                .key("target"),
+                        ));
+                    }
+                    used_constraints.insert(target);
+                }
+            }
         }
         for (position, constraint) in bound(body, 8)
             .map(typed_members)
