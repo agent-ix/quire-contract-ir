@@ -1428,12 +1428,9 @@ fn term_key(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<Vec<OrderPa
                 pending.push(Visit::Atom(OrderPart::Word(format!("{operator:?}"))));
                 pending.push(Visit::Atom(OrderPart::Start));
             }
-            Visit::Term(other) => {
-                // These closed terms cannot be an owner, slot, binder or
-                // predicate under the timed clause join. Its later typed
-                // refusal remains authoritative.
-                pending.push(Visit::Atom(OrderPart::Word(format!("{other:?}"))));
-            }
+            // These closed bodies cannot be owner, slot, binder or predicate
+            // terms. Leave their typed refusal to the later per-node join.
+            Visit::Term(_) => return None,
         }
     }
     Some(key)
