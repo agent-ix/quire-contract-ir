@@ -42,7 +42,7 @@ fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
     }
 }
 
-/// Trace: FR-038-AC-360, TC-048.
+/// Trace: FR-038-AC-357, FR-038-AC-360, TC-048.
 #[test]
 fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() {
     fn id_at(wire: &Value, index: usize) -> CheckedNodeId {
