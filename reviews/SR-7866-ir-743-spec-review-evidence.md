@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-743. Reviewed frozen against QSpec main FR-330 AC-8 and TC-936. FR-035-AC-5 retains Test verification. TC-047 supplies an independent RFC 8785/SHA-256 oracle and both positive and refusal checks for the changed obligation.
+Ticket: IR-743. Reviewed the PR head against QSpec main FR-330 AC-8 and TC-936. FR-035-AC-5 retains Test verification. TC-047 supplies an independent RFC 8785/SHA-256 oracle and both positive and refusal checks for the changed obligation.
 
 ## Findings
 

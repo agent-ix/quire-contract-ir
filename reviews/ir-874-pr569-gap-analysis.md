@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the first ordered FR-466 control prefix at frozen PR #569. The rest of FR-038-AC-282/284/288 remains Planned.
+Reviewed the first ordered FR-466 control prefix at the reviewed PR #569 head. The rest of FR-038-AC-282/284/288 remains Planned.
 
 ## Verdict
 

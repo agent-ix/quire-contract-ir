@@ -25,7 +25,7 @@ Planless gap analysis of the PR #617 criterion-to-test binding: FR-038-AC-283 is
 
 - FR-038-AC-283 (examined): A protocol node derives its `quire.application-node/v1` key from its exact tag, form, Boolean type, declaration path, `null` recursion and body, with occurrences excluded; a second reference, source reformatting or declaring roles and other set-backed members in another source order preserves the key and package id, while a changed name, referenced target, literal, ordered capture or `sequence` child changes both. Role, channel, finish, terminal, control and compensation declarations use the fixed qualified-name segments of QSpec FR-464; queues have no declaration and generated occurrences, while other protocol members have declaration occurrences. A wrong path or occurrence role refuses at the node.
 - TC-048 (examined): Reorder an authored `sequence` and an ordered capture list and require changed keys; reformat source and reorder role or other set-backed declarations and require unchanged keys.
-- Computed matrix: static tagged (12 binders); evidence status no run evidence at frozen head. Plan completion: not assessed. Optional semantic review: not invoked; the criterion-bound test assertions were inspected under the reviewer brief.
+- Computed matrix: static tagged (12 binders); evidence status no run evidence at the reviewed PR head. Plan completion: not assessed. Optional semantic review: not invoked; the criterion-bound test assertions were inspected under the reviewer brief.
 
 ### FND-001
 

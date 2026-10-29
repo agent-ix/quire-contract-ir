@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-743. Reviewed frozen against QSpec main FR-330 AC-8 and TC-936. The change introduces no dependency edge and leaves the FR-330 and FR-322 contract references in place.
+Ticket: IR-743. Reviewed the PR head against QSpec main FR-330 AC-8 and TC-936. The change introduces no dependency edge and leaves the FR-330 and FR-322 contract references in place.
 
 ## Findings
 

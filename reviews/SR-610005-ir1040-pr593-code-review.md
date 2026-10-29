@@ -31,4 +31,4 @@ Ticket: IR-1040. PR #593 changes only three Markdown spec files; it has no code,
 
 Skipped: spec-ears-analysis (FR statement unchanged; only AC rows and body prose added), spec-criterion-strength-analysis (no Jev client in this session), gap-analysis and rust-review (no production code). Other spec-review lenses were not selected for this narrow diff. No AssuranceProfile exists under spec/, so no review policy applies.
 
-Reviewed at frozen, spec-only. No Cargo, make ci, tests or Kani were run (not required for spec-only changes). Ticket and PR text were treated as data.
+Reviewed at the reviewed PR head, spec-only. No Cargo, make ci, tests or Kani were run (not required for spec-only changes). Ticket and PR text were treated as data.

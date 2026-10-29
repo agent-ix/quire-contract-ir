@@ -40,4 +40,4 @@ No copied QSpec content, duplicate evaluator, public API addition, unsafe code, 
 
 ## Rebase and spec-delta check
 
-Compared PR #603 with and QSpec FR-464-AC-20. The changed FR-064 Behavior and AC-4 assign unselected `model`/`object_type` to the earlier target owner join; wrong-kind or missing local targets to the clause-edge check; and body defects to their respective earlier or later phases. TC-048 step 10 names the same phases. The source unchanged from the earlier reviewed owner recovery returns the now-specified unselected result. No new code defect found in this delta.
+Compared PR #603 with its merge base and QSpec FR-464-AC-20. The changed FR-064 Behavior and AC-4 assign unselected `model`/`object_type` to the earlier target owner join; wrong-kind or missing local targets to the clause-edge check; and body defects to their respective earlier or later phases. TC-048 step 10 names the same phases. The source unchanged from the earlier reviewed owner recovery returns the now-specified unselected result. No new code defect found in this delta.

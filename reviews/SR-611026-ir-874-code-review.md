@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed quire-contract-ir PR #629 at frozen against IR FR-038-AC-285, AC-324 and AC-327, QSpec FR-322-AC-96 and FR-464-AC-6/13. The graph stage now owns exact protocol-family dependencies. No applicable AssuranceProfile was found.
+Reviewed quire-contract-ir PR #629 against IR FR-038-AC-285, AC-324 and AC-327, QSpec FR-322-AC-96 and FR-464-AC-6/13. The graph stage now owns exact protocol-family dependencies. No applicable AssuranceProfile was found.
 
 ## Findings
 

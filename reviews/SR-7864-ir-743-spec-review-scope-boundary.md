@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-743. Reviewed frozen against QSpec main FR-330 AC-8 and TC-936. QSpec FR-330 owns the published package identity contract; IR FR-035 owns lowering and TC-047 checks the consumer-facing wire. The edit preserves that allocation.
+Ticket: IR-743. Reviewed the PR head against QSpec main FR-330 AC-8 and TC-936. QSpec FR-330 owns the published package identity contract; IR FR-035 owns lowering and TC-047 checks the consumer-facing wire. The edit preserves that allocation.
 
 ## Findings
 

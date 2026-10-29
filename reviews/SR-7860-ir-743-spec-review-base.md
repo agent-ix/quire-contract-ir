@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-743. Reviewed frozen against QSpec main FR-330 AC-8 and TC-936. The changed identity statement, criterion, and test oracle agree with QSpec FR-330 AC-8 and TC-936. The independent four-member digest check rejects a source-map-inclusive implementation; invalid or incomplete source correspondence still refuses admission.
+Ticket: IR-743. Reviewed the PR head against QSpec main FR-330 AC-8 and TC-936. The changed identity statement, criterion, and test oracle agree with QSpec FR-330 AC-8 and TC-936. The independent four-member digest check rejects a source-map-inclusive implementation; invalid or incomplete source correspondence still refuses admission.
 
 ## Findings
 

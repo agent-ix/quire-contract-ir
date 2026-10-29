@@ -39,6 +39,6 @@ scope:
 
 ## Evidence and limits
 
-Reviewed frozen. Selected three-document validation exit 0. quire 0.36.2 (engine 0.50.2); quoin 0.28.3. Duplicate archetype, duplicate part_of inverse and inline semantic schema advisories were observed, not repaired or bypassed. No Cargo, Kani, replay, runtime mutation campaign, full CI or full matrix was run. No applicable AssuranceProfile was found. Exact harness model ID is unavailable.
+Reviewed the PR head. Selected three-document validation exit 0. quire 0.36.2 (engine 0.50.2); quoin 0.28.3. Duplicate archetype, duplicate part_of inverse and inline semantic schema advisories were observed, not repaired or bypassed. No Cargo, Kani, replay, runtime mutation campaign, full CI or full matrix was run. No applicable AssuranceProfile was found. Exact harness model ID is unavailable.
 
 Criterion-strength schema value is installed, but the loaded skill declares its Jev client unavailable and forbids running the classifier. Manual falsifiability review belongs to base, not a claimed Jev result. Production gap-analysis does not apply to this spec-only diff.

@@ -14,7 +14,7 @@ Reviewed frozen IR #581 against QSpec FR-464-AC-13, the current IR public API an
 
 Base checklist review used the one-pass spec diff. No active `AssuranceProfile` is present under the IR repository's `spec/assurance/`, so no enforced profile applies to this review. QSpec's node-id digest is its canonical semantic identity and the diff introduces no tracking digest, pin or manifest.
 
-Disposition at frozen fix: FND-001 fixed. FR-019 now names both types and the method as planned in prose outside the parsed table, retains FR-038-AC-324 as the full owning obligation, and defers adding the two types to the implemented inventory until the code exports them. The FR-038 API contract and acceptance criterion are unchanged. Review verdict: PASS.
+Disposition on the reviewed fix: FND-001 fixed. FR-019 now names both types and the method as planned in prose outside the parsed table, retains FR-038-AC-324 as the full owning obligation, and defers adding the two types to the implemented inventory until the code exports them. The FR-038 API contract and acceptance criterion are unchanged. Review verdict: PASS.
 
 ## Findings
 

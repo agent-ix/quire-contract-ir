@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Replacement EARS conformance review of PR #389 at frozen. The edited FR-051 behavior clauses retain defined actors, mandatory behavior, concrete field dispatch, and observable outcomes. TC-451 supplies verification procedures for the changed clauses. The cross-spec inventory inconsistency is recorded in the base spec review, not duplicated here. Previous EARS conclusion still holds after rebase.
+Replacement EARS conformance review of PR #389 at the reviewed PR head. The edited FR-051 behavior clauses retain defined actors, mandatory behavior, concrete field dispatch, and observable outcomes. TC-451 supplies verification procedures for the changed clauses. The cross-spec inventory inconsistency is recorded in the base spec review, not duplicated here. Previous EARS conclusion still holds after rebase.
 
 ## Verdict
 

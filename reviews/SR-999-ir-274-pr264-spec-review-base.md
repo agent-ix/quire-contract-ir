@@ -103,7 +103,7 @@ Reviewed at agent-ix/quire-contract-ir (main still; not rebased onto #263, whose
 
 ## New findings (disposition pass 2)
 
-Reviewed at agent-ix/quire-contract-ir. Main is still. `git diff origin/main --stat` lists spec files only: no `schemas/`, `corpus/`, `crates/`, `tests/` or `src/`. `quire validate` passes, with 1 grammar finding (the FR-014 baseline) and 215 ACs; strict coverage has 23 unbacked rows; coverage rows total 237.
+Reviewed at agent-ix/quire-contract-ir. Main has not moved since the preceding review. `git diff origin/main --stat` lists spec files only: no `schemas/`, `corpus/`, `crates/`, `tests/` or `src/`. `quire validate` passes, with 1 grammar finding (the FR-014 baseline) and 215 ACs; strict coverage has 23 unbacked rows; coverage rows total 237.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

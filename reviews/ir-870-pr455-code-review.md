@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped PR #455 review at frozen. The diff deletes 199 Trace/Tracing doc lines and 42 empty doc lines across 13 integration files. Six deleted Trace lines in output_mapping.rs carry NFR-060 or NFR-061, but the same tests’ #[trace] attributes lack those IDs; 193 other deleted trace lines retain all IDs. Ticket: IR-870.
+Diff-scoped PR #455 review at the reviewed PR head. The diff deletes 199 Trace/Tracing doc lines and 42 empty doc lines across 13 integration files. Six deleted Trace lines in output_mapping.rs carry NFR-060 or NFR-061, but the same tests’ #[trace] attributes lack those IDs; 193 other deleted trace lines retain all IDs. Ticket: IR-870.
 
 ## Reviewed Scope
 

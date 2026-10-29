@@ -70,7 +70,7 @@ is true, and the planned oracle is otherwise strong.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir, the PR delta only. The digest claim was re-measured with serde_json 1.0.151 `to_vec`, with and without `float_roundtrip`: `9007199254740993.5` and `9007199254740994.0` both re-encode as `9007199254740994.0`, and `1e400`/`-1e400` fail with "number out of range", which `admit_document` maps to `stale_dependency`/`byte-digest-mismatch`.
+Round 1 reviewed only the agent-ix/quire-contract-ir PR delta. The digest claim was re-measured with serde_json 1.0.151 `to_vec`, with and without `float_roundtrip`: `9007199254740993.5` and `9007199254740994.0` both re-encode as `9007199254740994.0`, and `1e400`/`-1e400` fail with "number out of range", which `admit_document` maps to `stale_dependency`/`byte-digest-mismatch`.
 
 | FND | outcome | reason |
 | --- | --- | --- |

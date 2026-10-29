@@ -50,4 +50,4 @@ At frozen PR rebased on main, the changed scope adds `tests/conformance_qspec/ma
 
 ## Current verdict
 
-**PASS** at frozen: latest disposition for FND-001 is fixed, and FND-002/FND-003 remain fixed. The original conditional verdict and findings are retained as the review history.
+**PASS** at the reviewed PR head: latest disposition for FND-001 is fixed, and FND-002/FND-003 remain fixed. The original conditional verdict and findings are retained as the review history.

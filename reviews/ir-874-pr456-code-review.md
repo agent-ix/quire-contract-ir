@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-874. Diff-scoped code and Rust review of frozen. The staged outer-body validator has no reader call yet, as documented in the module. Its twenty operator/form entries and the named outer bindings were checked against QSpec FR-464, FR-465 and FR-466. Focused tests passed (5/5). The five local TC-048 trace attributes resolve; no triple-slash Trace or Tracing lines were added.
+Ticket: IR-874. Diff-scoped code and Rust review of the PR head. The staged outer-body validator has no reader call yet, as documented in the module. Its twenty operator/form entries and the named outer bindings were checked against QSpec FR-464, FR-465 and FR-466. Focused tests passed (5/5). The five local TC-048 trace attributes resolve; no triple-slash Trace or Tracing lines were added.
 
 ## Examined units
 

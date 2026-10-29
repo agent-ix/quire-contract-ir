@@ -31,7 +31,7 @@ Ticket: IR-874. Compared the frozen PR #586 early presence check with FR-038-AC-
 
 ## Coverage
 
-- Reconciliation: `quoin matrix --repo . --json` at frozen PR head; FR-038-AC-325 is `untagged` with zero binders, while FR-038-AC-9 is tagged by one public-reader test. The new `concrete_protocol_requires_catalog_without_protocol_target_or_memory_row` test has no `Trace:` or `#[trace]` annotation.
+- Reconciliation: `quoin matrix --repo . --json` at the reviewed PR head; FR-038-AC-325 is `untagged` with zero binders, while FR-038-AC-9 is tagged by one public-reader test. The new `concrete_protocol_requires_catalog_without_protocol_target_or_memory_row` test has no `Trace:` or `#[trace]` annotation.
 - The direct unit fixture calls `validate_catalog` without going through key, header, graph, protocol-body and public-read stages. It proves the helper returns a pointer, but cannot prove that an otherwise admitted checked package reaches that helper or preserves the specified earlier refusal.
 - Plan completion: not assessed.
 - Optional repository-wide semantic review was not requested; intent, test, and changed code were compared only for this PR diff.

@@ -134,7 +134,7 @@ rebase.
 ## Dispositions
 
 Round 1, rebased onto main
- (main has not moved since; GitHub reports
+ (main has not moved since the preceding review; GitHub reports
 MERGEABLE). Only the delta was reviewed:
 
 - The rebase. The range-diff shows that only the FR-038

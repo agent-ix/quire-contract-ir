@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed repeat and await local member and reference checks at frozen PR #570. FR-038-AC-282/284/288, including causal, progress, binder and decision stages, remain Planned.
+Reviewed repeat and await local member and reference checks at the reviewed PR #570 head. FR-038-AC-282/284/288, including causal, progress, binder and decision stages, remain Planned.
 
 ## Verdict
 

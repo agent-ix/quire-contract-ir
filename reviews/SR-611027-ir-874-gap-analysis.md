@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed quire-contract-ir PR #629 at frozen. FR-038-AC-285/324/327 have tagged integration tests for omitted existing targets and extra dependencies across five protocol member forms; an absent listed target is tested through the public reader for a role. No applicable AssuranceProfile was found.
+Reviewed quire-contract-ir PR #629 at the reviewed PR head. FR-038-AC-285/324/327 have tagged integration tests for omitted existing targets and extra dependencies across five protocol member forms; an absent listed target is tested through the public reader for a role. No applicable AssuranceProfile was found.
 
 ## Findings
 
