@@ -9,8 +9,8 @@ type: TestMatrix
 
 | Functional Req | Acceptance Criteria | Test Cases | Status |
 |---|---|---|---|
-| FR-018 | FR-018-AC-1 through FR-018-AC-3 | TC-018 | ✅ implemented |
-| FR-020 | FR-020-AC-1 through FR-020-AC-15 | TC-018 | ✅ implemented (AC-3 through AC-14 are the IR-274 code change B obligations split under IR-817, and AC-15 is the expression-document schema check, and every FR-020 criterion has a test tag): the schemas, corpus files and runner are amended together, the fixture schema takes the eight integer members as `IntegerString` strings and refuses each of the listed spellings, both schemas bound a revision and a byte offset at 2^53, a `document_json` decoder fixture of the expression operation supplies a number straight to the decoder and its expectation carries `invalid_wire_format` while the same number in an ordinary input is `invalid_corpus`, the 47 canonical files holding one of the members are re-recorded from `quire-canonical`'s bytes and the corpus runs exit 0 with every fixture a `match`. Each of the 47 files equals bytes written out in the test, not produced by the encoder, and all 47 are scanned for strings-only spelling (`tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings`). `tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema` verifies each probe clause-reference revision and coverage trace revision/offset member at 2^53+1 and `u64::MAX` fails at its fixture input with `invalid_corpus`, while 2^53 passes that schema. |
+| FR-018 | FR-018-AC-1 through FR-018-AC-3 | TC-018 | 🚧 inventory, diagnostic, dependency, coverage and canonical-byte comparisons implemented; removal of the digest expectation and file-regeneration gate awaits code and focused TC-018 controls (IR-1105) |
+| FR-020 | FR-020-AC-1 through FR-020-AC-15 | TC-018 | 🚧 AC-3 through AC-15 retain their existing controls, including the eight decimal-string members, 2^53 revision and byte-offset bounds, decoder versus fixture-schema refusals, and independently authored canonical-byte expectations. AC-2's five-kind mismatch registry and the absence of a digest expectation await code and focused TC-018 controls (IR-1105). The corpus run and process-output controls remain required. |
 
 | FR-020 | FR-020-AC-16 through FR-020-AC-19 | TC-018 | 🚧 implemented with focused controls (IR-941): authoritative root-only shared CLI dependency, caller-owned exits, unchanged bytes/argv, prefix-failing serialization and actual output-device failure; unchanged published files require PR-diff inspection. Independent review and final aggregate remain pending; existing AC-1 through AC-15 remain implemented. |
 
@@ -20,5 +20,5 @@ type: TestMatrix
 
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
-| TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | 🚧 corpus and interface checks implemented; FR-019-AC-8 through AC-13 now have independent boundary and signature checks |
+| TC-018 | Schema, corpus, diagnostics, canonical bytes, dependencies, and interfaces conform without digest expectations or file-regeneration gates | Integration | P0 | FR-018..FR-020 | 🚧 existing semantic, inventory and process checks remain; the revised five-kind mismatch registry, digest-field removal and no-regeneration-gate controls await code (IR-1105). FR-019-AC-8 through AC-13 retain independent boundary and signature checks |
 

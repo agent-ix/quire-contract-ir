@@ -112,8 +112,8 @@ fixture name or from whichever cases the consumer happens to support. Merely
 running the IR producer in a consumer checkout does not demonstrate that
 consumer's semantic agreement. If an obligation requires independent consumer
 agreement and that execution or oracle is unavailable, then it SHALL remain
-unqualified. A producer-regeneration match establishes regression stability,
-not independent correctness.
+unqualified. A matching IR corpus run establishes the producer's stated
+behavior, not independent correctness.
 
 The consumer SHALL preserve the native meaning of expected refusals, mismatch,
 unsupported, unavailable and incomplete results. No such result may be renamed

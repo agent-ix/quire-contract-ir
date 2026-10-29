@@ -50,7 +50,7 @@ canonicalization profile identities.
 ## Outputs
 
 JSON Lines results containing fixture ID, observed coverage tokens and their criterion trace IDs, validity, ordered
-diagnostics, canonical digest, dependency identities, tool identity, and exit classification.
+diagnostics, canonical bytes, dependency identities, tool identity, and exit classification.
 
 ## Behavior
 
@@ -68,7 +68,7 @@ Each result contains protocol, corpus ID, fixture ID, operation, closed status
 `match` or `mismatch`, unique mismatch kinds in fixed registry order, the fixture's observed `covers`
 and sorted `trace_ids`, actual structured result, and tool identity: crate version, package-schema path, canonical profile,
 and runner protocol. Mismatch kinds are `validity`, `diagnostics`,
-`canonical_bytes`, `canonical_digest`, `dependencies`, and `coverage`. A fixture with several drifts retains all applicable kinds once in
+`canonical_bytes`, `dependencies`, and `coverage`. A fixture with several drifts retains all applicable kinds once in
 this fixed registry order, which is not lexical sorting. Diagnostic messages may be emitted for humans but never
 participate in comparison.
 
@@ -116,8 +116,8 @@ bytes can be retracted. Diagnostic delivery remains best effort on stderr and
 retains the existing error-buffer fallback.
 
 The closed invocation, version line, six operational JSON codes, complete-run
-payload classification, corpus comparison and ordering, published schemas,
-fixtures, canonical bytes and vectors SHALL remain unchanged. In particular,
+payload classification, corpus comparison and ordering, published schema and
+fixture semantics, canonical-byte comparison and vectors SHALL remain unchanged. In particular,
 no model error-cause discriminator is needed to map different resource failures
 to different process statuses: every incomplete run continues to select exit 2.
 
@@ -180,7 +180,7 @@ and exits 0 without reading a corpus.
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-020-AC-1 | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, non-empty observed trace ids per fixture input, empty stderr, and complete tool/schema/profile identity. | Test (TC-018) |
-| FR-020-AC-2 | Process fixtures pin exit 1 with all six mismatch kinds in fixed order and exit 2 for each of the six closed operational codes (`invalid_invocation`, `invalid_corpus`, `unsupported_profile`, `unsafe_path`, `fixture_io`, `resource_exhausted`), with no absolute path in the error record; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
+| FR-020-AC-2 | Process fixtures verify exit 1 with all five mismatch kinds (`validity`, `diagnostics`, `canonical_bytes`, `dependencies`, `coverage`) in that fixed order and exit 2 for each of the six closed operational codes (`invalid_invocation`, `invalid_corpus`, `unsupported_profile`, `unsafe_path`, `fixture_io`, `resource_exhausted`), with no absolute path in the error record; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
 | FR-020-AC-3 | The published fixture schema accepts `"-9223372036854775808"`, `"0"` and `"9223372036854775807"` in each of the eight integer members. | Test (TC-018) |
 | FR-020-AC-4 | The published package schema accepts a revision and a byte offset of `9007199254740992`. | Test (TC-018) |
 | FR-020-AC-5 | The fixture input schema refuses as `invalid_corpus` values above `9007199254740992` for each of these members: a probe clause-reference revision; a coverage trace source or target-span revision or byte offset; and a coverage trace target revision. | Test (TC-018) |
@@ -197,7 +197,7 @@ and exits 0 without reading a corpus.
 | FR-020-AC-16 | The root binary uses the authoritative kit's caller-owned exit API for statuses 0, 1 and 2; matched corpus and version invocations exit 0, complete mismatches exit 1, and every existing operational code, including invalid invocation, exits 2. No route requests 5 or implicitly terminates through the kit's pass-through error. | Test |
 | FR-020-AC-17 | Shared compact serialization preserves the exact existing result and diagnostic envelopes, serialized field order and one-newline framing; result serialization errors discard the private buffer, while stdout write/flush failure retains exit 2 and `fixture_io` at `stdout`. Existing fallback diagnostics are retained. | Test |
 | FR-020-AC-18 | Only the root bridge package optionally depends on `ix-cli-kit`, from its authoritative Git source with the selection in Cargo.lock. Locked Cargo metadata shows no kit in the root's default production closure and shows it in the root's `conformance-cli` closure; the conformance binary requires that feature, the model has no kit dependency, and no kit implementation or alternative argv grammar is copied into the repository. | Inspection, Test (TC-018) |
-| FR-020-AC-19 | Adoption leaves all published conformance inputs, expectations, schemas and canonical files unchanged; process tests retain the closed argv rejection cases, exact version line, byte-identical repeated corpus output and complete mismatch payload behavior. | Inspection, Test |
+| FR-020-AC-19 | Adoption preserves the published conformance inputs' semantic coverage, expectation comparison, schemas and canonical-byte behavior; process tests retain the closed argv rejection cases, exact version line, byte-identical repeated corpus output and complete mismatch payload behavior. | Inspection, Test |
 
 ## Dependencies
 
