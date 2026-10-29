@@ -33,3 +33,18 @@ Independent review of PR #683 at exact head 43c2f46c148b95dad9f8a1ff871cb7d141fe
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | fixed | The partial stage test no longer claims FR-038-AC-362; CL-25 remains explicitly asserted as pending STD-558 and AC-362 stays unbacked. After: `/// Trace: FR-038-AC-358, TC-048. AC-362 awaits STD-558.` |
+| FND-002 | still-open | Remove the FR-038-AC-342 trace from partial tests, or make the exact duplicate-place control pass after STD-559. |
+| FND-003 | still-open | Remove the FR-038-AC-336 trace from partial tests, or make the exact duplicate-place control pass after STD-559. |
+| FND-002 | fixed | The AO/GD control now carries only `#[trace("TC-048")]`; no FR-038-AC-342 tags remain in timed test code while STD-559 blocks the duplicate-place oracle. |
+| FND-003 | fixed | The AO/GD control now carries only `#[trace("TC-048")]`; no FR-038-AC-336 tags remain in timed test code while STD-559 blocks the duplicate-place oracle. |
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | `timed_aggregate_order_published_vectors_read_at_exact_loci` tags FR-038-AC-342, but its GD-02 branch accepts `malformed-clock-place` instead of the criterion's required `duplicate-clock-place` because STD-559 remains pending. This makes a partial control appear backed in the computed matrix. | tests/conformance_qspec/timed_model.rs:322,381-390; FR-038-AC-342 |
+| FND-003 | medium | The same test tags FR-038-AC-336 while its GD-02 duplicate-place control still receives the earlier `malformed-clock-place` refusal. AC-336 requires the distinct same-path place to refuse `duplicate-clock-place`; the trace is premature. | tests/conformance_qspec/timed_model.rs:322,381-390; FR-038-AC-336 |
+
+## QSpec TM-30 delta review
+
+At PR head `e6086151b3ccaaa5b308cc10664befbf8274b5ec`, the QSpec `TM-30` repeated-reference control from `505543f1` is applied to the public reader and checks exact `invalid_semantic_graph`/null-cause/locus. The SL-01..07/SR-01..04 set is asserted exactly. The later trace cleanup removes all FR-038-AC-336/342/360 tags from partial timed tests while STD-558/559 remain unresolved. FND-001 through FND-003 have fixed latest dispositions; no new finding remains.
