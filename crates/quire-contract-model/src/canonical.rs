@@ -1,18 +1,16 @@
-//! The canonical bytes and digests of the five closed object kinds (FR-016).
+//! The canonical bytes of the five closed object kinds (FR-016).
 //!
 //! Every byte comes from `quire-canonical`: each object kind is an [`Encode`]
-//! projection that pushes its members into the encoder, and the digest is
-//! SHA-256 over an explicit domain prefix and the bytes the encoder returns.
+//! projection that pushes its members into the encoder.
 //! This module holds no encoder of its own and no `serde_json` value; a
 //! projection with a fixed depth is a plain walk over the writer, and the
 //! types whose depth follows their input (`ValueType`, `Expression`,
 //! `ReferenceBody`) are walked from an explicit stack, never by recursion.
 
-use std::{cmp::Ordering, fmt};
+use std::cmp::Ordering;
 
 use quire_canonical::{Encode, Error, Limits, Sink, Writer};
-use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
-use sha2::{Digest as _, Sha256};
+use serde::Serialize;
 
 use crate::SchemaVersion;
 use crate::{
@@ -25,7 +23,6 @@ use crate::{
 };
 
 pub const CANONICAL_PROFILE: &str = "quire.contract.canonical-json/v1";
-const DIGEST_DOMAIN: &[u8] = b"quire-contract-ir";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum CanonicalProfile {
@@ -79,79 +76,10 @@ impl CanonicalBytes {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, quire_canonical::FixedShape)]
-pub struct CanonicalDigest([u8; 32]);
-
-impl CanonicalDigest {
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-
-    pub fn parse(value: &str) -> Result<Self, Diagnostic> {
-        if value.len() != 64
-            || value
-                .bytes()
-                .any(|byte| !matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-        {
-            return Err(Diagnostic::error(
-                DiagnosticCode::InvalidWireFormat,
-                "canonical digest must be exactly 64 lowercase hexadecimal characters",
-                "digest",
-            ));
-        }
-        let mut bytes = [0_u8; 32];
-        for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
-            bytes[index] = (hex_value(pair[0]) << 4) | hex_value(pair[1]);
-        }
-        Ok(Self(bytes))
-    }
-}
-
-impl fmt::Display for CanonicalDigest {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        const HEX: &[u8; 16] = b"0123456789abcdef";
-        for byte in self.0 {
-            formatter.write_str(
-                std::str::from_utf8(&[HEX[usize::from(byte >> 4)], HEX[usize::from(byte & 0x0f)]])
-                    .map_err(|_| fmt::Error)?,
-            )?;
-        }
-        Ok(())
-    }
-}
-
-impl Serialize for CanonicalDigest {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_str(self)
-    }
-}
-
-impl<'de> Deserialize<'de> for CanonicalDigest {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        Self::parse(&value).map_err(D::Error::custom)
-    }
-}
-
-fn hex_value(byte: u8) -> u8 {
-    match byte {
-        b'0'..=b'9' => byte - b'0',
-        b'a'..=b'f' => byte - b'a' + 10,
-        _ => 0,
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CanonicalOutput {
     kind: CanonicalKind,
     bytes: CanonicalBytes,
-    digest: CanonicalDigest,
 }
 
 impl CanonicalOutput {
@@ -161,10 +89,6 @@ impl CanonicalOutput {
 
     pub fn bytes(&self) -> &CanonicalBytes {
         &self.bytes
-    }
-
-    pub const fn digest(&self) -> CanonicalDigest {
-        self.digest
     }
 }
 
@@ -382,7 +306,7 @@ impl<V: Encode + ?Sized> Encode for Envelope<'_, V> {
     }
 }
 
-/// The canonical bytes of `value` under `maximum_bytes` and their digest.
+/// The canonical bytes of `value` under `maximum_bytes`.
 ///
 /// Any refusal of the encoder is a failed canonicalization step, refused with
 /// the one code STD-001 registers for it; see [`encoder_refusal`] for the
@@ -397,12 +321,7 @@ fn canonicalize<V: Encode + ?Sized>(
     let encoded = quire_canonical::to_vec(&Envelope { kind, value }, Limits::new(maximum_bytes))
         .map_err(|error| encoder_refusal(&error, path, span))?;
     let bytes = CanonicalBytes(encoded);
-    let digest = digest(kind, bytes.as_slice());
-    Ok(CanonicalOutput {
-        kind,
-        bytes,
-        digest,
-    })
+    Ok(CanonicalOutput { kind, bytes })
 }
 
 /// The refusal for an encoder error. STD-001 registers one code for a failed
@@ -428,22 +347,6 @@ pub(crate) fn encoder_refusal(error: &Error, path: &str, span: Option<&SourceSpa
         Some(span) => diagnostic.at_span(span),
         None => diagnostic,
     }
-}
-
-/// SHA-256 over the domain prefix `quire-contract-ir`, a zero byte, the
-/// profile identity, a zero byte, the kind, a zero byte and the canonical
-/// bytes of the envelope (FR-016-AC-8). This is not the encoder crate's own
-/// length-prefixed domain digest, which is a different identity.
-fn digest(kind: CanonicalKind, bytes: &[u8]) -> CanonicalDigest {
-    let mut hasher = Sha256::new();
-    hasher.update(DIGEST_DOMAIN);
-    hasher.update([0]);
-    hasher.update(CANONICAL_PROFILE.as_bytes());
-    hasher.update([0]);
-    hasher.update(kind.as_str().as_bytes());
-    hasher.update([0]);
-    hasher.update(bytes);
-    CanonicalDigest(hasher.finalize().into())
 }
 
 /// The package projection: `{"id", "requirements", "schema_version"}` with the

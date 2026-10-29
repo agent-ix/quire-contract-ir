@@ -10,18 +10,17 @@ thread_local! {
     static DECLARATION_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-use quire_canonical::{FixedShape, Limits};
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
-    Deserialize, Deserializer, Serialize,
+    Deserialize, Deserializer,
 };
 use serde_json::Value;
 
 use crate::{
-    CanonicalDigest, CanonicalProfile, ClauseKind, ClauseRef, ContractPackage,
-    DeclarationEnvironment, Diagnostic, DiagnosticCode, ExecutionPoint, ReferenceBody, SourceSpan,
-    TypedExpression, ValidationOptions, CONFORMANCE_SCHEMA_ID, MAX_CONFORMANCE_FILE_BYTES,
-    MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH, PACKAGE_SCHEMA_ID,
+    ClauseKind, ClauseRef, ContractPackage, DeclarationEnvironment, Diagnostic, DiagnosticCode,
+    ExecutionPoint, ReferenceBody, SourceSpan, TypedExpression, ValidationOptions,
+    CONFORMANCE_SCHEMA_ID, MAX_CONFORMANCE_FILE_BYTES, MAX_SEMANTIC_COLLECTION_ITEMS,
+    MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH, PACKAGE_SCHEMA_ID,
 };
 
 pub const EXECUTABLE_PROJECTION_FORMAT: &str = "quire.contract.executable-projection/v1";
@@ -39,8 +38,6 @@ impl ProjectionFormat {
 }
 pub const EXECUTABLE_PROJECTION_SCHEMA: &str =
     include_str!("../../../schemas/contract-executable-projection-v1.schema.json");
-/// Domain-separated canonical identity profile; not a producer attestation.
-pub const BOUND_IDENTITY_PROFILE: &str = "quire.contract.bound-identity/v1";
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BoundClause {
@@ -51,8 +48,6 @@ pub struct BoundClause {
     source: SourceSpan,
     environment: DeclarationEnvironment,
     expression: TypedExpression,
-    declaration_digest: CanonicalDigest,
-    expression_digest: CanonicalDigest,
 }
 
 impl BoundClause {
@@ -78,12 +73,6 @@ impl BoundClause {
     pub fn expression(&self) -> &TypedExpression {
         &self.expression
     }
-    pub fn declaration_digest(&self) -> CanonicalDigest {
-        self.declaration_digest
-    }
-    pub fn expression_digest(&self) -> CanonicalDigest {
-        self.expression_digest
-    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -91,27 +80,6 @@ pub struct BoundPackage {
     package: ContractPackage<ReferenceBody>,
     clauses: Vec<BoundClause>,
     informational: Vec<ClauseRef>,
-    digest: CanonicalDigest,
-}
-
-/// The bound identity envelope (`quire.contract.bound-identity/v1`): its depth
-/// is fixed by its type, it holds no `serde_json::Value`, and its digests
-/// serialize as lowercase hexadecimal.
-#[derive(Serialize, FixedShape)]
-struct BoundIdentityEnvelope<'a> {
-    profile: &'static str,
-    canonical_profile: &'static str,
-    package: CanonicalDigest,
-    bindings: Vec<BoundBindingIdentity<'a>>,
-}
-
-/// One executable clause's identity and the digests of its declaration and
-/// expression.
-#[derive(Serialize, FixedShape)]
-struct BoundBindingIdentity<'a> {
-    clause: &'a ClauseRef,
-    declaration: CanonicalDigest,
-    expression: CanonicalDigest,
 }
 
 #[derive(Deserialize)]
@@ -220,9 +188,6 @@ impl BoundPackage {
     }
     pub fn informational(&self) -> &[ClauseRef] {
         &self.informational
-    }
-    pub fn digest(&self) -> CanonicalDigest {
-        self.digest
     }
 
     pub fn from_json_bytes(bytes: &[u8]) -> Result<Self, Vec<Diagnostic>> {
@@ -373,16 +338,6 @@ impl BoundPackage {
                     "bindings.expression",
                 ));
             }
-            let declaration_digest = checked
-                .environment
-                .canonical_declaration(CanonicalProfile::V1)
-                .map_err(|diagnostic| vec![diagnostic])?
-                .digest();
-            let expression_digest = checked
-                .expression
-                .canonical_expression(CanonicalProfile::V1)
-                .map_err(|diagnostic| vec![diagnostic])?
-                .digest();
             bound.insert(
                 binding.clause.clone(),
                 BoundClause {
@@ -399,8 +354,6 @@ impl BoundPackage {
                     source: clause.source().clone(),
                     environment: checked.environment,
                     expression: checked.expression,
-                    declaration_digest,
-                    expression_digest,
                 },
             );
         }
@@ -415,41 +368,10 @@ impl BoundPackage {
             ));
         }
         let clauses: Vec<_> = bound.into_values().collect();
-        let package_digest = package
-            .canonical_package(CanonicalProfile::V1)
-            .map_err(|diagnostic| vec![diagnostic])?
-            .digest();
-        let envelope = BoundIdentityEnvelope {
-            profile: BOUND_IDENTITY_PROFILE,
-            canonical_profile: CanonicalProfile::V1.as_str(),
-            package: package_digest,
-            bindings: clauses
-                .iter()
-                .map(|clause| BoundBindingIdentity {
-                    clause: clause.identity(),
-                    declaration: clause.declaration_digest(),
-                    expression: clause.expression_digest(),
-                })
-                .collect(),
-        };
-        // SHA-256 of the envelope's canonical bytes, with no domain prefix:
-        // the profile member is the separation.
-        let digest = quire_canonical::sha256(&envelope, Limits::new(MAX_CONFORMANCE_FILE_BYTES))
-            .map_err(|error| {
-                vec![crate::canonical::encoder_refusal(
-                    &error,
-                    "projection.identity",
-                    None,
-                )]
-            })
-            .and_then(|digest| {
-                CanonicalDigest::parse(&digest.to_string()).map_err(|diagnostic| vec![diagnostic])
-            })?;
         Ok(Self {
             package,
             clauses,
             informational,
-            digest,
         })
     }
 }
@@ -543,7 +465,7 @@ mod schema_cache_tests {
         assert_eq!(first_visits, declarations + bindings);
         let first = compiled_projection_schema().expect("embedded schema");
         let second_bound = decode(&valid).expect("same valid projection");
-        assert_eq!(first_bound.digest(), second_bound.digest());
+        assert_eq!(first_bound, second_bound);
         assert_eq!(
             DECLARATION_VISITS.with(std::cell::Cell::get) - first_visits,
             declarations + bindings
@@ -595,6 +517,6 @@ mod schema_cache_tests {
             visits_after_admission,
             "querying K clauses must not revisit their R declarations"
         );
-        assert_eq!(bound.digest(), decode(&fixture()).unwrap().digest());
+        assert_eq!(bound, decode(&fixture()).unwrap());
     }
 }

@@ -7,13 +7,12 @@ use quire_contract_model::{
     DiagnosticCode, MappingAllocationPoint, MappingCancellation, MappingCancellationToken,
     MappingCandidate, MappingCause, MappingCondition, MappingDependencyKind, MappingDependencyRef,
     MappingDisposition, MappingExecutionControl, MappingLimits, MappingRequestError,
-    MappingRequestErrorCode, MappingRuleDigest, MappingWorkBudget, ModelSourceSelection,
-    NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState, OutputByteRegion,
-    OutputCapability, OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, PackageId,
-    ProtocolAdequacyRef, ProtocolAdequacyState, RequestedMappingObligation, RequirementId,
-    RequirementRef, RequirementRevision, SemanticSourceSelection, SourceBytesDigest,
-    SourceFactState, StructuralObservationOutcome, StructuralObservationRef,
-    StructuralObserverIdentity, TargetBytesDigest, EXECUTABLE_PROJECTION_FORMAT,
+    MappingRequestErrorCode, MappingWorkBudget, ModelSourceSelection, NativeSourceSelection,
+    ObservationAdequacyRef, ObservationAdequacyState, OutputByteRegion, OutputCapability,
+    OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, PackageId, ProtocolAdequacyRef,
+    ProtocolAdequacyState, RequestedMappingObligation, RequirementId, RequirementRef,
+    RequirementRevision, SemanticSourceSelection, SourceFactState, StructuralObservationOutcome,
+    StructuralObservationRef, StructuralObserverIdentity, EXECUTABLE_PROJECTION_FORMAT,
 };
 use serde_json::{json, Value};
 
@@ -91,17 +90,12 @@ fn nested_bound_package() -> BoundPackage {
         .expect("strict nested bound package")
 }
 
-fn digest(seed: u8) -> [u8; 32] {
-    [seed; 32]
-}
-
 fn ocl_profile() -> OutputMappingProfile {
     OutputMappingProfile::new(
         "ocl",
         vec!["formal/14-02-03"],
         "quire.output.ocl24/v1",
         "1-draft.1",
-        MappingRuleDigest::from_bytes(digest(1)),
         vec![OutputCapability::Boolean, OutputCapability::BoundedInteger],
     )
     .expect("accepted OCL profile")
@@ -113,24 +107,10 @@ fn selections() -> (
     SemanticSourceSelection,
 ) {
     (
-        NativeSourceSelection::new(
-            "quire.native/v1",
-            "rev-native",
-            SourceBytesDigest::from_bytes(digest(2)),
-        )
-        .expect("native selection"),
-        ModelSourceSelection::new(
-            "quire.model/v1",
-            "rev-model",
-            SourceBytesDigest::from_bytes(digest(3)),
-        )
-        .expect("model selection"),
-        SemanticSourceSelection::new(
-            "quire.semantic/v1",
-            "rev-semantic",
-            SourceBytesDigest::from_bytes(digest(4)),
-        )
-        .expect("semantic selection"),
+        NativeSourceSelection::new("quire.native/v1", "rev-native").expect("native selection"),
+        ModelSourceSelection::new("quire.model/v1", "rev-model").expect("model selection"),
+        SemanticSourceSelection::new("quire.semantic/v1", "rev-semantic")
+            .expect("semantic selection"),
     )
 }
 
@@ -182,7 +162,6 @@ fn tc_043_profiles_admit_only_exact_fs06_values() {
         vec!["formal/26-03-02", "formal/26-03-01"],
         "quire.output.sysml2-kerml1/v1",
         "1-draft.1",
-        MappingRuleDigest::from_bytes(digest(5)),
         vec![
             OutputCapability::Boolean,
             OutputCapability::AttributeReference,
@@ -199,7 +178,6 @@ fn tc_043_profiles_admit_only_exact_fs06_values() {
         vec!["v3.1.0"],
         "quire.output.fretish31/v1",
         "1-draft.1",
-        MappingRuleDigest::from_bytes(digest(6)),
         vec![
             OutputCapability::Boolean,
             OutputCapability::ImmediateResponse,
@@ -213,23 +191,14 @@ fn tc_043_profiles_admit_only_exact_fs06_values() {
             vec!["formal/14-02-03"],
             "quire.output.ocl24/v1",
             "1-draft.1",
-            MappingRuleDigest::from_bytes(digest(1)),
             vec![],
         ),
-        OutputMappingProfile::new(
-            "ocl",
-            vec![],
-            "quire.output.ocl24/v1",
-            "1-draft.1",
-            MappingRuleDigest::from_bytes(digest(1)),
-            vec![],
-        ),
+        OutputMappingProfile::new("ocl", vec![], "quire.output.ocl24/v1", "1-draft.1", vec![]),
         OutputMappingProfile::new(
             "ocl",
             vec!["formal/26-03-02"],
             "quire.output.sysml2-kerml1/v1",
             "1-draft.1",
-            MappingRuleDigest::from_bytes(digest(1)),
             vec![],
         ),
         OutputMappingProfile::new(
@@ -237,7 +206,6 @@ fn tc_043_profiles_admit_only_exact_fs06_values() {
             vec!["formal/14-02-03"],
             "quire.output.ocl24/v1",
             "1-draft.2",
-            MappingRuleDigest::from_bytes(digest(1)),
             vec![],
         ),
         OutputMappingProfile::new(
@@ -245,7 +213,6 @@ fn tc_043_profiles_admit_only_exact_fs06_values() {
             vec!["formal/14-02-03"],
             "quire.output.ocl24/v1",
             "1-draft.1",
-            MappingRuleDigest::from_bytes(digest(1)),
             vec![OutputCapability::ImmediateResponse],
         ),
         OutputMappingProfile::new(
@@ -253,14 +220,11 @@ fn tc_043_profiles_admit_only_exact_fs06_values() {
             vec!["formal/14-02-03"],
             "quire.output.ocl24/v1",
             "1-draft.1",
-            MappingRuleDigest::from_bytes(digest(1)),
             vec![OutputCapability::Boolean, OutputCapability::Boolean],
         ),
     ];
     assert!(invalid.into_iter().all(|result| result.is_err()));
     assert!(OutputCapability::parse("future-capability").is_err());
-    assert!(MappingRuleDigest::parse("").is_err());
-    assert!(SourceBytesDigest::parse(&"A".repeat(64)).is_err());
 }
 
 #[trace("TC-043", "FR-032-AC-1", "FR-032-AC-3", "FR-032-AC-4")]
@@ -271,7 +235,11 @@ fn tc_043_request_admission_preserves_exact_ordered_inputs() {
     let admitted = admit(&package, obligations.clone(), ocl_profile(), limits())
         .expect("valid mapping request");
 
-    assert_eq!(admitted.source_package().digest(), package.digest());
+    assert_eq!(admitted.source_package().package(), package.package().id());
+    assert_eq!(
+        admitted.source_package().schema_version(),
+        package.package().schema_version()
+    );
     assert_eq!(admitted.obligations().len(), 2);
     assert_eq!(
         admitted
@@ -467,10 +435,7 @@ fn tc_043_request_admission_refuses_population_and_resource_mutations() {
         .code(),
         MappingRequestErrorCode::Cancelled
     );
-    assert!(
-        NativeSourceSelection::new("", "rev-native", SourceBytesDigest::from_bytes(digest(2)))
-            .is_err()
-    );
+    assert!(NativeSourceSelection::new("", "rev-native").is_err());
 
     let nested = nested_bound_package();
     let nested_request = admit(
@@ -508,9 +473,8 @@ fn tc_043_request_equality_is_semantic_and_ambient_free() {
     assert_eq!(first, replay);
 
     let (native, model, semantic) = selections();
-    let changed_native =
-        NativeSourceSelection::new(native.identity(), "different-revision", native.digest())
-            .expect("changed native selection");
+    let changed_native = NativeSourceSelection::new(native.identity(), "different-revision")
+        .expect("changed native selection");
     let changed = AdmittedMappingRequest::admit(
         &package,
         requested(&package),
@@ -530,7 +494,6 @@ fn condition(code: &str) -> MappingCondition {
         "agent-ix/quire-specification",
         "quire.output.ocl24/v1",
         "1-draft.1",
-        SourceBytesDigest::from_bytes(digest(7)),
         code,
     )
     .expect("qualified mapping condition")
@@ -541,21 +504,14 @@ fn cause(code: &str) -> MappingCause {
         "agent-ix/quire-specification",
         "quire.output.mapping/v1",
         "1-draft.1",
-        SourceBytesDigest::from_bytes(digest(8)),
         code,
     )
     .expect("qualified mapping cause")
 }
 
 fn dependency(kind: MappingDependencyKind, identity: &str) -> MappingDependencyRef {
-    MappingDependencyRef::new(
-        kind,
-        "agent-ix/owner",
-        identity,
-        "rev-owner",
-        SourceBytesDigest::from_bytes(digest(9)),
-    )
-    .expect("qualified mapping dependency")
+    MappingDependencyRef::new(kind, "agent-ix/owner", identity, "rev-owner")
+        .expect("qualified mapping dependency")
 }
 
 fn region_for(fragment: &[u8]) -> Vec<OutputByteRegion> {
@@ -589,7 +545,6 @@ fn candidate(
                 "agent-ix/quire-observation",
                 "quire.observation.result/v1",
                 "rev-observation",
-                SourceBytesDigest::from_bytes(digest(10)),
                 ObservationAdequacyState::Adequate,
             )
             .expect("observation adequacy"),
@@ -599,7 +554,6 @@ fn candidate(
                 "agent-ix/quire-protocol",
                 "quire.protocol.result/v1",
                 "rev-protocol",
-                SourceBytesDigest::from_bytes(digest(11)),
                 ProtocolAdequacyState::Demonstrated,
             )
             .expect("protocol adequacy"),
@@ -845,10 +799,10 @@ impl OutputMapper for OperationalFailureMapper {
     }
 }
 
-fn mapped_record_id(
+fn mapped_record(
     request: &AdmittedMappingRequest,
     candidate: MappingCandidate,
-) -> quire_contract_model::MappingRecordId {
+) -> quire_contract_model::OutputMappingRecord {
     let mut mapper = FixedMapper {
         profile: request.profile().clone(),
         candidate,
@@ -856,7 +810,7 @@ fn mapped_record_id(
     map_admitted_request(request, &mut mapper, MappingCancellation::Active)
         .expect("mapped record")
         .records()[0]
-        .record_id()
+        .clone()
 }
 
 fn one_request(
@@ -879,7 +833,7 @@ fn one_request(
 
 #[trace("TC-043", "FR-033-AC-3", "FR-033-AC-5")]
 #[test]
-fn tc_043_record_identity_binds_each_semantic_axis() {
+fn tc_043_record_content_retains_each_semantic_axis() {
     let package = bound_package();
     let request = one_request(&package, 0, SourceFactState::Ready, ocl_profile());
     let identity = request.obligations()[0].identity().clone();
@@ -897,7 +851,7 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
         1,
     )
     .expect("baseline candidate");
-    let baseline_id = mapped_record_id(&request, baseline.clone());
+    let baseline_record = mapped_record(&request, baseline.clone());
 
     let changed_dependency = MappingCandidate::new(
         identity.clone(),
@@ -913,7 +867,7 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
         1,
     )
     .expect("dependency mutation");
-    assert_ne!(baseline_id, mapped_record_id(&request, changed_dependency));
+    assert_ne!(baseline_record, mapped_record(&request, changed_dependency));
 
     let changed_region = MappingCandidate::new(
         identity.clone(),
@@ -929,7 +883,7 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
         1,
     )
     .expect("region mutation");
-    assert_ne!(baseline_id, mapped_record_id(&request, changed_region));
+    assert_ne!(baseline_record, mapped_record(&request, changed_region));
 
     let conditional = MappingCandidate::new(
         identity.clone(),
@@ -945,7 +899,7 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
         1,
     )
     .expect("conditional mutation");
-    assert_ne!(baseline_id, mapped_record_id(&request, conditional));
+    assert_ne!(baseline_record, mapped_record(&request, conditional));
     let conditional_other = MappingCandidate::new(
         identity.clone(),
         SourceFactState::Ready,
@@ -975,8 +929,8 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
     )
     .expect("original condition code");
     assert_ne!(
-        mapped_record_id(&request, conditional_original),
-        mapped_record_id(&request, conditional_other)
+        mapped_record(&request, conditional_original),
+        mapped_record(&request, conditional_other)
     );
 
     let unrepresented_original = MappingCandidate::new(
@@ -1008,8 +962,8 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
     )
     .expect("changed unrepresented cause");
     assert_ne!(
-        mapped_record_id(&request, unrepresented_original),
-        mapped_record_id(&request, unrepresented_other)
+        mapped_record(&request, unrepresented_original),
+        mapped_record(&request, unrepresented_other)
     );
 
     let with_adequacy = MappingCandidate::new(
@@ -1026,7 +980,6 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
                 "agent-ix/quire-observation",
                 "quire.observation.result/v1",
                 "rev-observation",
-                SourceBytesDigest::from_bytes(digest(10)),
                 ObservationAdequacyState::Unknown,
             )
             .expect("observation adequacy"),
@@ -1035,7 +988,7 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
         1,
     )
     .expect("adequacy mutation");
-    assert_ne!(baseline_id, mapped_record_id(&request, with_adequacy));
+    assert_ne!(baseline_record, mapped_record(&request, with_adequacy));
 
     let with_protocol_adequacy = MappingCandidate::new(
         identity.clone(),
@@ -1052,7 +1005,6 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
                 "agent-ix/quire-protocol",
                 "quire.protocol.result/v1",
                 "rev-protocol",
-                SourceBytesDigest::from_bytes(digest(11)),
                 ProtocolAdequacyState::Unknown,
             )
             .expect("protocol adequacy"),
@@ -1061,8 +1013,8 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
     )
     .expect("protocol-adequacy mutation");
     assert_ne!(
-        baseline_id,
-        mapped_record_id(&request, with_protocol_adequacy)
+        baseline_record,
+        mapped_record(&request, with_protocol_adequacy)
     );
 
     let incomplete_request = one_request(&package, 0, SourceFactState::Incomplete, ocl_profile());
@@ -1095,8 +1047,8 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
     )
     .expect("ready-source unrepresented candidate");
     assert_ne!(
-        mapped_record_id(&request, ready_unrepresented),
-        mapped_record_id(&incomplete_request, incomplete_candidate)
+        mapped_record(&request, ready_unrepresented),
+        mapped_record(&incomplete_request, incomplete_candidate)
     );
 
     let sysml_profile = OutputMappingProfile::new(
@@ -1104,7 +1056,6 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
         vec!["formal/26-03-02", "formal/26-03-01"],
         "quire.output.sysml2-kerml1/v1",
         "1-draft.1",
-        MappingRuleDigest::from_bytes(digest(12)),
         vec![OutputCapability::Boolean],
     )
     .expect("SysML profile");
@@ -1124,8 +1075,8 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
     )
     .expect("SysML candidate");
     assert_ne!(
-        baseline_id,
-        mapped_record_id(&sysml_request, sysml_candidate)
+        baseline_record,
+        mapped_record(&sysml_request, sysml_candidate)
     );
 
     let second_request = one_request(&package, 1, SourceFactState::Ready, ocl_profile());
@@ -1144,8 +1095,20 @@ fn tc_043_record_identity_binds_each_semantic_axis() {
     )
     .expect("second source candidate");
     assert_ne!(
-        baseline_id,
-        mapped_record_id(&second_request, second_candidate)
+        baseline_record,
+        mapped_record(&second_request, second_candidate)
+    );
+
+    let nested = nested_bound_package();
+    let nested_request = one_request(&nested, 0, SourceFactState::Ready, ocl_profile());
+    let nested_record = mapped_record(&nested_request, baseline);
+    assert_eq!(
+        baseline_record.source().identity(),
+        nested_record.source().identity()
+    );
+    assert_ne!(
+        baseline_record.source().expression(),
+        nested_record.source().expression()
     );
 }
 
@@ -1232,10 +1195,7 @@ fn tc_043_mapper_dispatch_is_ordered_complete_and_identity_bearing() {
     assert_eq!(mapped.records().len(), request.obligations().len());
     assert_eq!(mapped.mapping_work(), 4);
     assert!(mapped.emitted_bytes() > 0);
-    assert_ne!(
-        mapped.records()[0].record_id(),
-        mapped.records()[1].record_id()
-    );
+    assert_ne!(mapped.records()[0], mapped.records()[1]);
     assert_eq!(
         mapped.records()[0]
             .observation_adequacy()
@@ -1258,7 +1218,6 @@ fn tc_043_mapper_mismatch_cross_wiring_and_exhaustion_refuse_atomically() {
         vec!["formal/26-03-02", "formal/26-03-01"],
         "quire.output.sysml2-kerml1/v1",
         "1-draft.1",
-        MappingRuleDigest::from_bytes(digest(12)),
         vec![OutputCapability::Boolean],
     )
     .expect("SysML profile");
@@ -1450,10 +1409,6 @@ fn tc_043_package_assembly_is_deterministic_complete_and_region_safe() {
     assert_eq!(generated, replay);
     assert_eq!(generated.target_bytes(), b"-- a_assert\n-- b_case\n");
     assert_eq!(
-        generated.target_bytes_digest(),
-        TargetBytesDigest::digest(generated.target_bytes())
-    );
-    assert_eq!(
         generated.records().len(),
         mapped.request().obligations().len()
     );
@@ -1481,7 +1436,6 @@ fn tc_043_common_assembly_accepts_each_exact_profile_without_claiming_target_sem
             vec!["formal/26-03-02", "formal/26-03-01"],
             "quire.output.sysml2-kerml1/v1",
             "1-draft.1",
-            MappingRuleDigest::from_bytes(digest(30)),
             vec![OutputCapability::Boolean],
         )
         .expect("SysML/KerML profile"),
@@ -1490,7 +1444,6 @@ fn tc_043_common_assembly_accepts_each_exact_profile_without_claiming_target_sem
             vec!["v3.1.0"],
             "quire.output.fretish31/v1",
             "1-draft.1",
-            MappingRuleDigest::from_bytes(digest(31)),
             vec![OutputCapability::Boolean],
         )
         .expect("FRETish profile"),
@@ -1511,7 +1464,7 @@ fn tc_043_common_assembly_accepts_each_exact_profile_without_claiming_target_sem
 
 #[trace("TC-043", "FR-034-AC-1", "FR-034-AC-4")]
 #[test]
-fn tc_043_package_identity_binds_target_generator_source_profile_records_and_limits() {
+fn tc_043_package_content_retains_target_generator_source_profile_records_and_limits() {
     let package = bound_package();
     let baseline_mapped = mapped(&package, limits());
     let baseline = assemble_output_package(
@@ -1527,17 +1480,16 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
         &MappingExecutionControl::active(),
     )
     .expect("changed generator owner package");
-    assert_ne!(baseline.package_id(), changed_owner.package_id());
+    assert_ne!(baseline.generator(), changed_owner.generator());
 
     let changed_profile = OutputMappingProfile::new(
         "ocl",
         vec!["formal/14-02-03"],
         "quire.output.ocl24/v1",
         "1-draft.1",
-        MappingRuleDigest::from_bytes(digest(29)),
-        vec![OutputCapability::Boolean, OutputCapability::BoundedInteger],
+        vec![OutputCapability::Boolean],
     )
-    .expect("changed profile digest");
+    .expect("changed profile capability");
     let changed_profile_request = admit(
         &package,
         requested(&package),
@@ -1558,7 +1510,10 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
         &MappingExecutionControl::active(),
     )
     .expect("changed-profile package");
-    assert_ne!(baseline.package_id(), changed_profile_package.package_id());
+    assert_ne!(
+        baseline.target_profile(),
+        changed_profile_package.target_profile()
+    );
 
     let changed_limits = MappingLimits::new(64 * 1024, 33, 1_024, 128, 4_096, 32, 64 * 1024)
         .expect("changed valid limits");
@@ -1569,7 +1524,7 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
         &MappingExecutionControl::active(),
     )
     .expect("changed limits package");
-    assert_ne!(baseline.package_id(), changed_limits_package.package_id());
+    assert_ne!(baseline.limits(), changed_limits_package.limits());
 
     let request = admit(&package, requested(&package), ocl_profile(), limits())
         .expect("admitted mapping request");
@@ -1587,11 +1542,7 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
         &MappingExecutionControl::active(),
     )
     .expect("changed target text package");
-    assert_ne!(
-        baseline.target_bytes_digest(),
-        changed_text.target_bytes_digest()
-    );
-    assert_ne!(baseline.package_id(), changed_text.package_id());
+    assert_ne!(baseline.target_bytes(), changed_text.target_bytes());
 
     let changed_source_package = bound_package_with_id("agent-ix/conformance-mutated");
     let changed_source_request = admit(
@@ -1614,7 +1565,7 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
         &MappingExecutionControl::active(),
     )
     .expect("changed source package");
-    assert_ne!(baseline.package_id(), changed_source.package_id());
+    assert_ne!(baseline.source_package(), changed_source.source_package());
 
     for refused_owner in [
         String::new(),
@@ -1643,7 +1594,7 @@ fn tc_043_cancellation_and_allocation_failures_expose_no_package() {
     let package = bound_package();
     for point in [
         MappingAllocationPoint::RequestObligations,
-        MappingAllocationPoint::RequestIdentity,
+        MappingAllocationPoint::RequestMaterial,
     ] {
         let control = MappingExecutionControl::fail_allocation_at(point);
         let (native, model, semantic) = selections();
@@ -1692,7 +1643,7 @@ fn tc_043_cancellation_and_allocation_failures_expose_no_package() {
     for point in [
         MappingAllocationPoint::TargetBytes,
         MappingAllocationPoint::PackageRecords,
-        MappingAllocationPoint::PackageIdentity,
+        MappingAllocationPoint::PackageMaterial,
     ] {
         let control = MappingExecutionControl::fail_allocation_at(point);
         assert_eq!(
@@ -1746,7 +1697,6 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     let generated =
         assemble_output_package(&mapped, generator(), &MappingExecutionControl::active())
             .expect("generated package");
-    let package_id = generated.package_id();
     let bytes = generated.target_bytes().to_vec();
     let records = generated.records().to_vec();
 
@@ -1775,18 +1725,17 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
             .expect("changed observer identity"),
         cause("observer-rights-unavailable"),
     );
-    assert_eq!(accepted.package_id(), package_id);
+    assert_eq!(accepted.package(), &generated);
     assert_eq!(accepted.outcome(), StructuralObservationOutcome::Accepted);
     assert_eq!(accepted.observer().owner(), "agent-ix/observer");
     assert_eq!(accepted.refusal_cause(), None);
-    assert_eq!(refused.package_id(), package_id);
+    assert_eq!(refused.package(), &generated);
     assert_eq!(refused.outcome(), StructuralObservationOutcome::Refused);
     assert_eq!(refused.observer().owner(), "agent-ix/other-observer");
     assert_eq!(
         refused.refusal_cause().map(MappingCause::code),
         Some("observer-rights-unavailable")
     );
-    assert_eq!(generated.package_id(), package_id);
     assert_eq!(generated.target_bytes(), bytes);
     assert_eq!(generated.records(), records);
     let serialized = serde_json::to_string(&generated).expect("serializable package");
@@ -1835,7 +1784,7 @@ fn tc_043_unresolved_obligation_precedence_is_total() {
 
     // STD-003: an obligation that is foreign *and* carries a revision that
     // would be stale in the bound package classifies as foreign, because
-    // package identity is compared before any revision is read. Without the
+    // package name is compared before any revision is read. Without the
     // declared order this case could report either code.
     let foreign_and_stale = RequestedMappingObligation::new(
         ClauseRef::new(
@@ -1906,7 +1855,7 @@ fn tc_043_unresolved_obligation_precedence_is_total() {
 
 /// The smallest `maximum_request_bytes` in `1..=1 << 20` under which `attempt`
 /// succeeds. `attempt` succeeds exactly when the limit is at least the longest
-/// canonical identity material it encodes, so this is that material's length.
+/// canonical canonical material it encodes, so this is that material's length.
 fn smallest_passing_request_limit<T>(
     attempt: impl Fn(u64) -> Result<T, MappingRequestError>,
 ) -> u64 {
@@ -1928,7 +1877,7 @@ fn limits_with_request_bytes(maximum_request_bytes: u64) -> MappingLimits {
         .expect("positive limits")
 }
 
-/// A record whose condition text is long enough that its identity material is
+/// A record whose condition text is long enough that its canonical material is
 /// longer than the request's, so the record step is the longest one.
 fn long_condition_record(
     package: &BoundPackage,
@@ -1960,7 +1909,7 @@ fn long_condition_record(
 
 #[trace("TC-043", "FR-033-AC-6", "FR-034-AC-6")]
 #[test]
-fn tc_043_record_identity_material_is_metered_by_the_request_byte_limit() {
+fn tc_043_record_material_is_metered_by_the_request_byte_limit() {
     let package = bound_package();
     let exact = smallest_passing_request_limit(|limit| long_condition_record(&package, limit));
     assert!(long_condition_record(&package, exact).is_ok());
@@ -2001,7 +1950,7 @@ fn long_generator_package(
 
 #[trace("TC-043", "FR-034-AC-6")]
 #[test]
-fn tc_043_package_identity_material_is_metered_by_the_request_byte_limit() {
+fn tc_043_package_material_is_metered_by_the_request_byte_limit() {
     let package = bound_package();
     let exact = smallest_passing_request_limit(|limit| long_generator_package(&package, limit));
     let refusal = long_generator_package(&package, exact - 1)
@@ -2086,29 +2035,24 @@ fn tc_043_admitted_request_bytes_are_the_length_of_the_hand_written_request_text
             )
         })
         .collect();
-    let selection = |seed: u8, identity: &str, revision: &str| {
-        format!(
-            "{{\"digest\":\"{}\",\"identity\":\"{identity}\",\"revision\":\"{revision}\"}}",
-            hex_of(&digest(seed))
-        )
+    let selection = |identity: &str, revision: &str| {
+        format!("{{\"identity\":\"{identity}\",\"revision\":\"{revision}\"}}")
     };
     let expected = format!(
-        "{{\"identity_version\":\"quire.output.mapping-request-identity/v1-draft.1\",\
-         \"model_selection\":{model},\"native_selection\":{native},\
+        "{{\"model_selection\":{model},\"native_selection\":{native},\
          \"obligations\":[{obligations}],\
          \"resource_shape\":{{\"maximum_emitted_bytes\":\"999999\",\
          \"maximum_expression_nodes\":\"7777\",\"maximum_mapping_work\":\"88888\",\
          \"maximum_nesting_depth\":\"4\",\"maximum_obligations\":\"55\",\
          \"maximum_records\":\"666\"}},\
          \"semantic_selection\":{semantic},\
-         \"source_package\":{{\"digest\":\"{package_digest}\",\"package\":\"{package_id}\",\
+         \"source_package\":{{\"package\":\"{package_id}\",\
          \"schema_version\":{{\"major\":1,\"minor\":1}}}},\
          \"target_profile\":{profile}}}",
-        model = selection(3, "quire.model/v1", "rev-model"),
-        native = selection(2, "quire.native/v1", "rev-native"),
-        semantic = selection(4, "quire.semantic/v1", "rev-semantic"),
+        model = selection("quire.model/v1", "rev-model"),
+        native = selection("quire.native/v1", "rev-native"),
+        semantic = selection("quire.semantic/v1", "rev-semantic"),
         obligations = obligation_texts.join(","),
-        package_digest = package.digest(),
         package_id = package.package().id().as_str(),
         profile = expected_ocl_profile(),
     );
@@ -2119,66 +2063,20 @@ fn tc_043_admitted_request_bytes_are_the_length_of_the_hand_written_request_text
     );
 }
 
-/// The fixture clause `identity` as written in the shared input, so the
-/// expected text below is built from the input and not from the code under test.
-fn fixture_clause(identity: &ClauseRef) -> Value {
-    projection()["package"]["requirements"]
-        .as_array()
-        .expect("requirements")
-        .iter()
-        .find(|requirement| requirement["id"] == identity.requirement().requirement().as_str())
-        .expect("requirement")["clauses"]
-        .as_array()
-        .expect("clauses")
-        .iter()
-        .find(|clause| clause["id"] == identity.clause().as_str())
-        .expect("clause")
-        .clone()
-}
-
-fn fixture_location(location: &Value) -> String {
-    format!(
-        "{{\"byte_offset\":{},\"column\":{},\"line\":{},\
-         \"source\":{{\"document\":{},\"revision\":{}}}}}",
-        location["byte_offset"],
-        location["column"],
-        location["line"],
-        location["source"]["document"],
-        location["source"]["revision"],
-    )
-}
-
-fn fixture_anchor(anchor: &Value) -> String {
-    let (member, value) = ["operation", "name"]
-        .into_iter()
-        .find_map(|member| anchor.get(member).map(|value| (member, value)))
-        .expect("anchor member");
-    format!("{{\"kind\":{},\"{member}\":{value}}}", anchor["kind"])
-}
-
-fn hex_of(bytes: &[u8; 32]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 fn expected_ocl_profile() -> String {
-    format!(
-        "{{\"mapping_digest\":\"{}\",\"mapping_profile_id\":\"quire.output.ocl24/v1\",\
+    "{\"mapping_profile_id\":\"quire.output.ocl24/v1\",\
          \"mapping_revision\":\"1-draft.1\",\
          \"required_capabilities\":[\"boolean\",\"bounded-integer\"],\
-         \"target_family\":\"ocl\",\"target_standard_refs\":[\"formal/14-02-03\"]}}",
-        hex_of(&digest(1))
-    )
+         \"target_family\":\"ocl\",\"target_standard_refs\":[\"formal/14-02-03\"]}"
+        .to_owned()
 }
 
-#[trace("TC-043", "FR-034-AC-7", "FR-034-AC-8")]
+#[trace("TC-043", "FR-033-AC-3", "FR-034-AC-1", "FR-034-AC-4")]
 #[test]
-fn tc_043_record_and_package_identities_are_the_digests_of_hand_written_text() {
-    use sha2::{Digest, Sha256};
-
+fn tc_043_record_and_package_expose_typed_content_without_digest_ids() {
     let package = bound_package();
     let request = one_request(&package, 0, SourceFactState::Ready, ocl_profile());
-    let clause = &package.clauses()[0];
-    let identity = clause.identity();
+    let identity = package.clauses()[0].identity().clone();
     let mut mapper = FixedMapper {
         profile: ocl_profile(),
         candidate: candidate(
@@ -2193,89 +2091,28 @@ fn tc_043_record_and_package_identities_are_the_digests_of_hand_written_text() {
     };
     let completed = map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
         .expect("mapped record");
-
-    let fixture = fixture_clause(identity);
-    let requirement = identity.requirement();
-    let clause_text = format!(
-        "{{\"clause\":\"{}\",\"requirement\":{{\"package\":\"{}\",\"requirement\":\"{}\",\
-         \"revision\":{}}}}}",
-        identity.clause().as_str(),
-        requirement.package().as_str(),
-        requirement.requirement().as_str(),
-        requirement.revision().get(),
-    );
-    let record_text = format!(
-        "{{\"causes\":[],\
-         \"conditions\":[{{\"code\":\"bounded\",\"contract\":\"quire.output.ocl24/v1\",\
-         \"digest\":\"{c7}\",\"owner\":\"agent-ix/quire-specification\",\
-         \"revision\":\"1-draft.1\"}}],\
-         \"dependencies\":[{{\"digest\":\"{c9}\",\"identity\":\"boolean\",\
-         \"kind\":\"semantic\",\"owner\":\"agent-ix/owner\",\"revision\":\"rev-owner\"}}],\
-         \"disposition\":\"conditional\",\
-         \"identity_version\":\"quire.output.mapping-record-identity/v1-draft.1\",\
-         \"observation_adequacy\":{{\"contract\":\"quire.observation.result/v1\",\
-         \"digest\":\"{c10}\",\"owner\":\"agent-ix/quire-observation\",\
-         \"revision\":\"rev-observation\",\"state\":\"adequate\"}},\
-         \"output_regions\":[{{\"end\":\"1\",\"start\":\"0\"}}],\
-         \"protocol_adequacy\":{{\"contract\":\"quire.protocol.result/v1\",\
-         \"digest\":\"{c11}\",\"owner\":\"agent-ix/quire-protocol\",\
-         \"revision\":\"rev-protocol\",\"state\":\"demonstrated\"}},\
-         \"source\":{{\"anchor\":{anchor},\"declaration_digest\":\"{declaration}\",\
-         \"expression_digest\":\"{expression}\",\"identity\":{clause_text},\
-         \"kind\":{kind},\
-         \"source\":{{\"end\":{end},\"start\":{start}}}}},\
-         \"source_state\":\"ready\",\"target_profile\":{profile}}}",
-        c7 = hex_of(&digest(7)),
-        c9 = hex_of(&digest(9)),
-        c10 = hex_of(&digest(10)),
-        c11 = hex_of(&digest(11)),
-        anchor = fixture_anchor(&fixture["anchor"]),
-        declaration = clause.declaration_digest(),
-        expression = clause.expression_digest(),
-        kind = fixture["kind"],
-        end = fixture_location(&fixture["source"]["end"]),
-        start = fixture_location(&fixture["source"]["start"]),
-        profile = expected_ocl_profile(),
-    );
-    let record_id = completed.records()[0].record_id();
+    let record = &completed.records()[0];
+    assert_eq!(record.source().identity(), &identity);
+    assert_eq!(record.disposition(), MappingDisposition::Conditional);
+    assert_eq!(record.conditions()[0].code(), "bounded");
     assert_eq!(
-        record_id.as_bytes().as_slice(),
-        Sha256::digest(record_text.as_bytes()).as_slice(),
-        "record identity is the digest of the written-out text"
+        record.output_regions()[0],
+        OutputByteRegion::new(0, 1).unwrap()
     );
-
     let assembled =
         assemble_output_package(&completed, generator(), &MappingExecutionControl::active())
             .expect("package");
-    let limits = limits();
-    let package_text = format!(
-        "{{\"generator\":{{\"owner\":\"agent-ix/quire-contract-ir\"}},\
-         \"identity_version\":\"quire.output.package-identity/v1-draft.1\",\
-         \"limits\":{{\"maximum_emitted_bytes\":\"{emitted}\",\
-         \"maximum_expression_nodes\":\"{nodes}\",\"maximum_mapping_work\":\"{work}\",\
-         \"maximum_nesting_depth\":\"{depth}\",\"maximum_obligations\":\"{obligations}\",\
-         \"maximum_records\":\"{records}\",\"maximum_request_bytes\":\"{request_bytes}\"}},\
-         \"record_ids\":[\"{record_id}\"],\
-         \"source_package\":{{\"digest\":\"{package_digest}\",\"package\":\"{package_id}\",\
-         \"schema_version\":{{\"major\":1,\"minor\":1}}}},\
-         \"target_bytes_digest\":\"{target}\",\"target_profile\":{profile}}}",
-        emitted = limits.maximum_emitted_bytes(),
-        nodes = limits.maximum_expression_nodes(),
-        work = limits.maximum_mapping_work(),
-        depth = limits.maximum_nesting_depth(),
-        obligations = limits.maximum_obligations(),
-        records = limits.maximum_records(),
-        request_bytes = limits.maximum_request_bytes(),
-        record_id = hex_of(record_id.as_bytes()),
-        package_digest = package.digest(),
-        package_id = package.package().id().as_str(),
-        target = hex_of(&Sha256::digest(b"x").into()),
-        profile = expected_ocl_profile(),
-    );
     assert_eq!(assembled.target_bytes(), b"x");
-    assert_eq!(
-        assembled.package_id().as_bytes().as_slice(),
-        Sha256::digest(package_text.as_bytes()).as_slice(),
-        "package identity is the digest of the written-out text"
-    );
+    assert_eq!(assembled.records(), completed.records());
+    assert_eq!(assembled.source_package().package(), package.package().id());
+    assert_eq!(assembled.generator().owner(), "agent-ix/quire-contract-ir");
+    let record_value = serde_json::to_value(record).expect("record value");
+    let package_value = serde_json::to_value(&assembled).expect("package value");
+    for value in [record_value, package_value] {
+        let object = value.as_object().expect("typed object");
+        assert!(!object.contains_key("digest"));
+        assert!(!object.contains_key("record_id"));
+        assert!(!object.contains_key("package_id"));
+        assert!(!object.contains_key("identity_version"));
+    }
 }

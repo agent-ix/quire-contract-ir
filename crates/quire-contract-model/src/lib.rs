@@ -140,12 +140,11 @@ pub mod source_obligation;
 mod wire;
 
 pub use binding::{
-    BoundClause, BoundPackage, BOUND_IDENTITY_PROFILE, EXECUTABLE_PROJECTION_FORMAT,
-    EXECUTABLE_PROJECTION_SCHEMA,
+    BoundClause, BoundPackage, EXECUTABLE_PROJECTION_FORMAT, EXECUTABLE_PROJECTION_SCHEMA,
 };
 pub use canonical::{
-    CanonicalBody, CanonicalBytes, CanonicalDigest, CanonicalKind, CanonicalOutput,
-    CanonicalProfile, CANONICAL_PROFILE,
+    CanonicalBody, CanonicalBytes, CanonicalKind, CanonicalOutput, CanonicalProfile,
+    CANONICAL_PROFILE,
 };
 pub use checked_package::{
     derive_application_node_id, derive_structural_candidates, encode_checked_package_v2,
@@ -260,18 +259,16 @@ pub use limits::{
 pub use output_mapping::{
     assemble_output_package, map_admitted_request, map_admitted_request_controlled,
     AdmittedMappingObligation, AdmittedMappingRequest, CompletedMappings, GeneratedOutputPackage,
-    GeneratedOutputPackageId, MappingCancellation, MappingCancellationToken, MappingCandidate,
-    MappingCause, MappingCondition, MappingDependencyKind, MappingDependencyRef,
-    MappingDisposition, MappingExecutionControl, MappingLimits, MappingRecordId,
-    MappingRecordSource, MappingRequestError, MappingRequestErrorCode, MappingRuleDigest,
-    MappingSourcePackageRef, MappingWorkBudget, ModelSourceSelection, NativeSourceSelection,
-    ObservationAdequacyRef, ObservationAdequacyState, OutputByteRegion, OutputCapability,
-    OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, OutputMappingRecord,
-    OutputTargetFamily, ProtocolAdequacyRef, ProtocolAdequacyState, RequestedMappingObligation,
-    SemanticSourceSelection, SourceBytesDigest, SourceFactState, StructuralObservationOutcome,
-    StructuralObservationRef, StructuralObserverIdentity, TargetBytesDigest,
-    GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION, OUTPUT_MAPPING_RECORD_IDENTITY_VERSION,
-    OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION, OUTPUT_MAPPING_REVISION,
+    MappingCancellation, MappingCancellationToken, MappingCandidate, MappingCause,
+    MappingCondition, MappingDependencyKind, MappingDependencyRef, MappingDisposition,
+    MappingExecutionControl, MappingLimits, MappingRecordSource, MappingRequestError,
+    MappingRequestErrorCode, MappingSourcePackageRef, MappingWorkBudget, ModelSourceSelection,
+    NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState, OutputByteRegion,
+    OutputCapability, OutputGeneratorIdentity, OutputMapper, OutputMappingProfile,
+    OutputMappingRecord, OutputTargetFamily, ProtocolAdequacyRef, ProtocolAdequacyState,
+    RequestedMappingObligation, SemanticSourceSelection, SourceFactState,
+    StructuralObservationOutcome, StructuralObservationRef, StructuralObserverIdentity,
+    OUTPUT_MAPPING_REVISION,
 };
 
 #[cfg(feature = "fault-injection")]

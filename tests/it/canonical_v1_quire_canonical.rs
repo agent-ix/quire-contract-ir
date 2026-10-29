@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! IR-274 part B: every byte and digest of the v1 canonical objects comes from
+//! IR-274 part B: every byte of the v1 canonical objects comes from
 //! `quire-canonical`, and the eight integer members are decimal strings in
 //! every canonical object (FR-016-AC-5 through FR-016-AC-8, FR-011-AC-3).
 //!
@@ -19,10 +19,7 @@ use quire_contract_model::{
     SchemaVersion, SourceDocumentId, SourceIdentity, SourceLocation, SourceRevision, SourceSpan,
     SymbolName, TypedExpression, ValueDeclaration, ValueDeclarationKind, ValueType,
 };
-use sha2::{Digest as _, Sha256};
 use std::fs;
-
-const PROFILE: &str = "quire.contract.canonical-json/v1";
 
 fn source() -> SourceIdentity {
     SourceIdentity::new(
@@ -99,19 +96,6 @@ fn widest_rational() -> RationalType {
 
 fn text(output: &CanonicalOutput) -> &str {
     std::str::from_utf8(output.bytes().as_slice()).unwrap()
-}
-
-/// SHA-256 over the domain prefix `quire-contract-ir`, a zero byte, the
-/// profile, a zero byte, the kind, a zero byte and the expected bytes.
-fn expected_digest(kind: &str, bytes: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"quire-contract-ir\0");
-    hasher.update(PROFILE.as_bytes());
-    hasher.update(b"\0");
-    hasher.update(kind.as_bytes());
-    hasher.update(b"\0");
-    hasher.update(bytes.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 const PACKAGE_BYTES: &str = concat!(
@@ -201,7 +185,7 @@ type Budgeted<'a> =
 /// ACs: FR-016-AC-5, FR-016-AC-6
 #[trace("TC-017", "FR-016-AC-5", "FR-016-AC-6")]
 #[test]
-fn tc_017_the_five_kinds_equal_their_written_out_bytes_digests_and_limits() {
+fn tc_017_the_five_kinds_equal_their_written_out_bytes_and_limits() {
     let package = package_with_revision(1);
     let requirement = &package.requirements()[0];
     let clause = &requirement.clauses()[0];
@@ -251,13 +235,8 @@ fn tc_017_the_five_kinds_equal_their_written_out_bytes_digests_and_limits() {
         let output = ask(u64::MAX).unwrap();
         assert_eq!(output.kind().as_str(), kind);
         assert_eq!(text(&output), expected, "{kind}: bytes");
-        assert_eq!(
-            output.digest().to_string(),
-            expected_digest(kind, expected),
-            "{kind}: digest"
-        );
         // A limit of the exact length returns the bytes; one byte lower is the
-        // registered resource refusal, with no bytes and no digest.
+        // registered resource refusal, with no bytes.
         let length = u64::try_from(expected.len()).unwrap();
         assert_eq!(ask(length).unwrap(), output, "{kind}: exact limit");
         let refusal = ask(length - 1).unwrap_err();
@@ -543,25 +522,11 @@ fn tc_017_no_canonical_type_can_hold_a_null_a_float_or_a_value() {
 /// ACs: FR-016-AC-8
 #[trace("TC-017", "FR-016-AC-8")]
 #[test]
-fn tc_017_the_digest_is_the_explicit_domain_prefix_not_the_encoder_domain_framing() {
+fn tc_017_the_canonical_output_has_only_kind_and_bytes() {
     let package = package_with_revision(1);
     let output = package.canonical_package(CanonicalProfile::V1).unwrap();
-    assert_eq!(
-        output.digest().to_string(),
-        expected_digest("package", PACKAGE_BYTES)
-    );
-    // `sha256_with_domain` frames the label with its length and hashes the
-    // same envelope, so even with the same label it is a different identity.
-    let document = quire_canonical::read(PACKAGE_BYTES.as_bytes(), 1 << 20).unwrap();
-    let framed = quire_canonical::sha256_with_domain(
-        b"quire-contract-ir\0quire.contract.canonical-json/v1\0package\0",
-        &document,
-        quire_canonical::Limits::new(1 << 20),
-    )
-    .unwrap();
-    assert_ne!(output.digest().to_string(), framed.to_string());
-    let bare = quire_canonical::sha256(&document, quire_canonical::Limits::new(1 << 20)).unwrap();
-    assert_ne!(output.digest().to_string(), bare.to_string());
+    assert_eq!(output.kind(), CanonicalKind::Package);
+    assert_eq!(output.bytes().as_slice(), PACKAGE_BYTES.as_bytes());
 }
 
 #[trace("TC-017", "FR-016-AC-9")]
@@ -601,7 +566,6 @@ fn wide_numeric_values_keep_decimal_string_canonical_spelling() {
         assert!(bytes.contains(&format!("\"maximum\":\"{}\"", i128::MAX)));
         assert!(bytes.contains(&format!("\"value\":\"{value}\"")));
         assert_ne!(text(&prior), bytes);
-        assert_ne!(prior.digest(), output.digest());
     }
     let rational_type = RationalType::new(i128::MIN, i128::MAX, i128::MAX).unwrap();
     for (numerator, denominator) in [(i128::MIN, 1), (i128::MAX, 1), (1, i128::MAX)] {

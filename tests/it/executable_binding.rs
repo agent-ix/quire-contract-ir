@@ -3,7 +3,6 @@
 use ix_trace_rs::trace;
 use quire_contract_model::{BoundPackage, DiagnosticCode, EXECUTABLE_PROJECTION_FORMAT};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 
 fn projection() -> Value {
     let mut package: Value = serde_json::from_str(include_str!(
@@ -89,7 +88,6 @@ fn tc_035_public_consumer_preserves_complete_population() {
             clause.expression().value_type(),
             &quire_contract_model::ValueType::Boolean
         );
-        assert_ne!(clause.declaration_digest(), clause.expression_digest());
     }
 }
 
@@ -219,14 +217,16 @@ fn tc_035_projection_revisions_and_offsets_obey_the_schema_boundary() {
 
 #[trace("TC-035", "FR-023-AC-3")]
 #[test]
-fn tc_035_identity_is_order_independent_and_semantically_sensitive() {
+fn tc_035_bound_content_is_order_independent_and_semantically_sensitive() {
     let original = projection();
-    let digest = decode(&original).unwrap().digest();
+    let bound = decode(&original).unwrap();
     let mut reordered = original.clone();
     reordered["bindings"].as_array_mut().unwrap().reverse();
-    assert_eq!(digest, decode(&reordered).unwrap().digest());
+    assert_eq!(bound, decode(&reordered).unwrap());
     reordered["bindings"][0]["expression"]["expression"]["value"] = json!(false);
-    assert_ne!(digest, decode(&reordered).unwrap().digest());
+    let changed = decode(&reordered).unwrap();
+    assert_eq!(bound.package(), changed.package());
+    assert_ne!(bound.clauses(), changed.clauses());
 }
 
 #[trace("TC-035", "FR-023-AC-4", "FR-023-AC-5")]
@@ -458,84 +458,22 @@ fn tc_035_dependency_agreement_has_a_real_positive_and_independent_negatives() {
 
 #[trace("TC-035", "FR-023-AC-1", "FR-023-AC-3")]
 #[test]
-fn tc_035_declaration_semantics_change_identity_without_changing_expression() {
+fn tc_035_declaration_semantics_change_bound_content_without_changing_expression() {
     let mut original = minimal_projection(1);
     declarations(&mut original, 1, 0);
     let before = decode(&original).unwrap();
     original["bindings"][0]["expression"]["values"][0]["value_type"] = json!({"kind":"text"});
     let after = decode(&original).unwrap();
-    assert_ne!(before.digest(), after.digest());
+    assert_ne!(before, after);
     assert_ne!(
-        before.clauses()[0].declaration_digest(),
-        after.clauses()[0].declaration_digest()
+        before.clauses()[0].environment(),
+        after.clauses()[0].environment()
     );
     assert_eq!(
-        before.clauses()[0].expression_digest(),
-        after.clauses()[0].expression_digest()
+        before.clauses()[0].expression(),
+        after.clauses()[0].expression()
     );
     assert_eq!(before.package(), after.package());
-}
-
-#[trace("TC-035", "FR-023-AC-3")]
-#[test]
-fn tc_035_bound_digest_matches_an_independently_written_canonical_envelope() {
-    use quire_contract_model::CanonicalProfile;
-    let bound = decode(&projection()).unwrap();
-    let quote = |text: &str| serde_json::to_string(text).unwrap();
-    let mut expected_clauses: Vec<_> = bound.clauses().iter().collect();
-    expected_clauses.sort_by_key(|clause| clause.identity());
-    let entries = expected_clauses
-        .iter()
-        .map(|clause| {
-            let owner = clause.identity().requirement();
-            let declaration = clause
-                .environment()
-                .canonical_declaration(CanonicalProfile::V1)
-                .unwrap()
-                .digest();
-            let expression = clause
-                .expression()
-                .canonical_expression(CanonicalProfile::V1)
-                .unwrap()
-                .digest();
-            assert_eq!(clause.declaration_digest(), declaration);
-            assert_eq!(clause.expression_digest(), expression);
-            // Write the exact lexical field order, not serde_json::Value map order
-            // and not the binder's private canonical-envelope helper.
-            format!(
-                concat!(
-                    "{{\"clause\":{{\"clause\":{},\"requirement\":{{",
-                    "\"package\":{},\"requirement\":{},\"revision\":{}}}}},",
-                    "\"declaration\":\"{}\",\"expression\":\"{}\"}}"
-                ),
-                quote(clause.identity().clause().as_str()),
-                quote(owner.package().as_str()),
-                quote(owner.requirement().as_str()),
-                owner.revision().get(),
-                declaration,
-                expression
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let package = bound
-        .package()
-        .canonical_package(CanonicalProfile::V1)
-        .unwrap()
-        .digest();
-    let expected = format!(
-        concat!(
-            "{{\"bindings\":[{}],\"canonical_profile\":\"quire.contract.canonical-json/v1\",",
-            "\"package\":\"{}\",\"profile\":\"quire.contract.bound-identity/v1\"}}"
-        ),
-        entries, package
-    );
-    // Parsing checks the independently authored braces without deriving the expected bytes.
-    assert!(serde_json::from_str::<Value>(&expected).is_ok());
-    assert_eq!(
-        bound.digest().to_string(),
-        format!("{:x}", Sha256::digest(expected.as_bytes()))
-    );
 }
 
 #[trace("TC-035", "FR-023-AC-1", "FR-023-AC-2")]
