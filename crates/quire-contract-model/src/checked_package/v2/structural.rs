@@ -324,7 +324,8 @@ impl StructuralForm {
                 | ClaimForm::AnalysisClaim
                 | ClaimForm::Hyperproperty
                 | ClaimForm::SynthesisRequest
-                | ClaimForm::StateGraph,
+                | ClaimForm::StateGraph
+                | ClaimForm::StepRelation,
             ) => None,
             K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
                 Some(Self::AbstractionRelation)

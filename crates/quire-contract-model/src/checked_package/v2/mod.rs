@@ -42,6 +42,7 @@ mod relationship_end;
 mod rust_spelling;
 mod scalar_operands;
 mod state;
+mod step_relation;
 mod structural;
 mod structural_candidates;
 mod temporal;
@@ -95,6 +96,10 @@ pub use relationship_end::{CheckedRelationshipEnd, CheckedRelationshipEndError};
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
     CheckedScalarOperandRange,
+};
+pub use step_relation::{
+    CheckedStepExecution, CheckedStepRelationBody, CheckedStepRelationCapability,
+    CheckedStepRelationObligationIdentity,
 };
 pub use structural_candidates::{
     derive_structural_candidates, CandidateRecursionGroupLabel, CandidateStructuralNodeId,
@@ -2128,6 +2133,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ProtocolForm::Compensation,
         ) => false,
         K::Claim(ClaimForm::StateGraph) => true,
+        K::Claim(ClaimForm::StepRelation) => false,
         K::Claim(
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
@@ -2363,7 +2369,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
             | ClaimForm::SynthesisRequest
-            | ClaimForm::StateGraph,
+            | ClaimForm::StateGraph
+            | ClaimForm::StepRelation,
         ) => BodyGrammar::Term,
         K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
             BodyGrammar::AbstractionRelation
@@ -2735,8 +2742,9 @@ fn validate_graph(
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
-            Some(CheckedNodeKind::Claim(ClaimForm::StateGraph))
-                | Some(CheckedNodeKind::Temporal(TemporalForm::Terminal))
+            Some(CheckedNodeKind::Claim(
+                ClaimForm::StateGraph | ClaimForm::StepRelation
+            )) | Some(CheckedNodeKind::Temporal(TemporalForm::Terminal))
         ) {
             continue;
         }
@@ -2809,6 +2817,7 @@ fn validate_graph(
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     refinement::validate_step_rows(
         &graph.nodes,
         &kinds,

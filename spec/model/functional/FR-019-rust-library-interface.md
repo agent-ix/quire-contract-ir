@@ -224,6 +224,7 @@ operation has its own owning requirement, as listed below.
 | `checked_package` (V2 candidate structural identity) | function `derive_structural_candidates`; types `StructuralCandidates`, `CandidateStructuralNodeId`, `CandidateRecursionGroupLabel`, `StructuralCandidateError` | FR-048 |
 | `checked_package` (V2 scalar operands) | types `CheckedScalarOperand`, `CheckedScalarOperandChild`, `CheckedScalarOperandError`, `CheckedScalarOperandRange` | FR-038 |
 | `checked_package` (V2 parameter declaration) | types `CheckedParameterDeclaration`, `CheckedParameterDeclarationError` | FR-038 |
+| `checked_package` (V2 step relation claim) | types `CheckedStepExecution`, `CheckedStepRelationBody`, `CheckedStepRelationCapability`, `CheckedStepRelationObligationIdentity` | FR-351 |
 | `checked_package` (V2 relationship end) | types `CheckedRelationshipEnd`, `CheckedRelationshipEndError` | FR-038 |
 | `checked_package` (V2 reaches population) | type `CheckedReachesPopulationError` | FR-038 |
 | `checked_package` (V2 clause comparisons) | types `CheckedClauseComparison`, `CheckedComparisonClauseKind`, `CheckedComparisonError`, `CheckedComparisonObservation`, `CheckedComparisonOperand`, `CheckedComparisonOperandIdentity`, `CheckedComparisonOperandKind`, `CheckedComparisonOperator`, `CheckedComparisonPath`, `CheckedComparisonRead`, `CheckedComparisonRefusal` | FR-038 |
