@@ -45,4 +45,4 @@ Rust review: no Rust or Cargo diff. React review: no TSX/JSX or React change. Ga
 
 ## Validation
 
-`quire validate --scope..review-scratchpad/ir-663-spec-review-code-review.md` — PASS (exit 0); module warnings only, no document validation error.
+`quire validate --scope . .review-scratchpad/ir-663-spec-review-code-review.md` — PASS (exit 0); module warnings only, no document validation error.

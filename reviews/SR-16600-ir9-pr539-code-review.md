@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Independent diff-scoped review of the direct neutral `string_edge` import and argument-free marker on `decode_node_kind`. The reviewed base is; the exact head is. The prior owner source disposition on IR-9 was treated as evidence and checked against the function and its callers.
+Independent diff-scoped review of the direct neutral `string_edge` import and argument-free marker on `decode_node_kind`. The reviewed base is the PR merge base; the exact head is the reviewed PR state. The prior owner source disposition on IR-9 was treated as evidence and checked against the function and its callers.
 
 ## Findings
 

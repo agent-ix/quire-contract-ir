@@ -22,7 +22,7 @@ Ticket: IR-473. Planless gap analysis of FR-014-AC-7 against the tagged tests an
 ## Finding Detail
 
 - FND-001: add an integration test that mirrors `guarded_fold` for a rational input. Use `p >= -1 && p <= 1 && p != 0` with denominator maximum 1, and assert that a 120-leaf product checks. Without merging, it grows as 2^n and hits the cap at 7 leaves. Also add a rational sum that goes past 64 points and is refused with `rational range set exceeds the checked range-set limit`. Both would kill the surviving mutation.
-- FND-002: a rational guarded division such as `p != 0 && 1/p...` over `p` in [-1, 1] with an assertion on the accepted result would kill it. Ticket it separately if it is not fixed here.
+- FND-002: a rational guarded division such as `p != 0 && 1/p ...` over `p` in [-1, 1] with an assertion on the accepted result would kill it. Ticket it separately if it is not fixed here.
 
 ## Verdict
 
@@ -36,7 +36,7 @@ Approve with one medium test gap. Integer coverage is strong. The exhaustive sma
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

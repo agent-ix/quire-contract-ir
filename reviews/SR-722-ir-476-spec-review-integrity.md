@@ -22,7 +22,7 @@ are unchanged and agree with the FR-023 matrix rows.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | The PR body misstates the measurement. It says "The bare doc lines are not read as tags (binding came from the tc_035_ test names)". The module declares `rust-doc-comment-id` (`^\s*///\s*<id>` with a trailing delimiter), a legacy form that matches `/// TC-035` and `/// FR-023-AC-1`. The real justification for the rewrite is that the form is legacy with `rewrite_to: rust-trace-attribute`, not that it was unread. The body also cites short SHAs (, ), which the brief excludes | PR #247 body |
+| FND-001 | low | The PR body misstates the measurement. It says "The bare doc lines are not read as tags (binding came from the tc_035_ test names)". The module declares `rust-doc-comment-id` (`^\s*///\s*<id>` with a trailing delimiter), a legacy form that matches `/// TC-035` and `/// FR-023-AC-1`. The real justification for the rewrite is that the form is legacy with `rewrite_to: rust-trace-attribute`, not that it was unread. The body also cites short SHAs (), which the brief excludes | PR #247 body |
 
 ## Verdict
 
@@ -40,12 +40,12 @@ annotation (SR-720 FND-001). Correct the body before merge.
 
 Round 1, reviewed agent-ix/quire-contract-ir. The
 body now gives the right reason for the executable_binding.rs rewrite ("already read as
-tags by the legacy `rust-doc-comment-id` form... canonical-form hygiene with unchanged
+tags by the legacy `rust-doc-comment-id` form ... canonical-form hygiene with unchanged
 bindings"), and the head short SHA is gone. One short SHA remains: "Main ". No
 spec file changes in the delta. The 24 new `#[trace]` bindings carry only AC ids that already
 existed and were already cited, so nothing was invented.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | still-open | The misstatement is corrected in the PR body, but the body still cites the short SHA "" in "Main ". Replace it with the full or drop it. |
 
@@ -56,7 +56,7 @@ The merge base is still origin/main. All three
 fixes are edits to the PR body, which has no commit, so the sha recorded is the head at
 which the body was verified.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | (PR body edit: "Main:" with no SHA; no short hex SHA remains in the body) |
 | FND-002 | fixed | (PR body edit: Gate section describes only the clean re-run at the full SHA, exit=2, only spec failing) |

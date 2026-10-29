@@ -22,7 +22,7 @@ reports no new grammar finding.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | FR-034's second new bullet packs one obligation (spell each `u64` as a decimal string), its rationale ("RFC 8785 spells no integer past 2^53 exactly...") and a derived claim about other requirements ("so no encode of identity material refuses for an integer") into one "shall" item. Split the obligation from the rationale and the cross-reference | spec/output_mapping/functional/FR-034-assemble-output-package-atomically.md:66-74 |
+| FND-001 | low | FR-034's second new bullet packs one obligation (spell each `u64` as a decimal string), its rationale ("RFC 8785 spells no integer past 2^53 exactly ...") and a derived claim about other requirements ("so no encode of identity material refuses for an integer") into one "shall" item. Split the obligation from the rationale and the cross-reference | spec/output_mapping/functional/FR-034-assemble-output-package-atomically.md:66-74 |
 
 ## Verdict
 
@@ -32,6 +32,6 @@ Acceptable. One low compound statement.
 
 Reviewed at agent-ix/quire-contract-ir (main still; not rebased onto #263, whose FR-038, TC-048 and checked_package tests.md hunks conflict textually, expected rebase work). Proof re-run: no schemas/, corpus or code file in `git diff origin/main --stat`; `make corpus` exit 0; workspace tests all pass (204 + 101, 0 failed); validate passes, grammar 1 (FR-014 baseline), 215 ACs, strict 23 unbacked, coverage rows 237.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

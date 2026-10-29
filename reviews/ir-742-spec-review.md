@@ -10,13 +10,12 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-742. Method: spec-review limited to the changed status lines of
-. PR: none yet. Each AC row differs from origin/main only in its
+Ticket: IR-742. Method: spec-review limited to the changed status lines of. PR: none yet. Each AC row differs from origin/main only in its
 status prefix (`PLANNED/UNRUN (IR-742).` to `IMPLEMENTED (IR-742; tagged reader
 tests passed).`); the criterion text after the prefix is byte-identical. The
 TC-048 paragraph and section status, and the tests.md row status and heading,
 change the same way; the tests.md "Required cases" cell is unchanged.
-`quire validate --scope. 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md'
+`quire validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md'
 --summary` exits 0 (873/873 grammar-clean); `quire coverage --strict` reports
 49 unbacked rows at base and head; `quire matrix` shows both ACs tagged at head
 and untagged at base.
@@ -58,7 +57,7 @@ FR-038 normative bullet these rows extend is still not fully met by the code
 
 ## Dispositions
 
-Round 1, verified (`git diff..`).
+Round 1, verified (`git diff origin/main...HEAD`).
 
 | FND | Outcome | Reason |
 | --- | --- | --- |

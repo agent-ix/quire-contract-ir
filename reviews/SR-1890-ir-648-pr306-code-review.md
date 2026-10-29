@@ -29,7 +29,7 @@ CONDITIONAL. The typed accessor and Rust boundary checks match the six scoped cr
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 

@@ -34,6 +34,6 @@ CONDITIONAL. The model-interface change is coherent; correct the FR-039-AC-1 tra
 
 Reviewed the same PR at agent-ix/quire-contract-ir.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | — `tests/it/public_interface.rs:143` now tags only TC-058 and FR-019-AC-5. FR-039-AC-1 remains unbacked for the future Kani work. |

@@ -19,18 +19,18 @@ Supplemental independent Codex EARS review for IR-658 SPEC PR #312, at artifact-
 
 - FR-038 owner-mismatch SHALL statement, spec/checked_package/functional/FR-038-consume-checked-package-v2.md: examined. Exact excerpt: "A well-shaped projection owner\ndiffering from its node's owner SHALL refuse `invalid_package`/`invalid-value`\nat `/identity_preimage/identity_projection/{i}/owner` after the schema step and\nbefore the owner join, even when the package id is recomputed over the changed\nprojection."
 - FR-038-AC-154, spec/checked_package/functional/FR-038-consume-checked-package-v2.md: examined. Exact changed excerpt: "A well-shaped projection owner differing from its node's owner refuses `invalid_package`/`invalid-value` at `/identity_preimage/identity_projection/{i}/owner`, before the owner join and even with the package id recomputed over that projection."
-- TC-228, spec/checked_package/matrix/TC-228-checked-package-v2-wire-owner-and-lock-joins.md: context only. Exact changed procedure excerpt: "Apply QSpec `adverse.json`'s\n `projection_owner_mutations` entries\n `projection-source-owner-differs-from-node` and\n `projection-model-owner-differs-from-node` to their selected nodes in fresh\n `positive-all-families` packages. Keep each node's owner unchanged and\n recompute the package id over the changed projection. Check exact code,\n cause and RFC 6901 pointer before the owner join or a key check can run."
+- TC-228, spec/checked_package/matrix/TC-228-checked-package-v2-wire-owner-and-lock-joins.md: context only. Exact changed procedure excerpt: "Apply QSpec `adverse.json`'s\n   `projection_owner_mutations` entries\n   `projection-source-owner-differs-from-node` and\n   `projection-model-owner-differs-from-node` to their selected nodes in fresh\n   `positive-all-families` packages. Keep each node's owner unchanged and\n   recompute the package id over the changed projection. Check exact code,\n   cause and RFC 6901 pointer before the owner join or a key check can run."
 - Surrounding owner presence, schema, projection, and join text: context for the actor and ordering; no other SHALL statement was edited in this PR diff.
 
 ## Findings
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | Owner-mismatch SHALL sentence assigns refusal to an inanimate owner and embeds the unwanted condition in its subject; state "If... then the reader SHALL refuse..." | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2005-2009 |
+| FND-001 | low | Owner-mismatch SHALL sentence assigns refusal to an inanimate owner and embeds the unwanted condition in its subject; state "If ... then the reader SHALL refuse ..." | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2005-2009 |
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 

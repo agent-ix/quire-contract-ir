@@ -108,13 +108,13 @@ follow-up.
 ## Dispositions
 
 Round 1, reviewed (fix commits
- and since ). Re-measured in a fresh worktree: `make test`
+ and ). Re-measured in a fresh worktree: `make test`
 308 integration, 135 model unit and 7 doc tests pass; `make fmt-check` and
 `make lint` clean; `make corpus` exit 0 with 107 `match` and no mismatch;
 `make spec` at the baseline (grammar 1, strict 23).
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | PR body as of (a body edit, not a commit): a "Breaks downstream after merge" section names QSL `src/lowering/wire.rs` and the six quire-contract-codegen files. A read-only re-grep of codegen finds exactly those six as number-wire producers; the other hits are codegen's own schemas and `tests/exact_scalar_support/agreement.rs`, which already writes strings |
-| FND-002 | fixed |: `canonical::encoder_refusal` keeps `canonicalization_resource_exhausted` (the one code STD-001 registers) and gives `Error::Limit`/`Error::Allocation` the resource message and every other variant "canonical encoder failed unexpectedly: {error}"; `canonicalize` and `binding.rs` both route through it; unit test `tc_017_a_limit_and_an_encoder_fault_share_the_code_but_not_the_message` pins both messages |
-| FND-003 | fixed |: a successful expression `document_json` input is parsed and validated against a newly compiled `expressionInput` named schema; `tc_018_a_successful_expression_document_is_checked_against_the_schema` shows a control document matches and the same document with an unknown expression member (which the decoder ignores) makes the run `invalid_corpus`. The corpus is unchanged and still runs 107 `match` |
+| FND-002 | fixed | `canonical::encoder_refusal` keeps `canonicalization_resource_exhausted` (the one code STD-001 registers) and gives `Error::Limit`/`Error::Allocation` the resource message and every other variant "canonical encoder failed unexpectedly: {error}"; `canonicalize` and `binding.rs` both route through it; unit test `tc_017_a_limit_and_an_encoder_fault_share_the_code_but_not_the_message` pins both messages |
+| FND-003 | fixed | a successful expression `document_json` input is parsed and validated against a newly compiled `expressionInput` named schema; `tc_018_a_successful_expression_document_is_checked_against_the_schema` shows a control document matches and the same document with an unknown expression member (which the decoder ignores) makes the run `invalid_corpus`. The corpus is unchanged and still runs 107 `match` |

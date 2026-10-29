@@ -14,7 +14,7 @@ Ticket: IR-485. This review checks three things. First, the file each Linear
 marker names. Second, the keeper rule. Third, the bridge line in each
 renumbered file.
 
-Marker ownership (`<!-- reviewer... id=SR-NNN method=... pr=... -->` on
+Marker ownership (`<!-- reviewer ... id=SR-NNN method=... pr=... -->` on
 Linear, repo=agent-ix/quire-contract-ir):
 
 - SR-591: IR-89 code-review #205 (keeps); IR-313 spec-integrity-analysis #204 to SR-977; IR-314 base #203 to SR-978.
@@ -66,6 +66,6 @@ justified. FND-001 is a wording nit in the PR body and does not block the merge.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | PR body edit, head unchanged; the body now reads "The later, narrower ticket in each group is renumbered." and states the 23-file count (15 renumbered, 8 keep) |

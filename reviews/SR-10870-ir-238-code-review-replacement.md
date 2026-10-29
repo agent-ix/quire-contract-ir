@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Replacement review of IR-238 PR #389 at frozen, scoped to `git diff origin/main...HEAD`. The changed Rust implementation retains the one generic envelope shape and drives owned read, raw-term borrowed intake, and typed borrowed canonical encoding. The public encoder has seven borrowed members and explicit canonical limits. Fixed-depth fields use serde serialization; arbitrary-depth JSON terms reuse iterative encoders. No clones, identity derivation, admission, producer limits, or QSL adoption were introduced. The previous clean code review still holds after rebase.
+Replacement review of IR-238 PR #389 at the reviewed PR head, scoped to `git diff origin/main...HEAD`. The changed Rust implementation retains the one generic envelope shape and drives owned read, raw-term borrowed intake, and typed borrowed canonical encoding. The public encoder has seven borrowed members and explicit canonical limits. Fixed-depth fields use serde serialization; arbitrary-depth JSON terms reuse iterative encoders. No clones, identity derivation, admission, producer limits, or QSL adoption were introduced. The previous clean code review still holds after rebase.
 
 ## Verdict
 

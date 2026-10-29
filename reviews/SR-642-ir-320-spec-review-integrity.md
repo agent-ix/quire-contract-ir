@@ -24,6 +24,6 @@ Integrity holds: the rows, ids, counts and index agree. FND-001 is a summary-wor
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

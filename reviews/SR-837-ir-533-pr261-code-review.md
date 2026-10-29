@@ -20,7 +20,7 @@ What was checked, and what holds:
 - **Dependency.** `quire-canonical` is a `branch = "main"` git dependency of the model crate
   and a root dev-dependency. Both carry `version = "=0.3.0"`. This is not an invented pin.
   IR's other first-party git dependencies use the same spelling (`ix-trace-rs` and
-  `quire-verification-contracts`, both `version = "=0.1.0", git =..., branch = "main"`).
+  `quire-verification-contracts`, both `version = "=0.1.0", git = ..., branch = "main"`).
   The repo's CLAUDE.md says package versions live in Cargo.toml and the lockfile. `version`
   is cargo's own field: it is checked against the fetched package and it is what
   `cargo publish` keeps. No finding.
@@ -104,10 +104,10 @@ What was checked, and what holds:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | An integer token past `u64::MAX` passes the canonical-bytes check. FR-038 says "An integer whose magnitude exceeds 2^53 anywhere in the document... refuses `noncanonical_wire`". `serde_json` parses a token outside the `i64`/`u64` range as `f64`, `write_number` sends it to `Writer::number`, and ryu-js writes whole doubles below 1e21 as plain integers. So `100000000000000000000`, `-100000000000000000000` and `18446744073709552000` round-trip byte-for-byte and are not refused at intake. Reproduced with a probe on this head. With a stale id and a non-term body, the document refuses `stale_dependency` at `/package_id/digest`. As a `literal` value with a recomputed id, it refuses `invalid_semantic_graph` at `/semantic_graph/nodes/0/body`. On main, `serde_json` spells these `1e+20`/`1.8446744073709552e+19`, so they refused `noncanonical_wire`. The code a document gets for this input has changed against the spec, and an encoder-independent grammar refusal now decides it. Fix: in the reader's check, refuse a number that is neither `i64` nor `u64` but is integral with magnitude > 2^53 (or state in FR-038 which tokens count as integers), and add the case to the AC-79 test | crates/quire-contract-model/src/checked_package/v2/encode.rs:146, crates/quire-contract-model/src/checked_package/common.rs:261 |
+| FND-001 | medium | An integer token past `u64::MAX` passes the canonical-bytes check. FR-038 says "An integer whose magnitude exceeds 2^53 anywhere in the document ... refuses `noncanonical_wire`". `serde_json` parses a token outside the `i64`/`u64` range as `f64`, `write_number` sends it to `Writer::number`, and ryu-js writes whole doubles below 1e21 as plain integers. So `100000000000000000000`, `-100000000000000000000` and `18446744073709552000` round-trip byte-for-byte and are not refused at intake. Reproduced with a probe on this head. With a stale id and a non-term body, the document refuses `stale_dependency` at `/package_id/digest`. As a `literal` value with a recomputed id, it refuses `invalid_semantic_graph` at `/semantic_graph/nodes/0/body`. On main, `serde_json` spells these `1e+20`/`1.8446744073709552e+19`, so they refused `noncanonical_wire`. The code a document gets for this input has changed against the spec, and an encoder-independent grammar refusal now decides it. Fix: in the reader's check, refuse a number that is neither `i64` nor `u64` but is integral with magnitude > 2^53 (or state in FR-038 which tokens count as integers), and add the case to the AC-79 test | crates/quire-contract-model/src/checked_package/v2/encode.rs:146, crates/quire-contract-model/src/checked_package/common.rs:261 |
 | FND-002 | medium | The PR does not merge cleanly with main (GitHub `mergeable: CONFLICTING`). #260 rewrote the FR-038 row of the checked-package matrix: it moved AC-73 into the implemented list ("AC-70 through AC-73") and deleted its planned sentence. This PR rewrites the same row to delete the AC-74..AC-80 planned sentence. To resolve, rebase and take main's row, then delete the AC-74..80 planned sentence, write "AC-70 through AC-80 implemented" (or "AC-70 through AC-73 and AC-74 through AC-80"), and keep the PR's added AC-74..80 evidence sentence. Rerun `make spec` | spec/checked_package/matrix/tests.md:15 |
 | FND-003 | low | The PR's edit reformatted the existing `serde` line to `serde ={ version = "=1.0.228", features = ["derive"] }` (missing space). It is valid TOML, but it is a stray whitespace change, unlike every other manifest line | crates/quire-contract-model/Cargo.toml:32 |
-| FND-004 | low | `tc_048_number_tokens_decode_identically_with_or_without_arbitrary_precision` now asserts only `canonical_value(..).is_ok == canonical`. For `2.0` and `18446744073709551615` it accepts any refusal, not specifically `NoncanonicalWire`. Before the change it asserted the exact outcome (admitted). Assert `Err(ValidationFailure::refused_bytes(NoncanonicalWire))`, as the private-number case below it already does | crates/quire-contract-model/src/checked_package/common.rs:1406 |
+| FND-004 | low | `tc_048_number_tokens_decode_identically_with_or_without_arbitrary_precision` now asserts only `canonical_value(..).is_ok() == canonical`. For `2.0` and `18446744073709551615` it accepts any refusal, not specifically `NoncanonicalWire`. Before the change it asserted the exact outcome (admitted). Assert `Err(ValidationFailure::refused_bytes(NoncanonicalWire))`, as the private-number case below it already does | crates/quire-contract-model/src/checked_package/common.rs:1406 |
 | FND-005 | low | Process: the lead reports that the coder ran a stray no-op `sed -i_unused 's/x/x/' /dev/null`, which breaches the Edit-only rule. No file changed: the diff holds only the 16 expected files, and no `/dev/null_unused` exists. Recorded for the coder lane, with no code action | - |
 
 ## Verdict
@@ -138,7 +138,7 @@ Round 1, rebased onto main
  (main has not moved since; GitHub reports
 MERGEABLE). Only the delta was reviewed:
 
-- The rebase. `git range-diff` shows that only the FR-038
+- The rebase. The range-diff shows that only the FR-038
   matrix row changed.
 - The fix.
 
@@ -186,7 +186,7 @@ Gate and tests:
 
 No new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | (rebase onto ) |

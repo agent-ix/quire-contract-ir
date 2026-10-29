@@ -46,7 +46,7 @@ node body without retaining a second owned `serde_json::Value` body per node.
 
 ## Coverage
 
-`quire coverage --scope. --strict` reports 534/603 backed, 40 inherited unbacked and 0 contradicted. FR-051-AC-1 through AC-4 are tagged. Plan completion: not assessed. Independent focused Cargo test: queued on the shared heavy-build lock at review authoring time.
+`quire coverage --scope . --strict` reports 534/603 backed, 40 inherited unbacked and 0 contradicted. FR-051-AC-1 through AC-4 are tagged. Plan completion: not assessed. Independent focused Cargo test: queued on the shared heavy-build lock at review authoring time.
 
 ## Verdict
 

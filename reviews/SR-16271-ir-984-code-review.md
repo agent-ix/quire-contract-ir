@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Independent diff-scoped code and Rust review of IR-984 PR #528 at the exact head above. QSpec FR-481 and TC-966 at #415 govern the hybrid reader. The focused conformance test passed 16/16; focused library Clippy and rustfmt passed. The production reader has two material defects below.
+Independent diff-scoped code and Rust review of IR-984 PR #528 the exact head above. QSpec FR-481 and TC-966 at #415 govern the hybrid reader. The focused conformance test passed 16/16; focused library Clippy and rustfmt passed. The production reader has two material defects below.
 
 ## Findings
 

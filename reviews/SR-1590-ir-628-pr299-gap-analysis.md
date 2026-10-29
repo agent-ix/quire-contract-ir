@@ -44,7 +44,7 @@ Mutation results (K = killed, S = survived):
 | AC-139 | UnknownNode collapsed | K | names_what_is_wrong, tells_an_unknown_node |
 | AC-139 | ambiguity returns first | K | ambiguous_name_refuses, pure_total_and_does_not_resolve |
 | AC-139 | ambiguity returns the other fields | K | same two |
-| AC-139 | absent field as error | not applicable | `field` returns `Option`, so the mutant does not type-check |
+| AC-139 | absent field as error | not applicable | `field()` returns `Option`, so the mutant does not type-check |
 | AC-139 | non-empty body returns fields | K | step_two_would_refuse, names_what_is_wrong |
 | AC-140 | bounds from a bounded_domain body | K | does_not_read_a_node_body |
 | AC-141 | optional wrapper dropped | K | (as AC-138 Option) |
@@ -78,8 +78,8 @@ Mutation results (K = killed, S = survived):
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | high | The most-derived-redefiner rule for two redefiners of one target is re-implemented in this PR (`by_target`: an own redefiner hides every inherited redefiner of the same target), and no test can fail when it is deleted. With that block removed, all 24 `tc_227` tests and the full suite (379 + 161) pass. AC-137's mutation row "a less derived redefiner returned" survives. The cause: the AC-137 fixture redefines in a chain (Order/limit redefines Mid/limit), and none of the 9 differential documents gives a more-derived owner that redefines the same target as a less-derived one. The reviewer's document `branch_dominance` does: Base{x}; L ext Base, x redefines Base/x; M ext L, x2 redefines Base/x; X ext [M, L]; Y ext [L, M] with y. Recorded by the pre-change `resolve`, it gives `X: x2=M/x2` and `Y: x2=M/x2 y=Y/y`. The mutant would also expose `x=L/x` there | crates/quire-contract-model/src/checked_package/v2/model_fields.rs:341-362, tests/it/checked_package_v2_model_fields.rs:612, crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs:620 |
-| FND-002 | medium | The ascending-name order (item 20) is never tested where identity order (`<owner>/<name>`) differs from name order. Deleting `fields.sort_by(name)` in the accessor passes every test, including the full suite. Every multi-owner fixture happens to sort the same both ways: AC-137's `Base/inherited` sorts before `Order/limit`. `CheckedModelObjectFields::field` binary-searches by name, so that mutant would also make `field` miss inherited fields. A fixture with an inherited `zeta` on `Base` and an own `alpha` on `Order` kills it | crates/quire-contract-model/src/checked_package/v2/model_fields.rs:634, crates/quire-contract-model/src/checked_package/v2/model_fields.rs:558 |
-| FND-003 | low | `AmbiguousField` carries the smallest ambiguous name (a coder decision documented on the variant), but no test has two ambiguous names. Replacing `.min` with `.max` survives the full suite, so the documented determinism is not gated | crates/quire-contract-model/src/checked_package/v2/model_fields.rs:369-375 |
+| FND-002 | medium | The ascending-name order (item 20) is never tested where identity order (`<owner>/<name>`) differs from name order. Deleting `fields.sort_by(name)` in the accessor passes every test, including the full suite. Every multi-owner fixture happens to sort the same both ways: AC-137's `Base/inherited` sorts before `Order/limit`. `CheckedModelObjectFields::field` binary-searches by name, so that mutant would also make `field()` miss inherited fields. A fixture with an inherited `zeta` on `Base` and an own `alpha` on `Order` kills it | crates/quire-contract-model/src/checked_package/v2/model_fields.rs:634, crates/quire-contract-model/src/checked_package/v2/model_fields.rs:558 |
+| FND-003 | low | `AmbiguousField` carries the smallest ambiguous name (a coder decision documented on the variant), but no test has two ambiguous names. Replacing `.min()` with `.max()` survives the full suite, so the documented determinism is not gated | crates/quire-contract-model/src/checked_package/v2/model_fields.rs:369-375 |
 | FND-004 | low | The AC-142 struct-literal fixtures do not catch a single public field on `CheckedModelField`. With only `name` public, the `compile_fail,E0451` doctest still fails to compile, on the private `member_type`, so the row "a public field on either struct" survives for that struct. The two compile_fail doctests also carry no trace tag, so AC-142's `quire trace` claim covers the enums and the signature, not struct privacy | crates/quire-contract-model/src/checked_package/v2/model_fields.rs:512-517 |
 
 ## Verdict
@@ -124,7 +124,7 @@ Semantic review was performed through the mutation runs, at the dispatcher's req
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

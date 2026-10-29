@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-533. The amended statement keeps FR-038's "The reader shall recompute
-`package_id`..." form and adds the encoder as a means clause. The new section is
+`package_id` ..." form and adds the encoder as a means clause. The new section is
 descriptive prose under that statement, as FR-038's other sections are. FR-019's paragraph
 is a declarative surface statement, as its neighbours are.
 

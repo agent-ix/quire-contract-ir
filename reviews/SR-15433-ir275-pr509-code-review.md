@@ -23,7 +23,7 @@ The typed representation is constructed after the existing validation pipeline, 
 
 ## Coverage
 
-Exact reviewed. Reviewed only PR #509's changed code and FR-349/FR-019 spec delta. Plan completion: not assessed. Rust lane checked panic, typed decoding, bounded recursion, public docs, traces, and test seams. CI workflow and Cargo gates are unchanged. No full gate was run by this reviewer.
+Reviewed the PR. Reviewed only PR #509's changed code and FR-349/FR-019 spec delta. Plan completion: not assessed. Rust lane checked panic, typed decoding, bounded recursion, public docs, traces, and test seams. CI workflow and Cargo gates are unchanged. No full gate was run by this reviewer.
 
 
 ## Reviewed units

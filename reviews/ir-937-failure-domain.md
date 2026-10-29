@@ -23,8 +23,8 @@ The changed requirements explicitly cover owner absence, wrong owner kind, unkno
 
 ## Coverage
 
-Examined FR-038-AC-294 through FR-038-AC-298, TC-229, QSpec FR-322-AC-82/83, and the changed code/test/Makefile diff.... The computed Quire matrix was consulted for the changed criteria.
+Examined FR-038-AC-294 through FR-038-AC-298, TC-229, QSpec FR-322-AC-82/83, and the changed code/test/Makefile diff. The computed Quire matrix was consulted for the changed criteria.
 
 ## Final PR head inspection
 
-PR agent-ix/quire-contract-ir#494 is. `git range-diff` shows all 17 rebased commits patch-identical to the reviewed series. The final population criteria are FR-038-AC-303 through FR-038-AC-307; the computed matrix binds the owner-identity mutation to AC-303 and AC-304. Original finding wording and chronological dispositions above remain the review record.
+PR agent-ix/quire-contract-ir#494 was rebased. The range-diff shows all 17 rebased commits patch-identical to the reviewed series. The final population criteria are FR-038-AC-303 through FR-038-AC-307; the computed matrix binds the owner-identity mutation to AC-303 and AC-304. Original finding wording and chronological dispositions above remain the review record.

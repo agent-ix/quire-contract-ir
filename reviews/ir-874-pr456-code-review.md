@@ -31,4 +31,4 @@ CONDITIONAL. The validator's current table agrees with the authored QSpec tables
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the new TC-048 test supplies fixed QSpec binding names and shapes independently of `layout` for eight operators across all seven forms, overwrites the helper's arguments, admits each frame, and refuses a mutated binding. The reviewer reran the focused protocol-body tests: 6 passed. |
+| FND-001 | fixed | In the reviewed PR, the new TC-048 test supplies fixed QSpec binding names and shapes independently of `layout` for eight operators across all seven forms, overwrites the helper's arguments, admits each frame, and refuses a mutated binding. The reviewer reran the focused protocol-body tests: 6 passed. |

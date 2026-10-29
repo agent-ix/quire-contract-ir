@@ -61,4 +61,4 @@ Exact hotfix:
 
 ## Final-head inspection
 
-, the only change since the prior PASS head is `tests/it/checked_package_v2_abstraction_relation.rs`. Its shared selected-document fixture now declares a population construct and emits `identity`, `displayName`, `kind`, `members`, `extent` and `origin` for each population. Both identities match the existing `ModelOwner.node` values; no `node` member appears in the raw records. The production reader and FR-038 text are unchanged from the fixed head. No new finding.
+The only change since the prior PASS head is `tests/it/checked_package_v2_abstraction_relation.rs`. Its shared selected-document fixture now declares a population construct and emits `identity`, `displayName`, `kind`, `members`, `extent` and `origin` for each population. Both identities match the existing `ModelOwner.node` values; no `node` member appears in the raw records. The production reader and FR-038 text are unchanged from the fixed head. No new finding.

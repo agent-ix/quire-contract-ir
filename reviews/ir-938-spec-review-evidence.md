@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed verification methods for FR-038-AC-299 through AC-302 in PR #497 at. Examined FR-038-AC-21, FR-038-AC-299 through AC-302, and TC-230.
+Reviewed verification methods for FR-038-AC-299 through AC-302 in PR #497. Examined FR-038-AC-21, FR-038-AC-299 through AC-302, and TC-230.
 
 ## Verdict
 

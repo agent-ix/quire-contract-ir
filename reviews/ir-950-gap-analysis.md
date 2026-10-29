@@ -28,11 +28,11 @@ The new generator is owned by FR-018's explicit checked-in generator paragraph. 
 
 Plan completion: not assessed
 
-The computed `quire matrix --scope. --format json` reports 239 tagged, 24 untagged, and 2 method-without-symbol criteria. FR-018-AC-1, AC-2, and AC-3 are tagged. The new test's tag resolves to FR-018-AC-1 and TC-018. The source surface examined includes the generator CLI, its case declaration table, ordered JSON serialization, the runner handoff, README invocation, and the regeneration test. No new unowned behavior, source stub, test stub, or trace inflation was found. The 24 untagged criteria are outside the changed FR-018 surface and are not dispositioned by this PR review. Optional semantic review was not requested.
+The computed `quire matrix --scope . --format json` reports 239 tagged, 24 untagged, and 2 method-without-symbol criteria. FR-018-AC-1, AC-2, and AC-3 are tagged. The new test's tag resolves to FR-018-AC-1 and TC-018. The source surface examined includes the generator CLI, its case declaration table, ordered JSON serialization, the runner handoff, README invocation, and the regeneration test. No new unowned behavior, source stub, test stub, or trace inflation was found. The 24 untagged criteria are outside the changed FR-018 surface and are not dispositioned by this PR review. Optional semantic review was not requested.
 
 ## Disposition-round scope update
 
-, the additional `#[trace("FR-018-AC-1", "TC-018")]` test for failed regeneration compares every existing corpus file path and byte after a missing runner. It is a correct binding of the generator's scratch preservation behavior to FR-018-AC-1. The code change derives the deep trace's canonical requirement identity from the package; it adds no new criterion or unowned public surface.
+The additional `#[trace("FR-018-AC-1", "TC-018")]` test for failed regeneration compares every existing corpus file path and byte after a missing runner. It is a correct binding of the generator's scratch preservation behavior to FR-018-AC-1. The code change derives the deep trace's canonical requirement identity from the package; it adds no new criterion or unowned public surface.
 
 ## Rebase update
 

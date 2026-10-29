@@ -47,7 +47,7 @@ The diff changes no CI workflow or dependency declarations. Rust style and repos
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed |, related sorting calls `quire_canonical::to_vec` directly on the typed `CheckedTerm` with the reader's `limits.bytes`; neither forbidden encoder path remains. |
+| FND-002 | fixed | In the reviewed PR, related sorting calls `quire_canonical::to_vec` directly on the typed `CheckedTerm` with the reader's `limits.bytes`; neither forbidden encoder path remains. |
 
 ## Disposition verdict
 

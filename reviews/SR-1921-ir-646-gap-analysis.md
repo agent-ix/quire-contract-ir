@@ -63,6 +63,6 @@ Plan completion: not assessed. Quoin matrix: 310 criteria; 259 tagged, 49 untagg
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The TC-228 clause table now includes an absent operation member, keeps the clause node unreachable, and asserts missing_declaration/missing-selection at its node_id. |

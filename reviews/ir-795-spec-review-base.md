@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Requirement identity, testability, consistency, and TC-452 coverage review. Exact reviewed head:, base:. The prior unrecorded review concerns about AC-14 producer evidence and the TC-452 owner/AC list are resolved in this head; no new defects were found.
+Requirement identity, testability, consistency, and TC-452 coverage review. Reviewed the PR head against its base. The prior unrecorded review concerns about AC-14 producer evidence and the TC-452 owner/AC list are resolved in this head; no new defects were found.
 
 ## Verdict
 

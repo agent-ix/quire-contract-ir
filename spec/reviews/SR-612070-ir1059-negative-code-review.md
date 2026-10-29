@@ -27,7 +27,7 @@ Ticket: IR-1059. Reviewed PR #638 against QSpec's published TK-01..TK-10 intake 
 ## Coverage
 
 - FR-069-AC-6, role: examined. Excerpt: “Every published intake and wire mutation returns its exact QSpec code, cause and location at its specified stage, including duplicate or gapped tuple positions, absent/unsupported/unresolved position `typeRef`, illegal tuple members, unresolved/unsupported `Variant.payloadType`, malformed owner, stale tuple key and owner-kind mismatch.” This PR addresses only the ten intake rows; the wire and combined-defect matrix stays open.
-- FR-069-AC-8, role: context_only. Excerpt: “`make conformance-qspec` loads the positive fixture, `model-tuple-union-vectors.json`, its full Semantic IR `selected_document`... and runs every tuple/union case.” The full projection, identity and wire conformance is outside this PR.
+- FR-069-AC-8, role: context_only. Excerpt: “`make conformance-qspec` loads the positive fixture, `model-tuple-union-vectors.json`, its full Semantic IR `selected_document` ... and runs every tuple/union case.” The full projection, identity and wire conformance is outside this PR.
 - Source checked: the changed test helper and intake loop, selected tuple refusal location helper and all changed call sites, plus the public selection-to-refusal conversion in `v2/mod.rs`.
 - Plan completion: not assessed.
 
@@ -35,7 +35,7 @@ Ticket: IR-1059. Reviewed PR #638 against QSpec's published TK-01..TK-10 intake 
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the helper asserts each published operation (`remove` TK-03, `add` TK-04, `replace` otherwise), applies TK-01's published value, and asserts TK-03 removed an existing `typeRef`. A change to the published operation or TK-01 value now changes the test outcome or the applied document. |
+| FND-001 | fixed | In the reviewed PR, the helper asserts each published operation (`remove` TK-03, `add` TK-04, `replace` otherwise), applies TK-01's published value, and asserts TK-03 removed an existing `typeRef`. A change to the published operation or TK-01 value now changes the test outcome or the applied document. |
 
 ## Disposition verdict
 

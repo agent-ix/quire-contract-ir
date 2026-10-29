@@ -86,11 +86,11 @@ Reviewed at agent-ix/quire-contract-ir.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-009 | low | The omission leniency is called tracked as an existing defect, but no IR ticket exists for it (Linear search, 2026-10-03), and the other three stated deviations (reversed mode-type/operator-ineligible pair, body-root-only operation check and keying, binding-only mode pin) name no ticket either. File the tickets and cite them, or drop the word tracked. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:937-941 |
-| FND-010 | low | The Mode bullet attributes the unbound exact rounding pin to QSpec FR-322. FR-322 (, lines 160-162) says only that the value equals the single value pinned by the operand and result types; the exact default for an omitted rounding spelling is QSpec AD-005 line 65 and FR-140 line 40. Cite those for the exact part. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:963-966 |
+| FND-010 | low | The Mode bullet attributes the unbound exact rounding pin to QSpec FR-322. FR-322 ( lines 160-162) says only that the value equals the single value pinned by the operand and result types; the exact default for an omitted rounding spelling is QSpec AD-005 line 65 and FR-140 line 40. Cite those for the exact part. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:963-966 |
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

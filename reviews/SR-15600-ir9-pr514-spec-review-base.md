@@ -36,7 +36,7 @@ Independent non-author review of PR #514 at exact against IR main. The new FR an
 
 ## Review notes
 
-Changed-document `quire validate --scope.` passed 3/3 grammar-clean at the exact reviewed head; `git diff --check` passed. The computed `quire matrix --format tsv` reports FR-056-AC-1 through AC-6 and AC-8 as `untagged` and AC-7 as `method-without-symbol`, appropriate for a planned spec before implementation, but it does not replace the missing human-declared core matrix rows. QSL's current command source maps clean/violation/error to exits 0/1/2 and distinguishes a missing executable from scanner-returned exit 2; FR-056-AC-5 reflects that distinction. The existing measured red scan was reported by the author on IR-9 and was not rerun by this reviewer. No Cargo tests, `make ci`, Kani, replay or mutation gates were run.
+Changed-document `quire validate --scope .` passed 3/3 grammar-clean at the exact reviewed head; `git diff --check` passed. The computed `quire matrix --format tsv` reports FR-056-AC-1 through AC-6 and AC-8 as `untagged` and AC-7 as `method-without-symbol`, appropriate for a planned spec before implementation, but it does not replace the missing human-declared core matrix rows. QSL's current command source maps clean/violation/error to exits 0/1/2 and distinguishes a missing executable from scanner-returned exit 2; FR-056-AC-5 reflects that distinction. The existing measured red scan was reported by the author on IR-9 and was not rerun by this reviewer. No Cargo tests, `make ci`, Kani, replay or mutation gates were run.
 
 ## Dispositions
 

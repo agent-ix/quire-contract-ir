@@ -46,13 +46,13 @@ function with package-independent signature types. Include a function-call
 callee `dependency_reference` to the exported function and an unrelated
 lowered sibling. Inspect the ContractPackage and compare its node collection,
 identities, r
-- `crates/quire-contract-model/src/checked_package/v2/identity.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/identity.rs`): | ProtocolForm::ProtocolReference
-- `crates/quire-contract-model/src/checked_package/v2/lower.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/lower.rs`): | ProtocolForm::ProtocolReference
-- `crates/quire-contract-model/src/checked_package/v2/mod.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/mod.rs`): K::Protocol(ProtocolForm::ProtocolReference) => true,
-- `crates/quire-contract-model/src/checked_package/v2/operations.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/operations.rs`): | ProtocolForm::ProtocolReference
-- `crates/quire-contract-model/src/checked_package/v2/owner.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/owner.rs`): if node.node_tag.as_ref == "protocol"
-- `crates/quire-contract-model/src/checked_package/v2/structural.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/structural.rs`): Occurrences,
-- `crates/quire-contract-model/src/checked_package/v2/vocabulary.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/vocabulary.rs`): ProtocolReference => "protocol_reference",
+- `crates/quire-contract-model/src/checked_package/v2/identity.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/identity.rs`):                 | ProtocolForm::ProtocolReference
+- `crates/quire-contract-model/src/checked_package/v2/lower.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/lower.rs`):             | ProtocolForm::ProtocolReference
+- `crates/quire-contract-model/src/checked_package/v2/mod.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/mod.rs`):         K::Protocol(ProtocolForm::ProtocolReference) => true,
+- `crates/quire-contract-model/src/checked_package/v2/operations.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/operations.rs`):             | ProtocolForm::ProtocolReference
+- `crates/quire-contract-model/src/checked_package/v2/owner.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/owner.rs`):         if node.node_tag.as_ref() == "protocol"
+- `crates/quire-contract-model/src/checked_package/v2/structural.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/structural.rs`):     Occurrences,
+- `crates/quire-contract-model/src/checked_package/v2/vocabulary.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/vocabulary.rs`):         ProtocolReference => "protocol_reference",
 - `tests/it/checked_package_v2_protocol_reference.rs` (examined; `tests/it/checked_package_v2_protocol_reference.rs`): use crate::support::checked_package::{
 - `tests/it/main.rs` (examined; `tests/it/main.rs`): mod checked_package_v2_protocol_reference;
 

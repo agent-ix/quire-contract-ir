@@ -3,7 +3,7 @@ id: SR-1209
 title: "PR #282 FR-034-AC-7 amendment spec review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; spec/output_mapping/functional/FR-034-assemble-output-package-atomically.md, spec/output_mapping/matrix/tests.md, spec/tests.md (git diff origin/main...HEAD, )"
+scope: "agent-ix/quire-contract-ir; spec/output_mapping/functional/FR-034-assemble-output-package-atomically.md, spec/output_mapping/matrix/tests.md, spec/tests.md (git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-034
@@ -48,7 +48,7 @@ clause. None remains:
 
 - FR-032 Behavior and FR-032-AC-6 say "request identity material" and claim no
   digest.
-- FR-034-AC-3 ("every zero... limit is classified") agrees with FR-032-AC-2
+- FR-034-AC-3 ("every zero ... limit is classified") agrees with FR-032-AC-2
   and STD-003 `zero_limit`.
 - FR-034-AC-6 is unchanged and consistent.
 - FR-034 has no AC-8.
@@ -80,7 +80,7 @@ none of them in output mapping.
 
 Round 1 was reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. AC-7 is split three ways. AC-7 now covers the identities and the request text and length. AC-8 lists each value and its string member by member: the request material has 40, 1100, 130, 4200, 36 and 77777, plus 18446744073709551615; the package material has 9007199254740993, the same six and its ceiling; the record regions are 0/1 and 9007199254740993/18446744073709551615. AC-9 covers u64::MAX and u64::MAX-1, which both admit with different material. |
-| FND-002 | fixed |. The sentence is now two "shall" bullets. The first reads "The admission step shall encode the request identity material only to meter it, keep its length as `request_bytes`, and retain neither the bytes nor a digest of them." The second reads "The assembler shall derive each record identity and the package identity as the SHA-256 digest of its canonical bytes." |
+| FND-001 | fixed | AC-7 is split three ways. AC-7 now covers the identities and the request text and length. AC-8 lists each value and its string member by member: the request material has 40, 1100, 130, 4200, 36 and 77777, plus 18446744073709551615; the package material has 9007199254740993, the same six and its ceiling; the record regions are 0/1 and 9007199254740993/18446744073709551615. AC-9 covers u64::MAX and u64::MAX-1, which both admit with different material. |
+| FND-002 | fixed | The sentence is now two "shall" bullets. The first reads "The admission step shall encode the request identity material only to meter it, keep its length as `request_bytes`, and retain neither the bytes nor a digest of them." The second reads "The assembler shall derive each record identity and the package identity as the SHA-256 digest of its canonical bytes." |

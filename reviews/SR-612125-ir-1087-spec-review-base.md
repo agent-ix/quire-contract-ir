@@ -23,4 +23,4 @@ PASS: Markdown-only diff has no code, CI or executable change; source contract c
 
 ## Coverage
 
-All changed files and the unchanged AC-22 equality requirement examined. `quire validate --scope.` on the five changed files: 5/5 grammar-clean. `quoin advise --json` checked all five new AC methods; no mismatch. No backing test tags were added in this spec-only diff; the new criteria are marked Planned/UNRUN. The full computed matrix was not run for this scoped review. Plan completion: not assessed.
+All changed files and the unchanged AC-22 equality requirement examined. `quire validate --scope .` on the five changed files: 5/5 grammar-clean. `quoin advise --json` checked all five new AC methods; no mismatch. No backing test tags were added in this spec-only diff; the new criteria are marked Planned/UNRUN. The full computed matrix was not run for this scoped review. Plan completion: not assessed.

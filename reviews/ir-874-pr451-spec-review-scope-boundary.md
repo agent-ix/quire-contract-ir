@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Checked ownership and dependency edges. QSpec owns layouts, schemas, vectors and fixtures; IR consumes them by checkout path. No scope-boundary defect found. Ticket: IR-874. Frozen head:.
+Checked ownership and dependency edges. QSpec owns layouts, schemas, vectors and fixtures; IR consumes them by checkout path. No scope-boundary defect found. Ticket: IR-874. Reviewed the frozen PR head.
 
 ## Examined units
 

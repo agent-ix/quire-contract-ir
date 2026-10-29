@@ -42,7 +42,7 @@ bindings: []
 
 ## Dispositions
 
-Round 1; reviewed (diff..).
+Round 1; reviewed (PR diff).
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -21,7 +21,7 @@ Ticket: IR-841, PR quire-contract-ir#437. The scope is the TC-048 test `tc_048_a
 | Unit | Role | Excerpt |
 | --- | --- | --- |
 | FR-038 (strict parse prose, line 220) | examined | A syntax or duplicate-member defect anywhere in the document refuses first. |
-| FR-038-AC-117 | context_only |... an otherwise canonical document whose node body nests a term 300 levels deep, past the strict parse's recursion limit of 128, read on a thread whose stack is 256 KiB, refuses `malformed_wire` with no pointer at the strict parse... with no stack overflow. |
+| FR-038-AC-117 | context_only | ... an otherwise canonical document whose node body nests a term 300 levels deep, past the strict parse's recursion limit of 128, read on a thread whose stack is 256 KiB, refuses `malformed_wire` with no pointer at the strict parse ... with no stack overflow. |
 | TC-048 | examined | CheckedPackage V2 strict reader re-derives package and nominal identities (the test's only trace tag) |
 | common.rs:1285-1297 `strict_shape` doc | examined | read iteratively with an explicit stack of open containers, so cost is linear in the input and independent of nesting |
 | common.rs:1964-1999 the test | examined | asserts work at 524,000 levels is 3.5x to 4.5x the work at 131,000 |

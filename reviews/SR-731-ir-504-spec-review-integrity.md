@@ -21,7 +21,7 @@ range and the TC-048 AC list both include AC-45. AC-27 is about the lock row's `
 checked by selection evidence, which still exists, so its text needs no change. AC-5's text
 names no owner `version`, so it is consistent with the amendment.
 
-`make spec`: validation passes at both shas. Strict coverage fails with 23 unbacked rows at
+`make spec`: validation passes at the base and PR head. Strict coverage fails with 23 unbacked rows at
 both, the known baseline. Rows backed go from 161/184 to 161/185, and FR-038 goes from 40/42
 to 40/43. The new AC-45 row is unbacked, but the strict list does not name it. The PR body's
 "23 before and after" is literally true.
@@ -31,7 +31,7 @@ to 40/43. The new AC-45 row is unbacked, but the strict list does not name it. T
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | FR-040 (not in this diff) still specifies refusals for a model declaration node "keyed under an unselected version" (FR-040 Behavior, FR-040-AC-3, FR-040-AC-13, TC-056 procedure). Under content-only `ModelOwner` identity (FR-322-AC-28, which also keys `ModelDeclarationNode`), a key under another version equals the key under the selected one, so these refusals cannot be constructed. When SR-730 FND-001 is fixed they contradict FR-038 directly. QSpec FR-322-AC-29 now says "keyed under an unselected domain package". | spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md:213,238,248; spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md:45 |
-| FND-002 | medium | The TC-048 summary row keeps status `✅` while declaring AC-45 planned with no test. Repo convention marks a TC row with any planned AC `🚧` (TC-042, TC-223, FR-029 rows). Both the TC-048 and FR-038 rows still claim AC-5 implemented, but AC-5's evidence admits a model owner carrying `version: "1.0.0"` (`tests/it/checked_package_v2_reader.rs:1195`). The amended Behavior now says that owner refuses `unknown_member`. The FR-038 row also says "AC-5's model-owner clause... change[s]", but AC-5's text is already version-free. Only its tests change. | spec/checked_package/matrix/tests.md:15,23 |
+| FND-002 | medium | The TC-048 summary row keeps status `✅` while declaring AC-45 planned with no test. Repo convention marks a TC row with any planned AC `🚧` (TC-042, TC-223, FR-029 rows). Both the TC-048 and FR-038 rows still claim AC-5 implemented, but AC-5's evidence admits a model owner carrying `version: "1.0.0"` (`tests/it/checked_package_v2_reader.rs:1195`). The amended Behavior now says that owner refuses `unknown_member`. The FR-038 row also says "AC-5's model-owner clause ... change[s]", but AC-5's text is already version-free. Only its tests change. | spec/checked_package/matrix/tests.md:15,23 |
 
 ## Verdict
 
@@ -63,7 +63,7 @@ files (SR-730, SR-732, SR-733, SR-734) are byte-identical to the reviewer's fina
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

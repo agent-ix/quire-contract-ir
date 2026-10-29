@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-838, PR quire-contract-ir#433,, one commit over origin/main. The diff adds `tests/it/fr014_recheck.rs` with one test, `rechecking_identical_input_gives_equal_typed_output_diagnostics_and_dependencies`, and registers the module in `tests/it/main.rs`. Nothing else changes. The rust-review lane is folded into this file. Coverage accounting is in the gap-analysis artifact (SR-12086).
+Ticket: IR-838, PR quire-contract-ir#433, one commit over origin/main. The diff adds `tests/it/fr014_recheck.rs` with one test, `rechecking_identical_input_gives_equal_typed_output_diagnostics_and_dependencies`, and registers the module in `tests/it/main.rs`. Nothing else changes. The rust-review lane is folded into this file. Coverage accounting is in the gap-analysis artifact (SR-12086).
 
 The test checks 12 cases (5 accepted, 7 rejected) three times each: against a shared environment, against the same environment again, and against a rebuilt identical environment. Accepted cases compare expression, value type, nodes, obligations and dependencies. Rejected cases compare the full `Vec<Diagnostic>` with derived `PartialEq`, so code, severity, message, path, span, related and obligation kind are all compared, in order. The oracle is strong for typed output, dependencies and per-diagnostic content. Only the "ordered diagnostics" leg of the AC is not exercised: every rejected case returns exactly one diagnostic (FND-001).
 
@@ -40,7 +40,7 @@ CHANGES REQUESTED on FND-001. FND-002 and FND-003 are cheap to fix in the same r
 
 What the test gets right:
 
-- **It asserts what FR-014-AC-4 says, and no more of other ACs.** Identical declarations come from the rebuilt `environment`. Context is the fixed `pre` execution point. The expression is a fresh clone per check. The expected type and clause-root flag are fixed per case. The extra assertions (accepted/rejected flags per case, a dependency set with Field and PureFunction kinds and at least 3 entries, `ArityMismatch` on the arity case) are anti-vacuity guards, not claims on other criteria.
+- **It asserts what FR-014-AC-4 says, and no more of other ACs.** Identical declarations come from the rebuilt `environment()`. Context is the fixed `pre()` execution point. The expression is a fresh clone per check. The expected type and clause-root flag are fixed per case. The extra assertions (accepted/rejected flags per case, a dependency set with Field and PureFunction kinds and at least 3 entries, `ArityMismatch` on the arity case) are anti-vacuity guards, not claims on other criteria.
 - **The three check modes are independent.** Measured with mutants (below): a leak keyed only on the rebuilt environment is killed by the `a == c` comparison, and a leak keyed only on repeating the same environment and input is killed by `a == b`.
 - **The tag is canonical.** `quire trace --id FR-014-AC-4 --json` binds the test as `rust-trace-attribute`, provenance `canonical`. The `//!` line is only a `mention` citation, and the `/// Trace:` line adds no second claim.
 - **Fixtures** use the crate's public constructors (`SymbolName::new`, `Expression::new`, `DeclarationEnvironment::new`, and so on). The crate has no expression builder API and `tests/it/support` has none either. The small helpers repeat the private helpers in `tests/it/expression.rs`, which is this repo's per-file convention.
@@ -51,7 +51,7 @@ FND-001 detail.
 - Mutant `reorder_diag` (reverse `Vec<Diagnostic>` on later checks) **survived** in both the repeat-input and the per-call mode. A probe printed every rejected result: each of the 7 codes (ArityMismatch, IllTypedExpression, InvalidScope, InvalidStateObservation, NonBooleanClauseRoot, PotentiallyUndefined, ResultTypeMismatch) comes with a vector of length 1.
 - The checker can return more than one diagnostic: `check_call` collects one per ill-typed argument and `check_record_literal` one per bad field. A probe calling a two-parameter integer function with two Boolean arguments returned 2 diagnostics.
 - The PR body says the test asserts "ordered diagnostics". Today that is equality of one-element vectors.
-- Fix: add a rejected case that yields at least two diagnostics (for example a two-parameter pure function called with two ill-typed arguments, or a two-field record with two wrong-typed fields), and guard it with `assert!(diagnostics.len >= 2)`, so the order leg can fail.
+- Fix: add a rejected case that yields at least two diagnostics (for example a two-parameter pure function called with two ill-typed arguments, or a two-field record with two wrong-typed fields), and guard it with `assert!(diagnostics.len() >= 2)`, so the order leg can fail.
 
 FND-002 detail. The case flags already pin each case's outcome, so the counts are 5 and 7 today. `assert_eq!((accepted, rejected), (5, 7))` makes the guard match the table.
 
@@ -66,12 +66,12 @@ Mutant evidence. One throwaway worktree with its own target dir, both deleted af
 
 Rust lane:
 
-- **Integer conversions:** `start as u32 + 1` in `span` works on small test constants and copies the `expression.rs` helper. No wire or persistence boundary.
-- **Panic surface:** test-only `unwrap` on constructors with valid constants.
+- **Integer conversions:** `start as u32 + 1` in `span()` works on small test constants and copies the `expression.rs` helper. No wire or persistence boundary.
+- **Panic surface:** test-only `unwrap()` on constructors with valid constants.
 - **Unsafe, locks, async:** none.
 - **Boxing:** `Outcome::Typed` boxes `TypedExpression` to keep the enum small. clippy is clean.
 
-Gates on, run in the throwaway worktree:
+Gates on the reviewed PR head, run in the throwaway worktree:
 
 - `cargo fmt --all -- --check` is clean.
 - `cargo clippy --workspace --all-targets -- -D warnings` is clean.
@@ -80,15 +80,15 @@ Gates on, run in the throwaway worktree:
 
 ## Dispositions
 
-Round 1. The fix commit is. The merge brings in origin/main (#430, #431), and against origin/main the PR diff is still `tests/it/fr014_recheck.rs`, `tests/it/main.rs` and the two `reviews/` files. Mutants were re-run in a throwaway worktree with its own target dir, both deleted afterwards.
+Round 1. The fix commit is included in the reviewed PR. The merge brings in origin/main (#430, #431), and against origin/main the PR diff is still `tests/it/fr014_recheck.rs`, `tests/it/main.rs` and the two `reviews/` files. Mutants were re-run in a throwaway worktree with its own target dir, both deleted afterwards.
 
 - **Gates:** `cargo fmt --all -- --check` is clean, `cargo clippy --workspace --all-targets -- -D warnings` is clean, and `cargo test --test it fr014_recheck` passes 1 of 1.
 - **Coverage:** `quire coverage` is 508/565, FR-014 is 8/9, and the test is still bound as `rust-trace-attribute` (line 388).
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | A new rejected case calls `pair(left: Boolean, right: Boolean)` with two integers and returns 2 diagnostics. That length is measured and guarded by `a.len >= 2`. The reverse-diagnostics and swap-first-two mutants are now killed at the `a == b` comparison (line 426), in both the repeat-input and the per-call trigger modes. |
+| FND-001 | fixed | A new rejected case calls `pair(left: Boolean, right: Boolean)` with two integers and returns 2 diagnostics. That length is measured and guarded by `a.len() >= 2`. The reverse-diagnostics and swap-first-two mutants are now killed at the `a == b` comparison (line 426), in both the repeat-input and the per-call trigger modes. |
 | FND-002 | fixed | The guard is now `assert_eq!((accepted, rejected), (5, 8))`. |
-| FND-003 | fixed | The Debug `Vec<String>` projection and its "dependency order" assertion were removed. The `Outcome` doc comment now says that BTreeSet set equality decides the order. The dependency-removal mutant is still killed at the `dependencies` assertion (line 411). |
+| FND-003 | fixed | The Debug `Vec<String>` projection and its "dependency order" assertion were removed. The `Outcome` doc comment now says that BTreeSet set equality decides the order. The dependency-removal mutant is still killed at the `dependencies()` assertion (line 411). |
 
 Note, not a finding: the PR body says a mutant survives when the dependency comparison is dropped. Measured with line 411 deleted, the dependency-removal mutant is still killed, at line 430 (`assert_eq!(first, second)`), because `Outcome` equality covers the whole `TypedExpression`, dependencies included. The per-field assertions give clearer failure messages but are not the only oracle. The PR body sentence is stale and should be corrected or removed. The code is unaffected.

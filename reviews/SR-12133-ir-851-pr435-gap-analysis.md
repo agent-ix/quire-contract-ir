@@ -29,12 +29,12 @@ What was verified:
 | --- | --- | --- | --- |
 | FR-038 measured-gap paragraph | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | RetainedModels keeps only the declaration index, the object types' field tables and the operation parameter types |
 | FR-038 admitted-claim paragraph | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | For every admitted reaches claim the accessor therefore returns ordered false, upper Some |
-| FR-038 UnresolvedEnd statement | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | or whose destination type has no model declaration node in the graph shall refuse UnresolvedEnd. Admission refuses each of those states... no reader-admitted package returns it. |
+| FR-038 UnresolvedEnd statement | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | or whose destination type has no model declaration node in the graph shall refuse UnresolvedEnd. Admission refuses each of those states ... no reader-admitted package returns it. |
 | FR-038-AC-262 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | source end is {1,1} and whose target end is {2,3} unique with role peer |
 | FR-038-AC-263 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | {0,3} unique, {0,3} not unique, {2,3}, {0,1} and {1,1} |
-| FR-038-AC-265 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | or removes the destination type's model declaration node from the graph index... the same four defects in a package given to the reader are refused at admission as before |
+| FR-038-AC-265 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | or removes the destination type's model declaration node from the graph index ... the same four defects in a package given to the reader are refused at admission as before |
 | FR-038 population deferral | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | Deriving a reaches claim's population is a separate decision (IR-852). |
-| CG FR-015-AC-105 | context_only | spec/kani/functional/FR-015-bounded-kani-obligations.md (quire-contract-codegen PR #417) | a Collection field or finite multi-valued relationship end a count in [lower, upper] (a unique end admits no repeated target...) |
+| CG FR-015-AC-105 | context_only | spec/kani/functional/FR-015-bounded-kani-obligations.md (quire-contract-codegen PR #417) | a Collection field or finite multi-valued relationship end a count in [lower, upper] (a unique end admits no repeated target ...) |
 | CG FR-015-AC-108 | context_only | spec/kani/functional/FR-015-bounded-kani-obligations.md (quire-contract-codegen PR #417) | While the population selection for the claim is Unavailable (no IR mapping from the claim to a population, IR-851), the claim settles unsupported naming it. |
 
 ## Findings

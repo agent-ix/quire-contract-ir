@@ -30,10 +30,10 @@ Approve with one low status-prose fix. Requirement statements and ACs are unchan
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-002 | low | The FND-001 fix dropped the "and" between the two clauses without adding a comma, so the FR-039 status cell reads "re-exports the whole model with `pub use quire_contract_model::*` exports the family lowerings codegen owns, and exports..."; insert a comma after the backticked glob | spec/contract-test-matrix.md:41 |
+| FND-002 | low | The FND-001 fix dropped the "and" between the two clauses without adding a comma, so the FR-039 status cell reads "re-exports the whole model with `pub use quire_contract_model::*` exports the family lowerings codegen owns, and exports ..."; insert a comma after the backticked glob | spec/contract-test-matrix.md:41 |
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed |  |

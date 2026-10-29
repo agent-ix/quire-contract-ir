@@ -46,7 +46,7 @@ Ticket: IR-661. Method: `code-review`. Reviewer model `claude-opus-5-5`, run `23
 
 Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The direction table and multiplicity-to-type derivation are removed. FR-152 Navigation is the canonical rule, applied by reference, and FR-038 keeps only the role-to-endpoint binding and the result-node comparison. TC-048's numeric cases are test inputs, not a second normative table. |
 

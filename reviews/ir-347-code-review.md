@@ -10,7 +10,7 @@ review_set: base
 
 ## Summary
 
-Ticket: IR-347 (deletion slice). Code review with the rust-review lane folded in, scoped to `git diff origin/main...HEAD` (origin/main, ). The PR deletes `src/kani/witness.rs` (747 lines), `src/kani/replay.rs` (271), `tests/it/kani_replay.rs` (692), the two `mod` lines and two `pub use` blocks in `src/kani/mod.rs`, and `mod kani_replay;` in `tests/it/main.rs`. Nothing else in `src/` changes.
+Ticket: IR-347 (deletion slice). Code review with the rust-review lane folded in, scoped to `git diff origin/main...HEAD` (origin/main). The PR deletes `src/kani/witness.rs` (747 lines), `src/kani/replay.rs` (271), `tests/it/kani_replay.rs` (692), the two `mod` lines and two `pub use` blocks in `src/kani/mod.rs`, and `mod kani_replay;` in `tests/it/main.rs`. Nothing else in `src/` changes.
 
 Gates run by the reviewer with CARGO_TARGET_DIR inside the review worktree: `make fmt-check lint test corpus` exit 0 (170 + 58 + 2 tests passed, conformance corpus all match), `make deny` exit 0 (advisories, bans, licenses, sources ok; one-copy check ok). Codegen origin/main `cargo check --all-targets` with `--config patch` onto this head: Finished, no errors.
 

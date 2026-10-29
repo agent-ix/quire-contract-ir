@@ -35,10 +35,10 @@ Strong overall, with one clause whose outcome cannot be observed at package leve
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged; GitHub MERGEABLE). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/209 rows backed, FR-038 42/67. AC ids now run to AC-69, so the next free id is AC-70.
+Round 1, reviewed at agent-ix/quire-contract-ir (base origin/main unchanged; GitHub MERGEABLE). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/209 rows backed, FR-038 42/67. AC ids now run to AC-69, so the next free id is AC-70.
 
 Notes on the round-1 checks: AC-68 is now observed at the clause node's own operation check (unit level), and TC-048 runs the clause as a unit with a record-typed `over` parameter reference. Every clause of AC-68 can fail.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

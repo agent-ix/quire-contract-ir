@@ -34,18 +34,18 @@ Every added id was already claimed on main by a doc line on the same test, so th
 | --- | --- | --- |
 | FR-011-AC-1 | examined | A package round trip through the non-canonical JSON value representation preserves namespace, schema version, requirement ID, requirement revision, and source-document identity/revision with structural equality. |
 | FR-011-AC-2 | examined | Incrementing one requirement revision changes its clause and dependency identities without changing unrelated requirement identities. |
-| FR-011-AC-3 | examined | Empty or malformed package, source-document, requirement, clause, anchor, or dependency-path-segment identities; a zero schema major; zero source or requirement revisions and a revision above 9007199254740992...; duplicate requirement or clause identifiers; non-increasing revision advances; and cross-package references fail with their registered structured diagnostic codes. Schema minor zero is valid. |
+| FR-011-AC-3 | examined | Empty or malformed package, source-document, requirement, clause, anchor, or dependency-path-segment identities; a zero schema major; zero source or requirement revisions and a revision above 9007199254740992 ...; duplicate requirement or clause identifiers; non-increasing revision advances; and cross-package references fail with their registered structured diagnostic codes. Schema minor zero is valid. |
 | FR-012-AC-1 | examined | A floating executable clause is rejected at its source span with a stable diagnostic code. |
 | FR-012-AC-2 | examined | The recursive reference body returns each exposed structural dependency identity exactly once in deterministic order. |
 | FR-012-AC-3 | examined | Malformed, cross-package, stale-revision, orphaned-requirement, and orphaned-clause references produce distinct STD-001 diagnostic codes and the narrowest available source span. |
 | FR-012-AC-4 | examined | Every executable clause kind accepts only its declared anchor kinds using `floating_executable_clause` or `incompatible_clause_anchor`; informational clauses reject any anchor using `informational_clause_anchored`; malformed anchor identifiers use `invalid_identifier`. |
-| FR-012-AC-6 | examined | Source spans reject zero line/column positions, decreasing byte offsets or positions, a byte offset above 9007199254740992..., and endpoints from different source-document identities/revisions using `invalid_source_span`, through the constructors, the package decoder... |
+| FR-012-AC-6 | examined | Source spans reject zero line/column positions, decreasing byte offsets or positions, a byte offset above 9007199254740992 ..., and endpoints from different source-document identities/revisions using `invalid_source_span`, through the constructors, the package decoder, ... |
 | NFR-002-AC-3 | examined | Public JSON field names, identity kinds, anchors, clause kinds, dependency kinds, and diagnostic codes contain no Rust, GUMBO, AADL, HAMR, solver, runtime, pointer-width, or operating-system-path vocabulary. |
-| FR-018-AC-1 | examined | Running the corpus directory yields one matching row per input with non-empty trace targets, and the union of observed tokens equals the published inventory...; a corpus missing a token's only fixture, a fixture with an unknown operation prefix or a missing expectation, and oversize, over-count and over-budget corpora fail before any row is written. |
+| FR-018-AC-1 | examined | Running the corpus directory yields one matching row per input with non-empty trace targets, and the union of observed tokens equals the published inventory ...; a corpus missing a token's only fixture, a fixture with an unknown operation prefix or a missing expectation, and oversize, over-count and over-budget corpora fail before any row is written. |
 | FR-018-AC-2 | examined | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, and coverage row/reason; each produces the exact mismatch result without message parsing. |
 | FR-018-AC-3 | examined | Raw package probes pin exact and one-past wire depth, and quoted delimiters do not count toward depth. |
 | FR-019-AC-2 | examined | The complete negative corpus executes package/expression decode, validation, canonicalization, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. |
-| FR-020-AC-2 | examined | Process fixtures pin exit 1 with all six mismatch kinds in fixed order and exit 2 for each of the six closed operational codes..., with no absolute path in the error record; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. |
+| FR-020-AC-2 | examined | Process fixtures pin exit 1 with all six mismatch kinds in fixed order and exit 2 for each of the six closed operational codes ..., with no absolute path in the error record; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. |
 | NFR-003-AC-1 | examined | Every declared invalid-input class returns a stable diagnostic code and no public panic. |
 | StR-001-VC-1 | examined | Every executable clause has a stable requirement revision, named anchor, typed expression, dependency set, and source location. (Verification: Contract-model inspection and conformance fixtures (TC-015, TC-016)) |
 | StR-001-VC-2 | examined | Downstream artifacts can cite the same package, requirement, clause, and expression identities. (Verification: Interface and canonicalization review (TC-015, TC-017)) |
@@ -53,9 +53,9 @@ Every added id was already claimed on main by a doc line on the same test, so th
 | STD-001 | context_only | Contract IR diagnostic code registry (a Standard, no criterion rows) |
 | TC-015 | context_only | Test case named on TC-015 tests; kept on all three TC-015 tests |
 | TC-018 | context_only | Test case named on TC-018 tests; kept on all four TC-018 tests |
-| tests/it/identity.rs | examined | `use ix_trace_rs::trace;` and two `#[trace("TC-015"...)]` attributes with `/// Trace:` lines |
+| tests/it/identity.rs | examined | `use ix_trace_rs::trace;` and two `#[trace("TC-015", ...)]` attributes with `/// Trace:` lines |
 | tests/it/integration.rs | examined | `use ix_trace_rs::trace;` and `#[trace("TC-015")]` |
-| tests/it/conformance.rs | examined | `use ix_trace_rs::trace;` and four `#[trace("TC-018"...)]` attributes with `/// Trace:` lines |
+| tests/it/conformance.rs | examined | `use ix_trace_rs::trace;` and four `#[trace("TC-018", ...)]` attributes with `/// Trace:` lines |
 
 ## Findings
 
@@ -63,7 +63,7 @@ Every added id was already claimed on main by a doc line on the same test, so th
 | --- | --- | --- | --- |
 | FND-001 | medium | StR-001-VC-2 dropped from the identity conformance test as "not an FR/NFR row", but quire counts VC rows, this was the row's only backer (StR-001 2/2 -> 1/2), and the body asserts the TC-015 leg | tests/it/identity.rs:118-133 |
 | FND-002 | low | StR-001-VC-1 dropped from the same test on the same wrong rationale although the body asserts its TC-015 legs; the row stays backed elsewhere, so no credit is lost | tests/it/identity.rs:118-133 |
-| FND-003 | low | FR-018-AC-2 kept on the mismatch test although the test applies five mutations to one fixture at once, so the AC's "independently... each produces the exact mismatch result" leg is not asserted | tests/it/conformance.rs:221-292 |
+| FND-003 | low | FR-018-AC-2 kept on the mismatch test although the test applies five mutations to one fixture at once, so the AC's "independently ... each produces the exact mismatch result" leg is not asserted | tests/it/conformance.rs:221-292 |
 
 ## Verdict
 
@@ -85,7 +85,7 @@ Per-binding judgement. Each binding was checked against the AC text above and th
   - NFR-002-AC-3: it checks serialized codes, kinds, anchors, identity kinds and the package JSON field names against the forbidden list.
 - **identity `..._untrusted_json_...`.** The decoder legs of FR-011-AC-3, FR-012-AC-3 (malformed and cross-package, with span), FR-012-AC-4 (floating, informational, incompatible and invalid anchor name) and FR-012-AC-6 (offset order, cross-document, revision mismatch) are correct.
   - Dropping FR-011-AC-1 is right. The body serializes the valid package but never decodes a valid one, so no round trip is asserted.
-- **integration `tc_015_public_api_exposes_the_v1_wire_schema`.** The TC-015-only tag is right. The body checks only `V1_1.major` and `.minor`, so dropping FR-011-AC-1 is right.
+- **integration `tc_015_public_api_exposes_the_v1_wire_schema`.** The TC-015-only tag is right. The body checks only `V1_1.major()` and `.minor()`, so dropping FR-011-AC-1 is right.
 - **conformance mismatch.**
   - FR-018-AC-1 is correct. The negative half is asserted: the uncovered-token corpus, an unknown operation prefix, a missing expectation, and over-count, oversize and over-budget corpora. Each of these goes through `error_code`, which asserts that stdout is empty. The positive half is on the corpus test.
   - FR-020-AC-2 is correct. The fixed order of five kinds is asserted, coverage is asserted, and four of the six exit-2 codes are covered here, along with unknown and repeated arguments, a non-UTF-8 argument, and 60000 levels. The test below covers the other two codes, `--version`, and the no-absolute-path check.

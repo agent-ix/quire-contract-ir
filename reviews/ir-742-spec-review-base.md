@@ -30,7 +30,7 @@ Examined the frozen FR-038, TC-048 and TestMatrix delta against QSpec FR-322-AC-
 - id: FR-038/IEEE-literal-type-and-catalog-result
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: "- **IEEE literal type and catalog result.** Independently of an enclosing\n operand position, a `float32_bits` literal requires a declared `type` in the\n `float32` family, and a `float64_bits` literal requires one in the `float64`\n family. A mismatch refuses `ill_typed`/`operator-ineligible` at that\n literal's `type`. The result form of each catalogued application is checked\n against its `result_type`. In particular, the catalog's `member` result form\n for `quire.op.ieee.to_float32` and `quire.op.ieee.to_float64` requires the\n `result_type` to name the same type node as `operation.member"
+  excerpt: "- **IEEE literal type and catalog result.** Independently of an enclosing\n  operand position, a `float32_bits` literal requires a declared `type` in the\n  `float32` family, and a `float64_bits` literal requires one in the `float64`\n  family. A mismatch refuses `ill_typed`/`operator-ineligible` at that\n  literal's `type`. The result form of each catalogued application is checked\n  against its `result_type`. In particular, the catalog's `member` result form\n  for `quire.op.ieee.to_float32` and `quire.op.ieee.to_float64` requires the\n  `result_type` to name the same type node as `operation.member"
 - id: TC-048/IEEE-literal-and-catalog-result-admission
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: examined
@@ -66,6 +66,6 @@ Examined the frozen FR-038, TC-048 and TestMatrix delta against QSpec FR-322-AC-
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | — The normative result-form sentence now names only to_float32 and to_float64, matching AC-223 and TC-048. |

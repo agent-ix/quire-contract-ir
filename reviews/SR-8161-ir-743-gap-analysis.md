@@ -21,7 +21,7 @@ Ticket: IR-743. Independent gap-analysis pass on the exact frozen candidate.
 
 - `FR-035-AC-5` (`examined`): One call emits exactly one FR-330 `quire.contract-package/v1` value with the six required properties and one key-ordered `semantic_graph` node collection; repeated equivalent construction orders have identical canonical semantic identity. The digest is computed from exactly `contract_version`, `package`, `semantic_graph` and `feature_accounting`: changing an included member changes it, changing only valid `source_map` locations preserves it, and invalid or incomplete `source_map` correspondence refuses admission.
 - `TC-047` (`examined`): Planned / unrun for the FR-330 package emitter. The existing `tests/it/complete_v1_contract_package.rs` asserts the earlier IR package shape and cannot discharge this test until IR-743 updates it.
-- `TC-047-test` (`examined`): let same = lower(&input, &request); assert_eq!(bytes(&first), bytes(&same)); let mut reversed = request; reversed.reverse; assert_ne!(first.package.package_id, reordered.package.package_id);
+- `TC-047-test` (`examined`): let same = lower(&input, &request()); assert_eq!(bytes(&first), bytes(&same)); let mut reversed = request(); reversed.reverse(); assert_ne!(first.package.package_id(), reordered.package.package_id());
 
 ## Findings
 
@@ -38,7 +38,7 @@ Computed matrix: FR-035-AC-1..5 are tagged; the finding concerns assertion stren
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 

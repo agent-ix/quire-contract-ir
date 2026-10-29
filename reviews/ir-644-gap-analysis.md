@@ -39,11 +39,11 @@ Planless traceability check of the PR #301 code and tests against FR-038-AC-151/
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The adjacent AC-151/152 rows are minted by Quire and each is tagged by the intended TC-048 test. |
 | FND-002 | fixed | FR-038, TC-048 and the test matrix now state that both ACs are implemented and tested. |
 
 ### Round 1 verification
 
-, `quire matrix` reports FR-038-AC-151 and FR-038-AC-152 as `tagged`, with binders `tc_048_wrapped_optional_record_fields_keep_their_leaf_order` and `tc_048_malformed_optional_record_fields_refuse_at_operation_leaves`. `quire coverage` reports no focused untracked symbols or diagnostics. The focused recursive-leaf integration filter passed 7 tests. The fix changes specification and review files only; the clean code review in SR-1740 remains valid. No new finding arose from the delta.
+`quire matrix` reports FR-038-AC-151 and FR-038-AC-152 as `tagged`, with binders `tc_048_wrapped_optional_record_fields_keep_their_leaf_order` and `tc_048_malformed_optional_record_fields_refuse_at_operation_leaves`. `quire coverage` reports no focused untracked symbols or diagnostics. The focused recursive-leaf integration filter passed 7 tests. The fix changes specification and review files only; the clean code review in SR-1740 remains valid. No new finding arose from the delta.

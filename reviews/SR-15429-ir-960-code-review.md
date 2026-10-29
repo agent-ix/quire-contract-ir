@@ -47,4 +47,4 @@ The reviewed diff adds typed extension evidence and wire forms, validates the bo
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The fix replaces declaration-name equality with selected `model/record_value_type` owner recovery and a budgeted, directional `DomainModel::conforms_to` walk. It removes the `composite_type/record` name shortcut. The same PR adds positive Base and Child, negative Unrelated and reverse-ancestor, and composite same-name reader controls. Exact reviewed head: . |
+| FND-001 | fixed | The fix replaces declaration-name equality with selected `model/record_value_type` owner recovery and a budgeted, directional `DomainModel::conforms_to` walk. It removes the `composite_type/record` name shortcut. The same PR adds positive Base and Child, negative Unrelated and reverse-ancestor, and composite same-name reader controls. Reviewed the PR head. |

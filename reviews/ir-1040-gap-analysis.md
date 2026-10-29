@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-1040. Static gap review of PR #598 at exact for FR-040-AC-31..36. Every criterion has at least one trace-tagged test. Several AC clauses have no behavioural oracle, the AC-35 precedence clauses most of all. QSpec's producer-origin TC-056 vector (the fresh QSL producer vector that FR-040-AC-34 names) is not in this PR. It is a separate open follow-up, QSL-1082, and this review does not claim it passes.
+Ticket: IR-1040. Static gap review of PR #598 for FR-040-AC-31..36. Every criterion has at least one trace-tagged test. Several AC clauses have no behavioural oracle, the AC-35 precedence clauses most of all. QSpec's producer-origin TC-056 vector (the fresh QSL producer vector that FR-040-AC-34 names) is not in this PR. It is a separate open follow-up, QSL-1082, and this review does not claim it passes.
 
 ## Scope
 

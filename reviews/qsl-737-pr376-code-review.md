@@ -10,7 +10,7 @@ review_set: subset
 ## Summary
 
 Ticket: QSL-737. Code review with the rust-review lane folded in, over the
-diff of quire-contract-ir PR 376 (one commit,, on main ).
+diff of quire-contract-ir PR 376 (one commit, on main ).
 Reviewer-only: no build or test run. The coder's gate log at the PR head
 (`make ci`: fmt, both clippy lanes, 528 + 211 + 21 + 8 tests green, the 14
 `tc_448` tests among them; stop at `make spec` strict coverage) was read, not
@@ -43,12 +43,12 @@ Checked:
   preimages differ.
 - `check_model_member`: the field operand check now goes through
   `conforms_to_type` against the declaring node's key, so it stays exact for an
-  object-type declaring node. The owner lookup moved from `object_type`
-  to `field_owner`, and a record owner refuses an `operation` member at
+  object-type declaring node. The owner lookup moved from `object_type()`
+  to `field_owner()`, and a record owner refuses an `operation` member at
   `name`. `object` is read only in the operation branch (`interface`). The
   order of refusals is unchanged: `declaration`, then `arguments/0`, then
   `name`.
-- `union_arms_hold` was rewritten from `all` to a loop so that it can
+- `union_arms_hold` was rewritten from `all()` to a loop so that it can
   propagate the meter error. Its empty-arms and missing-`result_type`
   outcomes match the old expression, and binders stay exact.
 - `union_defect` now returns `Result<Option<_>>`. The refusal order
@@ -76,14 +76,14 @@ Checked:
   node; "Slots": a union member payload position) needs both. No existing
   FR-038 criterion or test refuses a record-typed binder or payload, and no
   existing test expectation changed: apart from the new file and its `mod`
-  line, the only test edits add a `ModelOwners::default` argument to two
+  line, the only test edits add a `ModelOwners::default()` argument to two
   unit-test calls.
 - Rust: no `unsafe`, `unwrap`, `expect` or panic in the production diff.
   Indices come from `index` positions or are bounded by the arity check, and
   `saturating_add` is used throughout. Production tags use `Implements:
   FR-347` (the CR-061 non-binding-tag warnings in the coder's earlier coverage
   log are gone in the final CI log). Tests carry `/// Trace:` plus
-  `#[trace("TC-448"...)]`.
+  `#[trace("TC-448", ...)]`.
 - Public-repo rules: SPDX header, fixture identities `acme/ledger` and
   `acme/vendor`, no private text, no local paths, no artifacts.
 

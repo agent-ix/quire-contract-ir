@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Checked twelve new acceptance statements for triggering conditions and observable reader outcomes. The concrete fidelity defects are recorded in base and integrity reviews; no separate EARS grammar defect found. Ticket: IR-874. Frozen head:.
+Checked twelve new acceptance statements for triggering conditions and observable reader outcomes. The concrete fidelity defects are recorded in base and integrity reviews; no separate EARS grammar defect found. Ticket: IR-874. Reviewed the frozen PR head.
 
 ## Examined units
 

@@ -213,7 +213,7 @@ scope:
     owner-free, ungrouped node in each of the `derived_key` closed-shape and `UngroupedPreimage`
     branches, a retained node id that differs from the production-derived key refuses
     `invalid_package`/`stale-node-key` at the original `node_id`, keeps that original
-    typed id in `locus`, and returns the distinct derived typed key through `expected_node_id`.
+    typed id in `locus`, and returns the distinct derived typed key through `expected_node_id()`.
     A fresh package whose unreferenced node is rekeyed to that value and whose package
     identity is refreshed admits; one changed preimage member changes the expected
     digest

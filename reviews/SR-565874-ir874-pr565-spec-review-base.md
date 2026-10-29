@@ -25,4 +25,4 @@ PASS after the FND-001 correction. The existing AC-282 canonical-set refusal rem
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |
-| FND-001 | fixed |, FR-038-AC-324 and TC-048 step 7 distinguish two source declarations normalized to one canonical wire entry from duplicate wire entries that refuse `invalid_semantic_graph` with no activation relation. The prose states the same rule. This agrees with QSpec FR-464 canonical order and TC-946 A4. |
+| FND-001 | fixed | In the reviewed PR, FR-038-AC-324 and TC-048 step 7 distinguish two source declarations normalized to one canonical wire entry from duplicate wire entries that refuse `invalid_semantic_graph` with no activation relation. The prose states the same rule. This agrees with QSpec FR-464 canonical order and TC-946 A4. |

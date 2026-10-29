@@ -39,7 +39,7 @@ under SR-1587 FND-002.
 
 ## Findings
 
-| ID | Severity | Summary | Refs | Escape Cause |
+| ID      | Severity | Summary | Refs | Escape Cause |
 | ------- | -------- | ------- | ---- | ------------ |
 | FND-001 | low | The "Consumer consequence" paragraph names only a `collection_bounds` count as reaching a consumer through a forged group. A skipped collection's body is not checked for closedness (item 3 is part of the skipped stage), so a tamperer can also add a body `reference` to another, genuinely keyed `integer_range` node. An element range then reaches a consumer that reads the element through the graph. The limit paragraph covers this as "the element type of an `option` or a collection", but the consumer paragraph should say it too. Note that under a bounds-required profile both routes hit FR-038-AC-41, because the forged group labels a `composite_type`. | FR-038 Consumer consequence, FR-038 Stated soundness limit | wrong-requirement |
 
@@ -47,6 +47,6 @@ under SR-1587 FND-002.
 
 Round 3, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: the Consumer consequence now names the element-range route (a skipped collection's body re-pointed, or given a second reference, at another genuinely keyed range) and says FR-038-AC-41 catches both routes under a bounds-required profile and neither under any other. |
+| FND-001 | fixed | the Consumer consequence now names the element-range route (a skipped collection's body re-pointed, or given a second reference, at another genuinely keyed range) and says FR-038-AC-41 catches both routes under a bounds-required profile and neither under any other. |

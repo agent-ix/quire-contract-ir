@@ -60,21 +60,21 @@ Found.
 
 ## Dispositions
 
-Round 1, reviewed (`git diff `); gates as recorded in SR-1060's round 1.
+Round 1, reviewed (the reviewed PR delta); gates as recorded in SR-1060's round 1.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | tc_048_a_clause_without_exactly_one_profile_law_skips_the_profile_check (tagged TC-048, FR-038-AC-108) builds an unknown first law plus the fixture's law, the bounded law twice with a `null` interval, and no law, expecting `operation-law-mismatch` at `laws/1`, the same, and `operation-law-missing` at `laws`. With the temporal.rs restored in a throwaway worktree the first case fails (unknown_profile at laws/0/definition) and, with it removed, the second fails (operation-member-mismatch at nodes/18/body); the zero-law case passes on both (FND-005). |
 | FND-002 | fixed | The TC-048 matrix row now says AC-96..108 are implemented and tagged to TC-048, naming the temporal, union, catalog_words and unit-test locations and AC-107's conformance target; AC-67/68/69/87 are amended and implemented in their amended shape; AC-81..88 are planned and untagged except the operand-classification test carrying AC-87's tag; the "observed on the node because the formula is refused" text is gone. Each statement matches the head (coverage FR-038 88/105, AC-87 tagged, AC-81..86/88 untagged). |
 | FND-003 | fixed | spec/tests.md Checked package row now lists "AC-81 through AC-86 and AC-88 planned and untagged, IR-532 binding PR". |
 | FND-004 | fixed | All nine `...` ids are removed from FR-038 and the TC-048 row; `git grep` finds no 40-hex id and no under spec/ (it remains only in the committed review records SR-1040/1050/1051, which are history). |
 
-Round 2, reviewed ( amended; `git diff ` changes only the zero-law case of tc_048_a_clause_without_exactly_one_profile_law_skips_the_profile_check, which now sets a `null` interval on `eventually` under the lock's bounded profile). FND-001 to FND-004 are restated at the commit that will be pushed, with no change to their content. FND-005: its claim that a `null` interval would make the zero-law case fail on was wrong. Measured in a throwaway worktree: with the temporal.rs restored and only the zero-law case kept, the test passes, because the old `laws.first` is `None` for a lawless clause and the old code also skipped the fit. What the amended case does guard, also measured: a mutant of the code that fits a lawless clause to the lock's `temporal_profile` row fails it with operation-member-mismatch at /semantic_graph/nodes/18/body. Before the amend the case could not detect that mutant. So it is now a discriminating oracle against that future regression, and FND-005 is fixed.
+Round 2, reviewed after amendment; the reviewed PR delta changes only the zero-law case of tc_048_a_clause_without_exactly_one_profile_law_skips_the_profile_check, which now sets a `null` interval on `eventually` under the lock's bounded profile). FND-001 to FND-004 are restated at the commit that will be pushed, with no change to their content. FND-005: its claim that a `null` interval would make the zero-law case fail on was wrong. Measured in a throwaway worktree: with the temporal.rs restored and only the zero-law case kept, the test passes, because the old `laws.first` is `None` for a lawless clause and the old code also skipped the fit. What the amended case does guard, also measured: a mutant of the code that fits a lawless clause to the lock's `temporal_profile` row fails it with operation-member-mismatch at /semantic_graph/nodes/18/body. Before the amend the case could not detect that mutant. So it is now a discriminating oracle against that future regression, and FND-005 is fixed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The test as in (amended), its zero-law case strengthened. |
 | FND-002 | fixed | Matrix row text unchanged from (amended). |
 | FND-003 | fixed | spec/tests.md row unchanged from (amended). |
-| FND-004 | fixed | No QSpec commit id under spec/. |
-| FND-005 | fixed | The zero-law case now holds a `null` interval under the bounded lock profile. It cannot fail on, which already skipped the fit for a lawless clause, but it kills a mutant that fits a lawless clause to the lock's temporal_profile row (operation-member-mismatch at nodes/18/body). Before the amend it did not. |
+| FND-004 | fixed | No QSpec commit id remains under spec/. |
+| FND-005 | fixed | The zero-law case now holds a `null` interval under the bounded lock profile. It cannot fail on the prior code, which already skipped the fit for a lawless clause, but it kills a mutant that fits a lawless clause to the lock's temporal_profile row (operation-member-mismatch at nodes/18/body). Before the amend it did not. |

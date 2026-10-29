@@ -61,4 +61,4 @@ Exact hotfix:
 
 ## Final-head inspection
 
-, the TC-225 shared fixture replaces two synthetic `{"node":...}` population entries with full raw records and a resolving population construct. The only remaining `node` fields in that test file are graph owner members, not raw selected-document population entries. This removes unrelated TC-225 fixture regressions without changing TC-229's criterion binding or conformance cases. No new finding.
+The TC-225 shared fixture replaces two synthetic `{"node":...}` population entries with full raw records and a resolving population construct. The only remaining `node` fields in that test file are graph owner members, not raw selected-document population entries. This removes unrelated TC-225 fixture regressions without changing TC-229's criterion binding or conformance cases. No new finding.

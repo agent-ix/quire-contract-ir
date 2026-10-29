@@ -43,7 +43,7 @@ TC-452 requires each complete envelope to be compared with the full owner output
 
 ## Dispositions
 
-Reviewed uncommitted working-tree correction on; no new commit head yet.
+Reviewed the uncommitted working-tree correction; no new commit head yet.
 
 | FND | outcome | reason |
 | --- | --- | --- |

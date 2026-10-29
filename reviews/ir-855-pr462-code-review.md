@@ -42,8 +42,8 @@ CONDITIONAL. The decoder behavior and mutants are sound, but the three medium in
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the AC-8 test inventories public inherent constructors returning the validated type for ContractPackage, Expression, and DeclarationEnvironment; an injected unchecked constructor is detected. |
-| FND-002 | fixed |, the AC-10 signature inventory includes BoundPackage::from_json_bytes and rejects a non-Result return mutation. |
-| FND-003 | fixed |, the AC-13 visitor checks public struct fields, enum variant fields, and type aliases; a PathBuf result-field mutation is detected. |
+| FND-001 | fixed | In the reviewed PR, the AC-8 test inventories public inherent constructors returning the validated type for ContractPackage, Expression, and DeclarationEnvironment; an injected unchecked constructor is detected. |
+| FND-002 | fixed | In the reviewed PR, the AC-10 signature inventory includes BoundPackage::from_json_bytes and rejects a non-Result return mutation. |
+| FND-003 | fixed | In the reviewed PR, the AC-13 visitor checks public struct fields, enum variant fields, and type aliases; a PathBuf result-field mutation is detected. |
 
 Disposition verdict: PASS. All three findings are fixed by inspection of the changed test and its assertions; the original review verdict above records the earlier head. Quire validation passed, and coverage measured 533/602 with 40 strict unbacked rows and zero contradicted rows. The focused Cargo test did not start because the shared heavy-build lock remained occupied by CG gates; the author's reported test result was not independently rerun.

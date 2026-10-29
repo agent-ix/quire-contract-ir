@@ -39,7 +39,7 @@ defects in AC-12 and AC-14 are recorded once, in SR-13230, and are not repeated 
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | FR-035-AC-12, AC-13 and AC-14 are written as obligations ("SHALL return... SHALL admit no"). The sibling reader criteria AC-10 and AC-11 use the direct-assertion form ("`read` returns `Refused`... it returns no admitted package"). The obligation form adds three `ac:non-canonical-shape` warnings to `quire validate` that were not there before. Restate them in the AC-10 form | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:163-165 |
+| FND-001 | low | FR-035-AC-12, AC-13 and AC-14 are written as obligations ("SHALL return ... SHALL admit no"). The sibling reader criteria AC-10 and AC-11 use the direct-assertion form ("`read` returns `Refused` ... it returns no admitted package"). The obligation form adds three `ac:non-canonical-shape` warnings to `quire validate` that were not there before. Restate them in the AC-10 form | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:163-165 |
 
 ## Dispositions
 

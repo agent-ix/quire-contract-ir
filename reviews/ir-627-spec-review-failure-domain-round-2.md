@@ -31,14 +31,14 @@ Not mergeable: one medium and one low new finding.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | The measured fixture inventory is not accurate. (a) In `positive-all-families.json`, node 0 (`scalar_type`/`boolean`, `aaaa`, declaration `Example::Flag`) and node 2 (`integer_range`, `cccc`, `Example::Small`) carry a `declaration`. They are gated, and item 1 of the decided rule does not take them. So "node 0 is the derived boolean scalar" is wrong, and AC-133's row placing `aaaa...` on the boolean node cannot produce `stale-node-key` on that fixture; only the clause and control fixtures hold an undeclared `aaaa` boolean. (b) IR also reads `dependency-selection-vectors.json` (AC-113), whose base is `positive-all-families.json` and whose recorded `package_id` changes when QSL-635 regenerates that base. Neither Q5's read/not-read list nor AC-133 names it. (c) AC-135 says "the four `malformed_wire` body-grammar entries", but `adverse.json` has five. Its "measured over the current list" pointer list also omits `negative-temporal-interval-bound` (`/semantic_graph/nodes/29/.../interval/lower`) | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1892-1928,:1948-1964, AC-133, AC-135 |
+| FND-001 | medium | The measured fixture inventory is not accurate. (a) In `positive-all-families.json`, node 0 (`scalar_type`/`boolean`, `aaaa`, declaration `Example::Flag`) and node 2 (`integer_range`, `cccc`, `Example::Small`) carry a `declaration`. They are gated, and item 1 of the decided rule does not take them. So "node 0 is the derived boolean scalar" is wrong, and AC-133's row placing `aaaa...` on the boolean node cannot produce `stale-node-key` on that fixture; only the clause and control fixtures hold an undeclared `aaaa` boolean. (b) IR also reads `dependency-selection-vectors.json` (AC-113), whose base is `positive-all-families.json` and whose recorded `package_id` changes when QSL-635 regenerates that base. Neither Q5's read/not-read list nor AC-133 names it. (c) AC-135 says "the four `malformed_wire` body-grammar entries", but `adverse.json` has five. Its "measured over the current list" pointer list also omits `negative-temporal-interval-bound` (`/semantic_graph/nodes/29/.../interval/lower`) | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1892-1928, :1948-1964, AC-133, AC-135 |
 | FND-002 | low | AC-134 and fixture item 2 understate the in-repo migration. The in-repo `aaaa` `scalar_type`/`boolean` has a `literal` body, not `aggregate{[]}`, and the `bbbb` `option` is typed at `aaaa` with an empty aggregate body (tests/it/support/checked_package.rs:1306-1322). Items 3 and 5 refuse these whatever their key, so regenerating keys alone does not make the fixtures admit: their bodies and `semantic_type` change too | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1910-1911, AC-134 |
 
 ## Dispositions
 
 Round 3, reviewed, re-measured against QSpec origin/main fetched fresh.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

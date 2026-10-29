@@ -13,7 +13,7 @@ Ticket: IR-881. Checked changed requirements, registry, TC, and matrix rows for 
 
 ## Scope
 
-Examined: STD-001; FR-044-AC-3; FR-030-AC-5; FR-031; TC-223; TC-456; NFR-002-AC-1; NFR-002-AC-3. PR diff...
+Examined: STD-001; FR-044-AC-3; FR-030-AC-5; FR-031; TC-223; TC-456; NFR-002-AC-1; NFR-002-AC-3. PR PR diff.
 
 ## Examined units
 

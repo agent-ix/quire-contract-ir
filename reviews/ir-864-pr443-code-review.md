@@ -3,7 +3,7 @@ id: SR-12355
 title: "IR-864 code and Rust review of IR PR 443"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR 443..; eight checked-package model Rust test files"
+scope: "agent-ix/quire-contract-ir PR 443; eight checked-package model Rust test files"
 review_set: subset
 ---
 

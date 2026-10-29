@@ -71,6 +71,6 @@ blockers.
 
 Round 1. FR-038's cost paragraph now names the one-unit-per-reachable-type-node component-search charge on the same meter. That is a spec clarification found in review. It is consistent with AC-72: the 12-ring exact-work bound is relative to the work a read used, and the ten-records case is still incomplete/work. The new test tc_048_the_component_search_costs_one_unit_per_reachable_type_node (TC-048, FR-038-AC-72) is pinned. Mutation probe, removing the charge in discover: that test fails (left 2, right 3), and the probe was reverted. No new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed |

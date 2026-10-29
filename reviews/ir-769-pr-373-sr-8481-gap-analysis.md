@@ -29,7 +29,7 @@ Plan completion: not assessed. Computed matrix: FR-049-AC-1 through AC-6 are tag
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

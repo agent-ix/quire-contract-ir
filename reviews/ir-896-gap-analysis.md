@@ -28,7 +28,7 @@ Ticket: IR-896. Compared FR-035-AC-17, the computed Test Matrix binder, test ass
 
 ## Coverage
 
-Plan completion: not assessed. `quire matrix --scope. --format json` returned a tagged binder for FR-035-AC-17 at the new test. The focused test passed (1 passed). This is a test intent gap, not a missing trace tag or an observed implementation defect.
+Plan completion: not assessed. `quire matrix --scope . --format json` returned a tagged binder for FR-035-AC-17 at the new test. The focused test passed (1 passed). This is a test intent gap, not a missing trace tag or an observed implementation defect.
 
 ## New findings (disposition pass 1)
 
@@ -42,4 +42,4 @@ Plan completion: not assessed. `quire matrix --scope. --format json` returned a 
 | --- | --- | --- |
 | FND-001 | fixed | The tagged test now exercises a recognized `invalid-value` cause for both causeless reader codes and asserts the exact outer refusal fields; see the after excerpt in the marked Linear disposition. |
 | FND-002 | still-open | Reinstate the two named unsupported cause inputs, with their exact refusal and cause pointer assertions, alongside the recognized-cause check. |
-| FND-002 | fixed | The tagged test now checks both named unsupported cause strings with exact `invalid_package`/`invalid-value` and cause pointer fields, alongside the recognized-cause check at; see the after excerpt in the marked round-2 Linear disposition. |
+| FND-002 | fixed | The tagged test now checks both named unsupported cause strings with exact `invalid_package`/`invalid-value` and cause pointer fields, alongside the recognized-cause check in the reviewed PR; see the after excerpt in the marked round-2 Linear disposition. |

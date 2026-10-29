@@ -53,32 +53,32 @@ scope:
 - id: References::redefinition
   path: crates/quire-contract-model/src/checked_package/v2/model_members.rs
   role: examined
-  excerpt: ' /// Reads a field or operation''s optional redefinition reference.'
+  excerpt: '    /// Reads a field or operation''s optional redefinition reference.'
 - id: semantic_ir_object_type::operation-intake
   path: crates/quire-contract-model/src/checked_package/v2/model_members.rs
   role: examined
-  excerpt: ' redefines: references.redefinition(operation, &base, defects),'
+  excerpt: '            redefines: references.redefinition(operation, &base, defects),'
 - id: DomainModel::resolve
   path: crates/quire-contract-model/src/checked_package/v2/model_members.rs
   role: examined
-  excerpt: " // The most-derived-redefiner rule: a redefiner of a target that\
-    \ a\n // redefiner in a more derived owner also redefines is hidden."
+  excerpt: "        // The most-derived-redefiner rule: a redefiner of a target that\
+    \ a\n        // redefiner in a more derived owner also redefines is hidden."
 - id: operation_redefinitions_select_the_most_derived_member
   path: crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs
   role: examined
-  excerpt: ' assert_eq!(resolved.identity, "ix://acme/orders/Child/act");'
+  excerpt: '    assert_eq!(resolved.identity(), "ix://acme/orders/Child/act");'
 - id: operation_redefinitions_refuse_malformed_and_missing_targets
   path: crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs
   role: examined
-  excerpt: ' assert_eq!(read(&document(vec![declared])).map(|_| ), Err(expected));'
+  excerpt: '        assert_eq!(read(&document(vec![declared])).map(|_| ()), Err(expected));'
 - id: fairness_resolves_the_most_derived_operation_redefinition
   path: tests/it/checked_package_v2_temporal.rs
   role: examined
-  excerpt: ' "most-derived redefinition must admit: {result:?}"'
+  excerpt: '                "most-derived redefinition must admit: {result:?}"'
 - id: read_with_model
   path: tests/it/checked_package_v2_temporal.rs
   role: examined
-  excerpt: ' CheckedPackageV2::read(&canonical(package), limits, &evidence)'
+  excerpt: '    CheckedPackageV2::read(&canonical(package), limits, &evidence)'
 - id: FR-038-AC-210
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: context_only

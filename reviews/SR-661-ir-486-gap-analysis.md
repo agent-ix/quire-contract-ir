@@ -28,6 +28,6 @@ Mergeable on the gap-analysis axis once FND-001 is fixed. The trace is complete 
 
 Reviewed at agent-ix/quire-contract-ir.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

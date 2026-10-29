@@ -62,7 +62,7 @@ A package can contain a protocol node whose body applies another root operator (
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed |, the generic name sweep skips protocol nodes, and the protocol step checks protocol-involved duplicates after placement and operator checks. The combined-defect test now yields IllTyped/OperatorIneligible; a valid duplicate yields AmbiguousDeclaration. Existing non-protocol declaration precedence tests still pass. |
+| FND-002 | fixed | In the reviewed PR, the generic name sweep skips protocol nodes, and the protocol step checks protocol-involved duplicates after placement and operator checks. The combined-defect test now yields IllTyped/OperatorIneligible; a valid duplicate yields AmbiguousDeclaration. Existing non-protocol declaration precedence tests still pass. |
 
 ## Supplemental review
 

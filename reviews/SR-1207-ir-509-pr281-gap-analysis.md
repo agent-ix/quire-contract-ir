@@ -51,7 +51,7 @@ test's oracle was read:
 - AC-9: four tests, one per ordering clause.
 - AC-10: `..._a_changed_binding_changes_the_node_key_and_the_package_id`.
 
-Coverage measured: `quire coverage --scope. --strict` gives 23 unbacked rows
+Coverage measured: `quire coverage --scope . --strict` gives 23 unbacked rows
 (35 at base) and 0 contradicted. FR-346 is 10/10. The ✅ on the TC-225 and
 FR-346 matrix rows is backed by these tests.
 
@@ -75,8 +75,8 @@ ACs are the ones the tests use.
 
 Round 1 was reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. The two defective nodes are placed in descending key order. A guard assertion checks that the lower key sits at the later position, so the oracle now separates node-id order from position order. |
-| FND-002 | fixed |. `tc_225_a_root_application_is_refused_by_the_step_that_places_it`: a temporal-class root is reported ahead of a lower-key member defect. An ordinary-class root is reported after a lower-key defect and before a higher-key one. This pins the temporal step against the abstraction shape check. |
-| FND-003 | fixed |. Both pairs are now read back from the admitted package's graph. A negative control (an anchor for `rebase`) admits and shows the pair comparison can fail (`assert_ne`). |
+| FND-001 | fixed | The two defective nodes are placed in descending key order. A guard assertion checks that the lower key sits at the later position, so the oracle now separates node-id order from position order. |
+| FND-002 | fixed | `tc_225_a_root_application_is_refused_by_the_step_that_places_it`: a temporal-class root is reported ahead of a lower-key member defect. An ordinary-class root is reported after a lower-key defect and before a higher-key one. This pins the temporal step against the abstraction shape check. |
+| FND-003 | fixed | Both pairs are now read back from the admitted package's graph. A negative control (an anchor for `rebase`) admits and shows the pair comparison can fail (`assert_ne`). |

@@ -73,6 +73,6 @@ Round 1 (base still origin/main, merges cleanly). FR-038 now defines a quantity 
 
 QSL FR-097-AC-2 ("a quantity's domain takes no finite bound") classifies such a type as Unbounded, so the two now agree. QSL never emits this shape. The QSL cases from round 0 still hold: Measure, Trip, collections, parameters and binders raise, and an application with a quantity `result_type` over bounded parameters lowers. A note for the code PR: the chain walk must be bounded and safe against cycles, as `operations.rs` `structural_type` is, and must exclude `model_population`. No new findings.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed |

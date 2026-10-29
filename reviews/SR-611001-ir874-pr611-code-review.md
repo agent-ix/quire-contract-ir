@@ -34,12 +34,12 @@ FAIL. FND-001 produces a wrong checked binder signature for a valid source-order
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR, each effective field carries origin identities. `build_component` sorts exposed slots by the first position of any origin, so Left/t_prime takes Top/t's slot even when Right is the first listed supertype. The new public-reader reverse-diamond test passed 1/1; the model-field unit test asserts the identities directly. |
+| FND-001 | fixed | In the reviewed PR, each effective field carries origin identities. `build_component` sorts exposed slots by the first position of any origin, so Left/t_prime takes Top/t's slot even when Right is the first listed supertype. The new public-reader reverse-diamond test passed 1/1; the model-field unit test asserts the identities directly. |
 
 ## Current verdict
 
-PASS for the reviewed fix. The previous finding is fixed. `git diff --check..HEAD` passed. The separate operation-parameter reorder assertion remains for the final aggregate gate.
+PASS for the reviewed fix. The previous finding is fixed. `git diff --check` passed. The separate operation-parameter reorder assertion remains for the final aggregate gate.
 
 ## Integration check
 
-PASS at PR #611 merge. The merge with IR #603 changes only the shared test import in its conflict resolution; `structural_key` and `rekey_application_node` are both retained. The #603 owner-kind guards in `validate_catalog` and `protocol_classes` remain intact and precede activation class reconstruction. Its `refinement_step_defect_precedes_wrong_protocol_clause_owner` and `refinement_catalog_joins_owned_finish_without_a_step_row` public-reader tests remain present and unchanged; the activation and reversed-diamond tests remain present. `git diff --check..HEAD` passed. No new finding from this integration delta. The final aggregate gate remains pending.
+PASS at PR #611 merge. The merge with IR #603 changes only the shared test import in its conflict resolution; `structural_key` and `rekey_application_node` are both retained. The #603 owner-kind guards in `validate_catalog` and `protocol_classes` remain intact and precede activation class reconstruction. Its `refinement_step_defect_precedes_wrong_protocol_clause_owner` and `refinement_catalog_joins_owned_finish_without_a_step_row` public-reader tests remain present and unchanged; the activation and reversed-diamond tests remain present. `git diff --check` passed. No new finding from this integration delta. The final aggregate gate remains pending.

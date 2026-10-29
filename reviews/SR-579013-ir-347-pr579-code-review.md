@@ -46,17 +46,17 @@ scope:
 - id: TC-041 tests
   path: tests/it/cycle_free_model.rs
   role: examined
-  excerpt: "#[trace(\"TC-041\", \"FR-028-AC-1\")]... tc_041_model_dependency_graph_is_cycle_free_and_owner_free"
+  excerpt: "#[trace(\"TC-041\", \"FR-028-AC-1\")] ... tc_041_model_dependency_graph_is_cycle_free_and_owner_free"
 - id: tc_055_negative_kani_corpus_returns_typed_errors_without_panics
   path: tests/it/kani_shared.rs
   role: examined
-  excerpt: "#[trace(\"TC-055\", \"FR-039-AC-4\")] fn tc_055_negative_kani_corpus_returns_typed_errors_without_panics"
+  excerpt: "#[trace(\"TC-055\", \"FR-039-AC-4\")] fn tc_055_negative_kani_corpus_returns_typed_errors_without_panics()"
 - id: src/kani/outcome.rs proved_from_checks
   path: src/kani/outcome.rs
   role: examined
-  excerpt: "if success_checks == 0 { return Self::raise(NonSuccessKind::Inconclusive...); } Self::proved(success_checks, source_id, context).expect(\"nonzero count was checked\")"
+  excerpt: "if success_checks == 0 { return Self::raise(NonSuccessKind::Inconclusive, ...); } Self::proved(success_checks, source_id, context).expect(\"nonzero count was checked\")"
 ```
 
 ## Dispositions
 
-Round 1. This artifact had no findings; only its placeholder row exists, so no disposition row is owed. Re-checked at: the fix diff.. touches the same six spec files and no code. Its new source claims hold. The TC-055-tagged negatives in `tests/it/kani_shared.rs` cover profile construction and classification, `FiniteInput::validate`, `DispatchIndex::new` and `resolve`, `KaniOutcome::proved` and `non_success`, and the `KaniProfile`, `FiniteInput`, `ModuleDescriptor` and `KaniOutcome` readers. The other public `kani` constructors (`proved_from_checks`, `cancelled`, `refused` and the rest) are infallible, with no reachable panic. The fix adds no hash, digest, pin or tracking record.
+Round 1. This artifact had no findings; only its placeholder row exists, so no disposition row is owed. Re-checked at: the fix PR diff touches the same six spec files and no code. Its new source claims hold. The TC-055-tagged negatives in `tests/it/kani_shared.rs` cover profile construction and classification, `FiniteInput::validate`, `DispatchIndex::new` and `resolve`, `KaniOutcome::proved` and `non_success`, and the `KaniProfile`, `FiniteInput`, `ModuleDescriptor` and `KaniOutcome` readers. The other public `kani` constructors (`proved_from_checks`, `cancelled`, `refused` and the rest) are infallible, with no reachable panic. The fix adds no hash, digest, pin or tracking record.

@@ -31,7 +31,7 @@ Changes requested: one medium finding.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | Item 15 and IR-628-Q2 say the accessor needs no work limit because "admission's limits bound the retained model". The model's size is bounded; the accessor's work is not proportional to it. `resolve`'s most-derived-redefiner pass is quadratic in the redefiners of one target, and memoizes one ancestor `BTreeSet` per redefining owner (`model_members.rs:729-752`). AC-143's own document (a 10000-type chain with 1000 redefinitions) makes that about 10^6 pair checks and about 10^7 retained set entries per call. Admission charged this work only for objects a read names; an unread object never paid it. The accessor would also rebuild `ModelOwners`, one key hash per declaration, on every call, because `ModelOwners` borrows the models and cannot easily be stored beside them. A package a producer controls can therefore make a "total", unmetered call cost far more than admission did. Either charge a caller-supplied limit (reopen Q2), or state a bound on the accessor's work in terms of admitted quantities and pin it in AC-143. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2081, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2155, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2795 |
-| FND-002 | low | No criterion pins the out-of-`i128` bound. The reader parses a string bound with `parse::<i128>`, so `Int[0, 170141183460469231731687303715884105728]` gives `None` today. AC-138 tests only the `i128` extremes, so a mutation that saturates or wraps a past-`i128` bound into `IntRange` would pass. Add a past-`i128` bound, expecting `None` and the call `Ok`, to AC-138 and TC-227's cases. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2790 |
+| FND-002 | low | No criterion pins the out-of-`i128` bound. The reader parses a string bound with `parse::<i128>()`, so `Int[0, 170141183460469231731687303715884105728]` gives `None` today. AC-138 tests only the `i128` extremes, so a mutation that saturates or wraps a past-`i128` bound into `IntRange` would pass. Add a past-`i128` bound, expecting `None` and the call `Ok`, to AC-138 and TC-227's cases. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2790 |
 | FND-003 | low | Item 6 refuses the whole call with `AmbiguousField` when any two effective fields share a name. The section's own rationale ("Why a typed enum with `None` and not a refusal") rejects a whole-object refusal, because it "would hide the range of the `Int` field from a consumer that wants only the ranges". An ambiguous name on one field hides every other field's range in the same way. Either justify the asymmetry, or report the ambiguous name per field so the other fields still return. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2040 |
 
 
@@ -39,7 +39,7 @@ Changes requested: one medium finding.
 
 Round 1, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

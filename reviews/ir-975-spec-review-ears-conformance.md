@@ -27,7 +27,7 @@ Examined changed FR-038 reader statements, FR-051 encoder statements, and FR-349
 
 ## Same-reviewer head confirmation
 
-, the changed FR-038 wording passed `quire validate --strict --summary` with one grammar-clean document and zero grammar findings. The EARS verdict remains PASS.
+The changed FR-038 wording passed `quire validate --strict --summary` with one grammar-clean document and zero grammar findings. The EARS verdict remains PASS.
 
 ## Custody correction
 

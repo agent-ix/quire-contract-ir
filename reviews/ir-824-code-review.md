@@ -17,7 +17,7 @@ a relationship end", TC-281 RN-18 and RN-20..27, TC-197 Y18.
 
 Code, examined and clean: `check_relationship_member` now checks operand 0
 and then, for `reaches`, operand 1 against the RECEIVER endpoint type
-(`conforms_to(.., &receiver.type_ref..)`, subtype admitted through
+(`conforms_to(.., &receiver.type_ref, ..)`, subtype admitted through
 ancestors) before direction (operations.rs:2226-2244); multiplicity is decided
 only by the existing `RelationshipDecl::navigation_type`
 (model_members.rs:252, not duplicated), which refuses `unbounded` and
@@ -54,7 +54,7 @@ the AC-172 row is unchanged and keeps its AC-252 supersession pointer.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | The AC-252 test's node-shape assertions (`operator`, member kind, operand count, `body.get("multiplicity").is_none`, `body.get("charge").is_none`, body equal to the baseline) inspect the body the test fixture itself authored, which no multiplicity input changes; only the admission assertion exercises the reader. The Y18 claim is backed by admission of an identical body, not by these asserts. | tests/it/checked_package_v2_model_members.rs:1392-1409 |
+| FND-001 | low | The AC-252 test's node-shape assertions (`operator`, member kind, operand count, `body.get("multiplicity").is_none()`, `body.get("charge").is_none()`, body equal to the baseline) inspect the body the test fixture itself authored, which no multiplicity input changes; only the admission assertion exercises the reader. The Y18 claim is backed by admission of an identical body, not by these asserts. | tests/it/checked_package_v2_model_members.rs:1392-1409 |
 | FND-002 | low | AC-253's wrong-direction multi-defect case traverses `linkedBy`, whose destination is the `[0,1]` source end, so it is not a wrong-direction multi-valued end as AC-253 frames the case; the operand-1-first order is still pinned (it went red when the operand-1 check was moved). | tests/it/checked_package_v2_model_members.rs:1428-1437 |
 
 ## Verdict

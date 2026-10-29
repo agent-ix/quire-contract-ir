@@ -10,17 +10,17 @@ review_set: subset
 ## Summary
 
 Ticket: IR-627. EARS lens over the amended and new requirement statements. Amended
-item 1 ("When a node... carries no `declaration` and no `recursion_group`, the
-reader shall re-derive...") is a well-formed event-driven statement. "Decided:
-skip" ("shall skip... if and only if the node carries a `recursion_group`") is a
+item 1 ("When a node ... carries no `declaration` and no `recursion_group`, the
+reader shall re-derive ...") is a well-formed event-driven statement. "Decided:
+skip" ("shall skip ... if and only if the node carries a `recursion_group`") is a
 well-formed state-driven statement with a closed predicate. Its soundness defect
 is recorded in SR-1586 FND-001, not here. "Gated: in-group re-derivation" ("Once
-the reader can derive..., it shall re-derive...") is a well-formed gated
+the reader can derive ..., it shall re-derive ...") is a well-formed gated
 statement. One edited statement is ambiguous.
 
 ## Findings
 
-| ID | Severity | Summary | Refs | Escape Cause |
+| ID      | Severity | Summary | Refs | Escape Cause |
 | ------- | -------- | ------- | ---- | ------------ |
 | FND-001 | low | The stage-order statement now reads "charging one work unit per node, skipping a node that carries a `recursion_group` (FR-038-AC-136)". It does not say whether a skipped node is still charged its work unit. Two implementers would read it differently, and the result is observable at the work limit. AC-136 does not pin it either. Say "charging one work unit per node, skipped or not" (or the opposite), and add the boundary to an AC. | FR-038 stage-order paragraph (line 1953), FR-038-AC-136 | missing-requirement |
 
@@ -28,6 +28,6 @@ statement. One edited statement is ambiguous.
 
 Round 1, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: Now reads 'charging one work unit per node, skipped or not', pinned by AC-149. AC-149's limit clause is weak: see SR-1587 FND-006. |
+| FND-001 | fixed | Now reads 'charging one work unit per node, skipped or not', pinned by AC-149. AC-149's limit clause is weak: see SR-1587 FND-006. |

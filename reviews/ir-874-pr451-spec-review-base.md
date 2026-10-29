@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Checked all twelve new ACs and the protocol prose against QSpec FR-464/465/466 and TC-946/947/948. Two source-fidelity gaps remain. Ticket: IR-874. Frozen head:.
+Checked all twelve new ACs and the protocol prose against QSpec FR-464/465/466 and TC-946/947/948. Two source-fidelity gaps remain. Ticket: IR-874. Reviewed the frozen PR head.
 
 ## Examined units
 

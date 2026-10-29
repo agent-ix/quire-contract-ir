@@ -26,7 +26,7 @@ FR-349 has three criteria explicitly planned for later slices. The AC-1 trace cu
 
 ## Coverage
 
-Exact reviewed. Reviewed only PR #509's changed code and FR-349/FR-019 spec delta. Plan completion: not assessed. Computed strict matrix: FR-349-AC-1 and AC-3 tagged; AC-2, AC-4 and AC-5 untagged. The three untagged criteria were declared planned/partial in the draft PR. No semantic review opt-in was requested; only mechanical trace and diff-scoped code/test alignment were checked.
+Reviewed the PR. Reviewed only PR #509's changed code and FR-349/FR-019 spec delta. Plan completion: not assessed. Computed strict matrix: FR-349-AC-1 and AC-3 tagged; AC-2, AC-4 and AC-5 untagged. The three untagged criteria were declared planned/partial in the draft PR. No semantic review opt-in was requested; only mechanical trace and diff-scoped code/test alignment were checked.
 
 
 ## Reviewed units
@@ -43,7 +43,7 @@ Exact reviewed. Reviewed only PR #509's changed code and FR-349/FR-019 spec delt
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed |, admitted positive fixtures now assert aggregate, reference, application and literal roots, nested binding/literal/reference, and the existing dependency-call fixture asserts the admitted application's typed DependencyReference callee with exact package and node digests. |
+| FND-001 | fixed | In the reviewed PR, admitted positive fixtures now assert aggregate, reference, application and literal roots, nested binding/literal/reference, and the existing dependency-call fixture asserts the admitted application's typed DependencyReference callee with exact package and node digests. |
 | FND-002 | deferred | FR-349-AC-2 remains planned outside this typed first slice; IR-969 through IR-973 own the remaining admitted-reader, operation, operand, lowering and CG consumer migrations. |
 | FND-003 | deferred | FR-349-AC-4 first-refusal regression controls are outside this draft first slice and remain planned for the subsequent reader-control work stated in PR #509. |
 | FND-004 | deferred | FR-349-AC-5 typed-decoder input-boundary controls are outside this draft first slice and remain planned for the subsequent reader-control work stated in PR #509. |

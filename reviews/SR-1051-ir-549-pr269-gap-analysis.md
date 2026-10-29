@@ -15,9 +15,9 @@ Ticket: IR-549. PR 269 is the code change. Its base is spec PR 268, which is sta
 What I measured, in a detached throwaway worktree under <worktrees directory> with its own target directory (since removed):
 
 - Gates. `make ci` passed fmt-check, clippy (workspace and model-only), test (it 261, model unit 111, doc 7) and corpus (99/99 match). It stopped at `make spec`. That stop is the baseline: validate passes, there is one grammar finding (FR-014 ac:vague-response), and `--strict` reports 23 unbacked and 0 contradicted. `make deny`, `make cargo-audit` and `make audit-unsafe` all pass. There was more than 400G free on /.
-- Conformance. The shared quire-specification checkout is clean, on main,, which equals origin/main after a fetch. With `QUIRE_SPECIFICATION_DIR=<quire-specification checkout> make conformance-qspec`, tc_048_qspec_positive_fixtures_admit passes, and all three named fixtures admit with their recorded package_id. With the variable unset or empty, or pointing at /tmp, the target fails (exit 101, a test failure naming the variable). It does not skip.
+- Conformance. The shared quire-specification checkout is clean, on main, which equals origin/main after a fetch. With `QUIRE_SPECIFICATION_DIR=<quire-specification checkout> make conformance-qspec`, tc_048_qspec_positive_fixtures_admit passes, and all three named fixtures admit with their recorded package_id. With the variable unset or empty, or pointing at /tmp, the target fails (exit 101, a test failure naming the variable). It does not skip.
   - tests/conformance_qspec has `test = false`, and the `make test` log has no conformance_qspec run.
-  - No QSpec file is in the diff, and.github/ is untouched.
+  - No QSpec file is in the diff, and .github/ is untouched.
   - Probe: QSpec's other three positive fixtures also admit (control-operations, nominal-identities, operation-identities).
 - QSpec negative fixtures (adverse.json, applied to positive-all-families):
   - All 5 structural mutations refuse with QSpec's expected code: unknown_contract_version, digest_domain_mismatch x2, unsupported_node_tag and invalid_semantic_graph.
@@ -25,7 +25,7 @@ What I measured, in a detached throwaway worktree under <worktrees directory> wi
   - No adverse mutation touches temporal, case or union.
 - Mutation probes in the throwaway worktree, running the full workspace suite each time: 25 mutants, 22 killed, 3 survived. The survivors are M08 (lock.edition row ignored), M16 (wrong-selection-role matched on identity only) and M11 (the unreached-formula bounds sweep removed).
   - Killed: skipping the negative-bound term-walk check; the bound order upper-before-lower; lexicographic bound comparison; bounds before profile fit; placement interleaved with clause checks; over after fairness; an unknown profile read as bounded; a nested case accepted; union_arms dropped; binder-type and arm-body-type checks dropped; duplicate-member and payload-type checks dropped; the union-value payload type check; the member: leaf segment; the diagnostics misplacement check; formula and fairness reference placement; bounded profiles admitting fairness; timed admitting {lower, null}; profile fit on the root formula only; the interval shape check.
-- Spec trace hygiene. No `AC-66` trace remains in any.rs file. The matrix lists AC-96 through AC-108 as implemented, and AC-66 as retired with the FR-031-AC-5 pattern.
+- Spec trace hygiene. No `AC-66` trace remains in any .rs file. The matrix lists AC-96 through AC-108 as implemented, and AC-66 as retired with the FR-031-AC-5 pattern.
 - Process. The committed diff has no whitespace errors (`git diff --check` is clean). Every changed file ends with a single newline. There are no heredoc markers, and the appended unit-test module in temporal.rs is rustfmt-clean, so there is no artifact finding.
 - Consumers, read-only, via a sub-survey of origin refs. quire-spec-language breaks (SR-1051 FND-001). quire-contract-codegen, quire-driver, quire-protocol and quire-analyze are not affected.
 - The author's choices where the spec was silent. Two are within the spec: the clause checks run only when operation.identity is catalogued with operator temporal (anything else is the operation step's refusal), and a fairness declaration must be a model declaration node, which the spec words. The rest are flagged readings and are recorded as low findings in SR-1051: identity-only profile matching, union-only cycles, malformed union bodies, unresolvable arm types, the unreached-formula sweep, and the fixture growth.
@@ -67,7 +67,7 @@ Found, rebased onto spec.
 
 Round 1, reviewed (rebased onto spec #268 ). The gates were rerun in a throwaway worktree, since removed. make ci passed fmt, clippy, test (it 266, model 111, doc 7) and corpus (99/99), and stopped at make spec on the baseline (validate passes, grammar 1, strict 23 unbacked, 0 contradicted). make deny, make cargo-audit and make audit-unsafe pass. make conformance-qspec passes against quire-specification, which is clean. git diff --check is clean.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | deferred | Routed to QSL by the coordinator; not a defect of this PR. The break is still measured: map_refusal_code needs an UnknownProfile arm, QSL PR #616 must drop its UnsupportedConstruct arm, and admission_corpus needs four NOT_EMITTED_BY_QSL entries. A Linear search on 2026-10-03 (map_refusal_code, UnknownProfile, NOT_EMITTED_BY_QSL) found no QSL ticket for it yet. |
 | FND-002 | fixed | A known profile is matched by its FR-250 identity label, an exact string (QSpec FR-250 'Identity and comparison'; the label is the key); the `authority` of the definition reference takes no part, so a law with a member's identity and a different `authority` is still a known profile and later refuses `operation-law-unselected` at FR-038-AC-57's join |
@@ -81,7 +81,7 @@ Round 1, reviewed (rebased onto spec #268 ). The gates were rerun in a throwaway
 
 Round 2, reviewed (rebased onto spec #268 ). The net change since is mod.rs (with_node_locus), temporal.rs and this PR's own temporal tests. No pre-existing test file was edited. Gates were rerun in a throwaway worktree, since removed. make ci passed fmt, clippy, test (it 266, model 111, doc 7) and corpus 99/99, and stopped at make spec on the baseline (validate passes, grammar 1, strict 23, 0 contradicted). deny, cargo-audit and audit-unsafe pass. conformance-qspec passes, with three fixtures admitted. git diff --check is clean. Mutants M29 and M31 to M38 (locus per row, and with_node_locus widened to every term-walk refusal) are all killed. M34 is caught by three pre-existing reader tests, so the locus of other refusals is unchanged.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-010 | fixed | Path and locus. Every refusal of the temporal step carries both a path (an RFC 6901 pointer) and a locus (a node key)... / fairness `declaration` not a `model`/`object_type` node (`malformed-declaration`) / `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` / the `declaration` target's key (`member.declaration`) / |
 

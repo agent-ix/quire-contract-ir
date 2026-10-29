@@ -3,7 +3,7 @@ id: SR-12435
 title: "Code and Rust review of IR PR 457"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir;.github/workflows/ci.yml; Cargo.toml; Makefile; tests/conformance_qsl_ir760/main.rs; tests/it/main.rs"
+scope: "agent-ix/quire-contract-ir; .github/workflows/ci.yml; Cargo.toml; Makefile; tests/conformance_qsl_ir760/main.rs; tests/it/main.rs"
 review_set: subset
 ---
 

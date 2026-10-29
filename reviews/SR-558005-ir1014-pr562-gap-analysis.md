@@ -18,7 +18,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1014. `quire matrix --scope. --format json` tags all fourteen reviewed criteria, but several tags cover only a subset of the named vectors. This is a diff-scoped gap analysis, not a plan audit. No source or test stub was found.
+Ticket: IR-1014. `quire matrix --scope . --format json` tags all fourteen reviewed criteria, but several tags cover only a subset of the named vectors. This is a diff-scoped gap analysis, not a plan audit. No source or test stub was found.
 
 ## Findings
 
@@ -60,7 +60,7 @@ Fix round 3, PR:
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-003 | fixed | The revised test first proves the malformed `hybrid`/`hybrid_model` alone reaches `hybrid::validate_models` and refuses `invalid_model_binding`/`malformed-declaration` at its variable target. The same malformed hybrid beside an invalid-mode terminal reports the terminal's `invalid_package`/`invalid-value` at `body/members/1`, verifying terminal-before-hybrid body-step precedence. The carrier-before-terminal control separately preserves FR-322's earlier declaration-step order. After excerpt: `let bad_hybrid_only = package_with(malformed_hybrid_model);... let terminal_before_hybrid = package_with_nodes(vec![bad_terminal.clone, malformed_hybrid_model]);` |
+| FND-003 | fixed | The revised test first proves the malformed `hybrid`/`hybrid_model` alone reaches `hybrid::validate_models` and refuses `invalid_model_binding`/`malformed-declaration` at its variable target. The same malformed hybrid beside an invalid-mode terminal reports the terminal's `invalid_package`/`invalid-value` at `body/members/1`, verifying terminal-before-hybrid body-step precedence. The carrier-before-terminal control separately preserves FR-322's earlier declaration-step order. After excerpt: `let bad_hybrid_only = package_with(malformed_hybrid_model()); ... let terminal_before_hybrid = package_with_nodes(vec![bad_terminal.clone(), malformed_hybrid_model()]);` |
 
 ## Final reviewed-head verdict
 
@@ -68,8 +68,8 @@ PASS. Every gap-analysis finding has a verified fixed disposition. Final aggrega
 
 ## Final gate regression re-review
 
-, the intake-only loop change leaves the FR-059, FR-060 and FR-062 vectors and their trace tags unchanged. The existing FR-038-AC-117 flat-wire test covers the exact 256 KiB stack regression, and the coder's focused log reports it passes with all 16 flat-wire tests. An isolated depth-61 diagnostic-details control also passed on the 256 KiB stack. No new coverage finding was established. PASS; the final aggregate gate belongs to the lead.
+The intake-only loop change leaves the FR-059, FR-060 and FR-062 vectors and their trace tags unchanged. The existing FR-038-AC-117 flat-wire test covers the exact 256 KiB stack regression, and the coder's focused log reports it passes with all 16 flat-wire tests. An isolated depth-61 diagnostic-details control also passed on the 256 KiB stack. No new coverage finding was established. PASS; the final aggregate gate belongs to the lead.
 
 ## Public API inventory re-review
 
-, the only new diff is the FR-019 inventory row for the exported `CheckedTerminalDuplicate` type, with FR-062 ownership. This aligns the public inventory with FR-062-AC-4 and the existing public-consumer test; it changes no FR-059, FR-060 or FR-062 acceptance text or vectors. The focused public-interface inventory test passed in the coder's report. No new gap finding was established. PASS remains the gap-analysis disposition.
+The only new diff is the FR-019 inventory row for the exported `CheckedTerminalDuplicate` type, with FR-062 ownership. This aligns the public inventory with FR-062-AC-4 and the existing public-consumer test; it changes no FR-059, FR-060 or FR-062 acceptance text or vectors. The focused public-interface inventory test passed in the coder's report. No new gap finding was established. PASS remains the gap-analysis disposition.

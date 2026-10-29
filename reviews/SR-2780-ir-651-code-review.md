@@ -139,7 +139,7 @@ family-less valid type.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | commit "Close IR651 composite accessor review findings" |
 | FND-002 | fixed | commit "Close IR651 composite accessor review findings" |

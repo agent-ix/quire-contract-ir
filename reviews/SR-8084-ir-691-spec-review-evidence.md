@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-The installed `quoin advise --repo. --json` returns no method mismatch for AC-232 through AC-235. Authored Test for all four and Inspection for AC-235 are appropriate to the planned public and private controls. The concrete control gaps are recorded in the base and failure-domain reviews.
+The installed `quoin advise --repo . --json` returns no method mismatch for AC-232 through AC-235. Authored Test for all four and Inspection for AC-235 are appropriate to the planned public and private controls. The concrete control gaps are recorded in the base and failure-domain reviews.
 
 ## Verdict
 

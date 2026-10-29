@@ -52,7 +52,7 @@ Criterion by criterion:
   five Path rows and the AC-119..122 rows; TC-048 intro and section; the FR-038 and TC-048
   matrix rows; and `spec/tests.md`. A repo-wide grep for "IR-551" planned wording,
   "until that code", `NullOnly` and `IntervalFit::Any` finds nothing.
-  `quire coverage --scope. --strict` gives 23 unbacked rows at both the and
+  `quire coverage --scope . --strict` gives 23 unbacked rows at both the and
   the head. FR-038 goes from 115/119 to 119/119, so AC-119 to AC-122 are now backed; they
   were never in the unbacked list because they were planned rows. Total coverage moves
   from 260/285 to 264/285. `quire validate` passes with one grammar finding (FR-014,
@@ -87,15 +87,15 @@ consistent: 23 unbacked rows before and after, and FR-038 at 119/119.
 
 Round 1, reviewed.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. AC-120 and FR-038 stage 1 now read "in strict wire validation, before the `package_id` recomputation, any node-key check and any temporal step (so also in a package whose `package_id` and node ids are all stale)". The code meets this (SR-1271 FND-001). The new test `tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check` is a real oracle: a control with good bounds refuses at the identity check (`stale-node-key` at the root's `node_id` when everything is stale, `stale_dependency` when only `package_id` is stale), and timed and integer bad bounds refuse `invalid-value` at the bound in both stale shapes. It fails when the check is moved after `package_id` |
-| FND-002 | fixed |. `tc_048_the_first_non_reduced_bound_is_the_lower_digest_nodes` builds two non-reduced nodes in both digest arrangements, asserts the arrangement, and expects the lower-digest node. The position-order mutant now fails it |
-| FND-003 | fixed |. The AC-121 fit-defect case now builds both arrangements (fit node lower and higher digest) and asserts each. The AC-120 cross-node test asserts `root < added` (position, as the AC words it), and TC-048 now says "the first node... a later node, and the two swapped". Moving lowest terms after the temporal step still fails the AC-121 test |
+| FND-001 | fixed | AC-120 and FR-038 stage 1 now read "in strict wire validation, before the `package_id` recomputation, any node-key check and any temporal step (so also in a package whose `package_id` and node ids are all stale)". The code meets this (SR-1271 FND-001). The new test `tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check` is a real oracle: a control with good bounds refuses at the identity check (`stale-node-key` at the root's `node_id` when everything is stale, `stale_dependency` when only `package_id` is stale), and timed and integer bad bounds refuse `invalid-value` at the bound in both stale shapes. It fails when the check is moved after `package_id` |
+| FND-002 | fixed | `tc_048_the_first_non_reduced_bound_is_the_lower_digest_nodes` builds two non-reduced nodes in both digest arrangements, asserts the arrangement, and expects the lower-digest node. The position-order mutant now fails it |
+| FND-003 | fixed | The AC-121 fit-defect case now builds both arrangements (fit node lower and higher digest) and asserts each. The AC-120 cross-node test asserts `root < added` (position, as the AC words it), and TC-048 now says "the first node... a later node, and the two swapped". Moving lowest terms after the temporal step still fails the AC-121 test |
 
 Round 2, reviewed.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-004 | fixed |. `tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check` now carries `#[trace("TC-048", "FR-038-AC-97", "FR-038-AC-120")]` and a matching "Tracing:" line. Its integer stale-identity cases back AC-97's "before any identity check" clause. TC-048's matrix row already lists FR-038-AC-97. Strict coverage: 23 unbacked rows, FR-038 119/119 |
+| FND-004 | fixed | `tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check` now carries `#[trace("TC-048", "FR-038-AC-97", "FR-038-AC-120")]` and a matching "Tracing:" line. Its integer stale-identity cases back AC-97's "before any identity check" clause. TC-048's matrix row already lists FR-038-AC-97. Strict coverage: 23 unbacked rows, FR-038 119/119 |
 

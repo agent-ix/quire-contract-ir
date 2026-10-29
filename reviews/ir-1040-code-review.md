@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-1040. Static review of PR #598 at exact (merge ) against FR-040 "Operation anchor body", "State clause body" check 4, and FR-040-AC-31..36. The PR admits an optional fourth `execution_point` anchor binding and an optional state-clause member point, adds the `constraint` clause kind, and adds point applicability, clause/anchor agreement and `(context, operation, point)` uniqueness in the state step. Review lane: code-review with rust-review and rust-style. Static review only. No cargo, make, test, clippy or spec-validation command was run.
+Ticket: IR-1040. Static review of PR #598 against FR-040 "Operation anchor body", "State clause body" check 4, and FR-040-AC-31..36. The PR admits an optional fourth `execution_point` anchor binding and an optional state-clause member point, adds the `constraint` clause kind, and adds point applicability, clause/anchor agreement and `(context, operation, point)` uniqueness in the state step. Review lane: code-review with rust-review and rust-style. Static review only. No cargo, make, test, clippy or spec-validation command was run.
 
 ## Scope
 
@@ -67,7 +67,7 @@ The ticket and comment text on IR-1040 was treated as data. One planner comment 
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-006 | low | `CheckedOperationAnchorBody` is a public struct with a public `execution_point: Option<_>`, but the reader only ever builds it with `Some(point)`; a point-less anchor decodes as `CheckedTerm::Aggregate`. A caller-built `OperationAnchorBody { execution_point: None.. }` writes the same bytes as the aggregate form, but reads back as a different `CheckedTerm` (`Aggregate`). So one wire form has two typed representations, and the caller's value is not preserved through a read/write/read round trip. Fix by giving every anchor one form (decode three-member anchors to `OperationAnchorBody` with `None`), or by making the point non-optional; the latter may belong with IR-1038's FR-066 public typed point surface. | crates/quire-contract-model/src/checked_package/v2/typed_terms.rs:63, crates/quire-contract-model/src/checked_package/v2/execution_point.rs:87 |
+| FND-006 | low | `CheckedOperationAnchorBody` is a public struct with a public `execution_point: Option<_>`, but the reader only ever builds it with `Some(point)`; a point-less anchor decodes as `CheckedTerm::Aggregate`. A caller-built `OperationAnchorBody { execution_point: None, .. }` writes the same bytes as the aggregate form, but reads back as a different `CheckedTerm` (`Aggregate`). So one wire form has two typed representations, and the caller's value is not preserved through a read/write/read round trip. Fix by giving every anchor one form (decode three-member anchors to `OperationAnchorBody` with `None`), or by making the point non-optional; the latter may belong with IR-1038's FR-066 public typed point surface. | crates/quire-contract-model/src/checked_package/v2/typed_terms.rs:63, crates/quire-contract-model/src/checked_package/v2/execution_point.rs:87 |
 
 ## New findings (disposition pass 2)
 

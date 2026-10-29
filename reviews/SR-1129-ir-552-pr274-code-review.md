@@ -3,7 +3,7 @@ id: SR-1129
 title: "code review of PR 274: QSpec conformance harness for FR-038-AC-112 and AC-113, prose cleanup, recursion tests (IR-552)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; git diff origin/main... (, 10 files: tests/conformance_qspec/main.rs, tests/it/checked_package_v2_{reader,recursive_leaves,temporal,union}.rs, crates/quire-contract-model/src/checked_package/{common.rs,v2/operations.rs,v2/temporal.rs}, spec/checked_package/matrix/tests.md, spec/tests.md)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD ( 10 files: tests/conformance_qspec/main.rs, tests/it/checked_package_v2_{reader,recursive_leaves,temporal,union}.rs, crates/quire-contract-model/src/checked_package/{common.rs,v2/operations.rs,v2/temporal.rs}, spec/checked_package/matrix/tests.md, spec/tests.md)"
 review_set: subset
 ---
 # SR-1129: code review of PR 274: QSpec conformance harness for FR-038-AC-112 and AC-113, prose cleanup, recursion tests (IR-552)
@@ -46,7 +46,7 @@ Out of diff scope, for information only: the Makefile help line for `conformance
 
 ## Dispositions
 
-Round 1 was reviewed, one fix commit on. I measured it in throwaway worktrees, since removed. `make conformance-qspec` against quire-specification origin/main  passes all 6 tests, including the new `tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code`. I deleted each guard in turn in a throwaway copy, never on the PR branch, and every mutant fails a test:
+Round 1 reviewed one fix commit on the PR. I measured it in throwaway worktrees, since removed. `make conformance-qspec` against quire-specification origin/main  passes all 6 tests, including the new `tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code`. I deleted each guard in turn in a throwaway copy, never on the PR branch, and every mutant fails a test:
 
 - The cause compared always: the new unit test and the adverse result test fail.
 - The non-empty list guard deleted, both halves: `tc_048_qspec_adverse_run_fails_closed` fails.
@@ -56,7 +56,7 @@ Round 1 was reviewed, one fix commit on. I measured it in throwaway worktrees, s
 
 `make fmt-check` and `make lint` pass. `make spec` is at the baseline: grammar 1, 23 unbacked, 0 contradicted.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | `refuses_as` compares the cause only when the recorded outcome has one. The unlisted and stale-entry checks both use it, and a unit test pins it. The run passes on QSpec main, and a mutant with the whole-string compare fails. |
 | FND-002 | fixed | The body-list cases assert exactly one problem, the list's own. The structural-list cases assert that list's specific message. Deleting the guard fails the test. |

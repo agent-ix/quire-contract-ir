@@ -39,7 +39,7 @@ Focused checks reported on the PR: 7 kani_outcome, 12 kani_shared, 4 TC-223 test
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the probe uses `Some(NonZeroUsize::MIN)` and every other field value is type-correct; a struct literal from outside `kani` now fails on field visibility rather than the former E0308 mismatch. |
+| FND-001 | fixed | In the reviewed PR, the probe uses `Some(NonZeroUsize::MIN)` and every other field value is type-correct; a struct literal from outside `kani` now fails on field visibility rather than the former E0308 mismatch. |
 
 ## Disposition Evidence
 

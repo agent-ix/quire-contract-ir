@@ -40,8 +40,8 @@ Hosted Rust Checks failed make lint with E0004 in contract_package.rs:1502; Supp
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, cause_admitted pairs WrongObservation only with WrongSnapshot; the exhaustive temporal test helpers spell both new enum values explicitly. The coder reports focused public-reader tests passing under the shared build lock; hosted full Rust Checks at this head remain in progress. |
-| FND-002 | fixed |, a record.project only stops traversal when its receiver is a direct parameter binder. Otherwise the walk follows its dependencies; nested_projection_exposes_its_unlisted_inner_fact asserts wrong_snapshot with the inner field in typed detail. Focused public-reader tests passed; hosted full Rust Checks remain in progress. |
+| FND-001 | fixed | In the reviewed PR, cause_admitted pairs WrongObservation only with WrongSnapshot; the exhaustive temporal test helpers spell both new enum values explicitly. The coder reports focused public-reader tests passing under the shared build lock; hosted full Rust Checks at this head remain in progress. |
+| FND-002 | fixed | In the reviewed PR, a record.project only stops traversal when its receiver is a direct parameter binder. Otherwise the walk follows its dependencies; nested_projection_exposes_its_unlisted_inner_fact asserts wrong_snapshot with the inner field in typed detail. Focused public-reader tests passed; hosted full Rust Checks remain in progress. |
 
 ## Disposition verdict
 

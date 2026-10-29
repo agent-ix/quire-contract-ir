@@ -29,7 +29,7 @@ The trace convention (doc lines plus `#[trace]`) matches the repo. The helpers r
 
 ## Finding Detail
 
-- FND-001: `mutated` calls `refresh_identity`, and that call copies the edited node into `identity_preimage.identity_projection`. `CheckedPackageWireV2` decodes `identity_preimage` before `semantic_graph`, so the refusal actually observed is `unknown_member` at `/identity_preimage/identity_projection/14/subsets` (and `/14/redefines`). It is not at the node member that FR-344-AC-3 describes. The loose `path.ends_with("/{member}")` check accepts either location. Removing `deny_unknown_fields` from `CheckedSemanticNodeV2` (M3) leaves the test green. The closed decode of the `semantic_graph` node object, which the TC-222 case 3 prose names as the mechanism, therefore has no oracle.
+- FND-001: `mutated()` calls `refresh_identity`, and that call copies the edited node into `identity_preimage.identity_projection`. `CheckedPackageWireV2` decodes `identity_preimage` before `semantic_graph`, so the refusal actually observed is `unknown_member` at `/identity_preimage/identity_projection/14/subsets` (and `/14/redefines`). It is not at the node member that FR-344-AC-3 describes. The loose `path.ends_with("/{member}")` check accepts either location. Removing `deny_unknown_fields` from `CheckedSemanticNodeV2` (M3) leaves the test green. The closed decode of the `semantic_graph` node object, which the TC-222 case 3 prose names as the mechanism, therefore has no oracle.
 
   Measured fix: add the member after `refresh_identity`, so that it is not mirrored. That case refuses `UnknownMember` at exactly `/semantic_graph/nodes/14/subsets`, and under M3 it becomes `MalformedWire`. Assert the exact pointer `/semantic_graph/nodes/{at}/{member}` for that case. Either keep the mirrored case with its own exact projection pointer, or drop it.
 
@@ -49,6 +49,6 @@ Changes requested, one medium. The AC-1 and AC-2 tests are real oracles. The AC-
 
 Round 1, reviewed. The mutation was re-run: with `deny_unknown_fields` removed from `CheckedSemanticNodeV2`, the AC-3 test now fails (`MalformedWire` != `UnknownMember` at `/semantic_graph/nodes/14/subsets`). With the reader restored it passes, and `make ci` runs 183/183 integration tests green.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

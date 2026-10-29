@@ -48,6 +48,6 @@ The revised main-base measurement is a claimed test result in the Linear ticket,
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, FR-038-AC-308 says: "Admission performs R+K body grammar validations for the R shared nodes and K distinct leaves, and lowering performs zero additional validations"; this matches the K distinct leaves and removes the impossible K-independent total. |
-| FND-002 | fixed |, TC-050's Description names FR-038-AC-308, and the checked-package matrix adds a planned/unrun FR-038-AC-308 row and includes it in TC-050's trace list. |
-| FND-003 | fixed |, the model matrix adds a planned/unrun FR-023-AC-7 row mapped to TC-035 while leaving AC-1 through AC-6 implemented credit intact. |
+| FND-001 | fixed | In the reviewed PR, FR-038-AC-308 says: "Admission performs R+K body grammar validations for the R shared nodes and K distinct leaves, and lowering performs zero additional validations"; this matches the K distinct leaves and removes the impossible K-independent total. |
+| FND-002 | fixed | In the reviewed PR, TC-050's Description names FR-038-AC-308, and the checked-package matrix adds a planned/unrun FR-038-AC-308 row and includes it in TC-050's trace list. |
+| FND-003 | fixed | In the reviewed PR, the model matrix adds a planned/unrun FR-023-AC-7 row mapped to TC-035 while leaving AC-1 through AC-6 implemented credit intact. |

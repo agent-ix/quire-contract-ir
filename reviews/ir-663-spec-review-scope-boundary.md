@@ -41,4 +41,4 @@ PASS: IR owns the planned public typed refusal API and propagation; QSpec owns d
 
 ## Validation
 
-`quire validate --scope..review-scratchpad/ir-663-spec-review-scope-boundary.md` — PASS (exit 0); emitted module duplicate-archetype/inverse-edge and inline-data-schema warnings, with no document validation error.
+`quire validate --scope . .review-scratchpad/ir-663-spec-review-scope-boundary.md` — PASS (exit 0); emitted module duplicate-archetype/inverse-edge and inline-data-schema warnings, with no document validation error.

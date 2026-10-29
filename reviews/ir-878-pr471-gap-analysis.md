@@ -13,7 +13,7 @@ Ticket: IR-878. Planless gap analysis of quire-contract-ir PR 471 against NFR-00
 
 ## Verdict
 
-PASS for this delta, with two low findings. The deviations from the code review (SR-12959) are recorded there. Re-measured with quire 0.36.2 (engine 0.50.2), `quire coverage --scope. --strict`. The has 536/607 rows backed and 42 unbacked, with NFR-002-AC-1 and TC-456 unbacked and the AC untagged. The has 538/607 backed, 40 unbacked and 0 contradicted. NFR-002-AC-1 is tagged by `tc_456_public_schema_and_model_names_are_portable` (tests/it/public_interface.rs:316), and TC-456 is backed. Strict mode still exits 1 on the 40 rows that were already unbacked, none of them from this PR.
+PASS for this delta, with two low findings. The deviations from the code review (SR-12959) are recorded there. Re-measured with quire 0.36.2 (engine 0.50.2), `quire coverage --scope . --strict`. The has 536/607 rows backed and 42 unbacked, with NFR-002-AC-1 and TC-456 unbacked and the AC untagged. The has 538/607 backed, 40 unbacked and 0 contradicted. NFR-002-AC-1 is tagged by `tc_456_public_schema_and_model_names_are_portable` (tests/it/public_interface.rs:316), and TC-456 is backed. Strict mode still exits 1 on the 40 rows that were already unbacked, none of them from this PR.
 
 No criterion was weakened. The test is a real check, not a stub: adverse and benign controls plus mutations prove it can fail (see SR-12959). The binding is correct.
 

@@ -25,7 +25,7 @@ The IR encoder owns the borrowed projection API, while QSL owns its producer cal
 
 ## Verification
 
-Current PR head:. Quire validation of both changed files passed. The computed matrix matches current main byte-for-byte, and strict coverage is 535/606 backed with 42 unbacked and zero contradicted statuses. The six local probe records yield medians of 339,124 and 254,692 KiB incremental sampled peak RSS, a reduction of 84,432 KiB (24.90%); median emission times are 1,137 and 1,544 ms (+35.8%). All six complete byte files match. These records are local candidate evidence; QSL adoption is pending. The exact command `cargo test --locked --workspace --all-targets -- --include-ignored` exited 0 on this PR head.
+At the reviewed PR head, Quire validation of both changed files passed. The computed matrix matches current main byte-for-byte, and strict coverage is 535/606 backed with 42 unbacked and zero contradicted statuses. The six local probe records yield medians of 339,124 and 254,692 KiB incremental sampled peak RSS, a reduction of 84,432 KiB (24.90%); median emission times are 1,137 and 1,544 ms (+35.8%). All six complete byte files match. These records are local candidate evidence; QSL adoption is pending. The exact command `cargo test --locked --workspace --all-targets -- --include-ignored` exited 0 on this PR head.
 
 ## Verdict
 

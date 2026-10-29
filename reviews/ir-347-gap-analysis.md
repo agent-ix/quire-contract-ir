@@ -10,7 +10,7 @@ review_set: base
 
 ## Summary
 
-Ticket: IR-347. Plan completion: not assessed. Compared `quire coverage --scope. --strict --json` at origin/main and at row by row. `unbacked_rows` is the same 17 rows (FR-036 functional row and AC-1..AC-5, FR-037 row and FR-037-AC-6, FR-039 row and AC-1..AC-4, FR-019-AC-5, TC-045, TC-055, TC-058) on both sides; `criteria`, `obligations`, `groups`, `minted_targets`, `implements`, `status_lies` (0) and `totals` (161 of 180 backed) are byte-identical. The only differences: `binding_census` 250 to 228 candidates (223 to 201 bound), the TC-042 `shared_trace_ids` group loses the 22 `tc_042_*` symbols of `tests/it/kani_replay.rs`, and `unmatched_tags` drops 8 comment mentions of FR-031-AC-4 and AD-016 from that file.
+Ticket: IR-347. Plan completion: not assessed. Compared `quire coverage --scope . --strict --json` at origin/main and at row by row. `unbacked_rows` is the same 17 rows (FR-036 functional row and AC-1..AC-5, FR-037 row and FR-037-AC-6, FR-039 row and AC-1..AC-4, FR-019-AC-5, TC-045, TC-055, TC-058) on both sides; `criteria`, `obligations`, `groups`, `minted_targets`, `implements`, `status_lies` (0) and `totals` (161 of 180 backed) are byte-identical. The only differences: `binding_census` 250 to 228 candidates (223 to 201 bound), the TC-042 `shared_trace_ids` group loses the 22 `tc_042_*` symbols of `tests/it/kani_replay.rs`, and `unmatched_tags` drops 8 comment mentions of FR-031-AC-4 and AD-016 from that file.
 
 ## Findings
 

@@ -27,16 +27,16 @@ Ticket: IR-661. Reviewed the frozen PR diff and merged FR-038 AC-165..173.
 - `FR-038-AC-172` (`examined`): PLANNED / UNRUN (IR-661). A homogeneous self-relationship with a resolved forward or inverse end and an eligible Reference or Option destination admits `quire.op.model.reaches` with two references conforming to its static endpoint owner and Boolean r
 - `FR-038-AC-173` (`examined`): PLANNED / UNRUN (IR-661). Removing direction, category, composite or origin, setting each to null or a wrong type, using an unsupported direction/category value, or supplying a malformed common-schema origin branch refuses `invalid_model_binding`/`ma
 - `crates/quire-contract-model/src/checked_package/shared.rs` (`examined`): //! Version-neutral I04 `CheckedPackage` vocabulary. //! //! These types carry no contract-version-specific shape of their own: they //! are the caller-facing limits, refusal/incomplete outcomes, and locked
-- `crates/quire-contract-model/src/checked_package/v2/model_fields/tests.rs` (`examined`): use super::super::model_members::tests::{ differential_document, differential_documents, document, field, multiplicity, object_type, read, BYTES, ORDERS, RECORDED, };
+- `crates/quire-contract-model/src/checked_package/v2/model_fields/tests.rs` (`examined`): use super::super::model_members::tests::{     differential_document, differential_documents, document, field, multiplicity, object_type,     read, BYTES, ORDERS, RECORDED, };
 - `crates/quire-contract-model/src/checked_package/v2/model_members.rs` (`examined`): //! FR-322 "Model-owned members" and "Reference conformance" (QSpec STD-100, //! STD-101, STD-102): a `field` or `operation` member whose declaring node is //! a model declaration node resolves through the domain package the lock //! selects, because
 - `crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs` (`examined`): use super::super::model_fields::build_field_tables; use super::*; use crate::checked_package::common::ValidationFailure; use crate::checked_package::shared::{
 - `crates/quire-contract-model/src/checked_package/v2/operations.rs` (`examined`): //! FR-038/QSpec #76 operation-law validation: an `application` term's //! `operation` member is admitted opaquely nowhere past this module — its //! identity, laws, mode, member and leading operand shape are checked //! against the upstream `quire.c
-- `crates/quire-contract-model/src/checked_package/v2/owner.rs` (`examined`): //! Closed node-owner wire and selected-evidence joins for FR-038-AC-153..155. use super::{ CheckedDeclaration, CheckedNodeKind, CheckedNodeOwner, CheckedPackageWireV2,
-- `tests/conformance_qspec/main.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX //! FR-038-AC-107, AC-112 and AC-113: QSpec's CheckedPackage V2 fixtures and
-- `tests/it/checked_package_v2_model_members.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX //! IR-285: `CheckedPackageV2::read` over a package whose lock selects a real
-- `tests/it/checked_package_v2_owners.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX //! Owner-wire admission and refusal cases built from this crate's public wire vocabulary.
-- `tests/it/checked_package_v2_temporal.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX //! FR-038-AC-96 through AC-105 and AC-108, at the package: the temporal step
-- `tests/it/support/checked_package.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX //! Shared helpers for the I04 CheckedPackage integration tests.
+- `crates/quire-contract-model/src/checked_package/v2/owner.rs` (`examined`): //! Closed node-owner wire and selected-evidence joins for FR-038-AC-153..155.  use super::{     CheckedDeclaration, CheckedNodeKind, CheckedNodeOwner, CheckedPackageWireV2,
+- `tests/conformance_qspec/main.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX  //! FR-038-AC-107, AC-112 and AC-113: QSpec's CheckedPackage V2 fixtures and
+- `tests/it/checked_package_v2_model_members.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX  //! IR-285: `CheckedPackageV2::read` over a package whose lock selects a real
+- `tests/it/checked_package_v2_owners.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX  //! Owner-wire admission and refusal cases built from this crate's public wire vocabulary.
+- `tests/it/checked_package_v2_temporal.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX  //! FR-038-AC-96 through AC-105 and AC-108, at the package: the temporal step
+- `tests/it/support/checked_package.rs` (`examined`): // SPDX-License-Identifier: AGPL-3.0-or-later // Copyright (C) 2026 Agent-IX  //! Shared helpers for the I04 CheckedPackage integration tests.
 
 ## Findings
 
@@ -55,7 +55,7 @@ IR-663 refusal metadata retention is an explicit current gap; no conformance cla
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-880. PR agent-ix/quire-contract-ir#475,, diff `...HEAD`. This file covers the code-review method with its rust-review lane. It reviews the TC-456 inventory test in `tests/it/public_interface.rs`, which has a schema walker, a Rust source enumerator over every model `.rs` file, macro_rules handling, a seven-table STD-001 extractor, the allowlist, adverse controls and mutations. It also reviews the removal of the NFR-002-AC-3 tag in `tests/it/identity.rs`.
+Ticket: IR-880. PR agent-ix/quire-contract-ir#475, diff `...HEAD`. This file covers the code-review method with its rust-review lane. It reviews the TC-456 inventory test in `tests/it/public_interface.rs`, which has a schema walker, a Rust source enumerator over every model `.rs` file, macro_rules handling, a seven-table STD-001 extractor, the allowlist, adverse controls and mutations. It also reviews the removal of the NFR-002-AC-3 tag in `tests/it/identity.rs`.
 
 The reviewer ran its own mutants in a throwaway worktree, one rebuild per source mutant, with an env-gated harness for the test-side mutants. Killed: drop schema `const` extraction, drop public-field extraction, drop variant extraction, drop impl-const extraction, drop the across-words matcher, drop the `registered_codes!` constant rows. Survived: drop associated-const value extraction (M5); widen the allowlist to the prefix `KANI_` with any value (M6); drop the STD-001 row condition of the allowlist (M7); drop camelCase splitting (M9); drop the macro_rules escape check (M10); drop trait-fn extraction (M11); drop the allowlist value equality (M16). A source mutant adding the variant `SolverRuntimeBuffer` to the feature-gated export `MappingAllocationPoint` also survived.
 
@@ -21,7 +21,7 @@ scope:
 - id: tests/it/public_interface.rs::source_items
   path: tests/it/public_interface.rs
   role: examined
-  excerpt: "fn source_items(file: &syn::File) -> Vec<PublicName> {... Item::Macro(item) => macro_items(item, &definitions, &mut out), _ => {} }"
+  excerpt: "fn source_items(file: &syn::File) -> Vec<PublicName> { ... Item::Macro(item) => macro_items(item, &definitions, &mut out), _ => {} }"
 - id: tests/it/public_interface.rs::macro_items
   path: tests/it/public_interface.rs
   role: examined
@@ -37,11 +37,11 @@ scope:
 - id: tests/it/public_interface.rs::inventory_violations
   path: tests/it/public_interface.rs
   role: examined
-  excerpt: "// IR-881: removed when IR-881 merges. let allowed_constant = allow_solver && solver_registered && entry.owner == \"Std001Code\" && entry.name == \"KANI_SOLVER_ABSENT\" && entry.value.as_deref == Some(\"kani_solver_absent\");"
+  excerpt: "// IR-881: removed when IR-881 merges. let allowed_constant = allow_solver && solver_registered && entry.owner == \"Std001Code\" && entry.name == \"KANI_SOLVER_ABSENT\" && entry.value.as_deref() == Some(\"kani_solver_absent\");"
 - id: tests/it/public_interface.rs::tc_456_public_schema_and_model_names_are_portable
   path: tests/it/public_interface.rs
   role: examined
-  excerpt: "#[trace(\"TC-456\")] #[test] fn tc_456_public_schema_and_model_names_are_portable"
+  excerpt: "#[trace(\"TC-456\")] #[test] fn tc_456_public_schema_and_model_names_are_portable()"
 - id: tests/it/identity.rs::tc_015
   path: tests/it/identity.rs
   role: examined
@@ -49,7 +49,7 @@ scope:
 - id: crates/quire-contract-model/src/output_mapping.rs::allocation
   path: crates/quire-contract-model/src/output_mapping.rs
   role: context_only
-  excerpt: "mod allocation { pub enum MappingAllocationPoint { RequestObligations... PackageIdentity } } #[cfg(feature = \"fault-injection\")] pub use allocation::MappingAllocationPoint;"
+  excerpt: "mod allocation { pub enum MappingAllocationPoint { RequestObligations, ... PackageIdentity } } #[cfg(feature = \"fault-injection\")] pub use allocation::MappingAllocationPoint;"
 ```
 
 ## Findings
@@ -61,7 +61,7 @@ scope:
 | FND-003 | medium | The PR deletes every matcher assertion that `tc_456` had: PathBuf/path_buf/MacOS/macOS/mac_os, RunTime/run_time/USize, PointerWidth64/PathBufs/path_bufs/RunTimes/run_times/MacOSX, filePath/FilePath/osPath/file_system, and the false-positive guards profile_path/repos_path/profile_system. No other test calls `portable_name_violations` or `name_words`. A mutant that disables camelCase splitting survives. The doc comment at lines 20-23 now asserts behaviour that nothing checks. | tests/it/public_interface.rs:20-95, 944 |
 | FND-004 | medium | Nothing tests that the allowlist is exact. A mutant that widens it to the prefix `KANI_` with any value survives. So does one that drops the value equality, and one that drops the STD-001 `kani_solver_absent` row condition. TC-456 requires an exact name and value, no prefix, and an extracted row. There is no near-miss control: a different value, a `KANI_SOLVER_*` sibling, or an STD-001 fixture without the row fed through `std001_code_rows`. | tests/it/public_interface.rs:746-765 |
 | FND-005 | medium | Associated-constant value extraction is never what catches a control. A mutant that drops `strings.visit_expr` in `constant_names` survives, because every Rust const control (`SOLVER = "solver"`, `EXTRA_SOLVER = "solver"`, the trait `SOLVER`) also has a forbidden name. A mutant that drops trait-fn extraction also survives, because the trait control carries a forbidden const too. TC-456 requires each associated constant's value to be read as well as its name. | tests/it/public_interface.rs:296-307, 367-369, 1035-1039 |
-| FND-006 | medium | The macro_rules body escape check (`macro_static_public_names`, the "escaped inventory" assert) and the unknown-`macro_rules!`-with-`pub` assert have no adverse control. A mutant that disables the escape check survives. The macro-generated control (`diagnostic_codes! { SolverLeak =>... }`) exercises only row parsing, so the hand-written per-macro member lists (`["ALL", "as_str"]`, `identifier_type`'s `new`/`as_str`, and the rest) are guarded only by an untested check. | tests/it/public_interface.rs:488-512, 583-636 |
+| FND-006 | medium | The macro_rules body escape check (`macro_static_public_names`, the "escaped inventory" assert) and the unknown-`macro_rules!`-with-`pub` assert have no adverse control. A mutant that disables the escape check survives. The macro-generated control (`diagnostic_codes! { SolverLeak => ... }`) exercises only row parsing, so the hand-written per-macro member lists (`["ALL", "as_str"]`, `identifier_type`'s `new`/`as_str`, and the rest) are guarded only by an untested check. | tests/it/public_interface.rs:488-512, 583-636 |
 | FND-007 | low | In the allowlist-removal mutation, the `kani_solver_absent` assertion is a substring match over all violations. The `Std001Code::REGISTERED: kani_solver_absent: solver` violation satisfies it on its own, so it does not show that the `KANI_SOLVER_ABSENT` constant's value is rejected separately from the array element. | tests/it/public_interface.rs:1046-1054 |
 | FND-008 | low | Two match arms in the exported-trait member match panic with the same message: `TraitItem::Macro(_) \| TraitItem::Verbatim(_)` and `_`. The first arm is redundant. | tests/it/public_interface.rs:385-388 |
 
@@ -76,7 +76,7 @@ CHANGES REQUESTED. The PR is not mergeable as-is because of FND-001. The structu
 | FND-009 | medium | The fix adds a branch for inherent impls in a non-public inline scope: they are inventoried only when their type is re-exported. No control tests that branch. Mutant N5, which skips every inherent impl in a non-public scope, survives all eight TC-456 tests. Together with N5, a real-source mutant that adds `pub fn solver_probe(self) {}` to `impl MappingAllocationPoint` passes TC-456. So the public associated items of the feature-gated export, the FND-001 class, are guarded by nothing. Without N5 the real-source mutant is caught. | tests/it/public_interface.rs:473-500, 1202-1214 |
 | FND-010 | low | The fix's re-export resolution branches have no controls, and four mutants survive. N4 does not walk an inline `pub mod` in a public scope. N6 ignores a glob re-export. N7 resolves a renamed re-export by its alias, not its source name. N9 drops the alias names of `pub use` in non-root files. None of these shapes occurs in the model tree today. | tests/it/public_interface.rs:319-361, 410-433 |
 
-Re-measured at, from a throwaway worktree on origin's PR head. All 14 earlier mutants are now killed: M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M13, M16, and the real-source `SolverRuntimeBuffer` variant on `MappingAllocationPoint`. New mutants on the fix's code:
+Re-measured the PR head from a throwaway worktree on origin's PR head. All 14 earlier mutants are now killed: M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M13, M16, and the real-source `SolverRuntimeBuffer` variant on `MappingAllocationPoint`. New mutants on the fix's code:
 
 - Killed: N1 (do not recurse into inline modules), N2 (ignore exports in `visible`), N3 (fail-closed item panic made silent), N8 (fail-closed trait-member panic made silent), and the real-source `pub fn solver_probe` on the gated type's impl.
 - Survived: N4, N5, N6, N7 and N9.

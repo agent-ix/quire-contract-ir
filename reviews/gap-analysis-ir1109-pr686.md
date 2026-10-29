@@ -26,7 +26,7 @@ Reviewed the one-file test diff at exact against merged IR FR-038 and QSpec. QSp
 
 - Examined FR-038 AC-320, AC-336/340/342 and AC-357 through AC-362; QSpec FR-322 AC-120/124/260/262/266 and the published CL-25/54, GD-02/03, TM-12 vectors.
 - Plan completion: not assessed.
-- `quire matrix --scope. --format json` completed. AC-320 is tagged only by the refusal-vector loop; AC-336/340/342 remain untagged. Planned AC-357 through AC-362 are not active matrix rows.
+- `quire matrix --scope . --format json` completed. AC-320 is tagged only by the refusal-vector loop; AC-336/340/342 remain untagged. Planned AC-357 through AC-362 are not active matrix rows.
 - Rust review: loaded rust-review/rust-style and repository AGENTS.md/CLAUDE.md; inspected test assertions, fixture loading, trace tags, canonical digest helper, and absence of vendoring. The lead owns the final aggregate gate.
 
 ## Dispositions
@@ -36,7 +36,7 @@ Reviewed the one-file test diff at exact against merged IR FR-038 and QSpec. QSp
 | FND-001 | fixed | The refusal-only TM vector loop no longer carries FR-038-AC-320; positive CK-25/normalized-constraint evidence remains outside this PR’s new trace claim. |
 | FND-002 | fixed | The new public-reader positive test checks four clause-to-anchor references, one retained anchor occurrence with Anchor role and ordinal zero, no execution point and root-model context, plus the operation urgency’s exact kind/model/name body. |
 | FND-003 | still-open | The schema-refusal arm does not assert the required null cause for CL-17..20/27/28; AC-362's IMPLEMENTED status is premature until this oracle is added. |
-| FND-003 | fixed | The schema-refusal arm now asserts `refusal.cause == None` alongside exact `MalformedWire` code and locus for CL-17..20/27/28; the focused vector test passed. |
+| FND-003 | fixed | The schema-refusal arm now asserts `refusal.cause == None` alongside exact `MalformedWire` code and locus for CL-17..20/27/28; the focused vector test passed at 72334867. |
 | FND-004 | fixed | Removing the blank line before AC-343 restored Quire minting for AC-343 and AC-357..362; matrix reports AC-343 untagged and the six implemented criteria tagged. |
 | FND-005 | fixed | The three named positive/guard/equal-region tests now carry AC-357, AC-358 and AC-359 trace tags respectively; Quire trace resolves their claims. |
 

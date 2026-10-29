@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-959. Reviewed the six changed first-party Git version requirements and the two explanatory comments at PR 506, against. The manifest diff is confined to those entries. The Cargo.lock blob is identical at both commits; locked metadata resolves. In an isolated worktree, `cargo update -p ix-trace-rs` fails at the base requirements because the current branch offers 0.1.2, and succeeds at the reviewed head. Updates of quire-canonical and quire-verification-contracts also succeed at the reviewed head.
+Ticket: IR-959. Reviewed the six changed first-party Git version requirements and the two explanatory comments at PR 506, against the reviewed dependency state. The manifest diff is confined to those entries. The Cargo.lock blob is identical at both commits; locked metadata resolves. In an isolated worktree, `cargo update -p ix-trace-rs` fails at the base requirements because the current branch offers 0.1.2, and succeeds at the reviewed head. Updates of quire-canonical and quire-verification-contracts also succeed at the reviewed head.
 
 ## Scope
 

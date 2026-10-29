@@ -90,7 +90,7 @@ for `on origin` refuses that code at the extra entry.
     require the new type of `a` at its inherited position; in a diamond,
     redefine `Top::t` through `L` and require the replacement once at `t`'s
     position. A same-name field inherited without an explicit redefinition
-    refuses `ambiguous_declaration`/`ambiguous-name` at the catalog entry's
+refuses `ambiguous_declaration`/`ambiguous-name` at the catalog entry's
     `node` right side when its binder record is requested. A wrong or
     reordered binder type in an otherwise unambiguous case refuses
     `invalid_model_binding`/`malformed-declaration` at that entry

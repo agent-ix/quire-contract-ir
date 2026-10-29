@@ -20,7 +20,7 @@ Ticket: IR-743. Independent code-review pass on the exact frozen candidate.
 
 ## Examined units
 
-- `contract_package.rs` (`examined`): let wire: Self = serde_path_to_error::deserialize(&value).map_err(|error| { malformed(decoder_pointer(JsonPointer::root, error.path), CheckedPackageRefusalCause::WrongValueKind) })?;
+- `contract_package.rs` (`examined`): let wire: Self = serde_path_to_error::deserialize(&value).map_err(|error| { malformed(decoder_pointer(JsonPointer::root(), error.path()), CheckedPackageRefusalCause::WrongValueKind) })?;
 - `lib.rs` (`examined`): ContractBodyIncompleteV1, ContractBodyRefusalV1, ContractDependencies, ContractDependencyInput, ContractDispositionV1, ContractFeatureRecordV1, ContractNodeSourcesV1, ContractPackageReadResult, ContractPackageV1, ContractPackageWireV1
 - `FR-035-AC-5` (`examined`): One call emits exactly one FR-330 `quire.contract-package/v1` value with the six required properties and one key-ordered `semantic_graph` node collection; repeated equivalent construction orders have identical canonical semantic identity. The digest is computed from exactly `contract_version`, `package`, `semantic_graph` and `feature_accounting`: changing an included member changes it, changing only valid `source_map` locations preserves it, and invalid or incomplete `source_map` correspondence refuses admission.
 - `FR-019-AC-5` (`examined`): The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists, checked by a public-item inventory that fails on an added or missing item; no item in the table is reachable through a `quire_contract_ir` path.
@@ -38,7 +38,7 @@ Review limited to the candidate diff and named acceptance units. Full gate is ow
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

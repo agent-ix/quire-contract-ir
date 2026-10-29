@@ -29,7 +29,7 @@ Plan completion: not assessed. Examined FR-349-AC-1/2/3/4 and FR-038-AC-35/88. T
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the test carries only `#[trace("FR-349-AC-2")]`; the unsupported FR-349-AC-4 claim is removed. |
+| FND-001 | fixed | In the reviewed PR, the test carries only `#[trace("FR-349-AC-2")]`; the unsupported FR-349-AC-4 claim is removed. |
 
 ## Current verdict
 

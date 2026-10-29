@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Planless diff-scoped gap analysis: all removed trace IDs retain machine-readable binders, coverage and normalized computed matrix are unchanged. One low-severity PR receipt count is inaccurate. Ticket: IR-870. Frozen head:.
+Planless diff-scoped gap analysis: all removed trace IDs retain machine-readable binders, coverage and normalized computed matrix are unchanged. One low-severity PR receipt count is inaccurate. Ticket: IR-870. Reviewed the frozen PR head.
 
 ## Examined scope
 

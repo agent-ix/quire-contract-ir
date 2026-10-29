@@ -23,7 +23,7 @@ Ticket: IR-448. This is the base checklist review. ID formats are intact. No id 
 ## Scope
 
 - spec/contract-test-matrix.md StR-001, StR-003, FR-019, FR-344 and TC-222 rows, examined: consistent with the ACs and tests.
-- spec/contract/FR-344 Status, examined: "Implemented... TC-222 pins them as a named regression in `tests/it/checked_package_v2_adr002_members.rs`."
+- spec/contract/FR-344 Status, examined: "Implemented ... TC-222 pins them as a named regression in `tests/it/checked_package_v2_adr002_members.rs`."
 - spec/contract/TC-222 Status, examined: consistent.
 - spec/index.md, examined: the prose and link list drop the removed ids.
 - spec/interface/FR-019 AC table, examined: AC-1 to AC-4 remain.

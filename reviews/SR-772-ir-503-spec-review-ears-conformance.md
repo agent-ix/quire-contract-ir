@@ -29,11 +29,11 @@ Conforms, with two low wording findings.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged; GitHub MERGEABLE). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/209 rows backed, FR-038 42/67. AC ids now run to AC-69, so the next free id is AC-70.
+Round 1, reviewed at agent-ix/quire-contract-ir (base origin/main unchanged; GitHub MERGEABLE). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/209 rows backed, FR-038 42/67. AC ids now run to AC-69, so the next free id is AC-70.
 
 Notes on the round-1 checks: "the earlier set" is gone. The prose now says the catalog's operator classes "include" the six words, and the clause's former member is described as one the entry "no longer admits".
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

@@ -18,7 +18,7 @@ Ticket: IR-816. EARS and AC-quality pass over FR-040-AC-17..29, the edited AC-1 
 
 What holds:
 
-- The direct-assertion wording ("A... refuses X at Y") matches the neighbouring FR-040-AC-1..16 and avoids the validator's `ac:non-canonical-shape` warning. `quire validate` emits no AC-shape warning for FR-040.
+- The direct-assertion wording ("A ... refuses X at Y") matches the neighbouring FR-040-AC-1..16 and avoids the validator's `ac:non-canonical-shape` warning. `quire validate` emits no AC-shape warning for FR-040.
 - AC-17, 18, 19, 21, 24, 25, 26, 27, 28 and 29 each state one observable outcome with code, cause and locus, and are testable from TC-056's procedure. AC-21 carries a concrete admit/refuse pair, matching TC-1043 X4.
 - TC-056 names TC-1043 W1-W6 and X1-X9 by id only and re-authors the cases from IR's own vocabulary.
 
@@ -93,9 +93,9 @@ scope:
 
 ## Dispositions
 
-Round 1, fix on.
+Round 1, reviewed the fix.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | AC-20 now locates each case at the offending entry, and a repeat at its second occurrence. FR-040:94-96 and FR-038 say the same, and so does `reject_repeat` (frame.rs:150-158). |
+| FND-001 | fixed | AC-20 now locates each case at the offending entry, and a repeat at its second occurrence. FR-040 :94-96 and FR-038 say the same, and so does `reject_repeat` (frame.rs:150-158). |
 | FND-002 | fixed | AC-22 now asserts name order only; the conflict naming order is carried by AC-23. |

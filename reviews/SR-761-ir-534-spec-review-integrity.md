@@ -20,7 +20,7 @@ dependencies or domain packages, and for stale class numbers. These are clean:
 - #251: AC-62..64 are the next free ids after #251's AC-46..61, and #251's rows and planned
   markers are kept.
 
-Overlap with PR 250 (IR-505,, based on ):
+Overlap with PR 250 (IR-505, ):
 #250 does not touch FR-038 or TC-048. It edits only `tests.md` (the FR-040, FR-038, TC-048 and
 TC-056 status cells). `git merge-tree` shows #250 already conflicts with main (#251) in `tests.md`,
 and it conflicts with #252's head the same way. Whichever merges second hand-resolves the FR-038
@@ -48,9 +48,9 @@ TC-048 procedure (FND-001) and two matrix wording problems.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
+Round 1, reviewed at agent-ix/quire-contract-ir (base origin/main unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

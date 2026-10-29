@@ -12,7 +12,7 @@ review_set: base
 
 Ticket: IR-457. Spec review (integrity sub-analysis: consistency, completeness, atomicity) of the FR-038 and TC-048 edits. Edited: FR-038 Inputs, the reader paragraph, class 2 of the `model_selections` total order, the `dependency_selections` binding paragraph, FR-038-AC-2, AC-27 and AC-37 (clauses dropped, no AC or row removed), and the TC-048 model-owned case line. `quire validate` over spec/plan/reviews: 238/238 docs grammar-clean, 0 findings. `make spec` exits 1 on both main and head with the same 17 unbacked rows (pre-existing).
 
-Checked consistent: Inputs, reader paragraph and AC-27 no longer mention raw-artifact digests; the binding paragraph and AC-37 state `package_id` as the only dependency binding and match the code (`dependency_references.rs:111`); class 2's rewritten rationale matches class 5 and the code (v2/mod.rs:1105-1116); TC-048's new "no supplied document as `missing_import`" matches FR-038 class 5 and `admit_document`. No STD-001 row names `revision-mismatch` or a raw-artifact refusal, so the registry needs no change. FR-038-AC-4's "editing... raw source digest... leaves it unchanged" is about package-id coverage, not staleness, and remains true.
+Checked consistent: Inputs, reader paragraph and AC-27 no longer mention raw-artifact digests; the binding paragraph and AC-37 state `package_id` as the only dependency binding and match the code (`dependency_references.rs:111`); class 2's rewritten rationale matches class 5 and the code (v2/mod.rs:1105-1116); TC-048's new "no supplied document as `missing_import`" matches FR-038 class 5 and `admit_document`. No STD-001 row names `revision-mismatch` or a raw-artifact refusal, so the registry needs no change. FR-038-AC-4's "editing ... raw source digest ... leaves it unchanged" is about package-id coverage, not staleness, and remains true.
 
 ## Findings
 
@@ -32,6 +32,6 @@ The edits are consistent with the code and with each other, with no AC or row re
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: the reader paragraph (lines 194-205), AC-11 and AC-20 now speak of documents the evidence supplies rather than digests it attests |
+| FND-001 | fixed | the reader paragraph (lines 194-205), AC-11 and AC-20 now speak of documents the evidence supplies rather than digests it attests |

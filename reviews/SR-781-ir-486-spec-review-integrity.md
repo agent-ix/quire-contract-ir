@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-486. Base: origin/main is, which is the PR's
+Ticket: IR-486. Base: origin/main is the PR merge base, which is the PR's
 merge base, so the base is current and GitHub reports MERGEABLE. AC-43 is amended in place and
 keeps its trace tags. The matrix states that its current test asserts the earlier clause,
 following the same pattern as IR-535. No criterion is removed. The FR-038 and TC-048 matrix ranges
@@ -20,14 +20,14 @@ The title carries no bare ticket id, and the body says "Part of IR-486".
 
 Overlap with open PRs, predicted with `git merge-tree` against the reviewed head:
 
-- #254 (IR-503, ) conflicts in all three files: the
+- #254 (IR-503) conflicts in all three files: the
   FR-038 AC table, TC-048, and the `tests.md` FR-038 and TC-048 cells. It also collides on AC
   numbering (FND-001).
-- #250 (IR-505, ) conflicts only in the `tests.md`
+- #250 (IR-505) conflicts only in the `tests.md`
   FR-038 and TC-048 cells. The texts are compatible.
-- #253 (IR-530, ) conflicts only in the `tests.md`
+- #253 (IR-530) conflicts only in the `tests.md`
   FR-038 and TC-048 cells. The texts are compatible.
-- #243 (IR-274, ) auto-merges with this PR in FR-038.
+- #243 (IR-274) auto-merges with this PR in FR-038.
   Its one conflict, in AD-005, is with main and does not come from this PR.
 
 Cross-repo note: QSL FR-093-AC-19 names IR's refusal of recursive equality as its one admission
@@ -60,15 +60,15 @@ Notes on the round-1 checks: the ids are renumbered to AC-70..72 after #254 merg
 
 Overlap re-check: #254 is merged. #250 and #253 still edit the same `tests.md` cells, which is a mechanical conflict only. One new low finding is below.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |
 
-Round 2, reviewed at agent-ix/quire-contract-ir: the delta from, on base origin/main, which is unchanged. GitHub reports MERGEABLE. `make spec` at round 2: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/212 rows backed, FR-038 42/70. The delta adds no SHA. The leader relayed a planner decision, recorded on IR-486, that the recursion leaf is now required wherever text is reachable. I have not confirmed it independently.
+Round 2, reviewed the PR delta at agent-ix/quire-contract-ir, on base origin/main, which is unchanged. GitHub reports MERGEABLE. `make spec` at round 2: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/212 rows backed, FR-038 42/70. The delta adds no SHA. The leader relayed a planner decision, recorded on IR-486, that the recursion leaf is now required wherever text is reachable. I have not confirmed it independently.
 
 Notes on the round-2 checks: TC-048's AC-43 procedure now matches the amended AC-43 ("reaches an option again with no record or tuple between the two visits"), and adds the sibling-shared option admission case.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-003 | fixed | Fixed in the reviewed PR. |

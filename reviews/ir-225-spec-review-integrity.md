@@ -37,11 +37,11 @@ scope:
 - id: FR-038-AC-247
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: "PLANNED/UNRUN (IR-225). Through `CheckedPackageV2::read`, every catalogued operation with result form `member` and member kind `type_argument` admits only when the application's `result_type` equals that member's declared type node..."
+  excerpt: "PLANNED/UNRUN (IR-225). Through `CheckedPackageV2::read`, every catalogued operation with result form `member` and member kind `type_argument` admits only when the application's `result_type` equals that member's declared type node ..."
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: examined
-  excerpt: "The catalogue's `result: member` entries with `member: type_argument` are `quire.op.quantity.convert`, `quire.op.ieee.to_float32`... and `quire.op.collection.convert`. The five other `result: member` entries are `quire.op.record.project` (`field`), `quire.op.tuple.project` (`position`), `quire.op.collection.index` (`element`), `quire.op.model.navigate` (`relationship_end`) and `quire.op.model.dispatch_call` (`operation`)."
+  excerpt: "The catalogue's `result: member` entries with `member: type_argument` are `quire.op.quantity.convert`, `quire.op.ieee.to_float32`, ... and `quire.op.collection.convert`. The five other `result: member` entries are `quire.op.record.project` (`field`), `quire.op.tuple.project` (`position`), `quire.op.collection.index` (`element`), `quire.op.model.navigate` (`relationship_end`) and `quire.op.model.dispatch_call` (`operation`)."
 bindings: []
 ```
 

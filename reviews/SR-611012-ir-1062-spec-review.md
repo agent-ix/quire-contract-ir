@@ -31,7 +31,7 @@ Reviewed the two added FR-068 and TC-463 matrix rows in PR #616. Both retain all
 | FR-068-AC-5 | examined | Selected wrong-kind protocol clause owner edge. |
 | TC-463 | examined | Test case named and summarized without claiming external authored fixture evidence. |
 
-The changed matrix rows are status statements, not new or edited FR/NFR/StR requirement statements; EARS analysis does not apply. The diff adds no dependency edge or domain-object definition, so other spec sub-analyses do not apply. `quire validate --scope. spec/checked_package/matrix/tests.md` passed.
+The changed matrix rows are status statements, not new or edited FR/NFR/StR requirement statements; EARS analysis does not apply. The diff adds no dependency edge or domain-object definition, so other spec sub-analyses do not apply. `quire validate --scope . spec/checked_package/matrix/tests.md` passed.
 
 ## Findings
 

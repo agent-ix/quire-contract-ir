@@ -36,7 +36,7 @@ Ticket IR-1032. Wire-first refusal and preserved graph cases match QSpec FR-322-
 ## Evidence
 
 - The PR changes one FR document and adds a QSpec FR-322-AC-139 reference; all earlier criteria remain.
-- `quire validate --scope. spec/checked_package/functional/FR-063-dimension-equivalence-node.md` passed.
+- `quire validate --scope . spec/checked_package/functional/FR-063-dimension-equivalence-node.md` passed.
 - Focused `quire properties --criteria` classified 6 criteria; `git diff --check` passed.
 - QSpec TC-280 MU-23 and MU-24 cover dimension-equivalence graph and wire mutations. The other four schema mutations are listed only in QSpec `node-identity-vectors.json` and FR-322-AC-139.
 
@@ -50,7 +50,7 @@ Ticket IR-1032. Wire-first refusal and preserved graph cases match QSpec FR-322-
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, AC-5 names QSpec FR-322-AC-139 node-identity-vectors.json for the four cross-form mutations and the dependency paragraph separates those vectors from TC-280. All four refusal cases remain. |
+| FND-001 | fixed | In the reviewed PR, AC-5 names QSpec FR-322-AC-139 node-identity-vectors.json for the four cross-form mutations and the dependency paragraph separates those vectors from TC-280. All four refusal cases remain. |
 | FND-002 | still-open | The first AC-5 sentence still attributes negative denominator to TC-280, where MU-24 has no such mutation. The requirement is in QSpec FR-322-AC-139. |
 | FND-002 | fixed | Round 2: AC-5 now cites governing QSpec FR-322-AC-139 for the full absent/zero/negative numerator-or-denominator wire refusal set. The negative-denominator case and every other refusal remain. |
 

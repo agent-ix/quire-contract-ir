@@ -34,7 +34,7 @@ Further tests cover the least key among offenders (`both`), the cyclic chain, an
 also raise.
 
 AC-8 is unchanged and still backed by TC-052. Adding `Unit`/`CompoundUnit` to
-`requires_bound` breaks TC-052, which is the intended guard against folding a quantity
+`requires_bound()` breaks TC-052, which is the intended guard against folding a quantity
 into the eight forms.
 
 The new tests live in `checked_package_v2_require_bounds.rs`. That file already holds 9
@@ -45,8 +45,7 @@ AC-73. The placement fits.
 QSL agreement. QSL FR-097-AC-2 says a quantity's domain takes no finite bound. FR-097-AC-6
 requires IR to raise exactly where QSL's extent is Unbounded. QSL's TC-440 suite was run
 against this head with a `--config patch`. All six `extent_agreement` tests pass with
-`--include-ignored`, including the ignored Measure test. Measure fails against IR main
-, so this PR is what closes the IR side. The per-application agreement (a constant
+`--include-ignored`, including the ignored Measure test. Measure fails against IR main, so this PR is what closes the IR side. The per-application agreement (a constant
 quantity application lowers) still passes.
 
 Matrix. The FR-038 row moves AC-73 into "AC-70 through AC-73 implemented", deletes the
@@ -69,7 +68,7 @@ one explicit `recursion_group`, and the fixture's `loop_a`/`loop_b` is admitted.
 under `require_bounds`, as it did on main. Ending the walk without a quantity is safe.
 Every node in a cycle is a `bounded_domain` with exactly one `semantic_type`, so no `unit`
 or `compound_unit` lies on it and no quantity is missed. Termination is guaranteed by the
-`closure.len` bound.
+`closure.len()` bound.
 
 ## Findings
 
@@ -86,8 +85,7 @@ edge cases where the code's choice is safe.
 
 ## Dispositions
 
-Round 1, on main
-.
+Round 1, on main.
 
 FR-038's quantity paragraph now says: "The base chain continues through every
 `bounded_domain` form other than `model_population`; a chain that returns to a domain
@@ -104,6 +102,6 @@ backs the cycle clause.
 The sentence is a clarification raised by review and adds no criterion. Matrix and the
 TC-050 flip are as in the review pass. No new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

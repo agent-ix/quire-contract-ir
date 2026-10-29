@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-800, PR quire-contract-ir#405. Code review with the rust-review lane folded in, scoped to `git diff origin/main...`. Examined the native String, UUID and Timestamp forms across the V2 vocabularies, structural/derived-key/identity/lowering tables, model member mapping, the literal payload pass and the text-profile String guard in `operations.rs`, the three test files, and the single `quire-verification-contracts` Cargo.lock entry ( to, whose only catalog change adds the three families to `families`, `any_value` and `any_term` and the six `eq`/`ne` entries). Criteria examined: FR-038-AC-242, FR-038-AC-243, FR-038-AC-244, FR-038-AC-245.
+Ticket IR-800, PR quire-contract-ir#405. Code review with the rust-review lane folded in, scoped to `git diff origin/main...HEAD`. Examined the native String, UUID and Timestamp forms across the V2 vocabularies, structural/derived-key/identity/lowering tables, model member mapping, the literal payload pass and the text-profile String guard in `operations.rs`, the three test files, and the single `quire-verification-contracts` Cargo.lock entry (updated dependency, whose only catalog change adds the three families to `families`, `any_value` and `any_term` and the six `eq`/`ne` entries). Criteria examined: FR-038-AC-242, FR-038-AC-243, FR-038-AC-244, FR-038-AC-245.
 
 ## Verdict
 
@@ -25,7 +25,7 @@ Ticket IR-800, PR quire-contract-ir#405. Code review with the rust-review lane f
 
 ## Checks
 
-- FND-001: without the guard, `quire.op.text.eq(integer, string)` would fail the operand step with `ill_typed`/`operator-ineligible` at `/arguments/0`. It now refuses `invalid_package`/`operation-mode-type-mismatch` at `/operation/mode/value`, because the guard sees the String argument at position 1 first. A three-argument `text.eq` that includes a String refuses the same way, not with the arity refusal at `/arguments`. AC-244 names only the single-defect outcome. Either specify that the guard takes precedence over the operand step, or move the guard after the arity check and run it over `arguments[..entry.operands.len]`.
+- FND-001: without the guard, `quire.op.text.eq(integer, string)` would fail the operand step with `ill_typed`/`operator-ineligible` at `/arguments/0`. It now refuses `invalid_package`/`operation-mode-type-mismatch` at `/operation/mode/value`, because the guard sees the String argument at position 1 first. A three-argument `text.eq` that includes a String refuses the same way, not with the arity refusal at `/arguments`. AC-244 names only the single-defect outcome. Either specify that the guard takes precedence over the operand step, or move the guard after the arity check and run it over `arguments[..entry.operands.len()]`.
 - FND-002: before this change, a fixed-arity text-profile entry resolved at most two argument families, and only after arity passed. The guard now runs `operand_type_node` and `resolve_family` over all N wire arguments, without charging the meter. `resolve_family` follows bounded-domain chains with no length limit, so the unmetered work is N times L, bounded only by the byte and node ceilings. The variadic `rest` loop in `check_operands` already does the same, which is why this is low. Fix: run the guard after arity, as in FND-001, or charge the meter for the walk.
 - FND-003: `literal_defect` pushes only String, UUID and Timestamp kinds into `native`, then matches on `LiteralKind` again with an `unreachable!` arm. If the push filter and the match ever drift apart, the reader panics instead of refusing. Record a closed `NativeLiteral { String, Uuid, Timestamp }` value, or the validator itself, when pushing, so the second match is exhaustive and cannot panic. `lossless.rs` already uses `unreachable!` in a similar way, so this is a style point, not a reachable defect.
 - Cargo.lock: the only change is the `quire-verification-contracts` source line.
@@ -34,8 +34,8 @@ Ticket IR-800, PR quire-contract-ir#405. Code review with the rust-review lane f
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: the String mode refusal moved into check_operands, after the arity check and the per-position family loop; a different-family operand or an arity defect now wins (test text_comparison_checks_arity_and_other_families_before_string_mode) |
-| FND-002 | fixed |: the separate pre-arity walk is gone; the String flag reuses the argument_family lookups that check_operands already makes, after arity |
-| FND-003 | fixed |: validity is computed with an exhaustive match while walking the terms (non-native kinds give None), and the deferred loop only reads (bool, path); no unreachable! arm remains |
+| FND-001 | fixed | the String mode refusal moved into check_operands, after the arity check and the per-position family loop; a different-family operand or an arity defect now wins (test text_comparison_checks_arity_and_other_families_before_string_mode) |
+| FND-002 | fixed | the separate pre-arity walk is gone; the String flag reuses the argument_family lookups that check_operands already makes, after arity |
+| FND-003 | fixed | validity is computed with an exhaustive match while walking the terms (non-native kinds give None), and the deferred loop only reads (bool, path); no unreachable! arm remains |

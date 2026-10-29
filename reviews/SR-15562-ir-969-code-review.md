@@ -31,7 +31,7 @@ Inspected ownership and borrowing of typed terms, fallible decoding and refusal 
 
 ## Head confirmation
 
-The.. delta only changes the structural unit test to decode three JSON fixtures into `CheckedTerm` before calling `application_dependencies`. It leaves the production paths and the code finding unchanged. `git diff --check` on the delta passed.
+The PR delta only changes the structural unit test to decode three JSON fixtures into `CheckedTerm` before calling `application_dependencies`. It leaves the production paths and the code finding unchanged. `git diff --check` on the delta passed.
 
 ## New findings (disposition pass 1)
 
@@ -45,18 +45,18 @@ The typed `parameter_defect` calls `typed_parameter_binding` during V2 structura
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the raw anchor, state-clause, union-type and union-value readers are removed. State, union operations/leaf walks, and comparison lookup now use retained typed terms. |
+| FND-001 | fixed | In the reviewed PR, the raw anchor, state-clause, union-type and union-value readers are removed. State, union operations/leaf walks, and comparison lookup now use retained typed terms. |
 | FND-002 | still-open | The raw `parameter_binding` remains in use by `CheckedPackageV2::parameter_declaration`, beside the new typed structural reader. |
 
 ## Narrow review evidence
 
-Reviewed `git diff..` (five files); diff check passed. The changed `state` and `operations` consumers receive the already decoded `terms` vector; the admitted package accessor reads its retained vector. No aggregate gate was run in this reviewer lane.
+Reviewed `git diff origin/main...HEAD` (five files); diff check passed. The changed `state` and `operations` consumers receive the already decoded `terms` vector; the admitted package accessor reads its retained vector. No aggregate gate was run in this reviewer lane.
 
 ## Dispositions — round 2
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed |, `parameter_declaration` reads `self.terms` and calls the single `typed_parameter_binding` owner. The raw `parameter_binding` and its raw literal helper are removed. The retained-term mutation test and synchronized malformed-body controls exercise the new accessor path. |
+| FND-002 | fixed | In the reviewed PR, `parameter_declaration` reads `self.terms` and calls the single `typed_parameter_binding` owner. The raw `parameter_binding` and its raw literal helper are removed. The retained-term mutation test and synchronized malformed-body controls exercise the new accessor path. |
 
 ## Current verdict
 

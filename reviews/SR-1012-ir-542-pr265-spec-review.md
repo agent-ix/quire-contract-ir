@@ -58,10 +58,10 @@ FND-003 are one-line fixes.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir, the delta.. only. `make spec` was run in a detached throwaway worktree: validate passes, 1 grammar finding (FR-014, the baseline), strict coverage 23 unbacked and 0 contradicted. `git diff --check` is clean.
+Round 1, reviewed at agent-ix/quire-contract-ir, the PR delta only. `make spec` was run in a detached throwaway worktree: validate passes, 1 grammar finding (FR-014, the baseline), strict coverage 23 unbacked and 0 contradicted. `git diff --check` is clean.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: "a number whose exact value its RFC 8785 encoding loses", in FR-038 l.233, the paragraph, TC-048 and the matrix row; the PR title is patched to match; no "cannot hold exactly" is left in spec/ |
-| FND-002 | fixed |: AC-97 now reads "…unchanged and admitted, while `9007199254740992.5` … refuses `inexact-number`" |
-| FND-003 | fixed |: `references` edges to ix://agent-ix/quire-specification/FR-271 and FR-272 added to the frontmatter |
+| FND-001 | fixed | "a number whose exact value its RFC 8785 encoding loses", in FR-038 l.233, the paragraph, TC-048 and the matrix row; the PR title is patched to match; no "cannot hold exactly" is left in spec/ |
+| FND-002 | fixed | AC-97 now reads "…unchanged and admitted, while `9007199254740992.5` … refuses `inexact-number`" |
+| FND-003 | fixed | `references` edges to ix://agent-ix/quire-specification/FR-271 and FR-272 added to the frontmatter |

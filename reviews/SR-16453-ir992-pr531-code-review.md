@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-992. Exact reviewed on. QSpec #425. This review covers only the PR diff. Full timed semantics remain IR-997. No Cargo aggregate or Kani gate was run by the reviewer.
+Ticket: IR-992. Reviewed the PR against QSpec #425. This review covers only the PR diff. Full timed semantics remain IR-997. No Cargo aggregate or Kani gate was run by the reviewer.
 
 ## Scope examined
 

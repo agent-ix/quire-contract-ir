@@ -16,7 +16,7 @@ Ticket: IR-486. The PR rewrites the "Operation leaves" prose of FR-038. The know
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | The prose does not list three remaining deviations from QSpec. (1) A text leaf whose type pins no `text_profile` is admitted; the reference refuses it `operator-ineligible`. (2) A leaf with no `mode`, or a mode of another kind, is admitted; the reference refuses `operation-mode-mismatch`. "The mode kind vocabulary... not checked" does not clearly cover an absent mode. (3) A compared type that does not resolve (an untyped first operand), or a non-set `result_inner` result, skips the leaf comparison. The reference refuses the first `operator-ineligible` and expects `[]` for the second. A reader of FR-038 would take the leaf rule as complete apart from float leaves and deep mode pins | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:494-518 |
+| FND-001 | medium | The prose does not list three remaining deviations from QSpec. (1) A text leaf whose type pins no `text_profile` is admitted; the reference refuses it `operator-ineligible`. (2) A leaf with no `mode`, or a mode of another kind, is admitted; the reference refuses `operation-mode-mismatch`. "The mode kind vocabulary ... not checked" does not clearly cover an absent mode. (3) A compared type that does not resolve (an untyped first operand), or a non-set `result_inner` result, skips the leaf comparison. The reference refuses the first `operator-ineligible` and expects `[]` for the second. A reader of FR-038 would take the leaf rule as complete apart from float leaves and deep mode pins | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:494-518 |
 | FND-002 | low | "Deriving them costs the supplied leaves times the nesting depth" understates the cost. The derivation visits every child of each composite on a leaf's path, including zero-count siblings, so the cost is leaves times depth times width. The visits are charged to the meter, so only the wording is wrong | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:506-508 |
 
 ## Verdict
@@ -27,7 +27,7 @@ The spec change is sound and honest about the float and deep-mode limits, but in
 
 Reviewed at agent-ix/quire-contract-ir.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Engine check `quire validate --scope. <FR-038> <TC-048> --summary`: "2/2 docs grammar-clean (100%); 0 grammar finding(s)". Semantic review of the nine new requirement paragraphs found no EARS defect that would change what gets built. Refusals are stated in FR-038's established indicative dialect, and every new `SHALL` has a named subject.
+Engine check `quire validate --scope . <FR-038> <TC-048> --summary`: "2/2 docs grammar-clean (100%); 0 grammar finding(s)". Semantic review of the nine new requirement paragraphs found no EARS defect that would change what gets built. Refusals are stated in FR-038's established indicative dialect, and every new `SHALL` has a named subject.
 
 Ticket: IR-661. Method: `spec-review/spec-ears-analysis`. Reviewer model `claude-opus-5-5`, run `236a8098-415e-43ce-aa4b-9a892aa7e251`.
 

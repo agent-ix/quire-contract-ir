@@ -45,16 +45,16 @@ The full CI command was not re-run. No finding needed it.
 
 ## Examined criteria
 
-- FR-035-AC-11 (examined): "... carrying the exhausted `limit_kind`, selected `limit`, and `consumed` amount at the failed charge. `path` is absent for bytes, `/semantic_graph/nodes` for nodes, `/semantic_graph/nodes/<i>/dependencies` for edges, and the failing source-map value for occurrences. For work it is `/semantic_graph/nodes/<i>/body` when value validation stops, or the failed-charge pointer reported by reference validation... The work count and occurrence pointer follow AC-15 and AC-16."
-- FR-035-AC-15 (examined): "... admits when `limits.work` equals the independently counted total visits across both passes and returns `Incomplete` when it is one less... A limit that fits each pass separately but is below their combined count also returns `Incomplete`, never `Admitted`; no second meter restarts at zero."
-- FR-035-AC-16 (examined): "... a limit one below the independently counted combined occurrence and region charges returns `Incomplete` with `limit_kind = Occurrences`, the selected limit, `consumed` equal to the count at the first failed charge, and `path` naming the particular occurrence value... or its `/regions/<k>` member... A limit equal to that total admits; a stop does not report only `/source_map`."
-- TC-047 (examined): the pinned `mixed_fixture` numbers: value pass 7 and reference pass 20 (27 in total); work stops at 7, 20 and 26; occurrence and region charges total 18, stopping at 0 and 17 and at the first `requested_items` occurrence.
+- FR-035-AC-11 (examined): "... carrying the exhausted `limit_kind`, selected `limit`, and `consumed` amount at the failed charge. `path` is absent for bytes, `/semantic_graph/nodes` for nodes, `/semantic_graph/nodes/<i>/dependencies` for edges, and the failing source-map value for occurrences. For work it is `/semantic_graph/nodes/<i>/body` when value validation stops, or the failed-charge pointer reported by reference validation ... The work count and occurrence pointer follow AC-15 and AC-16."
+- FR-035-AC-15 (examined): "... admits when `limits.work` equals the independently counted total visits across both passes and returns `Incomplete` when it is one less ... A limit that fits each pass separately but is below their combined count also returns `Incomplete`, never `Admitted`; no second meter restarts at zero."
+- FR-035-AC-16 (examined): "... a limit one below the independently counted combined occurrence and region charges returns `Incomplete` with `limit_kind = Occurrences`, the selected limit, `consumed` equal to the count at the first failed charge, and `path` naming the particular occurrence value ... or its `/regions/<k>` member ... A limit equal to that total admits; a stop does not report only `/source_map`."
+- TC-047 (examined): the pinned `mixed_fixture()` numbers: value pass 7 and reference pass 20 (27 in total); work stops at 7, 20 and 26; occurrence and region charges total 18, stopping at 0 and 17 and at the first `requested_items` occurrence.
 
 ## Findings
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | The occurrence and region charges repeat the same increment, compare and `ValidationFailure::incomplete(Occurrences...)` block, differing only in the pointer. Fix: a small local closure or helper `charge(&mut count, at)` called once for the occurrence and once per region, so the two charge sites cannot drift | crates/quire-contract-model/src/checked_package/v2/contract_package.rs:1767-1786 |
+| FND-001 | low | The occurrence and region charges repeat the same increment, compare and `ValidationFailure::incomplete(Occurrences, ...)` block, differing only in the pointer. Fix: a small local closure or helper `charge(&mut count, at)` called once for the occurrence and once per region, so the two charge sites cannot drift | crates/quire-contract-model/src/checked_package/v2/contract_package.rs:1767-1786 |
 
 ## Verdict
 

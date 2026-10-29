@@ -65,6 +65,6 @@ follow-up.
 
 Disposition pass 1. Strict coverage on the head shows 325/360 rows backed against main's 322/360, the +3 being FR-038-AC-183/184/185. There are 31 unbacked rows on both, and 0 contradicted. Each changed spec document validates on its own: FR-038, TC-048, TC-226 and tests.md. IR-651's FR-038-AC-177 through AC-182 rows are unchanged.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fix commit "IR-680: close review findings on typed key evidence" (short id in the Linear marker). The FR-038-AC-183/184/185 rows now read "Implemented and verified by TC-048 [and TC-226] (IR-680 code)". The TC-048 procedure and both TC-226 passages name the tests that actually run, and the tests.md FR-038 row marks AC-183 through AC-185 implemented. All of this matches the tagged tests. The fix introduced FND-002. |

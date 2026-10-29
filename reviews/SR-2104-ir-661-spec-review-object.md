@@ -53,7 +53,7 @@ Ticket: IR-661. Method: `spec-review/spec-object-review`. Reviewer model `claude
 
 Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The exact-endpoint receiver restriction is removed. A receiver qualifies through the endpoint's effective view under quire.model.complete/v1 and FR-152, so an inherited end admits on a subtype and an unrelated receiver still refuses. TC-048 step 6 adds PriorityOrder/PreferredCustomer cases. |
 | FND-002 | fixed | `references` edges are added for QSpec FR-152, FR-154 and FR-043 and FCD FR-094 and FR-095. All targets exist at the merged revisions and none has a back-edge into quire-contract-ir; the dependency analysis is SR-2107. |

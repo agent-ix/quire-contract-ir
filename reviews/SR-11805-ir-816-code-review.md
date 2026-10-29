@@ -3,7 +3,7 @@ id: SR-11805
 title: "IR-816 receiver-scoped V2 frame reader code review (with Rust review)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #416 diff origin/main...: crates/quire-contract-model/src/checked_package/v2/frame.rs, crates/quire-contract-model/src/checked_package/v2/state.rs, tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_abstraction_relation.rs, tests/it/checked_package_v2_recursive_leaves.rs, tests/it/checked_package_v2_union.rs, tests/it/support/checked_package.rs"
+scope: "agent-ix/quire-contract-ir; PR #416 diff origin/main...HEAD: crates/quire-contract-model/src/checked_package/v2/frame.rs, crates/quire-contract-model/src/checked_package/v2/state.rs, tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_abstraction_relation.rs, tests/it/checked_package_v2_recursive_leaves.rs, tests/it/checked_package_v2_union.rs, tests/it/support/checked_package.rs"
 review_set: subset
 ---
 
@@ -30,7 +30,7 @@ Focused gates, run with `CARGO_TARGET_DIR` set to the reviewed worktree's own `t
 What holds:
 
 - **Four members, no fallback.** `read_frame_body` requires exactly `term`, `modifies`, `creates`, `deletes` and `deletes_scoped` (frame.rs:131-136). A body in the old three-member shape refuses `invalid_semantic_graph` at `body`. Nothing reads it as an empty `deletes_scoped`. The `deletes_scoped_optional` mutant is killed.
-- **Typed variants.** `FieldScope { EveryObject, Receiver }` and `DeletesScopedEntry { Receiver, Parameter { name } }` are typed enums with derived `Ord`. Declaration order gives `every-object` before `receiver` and the receiver entry before parameter entries. `Box<str>` compares names by UTF-8 bytes. A wire scope other than the two spellings refuses (`_ => return Err(invalid)`). No wildcard arm maps to a value, and the `wildcard_scope_default` mutant is killed. The relationship/field `match` in `order_key` is exhaustive. A relationship entry's order key carries an empty name and `None` scope.
+- **Typed variants.** `FieldScope { EveryObject, Receiver }` and `DeletesScopedEntry { Receiver, Parameter { name } }` are typed enums with derived `Ord`. Declaration order gives `every-object` before `receiver` and the receiver entry before parameter entries. `Box<str>` compares names by UTF-8 bytes. A wire scope other than the two spellings refuses (`_ => return Err(invalid())`). No wildcard arm maps to a value, and the `wildcard_scope_default` mutant is killed. The relationship/field `match` in `order_key` is exhaustive. A relationship entry's order key carries an empty name and `None` scope.
 - **Validation order.** Shape refusals come from the per-node body loop, so they precede the frame step. A changed `scope` or `deletes_scoped` under an old key refuses `stale-node-key`. In the frame step, the meaning-join defects (`min_by` rank) come first, then the conflict scan, then the canonical-order check. The state step re-checks scoped deletes per anchor, after that anchor's context, frame, type and operation joins. Mutants `conflict_after_order` and `conflict_before_meaning` are killed.
 - **Conflict locus.** For one pair, the path is the `receiver` entry's index in both listings (TC-1043 X8 and X9 shapes), and the locus is the declaring node key. The other entry is not carried. Mutants `conflict_at_other_entry` and `conflict_at_later_in_array` are killed.
 - **State step.** The parameter check needs a named slot whose type is `MemberType::Reference`. Path and locus are the frame node (state.rs:299-311). The check is skipped when `resolve_operation` returns `Ok(None)`, the unresolved case of AC-30. The `frames` set is gone, so a shared frame is admitted per anchor, and a duplicate (context, operation) pair still refuses `ambiguous-name`. Mutants `shared_frame_ambiguous`, `state_check_unresolved_op` and `first_anchor_only` are killed.
@@ -41,7 +41,7 @@ What holds:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | The conflict scan returns the first conflicting pair it finds in array order, not the one with the least order key. FR-340 precedence rule 3 and FR-040 ("remaining ties within one member break by ascending order key"; "regardless of... where in its array an entry sits") require the least. Reproduced with a throwaway probe test: `modifies` `[total/every-object, total/receiver, balance/every-object, balance/receiver]` refuses at `/modifies/1` (total), where the spec requires `/modifies/3` (balance). The canonical listing reports balance. The reported diagnostic therefore depends on the listing. | crates/quire-contract-model/src/checked_package/v2/frame.rs:517-543 |
+| FND-001 | medium | The conflict scan returns the first conflicting pair it finds in array order, not the one with the least order key. FR-340 precedence rule 3 and FR-040 ("remaining ties within one member break by ascending order key"; "regardless of ... where in its array an entry sits") require the least. Reproduced with a throwaway probe test: `modifies` `[total/every-object, total/receiver, balance/every-object, balance/receiver]` refuses at `/modifies/1` (total), where the spec requires `/modifies/3` (balance). The canonical listing reports balance. The reported diagnostic therefore depends on the listing. | crates/quire-contract-model/src/checked_package/v2/frame.rs:517-543 |
 | FND-002 | low | `let DeletesScopedEntry::Parameter { name } = entry else { continue; };` is a non-exhaustive refutable pattern over `DeletesScopedEntry`. Any variant other than `Parameter`, including one added later, silently skips the FR-342 check-5 test instead of failing to compile. Use an exhaustive `match` with an explicit `DeletesScopedEntry::Receiver => {}` arm, as the brief's no-wildcard rule requires. | crates/quire-contract-model/src/checked_package/v2/state.rs:295-298 |
 | FND-003 | low | The state-step scoped-deletes check re-parses the frame body once per anchor and discards its work count (`let (frame_body, _) = read_frame_body(...)`). It then scans `entries × parameters` with nothing charged to the `WorkMeter`. FR-038 requires each node validation to be charged before it proceeds. The work is bounded by package size, but it is uncharged and grows as anchors × frame size. | crates/quire-contract-model/src/checked_package/v2/state.rs:294-305 |
 | FND-004 | low | The conflict refusal hard-codes the path `crate::checked_package::shared::CheckedPackageRefusalCause::ConflictingBinding` inline, and lines 536-537 run to 103 and 109 columns. rustfmt gives up on the expression silently, so `fmt-check` passes over it. Import the cause, as state.rs does. The `scope` wire spellings are also matched as inline string literals, unlike `FrameEntryKind::from_wire`. | crates/quire-contract-model/src/checked_package/v2/frame.rs:139-143, 534-539 |
@@ -98,12 +98,12 @@ scope:
 
 ## Dispositions
 
-Round 1, checked against fix on top of. Gates were run in a throwaway worktree, which has since been removed:
+Round 1, checked the fix atop the reviewed PR. Gates were run in a throwaway worktree, which has since been removed:
 
 - `cargo fmt --check`: clean.
 - `cargo clippy --workspace --all-targets -D warnings`: clean.
 - `cargo test -p quire-contract-model --lib checked_package::v2`: 170 passed.
-- `cargo test --test it` with `QUIRE_SPEC_LANGUAGE_DIR` set to a detached QSL origin/main worktree (, since removed): 608 passed, 0 failed, 1 ignored.
+- `cargo test --test it` with `QUIRE_SPEC_LANGUAGE_DIR` set to a detached QSL origin/main worktree ( since removed): 608 passed, 0 failed, 1 ignored.
 
 Mutants re-run, all killed:
 
@@ -117,5 +117,5 @@ No line in frame.rs or state.rs exceeds 100 columns.
 | --- | --- | --- |
 | FND-001 | fixed | frame.rs:528-570 keeps the least (declaration digest, name) conflict and reports its receiver index. `tc_056_scoped_frame_order_conflict_and_stale_key` asserts `/modifies/3` for [total/eo, total/rcv, balance/eo, balance/rcv]. The array-order and greatest-key mutants are killed. |
 | FND-002 | fixed | state.rs:288-291 is now an exhaustive `match entry { DeletesScopedEntry::Receiver => continue, DeletesScopedEntry::Parameter { name } => name }`. |
-| FND-003 | fixed | state.rs:285-286 charges the re-parse work at the frame body, and:294 charges one unit per scanned parameter. `tc_056_scoped_delete_parameter_scan_charges_validation_work` pins the exact boundary: incomplete at 292, refused at 293. The no-charge mutant is killed. |
+| FND-003 | fixed | state.rs:285-286 charges the re-parse work at the frame body, and :294 charges one unit per scanned parameter. `tc_056_scoped_delete_parameter_scan_charges_validation_work` pins the exact boundary: incomplete at 292, refused at 293. The no-charge mutant is killed. |
 | FND-004 | fixed | `CheckedPackageRefusalCause` is imported. `FieldScope::from_wire` replaces the inline literals (frame.rs:76-84, 270-274), and no line exceeds 100 columns. |

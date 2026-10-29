@@ -40,12 +40,12 @@ Boundaries sound; one low finding on stale or unsupported cross-repo claims.
 
 Round 1, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | still-open | The registry claim and the code list are fixed, and the path is now right (`src/kani/classify.rs`), but the new citation names the function `classify_run`, which does not exist at codegen origin/main; the comparison at `classify.rs:225` is inside `classify_success`. Name `classify_success` or drop the function name |
 
 Round 2, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

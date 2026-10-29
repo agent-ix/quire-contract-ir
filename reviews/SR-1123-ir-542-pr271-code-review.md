@@ -3,7 +3,7 @@ id: SR-1123
 title: "code review of PR 271: inexact-integer and inexact-number causes, Writer::number text scan, float_roundtrip (IR-542)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; git diff origin/main... (, 11 files: crates/quire-contract-model/Cargo.toml, crates/quire-contract-model/src/checked_package/{common.rs,shared.rs,v2/mod.rs,v2/model_members.rs}, tests/it/checked_package_v2_{model_members,canonical_encoding,temporal}.rs, spec/checked_package/matrix/{tests.md,TC-048-checked-package-v2-strict-reader.md}, spec/tests.md)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD ( 11 files: crates/quire-contract-model/Cargo.toml, crates/quire-contract-model/src/checked_package/{common.rs,shared.rs,v2/mod.rs,v2/model_members.rs}, tests/it/checked_package_v2_{model_members,canonical_encoding,temporal}.rs, spec/checked_package/matrix/{tests.md,TC-048-checked-package-v2-strict-reader.md}, spec/tests.md)"
 review_set: subset
 ---
 # SR-1123: code review of PR 271: inexact-integer and inexact-number causes, Writer::number text scan, float_roundtrip (IR-542)
@@ -33,8 +33,8 @@ The production change is correct and tightly scoped. The scan decides on the num
 
 ## Dispositions
 
-Round 1 was reviewed, which is one fix commit on. I reran the changed modules in a throwaway worktree, since removed. The model_members and canonical_encoding tests pass (34). make fmt-check and make lint pass. make spec stops at the baseline: grammar 1, strict 23 unbacked, 0 contradicted.
+Round 1 reviewed one fix commit on the PR. I reran the changed modules in a throwaway worktree, since removed. The model_members and canonical_encoding tests pass (34). make fmt-check and make lint pass. make spec stops at the baseline: grammar 1, strict 23 unbacked, 0 contradicted.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The comment now says the loop checks the build as a whole and does not fail if this crate's manifest drops the feature, because quire-canonical's `serde_json` feature also turns it on. It names the manifest assertion as the oracle for AC-111's declaration clause. |

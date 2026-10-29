@@ -25,14 +25,14 @@ Changes requested: two medium findings.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | Two measured claims are false. (a) "the key check re-derives exactly two families" leaves out model declaration node keys: owner recovery computes the `quire.structural-node/v1` ModelDeclarationNode key from each declaration and refuses `stale-node-key` on a mismatched fixed member (model_members.rs:257-280,:918). (b) "QSpec FR-322 publishes the nominal and application preimages and not this one" is wrong: FR-322 step 2 publishes the `quire.structural-node/v1` ModelDeclarationNode preimage (node-identity-preimage.schema.json, model-member-type-vectors.json), and step 4 says each anonymous node is keyed "exactly as QSL FR-092 and FR-094 key it". So QSpec delegates the anonymous preimage to QSL, which publishes it with golden vectors. Q1, Q2 and AC-130 therefore ask the wrong owner and the wrong vector source | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1752,:1770-1772,:1811-1823,:2454 |
-| FND-002 | medium | The new check's place in the first-refusal order is undefined. It runs in step 4 at the reading application's `operator-ineligible` check, but it reports `stale-node-key` at the read node. AC-127's "ascending node-id digest order" could mean the tampered node's digest or the order in which reading applications are visited. Its position against the stale-key stage, a stale application key and an `ill_typed` defect in another application is not stated, so two readers could report different first refusals | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1776-1795,:2451 |
+| FND-001 | medium | Two measured claims are false. (a) "the key check re-derives exactly two families" leaves out model declaration node keys: owner recovery computes the `quire.structural-node/v1` ModelDeclarationNode key from each declaration and refuses `stale-node-key` on a mismatched fixed member (model_members.rs:257-280, :918). (b) "QSpec FR-322 publishes the nominal and application preimages and not this one" is wrong: FR-322 step 2 publishes the `quire.structural-node/v1` ModelDeclarationNode preimage (node-identity-preimage.schema.json, model-member-type-vectors.json), and step 4 says each anonymous node is keyed "exactly as QSL FR-092 and FR-094 key it". So QSpec delegates the anonymous preimage to QSL, which publishes it with golden vectors. Q1, Q2 and AC-130 therefore ask the wrong owner and the wrong vector source | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1752, :1770-1772, :1811-1823, :2454 |
+| FND-002 | medium | The new check's place in the first-refusal order is undefined. It runs in step 4 at the reading application's `operator-ineligible` check, but it reports `stale-node-key` at the read node. AC-127's "ascending node-id digest order" could mean the tampered node's digest or the order in which reading applications are visited. Its position against the stale-key stage, a stale application key and an `ill_typed` defect in another application is not stated, so two readers could report different first refusals | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1776-1795, :2451 |
 
 ## Dispositions
 
 Round 1, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

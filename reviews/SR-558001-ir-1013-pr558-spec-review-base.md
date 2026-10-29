@@ -18,8 +18,7 @@ Ticket: IR-1013. Spec-only draft PR, frozen,
 existing FR, AC or TC is touched.
 
 Checked against the repo at that head, quire-spec-language origin/main,
-quire-specification origin/main (FR-341, FR-342), and CG drafts #572
-, #573  and #574 :
+quire-specification origin/main (FR-341, FR-342), and CG drafts #572, #573 and #574:
 
 - `quire_contract_model::ExecutionPoint` exists with exactly the four variants
   FR-058 names (`crates/quire-contract-model/src/identity.rs:937`). It is owned by

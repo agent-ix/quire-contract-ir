@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-778. Exact reviewed head:. The four-file spec diff is grammar clean and maintains typed outcome and matrix traces; TC-449 lacks an authentic producer event oracle.
+Ticket: IR-778. Reviewed the PR head. The four-file spec diff is grammar clean and maintains typed outcome and matrix traces; TC-449 lacks an authentic producer event oracle.
 
 ## Findings
 

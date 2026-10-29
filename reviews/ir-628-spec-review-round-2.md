@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-628. These are the new findings of disposition pass 2 over.. (one commit).
+Ticket: IR-628. These are the new findings of disposition pass 2 over the reviewed PR delta. (one commit).
 I re-measured the following.
 
 **Cost arithmetic (re-derived).** Under item 5, a chain whose types each declare one field and
@@ -23,7 +23,7 @@ k − 1 copied entries). The total is 1 + Σ_{k=2..N}(k + 1) = N(N+1)/2 + N − 
 | 1000 | 500,500 + 999 | 501,499 |
 | 1500 | 1,125,750 + 1,499 | 1,127,249 |
 
-The total for N = 1500 exceeds `bounded`'s work limit of 1,000,000
+The total for N = 1500 exceeds `bounded()`'s work limit of 1,000,000
 (`crates/quire-contract-model/src/checked_package/shared.rs:32-41`). I tried to falsify the AC-144
 numbers and could not. AC-143's 200-type document with 100 redefinitions charges on the order of
 10^4 to 10^5 units, so it is runnable.
@@ -52,13 +52,13 @@ Changes requested: one medium and two low new findings. Every SR-1564 finding is
 | --- | --- | --- | --- |
 | FND-001 | medium | Item 2 builds each object type's table "from its own fields and the tables of its declared supertypes, each declaration built once", but documents with cyclic supertypes are admitted today. `check_supertype` (`model_members.rs:1808-1817`) checks only that a supertype names an object of the document. No refusal row covers a cycle. `DomainModel::ancestors` carries a `reached` set for exactly this case (`model_members.rs:623-645`). For `A extends B, B extends A`, or `A extends A`, there is no build order: each table needs the other first. Item 5's charge and the retained table are then undefined, and a naive recursive build does not terminate. Say what the build does for a supertype cycle (for example, one table per strongly connected component, as `resolve` effectively computes today, charged per item 5 over the component), or refuse the cycle at step 1 (an admission change to flag in Q2), and add a cyclic-supertype row to AC-137 or AC-144. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2026 |
 | FND-002 | low | Item 3 says `resolve` selects the named member from the table "by no second walk of the declarations". Item 6 says a read's step 3 charge "shall stay as it is today". Today's charge is produced by the walk: ancestor pops, members per owner, redefinition pairs, and the per-call ancestor memo of each redefining owner (`model_members.rs:674-760`). The spec does not say how an unchanged count is obtained without that walk, for instance a per-type step 3 charge recorded when the table is built. An implementer would otherwise keep the walk (violating item 3) or change the count (violating item 6). | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2029, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2039 |
-| FND-003 | low | Item 2 carries two `shall` clauses ("shall build the table... and shall not re-walk the ancestors"), so "one shall per item" holds for 32 of the 33 items. Split it. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2026 |
+| FND-003 | low | Item 2 carries two `shall` clauses ("shall build the table ... and shall not re-walk the ancestors"), so "one shall per item" holds for 32 of the 33 items. Split it. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2026 |
 
 ## Dispositions
 
 Round 3, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

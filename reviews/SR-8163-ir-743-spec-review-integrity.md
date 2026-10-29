@@ -37,7 +37,7 @@ Review limited to the candidate diff and named acceptance units. Full gate is ow
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 

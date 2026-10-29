@@ -80,12 +80,12 @@ scope:
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: examined
-  excerpt: ' - target: ix://agent-ix/quire-contract-ir/FR-046'
+  excerpt: '  - target: ix://agent-ix/quire-contract-ir/FR-046'
   lines: '8'
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: examined
-  excerpt: ' type: verifies'
+  excerpt: '    type: verifies'
   lines: '9'
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
@@ -320,7 +320,7 @@ scope:
 - id: FR-046
   path: spec/model/functional/FR-046-derive-candidate-application-node-identity.md
   role: examined
-  excerpt: result above. `CandidateApplicationNodeId::candidate_node_id` returns an
+  excerpt: result above. `CandidateApplicationNodeId::candidate_node_id()` returns an
   lines: '58'
 - id: FR-046
   path: spec/model/functional/FR-046-derive-candidate-application-node-identity.md
@@ -805,12 +805,12 @@ scope:
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
   role: examined
-  excerpt: ' - target: ix://agent-ix/quire-contract-ir/FR-046'
+  excerpt: '  - target: ix://agent-ix/quire-contract-ir/FR-046'
   lines: '8'
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
   role: examined
-  excerpt: ' type: verifies'
+  excerpt: '    type: verifies'
   lines: '9'
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
@@ -850,7 +850,7 @@ scope:
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
   role: examined
-  excerpt: obtains `CandidateApplicationNodeId::candidate_node_id` and exhaustively
+  excerpt: obtains `CandidateApplicationNodeId::candidate_node_id()` and exhaustively
   lines: '59'
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
@@ -954,7 +954,7 @@ scope:
 - id: FR-028
   path: spec/model/functional/FR-028-separate-cycle-free-contract-model.md
   role: context_only
-  excerpt: "\nThe Contract IR repository SHALL expose its stable semantic substrate only from a dependency-free `quire-contract-model` package, which the `quire-contract-ir` package consumes without re-exporting it, so the production Cargo graph remains acyclic, the root package depends on no crate from the agent-ix/quire-spec-language repository, and every model item has one import path.\n\n## Package architecture\n\nThe repository becomes one Cargo workspace with:\n\n- `quire-contract-model`: the existing package/requirement/clause, type,\n expression, definedness, canonicalization, identity, binding, limit,"
+  excerpt: "\nThe Contract IR repository SHALL expose its stable semantic substrate only from a dependency-free `quire-contract-model` package, which the `quire-contract-ir` package consumes without re-exporting it, so the production Cargo graph remains acyclic, the root package depends on no crate from the agent-ix/quire-spec-language repository, and every model item has one import path.\n\n## Package architecture\n\nThe repository becomes one Cargo workspace with:\n\n- `quire-contract-model`: the existing package/requirement/clause, type,\n  expression, definedness, canonicalization, identity, binding, limit,"
   lines: 16-24
 - id: StR-001
   path: spec/core/stakeholder/StR-001-authoritative-contract.md
@@ -989,22 +989,22 @@ scope:
 - id: crates/quire-contract-model/src/checked_package/v2/operations.rs
   path: crates/quire-contract-model/src/checked_package/v2/operations.rs
   role: context_only
-  excerpt: "pub(super) fn validate_application_keys(\n nodes: &[CheckedSemanticNodeV2],\n index: &BTreeMap<&CheckedNodeId, usize>,\n meter: &mut WorkMeter,\n bytes: u64,\n) -> Result<, ValidationFailure> {\n // Each recursion group's members, in graph order.\n let mut groups: BTreeMap<&str, Vec<&CheckedNodeId>> = BTreeMap::new;\n for node in nodes {\n if let Some(label) = node.recursion_group.as_deref {\n groups.entry(label).or_default.push(&node.node_id);\n }\n }\n for (&node_id, &position) in index {\n let node = &nodes[position];\n if !is_appli"
+  excerpt: "pub(super) fn validate_application_keys(\n    nodes: &[CheckedSemanticNodeV2],\n    index: &BTreeMap<&CheckedNodeId, usize>,\n    meter: &mut WorkMeter,\n    bytes: u64,\n) -> Result<(), ValidationFailure> {\n    // Each recursion group's members, in graph order.\n    let mut groups: BTreeMap<&str, Vec<&CheckedNodeId>> = BTreeMap::new();\n    for node in nodes {\n        if let Some(label) = node.recursion_group.as_deref() {\n            groups.entry(label).or_default().push(&node.node_id);\n        }\n    }\n    for (&node_id, &position) in index {\n        let node = &nodes[position];\n        if !is_appli"
   lines: 132-181
 - id: crates/quire-contract-model/src/checked_package/v2/operations.rs
   path: crates/quire-contract-model/src/checked_package/v2/operations.rs
   role: context_only
-  excerpt: "fn group_references<'a>(term: &'a Value, group: &[&CheckedNodeId]) -> Cow<'a, Value> {\n if group.is_empty {\n return Cow::Borrowed(term);\n }\n // One copy of the body, rewritten in place by one visit of each of its\n // terms: no enclosing term is copied again at any level.\n let mut rewritten = term.clone;\n let ControlFlow::Continue() = walk(&mut GroupRewrite { group }, &mut rewritten);\n Cow::Owned(rewritten)\n}\n\n/// The walk of [`group_references`], over the terms of a copy of the body: each\n/// `reference` to a member of the recursion group becomes"
+  excerpt: "fn group_references<'a>(term: &'a Value, group: &[&CheckedNodeId]) -> Cow<'a, Value> {\n    if group.is_empty() {\n        return Cow::Borrowed(term);\n    }\n    // One copy of the body, rewritten in place by one visit of each of its\n    // terms: no enclosing term is copied again at any level.\n    let mut rewritten = term.clone();\n    let ControlFlow::Continue(()) = walk(&mut GroupRewrite { group }, &mut rewritten);\n    Cow::Owned(rewritten)\n}\n\n/// The walk of [`group_references`], over the terms of a copy of the body: each\n/// `reference` to a member of the recursion group becomes"
   lines: 224-236
 - id: crates/quire-contract-model/src/checked_package/v2/mod.rs
   path: crates/quire-contract-model/src/checked_package/v2/mod.rs
   role: context_only
-  excerpt: "/// A checked V2 semantic graph node.\n#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]\n#[serde(deny_unknown_fields)]\npub struct CheckedSemanticNodeV2 {\n /// Stable checked node identity.\n pub node_id: CheckedNodeId,\n /// Must be `quire.checked-semantic-graph/v2`.\n pub schema_version: Box<str>,\n /// Closed semantic family (see [`CheckedNodeTag`]).\n pub node_tag: Box<str>,\n /// Closed semantic form for the family.\n pub semantic_form: Box<str>,\n /// Checked semantic type identity.\n pub semantic_type: CheckedNodeId,\n /// Identity-based dependencies.\n "
+  excerpt: "/// A checked V2 semantic graph node.\n#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]\n#[serde(deny_unknown_fields)]\npub struct CheckedSemanticNodeV2 {\n    /// Stable checked node identity.\n    pub node_id: CheckedNodeId,\n    /// Must be `quire.checked-semantic-graph/v2`.\n    pub schema_version: Box<str>,\n    /// Closed semantic family (see [`CheckedNodeTag`]).\n    pub node_tag: Box<str>,\n    /// Closed semantic form for the family.\n    pub semantic_form: Box<str>,\n    /// Checked semantic type identity.\n    pub semantic_type: CheckedNodeId,\n    /// Identity-based dependencies.\n "
   lines: 118-150
 - id: crates/quire-contract-model/src/checked_package/shared.rs
   path: crates/quire-contract-model/src/checked_package/shared.rs
   role: context_only
-  excerpt: "\n/// A checked semantic graph node identity.\n#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]\n#[serde(deny_unknown_fields)]\npub struct CheckedNodeId {\n /// Must be `quire.checked-semantic-node/v1`.\n pub domain: Box<str>,\n /// Lowercase SHA-256 digest.\n pub digest: Box<str>,"
+  excerpt: "\n/// A checked semantic graph node identity.\n#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]\n#[serde(deny_unknown_fields)]\npub struct CheckedNodeId {\n    /// Must be `quire.checked-semantic-node/v1`.\n    pub domain: Box<str>,\n    /// Lowercase SHA-256 digest.\n    pub digest: Box<str>,"
   lines: 424-432
 findings: []
 bindings: []

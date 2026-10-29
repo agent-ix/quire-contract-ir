@@ -59,7 +59,7 @@ check (FND-001).
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | The surviving "early provenance check" mutant is not equivalent: no test checks FR-052-AC-3's conflicting-provenance disposition for a same-ID group in which one member's provenance source is foreign. Take one assertion ID with one relation and two provenances, one from `source` and one from a foreign source. At HEAD both members are rejected `ConflictingProvenance` and no row is accepted. With lines 1314-1315 removed, the census rejects only the foreign member, as `ForeignSource`, and accepts the other member as a correspondence row. This breaks AC-3: conflicting provenance would not get its named disposition, and a member of a conflicting group would enter accepted relations. The coder's claim that the later relation check still rejects holds only when every member passes the endpoint and source checks. A reviewer probe test kills the mutant; the branch's tests do not. Add that case to `absent_occurrence_and_same_id_provenance_conflict_never_enter_accepted_rows`. | crates/quire-contract-model/src/source_obligation.rs:1312-1318; tests/it/source_obligation.rs:1691-1733 |
+| FND-001 | medium | The surviving "early provenance check" mutant is not equivalent: no test checks FR-052-AC-3's conflicting-provenance disposition for a same-ID group in which one member's provenance source is foreign. Take one assertion ID with one relation and two provenances, one from `source()` and one from a foreign source. At HEAD both members are rejected `ConflictingProvenance` and no row is accepted. With lines 1314-1315 removed, the census rejects only the foreign member, as `ForeignSource`, and accepts the other member as a correspondence row. This breaks AC-3: conflicting provenance would not get its named disposition, and a member of a conflicting group would enter accepted relations. The coder's claim that the later relation check still rejects holds only when every member passes the endpoint and source checks. A reviewer probe test kills the mutant; the branch's tests do not. Add that case to `absent_occurrence_and_same_id_provenance_conflict_never_enter_accepted_rows`. | crates/quire-contract-model/src/source_obligation.rs:1312-1318; tests/it/source_obligation.rs:1691-1733 |
 | FND-002 | low | The PR adds FR-052-AC-3 to the `#[trace]` attribute of six tests, and FR-052-AC-1 to `tc_058`, but leaves each test's `/// Trace:` doc line unchanged. An example is `/// Trace: FR-052-AC-12, FR-052-AC-13` above `#[trace("FR-052-AC-12", "FR-052-AC-13", "FR-052-AC-3")]`. A reader who uses the doc line gets the wrong criterion set. The matrix reads only the attribute, so coverage is unaffected. | tests/it/source_obligation.rs:417,648,1478,1551,1599,1735; tests/it/public_interface.rs:186 |
 
 ## Verdict
@@ -86,7 +86,7 @@ The rest is sound:
 ## Dispositions
 
 Round 1. Checked against fix
-with `git diff..`, and with the mutant re-run on a throwaway
+with `git diff origin/main...HEAD`, and with the mutant re-run on a throwaway
 worktree at that commit. Checks run there:
 
 - fmt passed.
@@ -95,5 +95,5 @@ worktree at that commit. Checks run there:
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | `absent_occurrence_and_same_id_provenance_conflict_never_enter_accepted_rows` now adds the same-ID "mixed" case. One member has `source` provenance and the other a foreign provenance source. The test asserts two `ConflictingProvenance` rejections and no accepted rows. With source_obligation.rs:1314-1315 disabled again, that test now fails (18 passed, 1 failed), so the mutant is killed. |
+| FND-001 | fixed | `absent_occurrence_and_same_id_provenance_conflict_never_enter_accepted_rows` now adds the same-ID "mixed" case. One member has `source()` provenance and the other a foreign provenance source. The test asserts two `ConflictingProvenance` rejections and no accepted rows. With source_obligation.rs:1314-1315 disabled again, that test now fails (18 passed, 1 failed), so the mutant is killed. |
 | FND-002 | fixed | Every `/// Trace:` doc line on the retagged tests now lists the same ids as its `#[trace]` attribute, checked by a script over both files. Examples are `/// Trace: FR-052-AC-12, FR-052-AC-13, FR-052-AC-3` and `/// Trace: TC-058, FR-019-AC-5, FR-052-AC-1`. One pre-existing, unrelated doc line at tests/it/public_interface.rs:237 (FR-048, omits TC-058) is out of scope. |

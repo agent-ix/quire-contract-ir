@@ -11,9 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-532 (and its parent IR-476). This is a code review with the rust-review lane
-folded in. It covers `git diff origin/main...HEAD` at
-, base main
-(the merge base is main itself, so there is no drift).
+folded in. It covers `git diff origin/main...HEAD` against main (the merge base is main itself, so there is no drift).
 
 What was checked, and what holds:
 
@@ -60,7 +58,7 @@ SR-1135 for the matrix finding that does.
 ## Dispositions
 
 Round 1 (one fix commit on top of; main
-has not moved from, and GitHub reports MERGEABLE). The full `origin/main...HEAD` diff
+has not moved since the reviewed base, and GitHub reports MERGEABLE). The full `origin/main...HEAD` diff
 of `operations.rs` still changes only `///` and `#[trace(` lines, so no test body changed.
 66 tests and 66 trace attributes. The 66 `operations.rs` tests pass, and fmt-check is clean.
 
@@ -70,6 +68,6 @@ This matches the fixture and AC-44's clause, and the `rounding` wording is gone.
 
 No new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

@@ -58,14 +58,14 @@ re-measured and are true.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | high | FR-038-AC-142 (and TC-227's procedure) verify closedness by a source-text scan for `#[non_exhaustive]`, and verify that the five names appear in FR-019's Public items table and its inventory, which is a scan of spec text. Item 14 adds an inventory entry obligation. The installed spec-review checklist ("Hash / Digest / Pin Antipattern": no test case scans source or spec text; no inventory) makes any such hit high. The AC-142 compile fixtures already discharge the property: an exhaustive match with no wildcard, compiled from `tests/it` (an external crate), fails if an enum is `#[non_exhaustive]`, and a struct literal that must fail to compile proves the private fields. Remove the scan and table clauses. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2079, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2794, spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md:37 |
-| FND-002 | low | IR-628-Q1's rationale ("the key derivation can be refused by the encoder at the byte limit, which would make the accessor fallible per field") does not fit item 9: the `Reference` variant already carries an encoder-derived key (`element_type` derives it with `declaration_key(...).ok`, and `ModelOwners::new` has derived every such key under the same limit at admission). The question is open for the owner, but the stated reason against it is not the real trade-off. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2150 |
+| FND-002 | low | IR-628-Q1's rationale ("the key derivation can be refused by the encoder at the byte limit, which would make the accessor fallible per field") does not fit item 9: the `Reference` variant already carries an encoder-derived key (`element_type` derives it with `declaration_key(...).ok()`, and `ModelOwners::new` has derived every such key under the same limit at admission). The question is open for the owner, but the stated reason against it is not the real trade-off. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2150 |
 
 
 ## Dispositions
 
 Round 1, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

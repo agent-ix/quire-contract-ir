@@ -152,7 +152,7 @@ notices, which are the same at the head and at the base.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | commit "Close IR651 composite accessor review findings" |
 | FND-002 | fixed | commit "Close IR651 composite accessor review findings" |

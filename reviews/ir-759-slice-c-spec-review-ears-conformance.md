@@ -14,7 +14,7 @@ Ticket: IR-759. EARS conformance of the new Behavior statements and the singular
 
 ## Verdict
 
-One low finding. The new Behavior statements are ubiquitous EARS ('X shall...'); the numbered pipeline uses indicative 'is rejected' under a 'shall process... in these steps' lead-in, which is acceptable. FR-052's acceptance criteria are written as Given/observation tests, not EARS, throughout; the new ACs follow that local convention.
+One low finding. The new Behavior statements are ubiquitous EARS ('X shall ...'); the numbered pipeline uses indicative 'is rejected' under a 'shall process ... in these steps' lead-in, which is acceptable. FR-052's acceptance criteria are written as Given/observation tests, not EARS, throughout; the new ACs follow that local convention.
 
 ## Findings
 
@@ -41,11 +41,11 @@ scope:
 - id: FR-052#census-construction-rules
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: '### Census construction rules: `SourceObligationInput::new` shall take, in order, the selected `SourceIdentity`, an `Option<SourceCriterionSourceBinding>`, one `Option<SourceInventoryOutcome>` for each of the Quire, IR V2, QSL and `quire-code-rs` positions, and a `Vec<SourceCorrespondenceAssertion>`.... A binding conflicts when a `Criterion` row of the Quire outcome has an `obligation_declaration` different from the binding''s `obligation_scope`.... This definition of a conflicting binding is an IR reading pending owner confirmation (see Open questions).'
+  excerpt: '### Census construction rules: `SourceObligationInput::new` shall take, in order, the selected `SourceIdentity`, an `Option<SourceCriterionSourceBinding>`, one `Option<SourceInventoryOutcome>` for each of the Quire, IR V2, QSL and `quire-code-rs` positions, and a `Vec<SourceCorrespondenceAssertion>`. ... A binding conflicts when a `Criterion` row of the Quire outcome has an `obligation_declaration()` different from the binding''s `obligation_scope()`. ... This definition of a conflicting binding is an IR reading pending owner confirmation (see Open questions).'
 - id: FR-052#assertion-pipeline
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: 1. Exact duplicate assertions, equal in every field, collapse to one. 2. Assertions sharing one `SourceAssertionId` form a group.... `ConflictingRelation`... Otherwise... `ConflictingProvenance`. 3.... `ForeignSource` when its source or its provenance source differs from the selected source, then `DanglingCriterion`, `DanglingOccurrence` and `DanglingProductionSymbol`. 4. Remaining assertions with one criterion, occurrence and production function form one relation. When a relation holds more than one distinct provenance, every member is rejected with `ConflictingProvenance`. Otherwise the relation yields exactly one `SourceObligationRow`, whatever the number of assertion IDs that state it.
+  excerpt: 1. Exact duplicate assertions, equal in every field, collapse to one. 2. Assertions sharing one `SourceAssertionId` form a group. ... `ConflictingRelation` ... Otherwise ... `ConflictingProvenance`. 3. ... `ForeignSource` when its source or its provenance source differs from the selected source, then `DanglingCriterion`, `DanglingOccurrence` and `DanglingProductionSymbol`. 4. Remaining assertions with one criterion, occurrence and production function form one relation. When a relation holds more than one distinct provenance, every member is rejected with `ConflictingProvenance`. Otherwise the relation yields exactly one `SourceObligationRow`, whatever the number of assertion IDs that state it.
 ```
 
 ## Dispositions

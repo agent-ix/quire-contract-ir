@@ -10,8 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-347. Scope is `git diff origin/main...HEAD` at frozen head
-, merge. The Rust lane runs as its own
+Ticket: IR-347. Scope is `git diff origin/main...HEAD` at the reviewed PR head, before merge. The Rust lane runs as its own
 artifact (SR-17012), as the dispatch brief requests.
 
 Checks run by the reviewer at the frozen head, in the worktree's own `target/`:

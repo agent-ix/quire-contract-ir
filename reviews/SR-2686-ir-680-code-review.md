@@ -100,7 +100,7 @@ commit identity is recorded in the Linear marker only. A rebase check found no c
 change outside the fix commit. The downstream struct literals are still only the three
 spec-listed sites.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fix commit "IR-680: close review findings on typed key evidence" (short id in the Linear marker). `tc_048_derived_expected_keys_rekey_unreferenced_nodes_in_both_branches` now asserts `expected == &typed_node_id(&expected.digest)`, and `assert_self_type_control` does the same for all eight forms. `typed_node_id` builds its domain from the test-support literal `"quire.checked-semantic-node/v1"`, not from the crate constant, so the mutant `domain: "quire.checked-semantic-node/v0".into()` at the derived-key site now fails both tests. |
 | FND-002 | fixed | Same fix commit. Positional `new(..)` is replaced by `new(RefusalFields { .. })`, a `pub(crate)` named-field struct. All six former literal sites use named fields that map correctly. `expected_node_id` is set only by `stale_node_key`, and nothing public is added. |

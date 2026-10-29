@@ -10,8 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-529. Diff: `git diff origin/main...HEAD`. The merge base equals `origin/main`
-, so the base is current and GitHub reports
+Ticket: IR-529. Diff: `git diff origin/main...HEAD`. The merge base equals `origin/main`, so the base is current and GitHub reports
 the PR as MERGEABLE.
 
 I checked the amendment against two sources, independently of the PR body:
@@ -73,9 +72,9 @@ reference sites. All of them are spec text fixes inside this PR.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged).
+Round 1, reviewed at agent-ix/quire-contract-ir (delta the PR delta; base origin/main unchanged).
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

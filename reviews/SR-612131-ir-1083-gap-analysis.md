@@ -51,4 +51,4 @@ Round 1: all recorded findings fixed. Full published public-reader vectors remai
 
 ## Final-head scanner addendum
 
-: The scanner repair adds attributes only; tests and their trace tags are unchanged. Quire matrix still leaves FR-038-AC-335..340 untagged. No new gap finding. Full public-reader vectors remain pending STD-541; GD-03 exact locus remains pending STD-540.
+The scanner repair adds attributes only; tests and their trace tags are unchanged. Quire matrix still leaves FR-038-AC-335..340 untagged. No new gap finding. Full public-reader vectors remain pending STD-541; GD-03 exact locus remains pending STD-540.

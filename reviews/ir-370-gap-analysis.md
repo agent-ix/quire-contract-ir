@@ -52,7 +52,7 @@ additions to make in this PR.
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: FR-040-AC-13 added (TC-056 row and FR-040 matrix row updated); both tests retagged `#[trace("TC-056", "FR-040-AC-13")]`; coverage shows FR-040 13/13 backed, unbacked set unchanged (22, identical to origin/main). |
-| FND-002 | fixed |: refusal cases added for ambiguous name (`Both.code`), unselected version (missing-selection at member declaration), object operand and supertype target; admission cases for `SubSub`. Mutations dropping step-2 refusal pass-through and the unselected pass-through both go red. |
+| FND-001 | fixed | FR-040-AC-13 added (TC-056 row and FR-040 matrix row updated); both tests retagged `#[trace("TC-056", "FR-040-AC-13")]`; coverage shows FR-040 13/13 backed, unbacked set unchanged (22, identical to origin/main). |
+| FND-002 | fixed | refusal cases added for ambiguous name (`Both.code`), unselected version (missing-selection at member declaration), object operand and supertype target; admission cases for `SubSub`. Mutations dropping step-2 refusal pass-through and the unselected pass-through both go red. |

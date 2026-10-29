@@ -13,8 +13,7 @@ The draft covers the closed refinement row vocabulary, local and external keys,
 identity, dependencies, occurrences, and read/write refusal vectors. No active
 AssuranceProfile was found in the IR specification or project configuration.
 The two QSpec baseline conflicts were corrected. The IR-local
-occurrence pointer and deterministic body traversal findings were fixed at
-. The resulting reader-order conflict was aligned to QSpec's four
+occurrence pointer and deterministic body traversal findings were fixed in the reviewed PR. The resulting reader-order conflict was aligned to QSpec's four
 stages without narrowing acceptance criteria.
 
 ## Findings

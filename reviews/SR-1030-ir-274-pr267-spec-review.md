@@ -12,7 +12,7 @@ review_set: subset
 
 Ticket: IR-274 (planner ticket IR-546). The PR answers SR-1016 FND-002 (what a
 byte-ceiling `failed` record carries) and FND-003 (stale prose about
-quire-canonical #7). Diff: `git diff origin/main...HEAD`,, three
+quire-canonical #7). Diff: `git diff origin/main...HEAD`, three
 files.
 
 What I measured:
@@ -32,7 +32,7 @@ What I measured:
   documented "Always greater than `bound`". `Writer::count` enforces that for
   `CanonicalBytes`.
 - The FR-038 matrix row in `tests.md` still says "(quire-canonical #7) is open
-  and pending merge... code change A is blocked on it". The author is right
+  and pending merge ... code change A is blocked on it". The author is right
   that the row belongs to PR 266., though, PR 266 has not fixed it
   yet: SR-1016 FND-001 is still open there. PR 267 and PR 266 merge without
   conflict (`git merge-tree`).
@@ -50,9 +50,9 @@ What I measured:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | Stale #7-pending prose is still in FR-038 after the fix. "Canonical encoding of the wire types" says "a `Value` member to the encode of a `Value` (this repository's walker until `quire-canonical`'s `Encode` for `serde_json::Value` lands, then that `Encode`)". It also says "Once the upstream `Encode` lands, this repository holds no walker... Until then the walker is the one encoder of a `Value` and FR-038-AC-77 and FR-038-AC-78 are verified against it". Dependencies says "including its pending `Encode` for `serde_json::Value`". All three contradict the amended sentence 50 lines earlier: "this repository has no walker of its own: `value_to_vec`... is deleted". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:389-396, 1608-1609 |
-| FND-002 | medium | Decision (b) breaks sibling independence, and the spec never says so where that rule is stated. When the package is over the ceiling, every requested record becomes `failed` for `bytes`, so a request that would lower on its own flips because of its siblings. FR-035 Behavior says the lowerer "shall not... affect a sibling disposition". FR-035-AC-3 and FR-038-AC-6 say sibling records are independent and unchanged. The new paragraph restates the package-wide failure as normative ("no requested record is left `lowered`") but gives no exception in FR-035 or FR-038-AC-6. State the carve-out there, or in FR-038 with a cross-reference. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:466-470; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:64-66 |
-| FND-003 | low | The new paragraph was inserted mid-paragraph. It ends "...`consumed` 0." and runs straight into "`NominalIdentityPreimage::digest`, which a caller may call... (FR-038-AC-90)" with no blank line. That sentence belonged to the previous paragraph about encodes under a ceiling, so it now reads as part of the failed-record paragraph. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:473-479 |
+| FND-001 | medium | Stale #7-pending prose is still in FR-038 after the fix. "Canonical encoding of the wire types" says "a `Value` member to the encode of a `Value` (this repository's walker until `quire-canonical`'s `Encode` for `serde_json::Value` lands, then that `Encode`)". It also says "Once the upstream `Encode` lands, this repository holds no walker ... Until then the walker is the one encoder of a `Value` and FR-038-AC-77 and FR-038-AC-78 are verified against it". Dependencies says "including its pending `Encode` for `serde_json::Value`". All three contradict the amended sentence 50 lines earlier: "this repository has no walker of its own: `value_to_vec` ... is deleted". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:389-396, 1608-1609 |
+| FND-002 | medium | Decision (b) breaks sibling independence, and the spec never says so where that rule is stated. When the package is over the ceiling, every requested record becomes `failed` for `bytes`, so a request that would lower on its own flips because of its siblings. FR-035 Behavior says the lowerer "shall not ... affect a sibling disposition". FR-035-AC-3 and FR-038-AC-6 say sibling records are independent and unchanged. The new paragraph restates the package-wide failure as normative ("no requested record is left `lowered`") but gives no exception in FR-035 or FR-038-AC-6. State the carve-out there, or in FR-038 with a cross-reference. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:466-470; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:64-66 |
+| FND-003 | low | The new paragraph was inserted mid-paragraph. It ends "...`consumed` 0." and runs straight into "`NominalIdentityPreimage::digest`, which a caller may call ... (FR-038-AC-90)" with no blank line. That sentence belonged to the previous paragraph about encodes under a ceiling, so it now reads as part of the failed-record paragraph. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:473-479 |
 | FND-004 | low | Two statements are true only if PR 266 merges first. FR-038 says "Planned: the record today... reports a package over the ceiling as `failed` with the work limit and `consumed` 0". AD-005:131 says "IR's `value_to_vec` is deleted". Both describe PR 266's code. On main  the package encode is a serde_json `.expect` with no ceiling, and `value_to_vec` exists. Merge PR 266 first, or drop "today". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:473-474; spec/assurance/AD-005-qsl-consumption-seam.md:131 |
 
 ## Verdict
@@ -71,8 +71,7 @@ Decision (c) is examined in SR-1031.
 
 ## New findings (disposition pass 1)
 
-Reviewed. Delta checked:
-...
+Reviewed. Delta checked:...
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -81,19 +80,19 @@ Reviewed. Delta checked:
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. I re-grepped `spec/` for pending, until, lands, walker, value_to_vec and "blocked on". The only #7-pending text left is the FR-038 row in `tests.md` line 15, which PR 266 owns, and PR 266 rewrites it ("merged as... deleted from `encode.rs`"). The two PRs merge without conflict. |
-| FND-002 | fixed |. The exception is now stated in FR-035 Behavior, FR-035-AC-3 and FR-038-AC-6, each pointing to FR-038-AC-95. FR-038 keeps per-node independence explicitly (`invalid_input`, `unsupported`, `requires_bound`, and a work or byte `failed` of one node). FR-035's matrix row stays ✅ truthfully, because the exception only narrows AC-3. The reason given in the wording is FND-005. |
-| FND-003 | fixed |. The failed-record paragraph now follows the AC-90 sentence, which stands alone as its own paragraph. |
-| FND-004 | fixed |. "today" is gone. AD-005 now reads "IR holds no walker of its own (FR-038-AC-91)", a target statement. |
+| FND-001 | fixed | I re-grepped `spec/` for pending, until, lands, walker, value_to_vec and "blocked on". The only #7-pending text left is the FR-038 row in `tests.md` line 15, which PR 266 owns, and PR 266 rewrites it ("merged as... deleted from `encode.rs`"). The two PRs merge without conflict. |
+| FND-002 | fixed | The exception is now stated in FR-035 Behavior, FR-035-AC-3 and FR-038-AC-6, each pointing to FR-038-AC-95. FR-038 keeps per-node independence explicitly (`invalid_input`, `unsupported`, `requires_bound`, and a work or byte `failed` of one node). FR-035's matrix row stays ✅ truthfully, because the exception only narrows AC-3. The reason given in the wording is FND-005. |
+| FND-003 | fixed | The failed-record paragraph now follows the AC-90 sentence, which stands alone as its own paragraph. |
+| FND-004 | fixed | "today" is gone. AD-005 now reads "IR holds no walker of its own (FR-038-AC-91)", a target statement. |
 
 ## Dispositions (round 2)
 
-Reviewed (delta..).
+Reviewed the PR delta.
 No new findings this round.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-005 | fixed |. FR-035 now says "every requested record is `failed`, because no package exists to carry a lowered node". FR-038 says the same, and adds "which overrides the disposition each record would have had alone". A grep for "has no siblings" across spec/ finds nothing. |
-| FND-006 | fixed |. The sentence "FR-038-AC-95 is planned and has no test yet" is removed. A grep for "no test yet" in FR-038 finds nothing. |
+| FND-005 | fixed | FR-035 now says "every requested record is `failed`, because no package exists to carry a lowered node". FR-038 says the same, and adds "which overrides the disposition each record would have had alone". A grep for "has no siblings" across spec/ finds nothing. |
+| FND-006 | fixed | The sentence "FR-038-AC-95 is planned and has no test yet" is removed. A grep for "no test yet" in FR-038 finds nothing. |

@@ -31,13 +31,13 @@ The new public-reader tests cover over, forward capture, sequence, choice, await
 
 ## Coverage
 
-Plan completion: not assessed. `quire matrix --scope. --format json` reports 12 binders for FR-038-AC-291, including the nine new traced tests, and zero for FR-038-AC-292, which remains Planned for the decision-fact slice. Trace tags alone do not cover each stage. The changed source has an owning requirement and no stub. The nine new tests are meaningful for the cases they assert; the stage cases listed above remain untested. Hosted `make lint` failed before tests at the frozen head, so none of the tests has passing exact-head execution evidence yet. No full repository semantic audit or plan-assisted check was requested.
+Plan completion: not assessed. `quire matrix --scope . --format json` reports 12 binders for FR-038-AC-291, including the nine new traced tests, and zero for FR-038-AC-292, which remains Planned for the decision-fact slice. Trace tags alone do not cover each stage. The changed source has an owning requirement and no stub. The nine new tests are meaningful for the cases they assert; the stage cases listed above remain untested. Hosted `make lint` failed before tests at the frozen head, so none of the tests has passing exact-head execution evidence yet. No full repository semantic audit or plan-assisted check was requested.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, five traced public-reader tests exercise `origin`/`each` terminal scope, role lifetime, FIFO key, repeat body binder escape, and retry/recovery capture and over refusals. Each checks admitted and adverse reader outcomes. Exact-head hosted execution is pending. |
+| FND-001 | fixed | In the reviewed PR, five traced public-reader tests exercise `origin`/`each` terminal scope, role lifetime, FIFO key, repeat body binder escape, and retry/recovery capture and over refusals. Each checks admitted and adverse reader outcomes. Exact-head hosted execution is pending. |
 
 ## Disposition verdict
 
@@ -45,7 +45,7 @@ Plan completion: not assessed. `quire matrix --scope. --format json` reports 12 
 
 ## Verification after hosted regression fix
 
-, hosted Rust Checks passed compilation but 13 tests failed, so the prior static disposition had no passing execution evidence., old positive fixtures for `each`, capture, compensation, receive and related ends now use the QSpec binder levels; `terminal` under `each` relevels `finish` before asserting terminal's own refusal. The work-boundary test retains independent literal constants: 37 Tree charges, 448 other pre-protocol charges, five membership charges, seven causal/progress charges and 52 new binder-scope charges, giving admitted M=549, dependency 541/542 and whole-read 548/549. The result-context fixture expects its measured 387 work charges. These are static checks of the exact test diff; hosted Rust Checks are pending. No acceptance criterion has been marked complete by this review.
+Hosted Rust Checks passed compilation but 13 tests failed, so the prior static disposition had no passing execution evidence., old positive fixtures for `each`, capture, compensation, receive and related ends now use the QSpec binder levels; `terminal` under `each` relevels `finish` before asserting terminal's own refusal. The work-boundary test retains independent literal constants: 37 Tree charges, 448 other pre-protocol charges, five membership charges, seven causal/progress charges and 52 new binder-scope charges, giving admitted M=549, dependency 541/542 and whole-read 548/549. The result-context fixture expects its measured 387 work charges. These are static checks of the exact test diff; hosted Rust Checks are pending. No acceptance criterion has been marked complete by this review.
 
 ## Verification after second hosted regression fix
 

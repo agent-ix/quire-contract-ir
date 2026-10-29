@@ -57,7 +57,7 @@ grammar is 1 finding (FR-014), as at base.
 
 Round 1 was reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. The PR body now has a "Spec corrections in this PR" section that lists four FR-346 text changes for review: the AC-2 state-step `/body`, `digest_domain_mismatch` at the key, the member-step locus, and the declared-parameter-name source. The FR-346 diff from origin/main matches that list plus the 🚧 status glyph removals. There is no unlisted text change. All four are reviewed here and hold. |
-| FND-002 | fixed |. Step 4 now says: "its path is that entry's. IR reading: its locus is the node key of the entry's `type`, `population` or `context` target, as the target and uniqueness steps have it." |
+| FND-001 | fixed | The PR body now has a "Spec corrections in this PR" section that lists four FR-346 text changes for review: the AC-2 state-step `/body`, `digest_domain_mismatch` at the key, the member-step locus, and the declared-parameter-name source. The FR-346 diff from origin/main matches that list plus the 🚧 status glyph removals. There is no unlisted text change. All four are reviewed here and hold. |
+| FND-002 | fixed | Step 4 now says: "its path is that entry's. IR reading: its locus is the node key of the entry's `type`, `population` or `context` target, as the target and uniqueness steps have it." |

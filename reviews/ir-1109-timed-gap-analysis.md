@@ -25,7 +25,7 @@ Independent review of PR #683 at exact against FR-038 AC-3, AC-336/342/357-362, 
 
 - Examined FR-038 AC-3, AC-336, AC-342, AC-357 through AC-362 and TC-048; QSpec FR-322 AC-260 through AC-266, FR-342 AC-11 and published AO/CL controls.
 - Plan completion: not assessed.
-- Matrix: `quire matrix --scope. --format json` completed; AC-336 and AC-342 appear, Planned AC-357 through AC-362 do not appear as active matrix rows.
+- Matrix: `quire matrix --scope . --format json` completed; AC-336 and AC-342 appear, Planned AC-357 through AC-362 do not appear as active matrix rows.
 - Rust review: checked repository AGENTS.md/CLAUDE.md, Rust style API, implementation, safety, wire and testing rules; diff has no unsafe code or CI gate edit. Focused conformance 20/20 was run by author, not repeated by reviewer.
 
 ## Dispositions
@@ -47,4 +47,4 @@ Independent review of PR #683 at exact against FR-038 AC-3, AC-336/342/357-362, 
 
 ## QSpec TM-30 delta review
 
-At PR, the QSpec `TM-30` repeated-reference control from is applied to the public reader and checks exact `invalid_semantic_graph`/null-cause/locus. The SL-01..07/SR-01..04 set is asserted exactly. The later trace cleanup removes all FR-038-AC-336/342/360 tags from partial timed tests while STD-558/559 remain unresolved. FND-001 through FND-003 have fixed latest dispositions; no new finding remains.
+In the reviewed PR, the QSpec `TM-30` repeated-reference control from is applied to the public reader and checks exact `invalid_semantic_graph`/null-cause/locus. The SL-01..07/SR-01..04 set is asserted exactly. The later trace cleanup removes all FR-038-AC-336/342/360 tags from partial timed tests while STD-558/559 remain unresolved. FND-001 through FND-003 have fixed latest dispositions; no new finding remains.

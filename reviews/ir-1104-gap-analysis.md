@@ -38,7 +38,7 @@ The computed trace binding is present for FR-035-AC-27 through AC-30 in the new 
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the test constructs an admitted canonical V1 package whose unsupported request key is the separately lowered, represented healthy node; it verifies node presence and plain-read typed NotAdmitted. |
+| FND-001 | fixed | In the reviewed PR, the test constructs an admitted canonical V1 package whose unsupported request key is the separately lowered, represented healthy node; it verifies node presence and plain-read typed NotAdmitted. |
 | FND-002 | fixed | The same unsupported-record test now verifies a rehashed wrong source lock returns SourceLock, a one-below byte limit returns Incomplete before handoff, and a stale V1 identity returns Refused before source identity matching. |
 
 ## Disposition verdict

@@ -43,15 +43,15 @@ scope:
 - id: TC-452#synthetic-procedure
   path: spec/model/matrix/TC-452-source-obligation-correspondence.md
   role: examined
-  excerpt: Separately, build the same fixture from four synthetic `Complete` outcomes and a valid binding.... Supply a missing binding, a binding naming another source, and a binding whose obligation scope differs from a Quire criterion row's obligation declaration.... These checks use synthetic outcomes only.
+  excerpt: Separately, build the same fixture from four synthetic `Complete` outcomes and a valid binding. ... Supply a missing binding, a binding naming another source, and a binding whose obligation scope differs from a Quire criterion row's obligation declaration. ... These checks use synthetic outcomes only.
 - id: TC-452#synthetic-expected
   path: spec/model/matrix/TC-452-source-obligation-correspondence.md
   role: examined
-  excerpt: The synthetic census matches the census construction rules field by field and is equal under permutation. Only the earliest failing position's error is returned... and the occurrence under a conflicting node is `DanglingOccurrence`. None of these observations grants full-owner AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11 credit.
+  excerpt: The synthetic census matches the census construction rules field by field and is equal under permutation. Only the earliest failing position's error is returned ... and the occurrence under a conflicting node is `DanglingOccurrence`. None of these observations grants full-owner AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11 credit.
 - id: tests.md#TC-452
   path: spec/model/matrix/tests.md
   role: examined
-  excerpt: '| TC-452 |... | FR-052-AC-1..., FR-052-AC-17, FR-052-AC-18, FR-052-AC-19 | Planned/UNRUN:... AC-17..19 synthetic-census checks await the census builder and grant no full-owner credit; AC-8 is covered by provisional-port tests and is superseded by AC-17 when the census builder lands, which removes the envelope port and those tests;...'
+  excerpt: '| TC-452 | ... | FR-052-AC-1, ..., FR-052-AC-17, FR-052-AC-18, FR-052-AC-19 | Planned/UNRUN: ... AC-17..19 synthetic-census checks await the census builder and grant no full-owner credit; AC-8 is covered by provisional-port tests and is superseded by AC-17 when the census builder lands, which removes the envelope port and those tests; ...'
 ```
 
 ## Dispositions

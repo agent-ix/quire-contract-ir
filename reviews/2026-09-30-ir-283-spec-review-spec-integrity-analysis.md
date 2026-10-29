@@ -53,13 +53,13 @@ FND-001 reports.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-005 | low | The fallback rule says a type "typed at by the requested node, a `literal` value or an `expression` but... named at no position" is bounded by any reachable domain over it. The code applies that fallback to every non-position typed use: a function's result type, a `bounded_domain`'s base, a claim, other `value` forms, and a type named through `dependencies`. The sentence leaves those uses without a stated rule. Replacing the list with "any other reachable node" would match the code. | spec/contract/FR-038-consume-checked-package-v2.md:597-601 |
+| FND-005 | low | The fallback rule says a type "typed at by the requested node, a `literal` value or an `expression` but ... named at no position" is bounded by any reachable domain over it. The code applies that fallback to every non-position typed use: a function's result type, a `bounded_domain`'s base, a claim, other `value` forms, and a type named through `dependencies`. The sentence leaves those uses without a stated rule. Replacing the list with "any other reachable node" would match the code. | spec/contract/FR-038-consume-checked-package-v2.md:597-601 |
 
 ## Dispositions
 
 Round 1, reviewed.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

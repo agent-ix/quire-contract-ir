@@ -13,7 +13,7 @@ Ticket: IR-881. The modified requirement text changes a concrete code term while
 
 ## Scope
 
-Examined: FR-044-AC-3; FR-030-AC-5; FR-031. PR diff...
+Examined: FR-044-AC-3; FR-030-AC-5; FR-031. PR PR diff.
 
 ## Examined units
 

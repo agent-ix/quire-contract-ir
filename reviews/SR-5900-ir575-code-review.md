@@ -39,11 +39,11 @@ The typed intake, canonical token scan, borrowed body decoding, dispatch, memory
 
 `check_lossless_source` parses every root field other than `semantic_graph`, `identity_preimage`, `source_map`, and `diagnostics` with `serde_json::from_str` into `original`. It then serializes the entire remaining typed wire with `serde_json::to_value`, while retaining `original`. A syntactically closed V2 wire with empty `nodes`, `identity_projection`, `source_map`, and `diagnostics.entries` makes these two trees cover the full document, even if a later semantic validation refuses it. A large `lock`, `capability_report`, or selection list can dominate memory and is not exercised by the node-heavy measurement fixture. Compare closed fields in bounded units without either root `Value` object.
 
-The final-target measurement was made, whose production reader source is unchanged through; logs record three valid 100022-node runs at 695712, 695712, and 695776 KiB additional peak. The explicit test target is excluded from ordinary CI and was separately invoked. Existing 256 KiB tests and adverse corpus passed in the author's focused/full evidence, which this reviewer inspected but did not rerun. `make ci` strict coverage and QSpec conformance remain red as stated in the PR; no full gate was run by this reviewer.
+The final-target measurement was made, whose production reader source is unchanged through the reviewed PR; logs record three valid 100022-node runs at 695712, 695712, and 695776 KiB additional peak. The explicit test target is excluded from ordinary CI and was separately invoked. Existing 256 KiB tests and adverse corpus passed in the author's focused/full evidence, which this reviewer inspected but did not rerun. `make ci` strict coverage and QSpec conformance remain red as stated in the PR; no full gate was run by this reviewer.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 

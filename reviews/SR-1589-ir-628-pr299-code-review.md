@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-628. This is the code review with its Rust lane (`rust-review`) folded in. It
-covers `git diff origin/main...`: two commits,
+covers `git diff origin/main...HEAD`: two commits,
 13 files, +3096/-59. The base is main, which
 is the merged IR-628 spec, #296. The review checked the code against FR-038's "Typed
 accessor for a model object type's fields" section (items 1 to 37), and re-measured every
@@ -46,7 +46,7 @@ What was verified, and how:
   struct fields are private. The five types are re-exported and listed in FR-019's V2
   reader row. The accessor charges nothing.
 - **Rust lane.** `model_fields.rs` has no `unwrap`, `expect`, `panic`, indexing or
-  `unsafe` outside tests. Every count goes through `saturating_add` or `units`. The
+  `unsafe` outside tests. Every count goes through `saturating_add` or `units()`. The
   Tarjan search is iterative. Memory is bounded by work charged: every entry copied into
   `inherited` or `hidden` is charged first. `fmt`, `clippy -D warnings`, `deny`, `audit`
   and `audit-unsafe` all pass. The diff has no `.github` edits, no build artifacts and no
@@ -74,6 +74,6 @@ mutation-row defects of the spec in SR-1591.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

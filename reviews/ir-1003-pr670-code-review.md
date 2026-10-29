@@ -37,4 +37,4 @@ Plan completion: not assessed.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR, every catalog-backed declared `steps[].source_node` enters `require_concrete_class_source` before catalog comparison. It checks operation anchors through their declaring type, model declarations through their owner, and protocol members through their closest declaring clause's model owner. A new foreign protocol-class step test asserts `invalid_model_binding`/`malformed-declaration` at `steps/0/source_node`. Focused execution and hosted checks were pending at disposition time. |
+| FND-001 | fixed | In the reviewed PR, every catalog-backed declared `steps[].source_node` enters `require_concrete_class_source` before catalog comparison. It checks operation anchors through their declaring type, model declarations through their owner, and protocol members through their closest declaring clause's model owner. A new foreign protocol-class step test asserts `invalid_model_binding`/`malformed-declaration` at `steps/0/source_node`. Focused execution and hosted checks were pending at disposition time. |

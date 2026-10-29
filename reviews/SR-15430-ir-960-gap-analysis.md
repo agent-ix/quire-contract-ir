@@ -47,4 +47,4 @@ Plan completion: not assessed (planless review). FR-348-AC-1 through AC-8 have `
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The new TC-459 controls exercise direct selected-model Base and Child admission, unrelated and reverse-ancestor refusal, and composite same-name refusal through the public reader. The two new targeted tests passed independently on the fix head. Exact reviewed head: . |
+| FND-001 | fixed | The new TC-459 controls exercise direct selected-model Base and Child admission, unrelated and reverse-ancestor refusal, and composite same-name refusal through the public reader. The two new targeted tests passed independently on the fix head. Reviewed the PR head. |

@@ -14,7 +14,7 @@ Ticket: IR-450. This review asks whether FR-038-AC-73 and amended AC-8 can fail.
 raising cases fail against today's reader, which lowers all three, so the criterion is not
 tautological. Its lowering cases (the requested `unit`, the requested `compound_unit` with
 its dependencies, and the annotation-only unit) are the ones that catch the wrong
-implementation, one that returns true from `requires_bound` for the two forms (SR-811
+implementation, one that returns true from `requires_bound()` for the two forms (SR-811
 FND-001). Under that implementation a requested unit is in `typed` with no covering domain
 and raises. Two clauses are weaker than they look.
 
@@ -34,7 +34,7 @@ FND-002 close the two gaps.
 
 Round 1. The clause that could not fail is replaced. AC-73 and TC-050 now cover a record whose field is typed at a reachable `bounded_domain` over a `unit`. That record must raise and must name the unit rather than the domain. Both today's reader and a predicate that tests only direct positions would lower it, so the case can fail. A case is also added for an application whose `result_type` is a quantity, over parameters typed at a bounded type, and it must lower. This matches QSL, which records it Bounded: its roots are bounded and literals add no domain. It also fails an implementation that adds `result_type` edges to the positions. No new findings.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed |
 | FND-002 | fixed | fixed |

@@ -127,8 +127,7 @@ blocks the merge. The PR stays HELD only for the QSL lockstep.
 
 ## Dispositions
 
-Round 1, reviewed (one commit on main
-, force-pushed over ). The tree delta.. touches three files
+Round 1, reviewed after a force-push on main. The tree delta touches three files
 only: identity.rs, model_members.rs and tests/it/checked_package_v2_model_members.rs.
 
 Checks run at the new head:
@@ -142,7 +141,7 @@ Checks run at the new head:
   admission.
 - The longest added line is 87 columns.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

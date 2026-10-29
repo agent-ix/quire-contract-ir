@@ -35,7 +35,7 @@ CONDITIONAL. Correct the two stale status descriptions and the FR-039 trace issu
 
 Reviewed the same PR at agent-ix/quire-contract-ir.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | — TC-058 `## Status`, both model matrix rows, and the global model row now describe the three tests and two doctest paths as implemented. |
 | FND-002 | fixed | — FR-028 `## Status`, TC-041 matrix rows, and case description no longer assert a root model re-export or cite the deleted bridge test; AC-2 and AC-5 are expressly unbacked. |

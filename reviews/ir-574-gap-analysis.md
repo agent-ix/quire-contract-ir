@@ -3,7 +3,7 @@ id: SR-11751
 title: "IR-574 Slice 1 FR-023-AC-6 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #412 diff origin/main...: tests/it/executable_binding.rs, spec/model/matrix/tests.md, spec/core/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; PR #412 diff origin/main...HEAD: tests/it/executable_binding.rs, spec/model/matrix/tests.md, spec/core/matrix/tests.md"
 review_set: subset
 ---
 
@@ -45,7 +45,7 @@ scope:
 - id: spec/model/matrix/tests.md#FR-023
   path: spec/model/matrix/tests.md
   role: examined
-  excerpt: "| FR-023 | FR-023-AC-1 through FR-023-AC-6 | TC-035 | ✅ implemented: AC-1 through AC-5 and AC-6... (TC-035). |"
+  excerpt: "| FR-023 | FR-023-AC-1 through FR-023-AC-6 | TC-035 | ✅ implemented: AC-1 through AC-5 and AC-6 ... (TC-035). |"
 - id: spec/core/matrix/tests.md#FR-011-FR-012
   path: spec/core/matrix/tests.md
   role: examined

@@ -3,7 +3,7 @@ id: SR-16633
 title: "Code review — IR-9 PR 555 string-edge consumer"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #555 origin/main...; spec/core/functional/FR-056-consume-authoritative-string-edge-scan.md, Makefile, Cargo.toml, string-edge-rules.json, changed src/ and crates/ sources, tests/it/string_edge_gate.rs"
+scope: "agent-ix/quire-contract-ir; PR #555 origin/main...HEAD; spec/core/functional/FR-056-consume-authoritative-string-edge-scan.md, Makefile, Cargo.toml, string-edge-rules.json, changed src/ and crates/ sources, tests/it/string_edge_gate.rs"
 review_set: subset
 ---
 

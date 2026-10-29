@@ -23,9 +23,9 @@ Reviewer production mutants in `crates/quire-contract-model/src/checked_package/
 - **AC-13:** stripping leading ASCII whitespace at the start of `admit` fails the new AC-13 test.
 - **AC-2 (dependency):** reporting the stale-dependency refusal at the root pointer instead of `/package/source/lock/dependency_selections/0` (line 2009) fails the new test.
 - **AC-2 (own identity):** reporting the digest refusal at `/identity` instead of `/identity/digest` (line 1973) fails the new test.
-- **AC-14:** deleting the ordered request check `record.node_id != &mapped.requested_item` (line 1917) **passes** every TC-047 test (FND-001). Only when the lowered-but-not-represented check (line 1924) is deleted as well does the AC-14 test fail.
+- **AC-14:** deleting the ordered request check `record.node_id() != &mapped.requested_item` (line 1917) **passes** every TC-047 test (FND-001). Only when the lowered-but-not-represented check (line 1924) is deleted as well does the AC-14 test fail.
 
-The removed cases are all subsumed. The deleted `wrong_request` case put `missing` into the first record, which is `requested_items[3]`, now index 3 of the AC-14 loop. The deleted leading-space check moved into AC-13. The stale own-identity and stale-dependency assertions moved into the AC-2 tests. The AC-5 tests keep their unrelated checks: unknown member, wrong identity domain, missing selection and wrong identity.
+The removed cases are all subsumed. The deleted `wrong_request` case put `missing()` into the first record, which is `requested_items[3]`, now index 3 of the AC-14 loop. The deleted leading-space check moved into AC-13. The stale own-identity and stale-dependency assertions moved into the AC-2 tests. The AC-5 tests keep their unrelated checks: unknown member, wrong identity domain, missing selection and wrong identity.
 
 ## Examined criteria
 
@@ -39,7 +39,7 @@ The removed cases are all subsumed. The deleted `wrong_request` case put `missin
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | The AC-14 test cannot fail when the ordered request check is removed. The first record is `lowered`, and every substitute (`requested_items[1..=3]`: a `requires_bound` node, an `unsupported` node and `missing`) is absent from `semantic_graph.nodes`. So the lowered-but-not-represented check (contract_package.rs:1924) refuses with the same `/feature_accounting` and `invalid_value`. A reviewer mutant that deletes the order check at contract_package.rs:1917 passes all 22 TC-047 tests. Without that check, a package whose first lowered record names another represented requested node would be admitted. Fix: add a case whose substitute is a represented requested node other than `requested_items[0]`, for example a request with two distinct lowered roots, with the first record's disposition left consistent. Then confirm that deleting line 1917 fails the test | tests/it/complete_v1_contract_package.rs:209-233 |
+| FND-001 | medium | The AC-14 test cannot fail when the ordered request check is removed. The first record is `lowered`, and every substitute (`requested_items[1..=3]`: a `requires_bound` node, an `unsupported` node and `missing()`) is absent from `semantic_graph.nodes`. So the lowered-but-not-represented check (contract_package.rs:1924) refuses with the same `/feature_accounting` and `invalid_value`. A reviewer mutant that deletes the order check at contract_package.rs:1917 passes all 22 TC-047 tests. Without that check, a package whose first lowered record names another represented requested node would be admitted. Fix: add a case whose substitute is a represented requested node other than `requested_items[0]`, for example a request with two distinct lowered roots, with the first record's disposition left consistent. Then confirm that deleting line 1917 fails the test | tests/it/complete_v1_contract_package.rs:209-233 |
 | FND-002 | low | `reader_refuses_stale_selected_dependency_at_selection` repeats about 15 lines of setup from `selected_dependencies_are_bound_by_library_identity_before_graph_checks`: admitting the dependency, lowering, rewriting `dependency_selections` and building `supplied`. Fix: extract a helper that returns the admitted dependency and the `lib/a`-selecting wire, and call it from both tests | tests/it/complete_v1_contract_package.rs:1063-1080 |
 
 ## Verdict
@@ -53,4 +53,4 @@ Disposition pass 1, against (origin/main merged in).
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The AC-14 test adds a case that lowers two represented roots (`cccc`, `dddd`). It asserts that both records are `lowered` and that the second root is in `semantic_graph.nodes`, points the first record at it, and recomputes the identity. It then asserts `InvalidPackage`, `/feature_accounting` and `InvalidValue`. The reviewer mutant that deletes the order check at contract_package.rs:1917 now fails this test (panic at line 248: the package is admitted) |
-| FND-002 | fixed | A new helper, `wire_selecting_lib_a`, returns the admitted dependency and the `lib/a`-selecting wire. Both dependency tests call it |
+| FND-002 | fixed | A new helper, `wire_selecting_lib_a()`, returns the admitted dependency and the `lib/a`-selecting wire. Both dependency tests call it |

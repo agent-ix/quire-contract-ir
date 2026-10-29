@@ -213,7 +213,7 @@ scope:
     owner-free, ungrouped node in each of the `derived_key` closed-shape and `UngroupedPreimage`
     branches, a retained node id that differs from the production-derived key refuses
     `invalid_package`/`stale-node-key` at the original `node_id`, keeps that original
-    typed id in `locus`, and returns the distinct derived typed key through `expected_node_id`.
+    typed id in `locus`, and returns the distinct derived typed key through `expected_node_id()`.
     A fresh package whose unreferenced node is rekeyed to that value and whose package
     identity is refreshed admits; one changed preimage member changes the expected
     digest
@@ -232,15 +232,15 @@ scope:
 
 Frozen; exactly two documents, 232 additions and 260 deletions. Targeted Quire validation exited 0; 2/2 grammar-clean, zero grammar findings. All new controls remain PLANNED and UNRUN. No Cargo, Kani, builds, runtime probes, full CI or branch edits were performed. Rust-review checklist loaded before prospective algorithm/API examination; formal Rust source lane and production gap-analysis are inapplicable to this spec-only diff. No applicable AssuranceProfile was found. Jev and Filament executables are unavailable; semantic judgments are manual, not solver verdicts. Actual model/native identity is unavailable in the harness. Canonical private upstream content was read locally and not copied or excerpted here.
 
-The existing reader charges recursion edges after the key stage (crates/quire-contract-model/src/checked_package/v2/mod.rs:1937 and:2000). A Tree read necessarily has such edges; therefore the entire-read boundary can fail after the group work has already completed. Keep the total boundary and add a charge failure inside the group stage with pending work.
+The existing reader charges recursion edges after the key stage (crates/quire-contract-model/src/checked_package/v2/mod.rs:1937 and :2000). A Tree read necessarily has such edges; therefore the entire-read boundary can fail after the group work has already completed. Keep the total boundary and add a charge failure inside the group stage with pending work.
 
 Advisor limit: quoin 0.28.3 / quire 0.36.2 (engine 0.50.2), installed executables, quoin advise --repo <frozen-worktree> --json exited 0. Existing AC-124 regex pipes cause its authored method to be extracted as a regex fragment rather than Test. This baseline extraction issue is disclosed to the lead; its advice is not trusted as a method verdict. The ten other selected rows are authored Test, inconclusive false, mismatch false. No method is changed by this reviewer.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |; round 1, AC-149 and TC-226 add a denied charge within production group work while a later visit or digest remains pending, a sufficient-budget witness of that pending work, a continuation mutant that fails the event assertion and restored immediate propagation that passes. These controls remain PLANNED and UNRUN. |
+| FND-001 | fixed | round 1, AC-149 and TC-226 add a denied charge within production group work while a later visit or digest remains pending, a sufficient-budget witness of that pending work, a continuation mutant that fails the event assertion and restored immediate propagation that passes. These controls remain PLANNED and UNRUN. |
 
 ## Disposition Pass 1
 

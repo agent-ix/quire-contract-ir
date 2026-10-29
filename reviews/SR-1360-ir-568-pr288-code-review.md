@@ -16,8 +16,7 @@ relationships:
 ## Summary
 
 Ticket: IR-568. PR agent-ix/quire-contract-ir#288. This is a code review with the
-rust-review lane folded in. It covers `git diff origin/main...HEAD` at
-: one commit, five files. The only Rust is
+rust-review lane folded in. It covers `git diff origin/main...HEAD` at: one commit, five files. The only Rust is
 `tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings` in
 `tests/it/conformance.rs`.
 
@@ -67,7 +66,7 @@ What was checked, and what holds:
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | The test's doc comment still has the partial-coverage wording: "equals the bytes written out here, or holds them only as strings". The test now asserts both conditions for every holding file. The "or" says that one of them is enough, which is the old four-of-47 meaning this PR removes | tests/it/conformance.rs:913-915 |
-| FND-002 | low | `fs::read_to_string(canonical.join(name)).unwrap` gives no file name when an expected file is missing. Removing `expression-index-1.json` panics with only `NotFound` at 1173:55. Use `unwrap_or_else(\|e\| panic!("{name}: {e}"))`, as the `assert_eq!` message already does | tests/it/conformance.rs:1173 |
+| FND-002 | low | `fs::read_to_string(canonical.join(name)).unwrap()` gives no file name when an expected file is missing. Removing `expression-index-1.json` panics with only `NotFound` at 1173:55. Use `unwrap_or_else(\|e\| panic!("{name}: {e}"))`, as the `assert_eq!` message already does | tests/it/conformance.rs:1173 |
 
 ## Verdict
 
@@ -80,8 +79,7 @@ Verdict: mergeable. The two low findings can be fixed in this PR or accepted.
 
 ## Dispositions
 
-Round 1. Only the fix-round delta
-.. was reviewed:
+Round 1. Only the fix-round delta. was reviewed:
 
 - Fix: `tests/it/conformance.rs`, 4 insertions and 3 deletions.
 - Trailing: adds SR-1360, SR-1361 and SR-1362 under `reviews/`.
@@ -97,7 +95,7 @@ Checks at the new head:
 
 No new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

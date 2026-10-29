@@ -38,7 +38,7 @@ Plan completion: not assessed. Trace tags name FR-038-AC-292, and the new tests 
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | still-open |, new traced public-reader cases cover nested projection, another-role receive and ineligible commit; the earlier effect/send and finish-scope cases remain, and the finish case now asserts BinderScope detail. The protocol-input over path still has no resolved expected verdict: QSpec FR-466 prose and FR-464-AC-12 require ill_typed/operator-ineligible before decision facts, while QSpec FR-466-AC-14 and IR FR-038-AC-292 list it with wrong_snapshot cases. STD-496 is the owner decision; the criterion remains Planned with no narrowed claim. |
+| FND-001 | still-open | In the reviewed PR, new traced public-reader cases cover nested projection, another-role receive and ineligible commit; the earlier effect/send and finish-scope cases remain, and the finish case now asserts BinderScope detail. The protocol-input over path still has no resolved expected verdict: QSpec FR-466 prose and FR-464-AC-12 require ill_typed/operator-ineligible before decision facts, while QSpec FR-466-AC-14 and IR FR-038-AC-292 list it with wrong_snapshot cases. STD-496 is the owner decision; the criterion remains Planned with no narrowed claim. |
 | FND-001 | deferred | STD-496 is filed as the owner decision for conflicting protocol-input over verdicts and blocks IR-874. The independent decision-fact paths are covered by public-reader tests. No new PR #588 test asserts the disputed over verdict; FR-038-AC-292 remains Planned and the deferred case is unclaimed in PR and matrix. Finish remains scope-first with BinderScope detail. |
 
 ## Disposition verdict

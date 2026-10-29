@@ -3,7 +3,7 @@ id: SR-11676
 title: IR-225 spec review of the FR-038-AC-251 amendment (catalogue entry-shape selection)
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir; PR 409, spec hunks of diff..; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir; PR 409, spec hunks of PR diff; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, tests/it/checked_package_v2_catalogue_differential.rs
 review_set: subset
 ---
@@ -81,7 +81,7 @@ reports 50 unbacked rows and 0 contradicted.
 - id: FR-038-AC-247
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: '... regardless of whether its family resolves or the entry has a `member_family` constraint... a simultaneous operand defect wins over a result defect, while a simultaneous genuine rounding-mode type defect on `quantity.convert` does not displace the `result_type` refusal.'
+  excerpt: '... regardless of whether its family resolves or the entry has a `member_family` constraint ... a simultaneous operand defect wins over a result defect, while a simultaneous genuine rounding-mode type defect on `quantity.convert` does not displace the `result_type` refusal.'
 - id: FR-038-AC-249
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
@@ -100,7 +100,7 @@ reports 50 unbacked rows and 0 contradicted.
 
 Round 2 (the first disposition pass for this artifact). Verified at
  by reviewing
-`git diff..`.
+`git diff origin/main...HEAD`.
 
 The differential's denominator is stated the same way in the test
 message, TC-048 and tests.md: "behavioral controls for 56 of 160 entries",

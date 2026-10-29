@@ -14,7 +14,7 @@ Ticket: IR-279. This is a manual acceptance-criteria-to-tests check of the PR di
 
 Examined:
 
-- **FR-038-AC-3.** Exact limits admit and a one-over limit is incomplete. Covered by `tc_048_nesting_past_the_limit_is_incomplete_after_syntax_and_members_pass` (tests/it/checked_package_v2_reader.rs:2618), and exact admission by the existing test at:667.
+- **FR-038-AC-3.** Exact limits admit and a one-over limit is incomplete. Covered by `tc_048_nesting_past_the_limit_is_incomplete_after_syntax_and_members_pass` (tests/it/checked_package_v2_reader.rs:2618), and exact admission by the existing test at :667.
 - **FR-038-AC-26.** The depth charge is located at the first value one level past the limit. Covered by `tc_048_depth_is_charged_at_the_first_value_past_the_limit` (common.rs), which checks depths 0 to 3 and whose mutant was killed.
 - **FR-322-AC-4.** Malformed and duplicate members refuse. Deep syntax and duplicate refusals are covered, and the mutant that charges depth first was killed.
 - **FR-322-AC-6 and FR-322-AC-9.** Incomplete for a one-over depth, and malformed stays distinguishable from incomplete. At the default limit the PR fixes the misclassification IR-279 reports.
@@ -31,7 +31,7 @@ Bindings checked: `tc_048_nesting_past_the_limit_is_incomplete_after_syntax_and_
 
 ## Finding Detail
 
-- FND-001: FR-322 line 319 says "`read` receives limits from its caller", line 652 says "Exact selected resource limits are admitted", and AC-6 says "Exact selected limits admit the boundary vector". FR-038-AC-3 says "Exact byte, depth... limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter". The clamp `limits.depth.min(MAXIMUM_DEPTH)` breaks both halves once a caller selects more than 128. Mutation M1 (removing the clamp) aborts the process with a stack overflow on the 100,000-deep test, because the `Value` pass, `serde_json::to_vec`, admission and `Value` drop all recurse on the caller's stack. So the clamp is a sound safety guard: it is documented and not hidden, but it contradicts the requirement. There are two ways to resolve it. (a) Honour the caller's limit by running the post-shape pipeline and the drop of the value on a grown stack, following the binding.rs:204 pattern. This comes after SR-624 FND-001 and FND-002 are fixed, and needs the byte limit to bound the growth honestly. (b) Amend FR-322 upstream to permit a reader-declared maximum depth, with the reported `limit` being the effective one, and then amend FR-038-AC-3 to match. Changing only the local FR-038 prose, as this PR does, is not enough (see SR-626).
+- FND-001: FR-322 line 319 says "`read` receives limits from its caller", line 652 says "Exact selected resource limits are admitted", and AC-6 says "Exact selected limits admit the boundary vector". FR-038-AC-3 says "Exact byte, depth, ... limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter". The clamp `limits.depth.min(MAXIMUM_DEPTH)` breaks both halves once a caller selects more than 128. Mutation M1 (removing the clamp) aborts the process with a stack overflow on the 100,000-deep test, because the `Value` pass, `serde_json::to_vec`, admission and `Value` drop all recurse on the caller's stack. So the clamp is a sound safety guard: it is documented and not hidden, but it contradicts the requirement. There are two ways to resolve it. (a) Honour the caller's limit by running the post-shape pipeline and the drop of the value on a grown stack, following the binding.rs:204 pattern. This comes after SR-624 FND-001 and FND-002 are fixed, and needs the byte limit to bound the growth honestly. (b) Amend FR-322 upstream to permit a reader-declared maximum depth, with the reported `limit` being the effective one, and then amend FR-038-AC-3 to match. Changing only the local FR-038 prose, as this PR does, is not enough (see SR-626).
 
 ## Verdict
 
@@ -39,7 +39,7 @@ At the default limit the PR delivers what the ACs ask: 200-deep input is `incomp
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 
@@ -53,7 +53,7 @@ At the default limit the PR delivers what the ACs ask: 200-deep input is `incomp
 
 ## Dispositions (disposition pass 3)
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-002 | deferred | AC contradiction recorded as a known deviation in FR-038's Reading prose and the PR body; upstream amendment STD-125 (QSL follow-up QSL-340) |
 

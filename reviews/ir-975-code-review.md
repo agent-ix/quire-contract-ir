@@ -37,4 +37,4 @@ This artifact supersedes the same reviewer method under SR-15714 on IR-975. SR-1
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the module header names AC-310 and describes exact malformed-wire pointers for shipped projections and extra selection members. The obsolete AC-154 projection-owner claim is gone. |
+| FND-001 | fixed | In the reviewed PR, the module header names AC-310 and describes exact malformed-wire pointers for shipped projections and extra selection members. The obsolete AC-154 projection-owner claim is gone. |

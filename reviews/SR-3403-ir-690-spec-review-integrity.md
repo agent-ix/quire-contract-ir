@@ -46,6 +46,6 @@ Ticket: IR-690. Exact frozen candidate. The new implemented status is consistent
 
 Round 1 checked local unpublished fix against the original reviewed head. The only prose change replaces the stale planned phrase with the implemented assertion; the five initial review exports were copied byte-exact. No regression was found in the six-path fix delta.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: “The former structural.ne refusal was superseded; the retargeted public assertion now verifies IneligibleOperator for an admitted non-eq/ne operation.” |
+| FND-001 | fixed | “The former structural.ne refusal was superseded; the retargeted public assertion now verifies IneligibleOperator for an admitted non-eq/ne operation.” |

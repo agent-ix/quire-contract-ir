@@ -3,7 +3,7 @@ id: SR-11790
 title: "IR-574 Slice 3 probe and coverage corpus bounds tests code review (with Rust review)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #414 diff origin/main...: tests/it/conformance.rs, spec/conformance/matrix/tests.md, spec/core/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; PR #414 diff origin/main...HEAD: tests/it/conformance.rs, spec/conformance/matrix/tests.md, spec/core/matrix/tests.md"
 review_set: subset
 ---
 
@@ -84,11 +84,11 @@ scope:
 - id: FR-020-AC-3
   path: spec/conformance/functional/FR-020-json-conformance-interface.md
   role: examined
-  excerpt: "the package schema accepts a revision and a byte offset of `9007199254740992` and rejects `9007199254740993`; a decoder fixture that supplies a JSON number in one of the eight members straight to the decoder returns `invalid_wire_format`... while the same number in a valid-operation input is `invalid_corpus` at the schema check"
+  excerpt: "the package schema accepts a revision and a byte offset of `9007199254740992` and rejects `9007199254740993`; a decoder fixture that supplies a JSON number in one of the eight members straight to the decoder returns `invalid_wire_format` ... while the same number in a valid-operation input is `invalid_corpus` at the schema check"
 - id: FR-012-AC-6
   path: spec/core/functional/FR-012-anchors-clauses-dependencies.md
   role: examined
-  excerpt: "Source spans reject... a byte offset above 9007199254740992... using `invalid_source_span`... and the probe and coverage inputs of the conformance corpus refuse it `invalid_corpus` at the fixture schema (FR-020-AC-3)."
+  excerpt: "Source spans reject ... a byte offset above 9007199254740992 ... using `invalid_source_span` ... and the probe and coverage inputs of the conformance corpus refuse it `invalid_corpus` at the fixture schema (FR-020-AC-3)."
 - id: FR-011-AC-3
   path: spec/core/functional/FR-011-package-identity.md
   role: examined
@@ -96,11 +96,11 @@ scope:
 - id: FR-023-AC-6
   path: spec/model/functional/FR-023-executable-projection-binding.md
   role: context_only
-  excerpt: "A projection whose... revision... or expression byte offset is 9007199254740993 (and, for each, `u64::MAX`) is refused `invalid_wire_format` at path `projection`..."
+  excerpt: "A projection whose ... revision ... or expression byte offset is 9007199254740993 (and, for each, `u64::MAX`) is refused `invalid_wire_format` at path `projection` ..."
 - id: tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema
   path: tests/it/conformance.rs
   role: examined
-  excerpt: "for value in [BOUND + 1, u64::MAX] {... assert_eq!(error[\"code\"], \"invalid_corpus\"); assert_eq!(error[\"path\"], format!(\"fixtures.{fixture}.input\")); assert_eq!(error[\"detail\"], \"instance does not match schema\");... decoded.to_string.starts_with(&format!(\"{code} at \")) }"
+  excerpt: "for value in [BOUND + 1, u64::MAX] { ... assert_eq!(error[\"code\"], \"invalid_corpus\"); assert_eq!(error[\"path\"], format!(\"fixtures.{fixture}.input\")); assert_eq!(error[\"detail\"], \"instance does not match schema\"); ... decoded.to_string().starts_with(&format!(\"{code} at \")) }"
 - id: spec/conformance/matrix/tests.md#FR-020
   path: spec/conformance/matrix/tests.md
   role: examined

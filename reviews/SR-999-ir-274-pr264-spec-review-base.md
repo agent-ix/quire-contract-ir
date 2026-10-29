@@ -3,7 +3,7 @@ id: SR-999
 title: "spec review of PR 264 (identity digests and v1 integers through quire-canonical)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD (, current main, merges clean): schemas/contract-conformance-fixture-v1.schema.json, schemas/contract-package-reference-v1.schema.json, spec/model (FR-013, FR-016, FR-019), spec/core (FR-011, FR-012), spec/conformance (FR-020), spec/checked_package (FR-038, TC-048), spec/output_mapping (FR-032, FR-033, FR-034, STD-003), spec/assurance (AD-004, AD-005), the five matrices and spec/tests.md; checked against crates/quire-contract-model/src at the same sha, quire-canonical origin/main, quire-spec-language origin/main and PR 613 head (FR-056), quire-specification origin/main (IntegerString, FR-322)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD ( current main, merges clean): schemas/contract-conformance-fixture-v1.schema.json, schemas/contract-package-reference-v1.schema.json, spec/model (FR-013, FR-016, FR-019), spec/core (FR-011, FR-012), spec/conformance (FR-020), spec/checked_package (FR-038, TC-048), spec/output_mapping (FR-032, FR-033, FR-034, STD-003), spec/assurance (AD-004, AD-005), the five matrices and spec/tests.md; checked against crates/quire-contract-model/src at the same sha, quire-canonical origin/main, quire-spec-language origin/main and PR 613 head (FR-056), quire-specification origin/main (IntegerString, FR-322)"
 review_set: base
 ---
 # SR-999: spec review of PR 264
@@ -111,7 +111,7 @@ Reviewed at agent-ix/quire-contract-ir. Main is still. `git diff origin/main --s
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

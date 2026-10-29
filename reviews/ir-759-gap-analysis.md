@@ -27,7 +27,7 @@ Plan completion: not assessed. Examined FR-052-AC-1 through FR-052-AC-7 and FR-0
 
 ## Evidence
 
-`make_envelope` derives `item_count` from `rows.len` and sets `Complete` without enumeration evidence. Its omission case removes a selected IR occurrence and still expects a successful census. No IR/QSL/quire-code-rs adapter or independent owner-output comparison appears in the branch diff. Remove AC-7 trace and the TC-452 implemented claim for this slice, or add native producer evidence and the omission refusal required by TC-452.
+`make_envelope` derives `item_count` from `rows.len()` and sets `Complete` without enumeration evidence. Its omission case removes a selected IR occurrence and still expects a successful census. No IR/QSL/quire-code-rs adapter or independent owner-output comparison appears in the branch diff. Remove AC-7 trace and the TC-452 implemented claim for this slice, or add native producer evidence and the omission refusal required by TC-452.
 
 ## Reviewed units
 
@@ -43,7 +43,7 @@ Plan completion: not assessed. Examined FR-052-AC-1 through FR-052-AC-7 and FR-0
 
 ## Dispositions
 
-Reviewed uncommitted working-tree correction on; no new commit head yet.
+Reviewed the uncommitted working-tree correction; no new commit head yet.
 
 | FND | outcome | reason |
 | --- | --- | --- |

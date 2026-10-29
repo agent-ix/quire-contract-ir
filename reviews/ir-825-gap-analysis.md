@@ -24,7 +24,7 @@ criteria as `tagged`:
 | FR-052-AC-6 | `every_owner_position_refuses_missing_and_typed_incomplete_outcomes` |
 
 FR-052-AC-24 is `untagged` and stays Planned until IR-820 is decided, as
-FR-052, TC-452 and tests.md all state. `quire coverage --scope. --strict`
+FR-052, TC-452 and tests.md all state. `quire coverage --scope . --strict`
 reports 43 unbacked rows and 0 contradicted statuses at HEAD, against 48 on
 origin/main. The drop of five matches the five newly backed criteria. The
 command still exits non-zero, because the other unbacked rows already exist
@@ -66,7 +66,7 @@ instructions to a record of what exists.
 ## Dispositions
 
 Round 1. Checked against fix
-with `git diff..`. `quire coverage --strict` still reports 43
+with `git diff origin/main...HEAD`. `quire coverage --strict` still reports 43
 unbacked rows and 0 contradicted. In `quire matrix`, FR-052-AC-1, 2, 3, 5 and
 6 are tagged and AC-24 is untagged. `quire validate` over spec/** and
 reviews/** reports 899/899 docs clean.

@@ -37,6 +37,6 @@ and QSpec routing review.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: "`package_id` is the package's content identity". The other wire digests are listed as "QSpec-owned identities of the package's parts, and IR adds none" |
+| FND-001 | fixed | "`package_id` is the package's content identity". The other wire digests are listed as "QSpec-owned identities of the package's parts, and IR adds none" |

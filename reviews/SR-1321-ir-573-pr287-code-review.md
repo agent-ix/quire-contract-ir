@@ -3,7 +3,7 @@ id: SR-1321
 title: "PR #287 IR-573 first-fault test: code and Rust review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_model_members.rs (git diff origin/main...HEAD, )"
+scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_model_members.rs (git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TC-048
@@ -13,8 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-573. PR agent-ix/quire-contract-ir#287, head
-. Method: code-review with the
+Ticket: IR-573. PR agent-ix/quire-contract-ir#287, head. Method: code-review with the
 rust-review lane folded in, plus a check of the test oracle's strength. The PR
 changes no production code. It adds one test,
 `tc_048_the_first_reader_fault_decides_when_faults_coexist`, tagged TC-048 and

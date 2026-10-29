@@ -16,8 +16,8 @@ and #182.
 
 Measured:
 
-- QSpec #181 (merged 2026-10-03T12:43Z, ) and #182 (merged
-  2026-10-03T14:35Z, ) are both merged, as the PR says.
+- QSpec #181 (merged 2026-10-03T12:43Z) and #182 (merged
+  2026-10-03T14:35Z) are both merged, as the PR says.
 - FR-322 "Structural leaf walk" at QSpec origin/main lists a
   `{path: p + ["recursion:<d>"], laws: [], mode: null}` entry when text is
   reachable. Its examples cover a record (`Node`), a tuple (`Cell`) and a union
@@ -54,9 +54,9 @@ repository.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir (fix on; main ). Checked against QSpec origin/main, where #183 and #184 are merged (gh).
+Round 1, reviewed the fix on agent-ix/quire-contract-ir main. Checked against QSpec origin/main, where #183 and #184 are merged (gh).
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

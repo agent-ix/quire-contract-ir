@@ -45,6 +45,6 @@ would protect the fix.
 
 Round 1, reviewed.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. AC-117 adds "one nested within the strict parse's limit but far past the grammar (a body of 61 aggregates, 126 JSON levels)... on a 256 KiB thread in a debug build with no stack overflow", and TC-048 lists 41 to 61 aggregates and a 50-deep `details` term. `tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse` and `tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar` back the clause |
+| FND-001 | fixed | AC-117 adds "one nested within the strict parse's limit but far past the grammar (a body of 61 aggregates, 126 JSON levels)... on a 256 KiB thread in a debug build with no stack overflow", and TC-048 lists 41 to 61 aggregates and a 50-deep `details` term. `tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse` and `tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar` back the clause |

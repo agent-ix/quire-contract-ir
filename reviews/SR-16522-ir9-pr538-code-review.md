@@ -20,7 +20,7 @@ Independent review of the two producer files changed by PR 538. The review compa
 
 ## Scope examined
 
-- `Case::operation`, `add`, and `placeholder` now use the existing closed `ConformanceOperation`; `as_str` still writes the original operation coverage label. The three placeholder shapes are unchanged.
+- `Case::operation`, `add`, and `placeholder` now use the existing closed `ConformanceOperation`; `as_str()` still writes the original operation coverage label. The three placeholder shapes are unchanged.
 - `PackageMutation` has an explicit arm for each of the nine prior malformed package cases. Every variant mutates the same JSON path to the same value as the old ID match, including the three values beyond the JSON safe-integer bound.
 - `ExpressionMutation` has one variant for each of the ten prior malformed expression cases. Its mutation and optional boundary-label mapping preserve the previous values and labels.
 - `CaseCoverage` preserves the prior `construct:` and `boundary:` labels. The Boolean-literal declaration metadata and non-Boolean-root clause flag remain attached to the same cases. Case creation order and fixture IDs remain unchanged.

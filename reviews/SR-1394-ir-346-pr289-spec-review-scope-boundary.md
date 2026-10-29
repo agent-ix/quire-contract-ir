@@ -35,6 +35,6 @@ the AD's decisions stay inside IR's boundary and agree with R-1.
 
 Re-reviewed at agent-ix/quire-contract-ir. Decision C's cited source is real: QSL `Cargo.toml` lines 81-83 say "one-copy-deps (agent-ix org-wide, IR #225/RT #88): branch = \"main\", no rev". CG's and RT's first-party edges are all `branch = "main"` with no `rev`. No new findings in this lens.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: decision C is scoped to IR's position on IR, CG and RT edges, with QSL's edges a routed recommendation (R-1, "QSL's call"); G-1..G-5 are framed as targets proposed to each owner |
+| FND-001 | fixed | decision C is scoped to IR's position on IR, CG and RT edges, with QSL's edges a routed recommendation (R-1, "QSL's call"); G-1..G-5 are framed as targets proposed to each owner |

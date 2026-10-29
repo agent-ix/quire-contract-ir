@@ -35,7 +35,7 @@ Ticket: IR-874. Reviewed the frozen PR #586 diff, its caller and direct test, QS
 ## Evidence
 
 - Hosted Rust Checks failed `make lint`: `qsl-string-edge` reported one unmarked, unlisted branch-gating occurrence at `refinement.rs:1327` in `concrete_protocol_presence`. The allow-list is empty; adding this post-intake function to it or marking the broad validator would violate FR-056.
-- `concrete_protocol_presence` loops over `graph.index.values` for each refinement. It charges only after finding `ProtocolClause`; nonprotocol entries incur no per-entry charge. The default allows 10,000 nodes and 1,000,000 work units.
+- `concrete_protocol_presence` loops over `graph.index.values()` for each refinement. It charges only after finding `ProtocolClause`; nonprotocol entries incur no per-entry charge. The default allows 10,000 nodes and 1,000,000 work units.
 - No CI workflow, rules file, dependency, or gate configuration changed in the PR diff. The hosted supply-chain and language-boundary jobs passed. Local Cargo and Make gates were not run because the shared build lock was occupied.
 
 ## Dispositions
@@ -43,7 +43,7 @@ Ticket: IR-874. Reviewed the frozen PR #586 diff, its caller and direct test, QS
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | At fix, the existing marked `TermBindingName::from_wire` intake classifies `over` as `Over`, and `concrete_protocol_presence` compares the typed variant. No marker or allow-list entry was added to the post-intake validator. |
-| FND-002 | fixed | The scan now charges one work unit at the start of every `graph.index.values` iteration, including nonprotocol nodes, before inspecting that entry. |
+| FND-002 | fixed | The scan now charges one work unit at the start of every `graph.index.values()` iteration, including nonprotocol nodes, before inspecting that entry. |
 
 ## Disposition Verdict
 
@@ -59,7 +59,7 @@ Ticket: IR-874. Reviewed the frozen PR #586 diff, its caller and direct test, QS
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-003 | still-open |, the source-node kind check has no authoritative clause-to-selected-model ownership edge. The new fixture takes `OrderFlow::Closed` from `v2_all_families`, whose clause `over` parameter is Boolean-typed, while the refinement's concrete model is the added `test/refinement/Machine`. The coder confirmed the mismatch; the PR remains draft pending that edge. |
+| FND-003 | still-open | In the reviewed PR, the source-node kind check has no authoritative clause-to-selected-model ownership edge. The new fixture takes `OrderFlow::Closed` from `v2_all_families`, whose clause `over` parameter is Boolean-typed, while the refinement's concrete model is the added `test/refinement/Machine`. The coder confirmed the mismatch; the PR remains draft pending that edge. |
 
 **CONDITIONAL** — the new catalog-presence rule is unsound for foreign protocol rows and does not establish the selected-model criterion. The original FND-001 and FND-002 remain fixed by removal of the respective code paths.
 

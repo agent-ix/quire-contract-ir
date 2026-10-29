@@ -39,11 +39,11 @@ Checked FR-048's five criteria against the tagged tests and changed source. The 
 
 FR-048-AC-1 through FR-048-AC-5 had tagged tests in the changed integration files. At the original reviewed head, the AC-3 test checked an already admitted graph and a permutation of digest-form IDs. The deep-stack test used a provisional selector but only asserted candidate success, not reader admission. Plan completion: not assessed.
 
-The computed Test Matrix was unavailable: quire matrix --scope. --format json exited without JSON after duplicate-module diagnostics. The tag-to-criterion check was a declared grep and source-inspection fallback.
+The computed Test Matrix was unavailable: quire matrix --scope . --format json exited without JSON after duplicate-module diagnostics. The tag-to-criterion check was a declared grep and source-inspection fallback.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | — tc_048_provisional_mixed_group_candidates_assemble_and_admit derives from non-digest group selectors, installs final IDs and label, and passes the real reader. |
 

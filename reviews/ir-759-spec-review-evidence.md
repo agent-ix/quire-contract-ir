@@ -38,7 +38,7 @@ Examined FR-052-AC-7 and TC-452; read FR-052-AC-1 through AC-6 for context. The 
 
 ## Dispositions
 
-Reviewed uncommitted working-tree correction on; no new commit head yet.
+Reviewed the uncommitted working-tree correction; no new commit head yet.
 
 | FND | outcome | reason |
 | --- | --- | --- |

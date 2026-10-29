@@ -37,7 +37,7 @@ No production, API, Cargo, CI or spec files change. The helper that constructs `
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | At PR #614, `assert_protocol_refusal_at` checks exact `/semantic_graph/nodes/{position}` and typed node locus for every new refusal. `BinderScope` assertions compare the clause owner, and `DecisionFact` compares the decision role owner, field node and binder key. The existing code/cause/stage/slot/reason checks remain. |
-| FND-002 | fixed |, `record_parameter` no longer excludes `self.captures`. `bare_record_capture_refuses_while_its_field_and_scalar_capture_admit` uses the public reader and checks a Boolean-rooted bare record capture in each choice/repeat visible/guard slot for exact `ill_typed` cause, path, locus and slot; projected record fields and scalar captures admit in those same four slots. |
+| FND-002 | fixed | In the reviewed PR, `record_parameter` no longer excludes `self.captures`. `bare_record_capture_refuses_while_its_field_and_scalar_capture_admit` uses the public reader and checks a Boolean-rooted bare record capture in each choice/repeat visible/guard slot for exact `ill_typed` cause, path, locus and slot; projected record fields and scalar captures admit in those same four slots. |
 
 ## Current verdict
 

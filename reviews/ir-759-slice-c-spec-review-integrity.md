@@ -22,7 +22,7 @@ Three low findings; no contradiction between two rules in the census pipeline it
 | --- | --- | --- | --- |
 | FND-001 | low | AC-8 cites 'tests/it/source_obligation.rs (lines 368-369)'. The lines are correct but a line reference in an AC drifts with any edit to that file. Name the test function or the two asserted strings instead. | spec/model/functional/FR-052-source-obligation-correspondence.md:459 |
 | FND-002 | low | The Behavior paragraph scopes ConflictingProvenance to 'repeated assertion identity', while pipeline step 4 also applies it to different assertion IDs stating one relation with differing provenance (and AC-19 tests that). Not contradictory, but the reason now has two definitions in two places; extend the Behavior sentence to name the cross-ID case so one rule is authoritative. | spec/model/functional/FR-052-source-obligation-correspondence.md:324-327, 394-398 |
-| FND-003 | low | Every census accessor's return type is stated except `source` and `criterion_source_binding`. Because a census exists only with a binding, the latter could be `&SourceCriterionSourceBinding` or `Option<&...>` (the input accessor is Option). State it, since AC-5/AC-17 consumers compile against it. | spec/model/functional/FR-052-source-obligation-correspondence.md:361-364 |
+| FND-003 | low | Every census accessor's return type is stated except `source()` and `criterion_source_binding()`. Because a census exists only with a binding, the latter could be `&SourceCriterionSourceBinding` or `Option<&...>` (the input accessor is Option). State it, since AC-5/AC-17 consumers compile against it. | spec/model/functional/FR-052-source-obligation-correspondence.md:361-364 |
 
 ## Examined units
 
@@ -31,11 +31,11 @@ scope:
 - id: FR-052#assertion-pipeline
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: 1. Exact duplicate assertions, equal in every field, collapse to one. 2. Assertions sharing one `SourceAssertionId` form a group.... `ConflictingRelation`... Otherwise... `ConflictingProvenance`. 3.... `ForeignSource` when its source or its provenance source differs from the selected source, then `DanglingCriterion`, `DanglingOccurrence` and `DanglingProductionSymbol`. 4. Remaining assertions with one criterion, occurrence and production function form one relation. When a relation holds more than one distinct provenance, every member is rejected with `ConflictingProvenance`. Otherwise the relation yields exactly one `SourceObligationRow`, whatever the number of assertion IDs that state it.
+  excerpt: 1. Exact duplicate assertions, equal in every field, collapse to one. 2. Assertions sharing one `SourceAssertionId` form a group. ... `ConflictingRelation` ... Otherwise ... `ConflictingProvenance`. 3. ... `ForeignSource` when its source or its provenance source differs from the selected source, then `DanglingCriterion`, `DanglingOccurrence` and `DanglingProductionSymbol`. 4. Remaining assertions with one criterion, occurrence and production function form one relation. When a relation holds more than one distinct provenance, every member is rejected with `ConflictingProvenance`. Otherwise the relation yields exactly one `SourceObligationRow`, whatever the number of assertion IDs that state it.
 - id: FR-052#dispositions
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: A `SemanticNode` row in a conflicting key group is `ConflictingIdentity`. Otherwise a row is `Mapped` when an accepted row names it... A row that is not `Mapped` is `ZeroMappings(ExplicitNoProductionFunction)` when it is an occurrence, or the node of an occurrence, named by an accepted row with no production function. Every other row, including an empty module and every QSL `RequirementRecord` and `PendingObligation` row, is `ZeroMappings(NoAuthoredMapping)`; no assertion endpoint can name a QSL row. That QSL rows are always `ZeroMappings(NoAuthoredMapping)` is an IR reading pending owner confirmation (see Open questions).
+  excerpt: A `SemanticNode` row in a conflicting key group is `ConflictingIdentity`. Otherwise a row is `Mapped` when an accepted row names it ... A row that is not `Mapped` is `ZeroMappings(ExplicitNoProductionFunction)` when it is an occurrence, or the node of an occurrence, named by an accepted row with no production function. Every other row, including an empty module and every QSL `RequirementRecord` and `PendingObligation` row, is `ZeroMappings(NoAuthoredMapping)`; no assertion endpoint can name a QSL row. That QSL rows are always `ZeroMappings(NoAuthoredMapping)` is an IR reading pending owner confirmation (see Open questions).
 - id: FR-052#ordering
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
@@ -43,7 +43,7 @@ scope:
 - id: FR-052#census-accessors
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: '`SourceObligationCensus` shall expose `source`, `criterion_source_binding`, `inventory_rows` returning `&[SourceCensusInventoryRow]`, `correspondence_rows` returning `&[SourceObligationRow]`, and `rejected_assertions` returning `&[SourceCorrespondenceRejection]`. `SourceCensusInventoryRow` shall expose `row`, the retained `SourceInventoryRow`, and `disposition`.'
+  excerpt: '`SourceObligationCensus` shall expose `source()`, `criterion_source_binding()`, `inventory_rows()` returning `&[SourceCensusInventoryRow]`, `correspondence_rows()` returning `&[SourceObligationRow]`, and `rejected_assertions()` returning `&[SourceCorrespondenceRejection]`. `SourceCensusInventoryRow` shall expose `row()`, the retained `SourceInventoryRow`, and `disposition()`.'
 - id: FR-052#error-variants
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
@@ -55,7 +55,7 @@ scope:
 - id: FR-052-AC-8
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: 'A default-feature consumer can construct and borrow provisional owner rows... and the public module exposes no census or complete-census builder. FR-052-AC-17 supersedes this criterion when the census builder lands: that code change removes `SourceInventoryEnvelope`, the envelope-taking `SourceObligationInput` constructor, the tests tagged FR-052-AC-8, and the no-census assertions in `tests/it/source_obligation.rs` (lines 368-369); the FR-052-AC-4 inspection of `SourceObligationInput` fields remains.'
+  excerpt: 'A default-feature consumer can construct and borrow provisional owner rows, ... and the public module exposes no census or complete-census builder. FR-052-AC-17 supersedes this criterion when the census builder lands: that code change removes `SourceInventoryEnvelope`, the envelope-taking `SourceObligationInput` constructor, the tests tagged FR-052-AC-8, and the no-census assertions in `tests/it/source_obligation.rs` (lines 368-369); the FR-052-AC-4 inspection of `SourceObligationInput` fields remains.'
 ```
 
 ## Dispositions

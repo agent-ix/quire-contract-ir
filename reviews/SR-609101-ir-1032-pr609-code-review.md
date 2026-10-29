@@ -36,7 +36,7 @@ Ticket IR-1032. No implementation code changes; the diff is confined to one FR a
 ## Evidence
 
 - The PR changes one FR document and adds a QSpec FR-322-AC-139 reference; all earlier criteria remain.
-- `quire validate --scope. spec/checked_package/functional/FR-063-dimension-equivalence-node.md` passed.
+- `quire validate --scope . spec/checked_package/functional/FR-063-dimension-equivalence-node.md` passed.
 - Focused `quire properties --criteria` classified 6 criteria; `git diff --check` passed.
 - QSpec TC-280 MU-23 and MU-24 cover dimension-equivalence graph and wire mutations. The other four schema mutations are listed only in QSpec `node-identity-vectors.json` and FR-322-AC-139.
 

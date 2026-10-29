@@ -33,6 +33,6 @@ Acceptable. The missing lowering-ceiling AC is recorded in SR-999 FND-006.
 
 Reviewed at agent-ix/quire-contract-ir (main still; not rebased onto #263, whose FR-038, TC-048 and checked_package tests.md hunks conflict textually, expected rebase work). Proof re-run: no schemas/, corpus or code file in `git diff origin/main --stat`; `make corpus` exit 0; workspace tests all pass (204 + 101, 0 failed); validate passes, grammar 1 (FR-014 baseline), 215 ACs, strict 23 unbacked, coverage rows 237.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | accepted-no-change | The new source-reading criteria now uniformly use Test (TC-...), matching merged FR-038-AC-80; FR-013-AC-2's Inspection is pre-existing and outside this PR. Consistent within the PR's scope, so no change is needed here. |

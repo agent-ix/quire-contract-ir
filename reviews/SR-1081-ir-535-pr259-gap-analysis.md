@@ -111,7 +111,7 @@ origin/main. Each item holds:
 - `checked_v2.rs:977` reads QSL's own `selection.version`.
 - Cargo.lock pins IR.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | deferred | Routed to IR-552: a conformance-qspec test over QSpec's dependency-selection-vectors.json. The reader matches QSpec's recorded package_id today (SR-1080 probe), so it is not needed for this PR. As of this round, IR-552's description and comments do not mention the vector, so the routing must be written into IR-552 for the deferral to stick |
 | FND-002 | fixed | (PR body refreshed; no repo change) |

@@ -30,5 +30,5 @@ Examined IR FR-038-AC-318, FR-038-AC-322, FR-038-AC-323, FR-065-AC-1, FR-065-AC-
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the tick test traces FR-038-AC-318 and FR-038-AC-322, while the existing TM-23..29 test retains FR-038-AC-323. The new writer/readback assertions also exercise AC-322. |
-| FND-002 | fixed |, both model-root conformance tests trace FR-065-AC-3 only; the existing typed external encoder integration test retains FR-065-AC-1. |
+| FND-001 | fixed | In the reviewed PR, the tick test traces FR-038-AC-318 and FR-038-AC-322, while the existing TM-23..29 test retains FR-038-AC-323. The new writer/readback assertions also exercise AC-322. |
+| FND-002 | fixed | In the reviewed PR, both model-root conformance tests trace FR-065-AC-3 only; the existing typed external encoder integration test retains FR-065-AC-1. |

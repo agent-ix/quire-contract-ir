@@ -54,7 +54,7 @@ contradiction with AC-68. Merge timing against #250 is open for the leader.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | deferred | AC-81 now owns the base refusals with pointers and the admission control; trimming AC-67's restatement belongs to #253 (IR-503), which owns AC-67 and its test, so no change is needed in this PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

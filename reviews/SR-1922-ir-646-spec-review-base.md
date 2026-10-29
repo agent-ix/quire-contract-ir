@@ -35,6 +35,6 @@ Ticket: IR-646. The TC-048 expected-result text contradicts the revised AC-89 go
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The TC-048 expected result now restricts the pre-owner package-id golden to the owner-free nominal fixture and describes owner-bearing identity projection and planned QSL-638 golden. |

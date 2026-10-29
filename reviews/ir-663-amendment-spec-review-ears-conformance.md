@@ -46,7 +46,7 @@ item to fix while the amendment is open.
 
 Round 1, fix commit "spec: close IR663 private intake review findings".
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
 | FND-002 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
@@ -62,6 +62,6 @@ Round 1, fix commit "spec: close IR663 private intake review findings".
 
 Round 2, fix commit "Clarify private intake ownership and atomic context checks".
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-004 | fixed | fixed by commit "Clarify private intake ownership and atomic context checks" |

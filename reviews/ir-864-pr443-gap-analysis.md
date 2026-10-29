@@ -3,7 +3,7 @@ id: SR-12356
 title: "IR-864 gap analysis of IR PR 443"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR 443..; changed checked-package tests and computed traceability"
+scope: "agent-ix/quire-contract-ir PR 443; changed checked-package tests and computed traceability"
 review_set: subset
 ---
 

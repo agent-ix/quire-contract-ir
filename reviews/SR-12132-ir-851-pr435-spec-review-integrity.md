@@ -22,8 +22,8 @@ Ticket: IR-851. Checked id allocation, cross-references, matrix consistency and 
 
 - AC-262..267 were free on origin/main: `git grep FR-038-AC-26[2-9] origin/main` finds nothing, and the previous highest id was AC-261. Nothing is renumbered.
 - Each new AC is `Test (TC-048)` and has one PLANNED / UNRUN tests.md row.
-- `quire coverage --strict --scope.` reports 43 unbacked rows and 0 contradicted, which is the baseline.
-- `quire validate --scope. 'spec/**/*.md'` exits 0 (DuplicateArchetype and inline-schema warnings only, both pre-existing).
+- `quire coverage --strict --scope .` reports 43 unbacked rows and 0 contradicted, which is the baseline.
+- `quire validate --scope . 'spec/**/*.md'` exits 0 (DuplicateArchetype and inline-schema warnings only, both pre-existing).
 - `cargo test --locked --test it tc_058` passes 4/4 on the branch, so leaving out the FR-019 row is correct until the code PR exports the types.
 - FR-053 is left unchanged, and that is consistent: its description (:26) and AC-5 speak of edge-FIELD multiplicity, and a relationship end is not a field.
 
@@ -31,9 +31,9 @@ Ticket: IR-851. Checked id allocation, cross-references, matrix consistency and 
 
 | Unit | Role | Path | Excerpt |
 | --- | --- | --- | --- |
-| FR-038-AC-262..267 ids | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | FR-038-AC-262.. FR-038-AC-267, Test (TC-048) |
+| FR-038-AC-262..267 ids | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | FR-038-AC-262 .. FR-038-AC-267, Test (TC-048) |
 | tests.md rows AC-262..267 | examined | spec/checked_package/matrix/tests.md | PLANNED / UNRUN (IR-851); no tagged test yet |
-| tests.md FR-038 aggregate row | examined | spec/checked_package/matrix/tests.md |... FR-038-AC-257, FR-038-AC-258 through FR-038-AC-261 |
+| tests.md FR-038 aggregate row | examined | spec/checked_package/matrix/tests.md | ... FR-038-AC-257, FR-038-AC-258 through FR-038-AC-261 |
 | FR-038 FR-053 split paragraph | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | FR-053 and its AC-5 name model_object_fields as the sole authority for model edge-FIELD multiplicity; that sentence is about fields and stays true |
 | FR-053 description | context_only | spec/model/functional/FR-053-selected-population-binding.md | model_object_fields remains the sole authority for model edge-field multiplicity. |
 | FR-053 Public boundary | context_only | spec/model/functional/FR-053-selected-population-binding.md | No item is re-exported from the quire-contract-ir root. |

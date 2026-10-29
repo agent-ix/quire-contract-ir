@@ -20,7 +20,7 @@ Ticket: IR-803. Integrity of the new type-table row, the new prose, AC-246, the 
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | AC-182 stays "Implemented... verified": "an external consumer... exhaustively matches all named output... types". The PR adds `CheckedCompositeOperator` to the named types, and this commit has no such type. Nothing in AC-246 or its TC-048 step says to extend the AC-182 fixture (`inspect_public_fields`, tests/it/checked_package_v2_composite_operands.rs:282-292). Failure: the code PR destructures `operator: _`, or ships the enum `#[non_exhaustive]` (a downstream crate cannot then match it exhaustively). The closed-variant promise at FR-038:3110 then goes unchecked while AC-182 still reads Implemented. Either have AC-246's TC step match `Eq`/`Ne` exhaustively in the external fixture, or note on AC-182 that the operator part is covered under AC-246 (IR-803). | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3110,4292,4353 |
+| FND-001 | low | AC-182 stays "Implemented ... verified": "an external consumer ... exhaustively matches all named output ... types". The PR adds `CheckedCompositeOperator` to the named types, and this commit has no such type. Nothing in AC-246 or its TC-048 step says to extend the AC-182 fixture (`inspect_public_fields`, tests/it/checked_package_v2_composite_operands.rs:282-292). Failure: the code PR destructures `operator: _`, or ships the enum `#[non_exhaustive]` (a downstream crate cannot then match it exhaustively). The closed-variant promise at FR-038:3110 then goes unchecked while AC-182 still reads Implemented. Either have AC-246's TC step match `Eq`/`Ne` exhaustively in the external fixture, or note on AC-182 that the operator part is covered under AC-246 (IR-803). | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3110,4292,4353 |
 
 ## Coverage
 
@@ -51,7 +51,7 @@ bindings: []
 
 ## Dispositions
 
-Round 1; reviewed (diff..).
+Round 1; reviewed (PR diff).
 
 | FND | outcome | reason |
 | --- | --- | --- |

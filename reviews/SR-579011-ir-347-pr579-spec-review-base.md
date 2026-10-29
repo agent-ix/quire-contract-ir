@@ -58,7 +58,7 @@ scope:
 - id: TC-042 cases
   path: spec/kani/matrix/tests.md
   role: context_only
-  excerpt: "every profile/matrix construct and unknown/conflicting/missing entry;... each valid, duplicate, dangling, foreign, wrong-type, incomplete, unavailable and one-over-bound population/snapshot/reference/collection case; no-assumption invalid-input probes; every typed outcome kind and Boolean-field absence; arithmetic/definedness, object/reference/graph and collection/query dispatch ownership"
+  excerpt: "every profile/matrix construct and unknown/conflicting/missing entry; ... each valid, duplicate, dangling, foreign, wrong-type, incomplete, unavailable and one-over-bound population/snapshot/reference/collection case; no-assumption invalid-input probes; every typed outcome kind and Boolean-field absence; arithmetic/definedness, object/reference/graph and collection/query dispatch ownership"
 - id: TC-041
   path: spec/model/matrix/tests.md
   role: context_only
@@ -67,7 +67,7 @@ scope:
 
 ## Dispositions
 
-Round 1. Checked at against fix diff.. (one commit, "Preserve full public Kani error surface in TC-055"), six spec files, no code. Cargo, Kani and `make ci` were not run (spec-only). `quire validate` over spec, plan and reviews is grammar-clean; `quire coverage --strict` reports 68 unbacked rows, byte-identical to `origin/main`, none in a file this PR touches.
+Round 1. Checked at against fix PR diff (one commit, "Preserve full public Kani error surface in TC-055"), six spec files, no code. Cargo, Kani and `make ci` were not run (spec-only). `quire validate` over spec, plan and reviews is grammar-clean; `quire coverage --strict` reports 68 unbacked rows, byte-identical to `origin/main`, none in a file this PR touches.
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -37,8 +37,8 @@ not block the PR. The missing ids that do block it are in SR-12120.
 | FR-038-AC-183 shared claim | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | Test (TC-048, TC-226) |
 | FR-038-AC-202..209 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4568-4575 | Test (TC-445) |
 | FR-038 Verification column, AC-177..182, 186..201, 214, 246 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4543-4567, 4587, 4631 | Test / Test, Inspection / Inspection (no TC id) |
-| FR-038-AC-236..238 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4604-4606 | IMPLEMENTED (IR-777)... Test |
-| FR-038 coverage row | examined | spec/checked_package/matrix/tests.md:21 |... FR-038-AC-215 through FR-038-AC-218, FR-038-AC-239 through FR-038-AC-241, FR-038-AC-246, FR-038-AC-252... |
+| FR-038-AC-236..238 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4604-4606 | IMPLEMENTED (IR-777) ... Test |
+| FR-038 coverage row | examined | spec/checked_package/matrix/tests.md:21 | ... FR-038-AC-215 through FR-038-AC-218, FR-038-AC-239 through FR-038-AC-241, FR-038-AC-246, FR-038-AC-252 ... |
 
 ## Findings
 

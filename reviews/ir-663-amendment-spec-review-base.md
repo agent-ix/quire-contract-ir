@@ -87,7 +87,7 @@ that conflicts with it. Both are one-sentence fixes inside FR-038.
 
 Round 1, fix commit "spec: close IR663 private intake review findings".
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
 | FND-002 | fixed | fixed by commit "spec: close IR663 private intake review findings" |

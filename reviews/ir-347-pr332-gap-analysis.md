@@ -30,7 +30,7 @@ Units examined (each excerpt is verbatim from the reviewed head):
 
 - `src/kani/mod.rs` — `src/kani/mod.rs` (examined): FR-039-AC-3, TC-055: QSL owns the terminal result and record
 - `src/kani/outcome.rs` — `src/kani/outcome.rs` (examined): pub enum KaniOutcomeKind {
-- `tests/it/kani_shared.rs` — `tests/it/kani_shared.rs` (examined): fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code
+- `tests/it/kani_shared.rs` — `tests/it/kani_shared.rs` (examined): fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code()
 - `FR-039-AC-3` — `spec/kani/functional/FR-039-root-crate-public-interface.md` (examined): Code naming any item the "Items QSL owns" or "Items codegen owns" section lists through `quire_contract_ir` fails to compile
 - `TC-055` — `spec/kani/matrix/TC-055-root-crate-public-interface.md` (examined): Planned.
 

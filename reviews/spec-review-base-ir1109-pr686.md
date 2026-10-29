@@ -3,7 +3,7 @@ id: SR-2026102753
 title: "IR-1109 PR 686 spec-review base"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; IR-1109 PR #686; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:5583-5588"
+scope: "agent-ix/quire-contract-ir; IR-1109 PR #686 at 72334867; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:5583-5588"
 review_set: subset
 ---
 
@@ -46,4 +46,4 @@ Reviewed the six FR-038 AC-357..362 status/evidence prefixes added in PR #686 at
 
 ## Final structural review
 
-The exact delta from to removes one blank line before AC-343; the exact delta from to changes only three test trace tags. `quire trace --scope. --id` resolves both named AC-357 tests, all four AC-358 tests and all three AC-359 tests. The six IMPLEMENTED status rows now belong to minted criteria; AC-343's untagged state is preserved. No normative criterion text changed.
+The exact delta from to removes one blank line before AC-343; the exact delta from to changes only three test trace tags. `quire trace --scope . --id` resolves both named AC-357 tests, all four AC-358 tests and all three AC-359 tests. The six IMPLEMENTED status rows now belong to minted criteria; AC-343's untagged state is preserved. No normative criterion text changed.

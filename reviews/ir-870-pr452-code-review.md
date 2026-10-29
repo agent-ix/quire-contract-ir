@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped code and Rust review of fourteen model-crate files at PR #452 head. The diff removes exactly 152 Trace/Tracing doc lines and 121 empty doc lines. No executable line, test assertion, trace attribute, or substantive doc prose changed. All 296 removed ID occurrences remain in the same-function trace attributes; no empty doc line remains immediately before a trace attribute. Ticket: IR-870. Frozen head:.
+Diff-scoped code and Rust review of fourteen model-crate files at PR #452 head. The diff removes exactly 152 Trace/Tracing doc lines and 121 empty doc lines. No executable line, test assertion, trace attribute, or substantive doc prose changed. All 296 removed ID occurrences remain in the same-function trace attributes; no empty doc line remains immediately before a trace attribute. Ticket: IR-870. Reviewed the frozen PR head.
 
 ## Examined scope
 

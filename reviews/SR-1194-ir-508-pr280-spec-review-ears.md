@@ -13,9 +13,9 @@ review_set: base
 Ticket: IR-508. This review checks the form of the FR-345 statement and its
 nine ACs.
 
-- The statement is event-driven EARS ("When the... reader reads a
+- The statement is event-driven EARS ("When the ... reader reads a
   `correspondence` node of `semantic_form` `abstraction_relation`, the reader
-  shall admit..."). This matches FR-040's statement form.
+  shall admit ..."). This matches FR-040's statement form.
 - AC-1 to AC-9 are direct assertions with no "shall". Each carries the 🚧
   planned marker and names no tracker state. Each names Test (TC-224).
 - `quire validate` reports no grammar finding for FR-345. The only finding in

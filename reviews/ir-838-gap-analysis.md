@@ -14,7 +14,7 @@ relationships:
 
 Ticket: IR-838, PR quire-contract-ir#433. This is a planless gap analysis, so plan completion was not assessed. Everything was measured with quire 0.36.2 (engine 0.50.2) and quoin 0.28.3.
 
-`quire coverage --scope. --strict --format json` at head: 508/565 minted targets backed, 43 unbacked rows, 0 status lies. FR-014 is 8/9. This matches origin/main, because on main FR-014-AC-4 is already credited by three legacy doc lines.
+`quire coverage --scope . --strict --format json` at head: 508/565 minted targets backed, 43 unbacked rows, 0 status lies. FR-014 is 8/9. This matches origin/main, because on main FR-014-AC-4 is already credited by three legacy doc lines.
 
 Slice A (#432, open) removes those three `/// FR-014-AC-4.` lines from `tests/it/expression.rs`. Simulated by applying the #432 diff in a scratch worktree:
 

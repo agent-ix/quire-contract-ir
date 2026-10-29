@@ -45,10 +45,10 @@ Ticket: IR-874. This static review covers draft PR #597, including the typed str
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | rejected | QSpec FR-426 defines `timeout` as the step of the thread at an `await` node and names that node in the transition; FR-432 gives timeout the bare node-path class spelling. The original finding mistook the source operator name for the step-class name., the code names this mapping `TimeoutFromAwait` and tests an admitted await-holder catalog. |
-| FND-002 | still-open |, `protocol_classes` still derives only protocol-clause classes and does not reconstruct selected concrete model operation classes. This remains an IR-1043-dependent limitation; PR #597 must stay draft and the full FR-038-AC-325 claim unmade. |
-| FND-003 | fixed |, `compare_abstract_classes` peeks at the next expected class and returns the catalog array pointer when it precedes the next actual class; the public-reader test omits fork before join and asserts that pointer. |
-| FND-002 | still-open |, the graph join still reconstructs only protocol clauses and omits concrete model operation classes; IR-1043 remains the carrier blocker. This partial PR stays draft. |
-| FND-004 | fixed |, `RetainedModels::new` no longer takes or charges the reader meter and no longer eagerly resolves operation signatures. `operation_binder_types` takes the meter only when the catalog join selects a concrete operation anchor; focused exact-work and bounded-chain tests passed locally at this head, with hosted full Rust Checks pending. |
+| FND-002 | still-open | In the reviewed PR, `protocol_classes` still derives only protocol-clause classes and does not reconstruct selected concrete model operation classes. This remains an IR-1043-dependent limitation; PR #597 must stay draft and the full FR-038-AC-325 claim unmade. |
+| FND-003 | fixed | In the reviewed PR, `compare_abstract_classes` peeks at the next expected class and returns the catalog array pointer when it precedes the next actual class; the public-reader test omits fork before join and asserts that pointer. |
+| FND-002 | still-open | In the reviewed PR, the graph join still reconstructs only protocol clauses and omits concrete model operation classes; IR-1043 remains the carrier blocker. This partial PR stays draft. |
+| FND-004 | fixed | In the reviewed PR, `RetainedModels::new` no longer takes or charges the reader meter and no longer eagerly resolves operation signatures. `operation_binder_types` takes the meter only when the catalog join selects a concrete operation anchor; focused exact-work and bounded-chain tests passed locally at this head, with hosted full Rust Checks pending. |
 
 ## New findings (disposition pass 2)
 
@@ -62,6 +62,6 @@ Hosted Rust Checks [run 40532190627](https://github.com/agent-ix/quire-contract-
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed |, `validate_catalog_graph` obtains the selected concrete `ModelRootOwner.identity`, adds `ModelOwners::operation_classes(identity, meter)` to the clause-derived concrete classes, sorts the combined inventory, and compares the catalog. The new public-reader test admits `Worker::run` with the selected declaration key and receiver type, and refuses omitted, wrong-node and wrong-binder variants. This resolves the protocol-only concrete inventory defect for the modeled operation case; complete FR-038-AC-325 remains unclaimed. |
+| FND-002 | fixed | In the reviewed PR, `validate_catalog_graph` obtains the selected concrete `ModelRootOwner.identity`, adds `ModelOwners::operation_classes(identity, meter)` to the clause-derived concrete classes, sorts the combined inventory, and compares the catalog. The new public-reader test admits `Worker::run` with the selected declaration key and receiver type, and refuses omitted, wrong-node and wrong-binder variants. This resolves the protocol-only concrete inventory defect for the modeled operation case; complete FR-038-AC-325 remains unclaimed. |
 
 **CONDITIONAL** — the reviewed code finding is fixed in the current diff. The corresponding abstract-protocol regression case remains open in SR-597002, and the full FR-038-AC-325 and FR-064-AC-5 criteria remain unclaimed. No aggregate gate was run in this reviewer pass.

@@ -37,10 +37,10 @@ CONDITIONAL. Fix the two findings in this PR and request a same-reviewer disposi
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the raw candidate body decodes as `CheckedTerm` and selects `Aggregate` then `Reference` variants. The function no longer serializes an admitted typed body or reads term keys through `Value::get`; the existing raw pre-admission boundary remains explicit. |
+| FND-001 | fixed | In the reviewed PR, the raw candidate body decodes as `CheckedTerm` and selects `Aggregate` then `Reference` variants. The function no longer serializes an admitted typed body or reads term keys through `Value::get`; the existing raw pre-admission boundary remains explicit. |
 | FND-002 | fixed | The public context and constructor docs now distinguish borrowed raw drafts from owned linear-size typed projections, matching the `Cow` implementation. No storage behavior was changed or falsely promised. |
 
-The same-reviewer disposition examined only the two-file fix delta from. The author reports 14 focused reaches-population tests plus the typed-term unit tests, Clippy, format and diff checks passing; this review did not run a full gate. Current verdict: PASS for the reviewed PR diff, pending its one final-head gate.
+The same-reviewer disposition examined only the two-file fix delta. The author reports 14 focused reaches-population tests plus the typed-term unit tests, Clippy, format and diff checks passing; this review did not run a full gate. Current verdict: PASS for the reviewed PR diff, pending its one final-head gate.
 
 ## Narrow carry after final-gate fixture repair
 

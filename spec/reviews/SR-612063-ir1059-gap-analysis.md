@@ -26,7 +26,7 @@ Ticket: IR-1059. Planless, PR-diff-scoped trace review of slice 1's new TC-940 t
 
 ## Coverage
 
-- FR-069-AC-1, role: examined. Excerpt: “The authoritative positive model tuple and union package admits with `model`/`tuple_value_type` declarations for `Pair`, `Swap`, `Nest` and `Cell`... The production reader's re-derived declaration node keys equal QSpec `model-tuple-union-vectors.json` and remain unchanged across aliases.” Local tests do not read or compare those vectors.
+- FR-069-AC-1, role: examined. Excerpt: “The authoritative positive model tuple and union package admits with `model`/`tuple_value_type` declarations for `Pair`, `Swap`, `Nest` and `Cell` ... The production reader's re-derived declaration node keys equal QSpec `model-tuple-union-vectors.json` and remain unchanged across aliases.” Local tests do not read or compare those vectors.
 - FR-069-AC-4, role: examined. Excerpt: “A payload-free variant has family `enum`; a mixed nullary/payload variant has family `union`, case order is ascending UTF-8 name, and payload cases retain exactly one resolved position-zero type.” Tests check only local payload retention and admission.
 - FR-069-AC-6, role: examined. Excerpt: “Every published intake and wire mutation returns its exact QSpec code, cause and location at its specified stage.” The unit test asserts only three local refusal codes/causes and does not assert locations.
 - FR-069-AC-2, AC-3, AC-5, AC-7 and AC-8, role: context_only. These are outside the slice and remain open.
@@ -37,7 +37,7 @@ Ticket: IR-1059. Planless, PR-diff-scoped trace review of slice 1's new TC-940 t
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed |, both local slice tests removed `Trace: FR-069-AC-1/4/6` and `#[trace("TC-940")]`; their comments explicitly identify local admission/retention evidence and leave published TC-940 vectors and the full FR-069 matrix open. The added family regression is likewise untagged, so these partial tests no longer falsely back complete ACs in the computed matrix. |
+| FND-001 | fixed | In the reviewed PR, both local slice tests removed `Trace: FR-069-AC-1/4/6` and `#[trace("TC-940")]`; their comments explicitly identify local admission/retention evidence and leave published TC-940 vectors and the full FR-069 matrix open. The added family regression is likewise untagged, so these partial tests no longer falsely back complete ACs in the computed matrix. |
 
 ## Disposition verdict
 

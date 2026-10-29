@@ -34,7 +34,7 @@ paragraph.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | Two prose rows lag the PR. The spec.md sentence now reads "STD-001 is the stable diagnostic code registry, and FR-044 exports its code as the typed `Std001Code`..., which `KaniOutcome.code` carries; STD-003 the closed output-mapping refusal registry", which has lost its verb in the second clause. The core matrix StR-001 row adds FR-044 and TC-442 to its traces but its status prose still lists the planned items without the typed code | spec/spec.md:95-97; spec/core/matrix/tests.md:12 |
+| FND-001 | low | Two prose rows lag the PR. The spec.md sentence now reads "STD-001 is the stable diagnostic code registry, and FR-044 exports its code as the typed `Std001Code` ..., which `KaniOutcome.code` carries; STD-003 the closed output-mapping refusal registry", which has lost its verb in the second clause. The core matrix StR-001 row adds FR-044 and TC-442 to its traces but its status prose still lists the planned items without the typed code | spec/spec.md:95-97; spec/core/matrix/tests.md:12 |
 
 ## Verdict
 
@@ -45,6 +45,6 @@ coverage changes are consistent with each other and with merged text.
 
 Round 1, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

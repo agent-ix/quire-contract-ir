@@ -3,13 +3,13 @@ id: SR-11402
 title: "IR-800 PR 405 spec-review base review (fix round 1)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir (delta from ); spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+scope: "agent-ix/quire-contract-ir (delta ); spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket IR-800, PR quire-contract-ir#405, fix round 1. This is a base spec-review of the two spec edits in `git diff..`:
+Ticket IR-800, PR quire-contract-ir#405, fix round 1. This is a base spec-review of the two spec edits in `git diff origin/main...HEAD`:
 
 - FR-038 statement item 22 now lists the `CheckedMemberType` variants String, Uuid and Timestamp.
 - AC-242..245 rows and the TC-048 notes and section heading moved from PLANNED/UNRUN to IMPLEMENTED.
@@ -44,6 +44,6 @@ AC-244 states only that a String operand refuses at the mode value, and the TC-0
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: AC-244 and TC-048 now state that an arity defect or another wrong-family operand refuses ill_typed/operator-ineligible at the arguments or the first offending argument, before the String mode refusal. This matches check_operands (the arity check, then the position loop that skips String operands) and the pinned test (round 2) |
+| FND-001 | fixed | AC-244 and TC-048 now state that an arity defect or another wrong-family operand refuses ill_typed/operator-ineligible at the arguments or the first offending argument, before the String mode refusal. This matches check_operands (the arity check, then the position loop that skips String operands) and the pinned test (round 2) |

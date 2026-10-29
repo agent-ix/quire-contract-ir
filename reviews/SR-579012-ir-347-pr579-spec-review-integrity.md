@@ -74,13 +74,13 @@ scope:
 
 ## Dispositions
 
-Round 1. Checked at against fix diff... Spec-only; no Cargo, Kani or `make ci`.
+Round 1. Checked at against fix PR diff. Spec-only; no Cargo, Kani or `make ci`.
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | No status location credits AC-4 to TC-042 alone any more. TC-055 Status now says "The TC-055-tagged negative cases in `tests/it/kani_shared.rs` include profile, finite-input, dispatch, outcome-construction, and public JSON-reader refusals under `catch_unwind`, including cases also tagged TC-042, TC-443, and TC-449." The Kani matrix FR-039 row, the TC-055 summary row and the TC-055 coverage-design row, the StR-001 row, the spec index Kani row and AD-005 D-3 all credit TC-055-tagged cases, naming TC-042, TC-443 and TC-449 only as co-tags. Each claim matches the trace tags at `tests/it/kani_shared.rs` 99, 162, 207, 261, 298, 395, 490, 538 and 581. None overclaims: FR-039 ✅ and AD-005 D-3 "implemented" rest on those tests and the TC-055 inventory, and the partly-implemented FR-030-AC-6/TC-443 and the IR-701 TC-449 caveats are unchanged. |
 
-Round 2. Checked at against fix diff.. (one line in `spec/core/matrix/tests.md`). Spec-only; no Cargo, Kani or `make ci`.
+Round 2. Checked at against fix PR diff (one line in `spec/core/matrix/tests.md`). Spec-only; no Cargo, Kani or `make ci`.
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -34,7 +34,7 @@ Ticket: IR-644. Checked the new leaf-walk rule and AC-151/152 with TC-048 for on
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | — AC-151 and TC-048 now require observable admission with the same field and inner path, without the unobservable classification claim. |
 | FND-002 | fixed | — AC-152 and TC-048 now require every listed grammar-valid mutant to reach the operation check and refuse `ill_typed`/`operator-ineligible` at `operation.leaves`; an earlier refusal fails. |

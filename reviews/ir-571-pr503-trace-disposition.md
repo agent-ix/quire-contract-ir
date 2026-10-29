@@ -3,7 +3,7 @@ id: SR-15365
 title: "IR-571 PR 503 trace correction disposition"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR #503..; three test trace tags and one QSpec context comment"
+scope: "agent-ix/quire-contract-ir PR #503; three test trace tags and one QSpec context comment"
 review_set: subset
 ---
 
@@ -28,4 +28,4 @@ Narrow independent review of the trace correction on PR #503. The original code-
 
 **PASS** — The tag correction cites two declared local rows that cover the tested behavior. The computed `quire matrix --format json` status for `FR-346-AC-7` is `tagged` and binds all three corrected tests. Its diagnostics contain no unmatched citations. The former six `FR-154-AC-14`/`TC-280` citations no longer appear as `#[trace]` tags in the PR head. No production behavior changed from the previously reviewed head.
 
-Focused `quire coverage --scope. --strict` exits 1 on the inherited 48 unbacked rows and zero contradicted statuses; the 48-row set is exactly equal to the previous gate log, while unmatched citations fell from six to zero. The complete output is in the adjacent `coverage.err` log. This review does not claim a full `make ci` rerun.
+Focused `quire coverage --scope . --strict` exits 1 on the inherited 48 unbacked rows and zero contradicted statuses; the 48-row set is exactly equal to the previous gate log, while unmatched citations fell from six to zero. The complete output is in the adjacent `coverage.err` log. This review does not claim a full `make ci` rerun.

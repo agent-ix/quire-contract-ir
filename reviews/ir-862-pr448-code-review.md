@@ -3,7 +3,7 @@ id: SR-12175
 title: "IR-862 code and Rust review of IR PR 448"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR 448..; four FR-038 Rust test files"
+scope: "agent-ix/quire-contract-ir PR 448; four FR-038 Rust test files"
 review_set: subset
 ---
 

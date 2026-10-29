@@ -34,8 +34,8 @@ Reviewed diff only; formal Rust style and wire boundary checks included. Hosted 
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: Owner/extra dependency precedence is fixed. Omitted body references retain their FR-038-AC-285/324 located refusal. Pinned qsl-string-edge exits 0; hosted checks are pending. |
-| FND-002 | fixed |: Owner/extra dependency precedence is fixed. Omitted body references retain their FR-038-AC-285/324 located refusal. Pinned qsl-string-edge exits 0; hosted checks are pending. |
+| FND-001 | fixed | Owner/extra dependency precedence is fixed. Omitted body references retain their FR-038-AC-285/324 located refusal. Pinned qsl-string-edge exits 0; hosted checks are pending. |
+| FND-002 | fixed | Owner/extra dependency precedence is fixed. Omitted body references retain their FR-038-AC-285/324 located refusal. Pinned qsl-string-edge exits 0; hosted checks are pending. |
 
 ## Current verdict
 

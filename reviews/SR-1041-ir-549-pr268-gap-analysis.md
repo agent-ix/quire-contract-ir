@@ -70,7 +70,7 @@ What I measured:
     operation identity allowlists.
   - quire-driver touches only MalformedWire.
   - quire-spec-language has an exhaustive map_refusal_code and an
-    admission-corpus test over CheckedNodeKind::all (SR-1041 FND-001).
+    admission-corpus test over CheckedNodeKind::all() (SR-1041 FND-001).
 - `make spec` was run in a detached throwaway worktree under
   <worktrees directory>, since removed. Results: validate passes, one
   grammar finding (FR-014 ac:vague-response), and --strict 23 unbacked with 0
@@ -106,7 +106,7 @@ tests the code PR must change.
 
 Round 1, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. The spec now records the consumer break (CheckedNodeKind classification, exhaustive CheckedPackageRefusalCode) and the shipping rule: the change ships inside #253 before it merges. Opening the QSL ticket is still the coordinator's job; the spec side is done. |
-| FND-002 | fixed |. AC-101 names the refusal types and keeps CheckedDiagnosticCode::UnsupportedConstruct, and TC-048 reads a diagnostics entry whose code is unsupported_construct. |
+| FND-001 | fixed | The spec now records the consumer break (CheckedNodeKind classification, exhaustive CheckedPackageRefusalCode) and the shipping rule: the change ships inside #253 before it merges. Opening the QSL ticket is still the coordinator's job; the spec side is done. |
+| FND-002 | fixed | AC-101 names the refusal types and keeps CheckedDiagnosticCode::UnsupportedConstruct, and TC-048 reads a diagnostics entry whose code is unsupported_construct. |

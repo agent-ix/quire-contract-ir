@@ -38,8 +38,8 @@ Plan completion: not assessed. The computed Quoin matrix has tagged FR-038-AC-28
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the public-reader test admits two distinct related tuples in JCS order and refuses the reverse order as `invalid_semantic_graph`. |
-| FND-002 | fixed |, tests assert the exact expected and actual source type, then refuse a malformed `to` end at its pointer with exact target type detail. |
+| FND-001 | fixed | In the reviewed PR, the public-reader test admits two distinct related tuples in JCS order and refuses the reverse order as `invalid_semantic_graph`. |
+| FND-002 | fixed | In the reviewed PR, tests assert the exact expected and actual source type, then refuse a malformed `to` end at its pointer with exact target type detail. |
 
 ## Disposition verdict
 

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed Rust code and public-reader tests in PR #497 at. Examined FR-038-AC-21, FR-038-AC-299 through AC-302, and TC-230.
+Reviewed Rust code and public-reader tests in PR #497. Examined FR-038-AC-21, FR-038-AC-299 through AC-302, and TC-230.
 
 ## Verdict
 

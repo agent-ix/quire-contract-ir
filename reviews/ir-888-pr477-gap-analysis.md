@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-888. Plan completion: not assessed. This is a planless gap analysis of the PR's new criteria against the computed matrix and the reader code. FR-035-AC-10 and FR-035-AC-11 are unbacked, as planned (`quire coverage --scope. --strict`: 42 unbacked against 40 on main, 0 contradicted). Existing tests in `tests/it/complete_v1_contract_package.rs` do not exercise `UnknownContractVersion` or any `Incomplete` outcome of `ContractPackageWireV1::read`. The tests-first follow-up PR must add them. A throwaway probe confirmed the code paths both criteria describe.
+Ticket: IR-888. Plan completion: not assessed. This is a planless gap analysis of the PR's new criteria against the computed matrix and the reader code. FR-035-AC-10 and FR-035-AC-11 are unbacked, as planned (`quire coverage --scope . --strict`: 42 unbacked against 40 on main, 0 contradicted). Existing tests in `tests/it/complete_v1_contract_package.rs` do not exercise `UnknownContractVersion` or any `Incomplete` outcome of `ContractPackageWireV1::read`. The tests-first follow-up PR must add them. A throwaway probe confirmed the code paths both criteria describe.
 
 ## Reviewed units
 

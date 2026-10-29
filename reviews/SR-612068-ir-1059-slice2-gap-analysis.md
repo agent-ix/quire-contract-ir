@@ -28,7 +28,7 @@ Ticket: IR-1059. Planless, PR-diff-scoped acceptance-to-test review. The QSpec p
 
 - FR-069-AC-4, role: examined. Excerpt: “payload cases retain exactly one resolved position-zero type.” Only the current fixture's payload types are exercised.
 - FR-069-AC-5, role: examined. Excerpt: “The published `union_value`, `enum_value`, equality, case-arm and structural-leaf cases pass through the production reader.” The new test asserts package admission, not each case's exact outcome; full vector conformance remains open.
-- FR-069-AC-8, role: examined. Excerpt: “`make conformance-qspec` loads the positive fixture... compares the document's derived `domain_package` projection with the vector... and runs every tuple/union case.” This new test intentionally covers only full-document positive admission and does not claim full AC8.
+- FR-069-AC-8, role: examined. Excerpt: “`make conformance-qspec` loads the positive fixture ... compares the document's derived `domain_package` projection with the vector ... and runs every tuple/union case.” This new test intentionally covers only full-document positive admission and does not claim full AC8.
 - FR-069-AC-1/2/3/6/7, role: context_only. These remain open across slices.
 - Reverse trace: selected model union read behavior is owned by FR-069; no unowned source found in this diff. The new test has no FR-069 or TC-940 trace tag, consistent with partial coverage.
 - Plan completion: not assessed.
@@ -48,4 +48,4 @@ Round 2: FND-001 fixed by the focused production-reader refusal matrix and suppo
 
 ## Final-head addendum
 
-, the compiler-only follow-up leaves the unsupported-payload production-reader matrix and positive selected-unit/float member test intact. The coder reported focused tests passing; full FR-069/TC-940 coverage remains open as stated in this artifact.
+The compiler-only follow-up leaves the unsupported-payload production-reader matrix and positive selected-unit/float member test intact. The coder reported focused tests passing; full FR-069/TC-940 coverage remains open as stated in this artifact.

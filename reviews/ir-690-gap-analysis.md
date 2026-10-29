@@ -54,6 +54,6 @@ pending binding retarget that the matrix rows should state.
 
 Round 1, fix commit "Clarify inequality eligibility targets and pending refusal evidence". The computed matrix is unchanged: AC-197 to AC-200 are untagged and AC-201 is method-without-symbol. `make spec` at the fix head reports 31 unbacked rows, against 26 at main; the difference is exactly AC-197 to AC-201 (PLANNED).
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed by commit "Clarify inequality eligibility targets and pending refusal evidence": AC-181, the TC-048 AC181 paragraph and step 3, and both tests.md rows record that the IR-690 code step retargets the tagged public IneligibleOperator assertion to a reader-admitted catalogued non-eq/ne identity, and that the current tag gives no evidence for the replacement case |

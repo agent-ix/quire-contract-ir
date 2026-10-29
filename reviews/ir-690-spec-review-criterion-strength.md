@@ -60,6 +60,6 @@ exercises, and needs one clause.
 
 Round 1, fix commit "Clarify inequality eligibility targets and pending refusal evidence".
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed by commit "Clarify inequality eligibility targets and pending refusal evidence": AC-199 now begins "An absent structural.ne occurrence refuses MissingOccurrence with the supplied application and occurrence", and TC-048 step 1 asserts it under AC199 |

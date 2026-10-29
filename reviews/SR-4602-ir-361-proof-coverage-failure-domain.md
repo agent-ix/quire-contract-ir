@@ -25,8 +25,8 @@ CONDITIONAL. Require at least one eligible mapped obligation for full criterion/
 
 Round 1 reviewed. Scoped fix review found no new defect.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: AD-008 and FR-045 now require at least one eligible mapped obligation for full credit, mark zero-mapping entities as gaps, and cover that case in FR-045-AC-4 and TC-446. |
+| FND-001 | fixed | AD-008 and FR-045 now require at least one eligible mapped obligation for full credit, mark zero-mapping entities as gaps, and cover that case in FR-045-AC-4 and TC-446. |
 
 After excerpt: “An entity with zero eligible mapped obligations remains a visible mapping gap, never full credit; a partial result is reported as a gap with the qualified subset visible.”

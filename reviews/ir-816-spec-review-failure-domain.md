@@ -67,9 +67,9 @@ scope:
 
 ## Dispositions
 
-Round 1, fix on.
+Round 1, reviewed the fix.
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The path is now that of the entry that sorts second by the order key (the `receiver` one), with the locus at the declaring node key. The author's argument holds against TC-1043. X8 = [step/receiver@0, step/every-object@1, value@2] gives /modifies/0, and X9 = [step/every-object@0, step/receiver@1, value@2] gives /modifies/1. The pointer strings differ only because the same entry sits at a different index, while the entry identified is the same `receiver` entry in both listings. The old array-order rule gives /modifies/1 in both, which is the same string but a different entry (every-object in X8, receiver in X9). So the new rule is the listing-independent one. It also follows FR-340's statement that the scope component fixes the conflict's naming order (every-object first). TC-1043 X8/X9 do not fix a path, so nothing conflicts. TC-056 now asserts that the `receiver` entry is located in both listings. |
-| FND-002 | fixed | The skip is labelled "IR reading, which QSpec FR-342 check 5 does not state" (FR-040:223-226) and pinned by the new FR-040-AC-30, with a TC-056 case. |
+| FND-002 | fixed | The skip is labelled "IR reading, which QSpec FR-342 check 5 does not state" (FR-040 :223-226) and pinned by the new FR-040-AC-30, with a TC-056 case. |

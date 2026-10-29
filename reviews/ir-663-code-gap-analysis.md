@@ -100,7 +100,7 @@ AC-186, AC-188 and AC-192.
 
 Round 1, fix commit "Pin private intake metadata invariants and correct final-head evidence status". Verified statically against the code and text at that commit; no cargo was run.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
 | FND-002 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |

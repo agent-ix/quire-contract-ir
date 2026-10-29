@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-628. These are the new findings of disposition pass 3, the cap round, over..
+Ticket: IR-628. These are the new findings of disposition pass 3, the cap round, over the reviewed PR delta.
 (one commit).
 
 **Cycle handling.** I re-measured it against `DomainModel::ancestors` and `resolve`
@@ -54,12 +54,12 @@ and the fix is one phrase.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | Item 10 gives the new field-resolution charge only for "a read, frame entry or state clause that resolves a field". Item 7 routes every field case of `resolve` through the table, and an abstraction relation's field entry also resolves a field (`abstraction.rs:599-604`, `resolve_member(.., MemberKind::Field..)`). Its charge is therefore left unstated. State clauses resolve only operations (`state.rs:205`). Smallest fix: replace the subject of item 10 with "Every resolution of a field through `DomainModel::resolve` (a read, including a relationship edge read, a frame entry, or an abstraction relation's field entry)". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2057 |
+| FND-001 | low | Item 10 gives the new field-resolution charge only for "a read, frame entry or state clause that resolves a field". Item 7 routes every field case of `resolve` through the table, and an abstraction relation's field entry also resolves a field (`abstraction.rs:599-604`, `resolve_member(.., MemberKind::Field, ..)`). Its charge is therefore left unstated. State clauses resolve only operations (`state.rs:205`). Smallest fix: replace the subject of item 10 with "Every resolution of a field through `DomainModel::resolve` (a read, including a relationship edge read, a frame entry, or an abstraction relation's field entry)". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2057 |
 
 ## Dispositions
 
 Round 4, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

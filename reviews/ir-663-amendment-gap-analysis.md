@@ -47,6 +47,6 @@ already present at base. AC-174/175 are deliberately untagged (PLANNED).
 
 Round 1, fix commit "spec: close IR663 private intake review findings".
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed by commit "spec: close IR663 private intake review findings" |

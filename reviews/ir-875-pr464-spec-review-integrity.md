@@ -32,7 +32,7 @@ IR-875 slice 2. QSL producer adoption remains separate.
 
 ## Coverage
 
-`quire validate` passes both changed documents. Review-head `quire coverage --scope. --strict` reports 533/603 backed, 40 unbacked and 0 contradicted; AC-4 remains planned in this spec-only PR. Existing AC-1/3 tags were checked against their revised wording.
+`quire validate` passes both changed documents. Review-head `quire coverage --scope . --strict` reports 533/603 backed, 40 unbacked and 0 contradicted; AC-4 remains planned in this spec-only PR. Existing AC-1/3 tags were checked against their revised wording.
 
 ## Verdict
 

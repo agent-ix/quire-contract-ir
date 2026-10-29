@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-279. PR agent-ix/quire-contract-ir#186,, diffed against origin/main. The review covers code-review and its rust-review lane. It replaces `StrictSeed`, `json_depth`, `first_value_at_level` and `Children` with one generic `Strict<S: StrictSink>` visitor. That visitor serves two passes: a `Depth` shape pass on `stacker`/`serde_stacker` with serde's recursion cap lifted, and a `Value` pass that runs only when the document is within the limit. The effective depth limit is capped at `CheckedPackageReadLimits::MAXIMUM_DEPTH = 128`.
+Ticket: IR-279. PR agent-ix/quire-contract-ir#186, diffed against origin/main. The review covers code-review and its rust-review lane. It replaces `StrictSeed`, `json_depth`, `first_value_at_level` and `Children` with one generic `Strict<S: StrictSink>` visitor. That visitor serves two passes: a `Depth` shape pass on `stacker`/`serde_stacker` with serde's recursion cap lifted, and a `Value` pass that runs only when the document is within the limit. The effective depth limit is capped at `CheckedPackageReadLimits::MAXIMUM_DEPTH = 128`.
 
 What was measured:
 
@@ -32,7 +32,7 @@ What was measured:
 
 ## Finding Detail
 
-- FND-001: Root cause in serde_json 1.0.151 `de.rs`. `deserialize_any` for `[` evaluates `match (ret, self.end_seq)`, so `end_seq` runs even when `ret` is an error. At the offending byte it builds `peek_error`, and `SliceRead::position_of_index` runs `memrchr` over `slice[..i]`, which is O(n) on canonical single-line JSON. The cost is O(depth x bytes). Release timings for the malformed case: 100k deep 0.55 s, 200k 2.0 s, 400k 13.5 s (under load), 524k 6.1 s (idle). A deep duplicate member or any other deep visitor error takes the same path. The same shape is instant when valid (176 ms). The suite pays for it too: `strict_shape_measures_deep_nesting_and_finds_later_defects` takes 40 s in a debug build. Fix: make the first pass iterative, as a non-recursive syntax, duplicate and depth scanner with an explicit stack, so no error bubbles through d frames. That also removes FND-002. An alternative is a structural nesting ceiling checked before the recursive parse, but FR-322's syntax-before-depth order must still hold.
+- FND-001: Root cause in serde_json 1.0.151 `de.rs`. `deserialize_any` for `[` evaluates `match (ret, self.end_seq())`, so `end_seq` runs even when `ret` is an error. At the offending byte it builds `peek_error`, and `SliceRead::position_of_index` runs `memrchr` over `slice[..i]`, which is O(n) on canonical single-line JSON. The cost is O(depth x bytes). Release timings for the malformed case: 100k deep 0.55 s, 200k 2.0 s, 400k 13.5 s (under load), 524k 6.1 s (idle). A deep duplicate member or any other deep visitor error takes the same path. The same shape is instant when valid (176 ms). The suite pays for it too: `strict_shape_measures_deep_nesting_and_finds_later_defects` takes 40 s in a debug build. Fix: make the first pass iterative, as a non-recursive syntax, duplicate and depth scanner with an explicit stack, so no error bubbles through d frames. That also removes FND-002. An alternative is a structural nesting ceiling checked before the recursive parse, but FR-322's syntax-before-depth order must still hold.
 - FND-002: Measured by running the release test binary directly under `/usr/bin/time -f %M`: 201,028 KB peak for both the valid and the malformed 524k document, against 3,324 KB for a 10-deep document. The peak is stacker segment memory per nesting level. The fix is the same iterative first pass. Otherwise, state the real bound in the doc and in FR-038.
 - FND-004: Add `/// Tracing: TC-048, FR-038-AC-3` (or AC-26) to each test, and fold them into `mod tests`.
 - FND-005: Not introduced by this PR. File a follow-up ticket rather than fix it here.
@@ -47,9 +47,9 @@ Reviewed (fix round and the Drop fix, based on main ). The PR merges cleanly ont
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-006 | high | Only drop was made safe for deep values. Every other public operation on an admitted deep package recurses on the caller's stack and aborts the process: `clone`, `==`, `{:?}`, `graph.clone` (whose drop has no `Drop` impl), `serde_json::to_vec(graph)` and `lower`. `CheckedPackageV2ReadResult::Admitted` is documented "safe for lowering". Reproduced with the PR's own 10,000-deep aggregate fixture on a 2 MiB thread in debug: all six operations abort, and drop passes. In release on an 8 MiB stack, `lower` and `clone` pass at 10,000 levels and abort at 50,000 | crates/quire-contract-model/src/checked_package/v2/mod.rs:374 |
+| FND-006 | high | Only drop was made safe for deep values. Every other public operation on an admitted deep package recurses on the caller's stack and aborts the process: `clone()`, `==`, `{:?}`, `graph().clone()` (whose drop has no `Drop` impl), `serde_json::to_vec(graph())` and `lower()`. `CheckedPackageV2ReadResult::Admitted` is documented "safe for lowering". Reproduced with the PR's own 10,000-deep aggregate fixture on a 2 MiB thread in debug: all six operations abort, and drop passes. In release on an 8 MiB stack, `lower` and `clone` pass at 10,000 levels and abort at 50,000 | crates/quire-contract-model/src/checked_package/v2/mod.rs:374 |
 | FND-007 | medium | The read reserves 256 KiB plus 4 KiB per measured level in a single up-front `stacker` mmap, sized from untrusted depth. A 4 MB, 2,000,000-deep document under `depth: u64::MAX` reserves 8 GiB while using 1.26 GB. Under `ulimit -v 6G` the reader panics ("allocating stack failed", stacker lib.rs:168) instead of returning a ReadResult. On 32-bit the size saturates to usize::MAX | crates/quire-contract-model/src/checked_package/common.rs:251-256 |
-| FND-008 | medium | The `Drop` impl's diagnostic-details branch is untested. With `entry.details.iter_mut.for_each(dismantle)` disabled, every test stays green (mutant M8c). The node-body and identity-projection branches are killed by `tc_048_a_deep_admitted_package_drops_on_a_small_stack`, because its fixture splices the deep body into both | crates/quire-contract-model/src/checked_package/v2/mod.rs:394 |
+| FND-008 | medium | The `Drop` impl's diagnostic-details branch is untested. With `entry.details.iter_mut().for_each(dismantle)` disabled, every test stays green (mutant M8c). The node-body and identity-projection branches are killed by `tc_048_a_deep_admitted_package_drops_on_a_small_stack`, because its fixture splices the deep body into both | crates/quire-contract-model/src/checked_package/v2/mod.rs:394 |
 | FND-009 | low | `tc_048_a_deep_syntax_error_is_refused_in_linear_time` asserts wall-clock time (`elapsed < 2 s`) in the default test lane. It measures 0.45 s in an idle debug build, 4.4x headroom, which can fail spuriously under parallel load. A structural oracle, or an `#[ignore]`d bench lane, would be sturdier | crates/quire-contract-model/src/checked_package/common.rs:1628-1647 |
 
 ### New finding detail (disposition pass 1)
@@ -60,7 +60,7 @@ Reviewed (fix round and the Drop fix, based on main ). The PR merges cleanly ont
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |
@@ -83,14 +83,14 @@ Reviewed, rebased on origin/main. `make -k ci` fails only at `make spec`: 17 unb
 
 ## Dispositions (disposition pass 2)
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-006 | fixed | Fixed in the reviewed PR. |
 | FND-007 | fixed | Fixed in the reviewed PR. |
 | FND-008 | fixed | Fixed in the reviewed PR. |
 | FND-009 | fixed | Fixed in the reviewed PR. |
 
-- FND-006: `CheckedPackageV2` now implements `Clone`, `PartialEq` and `Debug` by hand, and `lower` runs on `on_stack_for(self.depth)`. Node bodies, projections and diagnostic details drop iteratively. I verified at the ceiling, with an 8,189-term aggregate that sits exactly at 16,384 levels, on a 256 KiB thread in debug and in release: read, clone, `==`, `Debug` (of the package and of the ReadResult) and `lower` all pass. `graph.clone` still aborts. That is documented as caller-owned in shared.rs:17-25, on the type, on `lower` and in FR-038.
+- FND-006: `CheckedPackageV2` now implements `Clone`, `PartialEq` and `Debug` by hand, and `lower` runs on `on_stack_for(self.depth)`. Node bodies, projections and diagnostic details drop iteratively. I verified at the ceiling, with an 8,189-term aggregate that sits exactly at 16,384 levels, on a 256 KiB thread in debug and in release: read, clone, `==`, `Debug` (of the package and of the ReadResult) and `lower` all pass. `graph().clone()` still aborts. That is documented as caller-owned in shared.rs:17-25, on the type, on `lower` and in FR-038.
 - FND-007: The stack reservation is bounded at 256 KiB + 4 KiB x 16,384, about 64 MiB. A 2,000,000-deep document under `depth: u64::MAX` returns `incomplete(Depth, 16384, 2000000)` in 77 ms with 118 MB RSS (the scan) and reserves no stack. A 16,384-deep read takes 9 ms at 13 MB RSS and passes under `ulimit -v` of 1 GiB and of 256 MiB. Residual: under caps of 128 MiB and below, the bounded reservation still fails. At a 64 MiB cap stacker panics ("allocating stack failed"); at 96 and 128 MiB caps an ordinary allocation aborts the process. Both happen only under caps near the size of the reservation itself.
 - FND-008: The drop test now covers a deep diagnostic detail, and the mutant that disables the diagnostic `Drop` is killed.
 - FND-009: The wall-clock bound is replaced by a ratio: 4x depth must take less than 8x the time, fastest of three runs.
@@ -101,11 +101,11 @@ Reviewed, up to date with origin/main.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-011 | medium | Two tests traced to FR-038-AC-3 assert the recorded deviation, so the trace over-claims AC-3 coverage. Each asserts that a caller limit of `u64::MAX` returns `incomplete(Depth, MAXIMUM_DEPTH...)`: `tc_048_deep_nesting_is_decided_by_the_callers_limit_to_the_ceiling` (`Tracing: TC-048, FR-038-AC-3`) and `tc_048_nesting_is_charged_against_the_callers_limit_after_syntax_and_members_pass` (`#[trace("TC-048", "FR-038-AC-3")]`). That is behaviour AC-3 as written contradicts. An implementation that honoured AC-3 literally would turn these AC-3 evidence tests red, and `make spec` counts AC-3 as backed by them. The pinned-ceiling test is correctly traced to TC-048 only. Moving the ceiling assertions into that test, or another TC-048-only test, would leave the AC-3 tags covering only AC-3 behaviour | crates/quire-contract-model/src/checked_package/common.rs:1619-1650 |
+| FND-011 | medium | Two tests traced to FR-038-AC-3 assert the recorded deviation, so the trace over-claims AC-3 coverage. Each asserts that a caller limit of `u64::MAX` returns `incomplete(Depth, MAXIMUM_DEPTH, ...)`: `tc_048_deep_nesting_is_decided_by_the_callers_limit_to_the_ceiling` (`Tracing: TC-048, FR-038-AC-3`) and `tc_048_nesting_is_charged_against_the_callers_limit_after_syntax_and_members_pass` (`#[trace("TC-048", "FR-038-AC-3")]`). That is behaviour AC-3 as written contradicts. An implementation that honoured AC-3 literally would turn these AC-3 evidence tests red, and `make spec` counts AC-3 as backed by them. The pinned-ceiling test is correctly traced to TC-048 only. Moving the ceiling assertions into that test, or another TC-048-only test, would leave the AC-3 tags covering only AC-3 behaviour | crates/quire-contract-model/src/checked_package/common.rs:1619-1650 |
 
 ## Dispositions (disposition pass 3)
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-010 | fixed | Fixed in the reviewed PR. |
 
@@ -113,7 +113,7 @@ Reviewed, up to date with origin/main.
 
 ## Dispositions (disposition pass 4)
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-011 | fixed | Fixed in the reviewed PR. |
 

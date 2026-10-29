@@ -11,8 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-551. Code review with the rust-review lane folded in, over
-`git diff origin/main...HEAD` (merge base
-, which is current `main`; one commit).
+`git diff origin/main...HEAD` (merge base, which is current `main`; one commit).
 `gh pr view 286`: MERGEABLE, mergeStateStatus BLOCKED (reviewDecision REVIEW_REQUIRED;
 the CLA checks pass).
 
@@ -29,7 +28,7 @@ What was checked, and what holds:
   members, and the two-failure case at `lower`. The check is still called from the
   existing term walk in `common.rs:798`, which runs per application term in position
   order. The PR adds no recursion: the new code is flat loops over nodes and limbs.
-- **Lowest terms.** `validate_timed_bounds_reduced` iterates `index.values`, which is
+- **Lowest terms.** `validate_timed_bounds_reduced` iterates `index.values()`, which is
   ascending `node_id` digest order (probe: with two non-reduced nodes it reported the
   lower-digest one, at position 23 ahead of position 18). It checks `lower` and then
   `upper`, charges the GCD at `/semantic_graph/nodes/{n}/body` and refuses
@@ -110,26 +109,26 @@ either to move the check or to amend the wording. FND-002 is a spec-wording nit.
 
 Round 1, reviewed.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. The pattern check (one function covering the timed and integer forms) moved out of the term walk into `flat_wire::check_interval_bounds`. It runs at the end of `flat_wire::check`, after every nested-application refusal in nodes and then details, and before the `package_id` recomputation. Reproduced: a timed `-1` with only `package_id` stale, and with every node id and `package_id` stale, refuses `invalid-value` at `.../interval/lower`; an integer `-1` with `package_id` stale does the same; good bounds refuse `stale_dependency` at `/package_id/digest`. Coverage is unchanged: every nested application, and every application in `details`, is refused earlier in the same pass, so only body-root applications ever reached the term-walk check. Running "nested applications first, bound pattern after" is consistent with FR-038 "The flat wire", AC-114..116 (still `malformed_wire` before identity), AC-120 and QSpec FR-370 ("during strict wire validation"), because both are strict wire validation and FR-038 now marks their relative order as an IR reading. Mutation: moving the call after `package_id` fails the new test |
-| FND-002 | fixed |. FR-038 stage 2 and AC-121 now say lowest terms runs before the model-selection owners step, which derives each selected model declaration's node key and can refuse `invalid_semantic_graph` at `/lock/model_selections/{i}`. This is marked as an IR reading, and the spec says a package with both defects refuses at the bound. That matches the code |
+| FND-001 | fixed | The pattern check (one function covering the timed and integer forms) moved out of the term walk into `flat_wire::check_interval_bounds`. It runs at the end of `flat_wire::check`, after every nested-application refusal in nodes and then details, and before the `package_id` recomputation. Reproduced: a timed `-1` with only `package_id` stale, and with every node id and `package_id` stale, refuses `invalid-value` at `.../interval/lower`; an integer `-1` with `package_id` stale does the same; good bounds refuse `stale_dependency` at `/package_id/digest`. Coverage is unchanged: every nested application, and every application in `details`, is refused earlier in the same pass, so only body-root applications ever reached the term-walk check. Running "nested applications first, bound pattern after" is consistent with FR-038 "The flat wire", AC-114..116 (still `malformed_wire` before identity), AC-120 and QSpec FR-370 ("during strict wire validation"), because both are strict wire validation and FR-038 now marks their relative order as an IR reading. Mutation: moving the call after `package_id` fails the new test |
+| FND-002 | fixed | FR-038 stage 2 and AC-121 now say lowest terms runs before the model-selection owners step, which derives each selected model declaration's node key and can refuse `invalid_semantic_graph` at `/lock/model_selections/{i}`. This is marked as an IR reading, and the spec says a package with both defects refuses at the bound. That matches the code |
 
 Round 2, reviewed.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-003 | fixed |. FR-038 "The temporal step" now reads "Strict wire validation (here the interval bound-pattern refusal, `flat_wire::check_interval_bounds`) precedes the step". The `interval_bound_outside_pattern` doc now reads "Strict wire validation (`flat_wire::check_interval_bounds`) refuses it". Both are true of the code. The other instances of the same wording are FND-004 |
+| FND-003 | fixed | FR-038 "The temporal step" now reads "Strict wire validation (here the interval bound-pattern refusal, `flat_wire::check_interval_bounds`) precedes the step". The `interval_bound_outside_pattern` doc now reads "Strict wire validation (`flat_wire::check_interval_bounds`) refuses it". Both are true of the code. The other instances of the same wording are FND-004 |
 
 Round 3, reviewed.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-004 | fixed |. The `with_node_locus` doc now names `flat_wire::check_interval_bounds`, and the three test comments say strict wire validation (`flat_wire::check_interval_bounds`). The flat_wire doc now reads "an IR reading". A wide grep of spec/, crates/, src/ and tests/ for "term walk", "term-walk" and "per-term walk" finds no remaining description of the bound-pattern check as a term-walk check. The remaining hits are the term grammar walk itself, historical placement prose, and the nested-`case` wording (FND-005) |
+| FND-004 | fixed | The `with_node_locus` doc now names `flat_wire::check_interval_bounds`, and the three test comments say strict wire validation (`flat_wire::check_interval_bounds`). The flat_wire doc now reads "an IR reading". A wide grep of spec/, crates/, src/ and tests/ for "term walk", "term-walk" and "per-term walk" finds no remaining description of the bound-pattern check as a term-walk check. The remaining hits are the term grammar walk itself, historical placement prose, and the nested-`case` wording (FND-005) |
 
 
 Round 4, reviewed.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-005 | fixed |. The FR-038 Path row now says "refused in strict wire validation, `flat_wire`". The temporal-step prose now says "refused in strict wire validation (`flat_wire`), where nested applications are refused, ahead of every identity check (FR-038-AC-116)", and the test comment says "refused in strict wire validation". All three are true: `flat_wire::nested_application_refusal` maps `Case` to `ill_typed`/`operator-ineligible` at the nested `operator`, and `flat_wire::check` applies `with_node_locus`, so the locus is the holder's key. A wide grep finds no remaining term-walk statement about nested applications or `case` |
+| FND-005 | fixed | The FR-038 Path row now says "refused in strict wire validation, `flat_wire`". The temporal-step prose now says "refused in strict wire validation (`flat_wire`), where nested applications are refused, ahead of every identity check (FR-038-AC-116)", and the test comment says "refused in strict wire validation". All three are true: `flat_wire::nested_application_refusal` maps `Case` to `ill_typed`/`operator-ineligible` at the nested `operator`, and `flat_wire::check` applies `with_node_locus`, so the locus is the holder's key. A wide grep finds no remaining term-walk statement about nested applications or `case` |

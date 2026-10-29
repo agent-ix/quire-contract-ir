@@ -21,7 +21,7 @@ TC-050 tests and the changed TC-047 test. Also examined: the tickets'
 acceptance statements (untrusted ticket text, re-measured here) against QSL
 TC-440 run with this PR patched in.
 
-Matrix: `quire coverage --scope. --strict` and at merge-base
+Matrix: `quire coverage --scope . --strict` and at merge-base
  both report 22 unbacked rows, the same rows (pre-existing, IR-448).
 Bound evidence goes from 202 to 206 symbols. The PR adds no unbacked row.
 
@@ -53,7 +53,7 @@ Round 1, reviewed.
   223 to 226, all grammar-clean.
 - **QSL TC-440:** see SR-627 Dispositions.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

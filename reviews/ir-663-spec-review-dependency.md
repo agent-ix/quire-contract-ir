@@ -41,4 +41,4 @@ PASS: the public spec treats QSpec #191 owner material as a read-only upstream e
 
 ## Validation
 
-`quire validate --scope..review-scratchpad/ir-663-spec-review-dependency.md` — PASS (exit 0); emitted module duplicate-archetype/inverse-edge and inline-data-schema warnings, with no document validation error.
+`quire validate --scope . .review-scratchpad/ir-663-spec-review-dependency.md` — PASS (exit 0); emitted module duplicate-archetype/inverse-edge and inline-data-schema warnings, with no document validation error.

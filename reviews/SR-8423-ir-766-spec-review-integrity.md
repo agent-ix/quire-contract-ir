@@ -31,6 +31,6 @@ Ticket: IR-766. Reviewed spec/checked_package/functional/FR-035-complete-v1-cont
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | — FR-035-AC-7 now requires both subsets for every lowered root; TC-047 checks exact nonempty and empty cases against independently derived results. |

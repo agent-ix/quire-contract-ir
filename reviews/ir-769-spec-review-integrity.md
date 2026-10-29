@@ -24,6 +24,6 @@ Ticket IR-769. Examined FR-049 and TC-447 at the reviewed head against QSL FR-06
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

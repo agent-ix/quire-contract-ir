@@ -14,7 +14,7 @@ Ticket: IR-476 (partial; the PR body says "Part of IR-476" and has no Closes). R
  against origin/main (merge base equals main). Rust-review lane folded
 in. The diff touches test annotations only: 13 doc blocks in `tests/it/executable_binding.rs`
 move from bare `/// TC-035` + `/// FR-023-AC-n` lines to `use ix_trace_rs::trace;` plus
-`#[trace("TC-035", "FR-023-AC-n"...)]` and a `/// Tracing:` line, and four unit tests in
+`#[trace("TC-035", "FR-023-AC-n", ...)]` and a `/// Tracing:` line, and four unit tests in
 `operations.rs` gain a `/// Tracing: TC-048` doc line. No Cargo.toml or Cargo.lock change:
 `ix-trace-rs` is already a root dev-dependency (Cargo.toml:28) and 19 other `tests/it` files
 already import it. `make lint` (clippy -D warnings, both lanes) passes; the 13
@@ -50,6 +50,6 @@ delta: the import sits in the `#[cfg(test)] mod tests`, attribute order matches
 `tests/it`, and the clean gate log shows fmt-check, both clippy lanes and every test target
 passing, with the four renamed tests run under their new names.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

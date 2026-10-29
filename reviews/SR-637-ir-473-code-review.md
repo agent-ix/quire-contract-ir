@@ -37,16 +37,16 @@ Approve the safety fix. Medium FND-001 should be fixed in this PR; it is a small
 
 - Merge semantics: `canonical_ranges` sorts by `(min, max)` and merges when `next.min <= last.max + 1` with a saturating add. Over integers, that produces exactly the same set, neither wider nor narrower. At `last.max == i128::MAX` every later interval is contained, so the saturating comparison is correct. Rational numerator ranges are integer numerator sets: `contains_zero`, the bound checks, the `exact` filter in `refine_range` and the `!= 0` split all treat them as integers. Adjacent-merging them therefore changes no represented value.
 - Operator coverage: Add, Subtract, Multiply, Divide and Remainder all go through `integer_pair_range` / `rational_worst_case`, and the result is merged once. Divide only runs after `contains_zero(right)` has refused a zero-spanning divisor. Negate maps intervals one to one, so the count never grows. Its output is not re-sorted, and Saturate clamping can produce duplicate intervals, but the next binary operator canonicalizes it. Comparisons produce no range. Lower and upper guards only trim.
-- Overflow: endpoints are `i128`, and every stored range is bounded by an `i64` type range: Reject refuses a range outside it, and Saturate widens to it. Products of two endpoints therefore fit in i128, and any deeper overflow uses checked operations and becomes `RangeFailure::Intermediates`. Remainder's `abs` gets `i64`-bounded inputs.
+- Overflow: endpoints are `i128`, and every stored range is bounded by an `i64` type range: Reject refuses a range outside it, and Saturate widens to it. Products of two endpoints therefore fit in i128, and any deeper overflow uses checked operations and becomes `RangeFailure::Intermediates`. Remainder's `abs()` gets `i64`-bounded inputs.
 - Boundedness: every growth path goes through a binary operator, leaves carry at most 2 intervals and negate preserves the count. Each operator therefore allocates at most 64 x 64 = 4096 pairs plus a sort. Repeated operators cost at most about 4096 log 4096 steps per node within the 10000-node preflight, and the fuzz worst case was 209 ms. No other range-set representation exists in the file: `NumericRange` is the only one, and it never reaches `TypedExpression` output.
 - Oracle strength (mutations run in the throwaway worktree and reverted): merge only on overlap (`+0`) turns the unit test red; over-merge (`+2`) turns unit and integration tests red; cap 65 turns both red; integer guard split `min <= -1` to `< -1` turns the integration tests red. Survivors: the rational result merge and cap (SR-638 FND-001), the refine canonicalization (FND-002 above), the operand-size pre-check (redundant, because the result cap catches the same input and operands never exceed 64 through the public API), and the rational guard split (pre-existing, SR-638 FND-002).
-- Rust idioms: `RangeFailure` is a small typed `Copy` enum with static messages, and no new panic, unsafe or blocking surface is added. Messages are distinct per family. The existing `unreachable!` and `extrema` unwrap are unchanged.
+- Rust idioms: `RangeFailure` is a small typed `Copy` enum with static messages, and no new panic, unsafe or blocking surface is added. Messages are distinct per family. The existing `unreachable!()` and `extrema` unwrap are unchanged.
 
 ## New findings (disposition pass 1)
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-003 | medium | The capped child-process test is not portable. It runs `sh -c "ulimit -v 3000000 && exec..."` with no platform gate. On macOS, `ulimit -v` either fails, which turns `make test` red, or is accepted but not enforced, so a merge regression would run uncapped and exhaust host memory. On Windows there is no `sh`, so `.output.unwrap` panics | tests/it/expression.rs:1751-1765 |
+| FND-003 | medium | The capped child-process test is not portable. It runs `sh -c "ulimit -v 3000000 && exec ..."` with no platform gate. On macOS, `ulimit -v` either fails, which turns `make test` red, or is accepted but not enforced, so a merge regression would run uncapped and exhaust host memory. On Windows there is no `sh`, so `.output().unwrap()` panics | tests/it/expression.rs:1751-1765 |
 | FND-004 | low | The widening tie-break closes the leftmost gaps first, so a symmetric set loses its hole at zero even when 64 other gaps could close instead. In the targeted differential, 323 of 4000 trees with point guards checked under exact ranges and reported `non_zero_divisor` after widening. This is sound but avoidably imprecise | crates/quire-contract-model/src/expression.rs:2496-2505 |
 
 ### Detail (disposition pass 1)
@@ -69,13 +69,13 @@ Every endpoint of a widened interval is an endpoint of an original interval. The
 | Comparisons, "always true/false" folding | not a consumer | `check_compare` and `guard_facts` are syntactic and read no range set | grep: no `NumericRange` use outside the rows above |
 | Rational `exact` filter (`refine_range`) | not affected | `exact` is `None` on every range-computed result, and the filter runs only on refined leaf ranges | inspection |
 
-Probe: exact-range build (MAX_RANGE_SET_SIZE set to in a scratch copy) against the head build. Both ran under `ulimit -v 3000000` with types of +/-300, over 12000 targeted trees: wide guarded sums used as divisor, dividend, remainder divisor and multiplicand, under Reject and Saturate, guard widths 1, 2 and random. The only difference was 332 trees that checked under exact ranges and reported `non_zero_divisor` after widening. No tree that the exact build refused was admitted by the widened build. No consumer admits or proves more. No HIGH.
+Probe: exact-range build (MAX_RANGE_SET_SIZE set to 1000000 in a scratch copy) against the head build. Both ran under `ulimit -v 3000000` with types of +/-300, over 12000 targeted trees: wide guarded sums used as divisor, dividend, remainder divisor and multiplicand, under Reject and Saturate, guard widths 1, 2 and random. The only difference was 332 trees that checked under exact ranges and reported `non_zero_divisor` after widening. No tree that the exact build refused was admitted by the widened build. No consumer admits or proves more. No HIGH.
 
 ## New findings (disposition pass 2)
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-005 | medium | The FND-003 fix leaves the module-level constants `RANGE_SET_CHILD` and `PRODUCT_TEST` used only inside the `#[cfg(target_os = "linux")]` block. On macOS they are dead code, so `make lint` (`clippy --all-targets -- -D warnings`) fails with "constant... is never used" | tests/it/expression.rs:1726-1728 |
+| FND-005 | medium | The FND-003 fix leaves the module-level constants `RANGE_SET_CHILD` and `PRODUCT_TEST` used only inside the `#[cfg(target_os = "linux")]` block. On macOS they are dead code, so `make lint` (`clippy --all-targets -- -D warnings`) fails with "constant ... is never used" | tests/it/expression.rs:1726-1728 |
 
 ### Detail (disposition pass 2)
 
@@ -84,7 +84,7 @@ Probe: exact-range build (MAX_RANGE_SET_SIZE set to in a scratch copy) against t
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

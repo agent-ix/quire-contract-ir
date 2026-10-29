@@ -24,7 +24,7 @@ Ticket: IR-874. Planless, diff-scoped trace and reverse-gap audit of PR #611. Pl
 
 ## Coverage
 
-- Reconciliation: `quoin matrix --repo. --json` at PR #611 head, 749 criteria: 629 tagged, 100 untagged, 19 method-without-symbol, 1 tagged-by-ignored-test. FR-038-AC-325 is tagged by six tests.
+- Reconciliation: `quoin matrix --repo . --json` at PR #611 head, 749 criteria: 629 tagged, 100 untagged, 19 method-without-symbol, 1 tagged-by-ignored-test. FR-038-AC-325 is tagged by six tests.
 - Plan completion: not assessed
 - Reverse gap: changed field-order and activation code is owned by FR-038-AC-325 and TC-048; no new unowned behavior or stub found in the diff.
 - Optional semantic review: skipped as a separate repository-wide audit; changed intent, tests and code were inspected in SR-611001.

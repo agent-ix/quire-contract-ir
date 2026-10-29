@@ -33,7 +33,7 @@ The same function accepts `collection_bounds` with an arbitrary `semantic_type` 
 
 ## Focused evidence
 
-, `cargo test --workspace tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_type` passed. In disposable worktree `<disposable worktree>`, a test using `base` and `rekeyed(&base.package, &base.zero, |node| node["semantic_type"] = node_id(BOOLEAN_KEY))` failed its expected-refusal assertion because `read` returned `Admitted`. Command: `CARGO_TARGET_DIR=<worktree target> cargo test --workspace ir627_repro_rekeyed_integer_range_typed_at_boolean_must_refuse` (exit 101). A second disposable test rekeyed `base.sequence_bounds` after pointing its `semantic_type` to Boolean; `cargo test --workspace ir627_repro_rekeyed_collection_bounds_typed_at_boolean_must_refuse` failed for the same reason: `Admitted`. `git diff --check` passed. Full gates are owned by the lead's pre-PR and pre-merge runs.
+`cargo test --workspace tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_type` passed. In disposable worktree `<disposable worktree>`, a test using `base` and `rekeyed(&base.package, &base.zero, |node| node["semantic_type"] = node_id(BOOLEAN_KEY))` failed its expected-refusal assertion because `read` returned `Admitted`. Command: `CARGO_TARGET_DIR=<worktree target> cargo test --workspace ir627_repro_rekeyed_integer_range_typed_at_boolean_must_refuse` (exit 101). A second disposable test rekeyed `base.sequence_bounds` after pointing its `semantic_type` to Boolean; `cargo test --workspace ir627_repro_rekeyed_collection_bounds_typed_at_boolean_must_refuse` failed for the same reason: `Admitted`. `git diff --check` passed. Full gates are owned by the lead's pre-PR and pre-merge runs.
 
 ## Reviewed scope
 
@@ -54,7 +54,7 @@ derived_keys.rs, mod.rs, model_members.rs, structural.rs; FR-038; conformance_qs
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

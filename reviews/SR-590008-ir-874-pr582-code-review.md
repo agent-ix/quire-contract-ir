@@ -38,7 +38,7 @@ The graph has a port per control entry and exit; sequencing, choice, parallel jo
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, `check_clause` retains clause references, activation form and capture binder declarations, then `check_clause_causality` checks cycle and progress, and `check_clause_slots` checks the activation guard and capture initializers. The new public test combines a later-sibling await cycle with a conflicting guard and asserts the cycle refusal. |
+| FND-001 | fixed | In the reviewed PR, `check_clause` retains clause references, activation form and capture binder declarations, then `check_clause_causality` checks cycle and progress, and `check_clause_slots` checks the activation guard and capture initializers. The new public test combines a later-sibling await cycle with a conflicting guard and asserts the cycle refusal. |
 
 ## Disposition verdict
 
@@ -46,4 +46,4 @@ The graph has a port per control entry and exit; sequencing, choice, parallel jo
 
 ## Later test-only check
 
-, the regression fix changes tests and review artifacts only. The later-sibling await test now asserts the exact four control identities in the cycle, preserving the FR-464 tree-order oracle. FND-001 remains fixed. No local Cargo, Make or test jobs were started during host backoff.
+The regression fix changes tests and review artifacts only. The later-sibling await test now asserts the exact four control identities in the cycle, preserving the FR-464 tree-order oracle. FND-001 remains fixed. No local Cargo, Make or test jobs were started during host backoff.

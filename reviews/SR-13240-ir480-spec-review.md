@@ -42,7 +42,7 @@ Evidence for (a) over per-pass (b), read from the code:
 
 The evidence supports (a).
 
-I reproduced the current behaviour on `mixed_fixture` (9864 bytes, 3 nodes, 2 edges) with a
+I reproduced the current behaviour on `mixed_fixture()` (9864 bytes, 3 nodes, 2 edges) with a
 throwaway probe:
 
 - Value pass: per-node charges of 1, 1 and 5, so 7 in total. Limits 0, 1 and 2..6 stop at
@@ -106,4 +106,4 @@ correct under a prototype of the rule. The remaining gaps are under-specificatio
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fix adds statement SHALLs that fix the unit and order: one unit per occurrence before one unit per region, array order, `nodes` then `requested_items` then `refusals`; the stop reports the pointer of the crossing occurrence or region and the count including that failed charge. The TC-047 limits 0, 17 and 18 and the `requested_items` first-occurrence case match the reviewer prototype. |
-| FND-002 | fixed | TC-047 now pins the measured `mixed_fixture` oracle: value 7, reference 20, total 27. Limit 27 admits. Limits 7, 20 and 26 stop at consumed 8, 21 and 27 with pointers that match the reviewer prototype exactly. |
+| FND-002 | fixed | TC-047 now pins the measured `mixed_fixture()` oracle: value 7, reference 20, total 27. Limit 27 admits. Limits 7, 20 and 26 stop at consumed 8, 21 and 27 with pointers that match the reviewer prototype exactly. |

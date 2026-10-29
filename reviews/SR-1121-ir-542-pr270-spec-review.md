@@ -13,8 +13,8 @@ review_set: subset
 Ticket: IR-542. This review checks the amended criterion's form, its
 citations of QSL, and whether the rest of FR-038 still agrees with it.
 
-- Base: the PR's merge base is. origin/main has moved to
-  (#259). #259 changes only `spec/checked_package/matrix/tests.md` under
+- Base: the PR was reviewed against its merge base. origin/main has moved through
+  #259. #259 changes only `spec/checked_package/matrix/tests.md` under
   `spec/`, plus code and tests. `git merge-tree` of the PR head with
   origin/main is clean. `make spec` on the merged tree gives the same result
   as on the head.
@@ -65,16 +65,16 @@ It also leaves a test oracle that cannot fail for the reason it states.
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir. The branch was rebased onto main. `git range-diff` shows =, so the patch is unchanged. is the fix commit. FND-002 is in text that was already present, and the review pass missed it.
+Reviewed at agent-ix/quire-contract-ir. The branch was rebased onto main. The range-diff shows =, so the patch is unchanged. is the fix commit. FND-002 is in text that was already present, and the review pass missed it.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-002 | medium | The FR-038 note says "so the two readers agree on every number". That is false for `1e400`/`-1e400`. QSL FR-056 (merged, l.86-99, AC-2, TC-145) says a document carrying "a number with no finite IEEE 754 double value (such as `1e400`)" does not parse, and refuses `stale_dependency`/`byte-digest-mismatch`, never `noncanonical_wire`. IR FR-038-AC-110 (from #265, restated by ) requires `noncanonical_wire`/`inexact-integer` with a `document_pointer` instead. QSpec FR-272's "however spelled" supports IR. QSL's "however spelled" in FR-056-AC-13 covers only parseable numbers. Either qualify the claim to finite numbers and record the `1e400` divergence as an open cross-repo question, or align AC-110 with QSL. Which behaviour wins is an owner/QSL decision, not this PR's | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:633; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2147 |
+| FND-002 | medium | The FR-038 note says "so the two readers agree on every number". That is false for `1e400`/`-1e400`. QSL FR-056 (merged, lines 86-99, AC-2, TC-145) says a document carrying "a number with no finite IEEE 754 double value (such as `1e400`)" does not parse, and refuses `stale_dependency`/`byte-digest-mismatch`, never `noncanonical_wire`. IR FR-038-AC-110 (from #265, restated in this PR) requires `noncanonical_wire`/`inexact-integer` with a `document_pointer` instead. QSpec FR-272's "however spelled" supports IR. QSL's "however spelled" in FR-056-AC-13 covers only parseable numbers. Either qualify the claim to finite numbers and record the `1e400` divergence as an open cross-repo question, or align AC-110 with QSL. Which behaviour wins is an owner/QSL decision, not this PR's | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:633; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2147 |
 | FND-003 | low | AC-110's new parenthetical and the l.611-614 prose state an implementation constraint as part of the criterion: "the reader's scan must see the text before or around the read". That is design guidance, not an observable outcome, and it pulls against FR-038 l.557-558 ("there is one reader for the document"). The target is implementable, because `quire_canonical::read` aborts with `Malformed::NumberOutOfRange` at the literal's offset, and the pointer could come from a pre-scan or from an upstream quire-canonical change. That choice belongs to the code author. Keep the outcome and the labelled today's behaviour, and drop the mechanism, or move it to a note. Moot if FND-002 resolves by aligning with QSL | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2147; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:611 |
 
 ## New findings (disposition pass 2)
 
-Reviewed at agent-ix/quire-contract-ir (delta.., through ).
+Reviewed the IR PR delta and follow-up changes.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -82,15 +82,15 @@ Reviewed at agent-ix/quire-contract-ir (delta.., through ).
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir, the delta.. plus the net change against main. `make spec` was run in a detached throwaway worktree (<worktree>, since removed). Validate passes with 1 grammar finding (FR-014, the baseline), and strict coverage gives 23 unbacked and 0 contradicted. `git diff --check` is clean.
+Round 1, reviewed at agent-ix/quire-contract-ir, the PR delta plus the net change against main. `make spec` was run in a detached throwaway worktree (<worktree>, since removed). Validate passes with 1 grammar finding (FR-014, the baseline), and strict coverage gives 23 unbacked and 0 contradicted. `git diff --check` is clean.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: the `float_roundtrip` manifest clause and its TC-048 source-level check move to AC-111 (the package document read through `serde_json`). AC-109 now ends "the decision is made on the number's text read by `quire-canonical`, through no `serde_json` value". l.602 now reads "read once by `quire_canonical::read` … digested through `quire-canonical`". Verified that `read_value` → `strict_parse` (serde_json Deserializer) → `require_canonical_bytes` is the package path, and that `admit_document` uses `quire_canonical::read`. The manifest has only `unbounded_depth` today, and AC-109..111 are marked planned in TC-048 ("no test exists until the IR-542 code change lands") and in the matrix row, which covers the manifest change |
+| FND-001 | fixed | the `float_roundtrip` manifest clause and its TC-048 source-level check move to AC-111 (the package document read through `serde_json`). AC-109 now ends "the decision is made on the number's text read by `quire-canonical`, through no `serde_json` value". l.602 now reads "read once by `quire_canonical::read` … digested through `quire-canonical`". Verified that `read_value` → `strict_parse` (serde_json Deserializer) → `require_canonical_bytes` is the package path, and that `admit_document` uses `quire_canonical::read`. The manifest has only `unbounded_depth` today, and AC-109..111 are marked planned in TC-048 ("no test exists until the IR-542 code change lands") and in the matrix row, which covers the manifest change |
 
-Round 2, reviewed at agent-ix/quire-contract-ir, the delta... `make spec` was run in a detached throwaway worktree (<worktree>, since removed). Validate passes with 1 grammar finding (FR-014, the baseline), and strict coverage gives 23 unbacked and 0 contradicted. `git diff --check` is clean.
+Round 2, reviewed at agent-ix/quire-contract-ir, the PR delta. `make spec` was run in a detached throwaway worktree (<worktree>, since removed). Validate passes with 1 grammar finding (FR-014, the baseline), and strict coverage gives 23 unbacked and 0 contradicted. `git diff --check` is clean.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed |: the note now reads "agree on every number with a finite IEEE 754 double". It records that QSL's merged FR-056 (AC-2, TC-145) refuses `1e400`/`-1e400` as unparseable with `byte-digest-mismatch`, which is accurate. The qualification is needed while QSL's merged text stands and should be revisited when QSL's amendment merges. AC-110 keeps `1e400`/`-1e400` in the `inexact-integer` list, with `noncanonical_wire` and the `document_pointer`. Today's behaviour is labelled "(today's behaviour, not a requirement)" as `stale_dependency`/`byte-digest-mismatch`. The change from #265's "serde_json refuses at parse time" is correct: at locked quire-canonical, `read` parses the literal to an infinite `f64` and returns `Malformed::NumberOutOfRange`, and `admit_document` maps every read error except the byte limit to the mismatch refusal. AC-109 keeps `1e-400` as `inexact-number` |
-| FND-003 | fixed |: AC-110 carries no mechanism. The "scan must see the text" sentence is removed from AC-110 and from the prose. The mechanism appears only in the note, labelled "a ruling, not a requirement of AC-110", pending the quire-canonical SHA (see FND-004 on its provenance) |
+| FND-002 | fixed | the note now reads "agree on every number with a finite IEEE 754 double". It records that QSL's merged FR-056 (AC-2, TC-145) refuses `1e400`/`-1e400` as unparseable with `byte-digest-mismatch`, which is accurate. The qualification is needed while QSL's merged text stands and should be revisited when QSL's amendment merges. AC-110 keeps `1e400`/`-1e400` in the `inexact-integer` list, with `noncanonical_wire` and the `document_pointer`. Today's behaviour is labelled "(today's behaviour, not a requirement)" as `stale_dependency`/`byte-digest-mismatch`. The change from #265's "serde_json refuses at parse time" is correct: at locked quire-canonical, `read` parses the literal to an infinite `f64` and returns `Malformed::NumberOutOfRange`, and `admit_document` maps every read error except the byte limit to the mismatch refusal. AC-109 keeps `1e-400` as `inexact-number` |
+| FND-003 | fixed | AC-110 carries no mechanism. The "scan must see the text" sentence is removed from AC-110 and from the prose. The mechanism appears only in the note, labelled "a ruling, not a requirement of AC-110", pending the quire-canonical SHA (see FND-004 on its provenance) |

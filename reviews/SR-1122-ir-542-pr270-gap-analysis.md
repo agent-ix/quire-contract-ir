@@ -12,7 +12,7 @@ review_set: subset
 
 Ticket: IR-542. Plan completion: not assessed. This review measures the PR's
 numeric claims against the quire-canonical writer and checks how strong the
-planned TC-048 oracle is.
+planned TC-048 oracle is recorded in the reviewed PR.
 
 - Writer: in quire-canonical, `Writer::number` writes
   `with_double_text`. That writes `0` for either zero and otherwise
@@ -82,12 +82,12 @@ Reviewed at agent-ix/quire-contract-ir (fix on the rebased = ).
 
 Round 1, reviewed at agent-ix/quire-contract-ir.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: AC-109's admitted list adds `1.0`, `-0` and `1e2`, "spelled other than the text `quire-canonical` writes, `1`, `0` and `100`", and TC-048 repeats them. Measured: ryu-js/ECMAScript write `1`, `0` (with_double_text's zero) and `100`, so each case now witnesses the digits-and-scale comparison against byte equality and matches QSL FR-056-AC-14 |
+| FND-001 | fixed | AC-109's admitted list adds `1.0`, `-0` and `1e2`, "spelled other than the text `quire-canonical` writes, `1`, `0` and `100`", and TC-048 repeats them. Measured: ryu-js/ECMAScript write `1`, `0` (with_double_text's zero) and `100`, so each case now witnesses the digits-and-scale comparison against byte equality and matches QSL FR-056-AC-14 |
 
 Round 2, reviewed at agent-ix/quire-contract-ir.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed |: AC-111 names `1.2793061557049685`, `1.2106592671318679` and `1.3567384036451073` as the package-document numbers that `float_roundtrip` keeps from a false `noncanonical_wire`, and no longer credits `0.1` to the feature. TC-048's AC-111 step checks them alongside `0.1`, which remains only as the plain admitted case. These are the values measured in round 1: each is ryu's shortest text, and serde_json 1.0.151 misparses each without the feature |
+| FND-002 | fixed | AC-111 names `1.2793061557049685`, `1.2106592671318679` and `1.3567384036451073` as the package-document numbers that `float_roundtrip` keeps from a false `noncanonical_wire`, and no longer credits `0.1` to the feature. TC-048's AC-111 step checks them alongside `0.1`, which remains only as the plain admitted case. These are the values measured in round 1: each is ryu's shortest text, and serde_json 1.0.151 misparses each without the feature |

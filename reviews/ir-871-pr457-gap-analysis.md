@@ -3,7 +3,7 @@ id: SR-12436
 title: "Traceability gap analysis of IR PR 457"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir;.github/workflows/ci.yml; Cargo.toml; Makefile; tests/conformance_qsl_ir760/main.rs; tests/it/main.rs"
+scope: "agent-ix/quire-contract-ir; .github/workflows/ci.yml; Cargo.toml; Makefile; tests/conformance_qsl_ir760/main.rs; tests/it/main.rs"
 review_set: subset
 ---
 

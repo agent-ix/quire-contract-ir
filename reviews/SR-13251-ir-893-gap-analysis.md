@@ -11,7 +11,7 @@ review_set: subset
 
 Ticket: IR-893. PR agent-ix/quire-contract-ir#481. Plan completion: not assessed (planless).
 
-The reviewer ran `quire coverage --scope. --format tsv` (quire 0.36.2) at the merge and at the:
+The reviewer ran `quire coverage --scope . --format tsv` (quire 0.36.2) at the merge and at the:
 
 - Merge base: 543/612 backed.
 - Head: 546/612 backed.
@@ -31,7 +31,7 @@ The PR conflicts with origin/main. PR #480 (IR-889, merged as ) changed the same
 
 ## Examined criteria
 
-- FR-035-AC-12 (examined): "Given an otherwise valid canonical `ContractPackageWireV1` that omits any of its six required top-level members... returns `Refused` with code `invalid_package`, root path `\"\"`, and cause `missing_member`; it returns no admitted package."
+- FR-035-AC-12 (examined): "Given an otherwise valid canonical `ContractPackageWireV1` that omits any of its six required top-level members ... returns `Refused` with code `invalid_package`, root path `\"\"`, and cause `missing_member`; it returns no admitted package."
 - FR-035-AC-13 (examined): "Given otherwise valid `ContractPackageWireV1` bytes with leading whitespace before the canonical JSON value, `ContractPackageWireV1::read` returns `Refused` with code `noncanonical_wire`, absent path, and absent cause; it returns no admitted package."
 - FR-035-AC-14 (examined): "Given an otherwise valid canonical `ContractPackageWireV1` except that its first `feature_accounting` record names a requested node other than the first `source_map.requested_items` entry, `ContractPackageWireV1::read` returns `Refused` with code `invalid_package`, path `/feature_accounting`, and cause `invalid_value`; it returns no admitted package."
 - FR-035-AC-2 (examined): "A source, type, anchor, identity, bound, dependency, or contract-version mutation that changes or invalidates meaning refuses before a backend artifact; a stale selected dependency does not resolve through an identically keyed local node."

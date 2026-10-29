@@ -99,7 +99,7 @@ CONDITIONAL. Resolve the recorded findings; this artifact reviews only the origi
 
 Round 1 reviewed. The original findings above remain unchanged.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |
@@ -174,7 +174,7 @@ Current disposition verdict: CONDITIONAL.
 
 Reviewed. Only the requested wording hunk changed; the prior matrix repair, charged predicate, work vectors and single normative ownership remain intact. No new finding or regression.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-003 | fixed | Fixed in the reviewed PR. |
 

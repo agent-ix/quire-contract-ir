@@ -43,7 +43,7 @@ native-predicate code review, kept). `2026-09-15-output-mapping-foundation-gaps.
 cites SR-546 (kept). No file cites SR-546 meaning the PLAN-009 gap analysis, and no file
 cites any of the six old SR-prefixed file names, apart from SR-641 (FND-001).
 
-`make spec` at both shas: byte-identical output, exit 2 at both (strict coverage
+`make spec` at the base and PR head: byte-identical output, exit 2 at both (strict coverage
 161/184, 23 unbacked rows, 1 grammar warning on FR-014 line 137). Validation passes.
 
 ## Findings
@@ -62,6 +62,6 @@ correcting in the squash text.
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | accepted-no-change | Round 1 (no new commit). The false claim was in the PR body, not the repo. The body now reads "One old SR-prefixed file name is still cited by path: reviews/SR-641-ir-320-spec-review-base.md FND-002 cites reviews/SR-044-native-predicate-bridge-base.md as history. SR-641 is a posted review and is left as written." SR-641 stays unedited because it records what was true at its reviewed sha. Re-measured on a trial merge with origin/main: that Refs cell is the only reference to any of the six old file names. |

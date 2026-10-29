@@ -41,4 +41,4 @@ PASS: the two new criteria and the amended existing criteria agree on authentic 
 
 ## Validation
 
-`quire validate --scope..review-scratchpad/ir-663-spec-review-integrity.md` — PASS (exit 0); emitted module duplicate-archetype/inverse-edge and inline-data-schema warnings, with no document validation error.
+`quire validate --scope . .review-scratchpad/ir-663-spec-review-integrity.md` — PASS (exit 0); emitted module duplicate-archetype/inverse-edge and inline-data-schema warnings, with no document validation error.

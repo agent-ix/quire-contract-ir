@@ -23,7 +23,7 @@ PASS for the PR delta. All six new criteria have direct tagged tests, and no cha
 
 ## Coverage
 
-- Reconciliation: `quire matrix --scope. --format json` (no run evidence read); FR-038-AC-159 through FR-038-AC-164 are all `tagged`.
+- Reconciliation: `quire matrix --scope . --format json` (no run evidence read); FR-038-AC-159 through FR-038-AC-164 are all `tagged`.
 - Plan completion: not assessed
 - Criteria in scope: 6 tagged, 0 untagged; repository-wide known strict baseline: 43 unbacked, 0 contradicted.
 - Reverse gaps or stubs in changed code: 0.

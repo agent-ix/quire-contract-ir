@@ -27,4 +27,4 @@ Plan completion: not assessed. Reviewed `tests/it/checked_package_v2_typed_terms
 
 ## Head confirmation
 
-The.. delta only changes the structural unit test to decode three JSON fixtures into `CheckedTerm` before calling `application_dependencies`. It leaves the production paths and the code finding unchanged. `git diff --check` on the delta passed.
+The PR delta only changes the structural unit test to decode three JSON fixtures into `CheckedTerm` before calling `application_dependencies`. It leaves the production paths and the code finding unchanged. `git diff --check` on the delta passed.

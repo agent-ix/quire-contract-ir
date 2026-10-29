@@ -12,8 +12,7 @@ review_set: subset
 
 Ticket: IR-495. Plan completion: not assessed. This review checks FR-038-AC-114 through
 FR-038-AC-118, FR-038-AC-9, FR-040-AC-10, FR-038 "Reading", "The flat wire" and the order
-of checks, and TC-048 ("Flat wire and no depth limit") against the code and tests at
-. It reads them against merged QSpec FR-322 (Body
+of checks, and TC-048 ("Flat wire and no depth limit") against the code and tests at the reviewed PR head. It reads them against merged QSpec FR-322 (Body
 grammar, Identity and validation, AC-39 to AC-41) at quire-specification.
 
 Bindings checked:
@@ -66,7 +65,7 @@ tagged test.
 
 Round 1, reviewed.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. FR-038 "Reading" now says the closed decode does not read bodies, projection bodies or `details`, and names the 90-126-level window that refuses at the grammar on a 256 KiB debug stack. Reproduced. See SR-1236 FND-007 for one remaining omission |
-| FND-002 | fixed |. `tc_048_the_flattened_form_of_each_refused_body_is_admitted` admits the reference form of each refused position and stratum shape |
+| FND-001 | fixed | FR-038 "Reading" now says the closed decode does not read bodies, projection bodies or `details`, and names the 90-126-level window that refuses at the grammar on a 256 KiB debug stack. Reproduced. See SR-1236 FND-007 for one remaining omission |
+| FND-002 | fixed | `tc_048_the_flattened_form_of_each_refused_body_is_admitted` admits the reference form of each refused position and stratum shape |

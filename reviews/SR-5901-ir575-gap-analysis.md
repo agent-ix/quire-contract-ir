@@ -23,14 +23,14 @@ The computed matrix tags FR-038-AC-214 to the explicit memory target and the new
 
 ## Trace and evidence
 
-`quoin matrix --repo. --json` reports AC-214 statically tagged by two ignored explicit-target functions in `tests/ir575_reader_memory.rs` and one ordinary canonical-spelling test in `tests/it/checked_package_v2_canonical_encoding.rs`. The ignored target was run manually as the criterion specifies; the matrix has no bound run evidence. The separate-process log establishes the graph-heavy fixture peak only. The `test = false` Cargo target is deliberate and not itself a defect.
+`quoin matrix --repo . --json` reports AC-214 statically tagged by two ignored explicit-target functions in `tests/ir575_reader_memory.rs` and one ordinary canonical-spelling test in `tests/it/checked_package_v2_canonical_encoding.rs`. The ignored target was run manually as the criterion specifies; the matrix has no bound run evidence. The separate-process log establishes the graph-heavy fixture peak only. The `test = false` Cargo target is deliberate and not itself a defect.
 
 The direct typed reader is specified by FR-038-AC-214 and FR-038's Reading section, so the changed production code has an owner. The unrelated inherited strict-coverage deficit is outside this diff verdict. The needed test should exercise a large non-omitted closed field, keep an independent memory or allocation oracle, and still check the closed-wire refusal or admission outcome. This finding is the missing control for code-review SR-5900 FND-001; it does not allege the recorded three peaks are false.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 
-`tests/ir575_reader_memory.rs` now generates a separate 32,045,214-byte fixture with 500,001 `capability_report` items and measures `CheckedPackageV2::read` in a fresh process after loading bytes and evidence. It checks the exact `UnknownRequiredCapability` refusal at `/capability_report/1/feature`, valid baseline HWM, and a 786,432 KiB incremental peak ceiling. The recorded new-reader peak is 37,364 KiB; the old reader failed at 810,652 KiB. The node-heavy control remains present and recorded 100,022 admitted nodes at 695,712 KiB additional peak against AC-214's 1,572,864 KiB ceiling. Logs predate the rebase without naming a SHA; the rebase from to the reviewed local head changed only spec files, leaving the test and production Rust files byte-identical. This disposition did not rerun gates.
+`tests/ir575_reader_memory.rs` now generates a separate 32,045,214-byte fixture with 500,001 `capability_report` items and measures `CheckedPackageV2::read` in a fresh process after loading bytes and evidence. It checks the exact `UnknownRequiredCapability` refusal at `/capability_report/1/feature`, valid baseline HWM, and a 786,432 KiB incremental peak ceiling. The recorded new-reader peak is 37,364 KiB; the old reader failed at 810,652 KiB. The node-heavy control remains present and recorded 100,022 admitted nodes at 695,712 KiB additional peak against AC-214's 1,572,864 KiB ceiling. Logs predate the rebase without naming a SHA; the rebase to the reviewed local head changed only spec files, leaving the test and production Rust files byte-identical. This disposition did not rerun gates.

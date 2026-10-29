@@ -71,7 +71,7 @@ Mutation oracle (`cargo test --test it reaches_field`):
     that only declared supertypes count. It does not restate "either
     direction".
   - TC-281 RE-05 admits a subtype target. No vector admits a supertype target.
-  - FR-322 closes with "Any other operand... refuses
+  - FR-322 closes with "Any other operand ... refuses
     `ill_typed`/`operator-ineligible`".
   - The repo's own new FR-040 paragraph repeats "that conforms to `T`", so the
     code disagrees with this repo's statement too.
@@ -95,6 +95,6 @@ direction of rule 4.
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: rule 4 now calls the one-way `DomainModel::conforms_to(end_owner.node, edge_owner)` (model_members.rs:504-513, operations.rs:1254); `(SUB, "child", SUB, ORDER)` refusal pins it. Mutations symmetric-conform and reversed-conform both go red. |
+| FND-001 | fixed | rule 4 now calls the one-way `DomainModel::conforms_to(end_owner.node, edge_owner)` (model_members.rs:504-513, operations.rs:1254); `(SUB, "child", SUB, ORDER)` refusal pins it. Mutations symmetric-conform and reversed-conform both go red. |

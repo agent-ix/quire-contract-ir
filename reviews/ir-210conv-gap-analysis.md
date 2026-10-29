@@ -16,9 +16,9 @@ relationships:
 
 ## Summary
 
-Ticket: IR-210 (conversion slice), PR quire-contract-ir#434. This is a planless gap analysis: plan completion was not assessed. Everything was measured with quire 0.36.2 (engine 0.50.2). Base is origin/main, checked out in a detached scratch worktree, and head is.
+Ticket: IR-210 (conversion slice), PR quire-contract-ir#434. This is a planless gap analysis: plan completion was not assessed. Everything was measured with quire 0.36.2 (engine 0.50.2). Base is origin/main, checked out in a detached scratch worktree, and head is the reviewed PR state.
 
-`quire coverage --scope. --strict --json` exits 1 on both trees, from the same pre-existing rows:
+`quire coverage --scope . --strict --json` exits 1 on both trees, from the same pre-existing rows:
 
 - **Matrix reference rows.** 43 unbacked and 0 status lies, on base and head alike.
 - **Totals.** Backed 508/565 on both. `minted_targets` is identical between base and head, and so is `groups`.
@@ -47,8 +47,8 @@ Ticket: IR-210 (conversion slice), PR quire-contract-ir#434. This is a planless 
 
 | Unit | Role | Excerpt |
 | --- | --- | --- |
-| FR-013-AC-5 | examined | Integer bounds and literals at `i128::MIN` and `i128::MAX`... decode and serialize back to the same decimal strings. Each of the eight members given as a JSON number... or a string outside the minimal-decimal grammar... refuses `invalid_wire_format`. Each of the eight given `"170141183460469231731687303715884105728"` or `"-170141183460469231731687303715884105729"` refuses `invalid_numeric_bounds`;... |
-| FR-016-AC-6 | examined | Every canonical byte sequence and digest of this crate comes from `quire-canonical`:...; a byte limit of the exact length returns the bytes and one byte lower returns `canonicalization_resource_exhausted`; and the crate source holds no `CanonicalWriter`... symbol... |
+| FR-013-AC-5 | examined | Integer bounds and literals at `i128::MIN` and `i128::MAX` ... decode and serialize back to the same decimal strings. Each of the eight members given as a JSON number ... or a string outside the minimal-decimal grammar ... refuses `invalid_wire_format`. Each of the eight given `"170141183460469231731687303715884105728"` or `"-170141183460469231731687303715884105729"` refuses `invalid_numeric_bounds`; ... |
+| FR-016-AC-6 | examined | Every canonical byte sequence and digest of this crate comes from `quire-canonical`: ...; a byte limit of the exact length returns the bytes and one byte lower returns `canonicalization_resource_exhausted`; and the crate source holds no `CanonicalWriter` ... symbol ... |
 | FR-019-AC-1 | examined | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. |
 | STD-001 canonicalization_resource_exhausted | context_only | Canonical byte allocation cannot be reserved without exceeding host resources |
 | StR-001-VC-1, StR-001-VC-2, StR-002-VC-1, StR-002-VC-2, StR-003-VC-1, StR-004-VC-1 | examined | Stakeholder validation criteria: backed status compared base against head |

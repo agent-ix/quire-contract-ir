@@ -38,7 +38,7 @@ Notes for the binding PR (outside this diff, not findings):
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | AC-81 to AC-87 are worded as reader behaviour ("An application... refuses"). Their only evidence is unit calls of `operation_defect` on fixtures the reader's grammar would refuse: `literal` terms with no `type` or `value_kind`, and old-shape artifact references. AC-81's "admits" control could not pass a full read. AC-68 already uses the honest form, "observed on that node (a unit-level check of the node's operation step)". The new ACs should say the same, or gain reader-level evidence | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1403-1409; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:287-330 |
+| FND-001 | medium | AC-81 to AC-87 are worded as reader behaviour ("An application ... refuses"). Their only evidence is unit calls of `operation_defect` on fixtures the reader's grammar would refuse: `literal` terms with no `type` or `value_kind`, and old-shape artifact references. AC-81's "admits" control could not pass a full read. AC-68 already uses the honest form, "observed on that node (a unit-level check of the node's operation step)". The new ACs should say the same, or gain reader-level evidence | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1403-1409; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:287-330 |
 | FND-002 | low | End-to-end evidence for AC-88 already exists but is traced to the wrong AC. `tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals` (tests/it/checked_package_v2_reader.rs:2499-2593) asserts graph-order group keys and `stale-node-key`, and is tagged FR-038-AC-17, whose text says nothing of keys. The PR's enumeration and TC-048's AC-88 procedure ("as unit tests of operations.rs") omit it. The binding PR should retag it to AC-88 | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:35-38 |
 
 ## Verdict
@@ -49,7 +49,7 @@ test should be bound to AC-88.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | deferred | A trace tag lives in code, so the retag of tests/it/checked_package_v2_reader.rs:2502 from FR-038-AC-17 to FR-038-AC-88 is the binding PR's (IR-532 code, after #253); the PR body's Binding PR scope lists it. |

@@ -3,7 +3,7 @@ id: SR-12176
 title: "IR-862 gap analysis of IR PR 448"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR 448..; changed test evidence and computed matrix"
+scope: "agent-ix/quire-contract-ir PR 448; changed test evidence and computed matrix"
 review_set: subset
 ---
 

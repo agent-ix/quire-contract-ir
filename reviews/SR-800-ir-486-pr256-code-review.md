@@ -36,7 +36,7 @@ already closed components (reverse topological order). It charges one unit per d
 reachable node in `discover`. No function in the new code calls itself directly or
 indirectly.
 
-Pass. `first_leaf_fault` resets the open set. It opens each composite at `path.len`,
+Pass. `first_leaf_fault` resets the open set. It opens each composite at `path.len()`,
 so `d` is the number of segments when the composite was entered (Node 0, `Option<Node>` 1,
 `Two` 1, `Wrap` 1). It places text leaves and recursion leaves in walk order. A recursion
 leaf where a text leaf is due, a wrong prefix, a wrong `d`, or a leftover recursion leaf
@@ -82,6 +82,6 @@ it in the default lane matches repo convention, and AC-72 requires that size.
 
 Round 1 (base still origin/main ). The delta adds one unit test, one FR-038 clause and one tests.md edit, with no production code change. The gate log ends head=… exit=2, and only spec fails: 23 unbacked, 166/212, FR-038 45/70, re-measured with quire coverage. Lib 101 and it 184 pass. No new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | accepted-no-change | Process-only finding; there was never a code defect to fix. Re-checked: git diff --check origin/main...HEAD is clean, and the gate's fmt-check and clippy pass (ir-486-r2-ci.log). The delta commit touches only operations.rs tests, FR-038 and tests.md. |

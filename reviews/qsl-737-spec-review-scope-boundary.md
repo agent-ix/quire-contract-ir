@@ -62,7 +62,7 @@ bindings: []
 
 Round 1; reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 
@@ -80,7 +80,7 @@ Round 1; reviewed.
 
 Round 2; reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-002 | fixed | Fixed in the reviewed PR. |
 | FND-003 | fixed | Fixed in the reviewed PR. |
@@ -91,13 +91,13 @@ Round 2; reviewed.
 
 FND-002: "Case arm bodies and union payloads" relaxes the two exact comparisons, `union_arms_hold`'s arm body against `result_type` (operations.rs:1451-1452) and `union_defect`'s payload term against the member payload (`type-mismatch` at the node). Binder `semantic_type` stays exact, which matches operations.rs:1445-1446. AC-10 and AC-11 back both. The body-root claim holds: the reader reads no `body` binding of a function node and has no structural rule for `function` bodies. See SR-8683 FND-006 for why pinning that as tested behavior is a defect.
 
-FND-003: the function-call rule is stated with AC-13. Its source, the callee body `parameters` binding, matches QSL FR-092 "Function nodes" (`parameters` = `aggregate{[reference(p0)..., reference(pn-1)]}` in parameter order, including unread parameters). The count comes first at `arguments`, then exact-or-conforming at each argument. No binding means unchecked, as today. The AC-13 vectors can all be built and checked. New: FND-004 (low).
+FND-003: the function-call rule is stated with AC-13. Its source, the callee body `parameters` binding, matches QSL FR-092 "Function nodes" (`parameters` = `aggregate{[reference(p0), ..., reference(pn-1)]}` in parameter order, including unread parameters). The count comes first at `arguments`, then exact-or-conforming at each argument. No binding means unchecked, as today. The AC-13 vectors can all be built and checked. New: FND-004 (low).
 
 ## Dispositions round 3
 
 Round 3; reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-004 | fixed | Fixed in the reviewed PR. |
 

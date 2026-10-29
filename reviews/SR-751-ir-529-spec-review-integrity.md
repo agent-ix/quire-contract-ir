@@ -51,17 +51,17 @@ contradiction with an easy fix. The rest are wording nits.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged).
+Round 1, reviewed at agent-ix/quire-contract-ir (delta the PR delta; base origin/main unchanged).
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |
 | FND-003 | fixed | Fixed in the reviewed PR. |
 | FND-004 | fixed | Fixed in the reviewed PR. |
 
-Round 2, reviewed at agent-ix/quire-contract-ir (delta from; base unchanged).
+Round 2, reviewed at agent-ix/quire-contract-ir (PR delta; base unchanged).
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-005 | fixed | Fixed in the reviewed PR. |

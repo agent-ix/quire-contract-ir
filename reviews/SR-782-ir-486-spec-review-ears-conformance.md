@@ -33,19 +33,19 @@ Round 1, reviewed at agent-ix/quire-contract-ir. The PR was rebased onto origin/
 
 Notes on the round-1 checks: AC-71 gives the integer `List` case its own subject ("a recursion leaf at a reentry of an integer `List`, which reaches no `text` type").
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 
-Round 2, reviewed at agent-ix/quire-contract-ir: the delta from, on base origin/main, which is unchanged. GitHub reports MERGEABLE. `make spec` at round 2: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/212 rows backed, FR-038 42/70. The delta adds no SHA. The leader relayed a planner decision, recorded on IR-486, that the recursion leaf is now required wherever text is reachable. I have not confirmed it independently.
+Round 2, reviewed the PR delta at agent-ix/quire-contract-ir, on base origin/main, which is unchanged. GitHub reports MERGEABLE. `make spec` at round 2: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/212 rows backed, FR-038 42/70. The delta adds no SHA. The leader relayed a planner decision, recorded on IR-486, that the recursion leaf is now required wherever text is reachable. I have not confirmed it independently.
 
 Round 2: nothing to disposition (FND-001 was fixed in round 1). One new low wording finding, below.
 
-Round 3, reviewed at agent-ix/quire-contract-ir: the delta from, on base origin/main, which is unchanged. GitHub reports MERGEABLE. `make spec` at round 3: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/212 rows backed, FR-038 42/70. The delta adds no SHA and touches only AC-70 (the typo), AC-72, one sentence of the iterative-walk paragraph and TC-048's ring step. I found no regression.
+Round 3, reviewed the PR delta at agent-ix/quire-contract-ir, on base origin/main, which is unchanged. GitHub reports MERGEABLE. `make spec` at round 3: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/212 rows backed, FR-038 42/70. The delta adds no SHA and touches only AC-70 (the typo), AC-72, one sentence of the iterative-walk paragraph and TC-048's ring step. I found no regression.
 
 Notes on the round-3 checks: AC-70's doubled "and" is gone. FR-038 still contains the substring "and and", but only inside #254's "operand and an" (AC-69), which is not a doubled word.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-002 | fixed | Fixed in the reviewed PR. |
 

@@ -19,9 +19,9 @@ analyses do not apply: the AD adds no FR, AC or TC.
 
 Measured at the reviewed sha:
 
-- `quire validate --scope. 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md'`
+- `quire validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md'`
   exits 0. The only grammar warning is the pre-existing FR-014 line 137.
-- `quire coverage --scope. --strict` reports 23 unbacked rows at the PR head
+- `quire coverage --scope . --strict` reports 23 unbacked rows at the PR head
   and 23 at origin/main (measured on both). Unchanged.
 - Frontmatter and section layout follow AD-004/AD-005/AD-006: same keys
   (`id`, `type: ArchitectureDescription`, `status: proposed`, `owner`, `system`,
@@ -72,12 +72,12 @@ addresses them; all are text edits to AD-007.
 
 ## New findings (disposition pass 1)
 
-Re-reviewed at agent-ix/quire-contract-ir (fix commit over ). The fix also edits AD-005, which brings AD-005's corrected passages into this PR's scope. `quire validate` exits 0 (baseline FR-014 warning only); `quire coverage --strict` reports 23 unbacked rows (unchanged). Measured on IR main: `digest_json`, `CanonicalWriter` and `canonical_envelope_bytes` do not occur in `src/` or `crates/`, so the AD-005 encoder correction is true. The corrected D-2 bullet is true for a git edge, and `deny.toml` has no `exclude-dev`, so every dependency kind is covered.
+Re-reviewed at agent-ix/quire-contract-ir (fix commit). The fix also edits AD-005, which brings AD-005's corrected passages into this PR's scope. `quire validate` exits 0 (baseline FR-014 warning only); `quire coverage --strict` reports 23 unbacked rows (unchanged). Measured on IR main: `digest_json`, `CanonicalWriter` and `canonical_envelope_bytes` do not occur in `src/` or `crates/`, so the AD-005 encoder correction is true. The corrected D-2 bullet is true for a git edge, and `deny.toml` has no `exclude-dev`, so every dependency kind is covered.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-005 | low | The CG-lock row now names "the lock move of IR-565 (CG's next lock bump)" as the owner of moving `quire-walk` off the QSL repository. IR-565's own text covers CG adapting to IR-495 on its next lock bump and does not mention `quire-walk`. CG's lock resolves `quire-walk` through the QSL crates at an old QSL revision, so only a refresh that also updates the QSL source re-resolves it; a targeted `cargo update -p quire-contract-ir` would not. Citing IR-565 as the owner overstates what that ticket commits to. Say it resolves on CG's next full lock refresh (IR-565's bump is the next planned one, but its text does not name this), or add the item to IR-565's text in the tracker first. Wording and tracking only. | spec/assurance/AD-007-cross-repo-dependency-graph.md:215, spec/assurance/AD-007-cross-repo-dependency-graph.md:281-282 |
-| FND-006 | medium | AD-005 still contradicts its own corrected guard text in two places this PR left alone. (a) The dependency-direction table row "IR to codegen, IR to runtime / nothing in IR yet" is false now that the D-2 bullet says a git edge to those repositories fails `make deny` through `unknown-git`. (b) D-1 says the model and root packages are checked "by name and by source (existing:... TC-041)", but the same AD's table (line 98) and `tc_041` itself check the model package by name only. A reader of AD-005 alone still gets the wrong guard state that SR-1392 FND-001/FND-002 corrected in AD-007. | spec/assurance/AD-005-qsl-consumption-seam.md:102, spec/assurance/AD-005-qsl-consumption-seam.md:146-147 |
+| FND-006 | medium | AD-005 still contradicts its own corrected guard text in two places this PR left alone. (a) The dependency-direction table row "IR to codegen, IR to runtime / nothing in IR yet" is false now that the D-2 bullet says a git edge to those repositories fails `make deny` through `unknown-git`. (b) D-1 says the model and root packages are checked "by name and by source (existing: ... TC-041)", but the same AD's table (line 98) and `tc_041` itself check the model package by name only. A reader of AD-005 alone still gets the wrong guard state that SR-1392 FND-001/FND-002 corrected in AD-007. | spec/assurance/AD-005-qsl-consumption-seam.md:102, spec/assurance/AD-005-qsl-consumption-seam.md:146-147 |
 | FND-007 | low | AD-005 encoder leftovers after the correction. (a) The bullet still opens "Two encoders:" but now lists none, and its first sentence reads as if the lint forbids encoders "in a repository the lint does not scan". (b) Decision C's "its code lands in three changes" and the open question "When does IR-274 land?" are stale: IR-274 is Done and the encoders are gone. (c) Decision C records a commit SHA for quire-canonical #7, which this repository's CLAUDE.md says to remove when found; this PR now edits AD-005. Wording only. | spec/assurance/AD-005-qsl-consumption-seam.md:125-131, spec/assurance/AD-005-qsl-consumption-seam.md:186-191, spec/assurance/AD-005-qsl-consumption-seam.md:207 |
 
 ## New findings (disposition pass 2)
@@ -101,17 +101,17 @@ Re-reviewed at agent-ix/quire-contract-ir. Final sweep of AD-005 and AD-007, cov
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-010 | low | Several AD-005 source line references have drifted and now point at the wrong lines. They predate this PR but sit in a file the PR now edits throughout. `crates/quire-contract-model/src/lib.rs:31-47` (the seven globs are at lines 93-109); QSL `qsl-package/src/emit.rs:961` ("the pinned IR revision" is at 1082); QSL `checked_v2.rs` `for_ir` cited as `:223` (now 227); QSL `checked_v2.rs:595` (now a closing brace). Cite symbols (`for_ir`, the `pub use...::*` block, the comment text) instead of line numbers, which drift on every edit. Wording only; no claim is false, only where to look. | spec/assurance/AD-005-qsl-consumption-seam.md:55, spec/assurance/AD-005-qsl-consumption-seam.md:91, spec/assurance/AD-005-qsl-consumption-seam.md:111, spec/assurance/AD-005-qsl-consumption-seam.md:172 |
+| FND-010 | low | Several AD-005 source line references have drifted and now point at the wrong lines. They predate this PR but sit in a file the PR now edits throughout. `crates/quire-contract-model/src/lib.rs:31-47` (the seven globs are at lines 93-109); QSL `qsl-package/src/emit.rs:961` ("the pinned IR revision" is at 1082); QSL `checked_v2.rs` `for_ir` cited as `:223` (now 227); QSL `checked_v2.rs:595` (now a closing brace). Cite symbols (`for_ir`, the `pub use ...::*` block, the comment text) instead of line numbers, which drift on every edit. Wording only; no claim is false, only where to look. | spec/assurance/AD-005-qsl-consumption-seam.md:55, spec/assurance/AD-005-qsl-consumption-seam.md:91, spec/assurance/AD-005-qsl-consumption-seam.md:111, spec/assurance/AD-005-qsl-consumption-seam.md:172 |
 
 ## New findings (disposition pass 5)
 
 Re-reviewed at agent-ix/quire-contract-ir. AD-005 and AD-007 contain no remaining line-number citations of code (grepped both for `.rs:N`, `` `:N` ``, `.toml:N` and `Makefile:N`). Each replaced citation names something real on its repository's `main`, apart from FND-011:
 
-- QSL `qsl-package/src/checked_v2.rs` defines `V2ReadIncomplete` and `for_ir`, and has the `use quire_contract_model::{read_checked_package...}` block.
+- QSL `qsl-package/src/checked_v2.rs` defines `V2ReadIncomplete` and `for_ir`, and has the `use quire_contract_model::{read_checked_package, ...}` block.
 - QSL `qsl-package/src/emit.rs` carries the "at the pinned IR revision" comment.
 - In IR `tests/it/cycle_free_model.rs`: `let forbidden = [...]`, the loop over the root package's dependencies, and `tc_041_bridge_reexports_...`.
 - IR `src/kani/outcome.rs` defines `KaniProvider*`, and `src/kani/mod.rs` re-exports them.
-- The model `lib.rs` has seven `pub use...::*` lines, and IR `src/lib.rs` has `pub use quire_contract_model::*;`.
+- The model `lib.rs` has seven `pub use ...::*` lines, and IR `src/lib.rs` has `pub use quire_contract_model::*;`.
 
 `quire validate` exits 0 and strict coverage is 23.
 
@@ -121,16 +121,16 @@ Re-reviewed at agent-ix/quire-contract-ir. AD-005 and AD-007 contain no remainin
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: the `=0.3.0` and `=0.1.0` strings are gone from the edge table |
-| FND-002 | fixed |: the body now cites FR-038 (canonical-bytes row), FR-039 (replay row), and AD-001 and FR-028 (decision B) |
-| FND-003 | fixed |: the semantic-value row and decision A now state that no exception exists, matching RT FR-275 |
-| FND-004 | fixed |: the AD-005 correction is made in this PR; the CG lock item now names an owner, but the citation is new finding FND-005 |
-| FND-005 | fixed |: the CG-lock row and the CG routing now say the lock refresh comes with CG's next full refresh, and that IR-565 does not cover it |
-| FND-006 | fixed |: the AD-005 direction row now records `unknown-git`; D-1 says `tc_041` checks the model by name list only and `unknown-git` covers source |
-| FND-007 | fixed |: the bullet is retitled "One encoder" and its sentence repaired; decision C says IR-274 has landed; the IR-274 open question and the commit SHA are removed |
-| FND-008 | fixed |: the AD-005 bullet now opens "D-2 has no by-name check." |
-| FND-009 | fixed |: R-3 and the QVC gap row cite VER-52 (Backlog) |
-| FND-010 | fixed |: every code line-number citation in AD-005 is replaced by a file and symbol name; none remain in AD-005 or AD-007 (one replacement is new finding FND-011) |
-| FND-011 | fixed |: AD-005 now cites `CheckedPackageLockV2` and `CheckedPackageIdentityPreimageV2` as built in QSL `qsl-package/src/emit.rs`, and `canonical_preimage` in `checked_v2.rs` for the reader side (both re-measured on QSL main ). The final grep of AD-005 and AD-007 finds no line-number citation and no SHA |
+| FND-001 | fixed | the `=0.3.0` and `=0.1.0` strings are gone from the edge table |
+| FND-002 | fixed | the body now cites FR-038 (canonical-bytes row), FR-039 (replay row), and AD-001 and FR-028 (decision B) |
+| FND-003 | fixed | the semantic-value row and decision A now state that no exception exists, matching RT FR-275 |
+| FND-004 | fixed | the AD-005 correction is made in this PR; the CG lock item now names an owner, but the citation is new finding FND-005 |
+| FND-005 | fixed | the CG-lock row and the CG routing now say the lock refresh comes with CG's next full refresh, and that IR-565 does not cover it |
+| FND-006 | fixed | the AD-005 direction row now records `unknown-git`; D-1 says `tc_041` checks the model by name list only and `unknown-git` covers source |
+| FND-007 | fixed | the bullet is retitled "One encoder" and its sentence repaired; decision C says IR-274 has landed; the IR-274 open question and the commit SHA are removed |
+| FND-008 | fixed | the AD-005 bullet now opens "D-2 has no by-name check." |
+| FND-009 | fixed | R-3 and the QVC gap row cite VER-52 (Backlog) |
+| FND-010 | fixed | every code line-number citation in AD-005 is replaced by a file and symbol name; none remain in AD-005 or AD-007 (one replacement is new finding FND-011) |
+| FND-011 | fixed | AD-005 now cites `CheckedPackageLockV2` and `CheckedPackageIdentityPreimageV2` as built in QSL `qsl-package/src/emit.rs`, and `canonical_preimage` in `checked_v2.rs` for the reader side (both re-measured on QSL main ). The final grep of AD-005 and AD-007 finds no line-number citation and no SHA |

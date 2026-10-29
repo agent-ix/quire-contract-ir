@@ -16,7 +16,7 @@ Ticket: IR-279. This review covers the FR-038 "Reading" paragraph edited by PR 1
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | high | The new sentence "The reader admits no document deeper than 128, the default limit; a larger caller limit reads as 128" contradicts FR-038-AC-3 in the same file ("Exact... depth... limits admit a package") and upstream FR-322 (line 319, line 652, AC-6). A local FR narrows the upstream interface FR, and nothing upstream records that change | spec/contract/FR-038-consume-checked-package-v2.md:152-154 |
+| FND-001 | high | The new sentence "The reader admits no document deeper than 128, the default limit; a larger caller limit reads as 128" contradicts FR-038-AC-3 in the same file ("Exact ... depth ... limits admit a package") and upstream FR-322 (line 319, line 652, AC-6). A local FR narrows the upstream interface FR, and nothing upstream records that change | spec/contract/FR-038-consume-checked-package-v2.md:152-154 |
 | FND-002 | low | The paragraph puts implementation mechanism into the requirement ("builds no value and runs on a stack grown onto the heap") and states "memory bounded by the byte limit", which is true only as a vacuous linear bound (SR-624 FND-002 measures about 190x). No test can fail it | spec/contract/FR-038-consume-checked-package-v2.md:146-148 |
 
 ## Finding Detail
@@ -36,7 +36,7 @@ The depth unit and the refusal order are clear improvements. FND-001 is a real c
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |
@@ -53,13 +53,13 @@ The depth unit and the refusal order are clear improvements. FND-001 is a real c
 ### New finding detail (disposition pass 2)
 
 - FND-004: The prose describes the code accurately. AC-3 and FR-322 do not allow it. Required changes:
-  - In this PR, qualify FR-038-AC-3: "Exact byte, depth (up to 16,384), node... limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit charged and the consumed counter".
+  - In this PR, qualify FR-038-AC-3: "Exact byte, depth (up to 16,384), node, ... limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit charged and the consumed counter".
   - Upstream FR-322 (quire-specification): at line 319, permit a reader-declared maximum for `depth`, so that a caller limit above it is charged at that maximum and `incomplete.limit` reports the limit charged. At line 652 and in AC-6, change "Exact selected (resource) limits" to "... up to any reader-declared maximum". An alternative is to refuse an over-maximum limit as a configuration error instead of reading it silently as the maximum.
-  - QSL `qsl-package/src/checked_v2.rs`: replace `SERDE_JSON_RECURSION_LIMIT = 128` with a reference to `quire_contract_ir::CheckedPackageReadLimits::MAXIMUM_DEPTH`. Update the `V2ReadLimits.depth`, `enforced` and `effective_limits` docs, and the module doc's "refused, not Incomplete" bullet. Replace the test `depth_far_past_the_default_limit_is_refused_as_malformed_wire`, which now gets `incomplete(Depth...)`.
+  - QSL `qsl-package/src/checked_v2.rs`: replace `SERDE_JSON_RECURSION_LIMIT = 128` with a reference to `quire_contract_ir::CheckedPackageReadLimits::MAXIMUM_DEPTH`. Update the `V2ReadLimits.depth`, `enforced()` and `effective_limits` docs, and the module doc's "refused, not Incomplete" bullet. Replace the test `depth_far_past_the_default_limit_is_refused_as_malformed_wire`, which now gets `incomplete(Depth, ...)`.
 
 ## Dispositions (disposition pass 2)
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-003 | fixed | Fixed in the reviewed PR. |
 
@@ -67,7 +67,7 @@ The depth unit and the refusal order are clear improvements. FND-001 is a real c
 
 ## Dispositions (disposition pass 3)
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-004 | deferred | AC contradiction recorded as a known deviation (FR-038 Reading prose, lines 151-153, and the PR body); upstream amendment STD-125 |
 

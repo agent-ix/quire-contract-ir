@@ -41,7 +41,7 @@ Base review of the changed FR-038 structural-key prose and AC-123 through AC-134
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 

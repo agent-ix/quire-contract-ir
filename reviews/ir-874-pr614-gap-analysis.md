@@ -55,7 +55,7 @@ The new `FR-038-AC-292` text and TC-048 procedure own the production pass in `pr
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed |, the new tagged public-reader test covers a record-typed protocol capture bare in all four decision slots, with exact typed refusal/path/locus/slot and field-projection plus scalar-capture admission controls. The implementation now checks captures too. |
+| FND-002 | fixed | In the reviewed PR, the new tagged public-reader test covers a record-typed protocol capture bare in all four decision slots, with exact typed refusal/path/locus/slot and field-projection plus scalar-capture admission controls. The implementation now checks captures too. |
 
 ## Final disposition
 

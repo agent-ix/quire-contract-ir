@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-888 (under IR-878). Plan completion: not assessed. This is a planless gap analysis. `quire coverage --scope. --strict` (quire 0.36.2) was measured the same way on an origin/main worktree and on the PR head. On main: 541/609 rows backed, 42 unbacked, 0 contradicted, FR-035 8/11. On the PR head: 543/609 backed, 40 unbacked, 0 contradicted, FR-035 10/11. The only rows that changed are FR-035-AC-10 and FR-035-AC-11, which are now backed. Rust symbols went from 948/949/952 to 950/951/955 bound/tagged/candidates. This matches the author's claim. No production code changed, and TC-456, `public_interface.rs` and `identity.rs` are untouched. The reorder (noncanonical) case is not part of AC-10, and no cumulative work bound is asserted (IR-889 open), as decided.
+Ticket: IR-888 (under IR-878). Plan completion: not assessed. This is a planless gap analysis. `quire coverage --scope . --strict` (quire 0.36.2) was measured the same way on an origin/main worktree and on the PR head. On main: 541/609 rows backed, 42 unbacked, 0 contradicted, FR-035 8/11. On the PR head: 543/609 backed, 40 unbacked, 0 contradicted, FR-035 10/11. The only rows that changed are FR-035-AC-10 and FR-035-AC-11, which are now backed. Rust symbols went from 948/949/952 to 950/951/955 bound/tagged/candidates. This matches the author's claim. No production code changed, and TC-456, `public_interface.rs` and `identity.rs` are untouched. The reorder (noncanonical) case is not part of AC-10, and no cumulative work bound is asserted (IR-889 open), as decided.
 
 ## Reviewed units
 

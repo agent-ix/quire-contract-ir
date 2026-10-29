@@ -24,8 +24,8 @@ FR-052, TC-452 and the matrix row consistently mark AC-24 implemented. The FR-01
 | TC-452 matrix row | spec/model/matrix/tests.md | examined | AC-24, split from AC-3, is Implemented with a traced synthetic conflicting-facts test. |
 | SourceInventoryIdentity | crates/quire-contract-model/src/source_obligation.rs | examined | semantic_type: CheckedNodeId, |
 | census_endpoints | crates/quire-contract-model/src/source_obligation.rs | examined | let conflicting_nodes: BTreeSet<_> = node_facts |
-| public consumer | crates/quire-contract-model/tests/source_obligation_public.rs | examined | fn default_feature_consumer_borrows_public_census_and_rows |
-| AC-24 synthetic test | tests/it/source_obligation.rs | examined | fn conflicting_semantic_type_facts_remain_visible_and_block_correspondence |
+| public consumer | crates/quire-contract-model/tests/source_obligation_public.rs | examined | fn default_feature_consumer_borrows_public_census_and_rows() |
+| AC-24 synthetic test | tests/it/source_obligation.rs | examined | fn conflicting_semantic_type_facts_remain_visible_and_block_correspondence() |
 | CheckedSemanticNodeV2 | crates/quire-contract-model/src/checked_package/v2/mod.rs | context_only | pub semantic_type: CheckedNodeId, |
 | FR-019 public-items row | spec/model/functional/FR-019-rust-library-interface.md | examined | FR-052-AC-17 through AC-23 |
 | FR-019-AC-5 | spec/model/functional/FR-019-rust-library-interface.md | examined | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists |
@@ -44,4 +44,4 @@ CONDITIONAL. Extend the existing FR-019 source-obligation row criterion range to
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the FR-019 source-obligation row attributes through AC-24; its public item list is unchanged. |
+| FND-001 | fixed | In the reviewed PR, the FR-019 source-obligation row attributes through AC-24; its public item list is unchanged. |

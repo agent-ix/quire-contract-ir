@@ -19,7 +19,7 @@ catalog result", FR-038-AC-222 and FR-038-AC-223, the published
 
 The branch adds `check_ieee_member_result` after `check_operands` and relies on
 main's `literal_defect` (IR-484, #351) for the literal width rule; the rebase
-dropped the original `check_ieee_literals` pass from. Reviewer measured
+dropped the original `check_ieee_literals` pass from the prior reviewed code. Reviewer measured
 every case the dropped pass covered with a scratch scan through the public
 `CheckedPackageV2::read` over every node of the all-families fixture as the
 declared literal `type` (standalone body root, `arguments/0` and `arguments/1`
@@ -57,7 +57,7 @@ Deleted-pass coverage (scratch scan ):
 | float32_bits / float64_bits at the opposite width, standalone body root | refused, same code/cause/pointer `/body/type`/locus |
 | same, at `arguments/0` or `arguments/1` of an application | refused, same, `/body/arguments/{i}/type` |
 | declared at any other familied type (boolean, integer, text, option, integer_range, pure_function, object_type, temporal formula, reference) | refused, same |
-| declared `type` absent from the graph, or not a node id | refused earlier, `invalid_semantic_graph` at the same `/type` pointer, no locus (wire stage precedes; unchanged from ) |
+| declared `type` absent from the graph, or not a node id | refused earlier, `invalid_semantic_graph` at the same `/type` pointer, no locus (wire stage precedes; unchanged ) |
 | declared at a node with no operand family (value/literal, value/parameter, model/namespace, model/process, relation/relationship, state/snapshot, state/frame, temporal/temporal_clause, protocol/protocol_clause, claim/verification_claim, correspondence/source_locus) | **ADMITTED**, standalone and in either argument position |
 
 ## Examined scope
@@ -70,7 +70,7 @@ Deleted-pass coverage (scratch scan ):
 - id: FR-038-AC-223
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: Through `CheckedPackageV2::read`, valid `quire.op.ieee.to_float32` over Float64 and `quire.op.ieee.to_float64` over Float32 admit when each `type_argument` and `result_type` name the same correctly typed destination node. For each identity, changing `result_type` and the enclosing application's root-node `semantic_type` together to the source-width node while retaining the valid destination `type_argument`... refuses `ill_typed`/`operator-ineligible` at the application's `result_type` by the `member` result form; changing `type_argument`, `result_type` and that root-node `semantic_type` together to the source-width node likewise refuses there by the catalogued `member_family` constraint.
+  excerpt: Through `CheckedPackageV2::read`, valid `quire.op.ieee.to_float32` over Float64 and `quire.op.ieee.to_float64` over Float32 admit when each `type_argument` and `result_type` name the same correctly typed destination node. For each identity, changing `result_type` and the enclosing application's root-node `semantic_type` together to the source-width node while retaining the valid destination `type_argument` ... refuses `ill_typed`/`operator-ineligible` at the application's `result_type` by the `member` result form; changing `type_argument`, `result_type` and that root-node `semantic_type` together to the source-width node likewise refuses there by the catalogued `member_family` constraint.
 - id: FR-038/IEEE-literal-type-and-catalog-result
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
@@ -98,7 +98,7 @@ Deleted-pass coverage (scratch scan ):
 
 ## Dispositions
 
-Round 1, verified (`git diff..`).
+Round 1, verified (`git diff origin/main...HEAD`).
 
 | FND | Outcome | Reason |
 | --- | --- | --- |

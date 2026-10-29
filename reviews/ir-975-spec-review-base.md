@@ -44,4 +44,4 @@ This artifact supersedes the same reviewer method under SR-15716 on IR-975. SR-1
 | FND-001 | fixed | AC-123 now derives package identity from seven selections and mutated graph nodes in graph order, excluding occurrences; it no longer patches a shipped projection. |
 | FND-002 | fixed | AC-133's negative fixture now recomputes package identity from seven selections and mutated graph nodes; it no longer requires a shipped projection. |
 | FND-003 | fixed | AC-112 now names the seven retained wire selections and states that the logical projection is derived from the mutated graph. |
-| FND-004 | fixed |, AC-113 names CheckedPackageIdentityPreimageRefV2 built from seven selections and semantic_graph.nodes in graph order, excluding occurrences, then encoded through quire-canonical. This matches the conformance helper. |
+| FND-004 | fixed | At 8521036, AC-113 names CheckedPackageIdentityPreimageRefV2 built from seven selections and semantic_graph.nodes in graph order, excluding occurrences, then encoded through quire-canonical. This matches the conformance helper. |

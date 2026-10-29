@@ -26,7 +26,7 @@ What holds. Cycles terminate, because the reused walk keeps a `reached` set. A f
 
 ## Coverage
 
-Examined the FR-347 behavior sections ("What the reader consults", "Exact kinds stay exact", "Refusals", "Work accounting", "Scope") and AC-3, AC-5, AC-6 and AC-8 for failure modes. The meter row is the declaring owner's selection (`Budget::new(meter, owner.selection...)`). The argument's record is in that same document, so FR-038-AC-30's `/lock/model_selections/<i>` pointer is fixed. No finding there. Review-only, no edits or builds.
+Examined the FR-347 behavior sections ("What the reader consults", "Exact kinds stay exact", "Refusals", "Work accounting", "Scope") and AC-3, AC-5, AC-6 and AC-8 for failure modes. The meter row is the declaring owner's selection (`Budget::new(meter, owner.selection, ...)`). The argument's record is in that same document, so FR-038-AC-30's `/lock/model_selections/<i>` pointer is fixed. No finding there. Review-only, no edits or builds.
 
 ## Examined units
 
@@ -59,7 +59,7 @@ bindings: []
 
 Round 1; reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 
@@ -86,7 +86,7 @@ Round 2; reviewed. No open findings from round 1: FND-001 was fixed in round 1.
 
 Round 3; reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-002 | fixed | Fixed in the reviewed PR. |
 | FND-003 | fixed | Fixed in the reviewed PR. |

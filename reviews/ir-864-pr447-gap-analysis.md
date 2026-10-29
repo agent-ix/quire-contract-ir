@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-864. Independent and `quire coverage --scope. --strict` outputs are byte-for-byte identical: 527/584 backed, 39 unbacked, zero contradicted. The strict exit remains 1 solely on the same 39 existing unbacked rows. `quire matrix --scope. --format json` has 550 criterion rows at both revisions, with the same statements, methods, statuses and binders after source line and column positions are excluded. The 12 removed doc citations were already represented by adjacent `#[trace]` claims; no binder was lost.
+Ticket IR-864. Independent and `quire coverage --scope . --strict` outputs are byte-for-byte identical: 527/584 backed, 39 unbacked, zero contradicted. The strict exit remains 1 solely on the same 39 existing unbacked rows. `quire matrix --scope . --format json` has 550 criterion rows at the base and PR head, with the same statements, methods, statuses and binders after source line and column positions are excluded. The 12 removed doc citations were already represented by adjacent `#[trace]` claims; no binder was lost.
 
 ## Reviewed scope
 

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Checked new QSpec FR-464/465/466 and TC-946/947/948 relationships against the referenced documents. Dependency edges are coherent; the missing published machine vectors are recorded in evidence review. Ticket: IR-874. Frozen head:.
+Checked new QSpec FR-464/465/466 and TC-946/947/948 relationships against the referenced documents. Dependency edges are coherent; the missing published machine vectors are recorded in evidence review. Ticket: IR-874. Reviewed the frozen PR head.
 
 ## Examined units
 

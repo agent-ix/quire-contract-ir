@@ -3,7 +3,7 @@ id: SR-11750
 title: "IR-574 Slice 1 FR-023-AC-6 projection boundary tests code review (with Rust review)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #412 diff origin/main...: tests/it/executable_binding.rs, spec/model/matrix/tests.md, spec/core/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; PR #412 diff origin/main...HEAD: tests/it/executable_binding.rs, spec/model/matrix/tests.md, spec/core/matrix/tests.md"
 review_set: subset
 ---
 
@@ -49,7 +49,7 @@ Mutation probes were run in a throwaway detached worktree at the same head, agai
 
 - **All five members and all three values.** Package source revision, package requirement revision, binding clause reference revision, expression source-identity revision and expression end byte offset are each tested at 2^53+1 and at `u64::MAX`. The 2^53 baseline is the same projection that each refusal case mutates, so "the same projection with that member at 9007199254740992 binds" holds literally. The baseline also sets the expression owner revision and the requirement and clause span revisions to 2^53, which keeps the identities consistent.
 - **No skippable assertions.** No `if let` guards an assertion. Every refusal goes through `expect_err`, and the baseline goes through `expect`.
-- **Registered codes absent.** All three registered codes are asserted absent. Given `len == 1` and `code == InvalidWireFormat`, that check is redundant, but it does no harm.
+- **Registered codes absent.** All three registered codes are asserted absent. Given `len() == 1` and `code == InvalidWireFormat`, that check is redundant, but it does no harm.
 - **Reaches the intended path.** Moving decode before the schema, removing the schema stage, using the wrong code or the wrong path each turns the test red. Dropping one member's schema bound turns it red for four of the five members (see FND-001).
 - **Matrix flips.** The FR-023 row in spec/model/matrix/tests.md and the FR-023-AC-6 clauses of the FR-011 and FR-012 rows in spec/core/matrix/tests.md changed from planned to implemented. Nothing else changed. No corpus file, probe `clause_resolutions` input or coverage trace input is touched or pinned. The computed matrix (`quoin matrix --json`, quoin 0.28.3) binds the new test to FR-023-AC-6 only, with static status `tagged`.
 - **Rust surface.** This is test-only code: no unsafe, and the `unwrap`s are on fixture pointers. fmt and clippy are clean.
@@ -72,7 +72,7 @@ scope:
 - id: tc_035_projection_revisions_and_offsets_obey_the_schema_boundary
   path: tests/it/executable_binding.rs
   role: examined
-  excerpt: "for value in [BOUND + 1, u64::MAX] {... assert_eq!(diagnostics.len, 1...); assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidWireFormat...); assert_eq!(diagnostics[0].path, \"projection\"...); assert!(diagnostics.iter.all(|diagnostic| !matches!(diagnostic.code, InvalidSourceRevision | InvalidRequirementRevision | InvalidSourceSpan))...) }"
+  excerpt: "for value in [BOUND + 1, u64::MAX] { ... assert_eq!(diagnostics.len(), 1 ...); assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidWireFormat ...); assert_eq!(diagnostics[0].path, \"projection\" ...); assert!(diagnostics.iter().all(|diagnostic| !matches!(diagnostic.code, InvalidSourceRevision | InvalidRequirementRevision | InvalidSourceSpan)) ...) }"
 - id: spec/model/matrix/tests.md#FR-023
   path: spec/model/matrix/tests.md
   role: examined

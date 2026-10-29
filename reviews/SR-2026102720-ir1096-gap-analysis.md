@@ -34,7 +34,7 @@ Ticket: IR-1096. Reviewed frozen PR #664 against and QSpec. All four changed fil
 
 ## Coverage
 
-Plan completion: not assessed. `quire matrix --scope. --format json` reports AC-335, AC-339, AC-340 and AC-342 tagged; AC-336 remains untagged. The public AO cases provide real admission, refusal, and locus evidence, while the bindings listed in Findings overclaim broader criteria. Reverse trace of the changed source found FR-038 ownership; no stub or copied fixture was introduced.
+Plan completion: not assessed. `quire matrix --scope . --format json` reports AC-335, AC-339, AC-340 and AC-342 tagged; AC-336 remains untagged. The public AO cases provide real admission, refusal, and locus evidence, while the bindings listed in Findings overclaim broader criteria. Reverse trace of the changed source found FR-038 ownership; no stub or copied fixture was introduced.
 
 ## Verdict
 
@@ -44,10 +44,10 @@ FAIL: AC-335, AC-339, AC-340 and AC-342 have incomplete tagged evidence.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Verified at: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
-| FND-002 | fixed | Verified at: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
-| FND-003 | fixed | Verified at: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
-| FND-004 | fixed | Verified at: the new public-reader test confirms each AO order defect and independently reaches strict-wire, graph-shape and stale-key refusals at their earlier loci. |
+| FND-001 | fixed | Verified in the reviewed PR: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
+| FND-002 | fixed | Verified in the reviewed PR: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
+| FND-003 | fixed | Verified in the reviewed PR: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
+| FND-004 | fixed | Verified in the reviewed PR: the new public-reader test confirms each AO order defect and independently reaches strict-wire, graph-shape and stale-key refusals at their earlier loci. |
 
 ## Disposition verdict
 

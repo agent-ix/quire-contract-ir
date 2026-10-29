@@ -23,6 +23,6 @@ The changed TC-447 status conflicts with the existing FR-049 Description status.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

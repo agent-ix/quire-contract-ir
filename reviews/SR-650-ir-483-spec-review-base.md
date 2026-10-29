@@ -35,10 +35,10 @@ Reviewed at agent-ix/quire-contract-ir.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: the prose now says "for a `set`, `bag` or `ordered_set` result only... any other result, a `sequence` included, expects none" |
-| FND-002 | fixed |: the prose now states the cycle/unresolved `operator-ineligible` refusal, the work budget, and the float and leaf-path limits |
-| FND-003 | fixed |: the TC-048 matrix row now says AC-43 is verified by unit tests in `operations.rs` |
-| FND-004 | fixed |: the TC-048 "Operation leaves" procedure now covers flatten to sequence vs set/bag/ordered_set, `collection.set`, the cycle and missing-node refusals, 40-deep and 2000-deep nesting, the 12x4 chain and both ordering cases |
-| FND-005 | fixed |: FR-038 prose states that extra leaves are admitted where the reference refuses `operation-law-mismatch` |
+| FND-001 | fixed | the prose now says "for a `set`, `bag` or `ordered_set` result only... any other result, a `sequence` included, expects none" |
+| FND-002 | fixed | the prose now states the cycle/unresolved `operator-ineligible` refusal, the work budget, and the float and leaf-path limits |
+| FND-003 | fixed | the TC-048 matrix row now says AC-43 is verified by unit tests in `operations.rs` |
+| FND-004 | fixed | the TC-048 "Operation leaves" procedure now covers flatten to sequence vs set/bag/ordered_set, `collection.set`, the cycle and missing-node refusals, 40-deep and 2000-deep nesting, the 12x4 chain and both ordering cases |
+| FND-005 | fixed | FR-038 prose states that extra leaves are admitted where the reference refuses `operation-law-mismatch` |

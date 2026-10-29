@@ -40,7 +40,7 @@ The base spec checklist covered identity, criterion testability, adverse cases, 
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR, TC-048 step 5 explicitly requires the finish-binder `missing_declaration`/`missing-name` refusal at the read with `read` `stage` in each choice visible entry, choice guard, repeat visible entry and repeat guard; the compensation-template and paired-fault cases remain. |
+| FND-001 | fixed | In the reviewed PR, TC-048 step 5 explicitly requires the finish-binder `missing_declaration`/`missing-name` refusal at the read with `read` `stage` in each choice visible entry, choice guard, repeat visible entry and repeat guard; the compensation-template and paired-fault cases remain. |
 
 ### FND-001 after excerpt
 

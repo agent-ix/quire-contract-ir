@@ -24,7 +24,7 @@ Ticket: IR-778. Diff-scoped requirement ↔ test ↔ source check of PR #380. Qu
 
 ## Coverage
 
-Plan completion: not assessed. Examined FR-030-AC-7, FR-039's public-item table, TC-449, and the three changed files. `quire matrix --scope. --format tsv` reports FR-030-AC-7 tagged by the three new tests; FR-039-AC-1 through AC-4 remain untagged from pre-existing TC-055 work and are not new findings for this diff. The CG producer control is assigned to IR-701 by TC-449. Three focused integration tests passed.
+Plan completion: not assessed. Examined FR-030-AC-7, FR-039's public-item table, TC-449, and the three changed files. `quire matrix --scope . --format tsv` reports FR-030-AC-7 tagged by the three new tests; FR-039-AC-1 through AC-4 remain untagged from pre-existing TC-055 work and are not new findings for this diff. The CG producer control is assigned to IR-701 by TC-449. Three focused integration tests passed.
 
 ## Dispositions
 

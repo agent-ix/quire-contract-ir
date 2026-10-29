@@ -18,7 +18,7 @@ Ticket: IR-803. Base checklist over the three-file spec diff that adds a typed `
 
 What holds:
 
-- The accessor resolves the application through `Graph::node`, which charges exactly one unit (composite_operands.rs:289-299, 366-370), and then reads `/operation/identity` from the already-resolved body with no charge (382-389). So "already resolves the application node under the graph lookup's one-unit work charge before reading its operation identity" is true, and "selecting the typed operator... shall add no work charge" can be met by mapping the string already matched at 390-393. Existing tests already pin the exact eq and ne work (`1 + 2 * expected_per_operand`, tests/it/checked_package_v2_composite_operands.rs:574-576) and ne == eq work (518), so any extra charge would fail an existing test.
+- The accessor resolves the application through `Graph::node`, which charges exactly one unit (composite_operands.rs:289-299, 366-370), and then reads `/operation/identity` from the already-resolved body with no charge (382-389). So "already resolves the application node under the graph lookup's one-unit work charge before reading its operation identity" is true, and "selecting the typed operator ... shall add no work charge" can be met by mapping the string already matched at 390-393. Existing tests already pin the exact eq and ne work (`1 + 2 * expected_per_operand`, tests/it/checked_package_v2_composite_operands.rs:574-576) and ne == eq work (518), so any extra charge would fail an existing test.
 - For catalogued identities, only `quire.op.structural.eq` and `quire.op.structural.ne` pass the `matches!` at 390-397; every other catalogued identity, including AC-199's reader-admitted `boolean.and` target, returns `IneligibleOperator`. No other success is possible.
 - FR-038-AC-246 is falsifiable: a constant `Eq`, a swapped mapping, or an operator-dependent change to operands or `consumed_work` each fails it. It matches the TC-048 step, which builds both applications with the same ordered children, so the equalities are achievable. The id is unique (`git log --all -S FR-038-AC-246` finds only; PR 407 is the only open PR). The PLANNED/UNRUN marker is honest: no test is tagged, `quire matrix` shows the row `untagged`.
 - AC-163, AC-177 through AC-182 and AC-199 are byte-identical to origin/main.
@@ -44,7 +44,7 @@ scope:
 - id: FR-038-AC-246
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: "PLANNED/UNRUN (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Changing the operation identity between those two admitted cases changes the returned operator and no other operator-dependent projection field:..."
+  excerpt: "PLANNED/UNRUN (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Changing the operation identity between those two admitted cases changes the returned operator and no other operator-dependent projection field: ..."
 - id: FR-038
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
@@ -64,17 +64,17 @@ scope:
 - id: FR-038-AC-199
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: "Implemented (IR-690); TC-048 checks MissingOccurrence with the supplied application and occurrence, exact refusal variants... and a reader-admitted `boolean.and` IneligibleOperator target."
+  excerpt: "Implemented (IR-690); TC-048 checks MissingOccurrence with the supplied application and occurrence, exact refusal variants ... and a reader-admitted `boolean.and` IneligibleOperator target."
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: examined
-  excerpt: "For AC246, admit otherwise equivalent structural.eq and structural.ne applications through the public reader, with the same ordered operand children and an authentic occurrence in each. Call `composite_application_operands` once per application. Assert `operator` is `CheckedCompositeOperator::Eq` for eq and `CheckedCompositeOperator::Ne` for ne..."
+  excerpt: "For AC246, admit otherwise equivalent structural.eq and structural.ne applications through the public reader, with the same ordered operand children and an authentic occurrence in each. Call `composite_application_operands` once per application. Assert `operator` is `CheckedCompositeOperator::Eq` for eq and `CheckedCompositeOperator::Ne` for ne ..."
 bindings: []
 ```
 
 ## Dispositions
 
-Round 1; reviewed (diff..).
+Round 1; reviewed (PR diff).
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -91,7 +91,7 @@ Round 1; reviewed (diff..).
 - FND-003: the TC-048 step now asserts on things the IR fixture itself does: it reads `operator` from the result, reads no body JSON for the identity, and matches the variants exhaustively.
 
 Re-checked:
-- AC-163, AC-177 to AC-182 and AC-199 are byte-identical to.
+- AC-163, AC-177 to AC-182 and AC-199 are byte-identical to the prior reviewed version.
 - `quire validate`: 876/876 grammar-clean.
 - `quire coverage --strict`: 50 unbacked rows. The only new one is AC-246, which is planned.
 - No new findings.

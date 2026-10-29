@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-778. Exact reviewed head:. Language-independent diff checks found no code or test change to review; the new requirement is expressly planned.
+Ticket: IR-778. Reviewed the PR head. Language-independent diff checks found no code or test change to review; the new requirement is expressly planned.
 
 ## Findings
 

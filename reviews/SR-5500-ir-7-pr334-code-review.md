@@ -65,12 +65,12 @@ scope:
 - id: validate_temporal::ordering
   path: crates/quire-contract-model/src/checked_package/v2/temporal.rs
   role: examined
-  excerpt: ' validate_diagnostic_references(nodes, kinds, diagnostics)?;'
+  excerpt: '    validate_diagnostic_references(nodes, kinds, diagnostics)?;'
 - id: validate_diagnostic_references::iteration
   path: crates/quire-contract-model/src/checked_package/v2/temporal.rs
   role: examined
-  excerpt: " for (entry_index, entry) in diagnostics.iter.enumerate {\n \
-    \ for (detail_index, detail) in entry.details.iter.enumerate {"
+  excerpt: "    for (entry_index, entry) in diagnostics.iter().enumerate() {\n   \
+    \     for (detail_index, detail) in entry.details.iter().enumerate() {"
 - id: forbidden_diagnostic_reference_precedes_unknown_temporal_profile
   path: tests/it/checked_package_v2_temporal.rs
   role: examined
@@ -80,7 +80,7 @@ scope:
 - id: tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect
   path: tests/it/checked_package_v2_temporal.rs
   role: examined
-  excerpt: ' // Graph placement also precedes a forbidden diagnostic reference.'
+  excerpt: '    // Graph placement also precedes a forbidden diagnostic reference.'
 bindings:
 - test_id: forbidden_diagnostic_reference_precedes_unknown_temporal_profile
   ac_id: FR-038-AC-100

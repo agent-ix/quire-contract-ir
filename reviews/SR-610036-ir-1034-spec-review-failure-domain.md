@@ -44,7 +44,7 @@ Failure-domain review of IR-1034 PR #594. The diff changes only FR-061. QSpec #4
 
 ## Evidence
 
-- `quire validate --scope. spec/checked_package/functional/FR-061-admit-refinement-nodes.md --summary`: 1/1 grammar-clean.
+- `quire validate --scope . spec/checked_package/functional/FR-061-admit-refinement-nodes.md --summary`: 1/1 grammar-clean.
 - `quire lint` on the changed FR: exit 0. `quire properties --criteria --all`: 13 criteria classified, 8 extractable.
 - Diff has no code, fixture, schema, or copied QSpec file. Existing AC-1 through AC-8 are unchanged; AC-9 extends ordering without removing the prior stages.
 - QSpec PR #447 FR-375 states one catalog entry per alias-free class spelling and one `memory drain` per source default; TC-310 CC-12 asks one subject with SC, TSO and RA defaults.

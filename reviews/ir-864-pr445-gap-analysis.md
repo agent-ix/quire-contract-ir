@@ -3,7 +3,7 @@ id: SR-12361
 title: "IR-864 gap analysis of IR PR 445"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR 445..; changed tests/it evidence and computed traceability"
+scope: "agent-ix/quire-contract-ir PR 445; changed tests/it evidence and computed traceability"
 review_set: subset
 ---
 

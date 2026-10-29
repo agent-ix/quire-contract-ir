@@ -15,8 +15,7 @@ section, "Canonical encoding of the wire types". It adds FR-038-AC-73 to AC-78, 
 paragraph, the TC-048 procedure and traces, and the FR-038 and TC-048 rows of tests.md. The
 base is current: the merge-base is origin/main, and the PR merges cleanly onto main.
 
-Checked independently against the code at the reviewed sha and quire-canonical origin/main
-.
+Checked independently against the code at the reviewed sha and quire-canonical origin/main.
 
 - The type table is right. `CheckedSemanticId`, `CheckedCapability`,
   `CheckedSourceMapEntry` and `CheckedPackageLockV2` hold only strings, `u64`, `Vec`,
@@ -72,7 +71,7 @@ with IR-274. FND-002 and FND-003 are small text fixes. FND-004 is a nit.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-005 | low | Three wording problems in the new section "Canonical bytes are quire-canonical's bytes". (1) It opens "narrows what the reader admits, once, for one input and one code", then lists three inputs, and the third one widens admission: names in UTF-16 order were `noncanonical_wire` and now pass. (2) "the same names in UTF-16 order are admitted" overstates the change. A body object with those member names still fails the closed body grammar. What changes is that it passes the canonical-bytes check, which is what FR-038-AC-79 says. (3) "The held change of IR-274... whichever of the two changes merges second keeps this paragraph's text once" is merge-coordination text in a normative section, and it goes stale when either change merges. Say "for three inputs, under one code". Say "pass the canonical-bytes check". Move the merge note to the PR or ticket, or reduce it to a dependency line. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:385-422 |
+| FND-005 | low | Three wording problems in the new section "Canonical bytes are quire-canonical's bytes". (1) It opens "narrows what the reader admits, once, for one input and one code", then lists three inputs, and the third one widens admission: names in UTF-16 order were `noncanonical_wire` and now pass. (2) "the same names in UTF-16 order are admitted" overstates the change. A body object with those member names still fails the closed body grammar. What changes is that it passes the canonical-bytes check, which is what FR-038-AC-79 says. (3) "The held change of IR-274 ... whichever of the two changes merges second keeps this paragraph's text once" is merge-coordination text in a normative section, and it goes stale when either change merges. Say "for three inputs, under one code". Say "pass the canonical-bytes check". Move the merge note to the PR or ticket, or reduce it to a dependency line. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:385-422 |
 | FND-006 | low | "for every in-repo fixture, including strings with non-ASCII and astral characters and the integers 9007199254740992 and -9007199254740992" says the fixtures hold those values. They do not: `tests/it/support/checked_package.rs` has no non-ASCII content and no large integer. The crafted cases of FR-038-AC-74 and AC-75 hold them. Say "for every in-repo fixture and for the crafted values of FR-038-AC-74 and FR-038-AC-75". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:375-382 |
 
 ## Dispositions
@@ -98,20 +97,19 @@ only, excluding #257's content.
 - `make spec`: 1 grammar finding and 23 strict unbacked rows, the same as main. Coverage is
   166/220, and FR-038 is 45/78.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed |
 | FND-002 | fixed | fixed |
 | FND-003 | fixed | fixed |
 | FND-004 | fixed | fixed |
 
-Round 2, still based on main
-. The delta is one commit that changes wording in
+Round 2, still based on main. The delta is one commit that changes wording in
 FR-038 only: 12 lines added, 13 removed, and no AC, trace or matrix change. `make spec`
 gives 1 grammar finding and 23 strict unbacked rows, the same as main. FR-038 coverage is
 45/78. No regression and no new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-005 | fixed | fixed |
 | FND-006 | fixed | fixed |

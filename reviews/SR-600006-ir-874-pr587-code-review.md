@@ -40,8 +40,8 @@ The changed files add no CI or gate edits, unsafe code, wire decoder, or depende
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, `known` is explicitly `BTreeMap<usize, Vec<ProtocolBinderOrigin>>`, and the index comparison is `index > usize::from(activation.is_some)`; both cited source defects are removed. Exact-head hosted Rust Checks are pending. |
-| FND-002 | fixed |, the terminal readable set starts empty and inserts `over` and captures only for `origin`; the new public-reader test admits `origin` over and requires `missing_declaration`/`missing-name`, stage `terminal`, for the same read under `each`. Exact-head hosted execution is pending. |
+| FND-001 | fixed | In the reviewed PR, `known` is explicitly `BTreeMap<usize, Vec<ProtocolBinderOrigin>>`, and the index comparison is `index > usize::from(activation.is_some)`; both cited source defects are removed. Exact-head hosted Rust Checks are pending. |
+| FND-002 | fixed | In the reviewed PR, the terminal readable set starts empty and inserts `over` and captures only for `origin`; the new public-reader test admits `origin` over and requires `missing_declaration`/`missing-name`, stage `terminal`, for the same read under `each`. Exact-head hosted execution is pending. |
 
 ## Disposition verdict
 
@@ -49,7 +49,7 @@ The changed files add no CI or gate edits, unsafe code, wire decoder, or depende
 
 ## Verification after hosted regression fix
 
-Hosted Rust Checks compiled but failed 13 tests, including previously admitted protocol fixtures, the new terminal test, and two work-boundary tests., production code is unchanged from. The fix adjusts fixture binder levels to their new readable entry counts, keeps the valid related-end admission assertion, and changes only the added peer-end case to the required `missing_declaration`/`missing-name` scope refusal. Static review found no new code finding. The exact-head hosted Rust Checks are pending.
+Hosted Rust Checks compiled but failed 13 tests, including previously admitted protocol fixtures, the new terminal test, and two work-boundary tests., production code is unchanged from the prior reviewed state. The fix adjusts fixture binder levels to their new readable entry counts, keeps the valid related-end admission assertion, and changes only the added peer-end case to the required `missing_declaration`/`missing-name` scope refusal. Static review found no new code finding. The exact-head hosted Rust Checks are pending.
 
 ## Verification after second hosted regression fix
 

@@ -38,7 +38,7 @@ operations.rs half adds no coverage. File a Linear subticket for the FR-038 oper
 ## Dispositions
 
 Round 1, reviewed agent-ix/quire-contract-ir.
-Measured with `quire coverage --scope. --strict --json` at head: coverage 163/184 (base
+Measured with `quire coverage --scope . --strict --json` at head: coverage 163/184 (base
 161/184), FR-038 42/42, candidates/tagged/bound 267/245/243. FR-038-AC-43 and AC-44 are now
 backed in `minted_targets`. Every one of the 24 tagged tests (10 on AC-43, 14 on AC-44) was
 read against the AC text. Each exercises a clause of the AC it names, and each already cited
@@ -55,7 +55,7 @@ AC-44, and it is identical at base and head. So the two newly backed rows were a
 former 23 coverage rows, not among the 23 strict rows. That is why the strict line did not
 move.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | deferred | Needs a spec PR adding an FR-038 operation-law AC plus a TC-048 case first, which is out of scope for this test-hygiene PR. The PR body records it under "Not done", and the team leader files the Linear subticket (none exists yet). |

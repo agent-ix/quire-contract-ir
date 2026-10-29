@@ -28,7 +28,7 @@ SR-1586 FND-001, and the ID collision is SR-1583 FND-001.
 
 ## Findings
 
-| ID | Severity | Summary | Refs | Escape Cause |
+| ID      | Severity | Summary | Refs | Escape Cause |
 | ------- | -------- | ------- | ---- | ------------ |
 | FND-001 | low | AC-136 ends with "The rustdoc of the stage names the skip and its consumer consequence", but its verification method is "Test (TC-226)". No test in TC-226's procedure can fail on rustdoc wording. Move that clause to an Inspection criterion, or name the source-scan test that checks it. | FR-038-AC-136 | correct-requirement-no-evidence |
 
@@ -36,6 +36,6 @@ SR-1586 FND-001, and the ID collision is SR-1583 FND-001.
 
 Round 1, reviewed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: The rustdoc clause is gone: AC-145, which replaces AC-136, has no rustdoc clause. |
+| FND-001 | fixed | The rustdoc clause is gone: AC-145, which replaces AC-136, has no rustdoc clause. |

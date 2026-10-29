@@ -21,7 +21,7 @@ Ticket: IR-832. Each new normative sentence in FR-038 "Typed parameter declarati
 | NotParameter statement | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | A node whose tag and form are not `value`/`parameter` shall refuse `NotParameter`, whatever its body. |
 | MalformedBody statement | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | A parameter node whose body is no longer the admitted two-binding shape, which only a crate-internal post-admission mutation can produce, shall refuse `MalformedBody`. |
 | Refusal-properties sentence | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | Each refusal returns no partial result, the accessor never panics, and none changes package admission or the V2 reader's refusal order. |
-| Caller-join paragraph | context_only | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | Binding concrete values is the caller's join and not an IR API... |
+| Caller-join paragraph | context_only | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | Binding concrete values is the caller's join and not an IR API ... |
 
 ## Findings
 

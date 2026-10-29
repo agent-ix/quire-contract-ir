@@ -40,7 +40,7 @@ The computed matrix marks FR-038-AC-316 `tagged`; the changed test's trace tag i
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | `braking_package` supplies a valid QSpec hybrid claim and the test asserts baseline admission before the protocol defect; it then retains that defect while changing the claim clock to `wall-time` and asserting the exact hybrid refusal. The hybrid reader owns this clock check at `hybrid.rs:963`, after the temporal pass. |
+| FND-001 | fixed | `braking_package()` supplies a valid QSpec hybrid claim and the test asserts baseline admission before the protocol defect; it then retains that defect while changing the claim clock to `wall-time` and asserting the exact hybrid refusal. The hybrid reader owns this clock check at `hybrid.rs:963`, after the temporal pass. |
 | FND-002 | fixed | PR comment 6420800977 lists 17 unique original failing cases and assigns 15 to QSpec #436 and two to IR #577. Independent comparison with the saved old-QSpec and current-QSpec raw test lines confirmed all 17 old failures, exactly 15 passing on unchanged old IR with QSpec #436, and the remaining two failures. The final current-pair raw log reports 68 passed, 0 failed, 1 ignored. |
 
 ## Current disposition verdict

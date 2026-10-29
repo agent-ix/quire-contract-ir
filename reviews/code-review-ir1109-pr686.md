@@ -25,7 +25,7 @@ Reviewed the one-file test diff at exact against merged IR FR-038 and QSpec. QSp
 
 - Examined FR-038 AC-320, AC-336/340/342 and AC-357 through AC-362; QSpec FR-322 AC-120/124/260/262/266 and the published CL-25/54, GD-02/03, TM-12 vectors.
 - Plan completion: not assessed.
-- `quire matrix --scope. --format json` completed. AC-320 is tagged only by the refusal-vector loop; AC-336/340/342 remain untagged. Planned AC-357 through AC-362 are not active matrix rows.
+- `quire matrix --scope . --format json` completed. AC-320 is tagged only by the refusal-vector loop; AC-336/340/342 remain untagged. Planned AC-357 through AC-362 are not active matrix rows.
 - Rust review: loaded rust-review/rust-style and repository AGENTS.md/CLAUDE.md; inspected test assertions, fixture loading, trace tags, canonical digest helper, and absence of vendoring. The lead owns the final aggregate gate.
 
 ## Final delta review

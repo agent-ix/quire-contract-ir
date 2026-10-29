@@ -37,4 +37,4 @@ Plan completion: not assessed.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR, the population swap test adds a foreign object key and a later step key to the same refinement while asserting `invalid_model_binding`/`malformed-declaration` at `populations/0/concrete`. This now discriminates population-first order. Focused execution and hosted checks were pending at disposition time. |
+| FND-001 | fixed | In the reviewed PR, the population swap test adds a foreign object key and a later step key to the same refinement while asserting `invalid_model_binding`/`malformed-declaration` at `populations/0/concrete`. This now discriminates population-first order. Focused execution and hosted checks were pending at disposition time. |

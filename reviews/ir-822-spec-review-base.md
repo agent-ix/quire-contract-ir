@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-822. PR quire-contract-ir#424, branch spec/ir-822-document-json-expression. Base checklist over `git diff origin/main...`: new id FR-020-AC-15 is appended after AC-14 and no existing criterion is renumbered or reworded; the Behavior paragraph's `invalid_corpus` list now names the `document_json` expression document beside the package; the FR-020 matrix row range is extended to AC-15 and its status text is true at head (all fifteen FR-020 criteria are `tagged` in `quire coverage --json`, AC-15 bound to `tests/it/conformance.rs:1471` `tc_018_a_successful_expression_document_is_checked_against_the_schema`). The intermediate that reverted a `spec/tests.md` summary edit nets to no change in that file. `quire validate` on both edited documents is clean.
+Ticket: IR-822. PR quire-contract-ir#424, branch spec/ir-822-document-json-expression. Base checklist over `git diff origin/main...HEAD`: new id FR-020-AC-15 is appended after AC-14 and no existing criterion is renumbered or reworded; the Behavior paragraph's `invalid_corpus` list now names the `document_json` expression document beside the package; the FR-020 matrix row range is extended to AC-15 and its status text is true at head (all fifteen FR-020 criteria are `tagged` in `quire coverage --json`, AC-15 bound to `tests/it/conformance.rs:1471` `tc_018_a_successful_expression_document_is_checked_against_the_schema`). The intermediate that reverted a `spec/tests.md` summary edit nets to no change in that file. `quire validate` on both edited documents is clean.
 
 Factual check of the criterion against code: `validate_successful_package_schema` (crates/quire-contract-model/src/conformance.rs:764-818) checks a `document_json` expression document against `expressionInput` only when `operation_su` is true, i.e. when `execute_expression` (crates/quire-contract-model/src/wire.rs:659-702) returned `valid: true`, which requires decode, `check_expression_input` and both canonical encodings to succeed.
 
@@ -24,7 +24,7 @@ Coverage arithmetic, measured with `quire coverage --json`: origin/main 495/559 
 | --- | --- | --- |
 | FR-020-AC-15 | examined | A `document_json` expression document that decodes successfully and that the published schema rejects makes the runner exit 2 with the code `invalid_corpus`. |
 | FR-020 Behavior `invalid_corpus` list | examined | a successful package or `document_json` expression document the published schema rejects |
-| spec/conformance/matrix/tests.md FR-020 row | examined | FR-020-AC-1 through FR-020-AC-15... AC-15 is the expression-document schema check, and every FR-020 criterion has a test tag |
+| spec/conformance/matrix/tests.md FR-020 row | examined | FR-020-AC-1 through FR-020-AC-15 ... AC-15 is the expression-document schema check, and every FR-020 criterion has a test tag |
 | FR-020-AC-1 through FR-020-AC-14 | context_only | unchanged; confirmed not renumbered |
 
 ## Findings
@@ -41,7 +41,7 @@ PASS with one medium wording finding. The change is additive, ids are stable, ma
 
 ## Dispositions
 
-Round 1, verified (`git diff..`).
+Round 1, verified (`git diff origin/main...HEAD`).
 
 | FND | outcome | reason |
 | --- | --- | --- |

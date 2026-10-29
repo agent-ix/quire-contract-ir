@@ -58,7 +58,7 @@ clarifications.
 
 Round 1, fix commit "Clarify inequality eligibility targets and pending refusal evidence". Each fix checked against the actual delta. A grep of FR-038, TC-048 and tests.md finds no remaining "declared consumer gap" or "including structural.ne" wording. The only statement of current eq-only behavior is the explicit current-versus-target paragraph of the extension.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed by commit "Clarify inequality eligibility targets and pending refusal evidence": AC-182 now says structural.ne eligibility is allocated only by the PLANNED/UNRUN IR-690 extension in AC-197 through AC-201 |
 | FND-002 | fixed | fixed by commit "Clarify inequality eligibility targets and pending refusal evidence": the IneligibleOperator row is qualified as the PLANNED IR-690 target and says current eq-only code still refuses ne; AC-181, the TC-048 AC181 paragraph and both matrix rows record the pending retarget of the tagged public error-consumer test with no replacement credit |

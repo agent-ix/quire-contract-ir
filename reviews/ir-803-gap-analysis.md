@@ -3,7 +3,7 @@ id: SR-11665
 title: "IR-803 typed composite operator gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #410 diff...; FR-038-AC-246 against TC-048 tests in tests/it/checked_package_v2_composite_operands.rs and crates/quire-contract-model/src/checked_package/v2/composite_operands.rs"
+scope: "agent-ix/quire-contract-ir; PR #410 diff inspection; FR-038-AC-246 against TC-048 tests in tests/it/checked_package_v2_composite_operands.rs and crates/quire-contract-model/src/checked_package/v2/composite_operands.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-803. PR: quire-contract-ir#410. This analysis is planless, so "Plan completion: not assessed". It used the computed matrix (`quire matrix --scope. --format json`; quire 0.36.2, engine 0.50.2; quoin 0.28.3) and test-oracle strength, and ran a semantic intent-test-code review scoped to the diff.
+Ticket: IR-803. PR: quire-contract-ir#410. This analysis is planless, so "Plan completion: not assessed". It used the computed matrix (`quire matrix --scope . --format json`; quire 0.36.2, engine 0.50.2; quoin 0.28.3) and test-oracle strength, and ran a semantic intent-test-code review scoped to the diff.
 
 - **Tagging.** FR-038-AC-246 is now tagged by `tc_048_structural_operator_is_typed_across_operand_shapes` (`#[trace("FR-038-AC-246")]`, tests/it/checked_package_v2_composite_operands.rs:402-451).
 - **Strict coverage.** `quire coverage --strict` falls from 50 to 49 unbacked rows with 0 contradicted. FR-038-AC-246 is the only row that left the unbacked set.
@@ -34,7 +34,7 @@ Ticket: IR-803. PR: quire-contract-ir#410. This analysis is planless, so "Plan c
 
 The operator mutants (constant Eq, constant Ne, swapped, operator from another application, operator from the occurrence, ne-only extra charge) all fail the AC-246 test.
 
-Two mutants pass the AC-246 test, because its `consumed_work` oracle is relational (eq equals ne): a symmetric extra charge and a second lookup. Both are killed by the pre-existing exact-work tests at:632-633 and:1087, so no mutant survives the suite.
+Two mutants pass the AC-246 test, because its `consumed_work` oracle is relational (eq equals ne): a symmetric extra charge and a second lookup. Both are killed by the pre-existing exact-work tests at :632-633 and :1087, so no mutant survives the suite.
 
 Status edits are accurate:
 

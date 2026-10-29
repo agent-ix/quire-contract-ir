@@ -26,20 +26,20 @@ Ticket: IR-358. Code review with the rust-review lane folded in, scoped to `git 
 
 ## Finding Detail
 
-- FND-001: `git rm.bak`.
+- FND-001: `git rm .bak`.
 - FND-002 / FND-003: Replace both lists with one generic check on Cargo.lock, with no hardcoded names: fail if any `[[package]]` whose `source` starts with `git+https://github.com/agent-ix/` shares its `name` with any other `[[package]]` entry (git, path/workspace with no `source`, or registry). The reviewer tested this awk against both lockfiles. It fails origin/main (quire-contract-model 2, quire-verification-contracts 2) and passes:
 
-      function flush { if (name != "") { count[name]++; if (index(src, "git+https://github.com/agent-ix/") == 1) first[name] = 1 } name = ""; src = "" }
-      /^\[\[package\]\]/ { flush; next }
-      /^name = / { name = $2 }
+      function flush() { if (name != "") { count[name]++; if (index(src, "git+https://github.com/agent-ix/") == 1) first[name] = 1 } name = ""; src = "" }
+      /^\[\[package\]\]/ { flush(); next }
+      /^name = /   { name = $2 }
       /^source = / { src = $2 }
-      END { flush; bad = 0; for (n in first) if (count[n] > 1) { printf "one-copy: %s has %d entries in Cargo.lock\n", n, count[n] > "/dev/stderr"; bad = 1 } exit bad }
+      END { flush(); bad = 0; for (n in first) if (count[n] > 1) { printf "one-copy: %s has %d entries in Cargo.lock\n", n, count[n] > "/dev/stderr"; bad = 1 } exit bad }
 
   Run it with `awk -F'"'` from `make deny` (a `scripts/check_one_copy.awk` next to `check_unsafe_comments.sh`). Then delete FIRST_PARTY and all 18 `[[bans.deny]]` entries. They are redundant with the generic check for every agent-ix-sourced crate, and a name list is the drift trap this PR exists to remove. Correct the comments in Makefile:82-85 and deny.toml:21-26.
-- FND-004: In `use-remote`, run `git checkout -- Cargo.lock` after deleting the config. In the make targets, replace the literal `--locked` with `LOCKED ?= $(if $(wildcard.cargo/config.toml),,--locked)` so that lint/test/corpus/build work under use-local. Alternatively, document that under use-local cargo runs without `--locked`.
+- FND-004: In `use-remote`, run `git checkout -- Cargo.lock` after deleting the config. In the make targets, replace the literal `--locked` with `LOCKED ?= $(if $(wildcard .cargo/config.toml),--locked)` so that lint/test/corpus/build work under use-local. Alternatively, document that under use-local cargo runs without `--locked`.
 - FND-005: After writing the config, run `cargo metadata --format-version 1 >/dev/null` and fail if stderr contains "was not used".
 - FND-006: Drop the `NativeReplayAgreement` clause from the comment.
-- FND-007: Also assert `!dependency["source"].as_str.unwrap_or("").starts_with("git+https://github.com/agent-ix/quire-spec-language")`.
+- FND-007: Also assert `!dependency["source"].as_str().unwrap_or("").starts_with("git+https://github.com/agent-ix/quire-spec-language")`.
 
 ## Verdict
 

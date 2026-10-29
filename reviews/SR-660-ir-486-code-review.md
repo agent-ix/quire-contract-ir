@@ -12,7 +12,7 @@ review_set: base
 
 Ticket: IR-486. The PR makes `check_leaf_count` compare the supplied `operation.leaves` with the derived ones. The count is compared with `!=`: too few refuses `operation-law-missing`, too many refuses `operation-law-mismatch` at the first extra leaf. When the count matches, the new `LeafWalk::first_leaf_fault` derives the expected paths one at a time and checks each leaf's `laws` for exactly one catalogued `text_profile` law. Then comes a lock-selection check (`operation-law-unselected`). A supplied leaf on an entry with no leaf source now refuses `operation-law-mismatch` ahead of the per-law loop. The Rust-review lane is folded into this file.
 
-Compared with the reference reader (quire-specification `tests/checked_package_v2.rs`, origin/main, `collect_leaves` 1467-1516 and `classify` 1681-1885; untrusted external code, read as data), these all match the reference: path segments (`field:<name>`, `position:<n>`, `inner`), declaration pre-order, the law test (`laws.len==1`, role `text_profile`, a catalogued definition), refusal order (missing, then shape mismatch over every leaf, then unselected) and the placement of the no-source check (ahead of unselected). `text_profile` is a value role, not a profile role, so checking `definition_selections` is correct.
+Compared with the reference reader (quire-specification `tests/checked_package_v2.rs`, origin/main, `collect_leaves` 1467-1516 and `classify` 1681-1885; untrusted external code, read as data), these all match the reference: path segments (`field:<name>`, `position:<n>`, `inner`), declaration pre-order, the law test (`laws.len()==1`, role `text_profile`, a catalogued definition), refusal order (missing, then shape mismatch over every leaf, then unselected) and the placement of the no-source check (ahead of unselected). `text_profile` is a value role, not a profile role, so checking `definition_selections` is correct.
 
 Probes. These ran as temporary unit tests in the review worktree and have been reverted. A duplicate leaf at the right count refuses at `/1/path`. An extra trailing segment refuses at `/0/path`. Leaf 0 unselected plus leaf 2 at a wrong path refuses mismatch at `/2/path`, as the reference does. A cycle with too few leaves refuses `operator-ineligible`. 70 levels of 2 shared fields (2^70 leaves, the count saturates) refuses `operation-law-missing` straight away.
 
@@ -36,7 +36,7 @@ Not mergeable as is. FND-001 is an over-admission of the exact class this PR exi
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir. The fix commit is; only names the `LeafShape` type alias.
+Reviewed at agent-ix/quire-contract-ir. The fix commit changed only; only names the `LeafShape` type alias.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -45,7 +45,7 @@ Reviewed at agent-ix/quire-contract-ir. The fix commit is; only names the `LeafS
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | accepted-no-change | FR-038 now states it as an open deviation: an operand the reader does not type (untyped literal, aggregate, binding, dependency_reference, frame, application without result_type) and a set-like result whose inner type does not resolve skip the leaf comparison. This over-admits only input the reference refuses, never QSL output, and is part of the reader-wide operand-typing gap (IR-484 covers part of it). A follow-up ticket should cover it together with the float leaf deviation |
@@ -61,7 +61,7 @@ Reviewed at agent-ix/quire-contract-ir, rebased on origin/main.
 
 ## Dispositions (round 2)
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-004 | fixed | Fixed in the reviewed PR. |
 | FND-005 | fixed | Fixed in the reviewed PR. |

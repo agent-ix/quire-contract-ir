@@ -10,8 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-878. Non-author review of agent-ix/quire-contract-ir PR 476 at
-, scoped to `git diff origin/main...HEAD`. The PR
+Ticket: IR-878. Non-author review of agent-ix/quire-contract-ir PR 476 at the reviewed PR head, scoped to `git diff origin/main...HEAD`. The PR
 changes three files: tests only in `tests/it/canonicalization.rs`, and status prose in two
 matrix files. It changes no production code. The rust-review lane is folded into this file.
 

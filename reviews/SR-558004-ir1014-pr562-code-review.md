@@ -40,7 +40,7 @@ Fix round 1, PR:
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | `self_object_key` now charges one work unit for each population and member before inspecting it, propagates `ValidationFailure`, and `terminal_self_population_scan_obeys_work_limit` observes `Work` incomplete at the terminal `parameters` binding. After excerpt: `for members in owner.package.population_members.values { meter.charge(1, || binding_path(position, 2))?; for object in members { meter.charge(1, || binding_path(position, 2))?;` |
+| FND-001 | fixed | `self_object_key` now charges one work unit for each population and member before inspecting it, propagates `ValidationFailure`, and `terminal_self_population_scan_obeys_work_limit` observes `Work` incomplete at the terminal `parameters` binding. After excerpt: `for members in owner.package.population_members.values() { meter.charge(1, || binding_path(position, 2))?; for object in members { meter.charge(1, || binding_path(position, 2))?;` |
 
 The code-review finding is resolved at this head. Final aggregate gates remain with the lead.
 
@@ -70,7 +70,7 @@ PASS. Both code-review findings are fixed. The coder's focused log reports forma
 
 ## Final gate regression re-review
 
-At PR, the only code delta since the reviewed head replaces the node-body `map`/`collect` parse in `decode_borrowed_wire` with a preallocated, ordered loop. Each body still calls `strict_parse` once before its node is pushed; the first malformed body still returns its refusal before later nodes or diagnostics. The vector capacity is the borrowed graph's node count, as before, and the loop does not introduce a full-document `Value` or canonical-byte copy. This preserves FR-038-AC-214's intake shape; the aggregate memory measurement remains the lead's final gate.
+In the reviewed PR, the only code delta since the reviewed head replaces the node-body `map`/`collect` parse in `decode_borrowed_wire` with a preallocated, ordered loop. Each body still calls `strict_parse` once before its node is pushed; the first malformed body still returns its refusal before later nodes or diagnostics. The vector capacity is the borrowed graph's node count, as before, and the loop does not introduce a full-document `Value` or canonical-byte copy. This preserves FR-038-AC-214's intake shape; the aggregate memory measurement remains the lead's final gate.
 
 The prior final gate aborted in `tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse` on its 256 KiB stack. The coder's focused log reports that this exact test and all 16 flat-wire tests pass after the loop change, along with formatting, model Clippy and diff check. I independently changed only the diagnostic-details depth from 50 to 61 in a disposable worktree; `tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar` passed on the same 256 KiB test stack. The disposable worktree was removed. No new finding was established.
 

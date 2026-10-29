@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-505. Code review with the rust-review lane, scoped to `git diff origin/main...HEAD`.
-The merge base is. origin/main has since moved two commits (#246 KaniProfile, #245
+The merge base is the reviewed main state. origin/main has since moved two commits (#246 KaniProfile, #245
 expression.rs). Neither touches a file in this diff, and GitHub reports the PR mergeable.
 
 What was checked independently, at the reviewed head:
@@ -54,7 +54,7 @@ Mutation probes (each reverted afterwards):
    `tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_version`
    fails on the `unknown_member` assertion, so the no-compatibility-layer rule is
    enforced.
-3. Remove the new `!identity.is_empty` conjunct. All 102 tests still pass. That
+3. Remove the new `!identity.is_empty()` conjunct. All 102 tests still pass. That
    conjunct cannot be observed: FR-038 lock class 4 refuses a selection with an empty
    identity, so an empty owner identity never joins. The behaviour test still holds
    (empty identity refuses `invalid_semantic_graph`). The guard is defensive, not
@@ -84,7 +84,7 @@ covers that cross-producer check. Two low findings, both cosmetic.
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: identity.rs:527-529 now reads "the join is by package identity, and the owner's identity and node must each be nonempty (FR-038-AC-45)". |
-| FND-002 | fixed |: both cases (frame_entries.rs:1562,:1616) are relabelled "another domain package". |
+| FND-001 | fixed | identity.rs:527-529 now reads "the join is by package identity, and the owner's identity and node must each be nonempty (FR-038-AC-45)". |
+| FND-002 | fixed | both cases (frame_entries.rs:1562,:1616) are relabelled "another domain package". |

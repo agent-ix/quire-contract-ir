@@ -16,7 +16,7 @@ relationships:
 
 Ticket: IR-210 (slice A), PR quire-contract-ir#432. Planless gap analysis over the computed Test Matrix. Plan completion: not assessed.
 
-All coverage was measured with quire 0.36.2 (engine 0.50.2) on four trees: the merge, origin/main, the PR head, and a combined tree (the PR head with slice B #430's three files at its ). The method was to compare `quire coverage --json` `minted_targets`, `groups` and the per-criterion `coverage_matrix` binders before and after. The strict gate is not enough on its own: it does not count stakeholder VC rows or a row that loses its last tag.
+All coverage was measured with quire 0.36.2 (engine 0.50.2) on four trees: the merge base, origin/main, the PR head, and a combined tree (the PR head with slice B #430's three files at its reviewed head). The method was to compare `quire coverage --json` `minted_targets`, `groups` and the per-criterion `coverage_matrix` binders before and after. The strict gate is not enough on its own: it does not count stakeholder VC rows or a row that loses its last tag.
 
 **Measured, merge base to PR head:**
 

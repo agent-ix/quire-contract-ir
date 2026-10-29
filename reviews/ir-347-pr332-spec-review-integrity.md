@@ -38,7 +38,7 @@ Units examined (each excerpt is verbatim from the reviewed head):
 - `FR-031` — `spec/kani/functional/FR-031-bounded-kani-dispatch-and-terminal-map.md` (examined): # FR-031: Dispatch bounded Kani modules and expose typed outcomes
 - `TC-223` — `spec/kani/matrix/TC-223-kani-outcome-fr331-result-map.md` (examined): # TC-223: Kani outcomes are built only by validated constructors, with their check count and cause codes
 - `TM-009` — `spec/kani/matrix/tests.md` (examined): # quire-contract-ir bounded Kani test matrix
-- `AD-005` — `spec/assurance/AD-005-qsl-consumption-seam.md` (examined): - The model crate's own root uses glob re-exports for seven modules (the `pub use` lines of `crates/quire-contract-model/src/lib.rs`), against AD-001 and FR-019 ("by name, no glob").
+- `AD-005` — `spec/assurance/AD-005-qsl-consumption-seam.md` (examined): - The model crate's own root uses glob re-exports for seven modules   (the `pub use` lines of `crates/quire-contract-model/src/lib.rs`), against AD-001 and FR-019 ("by name, no   glob").
 
 ## New findings (disposition pass 1)
 
@@ -50,7 +50,7 @@ Observed on interim fix and fixed before this disposition was published.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

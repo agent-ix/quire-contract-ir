@@ -34,7 +34,7 @@ the new criteria yet, as the PR states):
   `NoncanonicalWire` code. The tests-first PR must add the absent-path and absent-cause
   assertions.
 - AC-14: `reader_requires_total_source_correspondence_and_request_order` asserts the exact
-  fields. It uses `missing`, which is requested item 3, without rehashing. AC-14 states
+  fields. It uses `missing()`, which is requested item 3, without rehashing. AC-14 states
   "valid recomputed identity", which SR-13230 FND-002 covers.
 - AC-2 stale dependency: `selected_dependencies_are_bound_by_library_identity_before_graph_checks`
   asserts the code, the cause and the expected and actual identities, but not the

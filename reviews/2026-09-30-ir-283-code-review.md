@@ -71,7 +71,7 @@ application fixture shows it.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | high | Values and expressions keep the closure-wide rule, so a `bounded_domain` over the shared `integer` node still masks an unbounded value position. In `function f using v(x: Int[0,9], n: Integer): Integer pure { (x + 1) + n }`, the outer `+` is typed at `integer` and reaches parameter `n`, which is also typed at `integer`. `x`'s `integer_range` covers `integer`, so IR returns `Lowered`. QSL classifies that record `Unbounded` at `n`. Measured: QSL's `tc_440_an_unbounded_application_record_requires_a_bound_in_ir_pending_ir_283` fails with this PR patched in. This is the IR-283 defect on the value path, and a Kani request over an infinite `n` would read as supported. For `x + 1` to still lower, a `value`/`parameter` node's own `semantic_type` has to count as a position, while an application `result_type` and a literal annotation stay non-positions. | crates/quire-contract-model/src/checked_package/v2/lower.rs:464-468 |
-| FND-002 | low | `is_recursive_type` checks only `recursion_group.is_some`. `validate_recursion` checks labels only on cyclic components, so the reader admits a label on an acyclic scalar or composite, and the lowerer then refuses it as recursive. The rule also fires for a labelled type that is reached only through a `literal.type` annotation, although FR-038 says `requires_bound` tests only a type some reachable node is typed at. QSL labels only real SCCs, so no current producer hits this. The assumption that a label means recursion is still undocumented and untested. | crates/quire-contract-model/src/checked_package/v2/lower.rs:461; crates/quire-contract-model/src/checked_package/v2/lower.rs:527-535; crates/quire-contract-model/src/checked_package/v2/mod.rs:1864-1869 |
+| FND-002 | low | `is_recursive_type` checks only `recursion_group.is_some()`. `validate_recursion` checks labels only on cyclic components, so the reader admits a label on an acyclic scalar or composite, and the lowerer then refuses it as recursive. The rule also fires for a labelled type that is reached only through a `literal.type` annotation, although FR-038 says `requires_bound` tests only a type some reachable node is typed at. QSL labels only real SCCs, so no current producer hits this. The assumption that a label means recursion is still undocumented and untested. | crates/quire-contract-model/src/checked_package/v2/lower.rs:461; crates/quire-contract-model/src/checked_package/v2/lower.rs:527-535; crates/quire-contract-model/src/checked_package/v2/mod.rs:1864-1869 |
 | FND-003 | low | The `require_bounds` predicate is now a four-level nested boolean inside a `find` closure, with the O(n) `any` domain scan inlined. Two named helpers (`uncovered_position`, `uncovered_value_type`) or a precomputed `BTreeSet` of domain `semantic_type`s would make each rule readable, and each could be mutated separately. | crates/quire-contract-model/src/checked_package/v2/lower.rs:460-469 |
 | FND-004 | low | The rewritten tc_047 fixture turns `bbbb` into a self-typed `sequence` with no element type and no dependencies. No producer emits that shape. The test's intent holds, but a realistic element type (for example a `boolean` scalar) would keep the fixture on a shape the reader and QSL both produce. | tests/it/complete_v1_contract_package.rs:358-364 |
 
@@ -83,7 +83,7 @@ Round 1, reviewed ( is
 What the reviewer measured, on a clean tree:
 
 - **QSL TC-440** (quire-spec-language origin/main, IR patched to
-, `--include-ignored`). These pass, including the ignored ones:
+`--include-ignored`). These pass, including the ignored ones:
   - `tc_440_an_unbounded_application_record_requires_a_bound_in_ir_pending_ir_283`,
     so `(x + 1) + n` now refuses;
   - `tc_440_operation_application_records_agree_with_ir_per_node`, so the
@@ -105,7 +105,7 @@ What the reviewer measured, on a clean tree:
   origin/main returns the same, so this is not a regression from this PR, and
   QSL scopes let-rooted records out of the agreement.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

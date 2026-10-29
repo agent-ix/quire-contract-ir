@@ -52,18 +52,18 @@ FR-036 (negotiation) is implemented and owned in agent-ix/quire-contract-codegen
 
 - FND-001: IR-347 (Backlog, "Refactor IR to its layout AD (globs, compatibility bridge, witness/replay deletion...)") has a one-paragraph description with no acceptance criteria. The deleted FR-039-AC-1 to AC-4 and FR-019-AC-5 were those criteria: an inventory equal to a named item table, a compile-fail probe per QSL-owned and codegen-owned item, and no glob in the model root.
 
-  After this PR, the rules survive only as untested prose in AD-001 and FR-028. FR-019 now reads "The crate root re-exports them from their modules". That drops the no-glob rule that AD-001:42-43 and:155-156 still require.
+  After this PR, the rules survive only as untested prose in AD-001 and FR-028. FR-019 now reads "The crate root re-exports them from their modules". That drops the no-glob rule that AD-001:42-43 and :155-156 still require.
 
   This is a real requirement deleted, not ceremony. Removing it is the right way to make `--strict` green, but the owner (Peter) should approve it. Before merge, the deleted AC text should be carried into IR-347 (or a child ticket) so the implementing PR can re-add the FR with its tests. The "Items QSL owns" and "Items codegen owns" lists from FR-039 are useful to carry as well.
 - FND-002: `make ci` at head prints the six `[tag-on-non-binding-symbol]` warnings, at common.rs:569, dependency_references.rs:324, lower.rs:319, v2/mod.rs:788, operations.rs:691 and tests/it/checked_package_v2_dependency_reference.rs:153. They do not fail the gate. Either fix them in this PR or state in IR-448 that they are split out. IR-448's NFR-001 uncatalogued-method bullet is also still printed as a warning.
 
 ## Scope
 
-- FR-344-AC-1, spec/contract/FR-344-admit-or-refuse-the-adr-002-2-0-0-members.md, examined: "A `quire.checked-package/v2` document whose semantic graph carries a node attempting to represent a supertype list, an abstractness flag, a subsets edge or a redefines edge, via any `node_tag` outside `CheckedNodeTag::ALL` or any `semantic_form` outside that tag's closed form enum, refuses..." Backed by a real oracle (SR-987).
-- FR-344-AC-2, examined: "A `relation`/`population` node whose `body` carries content satisfying no branch of the closed `SemanticTerm` grammar refuses `invalid_semantic_graph`..." Backed by a real oracle.
-- FR-344-AC-3, examined: "... refuses `unknown_member` at the pointer of the extra member..." Backed, but with a weak locus (SR-987 FND-001).
+- FR-344-AC-1, spec/contract/FR-344-admit-or-refuse-the-adr-002-2-0-0-members.md, examined: "A `quire.checked-package/v2` document whose semantic graph carries a node attempting to represent a supertype list, an abstractness flag, a subsets edge or a redefines edge, via any `node_tag` outside `CheckedNodeTag::ALL` or any `semantic_form` outside that tag's closed form enum, refuses ..." Backed by a real oracle (SR-987).
+- FR-344-AC-2, examined: "A `relation`/`population` node whose `body` carries content satisfying no branch of the closed `SemanticTerm` grammar refuses `invalid_semantic_graph` ..." Backed by a real oracle.
+- FR-344-AC-3, examined: "... refuses `unknown_member` at the pointer of the extra member ..." Backed, but with a weak locus (SR-987 FND-001).
 - FR-036 (deleted), examined: its negotiation is owned by codegen FR-019 and FR-015. Removal justified; cross-repo links are in SR-991.
-- FR-037-AC-6 (deleted), examined: "Contract IR's public API names no replay envelope... the root crate has no `replay` or `witness` module" is false today (src/kani/replay.rs). IR-327 separately asks to retire witness/replay from the spec. Removal justified.
+- FR-037-AC-6 (deleted), examined: "Contract IR's public API names no replay envelope ... the root crate has no `replay` or `witness` module" is false today (src/kani/replay.rs). IR-327 separately asks to retire witness/replay from the spec. Removal justified.
 - FR-039-AC-1 to AC-4 (deleted), examined (FND-001).
 - FR-019-AC-5 (deleted), examined (FND-001).
 - TC-045, TC-055 and TC-058 (deleted), examined: they follow their FRs.
@@ -88,7 +88,7 @@ The six `FR-322:`/`FR-038:` comments became `Implements:`. That is a comment-onl
 
 The IR-347 Linear description is byte-identical to the text read in round 0, with no leftover carried text.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

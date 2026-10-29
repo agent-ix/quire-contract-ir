@@ -38,7 +38,7 @@ Round 1, reviewed at agent-ix/quire-contract-ir. The PR was rebased onto origin/
 
 Notes on the round-1 checks: AC-70 adds `Wrap` over `X`/`Y`, with 4 text leaves and the law-missing and law-mismatch edges. It compares `A` and `B` in one package, so a memo shared across operations is caught. It adds `Tree2`, which reenters through a bounded `Sequence`, and the tuple `Pair`. AC-72 names "the default read limits" for the ten records and a ring of 12 text-holding records for the bisection. The minimal patch now fails AC-70.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

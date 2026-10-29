@@ -39,4 +39,4 @@ CONDITIONAL. Update the matrix status reason to say AC-24 awaits implementation 
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the TC-452 matrix row says AC-24 awaits the `SemanticNode` type change and conflicting-facts test. The row no longer claims the spec decision is pending. |
+| FND-001 | fixed | In the reviewed PR, the TC-452 matrix row says AC-24 awaits the `SemanticNode` type change and conflicting-facts test. The row no longer claims the spec decision is pending. |

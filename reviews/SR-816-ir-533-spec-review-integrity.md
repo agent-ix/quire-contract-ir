@@ -18,7 +18,7 @@ The FR-019 paragraph defers to FR-038 for the assignment. `quire validate` passe
 These checks measured the open PRs against this head with
 `git merge-tree <other> `:
 
-- #257 (IR-450, ) gives a conflict in FR-038
+- #257 (IR-450) gives a conflict in FR-038
   and in tests.md.
 - #250 (IR-505) and #253 (IR-530) each give a conflict in tests.md.
 - #243 (IR-274, held) gives no textual conflict in these files, but it overlaps in meaning
@@ -46,7 +46,7 @@ paragraph and both tests.md rows. The tests.md FR-038 row keeps main's status te
 verbatim, #257's AC-73 clause included, and adds the IR-533 clause in front of it. The
 TC-048 row does the same.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed |
 | FND-002 | fixed | fixed |

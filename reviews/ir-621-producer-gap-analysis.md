@@ -642,7 +642,7 @@ scope:
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
   excerpt: Given a selected QSL checked request, the QSL-owned adapter enumerates
-    every `CheckedGraph::requirements` key and every native pending obligation,
+    every `CheckedGraph::requirements()` key and every native pending obligation,
     preserving each requirement's wire node bytes, occurrence role and ordinal and
     each obligation's declaration, unit, expression, byte span, kind and predicate
     target. Its `Complete` outcome matches an independent full-output traversal only

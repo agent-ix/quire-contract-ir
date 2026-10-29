@@ -41,4 +41,4 @@ PASS: FR-038-AC-167/173/174/175 use unique, sequential IDs and testable typed ou
 
 ## Validation
 
-`quire validate --scope..review-scratchpad/ir-663-spec-review-base.md` — PASS (exit 0); emitted module duplicate-archetype/inverse-edge and inline-data-schema warnings, with no document validation error.
+`quire validate --scope . .review-scratchpad/ir-663-spec-review-base.md` — PASS (exit 0); emitted module duplicate-archetype/inverse-edge and inline-data-schema warnings, with no document validation error.

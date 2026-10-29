@@ -26,6 +26,6 @@ Ticket IR-770. Reviewed the four-file PR diff against QSpec origin/main FR-322/F
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

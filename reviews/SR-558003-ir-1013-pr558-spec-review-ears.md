@@ -18,11 +18,11 @@ statements.
 
 - The two Description statements are ubiquitous SHALL and SHALL NOT. Each has
   one subject and one response.
-- Behavior 2-4 use the unwanted-behaviour form correctly: "If..., then
+- Behavior 2-4 use the unwanted-behaviour form correctly: "If ..., then
   Contract IR SHALL refuse X".
 - Behavior 5 is event-driven, plus one ubiquitous SHALL NOT.
 - Behavior 6 and 7 are event-driven: "When resolving a point, Contract IR SHALL /
-  SHALL NOT...".
+  SHALL NOT ...".
 
 ## Verdict
 
@@ -32,7 +32,7 @@ statements.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | Behavior 1 mixes an event trigger with a trailing condition in one sentence: "When the accessor receives a clause id, Contract IR SHALL resolve it... and refuse `UnknownClause` if absent". The refusal is an unwanted-behaviour response and should read "If the clause id is absent from the admitted package, then Contract IR SHALL refuse `UnknownClause`", matching Behavior 2-4 | spec/checked_package/functional/FR-058-admitted-clause-execution-point.md:52-53 |
+| FND-001 | low | Behavior 1 mixes an event trigger with a trailing condition in one sentence: "When the accessor receives a clause id, Contract IR SHALL resolve it ... and refuse `UnknownClause` if absent". The refusal is an unwanted-behaviour response and should read "If the clause id is absent from the admitted package, then Contract IR SHALL refuse `UnknownClause`", matching Behavior 2-4 | spec/checked_package/functional/FR-058-admitted-clause-execution-point.md:52-53 |
 
 ## Examined scope
 

@@ -36,6 +36,6 @@ Units examined (each excerpt is verbatim from the reviewed head):
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

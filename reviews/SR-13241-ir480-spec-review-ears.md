@@ -24,7 +24,7 @@ stood when it was written.
 Examined: the five sentences added to the FR-035 statement, the amended FR-035-AC-11, and the new
 FR-035-AC-12 and AC-13.
 
-- AC-11 keeps its state-driven "Given..., `read` returns..." shape.
+- AC-11 keeps its state-driven "Given ..., `read` returns ..." shape.
 - AC-12 and AC-13 are condition-and-response criteria. Each has one named reader, a stated
   precondition ("otherwise valid canonical package"), and paired boundary outcomes (admit at the
   total, `Incomplete` one below). Those are a single boundary obligation, not a compound one.
@@ -40,7 +40,7 @@ mix normative SHALLs with rationale and change history, and some name no system 
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | Three of the new FR-035 statement sentences do not name the system as the SHALL subject: "The counter SHALL continue", "The occurrence limit SHALL likewise report", and "A package previously admitted... SHALL now return `Incomplete`". The statement also embeds rationale ("as the limit's documented meaning and the V2 reader's single-meter practice require") and transition history ("previously admitted", "now", "These decisions change..."). That history describes the change, not the requirement, and goes stale once the code lands. The fix is to restate each with Contract IR (or the V1 reader) as subject and move the rationale and history to a note or the PR. | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:145-157 |
+| FND-001 | low | Three of the new FR-035 statement sentences do not name the system as the SHALL subject: "The counter SHALL continue", "The occurrence limit SHALL likewise report", and "A package previously admitted ... SHALL now return `Incomplete`". The statement also embeds rationale ("as the limit's documented meaning and the V2 reader's single-meter practice require") and transition history ("previously admitted", "now", "These decisions change ..."). That history describes the change, not the requirement, and goes stale once the code lands. The fix is to restate each with Contract IR (or the V1 reader) as subject and move the rationale and history to a note or the PR. | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:145-157 |
 
 ## Dispositions
 

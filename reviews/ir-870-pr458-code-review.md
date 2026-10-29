@@ -24,7 +24,7 @@ Diff-scoped review of PR #458. The six foreign QSpec NFR identifiers move from t
 
 ## Verdict
 
-**PASS** — Five NFR-060 and one NFR-061 claims are plain `Also exercises QSpec...` prose, not `Trace:` or `#[trace]` syntax. Every local `TC-043` and `FR-032/033/034` attribute ID is byte-for-byte preserved. No executable statement, assertion, test name, production source, lint config, or CI lane changed. The rust-review checklist found no issue in this diff.
+**PASS** — Five NFR-060 and one NFR-061 claims are plain `Also exercises QSpec ...` prose, not `Trace:` or `#[trace]` syntax. Every local `TC-043` and `FR-032/033/034` attribute ID is byte-for-byte preserved. No executable statement, assertion, test name, production source, lint config, or CI lane changed. The rust-review checklist found no issue in this diff.
 
 ## Coverage
 

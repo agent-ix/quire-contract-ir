@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-347. Plan completion: not assessed. The reviewer ran `make spec` (quire validate plus
-`quire coverage --scope. --strict`) at the frozen head.
+`quire coverage --scope . --strict`) at the frozen head.
 
 - Validation reports no error.
 - Coverage fails strict on 60 unbacked rows. All of them are outside this diff: FR-052, FR-350,
@@ -53,4 +53,4 @@ Round 1. Checked against fix. `make spec` validation is clean. Strict coverage s
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The FR-039 and TC-055 matrix rows and TC-055 Status now read 🚧 partial. AC-1 through AC-3 are backed. AC-4 has the TC-042 no-panic negatives bound to it, and the unresolved TC-041 reference is named. No overclaim remains (spec/kani/matrix/tests.md:17,:28; spec/kani/matrix/TC-055-root-crate-public-interface.md:46) |
+| FND-001 | fixed | The FR-039 and TC-055 matrix rows and TC-055 Status now read 🚧 partial. AC-1 through AC-3 are backed. AC-4 has the TC-042 no-panic negatives bound to it, and the unresolved TC-041 reference is named. No overclaim remains (spec/kani/matrix/tests.md:17, :28; spec/kani/matrix/TC-055-root-crate-public-interface.md:46) |

@@ -30,7 +30,7 @@ The computed Quire matrix tags FR-038-AC-282 and AC-286, and the new tests exerc
 
 ## Coverage
 
-Plan completion: not assessed. `quire matrix --scope. --format json` completed: FR-038-AC-26 is tagged by 2 tests; AC-282 and AC-286 are each tagged by 12 tests. Those tags do not establish the missing whole-model combinations. The changed source has an owning criterion and no stub. Optional repository-wide semantic review was not requested; this scoped review compared new test behavior against the QSpec criterion. Full FR-038-AC-282/286 remain Planned.
+Plan completion: not assessed. `quire matrix --scope . --format json` completed: FR-038-AC-26 is tagged by 2 tests; AC-282 and AC-286 are each tagged by 12 tests. Those tags do not establish the missing whole-model combinations. The changed source has an owning criterion and no stub. Optional repository-wide semantic review was not requested; this scoped review compared new test behavior against the QSpec criterion. Full FR-038-AC-282/286 remain Planned.
 
 ## Dispositions
 

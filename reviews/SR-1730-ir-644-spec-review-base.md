@@ -34,7 +34,7 @@ Ticket: IR-644. Reviewed FR-038's new operation-leaf paragraph, FR-038-AC-151 an
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | — TM-002 FR-038 and TC-048 rows now name AC-151 and AC-152 and state that they are planned with no executable test. |
 

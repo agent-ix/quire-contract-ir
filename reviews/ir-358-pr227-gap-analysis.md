@@ -16,7 +16,7 @@ Ticket: IR-358. This is a planless gap analysis, proportional to a build-tooling
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | CI never runs the one-copy gate. The Supply-chain job runs `cargo deny check`, not `make deny`, so `scripts/check_one_copy.awk`, IR-358's guard, runs only locally through `make deny` and `make ci`. This predates the PR: ci.yml is unchanged |.github/workflows/ci.yml:53-54 |
+| FND-001 | medium | CI never runs the one-copy gate. The Supply-chain job runs `cargo deny check`, not `make deny`, so `scripts/check_one_copy.awk`, IR-358's guard, runs only locally through `make deny` and `make ci`. This predates the PR: ci.yml is unchanged | .github/workflows/ci.yml:53-54 |
 
 ## Finding Detail
 

@@ -36,7 +36,7 @@ FAIL: FR-038-AC-317's exact-locus obligation is not backed by its tagged tests; 
 
 ## Coverage
 
-- Reconciliation: `quire matrix --scope. --format tsv` at exact PR head; seven of seven new criteria compute `tagged`. No run-evidence store assessed.
+- Reconciliation: `quire matrix --scope . --format tsv` at the reviewed PR head; seven of seven new criteria compute `tagged`. No run-evidence store assessed.
 - Plan completion: not assessed
 - Focused execution: `QUIRE_SPECIFICATION_DIR=/home/peter/dev/worktrees/ir984-qspec414 cargo test --locked --test conformance_qspec qspec_hybrid -- --nocapture`: 16 passed, 0 failed.
 - Reverse gap: no new hybrid source behavior lacks an owning FR-038-AC-311..317 criterion; the defects above concern incomplete verification of named behavior.

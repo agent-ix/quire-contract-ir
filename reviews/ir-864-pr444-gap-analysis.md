@@ -18,7 +18,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-864. The diff removes only redundant doc trace lines beside existing attributes. Quire base and head normalized coverage JSON is identical: 515/584 backed, 39 unbacked, 0 contradicted. Normalized matrix JSON is identical across 550 criterion rows, including statuses and binders. Strict coverage exits 1 on the same 39 pre-existing unbacked rows at both revisions.
+Ticket: IR-864. The diff removes only redundant doc trace lines beside existing attributes. Quire base and head normalized coverage JSON is identical: 515/584 backed, 39 unbacked, 0 contradicted. Normalized matrix JSON is identical across 550 criterion rows, including statuses and binders. Strict coverage exits 1 on the same 39 pre-existing unbacked rows at the base and PR head.
 
 ## Reviewed scope
 

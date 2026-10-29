@@ -26,7 +26,7 @@ The changed tests carry the FR-038-AC-224 trace tag and the resolver's isolated 
 
 Examined FR-038-AC-224 against all seven new tagged tests and the changed resolver callers. Plan completion: not assessed. The matrix computation and focused tests were used as trace and execution evidence; no optional repository-wide semantic audit was run.
 
-FND-001: `structural_forwarding_is_paid_once_across_both_leaf_passes` checks that `resolved.len` remains 300 after placement, but a second pass could charge those 300 entries again and leave that size unchanged. The admitted operation's total limit is measured from the same implementation, so its exact and one-less assertions also pass with that overcharge. Measure `meter.consumed` before and after each leaf pass and separate the expected leaf-visit/pin charges from the structural delta.
+FND-001: `structural_forwarding_is_paid_once_across_both_leaf_passes` checks that `resolved.len()` remains 300 after placement, but a second pass could charge those 300 entries again and leave that size unchanged. The admitted operation's total limit is measured from the same implementation, so its exact and one-less assertions also pass with that overcharge. Measure `meter.consumed()` before and after each leaf pass and separate the expected leaf-visit/pin charges from the structural delta.
 
 FND-002: `inner_result_and_leaf_edges_propagate_structural_work` invokes `inner_type`, `LeafWalk::edge`, and `check_leaf_count` directly. Its `contains` and `flatten` application nodes have empty argument arrays, and the exact helper cases use a generous limit of 100 rather than a measured operation limit. A regression in `operation_defect` ordering or public-reader propagation could leave these assertions green. Use otherwise valid applications and assert the public reader's ordinary exact-limit result and typed `incomplete`/`work` at one less for each route.
 
@@ -34,7 +34,7 @@ FND-002: `inner_result_and_leaf_edges_propagate_structural_work` invokes `inner_
 
 Follow-up source reviewed: (the later commit changes only the committed review text).
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The test now asserts 903 count-pass units, including 300 structural units, and exactly 301 placement-pass units, with no repeated structural or pin charge. |
 | FND-002 | fixed | The new unit and integration controls construct valid `contains`, `flatten`, and `structural.eq` operations and exercise both operation validation and public reading at measured exact/one-less total work limits. |

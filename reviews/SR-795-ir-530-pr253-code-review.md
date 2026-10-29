@@ -32,7 +32,7 @@ decode and stay `invalid_semantic_graph` (AC-36/AC-49).
 Catalog. `read_catalog(bytes)` returns `CatalogReadError` with a serde path and the
 offending word. The production catalog is read once through it, in `OnceLock`. The crate
 holds no catalog copy: `CATALOG_BYTES` comes from `quire_verification_contracts`.
-Cargo.lock changes one line, quire-verification-contracts to. `make deny`
+Cargo.lock changes one line, quire-verification-contracts to the reviewed dependency revision. `make deny`
 passes, including the one-copy awk gate.
 
 IR-503. The six words are added. `is_unsupported` is exhaustive. `UnionArms` refuses
@@ -59,8 +59,8 @@ reverted, and all six were killed:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | The nested-application refusal also fires on `diagnostics.entries[].details[]` terms, because `validate_term` is shared and details are walked with `is_body_root: false`. Probe: a details term `{term: application, operator: case...}` refuses the whole package `unsupported_construct`/`expression-form` at `/diagnostics/entries/0/details/0/operator`. The same holds for a details root, not only for a nested term. FR-038 "Catalog words" names the positions as node body root, `arguments` element, `binding` and `aggregate`, and never mentions diagnostic details. So this refusal is unspecified and untested. It is fail-closed and probably the right behaviour, but a spec-silent refusal of the whole package in a PR whose spec lists positions needs a decision. Either amend FR-038 to name details and add a test, or exempt details | crates/quire-contract-model/src/checked_package/common.rs:699-712, crates/quire-contract-model/src/checked_package/v2/mod.rs:2046 |
-| FND-002 | low | The `compile_fail,E0560` further-member probes do not check their error code on the pinned stable toolchain (1.98.1). With `revision: Option<Box<str>>` added to `CheckedArtifactRef`, the `revision: "r".into` probe still passed, failing with E0277 instead. The positive doctest and `tc_058` caught that mutation, so the probe set as a whole holds, but each further-member probe alone proves only "does not compile". State in the doc comment that the positive literals carry the member-set check, or drop the misleading code annotations | crates/quire-contract-model/src/lib.rs:42-66 |
+| FND-001 | medium | The nested-application refusal also fires on `diagnostics.entries[].details[]` terms, because `validate_term` is shared and details are walked with `is_body_root: false`. Probe: a details term `{term: application, operator: case, ...}` refuses the whole package `unsupported_construct`/`expression-form` at `/diagnostics/entries/0/details/0/operator`. The same holds for a details root, not only for a nested term. FR-038 "Catalog words" names the positions as node body root, `arguments` element, `binding` and `aggregate`, and never mentions diagnostic details. So this refusal is unspecified and untested. It is fail-closed and probably the right behaviour, but a spec-silent refusal of the whole package in a PR whose spec lists positions needs a decision. Either amend FR-038 to name details and add a test, or exempt details | crates/quire-contract-model/src/checked_package/common.rs:699-712, crates/quire-contract-model/src/checked_package/v2/mod.rs:2046 |
+| FND-002 | low | The `compile_fail,E0560` further-member probes do not check their error code on the pinned stable toolchain (1.98.1). With `revision: Option<Box<str>>` added to `CheckedArtifactRef`, the `revision: "r".into()` probe still passed, failing with E0277 instead. The positive doctest and `tc_058` caught that mutation, so the probe set as a whole holds, but each further-member probe alone proves only "does not compile". State in the doc comment that the positive literals carry the member-set check, or drop the misleading code annotations | crates/quire-contract-model/src/lib.rs:42-66 |
 
 ## Verdict
 
@@ -72,15 +72,13 @@ once FND-001 is dispositioned. The PR is held/draft by design.
 
 ## Dispositions
 
-Round 1, reviewed. The branch was rebased onto main
-. This round reviews only the fix delta..
-and excludes the rebase. The range-diff shows only matrix-text conflict resolution in the
+Round 1, reviewed. The branch was rebased onto main. This round reviews only the fix delta and excludes the rebase. The range-diff shows only matrix-text conflict resolution in the
 rebased commits.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: the leader decided to keep the refusal fail-closed. FR-038 prose, AC-66 and the TC-048 procedure now name `diagnostics.entries[].details[]` terms, root and nested, at `/diagnostics/entries/{i}/details/{j}/operator`. The amendment only adds, and narrows no other position. The new test `tc_048_a_diagnostic_detail_of_a_refused_class_refuses_at_its_operator` covers a root, an aggregate and a binding for all three classes. Mutation probe: exempting detail roots (`is_body_root: true` at v2/mod.rs:2049) fails the test |
-| FND-002 | fixed |: the lib.rs doc now states that stable rustc does not check the named code, and that the positive doctest plus `tc_018_the_artifact_reference_member_sets_are_exact` are the real oracles |
+| FND-001 | fixed | the leader decided to keep the refusal fail-closed. FR-038 prose, AC-66 and the TC-048 procedure now name `diagnostics.entries[].details[]` terms, root and nested, at `/diagnostics/entries/{i}/details/{j}/operator`. The amendment only adds, and narrows no other position. The new test `tc_048_a_diagnostic_detail_of_a_refused_class_refuses_at_its_operator` covers a root, an aggregate and a binding for all three classes. Mutation probe: exempting detail roots (`is_body_root: true` at v2/mod.rs:2049) fails the test |
+| FND-002 | fixed | the lib.rs doc now states that stable rustc does not check the named code, and that the positive doctest plus `tc_018_the_artifact_reference_member_sets_are_exact` are the real oracles |
 
 Round 2, reviewed: the delta is a single
 comment line. FND-001 and FND-002 stay fixed, and no new rows are added.

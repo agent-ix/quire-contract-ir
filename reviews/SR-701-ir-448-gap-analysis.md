@@ -77,13 +77,13 @@ edits only, no row removed) or defer them to a ticket. Neither blocks this PR on
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-003 | low | `tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform` still carries an `NFR-001-AC-1.` tag. It canonicalizes a single package twice in process and never runs the corpus, so it does not witness "two complete corpus runs... byte-identical". tc_018 now backs the AC honestly, so this tag only overstates the evidence. Drop it, or move it to the FR-016 rows the test does verify (it already carries FR-016-AC-1..4) | tests/it/canonicalization.rs:83 |
+| FND-003 | low | `tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform` still carries an `NFR-001-AC-1.` tag. It canonicalizes a single package twice in process and never runs the corpus, so it does not witness "two complete corpus runs ... byte-identical". tc_018 now backs the AC honestly, so this tag only overstates the evidence. Drop it, or move it to the FR-016 rows the test does verify (it already carries FR-016-AC-1..4) | tests/it/canonicalization.rs:83 |
 
 ## Dispositions
 
 Round 1, reviewed (fix ).
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | still-open | The `#[trace("TC-223")]` attribute and `Tracing:` line are gone, but the function is still named `tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result`, and quire's `rust-test-name-id` form binds that name to TC-223., `quire coverage --json` still reports TC-223 `backed: true`, and FR-030-AC-4/5 (`backed: false`) are still absent from the strict list. A scratch probe that renamed only the function (no `tc_223_` prefix) made TC-223, FR-030-AC-4 and FR-030-AC-5 unbacked, 23 rows in all. Rename the function |
 | FND-002 | fixed |  |
@@ -91,7 +91,7 @@ Round 1, reviewed (fix ).
 
 Round 2, reviewed (fix ).
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-003 | fixed | Fixed in the reviewed PR. |

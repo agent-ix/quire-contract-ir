@@ -31,6 +31,6 @@ The exhaustive mapping and corrected test plan agree on the 15-plus-3 split, but
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | — `| Type form | Introduced descriptor and source node |` |

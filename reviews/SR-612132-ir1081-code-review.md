@@ -32,5 +32,5 @@ CONDITIONAL. The capture's OS provenance can be mislabeled; the new Rust file al
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed |, `capture` refuses `os != env::consts::OS` before running the corpus; a self-test supplies a different supported OS and checks that refusal. |
-| FND-002 | fixed |, the file begins with the repository's SPDX and copyright header. |
+| FND-001 | fixed | In the reviewed PR, `capture` refuses `os != env::consts::OS` before running the corpus; a self-test supplies a different supported OS and checks that refusal. |
+| FND-002 | fixed | In the reviewed PR, the file begins with the repository's SPDX and copyright header. |

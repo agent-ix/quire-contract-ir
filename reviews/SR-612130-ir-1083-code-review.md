@@ -48,4 +48,4 @@ Round 1: all recorded findings fixed. Full published public-reader vectors remai
 
 ## Final-head scanner addendum
 
-: The only source delta after the fixed disposition adds string_edge attributes to check_place_presence, terminal_clock and selector_fits. Their bodies and the repaired element-type join are unchanged. make string-edge reports no unmarked comparison. No new code/Rust finding. Full public-reader vectors remain pending STD-541; GD-03 exact locus remains pending STD-540.
+The only source delta after the fixed disposition adds string_edge attributes to check_place_presence, terminal_clock and selector_fits. Their bodies and the repaired element-type join are unchanged. make string-edge reports no unmarked comparison. No new code/Rust finding. Full public-reader vectors remain pending STD-541; GD-03 exact locus remains pending STD-540.

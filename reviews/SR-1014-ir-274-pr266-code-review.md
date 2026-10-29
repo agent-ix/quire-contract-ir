@@ -47,9 +47,9 @@ Measured:
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The selected model document is parsed a second time into a `serde_json::Value` after the digest (`strict_json_value(bytes)`), against FR-038's "It is not parsed a second time into a `serde_json::Value`, so there is one reader for the document". The two readers can disagree, for example on a document `quire_canonical::read` accepts and `strict_json_value` refuses, and that disagreement surfaces as `byte-digest-mismatch` after a digest that matched. Either read the declarations from the `quire_canonical::Document`, or route a spec amendment that allows the second parse after the digest | crates/quire-contract-model/src/checked_package/v2/model_members.rs:1070 |
-| FND-002 | medium | When the lowered package is over the ceiling, every record is replaced with `Failed`, but `CompleteContractPackageV2` still carries every lowered and dependency node: `lowered` and `dependencies` return them, and only `encoding` is `None`. A caller then sees all records `failed` beside a package that holds those nodes as lowered. That breaks the type's own contract ("Builds the call's package from its `lowered` records alone"; "A refused request contributes nothing to it"). Clear `lowered`/`dependencies` when encoding fails, or build the package after the record replacement | crates/quire-contract-model/src/checked_package/v2/lower.rs:377 |
+| FND-002 | medium | When the lowered package is over the ceiling, every record is replaced with `Failed`, but `CompleteContractPackageV2` still carries every lowered and dependency node: `lowered()` and `dependencies()` return them, and only `encoding` is `None`. A caller then sees all records `failed` beside a package that holds those nodes as lowered. That breaks the type's own contract ("Builds the call's package from its `lowered` records alone"; "A refused request contributes nothing to it"). Clear `lowered`/`dependencies` when encoding fails, or build the package after the record replacement | crates/quire-contract-model/src/checked_package/v2/lower.rs:377 |
 | FND-003 | medium | Cross-repo breakage of the public API, with no lockstep change. (a) `CheckedPackageRefusal` gains the public field `document_pointer`. The struct is not `#[non_exhaustive]`, so every struct literal breaks. quire-contract-codegen origin/main builds one in production code at `src/oracle/scalar/mod.rs:3368`, and quire-driver at `tests/drive.rs:1516`. (b) `NominalIdentityPreimage::digest` now takes `limit_bytes` and returns `Result`. Codegen's `tests/checked_package_support/base.rs:58-60` calls `.digest` with no argument. (c) `CompleteContractPackageV2::canonical_bytes` and `package_id` now return `Option`. No consumer uses them today: codegen reads `source_package_id` only, and QSL is unaffected. Codegen depends on IR at `branch = "main"`, so its next lock refresh will not compile. Driver pins rev and breaks when that pin moves. The field itself is specified (AC-93), so the change is right, but it needs a codegen follow-up queued before or with the merge | crates/quire-contract-model/src/checked_package/shared.rs:313 |
-| FND-004 | low | Encoder refusals on derived keys are swallowed with `.ok` / `if let Ok`: `ModelOwners` skips a declaration whose key is refused, `slot_type` types nothing, `state.rs` and `check_model_member` compare against `None`. The refusal then surfaces as a different code (`missing_declaration`, signature or eligibility refusals). FR-038 says an encode refusal while reading refuses "`invalid_semantic_graph` at the node for a node key". It is only reachable when a model document's identity and node strings bring the ~260-byte structural preimage over `limits.bytes`, but it is an error swallowed rather than returned | crates/quire-contract-model/src/checked_package/v2/model_members.rs:858 |
+| FND-004 | low | Encoder refusals on derived keys are swallowed with `.ok()` / `if let Ok`: `ModelOwners` skips a declaration whose key is refused, `slot_type` types nothing, `state.rs` and `check_model_member` compare against `None`. The refusal then surfaces as a different code (`missing_declaration`, signature or eligibility refusals). FR-038 says an encode refusal while reading refuses "`invalid_semantic_graph` at the node for a node key". It is only reachable when a model document's identity and node strings bring the ~260-byte structural preimage over `limits.bytes`, but it is an error swallowed rather than returned | crates/quire-contract-model/src/checked_package/v2/model_members.rs:858 |
 | FND-005 | low | `CheckedPackageV2`'s `PartialEq` (and `Debug`) now include the retained read limit `bytes`. Two admissions of identical bytes under different `limits.bytes` compare unequal. This public semantics change is not in the spec. Equality was content equality before. If the limit must ride along, keep it out of `eq` or say so in FR-038 | crates/quire-contract-model/src/checked_package/v2/mod.rs:410 |
 
 ## Verdict
@@ -79,13 +79,13 @@ artifacts.
 
 ## Dispositions
 
-Round 1, reviewed (one squashed commit on ). These are measured
+Round 1, reviewed (one squashed commit). These are measured
 in a detached worktree outside the repository, since removed. All gates exit 0
 (`make spec` 2 at the baseline: 1 grammar finding, 23 unbacked, 0
 contradicted). The 5-fixture digest dump and all five lowered `.bytes` files
-are identical to.
+are identical to the reviewed PR version.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |
@@ -95,11 +95,11 @@ are identical to.
 
 ### Round 2
 
-Round 2, reviewed (one commit on ). These are measured in a
+Round 2, reviewed (one commit). These are measured in a
 detached worktree outside the repository, since removed. All gates exit 0
 (`make spec` 2 at the baseline: 1 grammar finding, 23 unbacked, 0
 contradicted). The 5-fixture digest dump and all five lowered `.bytes` files
-are identical to.
+are identical to the reviewed PR version.
 `required_bytes` now matches the final amendment #267 : only
 `LimitKind::CanonicalBytes` records `required`, and every other refusal records
 `limit + 1`, saturating. Mutants: the canonical-bytes count replaced by
@@ -108,6 +108,6 @@ Mapping every limit kind to `required` survives. That is the object-buffer
 refusal, which needs a buffer over 4 GiB; #267 and the matrix row both state it
 is untested.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-006 | fixed | Fixed in the reviewed PR. |

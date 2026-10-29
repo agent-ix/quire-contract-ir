@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-839, PR quire-contract-ir#436,, one commit over origin/main. The rust-review lane is folded into this file. The diff adds `tests/it/conformance_mismatch_independence.rs` (299 lines, two tests traced `TC-018` and `FR-018-AC-2`) and registers the module in `tests/it/main.rs`. No production code changes. The old combined test `tc_018_all_mismatch_kinds_and_exit_classes_are_stable` in `tests/it/conformance.rs` is untouched.
+Ticket: IR-839, PR quire-contract-ir#436, one commit over origin/main. The rust-review lane is folded into this file. The diff adds `tests/it/conformance_mismatch_independence.rs` (299 lines, two tests traced `TC-018` and `FR-018-AC-2`) and registers the module in `tests/it/main.rs`. No production code changes. The old combined test `tc_018_all_mismatch_kinds_and_exit_classes_are_stable` in `tests/it/conformance.rs` is untouched.
 
 ## Reviewed scope
 
@@ -22,7 +22,7 @@ Ticket: IR-839, PR quire-contract-ir#436,, one commit over origin/main. The rust
 | FR-020 (mismatch kinds) | context_only | Mismatch kinds are `validity`, `diagnostics`, `canonical_bytes`, `canonical_digest`, `dependencies`, and `coverage`. A fixture with several drifts retains all applicable kinds once in this fixed registry order |
 | crates/quire-contract-model/src/conformance.rs:2095-2115 | context_only | `fn mismatch_kinds(actual: &Value, expected: &Value) -> Vec<&'static str>` pushes the six kinds in registry order |
 | tests/it/conformance_mismatch_independence.rs:30-91 | examined | `const CASES: &[Case]`: ten one-mutation cases over six kinds |
-| tests/it/conformance_mismatch_independence.rs:107-150 | examined | `struct Fresh` copies corpus and schemas to `temp_dir/quire-contract-ir-fr018ac2-<pid>-<label>`, removed on drop |
+| tests/it/conformance_mismatch_independence.rs:107-150 | examined | `struct Fresh` copies corpus and schemas to `temp_dir()/quire-contract-ir-fr018ac2-<pid>-<label>`, removed on drop |
 | tests/it/conformance_mismatch_independence.rs:193-209 | examined | `fn assert_only`: exit 1, empty stderr, mutated row `mismatch` with kinds exactly `[kind]`, every other row `match` with no kinds |
 | tests/it/conformance_mismatch_independence.rs:214-248 | examined | `tc_018_each_mismatch_kind_is_reported_independently_for_one_mutation` |
 | tests/it/conformance_mismatch_independence.rs:253-299 | examined | `tc_018_diagnostic_order_alone_is_reported_as_a_diagnostics_mismatch` |
@@ -59,7 +59,7 @@ Order test, judged fair and not circular:
 - No shipped expectation has two or more diagnostics (checked with jq over all 106 expectations), so the test needs a constructed input.
 - The second stale trace is fixture setup. It is not a mutation of the comparison under test. The test re-baselines the expectation from the observed result, then proves the baseline with a full-corpus exit-0 control run before it changes anything. The one mutation is then the swap.
 - Taking the observed result as the expectation is fair, because the property under test is relational: swapping two distinct diagnostics must be reported as `diagnostics` and nothing else. It is not a claim that the diagnostics themselves are correct; that is FR-018-AC-1's job and the frozen corpus's.
-- The guards are sound. `len >= 2` and `assert_ne!(d[0], d[1])` make the swap a real reordering.
+- The guards are sound. `len() >= 2` and `assert_ne!(d[0], d[1])` make the swap a real reordering.
 
 Mutants, run in a throwaway worktree with its own target dir (since removed). Each was run against the two new tests and the old combined test:
 

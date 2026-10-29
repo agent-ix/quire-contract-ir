@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-778. Exact reviewed head:. The changed FR, interface inventory, test case, and matrix agree on the two-value source and planned status; no additional integrity defect was found.
+Ticket: IR-778. Reviewed the PR head. The changed FR, interface inventory, test case, and matrix agree on the two-value source and planned status; no additional integrity defect was found.
 
 ## Findings
 

@@ -50,7 +50,7 @@ bindings: []
 
 ## Disposition round 1 verdict
 
-Reviewed (diff..). There were no findings, so there is nothing to disposition. Re-checked against the fix diff:
+Reviewed (PR diff). There were no findings, so there is nothing to disposition. Re-checked against the fix diff:
 - The scoped refusal sentence keeps the node, application, occurrence, operation order.
 - The work-charge sentence is unchanged.
 - AC-246's allowed differences (operator, application identity and occurrence) match what the accessor returns.

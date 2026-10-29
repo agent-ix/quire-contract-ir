@@ -13,7 +13,7 @@ review_set: subset
 Ticket: IR-495. Checked the new and amended acceptance criteria against the
 repo's convention. An AC is a direct, observable assertion with no "shall",
 planned rows carry the planned marker, and AC rows name no tracker state. The FR
-statement keeps its "The reader shall..." EARS form, and the PR does not change
+statement keeps its "The reader shall ..." EARS form, and the PR does not change
 it. `quire validate` reports one grammar finding repo-wide (FR-014, baseline)
 and none in the changed files.
 

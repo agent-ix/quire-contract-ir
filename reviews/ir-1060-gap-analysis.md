@@ -32,4 +32,4 @@ Plan completion: not assessed. The computed Quoin matrix was read for the reposi
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the healthy tick test uses the public typed encoder, compares the emitted JSON with the authoritative fixture, reads it back, compares graph, package id and operation-anchor term, then encodes again and compares bytes. |
+| FND-001 | fixed | In the reviewed PR, the healthy tick test uses the public typed encoder, compares the emitted JSON with the authoritative fixture, reads it back, compares graph, package id and operation-anchor term, then encodes again and compares bytes. |

@@ -150,9 +150,9 @@ Exact GitHub head was verified independently. Scoped Quire validation of all thr
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |; separate admitted lawful-leaf control now requires both passes and zero additional second-pass structural forwarding work. |
+| FND-001 | fixed | separate admitted lawful-leaf control now requires both passes and zero additional second-pass structural forwarding work. |
 
 ## Disposition pass 1
 

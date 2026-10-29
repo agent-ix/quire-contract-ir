@@ -73,26 +73,26 @@ scope:
 - id: tests/it/public_interface.rs
   path: tests/it/public_interface.rs
   role: examined
-  excerpt: "fn expected_items -> BTreeMap<String, BTreeSet<String>> {\n let (_,\
-    \ after_heading) = FR_019\n.split_once(\"### Public items\")\n \
-    \.expect(\"FR-019 public items table must exist\");\n let (table, _) = after_heading\n\
-    \.split_once(\"## Acceptance Criteria\")\n.expect(\"FR-019 acceptance\
-    \ criteria must follow the table\");\n let mut items = BTreeMap::<String, BTreeSet<String>>::new;\n\
-    \ for row in table.lines.filter(|line| line.starts_with(\"| `\")) {\n \
-    \ let cells: Vec<_> = row.split('|').collect;\n let module = quoted_names(cells[1])\n\
-    \.next\n "
+  excerpt: "fn expected_items() -> BTreeMap<String, BTreeSet<String>> {\n    let (_,\
+    \ after_heading) = FR_019\n        .split_once(\"### Public items\")\n       \
+    \ .expect(\"FR-019 public items table must exist\");\n    let (table, _) = after_heading\n\
+    \        .split_once(\"## Acceptance Criteria\")\n        .expect(\"FR-019 acceptance\
+    \ criteria must follow the table\");\n    let mut items = BTreeMap::<String, BTreeSet<String>>::new();\n\
+    \    for row in table.lines().filter(|line| line.starts_with(\"| `\")) {\n   \
+    \     let cells: Vec<_> = row.split('|').collect();\n        let module = quoted_names(cells[1])\n\
+    \            .next()\n    "
 - id: crates/quire-contract-model/src/lib.rs
   path: crates/quire-contract-model/src/lib.rs
   role: context_only
-  excerpt: '//! authority: "a".into,
+  excerpt: '//!     authority: "a".into(),
 
-    //! identity: "i".into,
+    //!     identity: "i".into(),
 
-    //! digest_domain: "d".into,
+    //!     digest_domain: "d".into(),
 
-    //! digest: "x".into,
+    //!     digest: "x".into(),
 
-    //! revision: "r".into,
+    //!     revision: "r".into(),
 
     //! };'
 ```

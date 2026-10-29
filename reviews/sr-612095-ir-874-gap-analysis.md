@@ -30,6 +30,6 @@ Examined FR-038-AC-325/328/329/330, QSpec FR-375-AC-23/26/27/28, TC-048 items 14
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the public-reader test mutates Commit and ForwardEffect independently for omission, duplicate, wrong node and wrong binder; it asserts code, cause and locus. |
-| FND-002 | still-open |, the dropped-ancestor mutation is added, but `Nested::OtherFlow` names no other selected clause; the actual two selected clause names are `OrderFlow` and `Nested::OrderFlow`. A cross-clause name substitution remains untested. |
-| FND-002 | fixed |, two selected clauses have distinct names `OrderFlow` and `Nested::OtherFlow`; the test substitutes the latter's clause segment with `OrderFlow` and separately drops an ancestor, asserting `invalid_semantic_graph` at each exact catalog entry. |
+| FND-001 | fixed | In the reviewed PR, the public-reader test mutates Commit and ForwardEffect independently for omission, duplicate, wrong node and wrong binder; it asserts code, cause and locus. |
+| FND-002 | still-open | In the reviewed PR, the dropped-ancestor mutation is added, but `Nested::OtherFlow` names no other selected clause; the actual two selected clause names are `OrderFlow` and `Nested::OrderFlow`. A cross-clause name substitution remains untested. |
+| FND-002 | fixed | In the reviewed PR, two selected clauses have distinct names `OrderFlow` and `Nested::OtherFlow`; the test substitutes the latter's clause segment with `OrderFlow` and separately drops an ancestor, asserting `invalid_semantic_graph` at each exact catalog entry. |

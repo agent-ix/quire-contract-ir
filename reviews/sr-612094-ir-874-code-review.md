@@ -13,7 +13,7 @@ Reviewed the four-file PR diff against FR-038-AC-325/328/329/330 and QSpec FR-37
 
 ## Verdict
 
-PASS for scoped code and Rust review. The merged-main conflict retained both the new selected-model operation enumeration and main's variant-family accessor. The first hosted string-edge check caught a branch gated by `class.starts_with("cend ")`; uses a typed `empty_binders` flag. The coder reports focused format, string-edge and diff checks green on that head. This reviewer did not repeat the aggregate gate; hosted Rust Checks and the code lead's final conformance gate are pending.
+PASS for scoped code and Rust review. The merged-main conflict retained both the new selected-model operation enumeration and main's variant-family accessor. The first hosted string-edge check caught a branch gated by `class.starts_with("cend ")`; the fixed branch uses a typed `empty_binders` flag. The coder reports focused format, string-edge and diff checks green on that head. This reviewer did not repeat the aggregate gate; hosted Rust Checks and the code lead's final conformance gate are pending.
 
 ## Findings
 

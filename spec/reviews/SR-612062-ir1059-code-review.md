@@ -37,7 +37,7 @@ Ticket: IR-1059. Reviewed PR #634, limited to tuple and variant payload selected
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed |, the selected model-owner lookup supplies union/enum family to the common resolver at each visited type node. Literal typing, operation operand, type-argument member result, inner result and mode checks now use that selected resolution; `composite_operands` uses the same selected-aware walk. A bounded-domain chain reaches its selected variant before the fallback enum branch. A focused structural-equality versus enum-equality regression test was added. |
+| FND-001 | fixed | In the reviewed PR, the selected model-owner lookup supplies union/enum family to the common resolver at each visited type node. Literal typing, operation operand, type-argument member result, inner result and mode checks now use that selected resolution; `composite_operands` uses the same selected-aware walk. A bounded-domain chain reaches its selected variant before the fallback enum branch. A focused structural-equality versus enum-equality regression test was added. |
 
 ## Disposition verdict
 

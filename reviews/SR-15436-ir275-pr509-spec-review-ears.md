@@ -23,7 +23,7 @@ The new requirement statements use named actors, SHALL responses and observable 
 
 ## Coverage
 
-Exact reviewed. Reviewed only PR #509's changed code and FR-349/FR-019 spec delta. Plan completion: not assessed. Quire validation of the changed spec artifacts passed without EARS warnings. The standalone stray word is recorded in the base review only.
+Reviewed the PR. Reviewed only PR #509's changed code and FR-349/FR-019 spec delta. Plan completion: not assessed. Quire validation of the changed spec artifacts passed without EARS warnings. The standalone stray word is recorded in the base review only.
 
 
 ## Reviewed units

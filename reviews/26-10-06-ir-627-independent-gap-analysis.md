@@ -30,7 +30,7 @@ The computed Test Matrix tags most IR-627 criteria, but several tagged tests do 
 
 ## Coverage
 
-Plan completion: not assessed. `quire matrix --scope. --format tsv` computed tags for AC-123 through AC-131 and AC-133 through AC-134; AC-132 is untagged. AC-132 and the QSpec positive conformance portion of AC-133 await the separately planned QSpec #191 source fixtures, so this review does not assign their implementation to this PR. The five findings concern obligations this PR marks implemented. The matrix is a binder index: a `tagged` status does not prove each row of a criterion executes.
+Plan completion: not assessed. `quire matrix --scope . --format tsv` computed tags for AC-123 through AC-131 and AC-133 through AC-134; AC-132 is untagged. AC-132 and the QSpec positive conformance portion of AC-133 await the separately planned QSpec #191 source fixtures, so this review does not assign their implementation to this PR. The five findings concern obligations this PR marks implemented. The matrix is a binder index: a `tagged` status does not prove each row of a criterion executes.
 
 The changed production stage has an owning FR-038 requirement. No added stub or copied external fixture was found in the diff.
 
@@ -49,7 +49,7 @@ The changed production stage has an owning FR-038 requirement. No added stub or 
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

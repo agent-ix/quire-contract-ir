@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped document review of FR-038 and TC-048; no code files changed. Structural validation and diff hygiene passed. Ticket: IR-874. Frozen head:.
+Diff-scoped document review of FR-038 and TC-048; no code files changed. Structural validation and diff hygiene passed. Ticket: IR-874. Reviewed the frozen PR head.
 
 ## Examined units
 

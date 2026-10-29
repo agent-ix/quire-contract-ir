@@ -15,8 +15,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-555 (and IR-542). PR agent-ix/quire-contract-ir#283, head
-. This is a planless gap analysis
+Ticket: IR-555 (and IR-542). PR agent-ix/quire-contract-ir#283, reviewed head. This is a planless gap analysis
 (plan completion not assessed) of FR-038-AC-109, AC-110 and AC-111, the FR-038
 inexact-number note, and the status rows in the FR-038 matrix row, TC-048 and
 `spec/tests.md`.
@@ -39,7 +38,7 @@ What I examined:
 - FR-038-AC-111: unchanged by this PR. Its tests in
   `tests/it/checked_package_v2_canonical_encoding.rs` are untouched.
 - Spec gates on the head: `quire validate` passes, with 1 grammar finding
-  (FR-014, ac:vague-response, as at base). `quire coverage --scope. --strict`
+  (FR-014, ac:vague-response, as at base). `quire coverage --scope . --strict`
   reports 23 unbacked rows and 0 contradicted statuses, the known baseline.
 
 The bindings `tc_048_a_number_past_the_double_range_refuses_inexact_integer_with_its_pointer`
@@ -83,8 +82,8 @@ passes with 1 grammar finding (FR-014). `quire coverage --strict` reports 23
 unbacked rows and 0 contradicted statuses. The FR-038-AC-110 row text is
 unchanged and carries no status.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |. AC-110 is partial again, and the status reads the same in all four places. The FR-038 matrix row says AC-109 and AC-111 are implemented and AC-110 is partial: its mapping is implemented (IR-555), but the "first in document order" clause is unmet when the out-of-range number follows an inexact one (IR-573). TC-048 and `spec/tests.md` say the same, and the FR-038 note records the unmet clause. IR-573 appears in the matrix notes only. |
-| FND-002 | fixed |. "differ: the FR-056 amendment is recorded under QSL-219, and `quire-canonical` #9 (...) is merged". No tracker state remains. |
-| FND-003 | fixed |. The note now says `admit_document` maps it "with the cause `inexact-integer` when the text denotes a whole value past 2^53 and `inexact-number` otherwise (a literal such as 400 nines followed by `.5`)". |
+| FND-001 | fixed | AC-110 is partial again, and the status reads the same in all four places. The FR-038 matrix row says AC-109 and AC-111 are implemented and AC-110 is partial: its mapping is implemented (IR-555), but the "first in document order" clause is unmet when the out-of-range number follows an inexact one (IR-573). TC-048 and `spec/tests.md` say the same, and the FR-038 note records the unmet clause. IR-573 appears in the matrix notes only. |
+| FND-002 | fixed | "differ: the FR-056 amendment is recorded under QSL-219, and `quire-canonical` #9 (...) is merged". No tracker state remains. |
+| FND-003 | fixed | The note now says `admit_document` maps it "with the cause `inexact-integer` when the text denotes a whole value past 2^53 and `inexact-number` otherwise (a literal such as 400 nines followed by `.5`)". |

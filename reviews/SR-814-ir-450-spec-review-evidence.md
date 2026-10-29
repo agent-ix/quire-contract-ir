@@ -31,6 +31,6 @@ needs either a test or removal.
 
 Round 1. FR-038-AC-8 is now byte-identical to origin/main, so TC-052's evidence covers it as before. AC-73's requested-compound_unit case stays under TC-050, where it is planned. `make spec`: grammar 312/313 (baseline 1), strict 23 unbacked, 0 contradicted. No new findings.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed |

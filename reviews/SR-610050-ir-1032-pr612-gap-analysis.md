@@ -27,10 +27,10 @@ PASS at reviewed. The initial review was CONDITIONAL because the graph and prece
 
 ## Coverage
 
-Examined FR-063-AC-5 as the changed obligation, QSpec FR-322-AC-139 as its upstream contract, and all changed tests and production files. `quire coverage --scope. --strict --json` at this head reports 85 unbacked rows and zero status lies; FR-063-AC-5 is mechanically backed by the three tagged tests, but the semantic gap above remains. No plan supplied. Plan completion: not assessed.
+Examined FR-063-AC-5 as the changed obligation, QSpec FR-322-AC-139 as its upstream contract, and all changed tests and production files. `quire coverage --scope . --strict --json` at this head reports 85 unbacked rows and zero status lies; FR-063-AC-5 is mechanically backed by the three tagged tests, but the semantic gap above remains. No plan supplied. Plan completion: not assessed.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, `equivalence_graph_defects_refuse_at_the_node_after_wire_checks` covers unreduced ratio, one missing dependency, non-self semantic type, unselected owner, stale scale and stale pair through public `CheckedPackageV2::read`, asserting code, cause and node pointer. `equivalence_wire_defect_precedes_independent_graph_defect` combines zero numerator with non-self type, observes wire refusal first, repairs only the wire defect and observes graph refusal. Both carry the AC5 trace. Author reports 11/11 focused tests passed. |
+| FND-001 | fixed | In the reviewed PR, `equivalence_graph_defects_refuse_at_the_node_after_wire_checks` covers unreduced ratio, one missing dependency, non-self semantic type, unselected owner, stale scale and stale pair through public `CheckedPackageV2::read`, asserting code, cause and node pointer. `equivalence_wire_defect_precedes_independent_graph_defect` combines zero numerator with non-self type, observes wire refusal first, repairs only the wire defect and observes graph refusal. Both carry the AC5 trace. Author reports 11/11 focused tests passed. |

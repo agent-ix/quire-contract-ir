@@ -25,8 +25,8 @@ CONDITIONAL. Treat `unsupported` as a negotiation disposition joined to the sour
 
 Round 1 reviewed. Scoped fix review found no new defect.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: AD-008 and FR-045 now join FR-029 unsupported at negotiation with capability and reason, no artifact/run/Kani outcome; refusals retain producer and stage. FR-045-AC-5 and TC-446 cover the distinction. |
+| FND-001 | fixed | AD-008 and FR-045 now join FR-029 unsupported at negotiation with capability and reason, no artifact/run/Kani outcome; refusals retain producer and stage. FR-045-AC-5 and TC-446 cover the distinction. |
 
 After excerpt: “An FR-029 `unsupported` decision joins the source candidate at capability negotiation. It records the unsupported capability and reason, with no artifact, run or Kani outcome.”

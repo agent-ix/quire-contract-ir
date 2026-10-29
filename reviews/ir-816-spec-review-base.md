@@ -24,7 +24,7 @@ What holds:
 - No fallback or compatibility reader for the old three-member body is specified; a body without `deletes_scoped` refuses (AC-19).
 - AC-17..29 are free: `git log --all -S FR-040-AC-17` finds only; open PRs #413 and #414 touch no FR-040 ids. No renumbering.
 - TC-056 cites TC-1043 rows by id (W1-W6, X1-X9) and re-authors its cases; no wire bytes are copied.
-- Gates measured: `quire validate --scope. "spec/**/*.md"` exits 0 with only module-level warnings. `quire coverage --strict` is 49 unbacked / 0 contradicted at both origin/main (temporary worktree, removed) and; FR-040 moves 16/16 to 16/29 rows. `quire matrix` differs only by the thirteen new untagged FR-040 rows.
+- Gates measured: `quire validate --scope . "spec/**/*.md"` exits 0 with only module-level warnings. `quire coverage --strict` is 49 unbacked / 0 contradicted at both origin/main (temporary worktree, removed) and; FR-040 moves 16/16 to 16/29 rows. `quire matrix` differs only by the thirteen new untagged FR-040 rows.
 - Outside IR, noted not a finding: QSL TC-1043 itself states that every row using a scoped member (W1, W2, W4, W6, I1-I17, X1-X9) depends on the filament-core-data semantic-IR frame schema admitting `modifies_receiver`/`deletes_receiver`/`deletes_parameters`; only step 2b is reachable today. IR's TC-056 re-authors its packages in-repo, so the IR code slice is not blocked by that, but a QSL-emitted oracle package for those rows does not exist yet.
 
 ## Findings
@@ -103,10 +103,10 @@ scope:
 
 ## Dispositions
 
-Round 1, fix on.
+Round 1, reviewed the fix.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | FR-040:166-177 and AC-23 drop the message claim. The refusal carries one path and one locus, "the other entry is not carried", and this is recorded as a QSpec question in FR-346's words. That matches FR-346:246-253 and the refusal type (no message member). |
+| FND-001 | fixed | FR-040 :166-177 and AC-23 drop the message claim. The refusal carries one path and one locus, "the other entry is not carried", and this is recorded as a QSpec question in FR-346's words. That matches FR-346 :246-253 and the refusal type (no message member). |
 | FND-002 | fixed | AC-7 again states today's behaviour: a shared frame refuses `ambiguous-name`, which the existing tagged test asserts. AC-28 owns the admission and names the AC-7 test case that changes when it is implemented. TC-056 Status and both matrix rows record the supersession. |
 | FND-003 | fixed | The TC-056 matrix cell now marks AC-14..16 implemented (IR-770). |

@@ -48,7 +48,7 @@ Status section already marks AC-2 as planned, so this gap is tracked, not new.
 ## Scope
 
 - FR-029-AC-1, spec/kani/functional/FR-029-versioned-bounded-kani-profile.md, examined: "A selected profile binds its versioned lowering, harness, oracle/strategy, replay, bounds, and capability-matrix identities before lowering."
-- FR-029-AC-2, spec/kani/functional/FR-029-versioned-bounded-kani-profile.md, examined: "Every encountered construct has exactly one supported, refused, or unsupported matrix entry;... unknown, conflicting, and incomplete matrices refuse with the originating source identity."
+- FR-029-AC-2, spec/kani/functional/FR-029-versioned-bounded-kani-profile.md, examined: "Every encountered construct has exactly one supported, refused, or unsupported matrix entry; ... unknown, conflicting, and incomplete matrices refuse with the originating source identity."
 - FR-039 `kani` inventory row, spec/kani/functional/FR-039-root-crate-public-interface.md, context_only.
 - AD-006 shared Kani contract row, spec/assurance/AD-006-codegen-consumption-seam.md, context_only.
 

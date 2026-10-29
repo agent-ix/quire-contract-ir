@@ -56,7 +56,7 @@ Ticket: IR-661. Method: `spec-review/spec-failure-domain-analysis`. Reviewer mod
 
 Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The upstream conflict is now named in FR-038: QSpec FR-154's generic member nesting and FCD contracts-v1's pre-table prose against FR-095's specific relationship slot. The allocation is explicit and single: the relationship slot governs relationships, and owner nesting governs fields, operations and parameters. There is no dual reader. Both texts were checked against merged FCD (contracts-v1 lines 137-143 and the table row) and QSpec (FR-154 lines 108-110). Routing the upstream correction is recorded in private IR-661 comment, which is data, not an exception. |
 | FND-002 | fixed | `direction`, `category`, `composite` and `origin` are now validated by reference against the FCD schema. That includes the common `origin` oneOf of `source` and `generated`, which matches common.schema.json. An invalid value refuses `malformed-declaration` at the selection row before any application resolution, no default direction is supplied, and metadata is never fabricated. AC-173 and TC-048 step 9 add the cases. |

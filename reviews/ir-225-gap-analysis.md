@@ -3,7 +3,7 @@ id: SR-11675
 title: gap-analysis and test-oracle strength of IR-225 catalogue-driven member-result admission
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir; PR 409 branch code/ir-225-member-family; diff origin/main...;
+scope: agent-ix/quire-contract-ir; PR 409 branch code/ir-225-member-family; diff origin/main...HEAD;
   crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it (5 files), spec/checked_package (FR-038, TC-048, tests.md)
 review_set: subset
 ---
@@ -17,11 +17,11 @@ computed trace (`quire trace --id`) binds the following tests:
 - FR-038-AC-247: tests/it/admitted_result_context.rs:137,
   tests/it/checked_package_v2_ieee_admission.rs:528 and
   tests/it/checked_package_v2_operand_families.rs:1015.
-- FR-038-AC-248: ieee_admission.rs:528 and operand_families.rs:1015,:1128 and
+- FR-038-AC-248: ieee_admission.rs:528 and operand_families.rs:1015, :1128 and
   :1167.
 - FR-038-AC-249: ieee_admission.rs:557.
 - FR-038-AC-250: admitted_result_context.rs:137 and operand_families.rs:1015
-  and:1070.
+  and :1070.
 - FR-038-AC-251: operations.rs:8924 (private-guard lib test).
 
 `quire coverage --strict` reports 50 unbacked rows and 0 contradicted.
@@ -77,11 +77,11 @@ The ordering assertion in AC-247 is not exercised: M8 and M9 both survive.
 - id: FR-038-AC-247
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: Through `CheckedPackageV2::read`, a catalogued `result: member`/`member: type_argument` application whose member has a valid `declaration` admits only when `result_type` equals that declaration, regardless of whether its family resolves.... After earlier member-shape and operand checks, this result refusal precedes `result_inner`, state-clause result, model-member, mode-type and leaf checks; a simultaneous wrong rounding-mode type on `quantity.convert` does not displace the `result_type` refusal.
+  excerpt: Through `CheckedPackageV2::read`, a catalogued `result: member`/`member: type_argument` application whose member has a valid `declaration` admits only when `result_type` equals that declaration, regardless of whether its family resolves. ... After earlier member-shape and operand checks, this result refusal precedes `result_inner`, state-clause result, model-member, mode-type and leaf checks; a simultaneous wrong rounding-mode type on `quantity.convert` does not displace the `result_type` refusal.
 - id: FR-038-AC-248
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: For a catalogued `type_argument` member result with `member_family`, a declared type whose family the reader resolves under the FR-322 ruling must fit the catalogue family;... An otherwise valid `quire.op.collection.size` whose `type_argument` declaration is a `model_population` node and whose `result_type` equals that declaration admits.
+  excerpt: For a catalogued `type_argument` member result with `member_family`, a declared type whose family the reader resolves under the FR-322 ruling must fit the catalogue family; ... An otherwise valid `quire.op.collection.size` whose `type_argument` declaration is a `model_population` node and whose `result_type` equals that declaration admits.
 - id: FR-038-AC-249
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
@@ -89,7 +89,7 @@ The ordering assertion in AC-247 is not exercised: M8 and M9 both survive.
 - id: FR-038-AC-250
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: Through the public reader, valid `quire.op.numeric.narrow` and `quire.op.quantity.convert` applications each admit with equal member declaration and `result_type`, and each refuses a mismatched `result_type`... valid `tuple.project` and `collection.index` packages with member declarations distinct from their `result_type` remain admitted.
+  excerpt: Through the public reader, valid `quire.op.numeric.narrow` and `quire.op.quantity.convert` applications each admit with equal member declaration and `result_type`, and each refuses a mismatched `result_type` ... valid `tuple.project` and `collection.index` packages with member declarations distinct from their `result_type` remain admitted.
 - id: FR-038-AC-251
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
@@ -97,7 +97,7 @@ The ordering assertion in AC-247 is not exercised: M8 and M9 both survive.
 - id: tests.md/FR-038-AC-247..251
   path: spec/checked_package/matrix/tests.md
   role: examined
-  excerpt: '| FR-038 | FR-038-AC-247 | TC-048 | Implemented (IR-225). | Result/declaration equality for every type-argument member result;...'
+  excerpt: '| FR-038 | FR-038-AC-247 | TC-048 | Implemented (IR-225). | Result/declaration equality for every type-argument member result; ...'
 ```
 
 ## Findings
@@ -112,7 +112,7 @@ The ordering assertion in AC-247 is not exercised: M8 and M9 both survive.
 ## Dispositions
 
 Round 1. Verified by reviewing
-`git diff..`.
+`git diff origin/main...HEAD`.
 
 The whole mutant set was rerun against the 11 IR-225 tests. The tests
 include the new `tc_048_every_catalogue_entry_retains_its_constructible_admission`,
@@ -140,7 +140,7 @@ the repository.
 | FND-005 | medium | Six of the 21 selected type-argument member-result entries have no admitted control in the catalogue differential: `ieee.from_exact`, `numeric.convert_rounding`, `collection.sum.decimal`, `collection.sum.float32`, `collection.sum.float64` and `collection.sum.quantity`. All six fall under the blanket "unavailable" reason. Five have no admitted fixture anywhere in the repository. `collection.sum.quantity` does have one (`quantity_sum_uses_its_result_type_exact_rounding_pin`), yet the differential lists it as unavailable. If equality or `family_fits` were wrong for the umbrella families of these five (`ieee_float`, `decimal`, and IEEE profile laws), the new rule could refuse every valid package of that kind and no test would fail. | tests/it/checked_package_v2_catalogue_differential.rs:579-702; tests/it/checked_package_v2_operand_families.rs:1374 |
 
 Round 2. Verified by reviewing
-`git diff..`.
+`git diff origin/main...HEAD`.
 
 **Selected entries.** Enumerated from the locked catalogue, all 21
 `result: member`/`member: type_argument` entries now have an admitted
@@ -174,4 +174,4 @@ could confuse is left uncontrolled.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-005 | fixed | All six entries now have admitted controls in the differential: from_exact and the two IEEE sums with an `ieee_profile` law, convert_rounding, sum.decimal, and sum.quantity through `quantity_sum_control`. Each also has a mismatched-result refusal. All six admit under the base reader as well. |
+| FND-005 | fixed | All six entries now have admitted controls in the differential: from_exact and the two IEEE sums with an `ieee_profile` law, convert_rounding, sum.decimal, and sum.quantity through `quantity_sum_control()`. Each also has a mismatched-result refusal. All six admit under the base reader as well. |

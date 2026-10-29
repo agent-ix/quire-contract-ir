@@ -23,7 +23,7 @@ Independent code review with Rust lane of the frozen PR head. The diff adds a cl
 
 ## Finding Detail
 
-- FND-001: The dependency-reference validator still accepts a raw Value and calls term.get("package") and term.get("node"). The type-argument operation checker reads application.node.body.get("result_type") on a RawSemanticNodeV2. The malformed timed-model binding fallback calls value.as_object?.get("value") on a term, so the new view is bypassed for that refusal-order path. These are production reader paths, not test fixtures or metadata lookups. The literal ticket criterion forbids non-test IR or CG term reads through Value::get on string keys, and the PR claims one projection for the raw term. Route these paths through the closed projection while preserving their present refusal order and pointers.
+- FND-001: The dependency-reference validator still accepts a raw Value and calls term.get("package") and term.get("node"). The type-argument operation checker reads application.node.body.get("result_type") on a RawSemanticNodeV2. The malformed timed-model binding fallback calls value.as_object()?.get("value") on a term, so the new view is bypassed for that refusal-order path. These are production reader paths, not test fixtures or metadata lookups. The literal ticket criterion forbids non-test IR or CG term reads through Value::get on string keys, and the PR claims one projection for the raw term. Route these paths through the closed projection while preserving their present refusal order and pointers.
 
 ## Scope and Evidence
 

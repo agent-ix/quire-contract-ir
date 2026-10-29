@@ -31,7 +31,7 @@ CONDITIONAL. FND-001 leaves four new containment branches without direct accepta
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, `choice_parallel_repeat_and_await_hold_controls_at_their_own_paths` independently constructs all four holder layouts, admits each correct tree, and mutates every child path to assert the exact `invalid_semantic_graph` node refusal. The focused public-reader test passed. |
+| FND-001 | fixed | In the reviewed PR, `choice_parallel_repeat_and_await_hold_controls_at_their_own_paths` independently constructs all four holder layouts, admits each correct tree, and mutates every child path to assert the exact `invalid_semantic_graph` node refusal. The focused public-reader test passed. |
 
 ## Current verdict
 

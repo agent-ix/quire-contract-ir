@@ -37,7 +37,7 @@ The rename mechanics are sound. The id set is identical, the matrix rows are pre
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | deferred | IR-485 filed; the collisions already existed on main and do not block #236 |

@@ -11,9 +11,9 @@ review_set: subset
 ## Summary
 
 Ticket: IR-504. The FR-038 requirement statement ("When Contract IR receives
-checked-package bytes, the consumer shall...") is unchanged and is an event-driven EARS
-form. The edited "When a node is... the reader shall reconstruct... require the owner to
-join..." sentence keeps its `shall`. FR-038-AC-45 is a criterion, not a requirement
+checked-package bytes, the consumer shall ...") is unchanged and is an event-driven EARS
+form. The edited "When a node is ... the reader shall reconstruct ... require the owner to
+join ..." sentence keeps its `shall`. FR-038-AC-45 is a criterion, not a requirement
 statement. Its trigger, condition and response are explicit: emitted under content-only
 `ModelOwner`, it admits; with a `version` member, it refuses `unknown_member`; with an empty
 `identity` or `node`, it refuses `invalid_semantic_graph`. It is compound, which matches
@@ -28,11 +28,11 @@ the file's own long multi-clause criteria (AC-43, AC-44).
 ## Verdict
 
 Acceptable with one low wording finding. Restating the paragraph as "the reader shall
-re-derive... and shall refuse..." makes it an obligation and removes the implemented-tense
+re-derive ... and shall refuse ..." makes it an obligation and removes the implemented-tense
 reading.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

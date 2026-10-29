@@ -134,9 +134,9 @@ Disposition pass 1, run `1434983b-9e92-462d-a089-0d5c3259f8d8`. The fix commit's
 recorded only in the Linear dispositions comment, per this repository's rule. Static
 re-read only: the reviewer ran no cargo build or test.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | PR #319 review-fix commit. Under `QSPEC_CONFORMANCE` the test now panics when `QUIRE_SPECIFICATION_DIR` is unset or empty. The Makefile sets that flag, selects the test by its full path with `--exact`, and fails unless exactly one `test result: ok. 1 passed; 0 failed; 0 ignored` line appears. Mutant (a), a rename or `cfg` that matches zero tests, fails the count check. Mutant (b), a mistyped env-var literal, panics |
 | FND-002 | fixed | PR #319 review-fix commit. `assert_eq!(rows.len(), 12, ..)` became `assert!(!rows.is_empty(), ..)`. A 13th QSpec vector no longer fails IR, and an empty list still fails |
 | FND-003 | fixed | PR #319 review-fix commit. Three assertions now name the input: the scratch path for the malformed document, `acme/orders` for the missing digest, and `base` for the package that does not admit. A mutant that drops `{}`/`{identity}`/`{name}` from those `format!` strings fails |
-| FND-004 | fixed | PR #319 body at the disposition head. It names the change: `reference-target-repointed` matches two `composite_type/reference` nodes, each is mutated on its own, and both must refuse `invalid_package`/`stale-node-key`. The code still fails on zero matches and asserts the refusal for every match. No spec text requires exactly one match, so TC text is not needed |
+| FND-004 | fixed | PR #319 body at the reviewed disposition. It names the change: `reference-target-repointed` matches two `composite_type/reference` nodes, each is mutated on its own, and both must refuse `invalid_package`/`stale-node-key`. The code still fails on zero matches and asserts the refusal for every match. No spec text requires exactly one match, so TC text is not needed |

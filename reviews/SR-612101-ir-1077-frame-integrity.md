@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1077. Reviewed PR #650 against QSpec , FR-340-AC-12/19/20, FR-342-AC-2/7/8/9, FR-341-AC-11/12 and IR FR-061-AC-14/15/16.
+Ticket: IR-1077. Reviewed PR #650 against QSpec, FR-340-AC-12/19/20, FR-342-AC-2/7/8/9, FR-341-AC-11/12 and IR FR-061-AC-14/15/16.
 
 ## Verdict
 

@@ -60,11 +60,11 @@ Reviewed at agent-ix/quire-contract-ir.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-007 | low | `is_clause_application` reads the global `operation_catalog` instead of the `catalog: &OperationCatalog` that `check_operands` receives and uses for every other family decision. A caller that passes a different catalog gets clause classification from the production catalog. It is behaviour-neutral today, because every caller passes `operation_catalog` | crates/quire-contract-model/src/checked_package/v2/operations.rs:679-687 |
+| FND-007 | low | `is_clause_application` reads the global `operation_catalog()` instead of the `catalog: &OperationCatalog` that `check_operands` receives and uses for every other family decision. A caller that passes a different catalog gets clause classification from the production catalog. It is behaviour-neutral today, because every caller passes `operation_catalog()` | crates/quire-contract-model/src/checked_package/v2/operations.rs:679-687 |
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

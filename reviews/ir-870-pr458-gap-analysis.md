@@ -24,7 +24,7 @@ Diff-scoped traceability check of PR #458 against. The six cross-repository QSpe
 
 ## Verdict
 
-**PASS** — Same-command `quire coverage --scope. --strict` reports six unmatched NFR-060/061 warnings at base and zero at head. Both commits report 527/596 backed, 40 unbacked, and 0 contradicted. All 562 computed criterion rows have identical normalized ID, status, and binder path/name/kind. The unchanged 40 unbacked rows are outside this one-file repair.
+**PASS** — Same-command `quire coverage --scope . --strict` reports six unmatched NFR-060/061 warnings at base and zero at head. Both commits report 527/596 backed, 40 unbacked, and 0 contradicted. All 562 computed criterion rows have identical normalized ID, status, and binder path/name/kind. The unchanged 40 unbacked rows are outside this one-file repair.
 
 ## Coverage
 

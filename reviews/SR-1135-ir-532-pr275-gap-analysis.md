@@ -14,7 +14,7 @@ Ticket: IR-532 (and its parent IR-476). Plan completion: not assessed. This revi
 to the PR diff and the FR-038 acceptance criteria it binds (AC-44, AC-56, AC-81 through
 AC-86, AC-88), plus the matrix rows that describe them.
 
-Measured with `quire coverage --scope. --json` at and at, in the
+Measured with `quire coverage --scope . --json` at the base and PR head, in the
 same reviewer worktree:
 
 - **Backed targets.** 225 to 232 of 263. The newly backed targets are FR-038-AC-81, AC-82,
@@ -42,8 +42,8 @@ same reviewer worktree:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | Both matrix rows that describe AC-81 through AC-88 still say they are untagged and planned. The FR-038 row says "AC-81 through AC-88... are planned... those tests carry no `#[trace]` tag yet... so no other row is backed until the binding PR tags them". The TC-048 row says "AC-81 through AC-88 are planned (IR-532 spec, then a binding code PR) and are not yet tagged". After this PR, coverage reports AC-81 to AC-86 and AC-88 as backed. The status prose now contradicts the code, and `--strict` cannot catch it (0 contradicted), because the row status is the whole-row 🚧. This PR is that binding PR, so it should rewrite both sentences to implemented, naming the `operations.rs` unit tests (and AC-44's added leaf test) | spec/checked_package/matrix/tests.md:15, spec/checked_package/matrix/tests.md:23 |
-| FND-002 | low | AC-83's second clause says the `rounding` mismatch is refused when the domain is reached "by a `reference`... and, separately, by a `literal` whose `type` names it". The reference path is bound (`operation_defect_refuses_mode_type_mismatch_on_operand`). The literal path is asserted only in `operation_defect_checks_literal_and_application_operands` (the "Mode pin" block), which this PR binds to AC-85 alone. The file already uses multi-AC traces (`#[trace("TC-048", "FR-038-AC-69", "FR-038-AC-98")]` at line 6834). Fix: `#[trace("TC-048", "FR-038-AC-83", "FR-038-AC-85")]` with the matching `Tracing:` line | crates/quire-contract-model/src/checked_package/v2/operations.rs:6227-6237 |
+| FND-001 | medium | Both matrix rows that describe AC-81 through AC-88 still say they are untagged and planned. The FR-038 row says "AC-81 through AC-88 ... are planned ... those tests carry no `#[trace]` tag yet ... so no other row is backed until the binding PR tags them". The TC-048 row says "AC-81 through AC-88 are planned (IR-532 spec, then a binding code PR) and are not yet tagged". After this PR, coverage reports AC-81 to AC-86 and AC-88 as backed. The status prose now contradicts the code, and `--strict` cannot catch it (0 contradicted), because the row status is the whole-row 🚧. This PR is that binding PR, so it should rewrite both sentences to implemented, naming the `operations.rs` unit tests (and AC-44's added leaf test) | spec/checked_package/matrix/tests.md:15, spec/checked_package/matrix/tests.md:23 |
+| FND-002 | low | AC-83's second clause says the `rounding` mismatch is refused when the domain is reached "by a `reference` ... and, separately, by a `literal` whose `type` names it". The reference path is bound (`operation_defect_refuses_mode_type_mismatch_on_operand`). The literal path is asserted only in `operation_defect_checks_literal_and_application_operands` (the "Mode pin" block), which this PR binds to AC-85 alone. The file already uses multi-AC traces (`#[trace("TC-048", "FR-038-AC-69", "FR-038-AC-98")]` at line 6834). Fix: `#[trace("TC-048", "FR-038-AC-83", "FR-038-AC-85")]` with the matching `Tracing:` line | crates/quire-contract-model/src/checked_package/v2/operations.rs:6227-6237 |
 
 ## Verdict
 
@@ -63,7 +63,7 @@ Measured again at head: `quire validate` passes with grammar 1 (FR-014). Strict 
 unbacked rows and 0 contradicted. Backed is 232/263. Rust tagged is 416 and bound is 414.
 `operations.rs` has 5 unmatched tags, the same as base. FR-038-AC-44, AC-56 and AC-81
 through AC-88 are all backed. AC-87 was already backed at base, by the operand-classification
-test's `#[trace("TC-048", "FR-038-AC-87")]` (introduced by #253, ). It was not in the
+test's `#[trace("TC-048", "FR-038-AC-87")]` (introduced by #253). It was not in the
 newly-backed set, so the matrix's "AC-87 already tagged" claim holds.
 
 FND-001. Both matrix rows and `spec/tests.md` now say AC-81 through AC-88 are implemented
@@ -76,7 +76,7 @@ AC-83's literal-path clause is bound.
 
 No new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

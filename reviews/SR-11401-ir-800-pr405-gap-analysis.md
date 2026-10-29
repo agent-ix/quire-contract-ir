@@ -54,11 +54,11 @@ Plan completion: not assessed. Semantic review: scoped to FR-038-AC-242..245, th
 
 ## Dispositions
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: item 22 now lists String, Uuid and Timestamp. Observation, not a finding against this PR: Record and Variant are still missing from the list, which predates this PR |
-| FND-002 | fixed |: AC-242..245 read "IMPLEMENTED (IR-800; tagged reader tests passed)", matching the AC-225..227 convention, and TC-048 drops the "claims none" text. All four criteria have tagged tests that pass |
-| FND-003 | fixed |: asserts the exact invalid_package/invalid-value refusal at /body/value for budget `high`, Incomplete with limit_kind Work and limit high-1 below it, and high < upper |
-| FND-004 | fixed |: text_comparison_rejects_string_at_its_mode_value now loops String over argument positions 0 and 1 |
+| FND-001 | fixed | item 22 now lists String, Uuid and Timestamp. Observation, not a finding against this PR: Record and Variant are still missing from the list, which predates this PR |
+| FND-002 | fixed | AC-242..245 read "IMPLEMENTED (IR-800; tagged reader tests passed)", matching the AC-225..227 convention, and TC-048 drops the "claims none" text. All four criteria have tagged tests that pass |
+| FND-003 | fixed | asserts the exact invalid_package/invalid-value refusal at /body/value for budget `high`, Incomplete with limit_kind Work and limit high-1 below it, and high < upper |
+| FND-004 | fixed | text_comparison_rejects_string_at_its_mode_value now loops String over argument positions 0 and 1 |
 | FND-005 | still-open | changed the Timestamp comparison pair from ("0", "1") to ("-1", "1"). -1 is now covered, but 0 is no longer an admitted comparison payload. TC-048 names 0, 1 and -1, so the controls still cover only two of the three |
-| FND-005 | fixed |: the Timestamp cases are now ("-1", "1") and ("0", "1"), so 0, 1 and -1 are each admitted comparison operands under both eq and ne (round 2) |
+| FND-005 | fixed | the Timestamp cases are now ("-1", "1") and ("0", "1"), so 0, 1 and -1 are each admitted comparison operands under both eq and ne (round 2) |

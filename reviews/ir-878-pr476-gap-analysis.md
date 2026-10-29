@@ -16,7 +16,7 @@ tag's test asserts the whole criterion, using mutants run in a throwaway worktre
 
 ### Strict coverage
 
-`quire coverage --scope. --strict` (quire 0.36.2, engine 0.50.2) was run on main
+`quire coverage --scope . --strict` (quire 0.36.2, engine 0.50.2) was run on main
 and on the PR head.
 
 - Backed rows go from 536/607 to 541/607, with 0 contradicted statuses.

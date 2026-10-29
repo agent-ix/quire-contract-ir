@@ -48,4 +48,4 @@ The test tagged FR-058-AC-9 constructs four independent packages and compares re
 
 ## Post-disposition compile correction
 
-, the AC-9 test computes `positions` by borrowing `sources` through `std::array::from_fn` instead of consuming the array with `map`. All node/package identity inequalities and accessor value assertions remain intact. FND-001 stays fixed. Hosted CI and the focused local test were still pending at this inspection; this note makes no gate claim.
+The AC-9 test computes `positions` by borrowing `sources` through `std::array::from_fn` instead of consuming the array with `map`. All node/package identity inequalities and accessor value assertions remain intact. FND-001 stays fixed. Hosted CI and the focused local test were still pending at this inspection; this note makes no gate claim.

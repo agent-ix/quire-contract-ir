@@ -78,7 +78,7 @@ Reviewed at agent-ix/quire-contract-ir, against QSpec origin/main. AC-112 now st
 
 Round 1, reviewed at agent-ix/quire-contract-ir.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |
@@ -94,6 +94,6 @@ Round 2, reviewed at agent-ix/quire-contract-ir. The delta is one hunk, FR-038's
 
 Clarification of FND-007's rationale, which leaves the original row unchanged: in the reader's code, `validate` recomputes `package_id` over `identity_preimage`, which a body mutation does not change. `validate_graph` then runs the term walk (`validate_body`, mod.rs:1725) before the `dependencies` checks and the identity-projection comparison (mod.rs:1857). So the identity refusals the round-0 probe saw come from the term walk admitting nested terms, not from the order alone. Once IR-495 makes the term walk refuse nested terms, those refusals come first. The "reader as it stands" sentence is accurate: the term walk does run after the `package_id` recomputation. `make spec`: validate passes, grammar 1 (FR-014), strict 23 unbacked.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-007 | fixed | Fixed in the reviewed PR. |

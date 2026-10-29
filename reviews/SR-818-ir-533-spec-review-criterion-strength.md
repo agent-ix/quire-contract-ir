@@ -47,7 +47,7 @@ refuses UTF-16 order. It also fails if any grammar or `package_id` refusal decid
 because each document also carries a grammar defect. AC-74 and AC-75 now add non-ASCII and
 astral strings, ±2^53, 0, -1, and names ordered the same under UTF-8 and UTF-16.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed |
 | FND-002 | fixed | fixed |

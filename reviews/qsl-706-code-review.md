@@ -89,11 +89,11 @@ scope:
   role: examined
   excerpt: "\n## Typed source-selection vectors\n\nUse these exact FR-322 `Selection`\
     \ rows (the short labels below denote typed\nvalues, never identifier-parsing\
-    \ rules):\n\n```json\n{\n \"T\": {\"role\": \"temporal_profile\", \"definition\"\
+    \ rules):\n\n```json\n{\n  \"T\": {\"role\": \"temporal_profile\", \"definition\"\
     : {\"authority\": \"agent-ix\", \"identity\": \"quire.temporal.infinite-trace/v1\"\
-    }},\n \"D\": {\"role\": \"temporal_profile\", \"definition\": {\"authority\"\
+    }},\n  \"D\": {\"role\": \"temporal_profile\", \"definition\": {\"authority\"\
     : \"agent-ix\", \"identity\": \"quire.temporal.event-position.false-extension/v1\"\
-    }},\n \"U\": {\"role\": \"protocol_profile\", \"definition\": {\"authority\"\
+    }},\n  \"U\": {\"role\": \"protocol_profile\", \"definition\": {\"authority\"\
     : \"agent-ix\", \"identity\": \"quire.protocol.finite-global/v1\"}}\n}\n```\n\n\
     Construct independently admitted FR-"
 - id: TC-044
@@ -136,7 +136,7 @@ Base checklist and language-independent code review only. No applicable Assuranc
 
 Round 1 reviewed. The original findings above remain unchanged.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 

@@ -39,4 +39,4 @@ QSpec FR-330 keeps the unsupported wire payload closed. QSpec FR-370 fixes the t
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR, AC-27 and TC-047 use a temporal-clause root whose fairness argument references a distinct fairness node. QSpec FR-370 explicitly permits that reference, and the fairness node remains a zero-operand application that does not reference the clause. Direct fairness and formula requests remain covered. |
+| FND-001 | fixed | In the reviewed PR, AC-27 and TC-047 use a temporal-clause root whose fairness argument references a distinct fairness node. QSpec FR-370 explicitly permits that reference, and the fairness node remains a zero-operand application that does not reference the clause. Direct fairness and formula requests remain covered. |

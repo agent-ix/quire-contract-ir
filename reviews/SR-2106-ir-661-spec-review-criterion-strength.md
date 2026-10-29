@@ -48,7 +48,7 @@ Ticket: IR-661. Method: `spec-review/spec-criterion-strength-analysis`. Reviewer
 
 Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | AC-169 now names the observable outcome: `ill_typed`/`operator-ineligible` at `member.declaration`, after owner recovery and before role lookup, without invalidating the object owner. (Manual judgement; Jev still unavailable.) |
 | FND-002 | fixed | The unobservable retention clause is replaced by observable mutations: renaming a role makes the old name `missing-name` and the new name resolve, and destination changes are observed through AC-170 result nodes. No accessor is invented. (Manual judgement; Jev still unavailable.) |

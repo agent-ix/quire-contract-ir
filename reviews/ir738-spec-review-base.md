@@ -153,7 +153,7 @@ bindings:
 
 Round 1; reviewed. Both original findings fixed in the actual documentation. Original findings and round-zero verdict remain unchanged.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | fixed | Fixed in the reviewed PR. |

@@ -12,13 +12,13 @@ review_set: subset
 
 Ticket: IR-450. Reviewed. The PR was cut
 from origin/main (#257, the spec). During the
-review #258 merged, and main moved to. The head
+review #258 merged, and main moved. The head
 is now one commit behind and conflicts with main in `spec/checked_package/matrix/tests.md`
 (FND-001). The rust-review lane is folded into this file. Every check ran in a separate
 detached worktree, not taken from the PR body.
 
 Predicate. `quantity_position_ends(&positions, &ordered)` is a separate function. It is
-called only inside `if profile.require_bounds`. `requires_bound` changes only in its doc
+called only inside `if profile.require_bounds`. `requires_bound()` changes only in its doc
 comment: `Unit` and `CompoundUnit` stay in the `false` arm, and the typed path is
 unchanged. `quantity_chain` is exhaustive over every family and form:
 
@@ -27,7 +27,7 @@ unchanged. `quantity_chain` is exhaustive over every family and form:
   `semantic_type`;
 - anything else ends the chain with no quantity.
 
-The walk is a `for _ in 0..=closure.len` loop over a `BTreeMap` of the closure. It is
+The walk is a `for _ in 0..=closure.len()` loop over a `BTreeMap` of the closure. It is
 iterative, with no call to itself. It is bounded by the closure size. A cycle exits after
 n+1 steps with no insert, and a base outside the closure breaks. It inserts the `node_id`
 of the node at the end of the chain (the unit), never the position or a domain.
@@ -39,7 +39,7 @@ never a position. An application's `result_type` and `semantic_type` go to `type
 A requested unit or compound unit has no position of its own, so it lowers.
 
 Interaction. The quantity test is one more disjunct in the existing
-`ordered.iter.find(...)`. So a single record names the least `node_id` among every
+`ordered.iter().find(...)`. So a single record names the least `node_id` among every
 offender: recursive, quantity, unbounded at a position, or typed-and-unbounded. There is
 no double reporting, and the eight forms' refusals are unchanged. `require_bounds: false`
 skips the block entirely.
@@ -66,7 +66,7 @@ the same node.
 
 Mutation probes, each reverted (the `checked_package_v2` filter):
 
-- `Unit`/`CompoundUnit` added to `requires_bound`: TC-052's eight-forms test and
+- `Unit`/`CompoundUnit` added to `requires_bound()`: TC-052's eight-forms test and
   `tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached` fail;
 - the chain walk dropped (`Base => break`): `..._requires_a_bound_naming_the_unit` fails;
 - the position named instead of the unit: the same test fails;
@@ -79,8 +79,7 @@ Mutation probes, each reverted (the `checked_package_v2` filter):
 Recursion versus iteration cannot be tested: a deep chain would only show stack depth. The
 code has no self-call, so this is settled by reading the code.
 
-QSL agreement. This was run in a detached QSL worktree at origin/main
-, with a command-line `--config patch` to this head
+QSL agreement. This was run in a detached QSL worktree at origin/main, with a command-line `--config patch` to this head
 and no file edits. With `--include-ignored`, all six `extent_agreement` tests pass,
 including the ignored `tc_440_quantity_extent_agrees_with_ir_requires_bound` (Measure). The
 same run against IR main fails that test. The QSL package suite otherwise has one
@@ -103,9 +102,8 @@ this head. The only blocker is the tests.md conflict with #258.
 
 ## Dispositions
 
-Round 1, rebased onto origin/main
-, which is still current. Against
-, `lower.rs` and the test file are byte-identical.
+Round 1, rebased onto origin/main, which is still current. Against
+`lower.rs` and the test file are byte-identical.
 The delta, excluding the rebase, is one FR-038 sentence (see SR-831) and the re-resolved
 tests.md.
 
@@ -117,6 +115,6 @@ The gate log ir-450-r2-ci.log ends
 0 contradicted, and none of them FR-038. `it` passed 189 and lib 101. Re-run here:
 require_bounds passed 14 of 14 and the TC-052 eight-forms test passed. No new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

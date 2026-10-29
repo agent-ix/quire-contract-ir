@@ -43,6 +43,6 @@ amendments that SR-1127 asks for.
 
 Round 1, reviewed at agent-ix/quire-contract-ir. `make spec`: validate passes, 1 grammar finding (FR-014 baseline), strict 23 unbacked (baseline).
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |

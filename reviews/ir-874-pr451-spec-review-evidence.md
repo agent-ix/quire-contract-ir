@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Checked whether the specified independent oracle and test inputs exist. The machine vectors and regenerated protocol fixtures are not yet published. Ticket: IR-874. Frozen head:.
+Checked whether the specified independent oracle and test inputs exist. The machine vectors and regenerated protocol fixtures are not yet published. Ticket: IR-874. Reviewed the frozen PR head.
 
 ## Examined units
 

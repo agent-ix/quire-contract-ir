@@ -34,7 +34,7 @@ Reviewed the public candidate API, its shared reader encoders, and the changed t
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | — grouped structural and application encoding now accept typed provisional selectors; the reader's final-digest check remains in reference_target. |
 

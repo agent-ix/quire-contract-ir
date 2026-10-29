@@ -16,8 +16,7 @@ relationships:
 ## Summary
 
 Ticket: IR-323. Plan completion: not assessed. This is a spec-only PR, so the gap analysis
-re-measures every claim the two ADs make about code. IR was read at origin/main, QSL at
-, codegen and runtime, the same revisions the ADs name.
+re-measures every claim the two ADs make about code. IR was read at origin/main, QSL at its reviewed main state, codegen and runtime, the same revisions the ADs name.
 
 These claims were re-verified and hold:
 - `src/lib.rs:12` is a glob, and the crate doc calls itself a "compatibility bridge".
@@ -62,10 +61,10 @@ absent from IR. FND-002 gives a false reason for a routed need.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |: AD-005:59-62 and D-3 (:140-144), and AD-006:61-64, now say that the root crate currently exports KaniProviderResult and KaniProviderRecord (outcome.rs:56-89, mod.rs:23) and that the target is removal under IR-347 |
-| FND-002 | fixed |: R3-Q1 is dropped. AD-005:94 now reads "none: the manifests resolve the model package" |
-| FND-003 | fixed |: AD-006:102 reads "tc_041 today; target: cargo-deny bans entries as well", with gap "no deny entry exists yet". AD-005 D says "Target... No such entry exists today". deny.toml is unchanged |
-| FND-004 | fixed |: AD-005:93 reads "an external edge of layer 4 beside quire-canonical" |
-| FND-005 | fixed |: AD-005:76-77 cites v2/mod.rs:759-760 and serde_json::to_value of the typed preimage.:104 cites V2ReadIncomplete as "documented at checked_v2.rs:53" |
+| FND-001 | fixed | AD-005:59-62 and D-3 (:140-144), and AD-006:61-64, now say that the root crate currently exports KaniProviderResult and KaniProviderRecord (outcome.rs:56-89, mod.rs:23) and that the target is removal under IR-347 |
+| FND-002 | fixed | R3-Q1 is dropped. AD-005:94 now reads "none: the manifests resolve the model package" |
+| FND-003 | fixed | AD-006:102 reads "tc_041 today; target: cargo-deny bans entries as well", with gap "no deny entry exists yet". AD-005 D says "Target... No such entry exists today". deny.toml is unchanged |
+| FND-004 | fixed | AD-005:93 reads "an external edge of layer 4 beside quire-canonical" |
+| FND-005 | fixed | AD-005:76-77 cites v2/mod.rs:759-760 and serde_json::to_value of the typed preimage.:104 cites V2ReadIncomplete as "documented at checked_v2.rs:53" |

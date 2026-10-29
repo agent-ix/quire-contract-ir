@@ -38,6 +38,6 @@ also removes one recurring merge conflict with #250 and #253.
 
 Round 1. The hand-kept count '(42 of 70 FR-038 rows)' is deleted from the FR-038 row and no other count was added. The word diff of tests.md is that one deletion only. No new findings.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | fixed |

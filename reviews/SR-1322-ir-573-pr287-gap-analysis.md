@@ -3,7 +3,7 @@ id: SR-1322
 title: "PR #287 IR-573 / IR-542 AC-109..AC-111 gap analysis"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (AC-109, AC-110, AC-111), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/tests.md, tests/it/checked_package_v2_model_members.rs, tests/it/checked_package_v2_canonical_encoding.rs (git diff origin/main...HEAD, )"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (AC-109, AC-110, AC-111), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/tests.md, tests/it/checked_package_v2_model_members.rs, tests/it/checked_package_v2_canonical_encoding.rs (git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038

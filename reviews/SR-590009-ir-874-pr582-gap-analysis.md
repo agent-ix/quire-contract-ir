@@ -30,7 +30,7 @@ The changed public reader tests trace FR-038-AC-290 for receive/send, parallel i
 
 ## Coverage
 
-Plan completion: not assessed. `quire matrix --scope. --format tsv` completed: FR-038-AC-290 is tagged by three public-reader tests at lines 3525, 4840 and 4883. The tags do not establish the missing positive repeat and cross-edge cases. No repository-wide assurance claim is made from this scoped PR review. The changed production code has FR-038-AC-290 as owner and no new stub. Optional repository-wide semantic review was not requested; this review compared the changed public-reader assertions to the criterion. Host backoff barred Cargo, Rustc, Make and test jobs; no tests were started.
+Plan completion: not assessed. `quire matrix --scope . --format tsv` completed: FR-038-AC-290 is tagged by three public-reader tests at lines 3525, 4840 and 4883. The tags do not establish the missing positive repeat and cross-edge cases. No repository-wide assurance claim is made from this scoped PR review. The changed production code has FR-038-AC-290 as owner and no new stub. Optional repository-wide semantic review was not requested; this review compared the changed public-reader assertions to the criterion. Host backoff barred Cargo, Rustc, Make and test jobs; no tests were started.
 
 ## New findings (disposition pass 2)
 
@@ -42,9 +42,9 @@ Plan completion: not assessed. `quire matrix --scope. --format tsv` completed: F
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |, AC-290 tags now cover existing bounded and unbounded repeat admissions and compensation-anchor admission; an added unbounded-with-proof repeat admits. Public tests newly assert effect-before-attempt and compensation-forward-effect causal cycles, and a later-sibling await cycle that wins over a conflicting guard. |
-| FND-002 | still-open |, TC-226's `read_at(M - 1)` outcome checks `limit_kind`, `limit` and `consumed` but does not assert `incomplete.path`, although FR-038-AC-149 requires the first unpaid value's pointer at this exact whole-read boundary. |
-| FND-002 | fixed |, TC-226 now asserts `/semantic_graph/nodes/22` for the exact whole-read M-1 refusal. Fixture `base` puts the empty sequence root at node 22, `recursive` appends nodes without moving it, and `check_clause_causality`'s seventh and final work charge is the reverse-preorder progress visit at that root. The earlier Tree 489/490 pointer assertion remains. |
+| FND-001 | fixed | In the reviewed PR, AC-290 tags now cover existing bounded and unbounded repeat admissions and compensation-anchor admission; an added unbounded-with-proof repeat admits. Public tests newly assert effect-before-attempt and compensation-forward-effect causal cycles, and a later-sibling await cycle that wins over a conflicting guard. |
+| FND-002 | still-open | In the reviewed PR, TC-226's `read_at(M - 1)` outcome checks `limit_kind`, `limit` and `consumed` but does not assert `incomplete.path`, although FR-038-AC-149 requires the first unpaid value's pointer at this exact whole-read boundary. |
+| FND-002 | fixed | In the reviewed PR, TC-226 now asserts `/semantic_graph/nodes/22` for the exact whole-read M-1 refusal. Fixture `base` puts the empty sequence root at node 22, `recursive` appends nodes without moving it, and `check_clause_causality`'s seventh and final work charge is the reverse-preorder progress visit at that root. The earlier Tree 489/490 pointer assertion remains. |
 
 ## Disposition verdict
 
@@ -56,8 +56,8 @@ Plan completion: not assessed. `quire matrix --scope. --format tsv` completed: F
 
 ## Later measured pointer check
 
-, TC-226 still asserts the exact whole-read M-1 limit 496, consumed 497 and `/semantic_graph/nodes/22` pointer, with no admitted package. It also asserts the earlier Tree limit 489, consumed 490 and `/semantic_graph/nodes/38/dependencies/0` pointer. Hosted Rust Checks measured the latter pointer as the actual first unpaid value (897 passed, one TC-226 failure on the former expected pointer); the corrected expectation matches that measurement. Fixture construction leaves the run control at node 22, and the final causal progress charge targets it. **PASS for the recorded findings **, pending hosted execution at this head.
+TC-226 still asserts the exact whole-read M-1 limit 496, consumed 497 and `/semantic_graph/nodes/22` pointer, with no admitted package. It also asserts the earlier Tree limit 489, consumed 490 and `/semantic_graph/nodes/38/dependencies/0` pointer. Hosted Rust Checks measured the latter pointer as the actual first unpaid value (897 passed, one TC-226 failure on the former expected pointer); the corrected expectation matches that measurement. Fixture construction leaves the run control at node 22, and the final causal progress charge targets it. **PASS for the recorded findings **, pending hosted execution at this head.
 
 ## Rebased head check
 
-, `git range-diff....` matches ten earlier commits one for one, including the review-artifact commits; the added test-only commit updates TC-226's work-boundary names and whole-read pointer. Hosted Rust Checks at the rebased pre-fix measured `/semantic_graph/nodes/38/body/members/0/value/target` at the exact 496/497 whole-read boundary (897 passed, one TC-226 assertion failed against the stale node-22 expectation). The new head asserts that measured pointer and retains the 489/490 `/semantic_graph/nodes/38/dependencies/0` assertion, `Incomplete` no-package outcomes, limit kinds and consumed counts. The charge-order comment now places causal graph work before the final recursion walk. **PASS for the recorded findings **, with hosted execution at this head pending.
+The range-diff matches ten earlier commits one for one, including the review-artifact commits; the added test-only commit updates TC-226's work-boundary names and whole-read pointer. Hosted Rust Checks at the rebased pre-fix measured `/semantic_graph/nodes/38/body/members/0/value/target` at the exact 496/497 whole-read boundary (897 passed, one TC-226 assertion failed against the stale node-22 expectation). The new head asserts that measured pointer and retains the 489/490 `/semantic_graph/nodes/38/dependencies/0` assertion, `Incomplete` no-package outcomes, limit kinds and consumed counts. The charge-order comment now places causal graph work before the final recursion walk. **PASS for the recorded findings **, with hosted execution at this head pending.

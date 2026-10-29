@@ -10,7 +10,7 @@ review_set: subset
 
 Ticket: IR-760. Method: spec-review/base. Frozen PR #393. The edited selector, acceptance criterion, and test step consistently require the population type node’s Type occurrence. The surrounding selector and typed outcome contract remains coherent.
 
-Examined FR-053 Inputs, FR-053-AC-1, and TC-453 Test Procedure step 2. Read the other FR-053 criteria and TC-453 steps as context. Producer evidence: `qsl-semantics/src/check/lowering.rs` records the binder `type_key` as `OccurrenceRole::Type`; `qsl-semantics/src/check/lowering/model.rs` constructs that key as `bounded_domain` / `model_population`; `qsl-package/src/emit.rs` preserves the role and ordinal in `CheckedSourceMapEntry`. Those files are unchanged from QSL origin/main in the checked out QSL tree.
+Examined FR-053 Inputs, FR-053-AC-1, and TC-453 Test Procedure step 2. Read the other FR-053 criteria and TC-453 steps as context. Producer evidence: `qsl-semantics/src/check/lowering.rs` records the binder `type_key` as `OccurrenceRole::Type`; `qsl-semantics/src/check/lowering/model.rs` constructs that key as `bounded_domain` / `model_population`; `qsl-package/src/emit.rs` preserves the role and ordinal in `CheckedSourceMapEntry`. Those files are unchanged from QSL origin/main 9925955 in the checked out QSL tree.
 
 ## Verdict
 

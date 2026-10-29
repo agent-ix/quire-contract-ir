@@ -36,7 +36,7 @@ Ticket: IR-1068. Reviewed PR #635 against merged main. The single canonical publ
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed |, `ExpressionInput.execution_point` is private `WireExecutionPoint`; `check_expression_input` calls its `validate` before binding comparison or expression checking. The four validation arms use `AnchorName::new`, so empty and `tick now` now return `InvalidIdentifier` for unbound expression operation and bound binding expression input. The V2 `ExecutionPoint::from_wire` path remains nonempty-only and separate. |
+| FND-001 | fixed | In the reviewed PR, `ExpressionInput.execution_point` is private `WireExecutionPoint`; `check_expression_input` calls its `validate` before binding comparison or expression checking. The four validation arms use `AnchorName::new`, so empty and `tick now` now return `InvalidIdentifier` for unbound expression operation and bound binding expression input. The V2 `ExecutionPoint::from_wire` path remains nonempty-only and separate. |
 
 ## Disposition verdict
 

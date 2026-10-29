@@ -3,7 +3,7 @@ id: SR-11674
 title: code-review and rust-review of IR-225 catalogue-driven member-result admission
 type: SpecReview
 analysis: code-review
-scope: agent-ix/quire-contract-ir; PR 409 branch code/ir-225-member-family; diff origin/main...;
+scope: agent-ix/quire-contract-ir; PR 409 branch code/ir-225-member-family; diff origin/main...HEAD;
   crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/admitted_guard_context.rs, tests/it/admitted_result_context.rs, tests/it/checked_package_v2_ieee_admission.rs, tests/it/checked_package_v2_operand_families.rs, tests/it/checked_package_v2_recursive_leaves.rs, spec/checked_package (FR-038, TC-048, tests.md)
 review_set: subset
 ---
@@ -22,8 +22,7 @@ The catalogue has 21 entries with `result: member` and `member: type_argument`.
 `bound_is_member`. Two further entries have `member: type_argument` and a
 different result form: `quire.op.model.lookup` (`result: absence`) and
 `quire.op.model.all_instances` (`result: set`). The QSL producer emits all four.
-See qsl-semantics/src/check/lowering.rs:3633-3667 and:3980-4000 at QSL main
-.
+See qsl-semantics/src/check/lowering.rs:3633-3667 and :3980-4000 at QSL main.
 
 Selection is driven by the entry's shape, not by a list of names. An entry is
 selected when `entry.member == type_argument`, or when `result == member` and
@@ -135,11 +134,11 @@ QUIRE_SPEC_LANGUAGE_DIR set to a QSL main checkout:
 - id: operations.rs/operation_defect
   path: crates/quire-contract-model/src/checked_package/v2/operations.rs
   role: examined
-  excerpt: 'OperationMemberKind::TypeArgument => { member.as_object.is_some_and(|fields| fields.len == 2) && member_declaration(&operation).is_some }'
+  excerpt: 'OperationMemberKind::TypeArgument => { member.as_object().is_some_and(|fields| fields.len() == 2) && member_declaration(&operation).is_some() }'
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: context_only
-  excerpt: The catalogue's `result: member` entries with `member: type_argument` are `quire.op.quantity.convert`... `quire.op.collection.fold`, `quire.op.collection.reduce`... `quire.op.collection.size` and `quire.op.collection.convert`.
+  excerpt: The catalogue's `result: member` entries with `member: type_argument` are `quire.op.quantity.convert`, ... `quire.op.collection.fold`, `quire.op.collection.reduce`, ... `quire.op.collection.size` and `quire.op.collection.convert`.
 ```
 
 ## Findings
@@ -154,7 +153,7 @@ QUIRE_SPEC_LANGUAGE_DIR set to a QSL main checkout:
 ## Dispositions
 
 Round 1. Verified by reviewing
-`git diff..` (,, ) in a throwaway
+`git diff origin/main...HEAD` () in a throwaway
 worktree.
 
 Public-reader probe table, rerun with the same scratch packages. At main,
@@ -188,7 +187,7 @@ Gates:
 | FND-004 | fixed | The type-argument shape is now owned by `member_is_well_formed` (temporal.rs:410-435), through a `deny_unknown_fields` `TypeArgumentMember { kind, declaration: CheckedNodeId }`. The inline rule and the `_ =>` wildcard in `operation_defect` are gone. |
 
 Round 2. Re-verified
-(`git diff..`:, ). The diff touches only tests
+(`git diff origin/main...HEAD`:). The diff touches only tests
 and spec, so the round-1 fixes in operations.rs and temporal.rs are
 unchanged. No finding in this file needed a new outcome.
 
