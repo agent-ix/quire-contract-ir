@@ -1030,3 +1030,159 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
     assert_eq!(result(&add, &second), second_result);
     assert_eq!(result(&application_one, &first), first_result);
 }
+
+/// Scalar operands, source map, result context and work boundaries for the admitted fixture with a declared protocol body.
+#[trace("TC-447", "FR-049-AC-5")]
+#[test]
+fn scalar_and_result_views_and_work_boundaries_hold_on_the_admitted_fixture() {
+    let wire = fixture();
+    let bytes = canonical(&wire);
+    let checked = admit(&wire);
+    let add = by_operation(&checked, "quire.op.integer.add");
+    let narrow = by_operation(&checked, "quire.op.numeric.narrow");
+    let occurrence = quire_contract_model::CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let scalar = checked.scalar_application_operands(&add.node_id, &occurrence);
+    let scalar = scalar.expect("scalar operands");
+    let [parameter, literal] = scalar.as_slice() else {
+        panic!("two scalar operands")
+    };
+    assert_eq!(parameter.ordinal, 0);
+    assert_eq!(
+        parameter.range,
+        quire_contract_model::CheckedScalarOperandRange { lower: 0, upper: 9 }
+    );
+    let parameter_key: CheckedNodeId = serde_json::from_value(
+        wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("authored nodes")
+            .iter()
+            .find(|node| {
+                node["node_id"] == serde_json::to_value(&add.node_id).expect("application id")
+            })
+            .expect("authored application")["body"]["arguments"][0]["target"]
+            .clone(),
+    )
+    .expect("parameter key");
+    assert_eq!(
+        parameter.child,
+        quire_contract_model::CheckedScalarOperandChild::GraphChild(parameter_key)
+    );
+    assert_eq!(literal.ordinal, 1);
+    assert_eq!(
+        literal.range,
+        quire_contract_model::CheckedScalarOperandRange { lower: 1, upper: 1 }
+    );
+    assert_eq!(
+        literal.child,
+        quire_contract_model::CheckedScalarOperandChild::InlineLiteral {
+            application: add.node_id.clone(),
+            occurrence: occurrence.clone(),
+            ordinal: 1
+        }
+    );
+    let missing: CheckedNodeId =
+        serde_json::from_value(node_id(&"f".repeat(64))).expect("missing id");
+    let missing_scalar = checked.scalar_application_operands(&missing, &occurrence);
+    assert_eq!(
+        missing_scalar,
+        Err(quire_contract_model::CheckedScalarOperandError::UnknownNode)
+    );
+    assert_eq!(
+        *checked.package_id(),
+        serde_json::from_value(wire["package_id"].clone()).expect("package identity")
+    );
+    let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
+        serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
+    assert_eq!(checked.source_map(), authored_sources);
+    let evidence = evidence_for(&wire);
+    let mut low = 0;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
+            other => panic!("baseline work: {other:?}"),
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    else {
+        panic!("work boundary");
+    };
+    assert_eq!(incomplete.consumed, high);
+
+    let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
+    let result = contract.result_context(
+        &add.node_id,
+        &add,
+        Some(&narrow),
+        BoundedDomainForm::IntegerRange,
+    );
+    let ContractResultViewV1::Lowered(view) = result.expect("result context") else {
+        panic!("lowered")
+    };
+    assert_eq!(view.application, add);
+    assert_eq!(view.conversion, Some(narrow.clone()));
+    assert_eq!(view.identity, contract.identity());
+    assert_eq!(view.provenance, &contract.wire().package);
+    let ContractResultContextV1::Narrowed {
+        conversion,
+        conversion_sources,
+        bound,
+    } = view.context
+    else {
+        panic!("selected direct narrow")
+    };
+    assert_eq!(conversion.node_id, narrow.node_id);
+    assert_eq!(conversion_sources, sources_for(&contract, &narrow.node_id));
+    assert_eq!(bound.node.body, bounds_body("0", "10"));
+    assert_eq!(bound.sources, sources_for(&contract, &bound.node.node_id));
+    let missing_conversion = ContractOccurrenceKeyV1 {
+        ordinal: 99,
+        ..narrow.clone()
+    };
+    let missing_result = contract.result_context(
+        &add.node_id,
+        &add,
+        Some(&missing_conversion),
+        BoundedDomainForm::IntegerRange,
+    );
+    let ContractResultViewV1::Lowered(missing_view) = missing_result.expect("missing result")
+    else {
+        panic!("lowered")
+    };
+    assert_eq!(
+        missing_view.context,
+        ContractResultContextV1::IncompleteContext
+    );
+    let contract_bytes = canonical(&serde_json::to_value(contract.wire()).expect("wire"));
+    assert_eq!(contract.identity(), &contract.wire().identity);
+    let mut low = 0;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match ContractPackageWireV1::read(&contract_bytes, limits, &ContractDependencies::new()) {
+            ContractPackageReadResult::Admitted(_) => high = middle,
+            ContractPackageReadResult::Incomplete(_) => low = middle,
+            other => panic!("baseline contract work: {other:?}"),
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let ContractPackageReadResult::Incomplete(incomplete) =
+        ContractPackageWireV1::read(&contract_bytes, limits, &ContractDependencies::new())
+    else {
+        panic!("contract work boundary");
+    };
+    assert_eq!((high, incomplete.consumed), (74, 74));
+}

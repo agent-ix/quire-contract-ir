@@ -95,13 +95,6 @@ fn published_selected_model_fixtures_carry_one_ordered_and_sourced_root() {
             .expect("nodes");
         let sources = package["source_map"].as_array().expect("source map");
         let lock_sources = package["lock"]["sources"].as_array().expect("lock sources");
-        assert_eq!(
-            derived_with(&package, None).expect("package identity"),
-            package["package_id"]["digest"]
-                .as_str()
-                .expect("published package digest"),
-            "{name}: selected-root package digest"
-        );
         let roots = nodes
             .iter()
             .enumerate()

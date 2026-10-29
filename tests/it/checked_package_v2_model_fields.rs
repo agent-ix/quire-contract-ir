@@ -2745,3 +2745,52 @@ fn tc_227_the_struct_members_are_reached_through_accessors() {
     assert_eq!(balance.member_type(), Some(&range(0, 1000)));
     assert_eq!(fields.field("balance"), Some(balance));
 }
+
+/// The model object fields, authored source map and exact admitting work boundary.
+#[trace("TC-227", "FR-038-AC-139", "FR-038-AC-144")]
+#[test]
+fn model_fields_source_map_and_work_boundary_hold() {
+    let (wire, evidence) = record_project_control();
+    let bytes = canonical(&wire);
+    let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("baseline admission: {other:?}"),
+    };
+    let result = admitted
+        .model_object_fields(&declaration_id(ORDER))
+        .expect("model fields");
+    let [string] = result.fields() else {
+        panic!("one model field")
+    };
+    assert_eq!(string.name(), "string");
+    assert_eq!(string.member_type(), Some(&CheckedMemberType::String));
+    let missing = admitted.model_object_fields(&declaration_id("Absent"));
+    assert_eq!(missing, Err(CheckedModelFieldsError::UnknownNode));
+    assert_eq!(
+        *admitted.package_id(),
+        serde_json::from_value(wire["package_id"].clone()).expect("package identity")
+    );
+    let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
+        serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
+    assert_eq!(admitted.source_map(), authored_sources);
+    let mut low = 0;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
+            other => panic!("baseline work: {other:?}"),
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    else {
+        panic!("work boundary");
+    };
+    assert_eq!(incomplete.consumed, high);
+}

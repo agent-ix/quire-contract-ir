@@ -893,3 +893,81 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
         unlisted.assert_refused(BAD_GRAPH, "/semantic_graph/nodes/6/dependencies");
     }
 }
+
+/// The selected population, its provenance and the exact admitting work boundary.
+#[trace("TC-048", "FR-038-AC-277")]
+#[test]
+fn selected_population_result_provenance_and_work_boundary_hold() {
+    let (scenario, population) = linked(ORDER, "3", &[2, 0]);
+    let bytes = canonical(&scenario.package);
+    let package = scenario.admitted();
+    let selected = reaches_id(&package);
+    let result = package
+        .reaches_population(&selected)
+        .expect("reaches result")
+        .expect("selected population");
+    assert_eq!(result.package_id, *package.package_id());
+    assert_eq!(result.binding, typed_id(&population));
+    assert_eq!(
+        result.occurrence,
+        CheckedOccurrence {
+            role: CheckedOccurrenceRole::Type,
+            ordinal: 0
+        }
+    );
+    let missing = Selector {
+        package_id: package.package_id().clone(),
+        binding: typed_id(&population),
+        occurrence: CheckedOccurrence {
+            role: CheckedOccurrenceRole::Type,
+            ordinal: 99,
+        },
+    };
+    let missing_result = select_population(Source::Admitted {
+        package: &package,
+        selector: missing.clone(),
+    });
+    assert_eq!(missing_result, Outcome::MissingOccurrence(missing));
+    let Outcome::Finite(finite) = select_population(Source::Admitted {
+        package: &package,
+        selector: result,
+    }) else {
+        panic!("finite selected population")
+    };
+    assert_eq!(finite.package_id, *package.package_id());
+    assert_eq!(finite.binding, typed_id(&population));
+    assert_eq!(
+        finite.occurrence,
+        CheckedOccurrence {
+            role: CheckedOccurrenceRole::Type,
+            ordinal: 0
+        }
+    );
+    assert_eq!(finite.object_type, order_declaration_id());
+    assert_eq!((finite.minimum, finite.maximum), (0, 3));
+    let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
+        serde_json::from_value(scenario.package["source_map"].clone()).expect("authored sources");
+    assert_eq!(package.source_map(), authored_sources);
+    let selected_source = authored_sources
+        .iter()
+        .find(|source| {
+            source.node_id == finite.binding
+                && source.role == CheckedOccurrenceRole::Type
+                && source.ordinal == 0
+        })
+        .expect("selected authored source");
+    assert_eq!(finite.provenance, selected_source.regions);
+    assert_eq!(
+        *package.package_id(),
+        serde_json::from_value(scenario.package["package_id"].clone()).expect("package identity")
+    );
+    let high = least_admitting_work(&scenario);
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        CheckedPackageV2::read(&bytes, limits, &scenario.evidence)
+    else {
+        panic!("work boundary");
+    };
+    assert_eq!(incomplete.limit, high - 1);
+}
