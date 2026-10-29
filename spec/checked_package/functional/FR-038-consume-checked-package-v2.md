@@ -25,6 +25,26 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-260
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-261
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-262
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-263
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-264
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-265
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-266
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-342-AC-11
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-415-AC-22
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-415-AC-23
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-415-AC-24
+    type: references
   - target: ix://agent-ix/quire-specification/FR-330-AC-4
     type: references
   - target: ix://agent-ix/quire-specification/FR-152
@@ -1698,7 +1718,9 @@ bindings `model`, `time_dimension`, `source`, `clock_places`, `resets`,
 carries `kind`, `unit`, `model`, `operation`, and `period`; its explicit
 `model` reference equals the root model, and its operation references a
 `state`/`operation_anchor` whose context is that model. A `clock_place` carries
-`model`, `path`, `resolved_path`, and `guards`. The resolved-path table has one
+`model`, `path`, and `resolved_path`; a `guards` binding on the place SHALL
+refuse at strict wire validation. The timed root retains its `guards` aggregate
+as the sole list of `clock_guard` nodes. The resolved-path table has one
 ordered row per path step and retains the declaring type, member identity,
 member type, collection kind and bounds; the terminal member type is the
 native `Clock` marker, possibly under an `Option` wrapper that contributes no
@@ -1722,28 +1744,64 @@ an expression node, or a type node other than the selector domain SHALL refuse
 `invalid_package`/`malformed-clock-place` at the slot path step. A scalar map
 key type is admitted only when the exact key type node is selected; unresolved
 or unsupported key domains refuse the place rather than defaulting to Text.
-The reader SHALL admit an empty `guards` aggregate on a place or timed root
-when the model has no guard; an unlisted guard SHALL refuse as a timed-node
-reference, and two places with the same path and different guards SHALL refuse
-as a duplicate clock place.
+The reader SHALL admit an empty `guards` aggregate on a timed root when the
+model has no guard. It SHALL refuse any timed node absent from its root's
+corresponding aggregate as `invalid_package`/`timed-node-reference` at the
+unlisted node's own `body`, visiting unlisted nodes in node-id digest order.
+Two distinct place nodes with the same path SHALL reach the
+duplicate-clock-place refusal if their aggregate order is otherwise valid.
 
-For each of the timed root's `clock_places`, `resets`, `guards`, `invariants`,
-`urgencies` and `constraints` reference aggregates, and for each
-`clock_place`'s `guards` reference aggregate, the reader SHALL require the
-members in strictly ascending order of their referenced node's source-region
-key. That key is the minimum (`source.identity`, `start`, `end`) triple across
-every region of every `source_map` entry for that node; identities compare as
-UTF-8 bytes and positions as integers. Equal keys or a later member whose
-key is below its predecessor SHALL refuse `invalid_semantic_graph` with no
-cause at `/semantic_graph/nodes/{i}/body/members/{b}/value/members/{j}`,
-where `j` is the first offending reference, `b` is the root aggregate's
-binding index or `3` for a place's `guards`, and `i` is the containing node's
-graph index. An empty or one-member aggregate is in order. This check SHALL
-run after strict wire, graph-shape and structural-key checks, but before a
-duplicate-clock-place or unlisted-guard refusal on the same timed node. The
-reader SHALL use no node-id digest to order these aggregates; a repeated
-clock path in two distinct nodes remains subject to the source-region order
-before its duplicate-path check.
+For each timed root's `clock_places`, `resets`, `guards`, `invariants`,
+`urgencies` and `constraints` aggregate, each guard part's constraints and
+each invariant's bounds, the reader SHALL require strictly ascending order
+by the referenced node's minimum (`source.identity`, `start`, `end`) triple
+across all of its `source_map` regions, followed, on a tie, by QSpec
+FR-322-AC-265's structural member key. Source identities compare as UTF-8
+bytes and positions as integers. A place's structural key is its path steps;
+a constraint, reset, invariant, guard or urgency uses its specified form,
+operation and parameter names, and structural terms, with comparison rank
+`lt`, `le`, `eq`, `ge`, `gt` and numeric rational bounds. Terms SHALL be keyed
+by form and body shape with references replaced by target structure, never
+by a shared term's region, type reference, node-id digest or package digest.
+For a place path, `resolved_path` and the slot selector do not enter the key.
+Equal keys or a member below its predecessor SHALL refuse
+`invalid_semantic_graph` with no cause at that member's exact aggregate
+reference locus. An empty or one-member aggregate is in order. This check
+SHALL run after strict wire, graph-shape and structural-key checks and before
+unlisted-node, per-node join and duplicate-clock-place checks. A repeated
+clock path in two distinct nodes remains subject to aggregate order before
+its duplicate-path check.
+
+The timed reader SHALL validate the closed clause layouts of QSpec
+FR-322-AC-261: `clock_constraint` of kind `place` has `kind`, `place`,
+`owner`, `slots`, `comparison`, `bound`; kind `parameter` has `kind`,
+`operation`, `parameter`, `comparison`, `bound`. `clock_reset` of kind
+`place` has `kind`, `operation`, `place`, `owner`, `slots`, `binders`,
+`condition`, `value`; kind `parameter` has `kind`, `operation`,
+`parameter`, `value`. `clock_guard` has `operation`, nonempty `parts`,
+each part a Boolean `predicate` followed by at least one constraint
+reference. `time_invariant` has a Boolean `predicate` and nonempty
+`bounds`. The five comparison words include `eq`; invariant bounds admit
+only `lt` and `le`. Empty parts or bounds, an empty part constraint list,
+an unknown comparison, a parameter reset with `condition`, and a place
+with `guards` SHALL refuse at strict wire validation before any timed join.
+
+After aggregate order the reader SHALL find all unlisted timed nodes before
+joining any timed node. It SHALL then join timed nodes by ascending node-id
+digest and apply model-wide checks last. An operation binding of a guard,
+reset or parameter constraint SHALL name an `operation_anchor` of the root's
+model with no execution point; a frame, a foreign-model anchor or an anchor
+with a point SHALL refuse `invalid_package`/`timed-node-reference` at the
+offending binding. A `parameter` SHALL name a declared `Clock` parameter of
+that operation. A place clause's owner and ordered slots SHALL fit its place
+template; a reset's binders SHALL be slot terms in path order, its condition
+Boolean and its operation frame SHALL modify the place's first field. A
+guard part SHALL use a constraint of the same operation, and an invariant
+SHALL use only place constraints. A second guard for one operation and a
+listed constraint named by no guard part or invariant SHALL refuse at QSpec
+FR-322-AC-263's loci. Quantified guard or invariant source clauses SHALL
+retain the `unsupported_construct`/`not-yet-implemented` refusal naming
+STD-554; the reader SHALL not admit an unquantified approximation.
 
 The existing one-operand `quire.op.option.present` application over an
 Option-typed term SHALL retain its meaning and key. The reader SHALL also
@@ -5507,14 +5565,20 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-322 | The public V2 writer round-trips an admitted timed model through the reader with the same complete node order, semantic identities, selected model and exact normalized quantities, and emits no `identity_preimage.identity_projection` member. | Test (TC-048) |
 | FR-038-AC-323 | For each timed root, the `time_dimension` reference names the exact selected base `Time` dimension node, and the source unit's `dimension_node_id` equals that node by identity. A tick source that owns a clock place refuses `invalid_package`/`clock-without-dense-time` at the place's model reference target. A source unit whose dimension is base `Length`, a derived non-Time dimension or a nominal derived-Time dimension refuses `ill_typed`/`invalid-time-quantity` at the source unit reference target `/semantic_graph/nodes/{source}/body/members/1/value/target`, for both dense and tick sources; dimension equivalence, matching terms, names or declaration order do not replace identity equality. | Test (TC-367; TM-23..TM-29) |
 | FR-038-AC-335 | PLANNED/UNRUN (IR-1083). One `clock_place` template admits `ts.0.x`, `ts.1.x` and `ts.2.x` over `Sequence<Timer>[0, 3]` with path steps `field(ts)`, `slot(sequence, Integer type node, 0, 3)`, `field(x)` and one node key; Set, Bag and OrderedSet paths admit with their own collection literal and key, two nested sequences admit two Integer-typed slot steps, and `Map<Text, Clock>` admits with the exact Text key type node. No place node stores a concrete index or state element count. A slot selector given as an integer literal, an expression node, the Text type node under Sequence, or the Integer type node under `Map<Text, _>` refuses `invalid_package`/`malformed-clock-place` at `/semantic_graph/nodes/{i}/body/members/1/value/members/{j}`. | Test |
-| FR-038-AC-336 | PLANNED/UNRUN (IR-1083). A `clock_place` and `timed_model` root with empty `guards` admit when their selected model has no guard. The same path with one guard has a distinct place key but a second place of that path with different guards refuses `invalid_package`/`duplicate-clock-place`. A `clock_guard` omitted from the root's guard aggregate refuses `invalid_package`/`timed-node-reference`; the reader does not interpret the omission as an absent guard. | Test |
+| FR-038-AC-336 | PLANNED/UNRUN (IR-1083; amended by IR-1109). A `timed_model` root with empty `guards` admits when its selected model has no guard. Adding one root-listed guard changes the guard and root identities while leaving the same `clock_place` path template unchanged; a `guards` binding on the place refuses at strict wire validation. A second distinct place node of the same path in otherwise canonical order refuses `invalid_package`/`duplicate-clock-place`. A `clock_guard` omitted from the root's guard aggregate refuses `invalid_package`/`timed-node-reference` at the unlisted guard's own `body`; omission is never interpreted as an absent guard. | Test |
 | FR-038-AC-337 | PLANNED/UNRUN (IR-1083). The public reader admits the Boolean `presence_read` place form of `quire.op.option.present` for `present(other.v)`, `present(self.q[i])` and `present(e)` in a quantifier over `q`, with arguments exactly the place template, owner, and each slot term in path order. The `q` slot terms `i` and `e` are typed at the Integer selector domain, including the quantifier binder `e`, rather than at the element value type. Each application retains its own rederived key while every instance of one path shares its place template key; no model, type, parameter or place node gains a presence member or `Option<Boolean>`. The existing one-operand Option form keeps its admission and key. | Test |
 | FR-038-AC-338 | PLANNED/UNRUN (IR-1083). A place-form `presence_read` over `q` lacking its slot term refuses `ill_typed`/`operator-ineligible` at the application's `/body/arguments`; a first argument that is not a `clock_place` refuses that pair at `/body/arguments/0`; an Integer-typed owner instead of the place's object owner and a wrong-typed slot term each refuse `ill_typed`/`type-mismatch` at the offending argument. No refusal returns an admitted package. | Test |
 | FR-038-AC-339 | PLANNED/UNRUN (IR-1083). For `v: Option<Clock>`, the place has only `field(v)` and one resolved-path row retaining `Option<Clock>`; the reader joins that row to the selected owner's declared `v`, optional presence and `Clock` inner type, then accepts terminal Clock after unwrapping Option without adding a path step. For `q: Sequence<Option<Clock>>`, it admits `field(q)` and a symbolically selected `slot` whose row retains Option type. A missing selected member, wrong declared presence or wrong inner type refuses the existing malformed-clock-place path join; the owner object-type key is unchanged by the field set. | Test |
 | FR-038-AC-340 | PLANNED/UNRUN (IR-1083). TC-048 reads QSpec's published `timed-slot-selector-vectors.json` through the selected checkout, with no copy in IR, and checks SL-01 through SL-08, SR-01 through SR-04, GD-01 through GD-03 and PR-01 through PR-06 against exact admission or each vector's expected code and cause. For SR-01..04 and PR-04..06, it also checks the vector's RFC 6901 locus suffix. For GD-02, it checks the later root `clock_places` reference locus fixed by QSpec FR-322-AC-120. GD-03 has no vector locus or exact locus in FR-322-AC-150: its exact refusal locus remains PLANNED pending STD-540, and the eventual conformance test checks the QSpec-defined locus rather than accepting a fabricated location as evidence. The test checks reader stage against FR-322's stated order, separately from the vector data. Rebuilt node and package keys are checked before timed-body or operation refusals, and the existing Option-operand form remains an admitted control. | Test |
-| FR-038-AC-342 | PLANNED/UNRUN (IR-1096). The public V2 reader admits QSpec's selected `AO-01` timed-slot package and `AO-05` tie-on-start package, including six root reference aggregates and a place's `guards` in strictly increasing minimum source-region order. It refuses each identity-current `AO-02`, `AO-03`, `AO-04`, `AO-06` and `AO-07` patch as `invalid_semantic_graph` with no cause at the vector's exact first out-of-order member locus; `AO-03` does not admit merely because references are in node-id digest order, `AO-06` compares ends when starts tie, and `AO-07` considers the earlier region in an additional source-map entry. A root or place aggregate with two references to distinct nodes whose minimum keys are equal refuses at the second member. A repeated place path in two distinct, correctly ordered nodes reaches the existing `duplicate-clock-place` refusal; an ordered root with an omitted guard reaches the existing unlisted-guard refusal. In each case strict-wire, graph-shape and stale-key defects still refuse at their earlier stages, with no timed-order verdict substituting for them. | Test (TC-048; QSpec FR-322-AC-260, AO-01..AO-07) |
+| FR-038-AC-342 | PLANNED/UNRUN (IR-1096; amended by IR-1109). The public V2 reader admits QSpec's selected `AO-01` timed-slot package and `AO-05` tie-on-start package: all six root reference aggregates ascend by each node's minimum source-region triple, followed on a tie by FR-322-AC-265's structural member key. It refuses identity-current `AO-02`, `AO-03`, `AO-04`, `AO-06` and `AO-07` as `invalid_semantic_graph` with no cause at the first out-of-order member locus; digest order cannot admit `AO-03`, tied starts use ends in `AO-06`, and `AO-07` uses the earlier region of the additional source-map entry. `AO-08` admits tied-region places in path order; `AO-09` and `AO-10` refuse reversed or equal structural place keys at the second member before a duplicate-path check. A distinct, correctly ordered repeated place path reaches `duplicate-clock-place`, and a root missing a guard reaches the unlisted-guard refusal. Strict-wire, graph-shape and stale-key defects still take precedence. | Test |
 
 | FR-038-AC-343 | The public V2 reader replays every published row of QSpec `nominal-rekey-vectors.json` from `QUIRE_SPECIFICATION_DIR`, admits `NK-00`, and compares each refusal's exact code, cause and RFC 6901 locus. `NK-01`, `NK-02`, `NK-03`, `NK-05` and `NK-07` refuse `invalid_semantic_graph` with no cause at the recorded nominal `node_id`; `NK-04` and `NK-10` refuse `invalid_package`/`stale-node-key` at the recorded compound-unit locus; `NK-06` and `NK-08` refuse that pair at the recorded application-node locus; `NK-09` and `NK-13` refuse `missing_declaration`/`missing-selection` at the owner node's `node_id`; `NK-11` refuses `invalid_package`/`invalid-derived-shape` at the compound-unit `node_id`; `NK-12` refuses `invalid_semantic_graph` at the independent dangling-reference node; and `NK-14` refuses `missing_declaration`/`missing-name` at the frame's `semantic_type`. `TW-05` retains its stale selected-declaration-key refusal and `TW-06` through `TW-09` retain `missing_declaration`/`missing-selection` at the tuple or variant node's `/owner`, before their dependent dangling `semantic_type` or `dependencies` edges. A dangling `reference` target equal to any stale node's recomputed key is deferred, including the two-to-one `NK-05` case; a target absent from that set restores the earlier graph-shape refusal. The one order is graph shape and independent dangling `reference`, application key (grouped `union_value` included), nominal key in ascending retained digest order, owner join, structural key first pass then group-label pass, derived-shape semantic checks, and QSpec's applicable dangling `semantic_type`/`dependencies` edge check. Swapping any adjacent pair changes at least one published first refusal. Missing or malformed vectors, or any missing baseline `NK-00` through `NK-14` row, fail conformance; QSpec artifacts are never copied into IR. | Test (TC-048; QSpec TC-940, FR-322-AC-160 through FR-322-AC-162, FR-322-AC-169, FR-322-AC-170) |
+| FR-038-AC-357 | PLANNED/UNRUN (IR-1109). The public V2 reader admits the selected QSpec `CL-01` clause package and verifies the exact closed bodies of `clock_constraint` kinds `place` and `parameter`, `clock_reset` kinds `place` and `parameter`, `clock_guard`, `time_invariant`, and three-binding `clock_place`. It admits `eq` as a constraint comparison outside invariants. `CL-17` through `CL-20`, `CL-27` and `CL-28` refuse at strict wire validation before semantic joins, covering empty guard parts, empty invariant bounds, unknown comparison, a guard part without a constraint, place `guards` and a conditional parameter reset. | Test |
+| FR-038-AC-358 | PLANNED/UNRUN (IR-1109). After aggregate order, the reader refuses the first unlisted timed node by node-id digest at that node's own `/body`, before any per-node join: `CL-05` (constraint), `CL-26` (reset) and an omitted guard all return `invalid_package`/`timed-node-reference`. After per-node joins, a second guard for one anchor (`CL-04`) and a root-listed constraint named by no part or invariant (`CL-06`) refuse at QSpec's exact operation and root-constraint loci respectively. A listed clause and a referenced constraint admit in the positive control. | Test |
+| FR-038-AC-359 | PLANNED/UNRUN (IR-1109). Root aggregates, each guard part's constraint list and each invariant's bounds use the region-first then structural key of QSpec FR-322-AC-260/265. `CL-16`, `CL-30`, `CL-32` and each reversed member-key case `CL-34`, `CL-36`, `CL-38`, `CL-40`, `CL-42`, `CL-44`, `CL-46`, `CL-49`, `CL-51`, `CL-53` refuse `invalid_semantic_graph` with null cause at the first nonascending member; their paired ordered cases admit. Numeric rational bounds, comparison rank, owner and slot terms, operation, condition, value, binder and every invariant bound/predicate distinguish ties. `CL-47` admits when a shared term acquires an earlier region; no shared term's region or node digest reorders its owner. | Test |
+| FR-038-AC-360 | PLANNED/UNRUN (IR-1109). A guard, reset or parameter constraint joins its `operation` to an `operation_anchor` of the root model with no execution point and retains the anchor's declaration occurrence only once. `CL-02` frame, `CL-03` pointed anchor and `CL-25` foreign-model anchor refuse `invalid_package`/`timed-node-reference` at the operation target. `CL-03` is reader-level until STD-555 admits the point carrier in the V2 schema; it is not counted as a schema-valid vector. An urgency of kind `operation` retains its model-plus-name form. | Test |
+| FR-038-AC-361 | PLANNED/UNRUN (IR-1109). Per-node joins enforce a place clause's owner type, slot count and selector-domain types; reset operation frame write, binder membership/order and Boolean condition; parameter declaration and `Clock` type; guard-part constraint operation; Boolean guard and invariant predicates; and invariant upper-bound comparisons `lt` or `le`. `CL-07` through `CL-15`, `CL-21` through `CL-24` match QSpec's exact typed code, cause and locus, including `ill_typed` owner/slot refusals and `invalid_package`/`timed-node-reference` joins; `CL-01` remains admitted. | Test |
+| FR-038-AC-362 | PLANNED/UNRUN (IR-1109). TC-048 reads QSpec's selected `timed-clause-node-vectors.json` and its published fixture directly from the selected QSpec checkout, applies `CL-01` through `CL-53`, compares exact admission or code, cause and RFC 6901 locus, and checks the order stage independently of the vector label. It checks the dense model and slot fixtures also carry the same closed forms and current keys. Malformed wire, graph shape and stale keys precede timed order, then unlisted-node, per-node join and model-wide checks; a combined-defect control makes each adjacent precedence observable. No QSpec file is copied into IR. | Test |
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
 refused `unsupported_construct`/`expression-form`, which IR-549 lifts: those classes
