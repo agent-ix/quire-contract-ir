@@ -31,9 +31,9 @@ one target profile, and explicit aggregate limits before mapper dispatch.
 
 - One constructor-private `BoundPackage` produced by strict executable-projection admission.
 - An ordered nonempty list of executable clause identities and their exact source-fact states.
-- Exact native, model, and semantic selection identities, revisions, and raw digests.
-- One target family, ordered target-standard references, mapping profile identity,
-  mapping revision, raw mapping-rule digest, and closed requested-capability set.
+- Exact native, model, and semantic selection names and versions.
+- One target family, ordered target-standard references, mapping profile name,
+  mapping revision, and closed requested-capability set.
 - Explicit request-byte, obligation, expression-node, nesting-depth, mapping-work,
   record, and emitted-byte limits.
 
@@ -50,8 +50,8 @@ one target profile, and explicit aggregate limits before mapper dispatch.
 ## Behavior
 
 - The coordinator shall resolve each selected clause through the supplied
-  `BoundPackage` and retain its clause identity, kind, anchor, source span,
-  declaration digest, expression digest, and ordered dependencies.
+  `BoundPackage` and retain its clause reference, kind, anchor, source span,
+  typed declaration environment, typed expression, and ordered dependencies.
 - The coordinator shall reject an empty, duplicate, informational, missing,
   stale, foreign, or reordered-after-admission obligation selection.
 - The coordinator shall classify an obligation that resolves to no executable
@@ -60,24 +60,24 @@ one target profile, and explicit aggregate limits before mapper dispatch.
   `foreign_obligation` when the identity names a package other than the bound
   package; otherwise `stale_obligation` when the bound package holds that
   requirement id at a different revision; otherwise `unknown_obligation`.
-  Package identity is compared before any revision in the bound package is
+  The package name is compared before any revision in the bound package is
   read, so an identity that is both foreign and would be stale elsewhere is
   `foreign_obligation`.
 - The coordinator shall accept only the fixed FS06 target-family/profile pairs
-  and revision `1-draft.1` without inferring a target, revision, digest,
+  and revision `1-draft.1` without inferring a target, revision,
   capability, tool, observer, path, or default.
 - The coordinator shall preserve native/model/semantic selections independently
   from the selected target profile.
 - The coordinator shall reject zero, exceeded, or arithmetically overflowing
   limits before mapper dispatch whenever the nonempty request cannot fit.
-- The coordinator shall canonicalize the request identity material through
+- The coordinator shall canonicalize the request material through
   `quire-canonical` with `maximum_request_bytes` as the encoder's ceiling,
   never encoding without a ceiling and comparing lengths afterwards.
 - The coordinator shall admit canonical request material of exactly
   `maximum_request_bytes` and refuse material one byte over with
   `request_limit_exceeded` at `request` (FR-034 states the same rule for record
-  and package identity).
-- The coordinator shall write the request limits into the identity material as
+  and package material).
+- The coordinator shall write the request limits into the canonical material as
   decimal strings.
 - The coordinator shall expose no partially admitted request after validation,
   allocation, cancellation, or resource failure.
@@ -88,10 +88,10 @@ one target profile, and explicit aggregate limits before mapper dispatch.
 | --- | --- | --- |
 | FR-032-AC-1 | A valid request retains the exact bound package, ordered unique executable obligations, three source selections, one matching target profile, closed capabilities, and all limits. | Test (TC-043) |
 | FR-032-AC-2 | Empty, duplicate, informational, missing, stale, foreign, cross-family, unknown, omitted, zero-limit, over-limit, and overflowed inputs refuse before mapper dispatch with no target bytes. | Test (TC-043) |
-| FR-032-AC-3 | Target family, standard references, mapping revision/digest, capability, and native/model/semantic selection mutations change request equality or refuse admission. | Test (TC-043) |
+| FR-032-AC-3 | Target family, standard references, mapping revision, capability, and native/model/semantic selection name or version mutations change the admitted request's typed values or refuse admission; no raw digest or content identity is retained. | Test (TC-043) |
 | FR-032-AC-4 | Path, timestamp, locale, display text, installed software, observer state, and previous requests cannot supply or alter an admitted semantic selection. | Test (TC-043) |
 | FR-032-AC-5 | Every emitted refusal code has exactly one STD-003 row and every STD-003 row is emittable, no spelling is shared with the STD-001 diagnostic catalog in either direction, and an obligation that is simultaneously foreign and stale-by-revision refuses as `foreign_obligation` while a same-package present-requirement wrong-revision obligation refuses as `stale_obligation` rather than `unknown_obligation`. | Test (TC-051, TC-043) |
-| FR-032-AC-6 | A request whose canonical identity material is exactly `maximum_request_bytes` long admits and one whose material is one byte longer refuses `request_limit_exceeded` at `request` with no mapper invocation; the request identity step, called through a seam that takes the ceiling as an argument as FR-034-AC-6's package step does and records the ceiling it passes to the encoder, passes exactly `maximum_request_bytes` and never `u64::MAX`; and a request whose `maximum_emitted_bytes` is `18446744073709551615` admits. | Test (TC-043) |
+| FR-032-AC-6 | A request whose canonical material is exactly `maximum_request_bytes` long admits and one whose material is one byte longer refuses `request_limit_exceeded` at `request` with no mapper invocation; the bounded request encoding step passes exactly `maximum_request_bytes` to the encoder and never `u64::MAX`, without retaining a digest or identity material; a request whose `maximum_emitted_bytes` is `18446744073709551615` admits. | Test (TC-043) |
 
 ## Dependencies
 
@@ -102,4 +102,6 @@ one target profile, and explicit aggregate limits before mapper dispatch.
 - [STD-003](STD-003-output-mapping-refusal-registry.md) owns the closed refusal
   code catalog this requirement, FR-033 and FR-034 emit from.
 - `ix://agent-ix/quire-specification/FR-120`, `FR-297`, and `NFR-060` are the
-  accepted FS06 request, profile, and resource authorities.
+  FS06 request, profile, and resource authorities. Their current content-digest
+  selection clauses require a QSpec revision before this name/version-only
+  request contract can be implemented.

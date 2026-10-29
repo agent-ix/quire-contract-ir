@@ -42,7 +42,6 @@ is dispatched and before any target byte exists.
 
 | Code | Condition | Required location |
 |---|---|---|
-| `invalid_digest` | A supplied raw digest is not a lowercase 64-character SHA-256 hexadecimal string | `digest` |
 | `invalid_source_selection` | A native, model, or semantic selection identity or revision is empty, unbounded, or outside visible ASCII | `selection` |
 | `unknown_target_family` | The requested target family is outside the fixed FS06 family set | `profile.target_family` |
 | `missing_target_standard` | The profile carries no ordered target-standard reference | `profile.target_standard_refs` |
@@ -71,7 +70,7 @@ code, selected in this order and never pooled:
 3. `unknown_obligation` — neither of the above holds.
 
 The order is total: an identity that is both foreign and would be stale in
-another package is `foreign_obligation`, because package identity is checked
+another package is `foreign_obligation`, because the package name is checked
 before any revision in the bound package is read.
 
 ## Accounting and Mapper-Seam Codes
@@ -81,7 +80,7 @@ dispatched mapper's candidates against the admitted limits.
 
 | Code | Condition | Required location |
 |---|---|---|
-| `request_limit_exceeded` | The canonical identity material of the request, of one of its records or of the package exceeds the declared request-byte limit it is encoded under | `request`; `record.identity`; `package.identity` |
+| `request_limit_exceeded` | The canonical material of the request, of one of its records or of the package exceeds the declared request-byte limit it is encoded under | `request`; `record`; `package` |
 | `obligation_limit_exceeded` | The obligation count exceeds its declared limit | `request.obligations` |
 | `expression_node_limit_exceeded` | The accounted expression-node count exceeds its declared limit | `request.expression_nodes` |
 | `nesting_depth_limit_exceeded` | The accounted nesting depth exceeds its declared limit | `request.nesting_depth` |
@@ -89,8 +88,8 @@ dispatched mapper's candidates against the admitted limits.
 | `record_limit_exceeded` | The record count exceeds its declared limit | `request.obligations` |
 | `emitted_bytes_limit_exceeded` | Accounted emitted bytes exceed the declared limit | `mapping.emitted_bytes` |
 | `arithmetic_overflow` | An accounting counter or region endpoint overflows its width | `record.output_regions.start`; `record.output_regions.end`; `candidate.fragment`; `candidate.output_regions.start`; `candidate.output_regions.end`; `package.target_bytes`; `package.records.output_regions.start`; `package.records.output_regions.end`; `request.obligations`; `request.expression_nodes`; `request`; `mapping.work`; `mapping.emitted_bytes` |
-| `allocation_failed` | A deterministic allocation, serialization, or canonicalization step for an accounted structure failed | `package.target_bytes`; `package.records`; `package.identity.record_ids`; `package.identity`; `request.obligations`; `request`; `request.identity`; `mapping.records`; `mapping.fragments`; `record.output_regions`; `record.identity` |
-| `cancelled` | The caller cancelled the mapping before it completed | `package`; `package.target_bytes`; `package.identity`; `package.complete`; `request`; `request.obligations`; `request.identity`; `mapping`; `mapping.dispatch`; `mapping.result`; `mapping.complete` |
+| `allocation_failed` | A deterministic allocation, serialization, or canonicalization step for an accounted structure failed | `package.target_bytes`; `package.records`; `package`; `request.obligations`; `request`; `mapping.records`; `mapping.fragments`; `record.output_regions`; `record` |
+| `cancelled` | The caller cancelled the mapping before it completed | `package`; `package.target_bytes`; `package.complete`; `request`; `request.obligations`; `mapping`; `mapping.dispatch`; `mapping.result`; `mapping.complete` |
 | `zero_mapping_work` | A mapper candidate accounts for zero work | `candidate.work` |
 | `duplicate_dependency` | A candidate repeats a dependency identity | `candidate.dependencies` |
 | `invalid_disposition` | A candidate's disposition, source state, output fragment, conditions, and causes disagree | `candidate.disposition` |

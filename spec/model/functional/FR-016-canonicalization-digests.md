@@ -1,17 +1,17 @@
 ---
 id: FR-016
-title: "Canonicalize contracts and compute stable identities"
+title: "Canonicalize contracts"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-002
     type: traces_to
 ---
-# FR-016: Canonicalize contracts and compute stable identities
+# FR-016: Canonicalize contracts
 
 ## Description
 
-The library shall define one canonical encoding and SHA-256 identity for every
-supported package, requirement revision, clause, declaration, and expression.
+The library shall define one canonical encoding for every supported package,
+requirement revision, clause, declaration, and expression.
 
 ## Inputs
 
@@ -19,8 +19,7 @@ A validated package and the canonicalization profile identity.
 
 ## Outputs
 
-Canonical UTF-8 JSON bytes and lowercase SHA-256 digests for every addressable
-semantic object.
+Canonical UTF-8 JSON bytes for every addressable semantic object.
 
 ## Behavior
 
@@ -63,17 +62,15 @@ has a member that holds a `null`, a floating-point number or a
 `serde_json::Value`, so such a value cannot be constructed rather than being
 checked for and refused.
 
-The bytes are `quire-canonical`'s. This crate carries no canonical writer, no
-digest helper that serializes through `serde_json` and no second encoder of its
-own: each typed structure is encoded by `quire_canonical::Encode`, and the
+The bytes are `quire-canonical`'s. This crate carries no canonical writer and
+no second encoder of its own: each typed structure is encoded by `quire_canonical::Encode`, and the
 structures whose nesting follows their input (value types and expressions) do
 not take the fixed-depth `FixedShape` path (FR-038, "Canonical encoding of the
 wire types", states the two paths). This changes the public v1 wire and the
-canonical bytes and digest of every v1 canonical object that holds one of the
-eight integer members, once; an object that holds none of them keeps its bytes
-and digest (47 of the 75 canonical files and 59 of the 99 inputs of the
+canonical bytes of every v1 canonical object that holds one of the
+eight integer members, once; an object that holds none of them keeps its bytes (47 of the 75 canonical files and 59 of the 99 inputs of the
 published corpus hold one, at the time of writing). Every recorded canonical
-fixture and digest of the changed objects is regenerated and no earlier
+fixture of the changed objects is regenerated and no earlier
 spelling is read. The v1 depth limits `MAX_WIRE_JSON_DEPTH` and `MAX_SEMANTIC_DEPTH`
 (FR-019) are unchanged.
 
@@ -91,8 +88,7 @@ semantic content and are excluded.
 
 The package semantic value includes `schema_version` as the object
 `{"major":<u16>,"minor":<u16>}` in addition to the package namespace and its
-complete requirements, so the schema version is part of the package digest
-input.
+complete requirements, so the schema version is part of the package bytes.
 
 Every value type and expression variant uses its registered snake-case tag and
 all fields that affect type checking or execution. Rational literals use their
@@ -101,22 +97,16 @@ only after successful validation and includes its explicit result type plus the
 normalized expression tree. Declaration-environment owner identity is included;
 the three declaration namespaces use the ordering above.
 
-The lowercase digest for kind `K` is SHA-256 over the exact byte sequence
-`quire-contract-ir`, one zero byte, the profile identity, one zero byte, `K`,
-one zero byte, then the canonical object bytes. This domain separation is part
-of the profile. The prefix is fed to SHA-256 explicitly, followed by the bytes
-`quire-canonical` produced; `quire_canonical::sha256_with_domain` is not used,
-because it hashes the label behind a big-endian length prefix, a different byte
-sequence that would change every digest. Package canonical bytes contain complete sorted requirements
-and clauses rather than host map iteration or child digest placeholders.
-Requirement and clause digests use the same independently canonicalized
-objects, so changing one clause changes that clause, its enclosing requirement,
-and its package while unrelated clause digests remain unchanged.
+Package canonical bytes contain complete sorted requirements and clauses rather
+than host map iteration or child placeholders. Requirement and clause bytes
+encode their respective objects independently. Changing one clause changes that
+clause's, its enclosing requirement's, and its package's bytes while unrelated
+clause bytes remain unchanged.
 
 Canonicalization is defined only for values already accepted by FR-011 through
 FR-015 and for schema version 1.1. A package constructed in memory with any
 other version fails `unsupported_schema_version` at `schema_version` from every
-canonical API and produces no bytes or digest. It performs no repair, migration, or
+canonical API and produces no bytes. It performs no repair, migration, or
 best-effort interpretation. Repeated canonicalization is side-effect-free and
 byte-identical. Public byte lengths use `u64`; implementations must reject a
 host allocation failure rather than emit partial bytes.
@@ -127,7 +117,7 @@ package, requirement, clause, declaration and expression — as
 `canonical_<kind>` and `canonical_<kind>_with_limit`. The crate shall implement
 each budget-free form as its budgeted form at `u64::MAX` rather than as an
 unbounded path of its own. A budget the canonical bytes exceed returns
-`canonicalization_resource_exhausted` with no partial bytes and no digest,
+`canonicalization_resource_exhausted` with no partial bytes,
 identically to an allocation failure; the budget is passed to `quire-canonical`
 as its byte limit and the limit refusal it returns is that code. The budget is a
 caller policy: it bounds output size and never changes the bytes a successful
@@ -145,15 +135,15 @@ non-resource encoder faults are not canonicalization API guarantees.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-016-AC-1 | Exact golden fixtures, regenerated from `quire-canonical`'s own output, pin the profile envelope, escaping, the string spelling of the eight integer members (FR-016-AC-5) and the number spelling of the others, normalized rationals, semantic-set ordering, sequence preservation, source exclusion, and SHA-256 digest for every closed object kind; equivalent supported permutations are byte/digest identical. | Test (TC-017) |
-| FR-016-AC-2 | A semantic change to a clause changes that clause, requirement, and package digest while unrelated clause digests remain stable; repeated runs and reversed insertion order reproduce identical bytes without host-width or map-order fields. | Test (TC-017) |
-| FR-016-AC-3 | A deterministic reservation-failure harness forces canonical byte allocation failure and verifies `canonicalization_resource_exhausted`, no partial public bytes, and no digest. | Test (TC-017) |
-| FR-016-AC-4 | Each of the five object kinds exposes a budgeted and a budget-free canonical operation; the budget-free result equals the budgeted result at `u64::MAX`; and a zero budget returns `canonicalization_resource_exhausted` with no bytes and no digest for every kind. | Test (TC-017) |
+| FR-016-AC-1 | For each of the five closed object kinds, canonical bytes match independently authored expected UTF-8 bytes covering the profile envelope, escaping, the eight integer members as strings (FR-016-AC-5), other integers as numbers, normalized rationals, semantic-set ordering, sequence preservation and source exclusion; equivalent supported permutations produce byte-identical output. | Test (TC-017) |
+| FR-016-AC-2 | A semantic change to a clause changes that clause's, its enclosing requirement's and its package's canonical bytes while unrelated clause bytes remain stable; repeated runs and reversed insertion order reproduce identical bytes without host-width or map-order fields. | Test (TC-017) |
+| FR-016-AC-3 | A deterministic reservation-failure harness forces canonical byte allocation failure and verifies `canonicalization_resource_exhausted` with no partial public bytes. | Test (TC-017) |
+| FR-016-AC-4 | Each of the five object kinds exposes a budgeted and a budget-free canonical operation; the budget-free result equals the budgeted result at `u64::MAX`; and a zero budget returns `canonicalization_resource_exhausted` with no bytes for every kind. | Test (TC-017) |
 | FR-016-AC-5 | The eight integer members are JSON strings of minimal base-ten digits in every canonical object: an integer type with minimum `-9223372036854775808` and maximum `9223372036854775807` canonicalizes to bytes holding `"minimum":"-9223372036854775808"` and `"maximum":"9223372036854775807"`, and one with minimum `0` and maximum `0` holds `"minimum":"0"` and `"maximum":"0"`; a rational type with `maximum_denominator` `9223372036854775807` holds `"maximum_denominator":"9223372036854775807"` and numerator bounds `-9223372036854775808` and `9223372036854775807` hold the matching strings; an integer literal `-1` holds `"value":"-1"` and a rational literal `-3/4` holds `"numerator":"-3"` and `"denominator":"4"`; no byte sequence of the form `"<one of the eight names>":` is followed by a digit or `-` in any recorded canonical fixture; and the `maximum_items` and `revision` members of the same objects are JSON numbers. | Test (TC-017) |
-| FR-016-AC-6 | Every canonical byte sequence and digest of this crate comes from `quire-canonical`: for one fixture of each of the five kinds the bytes returned equal an expected byte string written out in the test member by member from RFC 8785 (members in UTF-16 order, minimal escapes, the eight integer members as strings), not computed by a call into this crate or by a second call into the encoder, and the digest equals the SHA-256 of the domain prefix and those expected bytes; a byte limit of the exact length returns the bytes and one byte lower returns `canonicalization_resource_exhausted`; and the crate source holds no `CanonicalWriter`, `canonical_envelope_bytes`, `digest_json` or `serde_json_canonicalizer` symbol and no `serde_json::to_vec` or `serde_json::to_value` call in `canonical.rs`, `binding.rs` or `output_mapping.rs`, checked by a test that reads those files and the manifests and counts the symbols, which finds none. | Test (TC-017) |
-| FR-016-AC-7 | The semantic value has no member that can hold a `null`, a floating-point number or a `serde_json::Value`: the canonical types (`ValueType`, `IntegerType`, `RationalType`, `CollectionType`, `Expression`, `ExpressionKind`, `RecordLiteralField`, `TypedExpression`, `DeclarationEnvironment` and the declaration, requirement and clause projections in `canonical.rs`) declare no `f32`, `f64` or `serde_json::Value` member and no `Option` member that serializes as `null` (an absent optional member is omitted), checked by a test that reads their source and finds none; and a requirement revision of 9007199254740992 canonicalizes to the number `9007199254740992` (the refusal above 2^53 is FR-011-AC-3's and FR-012-AC-6's). | Test (TC-017) |
-| FR-016-AC-8 | The digest for kind `K` equals SHA-256 over `quire-contract-ir`, a zero byte, the profile identity, a zero byte, `K`, a zero byte and the bytes `quire_canonical::to_vec` returns for the envelope, and differs from `quire_canonical::sha256_with_domain` over the same envelope with the same label. | Test (TC-017) |
-| FR-016-AC-9 | Canonical bytes spell integer type bounds and literal values at `i64::MAX + 1`, `u64::MAX`, `i128::MIN` and `i128::MAX`, rational numerator and denominator members at their permitted i128 endpoints, as minimal JSON strings; the same semantic value previously representable within i64 yields byte-identical output, and changing only one wide value changes the canonical bytes and digest. No node-key preimage counter or other number-field encoding changes. | Test (TC-017) |
+| FR-016-AC-6 | For one fixture of each of the five kinds, the returned bytes equal an expected byte string written out in the test member by member from RFC 8785 (members in UTF-16 order, minimal escapes, the eight integer members as strings), not computed by a call into this crate or by a second call into the encoder; a byte limit of the exact length returns the bytes and one byte lower returns `canonicalization_resource_exhausted`. | Test (TC-017) |
+| FR-016-AC-7 | Through the public typed construction and canonicalization APIs, absent optional semantic members are omitted rather than encoded as `null`; floating-point and `serde_json::Value` inputs are rejected by typed construction, and no supported canonical result contains a floating-point or `null` semantic member. Qualified Inspection confirms that every internal canonical semantic type (`ValueType`, `IntegerType`, `RationalType`, `CollectionType`, `Expression`, `ExpressionKind`, `RecordLiteralField`, `TypedExpression`, `DeclarationEnvironment` and the declaration, requirement and clause projections) has no `f32`, `f64` or `serde_json::Value` member and no optional member that serializes as `null`; this is not an automated source-file scan. Compile-fail probes cover attempts to supply unsupported values to public constructors; exact-byte controls cover absent members. A requirement revision of 9007199254740992 canonicalizes to the number `9007199254740992` (the refusal above 2^53 is FR-011-AC-3's and FR-012-AC-6's). | Test (TC-017), Inspection |
+| FR-016-AC-8 | Every canonical operation returns only its kind and canonical bytes, with no digest field, accessor, computation, or digest-based refusal. The public canonical module exports no `CanonicalDigest`. A caller comparing two supported canonical values can compare their kind and exact bytes. | Test (TC-017) |
+| FR-016-AC-9 | Canonical bytes spell integer type bounds and literal values at `i64::MAX + 1`, `u64::MAX`, `i128::MIN` and `i128::MAX`, rational numerator and denominator members at their permitted i128 endpoints, as minimal JSON strings; the same semantic value previously representable within i64 yields byte-identical output, and changing only one wide value changes the canonical bytes. No node-key preimage counter or other number-field encoding changes. | Test (TC-017) |
 
 ## Dependencies
 
