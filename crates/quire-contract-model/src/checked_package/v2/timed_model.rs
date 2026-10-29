@@ -235,6 +235,7 @@ fn path(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
 }
 
 /// Validate the complete closed outer record and its ordered nested body.
+#[ix_trace_rs::string_edge]
 pub(super) fn check_wire(
     node: &CheckedSemanticNodeV2,
     form: TimedModelForm,
@@ -1639,6 +1640,7 @@ fn structural_order_key(
     }
 }
 
+#[ix_trace_rs::string_edge]
 fn comparison_rank(value: &str) -> Option<u64> {
     Some(match value {
         "lt" => 0,
