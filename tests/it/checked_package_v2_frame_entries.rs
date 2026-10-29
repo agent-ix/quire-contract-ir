@@ -4805,49 +4805,44 @@ fn step_relation_identity_tracks_effective_premises() {
 /// Trace: FR-351-AC-3 (TC-962 RN-06)
 #[trace("FR-351-AC-3")]
 #[test]
-fn step_relation_source_spelling_does_not_change_semantic_identity() {
+fn step_relation_source_correspondence_does_not_change_semantic_identity() {
     let base = step_relation_package();
-    let spelled = |source: &str| {
-        let mut package = base.clone();
-        let digest = sha256_hex(source.as_bytes());
-        package["lock"]["sources"][0]["digest"] = json!(digest);
-        for entry in package["source_map"].as_array_mut().expect("source map") {
-            for region in entry["regions"].as_array_mut().expect("regions") {
-                region["source"]["digest"] = json!(digest);
-            }
-        }
-        package
-    };
-    let compact = spelled("relation Det { pre(x.self.l) = pre(y.self.l) }");
-    let spaced = spelled("// relation documentation\nrelation  Det {\n  pre(x.self.l) = pre(y.self.l) // same body\n}\n");
-    assert_ne!(
-        compact["lock"]["sources"][0]["digest"],
-        spaced["lock"]["sources"][0]["digest"]
-    );
+    let relation = position(&base, "claim", "step_relation");
+    let relation_id = &base["semantic_graph"]["nodes"][relation]["node_id"];
+    let mut moved = base.clone();
+    let entry = moved["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .iter_mut()
+        .find(|entry| &entry["node_id"] == relation_id)
+        .expect("relation source correspondence");
+    entry["regions"][0]["start"] = json!(100);
+    entry["regions"][0]["end"] = json!(101);
+    assert_ne!(base["source_map"], moved["source_map"]);
     let admitted = |package: &Value| match read(package) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
-        other => panic!("lexical source variant must admit: {other:?}"),
+        other => panic!("source correspondence variant must admit: {other:?}"),
     };
-    let compact = admitted(&compact);
-    let spaced = admitted(&spaced);
-    let compact_relation = compact
+    let original = admitted(&base);
+    let moved = admitted(&moved);
+    let original_relation = original
         .graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "step_relation")
-        .expect("compact relation");
-    let spaced_relation = spaced
+        .expect("original relation");
+    let moved_relation = moved
         .graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "step_relation")
-        .expect("spaced relation");
-    assert_eq!(compact_relation.node_id, spaced_relation.node_id);
+        .expect("moved relation");
+    assert_eq!(original_relation.node_id, moved_relation.node_id);
     assert_eq!(
-        compact_relation.step_relation_body(),
-        spaced_relation.step_relation_body()
+        original_relation.step_relation_body(),
+        moved_relation.step_relation_body()
     );
-    assert_eq!(compact.package_id(), spaced.package_id());
+    assert_eq!(original.package_id(), moved.package_id());
 }
 
 fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Value {

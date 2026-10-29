@@ -1620,9 +1620,9 @@ fn reader_locates_malformed_nested_source_value() {
     };
     let output = lower(&mixed_fixture(), &request());
     let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
-    wire["package"]["source"]["lock"]["sources"][0]["digest"] = json!(4);
+    wire["package"]["source"]["lock"]["sources"][0]["identity"] = json!(4);
     let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
-        panic!("malformed nested source value must refuse");
+        panic!("malformed nested source identity must refuse");
     };
     assert_eq!(
         (refusal.code, refusal.cause),
@@ -1630,7 +1630,7 @@ fn reader_locates_malformed_nested_source_value() {
     );
     assert_eq!(
         refusal.path.expect("member pointer").as_str(),
-        "/package/source/lock/sources/0/digest"
+        "/package/source/lock/sources/0/identity"
     );
 }
 

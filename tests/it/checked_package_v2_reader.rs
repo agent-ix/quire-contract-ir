@@ -915,19 +915,19 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
     report[future]["disposition"] = json!("unimplemented");
     assert_eq!(*admitted(&disposition).package_id(), recorded);
 
-    // A raw source digest is outside the preimage: every reference to the
-    // source moves with it, and the caller supplies the new bytes, whose digest the reader recomputes.
-    let mut source_digest = base.clone();
-    let old_source = base["lock"]["sources"][0].clone();
+    // A secondary source's nominal identity is outside the preimage. Every
+    // source-map reference moves with the locked source row.
+    let mut source_identity = base.clone();
+    let old_source = base["lock"]["sources"][1].clone();
     let mut new_source = old_source.clone();
-    new_source["digest"] = json!("5".repeat(64));
-    replace_everywhere(&mut source_digest, &old_source, &new_source);
-    assert_ne!(source_digest["lock"], base["lock"]);
+    new_source["identity"] = json!("quire.fixture.source.secondary-renamed/v1");
+    replace_everywhere(&mut source_identity, &old_source, &new_source);
+    assert_ne!(source_identity["lock"], base["lock"]);
     assert_eq!(
-        source_digest["identity_preimage"],
+        source_identity["identity_preimage"],
         base["identity_preimage"]
     );
-    assert_eq!(*admitted(&source_digest).package_id(), recorded);
+    assert_eq!(*admitted(&source_identity).package_id(), recorded);
 
     // Every preimage member changes the identity once re-derived, and is
     // refused as stale when it is not.

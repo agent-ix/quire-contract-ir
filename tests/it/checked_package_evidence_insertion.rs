@@ -383,12 +383,15 @@ fn equal_package_ids_do_not_hide_independently_admitted_metadata_conflicts() {
     let mut occurrences = original.clone();
     occurrences["semantic_graph"]["nodes"][0]["occurrences"][0]["ordinal"] = json!(1);
     occurrences["source_map"][0]["ordinal"] = json!(1);
-    let mut raw_source = original.clone();
-    raw_source["lock"]["sources"][0]["digest"] = json!("2".repeat(64));
-    for entry in raw_source["source_map"].as_array_mut().unwrap() {
+    let mut renamed_source = original.clone();
+    let old_source = original["lock"]["sources"][1].clone();
+    renamed_source["lock"]["sources"][1]["identity"] =
+        json!("quire.fixture.source.secondary-renamed/v1");
+    let new_source = renamed_source["lock"]["sources"][1].clone();
+    for entry in renamed_source["source_map"].as_array_mut().unwrap() {
         for region in entry["regions"].as_array_mut().unwrap() {
-            if region["source"] == original["lock"]["sources"][0] {
-                region["source"] = raw_source_reference(&original);
+            if region["source"] == old_source {
+                region["source"] = new_source.clone();
             }
         }
     }
@@ -397,7 +400,7 @@ fn equal_package_ids_do_not_hide_independently_admitted_metadata_conflicts() {
         ("diagnostics", &original, &diagnostics),
         ("capability", &capability_base, &capability),
         ("occurrences", &original, &occurrences),
-        ("raw source", &original, &raw_source),
+        ("source identity", &original, &renamed_source),
     ] {
         let left = admit(base);
         let right = admit(changed);
@@ -417,12 +420,6 @@ fn equal_package_ids_do_not_hide_independently_admitted_metadata_conflicts() {
             assert_eq!(evidence, control, "{label}");
         }
     }
-}
-
-fn raw_source_reference(original: &Value) -> Value {
-    let mut reference = original["lock"]["sources"][0].clone();
-    reference["digest"] = json!("2".repeat(64));
-    reference
 }
 
 #[trace("FR-047-AC-5")]

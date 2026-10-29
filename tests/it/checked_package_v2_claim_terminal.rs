@@ -442,19 +442,18 @@ fn encoded(package: &Value) -> Vec<u8> {
     .expect("writer")
 }
 
-fn source_spelling(package: &Value, node_position: usize, spelling: &[u8]) -> Value {
+fn source_correspondence(package: &Value, node_position: usize, start: u64) -> Value {
     let mut changed = package.clone();
-    let digest = json!(sha256_hex(spelling));
-    changed["lock"]["sources"][0]["digest"] = digest.clone();
-    for entry in changed["source_map"].as_array_mut().expect("source map") {
-        for region in entry["regions"].as_array_mut().expect("regions") {
-            region["source"]["digest"] = digest.clone();
-        }
-    }
-    assert_ne!(
-        changed["source_map"][node_position],
-        package["source_map"][node_position]
-    );
+    let node_id = &package["semantic_graph"]["nodes"][node_position]["node_id"];
+    let entry = changed["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .iter_mut()
+        .find(|entry| &entry["node_id"] == node_id)
+        .expect("node source correspondence");
+    entry["regions"][0]["start"] = json!(start);
+    entry["regions"][0]["end"] = json!(start + 1);
+    assert_ne!(changed["source_map"], package["source_map"]);
     changed
 }
 
@@ -836,25 +835,21 @@ fn state_graph_identity_and_shared_occurrences() {
         always["semantic_graph"]["nodes"][base_node_index()]["node_id"]
     );
     assert_ne!(possible["package_id"], always["package_id"]);
-    let respelled = source_spelling(
-        &possible,
-        base_node_index(),
-        b"possible ReachesTwo using v over (c: Config::ConfigVersion) { /* same */ c.versionNumber = 2 }",
-    );
+    let moved = source_correspondence(&possible, base_node_index(), 100);
     assert_eq!(
         possible["semantic_graph"]["nodes"][base_node_index()],
-        respelled["semantic_graph"]["nodes"][base_node_index()]
+        moved["semantic_graph"]["nodes"][base_node_index()]
     );
-    assert_eq!(possible["package_id"], respelled["package_id"]);
-    assert_ne!(possible["source_map"], respelled["source_map"]);
-    let respelled_read = admitted(&respelled);
-    let respelled_reread = reread_written(&respelled);
-    let expected_source: Vec<CheckedSourceMapEntry> = typed(&respelled["source_map"]);
-    assert_eq!(respelled_read.source_map(), expected_source);
-    assert_eq!(respelled_reread.source_map(), respelled_read.source_map());
+    assert_eq!(possible["package_id"], moved["package_id"]);
+    assert_ne!(possible["source_map"], moved["source_map"]);
+    let moved_read = admitted(&moved);
+    let moved_reread = reread_written(&moved);
+    let expected_source: Vec<CheckedSourceMapEntry> = typed(&moved["source_map"]);
+    assert_eq!(moved_read.source_map(), expected_source);
+    assert_eq!(moved_reread.source_map(), moved_read.source_map());
     assert_eq!(
-        respelled_reread.graph().nodes[base_node_index()],
-        respelled_read.graph().nodes[base_node_index()]
+        moved_reread.graph().nodes[base_node_index()],
+        moved_read.graph().nodes[base_node_index()]
     );
     let mut instance_a = possible.clone();
     instance_a["source_map"][base_node_index()]["regions"][0]["start"] = json!(100);
@@ -984,8 +979,8 @@ fn terminal_identity_and_uniqueness_per_model() {
         when["semantic_graph"]["nodes"][base_node_index()]["semantic_form"]
     );
     assert_ne!(any["package_id"], when["package_id"]);
-    let done = source_spelling(&any, base_node_index(), b"terminal Done for M any");
-    let stop = source_spelling(&any, base_node_index(), b"terminal Stop for M any");
+    let done = source_correspondence(&any, base_node_index(), 100);
+    let stop = source_correspondence(&any, base_node_index(), 200);
     assert_eq!(
         done["semantic_graph"]["nodes"][base_node_index()],
         stop["semantic_graph"]["nodes"][base_node_index()]
