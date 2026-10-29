@@ -499,22 +499,21 @@ pub(super) fn validate_step_relations(
                 ));
             }
             if let Some(implementation) = &entry.implementation {
-                let valid = graph.node(implementation).is_some_and(|(relation, kind)| {
+                let valid = graph.node(implementation).is_some_and(|(_, kind)| {
                     kind == CheckedNodeKind::Correspondence(CorrespondenceForm::AbstractionRelation)
-                        && matches!(&relation.body, serde_json::Value::Object(_))
-                        && relation
-                            .body
-                            .get("frames")
-                            .and_then(serde_json::Value::as_array)
-                            .is_some_and(|frames| {
-                                frames.iter().any(|frame| {
-                                    frame.get("context")
-                                        == serde_json::to_value(&anchor_body.context).ok().as_ref()
-                                        && frame
-                                            .get("operation")
-                                            .and_then(serde_json::Value::as_str)
-                                            == Some(anchor_body.operation)
-                                })
+                        && graph
+                            .index
+                            .get(implementation)
+                            .and_then(|&pos| terms.get(pos))
+                            .and_then(Option::as_ref)
+                            .is_some_and(|term| match term {
+                                CheckedTerm::AbstractionRelation { frames, .. } => {
+                                    frames.iter().any(|frame| {
+                                        frame.context == anchor_body.context
+                                            && frame.operation.as_ref() == anchor_body.operation
+                                    })
+                                }
+                                _ => false,
                             })
                 });
                 if !valid {
