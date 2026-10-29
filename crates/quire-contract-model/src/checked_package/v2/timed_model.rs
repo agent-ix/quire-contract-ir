@@ -1308,23 +1308,38 @@ type SourceOrderKey<'a> = (&'a str, u64, u64);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum OrderPart {
+    End,
     Word(String),
     Number(u64),
+    Infinity,
     Ratio(BigUint, BigUint),
+    Start,
 }
 
 impl Ord for OrderPart {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
+            (Self::End, Self::End) | (Self::Start, Self::Start) => Ordering::Equal,
             (Self::Word(left), Self::Word(right)) => left.cmp(right),
             (Self::Number(left), Self::Number(right)) => left.cmp(right),
+            (Self::Infinity, Self::Infinity) => Ordering::Equal,
             (Self::Ratio(left_n, left_d), Self::Ratio(right_n, right_d)) => {
                 (left_n * right_d).cmp(&(right_n * left_d))
             }
-            (Self::Word(_), _) => Ordering::Less,
-            (Self::Number(_), Self::Word(_)) => Ordering::Greater,
-            (Self::Number(_), Self::Ratio(..)) => Ordering::Less,
-            (Self::Ratio(..), _) => Ordering::Greater,
+            _ => self.rank().cmp(&other.rank()),
+        }
+    }
+}
+
+impl OrderPart {
+    fn rank(&self) -> u8 {
+        match self {
+            Self::End => 0,
+            Self::Number(_) => 1,
+            Self::Infinity => 2,
+            Self::Word(_) => 3,
+            Self::Ratio(..) => 4,
+            Self::Start => 5,
         }
     }
 }
@@ -1344,25 +1359,84 @@ fn quantity_key(term: Option<&CheckedTerm>) -> Option<OrderPart> {
     ))
 }
 
-fn term_key(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<OrderPart> {
-    let term = term?;
-    if let Some(target) = typed_target(term) {
-        let position = *graph.index.get(target)?;
-        let body = graph.terms.get(position)?.as_ref()?;
-        if graph.kinds.get(position) == Some(&CheckedNodeKind::Value(ValueForm::Parameter)) {
-            return Some(OrderPart::Word(format!(
-                "parameter:{}:{}",
-                text_member(body, 0)?,
-                text_member(body, 1)?
-            )));
-        }
-        return Some(OrderPart::Word(format!(
-            "{:?}:{}",
-            graph.kinds.get(position)?,
-            serde_json::to_string(body).ok()?
-        )));
+/// Flatten the nested structural term key with explicit list delimiters.
+/// A reference is replaced by its target's form and body; node ids and
+/// source regions therefore cannot decide the order of a shared term.
+fn term_key(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<Vec<OrderPart>> {
+    enum Visit<'a> {
+        Term(&'a CheckedTerm),
+        Atom(OrderPart),
+        Exit(usize),
     }
-    Some(OrderPart::Word(serde_json::to_string(term).ok()?))
+    let mut key = Vec::new();
+    let mut active = BTreeSet::new();
+    let mut pending = vec![Visit::Term(term?)];
+    while let Some(visit) = pending.pop() {
+        match visit {
+            Visit::Atom(atom) => key.push(atom),
+            Visit::Exit(position) => {
+                active.remove(&position);
+            }
+            Visit::Term(CheckedTerm::Reference { target }) => {
+                let position = *graph.index.get(target)?;
+                if !active.insert(position) {
+                    return None;
+                }
+                let body = graph.terms.get(position)?.as_ref()?;
+                pending.push(Visit::Exit(position));
+                pending.push(Visit::Atom(OrderPart::End));
+                pending.push(Visit::Term(body));
+                pending.push(Visit::Atom(OrderPart::Word(format!(
+                    "{:?}",
+                    graph.kinds.get(position)?
+                ))));
+                pending.push(Visit::Atom(OrderPart::Start));
+            }
+            Visit::Term(CheckedTerm::Aggregate { members }) => {
+                pending.push(Visit::Atom(OrderPart::End));
+                pending.extend(members.iter().rev().map(Visit::Term));
+                pending.push(Visit::Atom(OrderPart::Start));
+            }
+            Visit::Term(CheckedTerm::Binding { name, value }) => {
+                pending.push(Visit::Atom(OrderPart::End));
+                pending.push(Visit::Term(value));
+                pending.push(Visit::Atom(OrderPart::Word(name.to_string())));
+                pending.push(Visit::Atom(OrderPart::Start));
+            }
+            Visit::Term(CheckedTerm::Literal {
+                value_kind, value, ..
+            }) => {
+                pending.push(Visit::Atom(OrderPart::End));
+                pending.push(Visit::Atom(OrderPart::Word(
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| value.to_string()),
+                )));
+                pending.push(Visit::Atom(OrderPart::Word(format!("{value_kind:?}"))));
+                pending.push(Visit::Atom(OrderPart::Start));
+            }
+            Visit::Term(CheckedTerm::Application {
+                operator,
+                arguments,
+                ..
+            }) => {
+                pending.push(Visit::Atom(OrderPart::End));
+                pending.push(Visit::Atom(OrderPart::End));
+                pending.extend(arguments.iter().rev().map(Visit::Term));
+                pending.push(Visit::Atom(OrderPart::Start));
+                pending.push(Visit::Atom(OrderPart::Word(format!("{operator:?}"))));
+                pending.push(Visit::Atom(OrderPart::Start));
+            }
+            Visit::Term(other) => {
+                // These closed terms cannot be an owner, slot, binder or
+                // predicate under the timed clause join. Its later typed
+                // refusal remains authoritative.
+                pending.push(Visit::Atom(OrderPart::Word(format!("{other:?}"))));
+            }
+        }
+    }
+    Some(key)
 }
 
 fn place_path_key(graph: &Graph<'_>, place: usize) -> Option<Vec<OrderPart>> {
@@ -1375,11 +1449,11 @@ fn place_path_key(graph: &Graph<'_>, place: usize) -> Option<Vec<OrderPart>> {
                 key.push(OrderPart::Word(text_member(step, 1)?.to_owned()));
             }
             PathStepKind::Union => {
-                key.push(OrderPart::Number(1));
+                key.push(OrderPart::Number(2));
                 key.push(OrderPart::Word(text_member(step, 1)?.to_owned()));
             }
             PathStepKind::Tuple => {
-                key.push(OrderPart::Number(2));
+                key.push(OrderPart::Number(1));
                 key.push(OrderPart::Number(bound(step, 1).and_then(integer_value)?));
             }
             PathStepKind::Slot => {
@@ -1387,7 +1461,7 @@ fn place_path_key(graph: &Graph<'_>, place: usize) -> Option<Vec<OrderPart>> {
                 key.push(OrderPart::Word(text_member(step, 1)?.to_owned()));
                 key.push(OrderPart::Number(bound(step, 3).and_then(integer_value)?));
                 key.push(if text_member(step, 4) == Some("unbounded") {
-                    OrderPart::Word("~".into())
+                    OrderPart::Infinity
                 } else {
                     OrderPart::Number(bound(step, 4).and_then(integer_value)?)
                 });
@@ -1413,17 +1487,19 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Constraint) => {
             if bound(body, 0).and_then(spelling) == Some("place") {
+                key.push(OrderPart::Number(0));
                 let place = *graph.index.get(typed_target(bound(body, 1)?)?)?;
                 key.extend(place_path_key(graph, place)?);
-                key.push(term_key(graph, bound(body, 2))?);
+                key.extend(term_key(graph, bound(body, 2))?);
                 for slot in bound(body, 3).map(typed_members)? {
-                    key.push(term_key(graph, Some(slot))?);
+                    key.extend(term_key(graph, Some(slot))?);
                 }
                 key.push(OrderPart::Number(comparison_rank(
                     bound(body, 4).and_then(spelling)?,
                 )?));
                 key.push(quantity_key(bound(body, 5))?);
             } else {
+                key.push(OrderPart::Number(1));
                 key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
                 key.push(OrderPart::Word(text_member(body, 2)?.to_owned()));
                 key.push(OrderPart::Number(comparison_rank(
@@ -1434,19 +1510,21 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Reset) => {
             if bound(body, 0).and_then(spelling) == Some("place") {
+                key.push(OrderPart::Number(0));
                 let place = *graph.index.get(typed_target(bound(body, 2)?)?)?;
                 key.extend(place_path_key(graph, place)?);
                 key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
-                key.push(term_key(graph, bound(body, 6))?);
+                key.extend(term_key(graph, bound(body, 6))?);
                 for binder in bound(body, 5).map(typed_members)? {
-                    key.push(term_key(graph, Some(binder))?);
+                    key.extend(term_key(graph, Some(binder))?);
                 }
-                key.push(term_key(graph, bound(body, 3))?);
+                key.extend(term_key(graph, bound(body, 3))?);
                 for slot in bound(body, 4).map(typed_members)? {
-                    key.push(term_key(graph, Some(slot))?);
+                    key.extend(term_key(graph, Some(slot))?);
                 }
                 key.push(quantity_key(bound(body, 7))?);
             } else {
+                key.push(OrderPart::Number(1));
                 key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
                 key.push(OrderPart::Word(text_member(body, 2)?.to_owned()));
                 key.push(quantity_key(bound(body, 3))?);
@@ -1460,7 +1538,7 @@ fn structural_order_key(graph: &Graph<'_>, position: usize) -> Option<Vec<OrderP
                 let bound_position = *graph.index.get(typed_target(bound_term)?)?;
                 key.extend(structural_order_key(graph, bound_position)?);
             }
-            key.push(term_key(graph, bound(body, 0))?);
+            key.extend(term_key(graph, bound(body, 0))?);
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Urgency) => {
             key.push(OrderPart::Word(text_member(body, 0)?.to_owned()));

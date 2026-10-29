@@ -2,8 +2,7 @@
 // Copyright (C) 2026 Agent-IX
 
 //! Timed-model wire evidence read from the owning QSpec checkout.
-//! Suite-only traces retain the structural/round-trip and scoped refusal evidence;
-//! full timed semantic criterion qualification belongs to the follow-on slice.
+//! Clause and aggregate-order controls exercise the public V2 reader.
 use super::*;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCollectionKind, CheckedMemberType,
@@ -117,7 +116,7 @@ fn sort_timed_graph_dependencies(package: &mut Value) {
 }
 
 /// Public-reader evidence over QSpec's selected package and exact AO patches.
-#[trace("TC-048", "FR-038-AC-342")]
+#[trace("TC-048", "FR-038-AC-336", "FR-038-AC-342")]
 #[test]
 fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
     let fixtures = fixtures_dir();
@@ -399,6 +398,36 @@ fn timed_aggregate_equal_source_keys_refuse_at_second_member() {
     );
 }
 
+/// Trace: FR-038-AC-342, TC-048.
+#[test]
+fn timed_aggregate_repeated_reference_refuses_as_order_defect() {
+    let fixtures = fixtures_dir();
+    let mut package = read_json(&fixtures.join("positive-timed-model-nodes.json"))
+        .expect("published dense timed package");
+    let root = 52;
+    let places = package["semantic_graph"]["nodes"][root]["body"]["members"][3]["value"]["members"]
+        .as_array_mut()
+        .expect("root places");
+    let first = places[0].clone();
+    places.push(first);
+    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    sort_timed_graph_dependencies(&mut package);
+    fixture_support::refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&package).expect("repeated reference package read")
+    else {
+        panic!("repeated reference must refuse before duplicate-path validation");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        refusal.path.unwrap().to_string(),
+        format!("/semantic_graph/nodes/{root}/body/members/3/value/members/1")
+    );
+}
+
 #[trace("TC-048", "FR-038-AC-342")]
 #[test]
 fn timed_aggregate_source_identity_precedes_region_start() {
@@ -526,6 +555,68 @@ fn timed_aggregate_each_root_branch_enforces_source_order() {
             "root binding {binding}"
         );
     }
+}
+
+/// Trace: FR-038-AC-342, FR-038-AC-360, TC-048.
+#[test]
+fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() {
+    let fixtures = fixtures_dir();
+    let mut package = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
+        .expect("published dense clause package");
+    let document = proposal_dir_of(&fixtures).join("domain-package-acme-timed-clauses.json");
+    let root_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "timed_model")
+        .expect("timed root");
+    let members = &package["semantic_graph"]["nodes"][root_position]["body"]["members"][8]["value"]
+        ["members"];
+    let first = members[0]["target"].clone();
+    let second = members[1]["target"].clone();
+    assert_ne!(first, second);
+    let first_region = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == first)
+        .expect("first constraint source")["regions"][0]
+        .clone();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .iter_mut()
+        .find(|entry| entry["node_id"] == second)
+        .expect("second constraint source")["regions"][0] = first_region;
+    let admitted = read_package_with_document(&package, "equal region distinct clauses", &document)
+        .expect("selected package read");
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let members = package["semantic_graph"]["nodes"][root_position]["body"]["members"][8]["value"]
+        ["members"]
+        .as_array_mut()
+        .expect("constraints");
+    members.swap(0, 1);
+    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    sort_timed_graph_dependencies(&mut package);
+    fixture_support::refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package_with_document(&package, "reversed equal region clauses", &document)
+            .expect("selected package read")
+    else {
+        panic!("reversed equal-region clauses must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        refusal.path.unwrap().to_string(),
+        format!("/semantic_graph/nodes/{root_position}/body/members/8/value/members/1")
+    );
 }
 
 /// The slot fixture selects the complete FCD document, including its named
@@ -830,12 +921,55 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                 replace_dependency(&mut wire["semantic_graph"]["nodes"][44], &old, &target);
             }
             "duplicate-clock-place" => {
-                let places = wire["semantic_graph"]["nodes"][52]["body"]["members"][3]["value"]
-                    ["members"]
+                let mut second = wire["semantic_graph"]["nodes"][45].clone();
+                let rows = second["body"]["members"][2]["value"]["members"]
                     .as_array_mut()
-                    .unwrap();
-                let duplicate = places[0].clone();
-                places.push(duplicate);
+                    .expect("resolved path rows");
+                let last = rows.last_mut().expect("resolved path row");
+                let identity = last["members"][2]["value"]["value"]
+                    .as_str()
+                    .expect("resolved path identity")
+                    .to_owned();
+                last["members"][2]["value"]["value"] = json!(format!("{identity}#again"));
+                // Keep the clone distinct until the fixture helper mints its
+                // content key; otherwise it would rename both place nodes.
+                let provisional = json!({
+                    "domain": "quire.checked-semantic-node/v1",
+                    "digest": "f".repeat(64)
+                });
+                assert!(wire["semantic_graph"]["nodes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|node| node["node_id"] != provisional));
+                second["node_id"] = provisional.clone();
+                second["semantic_type"] = provisional.clone();
+                let mut source = wire["source_map"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|entry| {
+                        entry["node_id"] == wire["semantic_graph"]["nodes"][45]["node_id"]
+                    })
+                    .expect("first place source")
+                    .clone();
+                source["node_id"] = provisional.clone();
+                source["regions"][0]["start"] = json!(9000);
+                source["regions"][0]["end"] = json!(9001);
+                wire["semantic_graph"]["nodes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(second);
+                let root = &mut wire["semantic_graph"]["nodes"][52];
+                root["body"]["members"][3]["value"]["members"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"term": "reference", "target": provisional}));
+                root["dependencies"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(provisional);
+                wire["source_map"].as_array_mut().unwrap().push(source);
             }
             "noncanonical-place-path" => {
                 wire["semantic_graph"]["nodes"][45]["body"]["members"][1]["value"]["members"][0]
@@ -1203,6 +1337,11 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
                 });
         }
         fixture_support::refresh_identity(&mut wire);
+        if mutation == "duplicate-clock-place" {
+            let places =
+                &wire["semantic_graph"]["nodes"][52]["body"]["members"][3]["value"]["members"];
+            assert_ne!(places[0]["target"], places[1]["target"]);
+        }
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{change} must refuse");
         };
@@ -1266,5 +1405,68 @@ fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
         (refusal.code, refusal.cause),
         (Code::InvalidPackage, Some(Cause::TimedNodeReference)),
         "{refusal:?}"
+    );
+}
+
+/// Trace: FR-038-AC-336, TC-048.
+#[test]
+fn timed_root_without_guards_keeps_the_place_template() {
+    let mut wire = published();
+    let original = read_package(&wire).expect("selected dense package read");
+    assert!(matches!(original, CheckedPackageV2ReadResult::Admitted(_)));
+    let nodes = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes");
+    let place = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "clock_place")
+        .expect("clock place")["node_id"]
+        .clone();
+    let guard = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "clock_guard")
+        .expect("clock guard")["node_id"]
+        .clone();
+    let root = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .iter_mut()
+        .find(|node| node["semantic_form"] == "timed_model")
+        .expect("timed root");
+    let guards = root["body"]["members"][5]["value"]["members"]
+        .as_array_mut()
+        .expect("root guards");
+    assert_eq!(guards.len(), 1);
+    guards.clear();
+    root["dependencies"]
+        .as_array_mut()
+        .expect("root dependencies")
+        .retain(|dependency| dependency != &guard);
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .retain(|node| node["node_id"] != guard);
+    wire["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .retain(|entry| entry["node_id"] != guard);
+    fixture_support::mint_ungrouped_structural_keys(&mut wire);
+    sort_timed_graph_dependencies(&mut wire);
+    fixture_support::refresh_identity(&mut wire);
+    let retained_place = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "clock_place")
+        .expect("clock place")["node_id"]
+        .clone();
+    assert_eq!(
+        retained_place, place,
+        "removing a clause cannot rekey the place template"
+    );
+    let result = read_package(&wire).expect("guard-free selected package read");
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
     );
 }
