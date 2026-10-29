@@ -4590,6 +4590,69 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
     }
 }
 
+/// Trace: FR-350-AC-3
+#[trace("FR-350-AC-3")]
+#[test]
+fn step_relation_identity_tracks_effective_premises() {
+    let base = step_relation_package();
+    let relation = position(&base, "claim", "step_relation");
+    let changed = |candidate: &Value| {
+        let at = position(candidate, "claim", "step_relation");
+        assert_ne!(
+            base["semantic_graph"]["nodes"][relation]["node_id"],
+            candidate["semantic_graph"]["nodes"][at]["node_id"]
+        );
+        assert_ne!(base["package_id"], candidate["package_id"]);
+        admits(candidate);
+    };
+    let mut precondition = base.clone();
+    let clause = nodes(&precondition)
+        .iter()
+        .position(|node| {
+            node["semantic_form"] == "state_clause"
+                && node["body"]["operation"]["member"]["clause"] == "precondition"
+        })
+        .expect("precondition");
+    precondition["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["target"] =
+        node_id(&family_key("eeee"));
+    settle_step_relation(&mut precondition);
+    changed(&precondition);
+
+    let mut added = base.clone();
+    let invariant = nodes(&added)
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "state_clause"
+                && node["body"]["operation"]["member"]["clause"] == "invariant"
+        })
+        .expect("invariant")
+        .clone();
+    let mut next = invariant;
+    next["node_id"] = node_id(&"f3".repeat(32));
+    next["body"]["arguments"][2]["target"] = node_id(&family_key("eeee"));
+    added["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(next);
+    settle_step_relation(&mut added);
+    let mut ids = nodes(&added)
+        .iter()
+        .filter(|node| {
+            node["semantic_form"] == "state_clause"
+                && node["body"]["operation"]["member"]["clause"] == "invariant"
+        })
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+    ids.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    let added = rekey_step_relation(added, |node| {
+        node["body"]["members"][2]["value"]["members"][0]["value"]["members"] = json!(ids
+            .into_iter()
+            .map(|id| json!({"term": "reference", "target": id}))
+            .collect::<Vec<_>>());
+    });
+    changed(&added);
+}
+
 fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Value {
     fn targets(term: &Value, found: &mut std::collections::BTreeSet<String>) {
         if term["term"] == "reference" {
