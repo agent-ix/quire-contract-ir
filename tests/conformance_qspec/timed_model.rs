@@ -113,9 +113,9 @@ fn timed_equal_region_rational_order_charges_before_big_integer_work() {
 }
 
 /// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-361.
-/// Provenance: IR-1109; CL-25 remains unbacked on STD-558.
+/// Provenance: IR-1109; QSpec CL-25 and CL-54.
 #[test]
-fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
+fn timed_clause_published_vectors_match_reader() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
     let dense = read_json(&fixtures.join("positive-timed-model-nodes.json"))
@@ -137,10 +137,18 @@ fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
     let vectors = read_json(&proposal.join("timed-clause-node-vectors.json"))
         .expect("published clause vectors");
     let cases = vectors["cases"].as_array().expect("published clause cases");
-    assert_eq!(cases.len(), 53);
+    assert_eq!(cases.len(), 54);
     let fixture = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
         .expect("published clause fixture");
     let document = proposal.join("domain-package-acme-timed-clauses.json");
+    let selected_document = read_json(&document).expect("selected clause document");
+    assert_eq!(
+        canonical_digest(&selected_document),
+        fixture["lock"]["model_selections"][0]["digest"]
+            .as_str()
+            .expect("model digest"),
+        "published fixture must select the changed document by its independently computed digest"
+    );
     for (ordinal, case) in cases.iter().enumerate() {
         let id = case["id"].as_str().expect("clause case id");
         assert_eq!(id, format!("CL-{:02}", ordinal + 1));
@@ -152,25 +160,6 @@ fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
         }
         let actual = read_package_with_document(&candidate, id, &document)
             .expect("selected clause package read");
-        if id == "CL-25" {
-            // STD-558: the vector's foreign-model anchor also violates the
-            // earlier state-stage frame join. Keep this exception observable
-            // until QSpec repairs the vector; AC-360/362 are not claimed.
-            assert_eq!(case["expected_code"], "invalid_package");
-            assert_eq!(case["expected_cause"], "timed-node-reference");
-            let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
-                panic!("STD-558 pending CL-25 state-stage conflict disappeared");
-            };
-            assert_eq!(
-                (refusal.code, refusal.cause),
-                (Code::InvalidModelBinding, Some(Cause::MalformedDeclaration))
-            );
-            assert_eq!(
-                refusal.path.unwrap().to_string(),
-                "/semantic_graph/nodes/70"
-            );
-            continue;
-        }
         match (case["expected"].as_str(), actual) {
             (Some("admitted"), CheckedPackageV2ReadResult::Admitted(_)) => {}
             (
@@ -207,7 +196,7 @@ fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
     }
 }
 
-/// Trace: FR-038-AC-358, TC-048. AC-362 awaits STD-558.
+/// Trace: FR-038-AC-358, FR-038-AC-360, FR-038-AC-362, TC-048.
 #[test]
 fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
     let fixtures = fixtures_dir();
@@ -230,6 +219,30 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
         }
         candidate
     };
+
+    for (id, code, cause, locus) in [
+        (
+            "CL-25",
+            Code::InvalidPackage,
+            Cause::TimedNodeReference,
+            "/semantic_graph/nodes/46/body/members/1/value/target",
+        ),
+        (
+            "CL-54",
+            Code::InvalidModelBinding,
+            Cause::MalformedDeclaration,
+            "/semantic_graph/nodes/70",
+        ),
+    ] {
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package_with_document(&published_case(id), id, &document)
+                .expect("selected package read")
+        else {
+            panic!("{id}: stage control must refuse");
+        };
+        assert_eq!((refusal.code, refusal.cause), (code, Some(cause)), "{id}");
+        assert_eq!(refusal.path.unwrap().to_string(), locus, "{id}");
+    }
 
     let mut order_before_unlisted = published_case("CL-05");
     order_before_unlisted["semantic_graph"]["nodes"][52]["body"]["members"][5]["value"]["members"]
@@ -378,16 +391,6 @@ fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
         else {
             panic!("{id}: guard control must refuse");
         };
-        if id == "GD-02" {
-            // STD-559: its distinct same-path place mutates a resolved row
-            // and therefore fails the earlier selected-declaration join.
-            assert_eq!(case["expected_cause"], "duplicate-clock-place");
-            assert_eq!(
-                (refusal.code, refusal.cause),
-                (Code::InvalidPackage, Some(Cause::MalformedClockPlace))
-            );
-            continue;
-        }
         assert_eq!(
             Some(code_word(refusal.code)),
             case["expected_code"].as_str(),
@@ -1131,7 +1134,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                     target.clone();
                 replace_dependency(&mut wire["semantic_graph"]["nodes"][44], &old, &target);
             }
-            "duplicate-clock-place" => {
+            "second-place-forged-row" => {
                 let mut second = wire["semantic_graph"]["nodes"][45].clone();
                 let rows = second["body"]["members"][2]["value"]["members"]
                     .as_array_mut()
@@ -1170,7 +1173,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                 wire["semantic_graph"]["nodes"]
                     .as_array_mut()
                     .unwrap()
-                    .push(second);
+                    .insert(59, second);
                 let root = &mut wire["semantic_graph"]["nodes"][52];
                 root["body"]["members"][3]["value"]["members"]
                     .as_array_mut()
@@ -1255,7 +1258,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                 .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
         }
         fixture_support::refresh_identity(&mut wire);
-        if mutation == "duplicate-clock-place" {
+        if mutation == "second-place-forged-row" {
             let places =
                 &wire["semantic_graph"]["nodes"][52]["body"]["members"][3]["value"]["members"];
             assert_ne!(places[0]["target"], places[1]["target"]);
@@ -1263,21 +1266,6 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{} must refuse", row["id"]);
         };
-        if row["id"] == "TM-12" {
-            // STD-559 owns the invalid resolved-path row used to distinguish
-            // the second same-path node. Preserve the earlier refusal until
-            // the published control has a genuinely valid second place.
-            assert_eq!(row["expected_cause"], "duplicate-clock-place");
-            assert_eq!(
-                (refusal.code, refusal.cause),
-                (Code::InvalidPackage, Some(Cause::MalformedClockPlace))
-            );
-            assert_eq!(
-                refusal.path.unwrap().to_string(),
-                "/semantic_graph/nodes/60/body/members/2/value/members/1"
-            );
-            continue;
-        }
         assert_eq!(
             code_word(refusal.code),
             row["expected_code"].as_str().unwrap(),
