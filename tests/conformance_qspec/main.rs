@@ -223,6 +223,22 @@ fn read_package_with_document_and_extensions(
     domain_document: &Path,
     hold_retention: bool,
 ) -> Result<CheckedPackageV2ReadResult, String> {
+    read_package_with_document_and_extensions_at_limit(
+        package,
+        name,
+        domain_document,
+        hold_retention,
+        CheckedPackageReadLimits::bounded(),
+    )
+}
+
+fn read_package_with_document_and_extensions_at_limit(
+    package: &Value,
+    name: &str,
+    domain_document: &Path,
+    hold_retention: bool,
+    limits: CheckedPackageReadLimits,
+) -> Result<CheckedPackageV2ReadResult, String> {
     // The reader takes canonical bytes; the published files are indented.
     let bytes = serde_json::to_vec(package).map_err(|error| error.to_string())?;
     let mut evidence = CheckedPackageEvidence::new();
@@ -312,11 +328,7 @@ fn read_package_with_document_and_extensions(
             .insert_domain_package_document(digest, document)
             .map_err(|error| format!("{name}: evidence insertion failed: {error}"))?;
     }
-    Ok(CheckedPackageV2::read(
-        &bytes,
-        CheckedPackageReadLimits::bounded(),
-        &evidence,
-    ))
+    Ok(CheckedPackageV2::read(&bytes, limits, &evidence))
 }
 
 /// What the production reader makes of `package`: `admitted`, `incomplete`, or

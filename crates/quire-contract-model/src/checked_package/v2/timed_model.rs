@@ -1370,13 +1370,24 @@ impl PartialOrd for OrderPart {
     }
 }
 
-fn quantity_key(term: Option<&CheckedTerm>) -> Option<OrderPart> {
-    let value = term.and_then(spelling)?;
-    let exact = ExactMagnitude::from_wire(value)?;
-    Some(OrderPart::Ratio(
-        BigUint::parse_bytes(exact.numerator.as_bytes(), 10)?,
-        BigUint::parse_bytes(exact.denominator.as_bytes(), 10)?,
-    ))
+fn quantity_key(
+    term: Option<&CheckedTerm>,
+    meter: &mut WorkMeter,
+    at: &JsonPointer,
+) -> Result<Option<OrderPart>, ValidationFailure> {
+    let Some(value) = term.and_then(spelling) else {
+        return Ok(None);
+    };
+    // Cross multiplication compares two values of this size. Charge its
+    // quadratic upper bound before either decimal parse or multiplication.
+    let digits = u64::try_from(value.len()).unwrap_or(u64::MAX);
+    meter.charge(digits.saturating_mul(digits), || at.clone())?;
+    let Some(exact) = ExactMagnitude::from_wire(value) else {
+        return Ok(None);
+    };
+    Ok(BigUint::parse_bytes(exact.numerator.as_bytes(), 10)
+        .zip(BigUint::parse_bytes(exact.denominator.as_bytes(), 10))
+        .map(|(numerator, denominator)| OrderPart::Ratio(numerator, denominator)))
 }
 
 /// Flatten the nested structural term key with explicit list delimiters.
@@ -1508,10 +1519,16 @@ fn operation_name(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<Strin
     bound(body, 1).and_then(spelling).map(str::to_owned)
 }
 
+#[derive(Clone, Copy)]
+enum Shape {
+    Term,
+    Quantity,
+}
+
 fn structural_order_key_inner(
     graph: &Graph<'_>,
     position: usize,
-    term_shape: &mut impl FnMut(Option<&CheckedTerm>) -> Option<Vec<OrderPart>>,
+    shape: &mut impl FnMut(Option<&CheckedTerm>, Shape) -> Option<Vec<OrderPart>>,
 ) -> Option<Vec<OrderPart>> {
     let body = graph.terms.get(position)?.as_ref()?;
     let kind = graph.kinds.get(position)?;
@@ -1525,16 +1542,16 @@ fn structural_order_key_inner(
                 key.push(OrderPart::Number(0));
                 let place = *graph.index.get(typed_target(bound(body, 1)?)?)?;
                 key.extend(place_path_key(graph, place)?);
-                key.extend(term_shape(bound(body, 2))?);
+                key.extend(shape(bound(body, 2), Shape::Term)?);
                 key.push(OrderPart::Start);
                 for slot in bound(body, 3).map(typed_members)? {
-                    key.extend(term_shape(Some(slot))?);
+                    key.extend(shape(Some(slot), Shape::Term)?);
                 }
                 key.push(OrderPart::End);
                 key.push(OrderPart::Number(comparison_rank(
                     bound(body, 4).and_then(spelling)?,
                 )?));
-                key.push(quantity_key(bound(body, 5))?);
+                key.extend(shape(bound(body, 5), Shape::Quantity)?);
             } else {
                 key.push(OrderPart::Number(1));
                 key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
@@ -1542,7 +1559,7 @@ fn structural_order_key_inner(
                 key.push(OrderPart::Number(comparison_rank(
                     bound(body, 3).and_then(spelling)?,
                 )?));
-                key.push(quantity_key(bound(body, 4))?);
+                key.extend(shape(bound(body, 4), Shape::Quantity)?);
             }
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Reset) => {
@@ -1551,24 +1568,24 @@ fn structural_order_key_inner(
                 let place = *graph.index.get(typed_target(bound(body, 2)?)?)?;
                 key.extend(place_path_key(graph, place)?);
                 key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
-                key.extend(term_shape(bound(body, 6))?);
+                key.extend(shape(bound(body, 6), Shape::Term)?);
                 key.push(OrderPart::Start);
                 for binder in bound(body, 5).map(typed_members)? {
-                    key.extend(term_shape(Some(binder))?);
+                    key.extend(shape(Some(binder), Shape::Term)?);
                 }
                 key.push(OrderPart::End);
-                key.extend(term_shape(bound(body, 3))?);
+                key.extend(shape(bound(body, 3), Shape::Term)?);
                 key.push(OrderPart::Start);
                 for slot in bound(body, 4).map(typed_members)? {
-                    key.extend(term_shape(Some(slot))?);
+                    key.extend(shape(Some(slot), Shape::Term)?);
                 }
                 key.push(OrderPart::End);
-                key.push(quantity_key(bound(body, 7))?);
+                key.extend(shape(bound(body, 7), Shape::Quantity)?);
             } else {
                 key.push(OrderPart::Number(1));
                 key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
                 key.push(OrderPart::Word(text_member(body, 2)?.to_owned()));
-                key.push(quantity_key(bound(body, 3))?);
+                key.extend(shape(bound(body, 3), Shape::Quantity)?);
             }
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Guard) => {
@@ -1578,14 +1595,10 @@ fn structural_order_key_inner(
             key.push(OrderPart::Start);
             for bound_term in bound(body, 1).map(typed_members)? {
                 let bound_position = *graph.index.get(typed_target(bound_term)?)?;
-                key.extend(structural_order_key_inner(
-                    graph,
-                    bound_position,
-                    term_shape,
-                )?);
+                key.extend(structural_order_key_inner(graph, bound_position, shape)?);
             }
             key.push(OrderPart::End);
-            key.extend(term_shape(bound(body, 0))?);
+            key.extend(shape(bound(body, 0), Shape::Term)?);
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Urgency) => {
             key.push(OrderPart::Word(text_member(body, 0)?.to_owned()));
@@ -1605,13 +1618,19 @@ fn structural_order_key(
     at: &JsonPointer,
 ) -> Result<Option<Vec<OrderPart>>, ValidationFailure> {
     let mut work_failure = None;
-    let key = structural_order_key_inner(graph, position, &mut |term| match term_key(
-        graph, term, meter, at,
-    ) {
-        Ok(key) => key,
-        Err(failure) => {
-            work_failure = Some(failure);
-            None
+    let key = structural_order_key_inner(graph, position, &mut |term, kind| {
+        let result = match kind {
+            Shape::Term => term_key(graph, term, meter, at),
+            Shape::Quantity => {
+                quantity_key(term, meter, at).map(|part| part.map(|part| vec![part]))
+            }
+        };
+        match result {
+            Ok(key) => key,
+            Err(failure) => {
+                work_failure = Some(failure);
+                None
+            }
         }
     });
     match work_failure {

@@ -42,6 +42,76 @@ fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
     }
 }
 
+/// Trace: FR-038-AC-3, FR-038-AC-359, TC-048.
+#[test]
+fn timed_equal_region_rational_order_charges_before_big_integer_work() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("timed-clause-node-vectors.json"))
+        .expect("published clause vectors");
+    let case = vectors["cases"]
+        .as_array()
+        .expect("published cases")
+        .iter()
+        .find(|case| case["id"] == "CL-47")
+        .expect("equal-region rational control");
+    let mut package = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
+        .expect("published clause fixture");
+    for patch in case["patch"].as_array().expect("published patches") {
+        apply_published_timed_patch(&mut package, patch);
+    }
+    let numerator = format!("3{}", "0".repeat(1_000));
+    package["semantic_graph"]["nodes"][77]["body"]["members"][5]["value"]["value"] =
+        json!(format!("{numerator}/1"));
+    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    sort_timed_graph_dependencies(&mut package);
+    fixture_support::refresh_identity(&mut package);
+    let document = proposal.join("domain-package-acme-timed-clauses.json");
+    let read_at = |work| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        read_package_with_document_and_extensions_at_limit(
+            &package,
+            "large equal-region rational",
+            &document,
+            true,
+            limits,
+        )
+        .expect("selected package read")
+    };
+    let (mut low, mut high) = (0, 10_000_000);
+    let at_high = read_at(high);
+    assert!(
+        matches!(at_high, CheckedPackageV2ReadResult::Admitted(_)),
+        "large ratio with work {high}: {at_high:?}"
+    );
+    while low < high {
+        let middle = low + (high - low) / 2;
+        match read_at(middle) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle + 1,
+            other => panic!("expected admission or work exhaustion: {other:?}"),
+        }
+    }
+    assert!(matches!(
+        read_at(low),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(low - 1) else {
+        panic!("one below exact work budget must be incomplete")
+    };
+    assert_eq!(
+        incomplete.limit_kind,
+        quire_contract_model::CheckedPackageLimit::Work
+    );
+    assert_eq!(incomplete.limit, low - 1);
+    assert_eq!(incomplete.consumed, low);
+    assert!(
+        low >= 1_000_000,
+        "rational parse and compare must be charged"
+    );
+}
+
 /// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-361.
 /// Provenance: IR-1109; CL-25 remains unbacked on STD-558.
 #[test]
@@ -137,7 +207,7 @@ fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
     }
 }
 
-/// Trace: FR-038-AC-358, FR-038-AC-362, TC-048.
+/// Trace: FR-038-AC-358, TC-048. AC-362 awaits STD-558.
 #[test]
 fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
     let fixtures = fixtures_dir();
