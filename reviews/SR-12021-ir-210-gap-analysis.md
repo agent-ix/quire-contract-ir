@@ -18,7 +18,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-210 (slice 1), PR quire-contract-ir#426. This is a planless gap analysis; plan completion was not assessed. The computed matrix was measured with quire 0.36.2 (engine 0.50.2) on origin/main (a detached scratch worktree) and on.
+Ticket: IR-210 (slice 1), PR quire-contract-ir#426. This is a planless gap analysis; plan completion was not assessed. The computed matrix was measured with quire 0.36.2 (engine 0.50.2) on origin/main (a detached scratch worktree) and on the PR head.
 
 `quire coverage --scope . --strict`:
 

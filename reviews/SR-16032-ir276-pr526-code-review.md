@@ -33,4 +33,4 @@ Examined FR-038-AC-308 and FR-038-AC-309, with IR-276 AC-1, AC-2 and AC-6 as tic
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At exact PR, the JSON key is `"lowering_fact_scan_body_validations": admission_walks,` and accurately names the direct fixture scan. The other reporting fields and existing assertions are unchanged. |
+| FND-001 | fixed | In the reviewed PR, the JSON key is `"lowering_fact_scan_body_validations": admission_walks,` and accurately names the direct fixture scan. The other reporting fields and existing assertions are unchanged. |

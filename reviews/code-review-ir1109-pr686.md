@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the one-file test diff at exact against merged IR FR-038 and QSpec. QSpec CL-25/54, GD-02/03 and TM-12 now have exact public-reader code, cause and locus controls; the clause fixture’s selected document digest is independently recomputed. No copied QSpec file, production code, dependency, CI workflow or gate changed.
+Reviewed the one-file test diff at the reviewed PR head against merged IR FR-038 and QSpec. QSpec CL-25/54, GD-02/03 and TM-12 now have exact public-reader code, cause and locus controls; the clause fixture’s selected document digest is independently recomputed. No copied QSpec file, production code, dependency, CI workflow or gate changed.
 
 ## Verdict
 

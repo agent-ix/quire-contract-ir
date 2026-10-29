@@ -28,7 +28,7 @@ IR-1033 PR #592; examined FR-064-AC-1..6 and FR-038 owner/catalog context.
 
 ## Coverage
 
-Reviewed diff only; formal Rust style and wire boundary checks included. Hosted lint failure supplied by code lead at exact head; no aggregate gate rerun. QSpec TC-048 pinned fails on STD-498 fixture owner mismatch, which is an external fixture blocker. FR-064-AC-4 source producer half belongs QSL. FR-064-AC-5 remains Planned for PR #586.
+Reviewed diff only; formal Rust style and wire boundary checks included. Hosted lint failure supplied by code lead at the reviewed PR head; no aggregate gate rerun. QSpec TC-048 pinned fails on STD-498 fixture owner mismatch, which is an external fixture blocker. FR-064-AC-4 source producer half belongs QSL. FR-064-AC-5 remains Planned for PR #586.
 
 ## Dispositions
 

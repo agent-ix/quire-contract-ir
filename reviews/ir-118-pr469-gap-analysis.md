@@ -26,7 +26,7 @@ Ticket IR-118. Diff-scoped, planless check of acceptance criterion, trace bindin
 
 ## Coverage
 
-Measured `quire coverage --strict` on exact and reviewed: both 536/606 backed, 41 unbacked, 0 contradicted. Strict exits 1 for the unchanged 41 unbacked rows. The three tests add no false criterion coverage claim or extra matrix credit.
+Measured `quire coverage --strict` on the base and reviewed PR head: both 536/606 backed, 41 unbacked, 0 contradicted. Strict exits 1 for the unchanged 41 unbacked rows. The three tests add no false criterion coverage claim or extra matrix credit.
 
 ## Verdict
 

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-943. Reviewed the three-file PR diff at exact with the Rust review lane. The signature walk takes the function result and the semantic types of the parameter nodes in the first `parameters` binding, then traverses only type dependencies. The lock-order, refusal-locus, and signature tests exercise the intended reader behavior. FR-322-AC-87's compiler derivation is outside this reader code review and is addressed in the separate gap review.
+Ticket: IR-943. Reviewed the three-file PR diff at the reviewed head with the Rust review lane. The signature walk takes the function result and the semantic types of the parameter nodes in the first `parameters` binding, then traverses only type dependencies. The lock-order, refusal-locus, and signature tests exercise the intended reader behavior. FR-322-AC-87's compiler derivation is outside this reader code review and is addressed in the separate gap review.
 
 ## Verdict
 

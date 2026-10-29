@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Independent non-author review of PR #514 at exact against IR main. The new FR and TC correctly distinguish controlled fixture checks from the required clean result on both real source roots, preserve the separate FR-028 dependency boundary, require the neutral ix-trace marker and authoritative QSL command, and state the scanner's syntactic limits. The core matrix and index have not been extended to declare the new FR/TC and their planned coverage.
+Independent non-author review of PR #514 at the reviewed PR head against IR main. The new FR and TC correctly distinguish controlled fixture checks from the required clean result on both real source roots, preserve the separate FR-028 dependency boundary, require the neutral ix-trace marker and authoritative QSL command, and state the scanner's syntactic limits. The core matrix and index have not been extended to declare the new FR/TC and their planned coverage.
 
 ## Scope
 
@@ -36,10 +36,10 @@ Independent non-author review of PR #514 at exact against IR main. The new FR an
 
 ## Review notes
 
-Changed-document `quire validate --scope .` passed 3/3 grammar-clean at the exact reviewed head; `git diff --check` passed. The computed `quire matrix --format tsv` reports FR-056-AC-1 through AC-6 and AC-8 as `untagged` and AC-7 as `method-without-symbol`, appropriate for a planned spec before implementation, but it does not replace the missing human-declared core matrix rows. QSL's current command source maps clean/violation/error to exits 0/1/2 and distinguishes a missing executable from scanner-returned exit 2; FR-056-AC-5 reflects that distinction. The existing measured red scan was reported by the author on IR-9 and was not rerun by this reviewer. No Cargo tests, `make ci`, Kani, replay or mutation gates were run.
+Changed-document `quire validate --scope .` passed 3/3 grammar-clean at the reviewed PR head; `git diff --check` passed. The computed `quire matrix --format tsv` reports FR-056-AC-1 through AC-6 and AC-8 as `untagged` and AC-7 as `method-without-symbol`, appropriate for a planned spec before implementation, but it does not replace the missing human-declared core matrix rows. QSL's current command source maps clean/violation/error to exits 0/1/2 and distinguishes a missing executable from scanner-returned exit 2; FR-056-AC-5 reflects that distinction. The existing measured red scan was reported by the author on IR-9 and was not rerun by this reviewer. No Cargo tests, `make ci`, Kani, replay or mutation gates were run.
 
 ## Dispositions
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At exact, `spec/core/matrix/tests.md` adds FR-056-AC-1 through AC-8 mapped to TC-460 with planned/unrun status, adds TC-460 and the StR-003 FR-056 edge; `spec/tests.md` adds FR-056 to the core index and keeps actual-source-clean credit planned. The original SR-15600 copied into `reviews/` is byte-identical to this reviewer-held artifact before the disposition appendix. Changed-document Quire validation passes 6/6; diff-check passes. The red real-source inventory remains an implementation condition, not a spec finding. |
+| FND-001 | fixed | At the reviewed PR head, `spec/core/matrix/tests.md` adds FR-056-AC-1 through AC-8 mapped to TC-460 with planned/unrun status, adds TC-460 and the StR-003 FR-056 edge; `spec/tests.md` adds FR-056 to the core index and keeps actual-source-clean credit planned. The original SR-15600 copied into `reviews/` is byte-identical to this reviewer-held artifact before the disposition appendix. Changed-document Quire validation passes 6/6; diff-check passes. The red real-source inventory remains an implementation condition, not a spec finding. |

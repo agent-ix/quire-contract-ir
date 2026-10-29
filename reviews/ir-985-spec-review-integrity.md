@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-985. Exact IR; QSpec #415. FR-038-AC-313 groups HY-11 and the schema-invalid HY-18 relation case with model checks 1–4. QSpec assigns those refusals to earlier name and strict-wire stages.
+Ticket: IR-985. Reviewed IR against QSpec #415. FR-038-AC-313 groups HY-11 and the schema-invalid HY-18 relation case with model checks 1–4. QSpec assigns those refusals to earlier name and strict-wire stages.
 
 ## Findings
 
@@ -31,7 +31,7 @@ Changes requested on FR-038-AC-313: separate HY-11 name validation and HY-18 mal
 
 ## Dispositions
 
-Round 1, reviewed against IR PR #527 exact.
+Round 1, reviewed against IR PR #527 head.
 
 | FND | outcome | reason |
 | --- | --- | --- |

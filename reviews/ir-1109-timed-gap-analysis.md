@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Independent review of PR #683 at exact against FR-038 AC-3, AC-336/342/357-362, TC-048, and QSpec. The published STD-558 CL-25 and STD-559 TM-12/GD-02 cases remain unbacked. No CI workflow, dependency, or vendored artifact changed.
+Independent review of PR #683 at the reviewed PR head against FR-038 AC-3, AC-336/342/357-362, TC-048, and QSpec. The published STD-558 CL-25 and STD-559 TM-12/GD-02 cases remain unbacked. No CI workflow, dependency, or vendored artifact changed.
 
 ## Verdict
 

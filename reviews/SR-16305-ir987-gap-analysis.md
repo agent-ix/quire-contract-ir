@@ -52,7 +52,7 @@ CONDITIONAL; both findings remain open. The newly instrumented build counts and 
 
 ## Round 2 dispositions
 
-At PR #529 exact, same-reviewer round 2 inspected the 13-path delta from round 1, including the test-only `CheckedNodeId` comparison implementation, all four canonical JSON fixtures, and the three public parity tests. The four fixtures parse as package JSON and contain 5,169, 35,502, 12,736 and 23,002 bytes, respectively. They are checked byte-for-byte through `include_bytes!` against current canonical output; the PR does not change canonical encoding. The author's base-run provenance is recorded on IR-987 in comment; that comment alone is not treated as test evidence.
+At the reviewed PR #529 head, same-reviewer round 2 inspected the 13-path delta from round 1, including the test-only `CheckedNodeId` comparison implementation, all four canonical JSON fixtures, and the three public parity tests. The four fixtures parse as package JSON and contain 5,169, 35,502, 12,736 and 23,002 bytes, respectively. They are checked byte-for-byte through `include_bytes!` against current canonical output; the PR does not change canonical encoding. The author's base-run provenance is recorded on IR-987 in comment; that comment alone is not treated as test evidence.
 
 | FND | outcome | reason |
 | --- | --- | --- |

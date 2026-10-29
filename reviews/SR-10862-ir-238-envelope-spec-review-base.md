@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-238; PR #389 exact. The FR-051 and TC-451 delta retains the closed eight-member contract, assigns producer adoption to QSL-766, and states focused implementation status without claiming a completed aggregate gate. No changed criterion or test procedure conflict was found against pinned QSpec FR-322.
+Ticket IR-238; PR #389 at the reviewed head. The FR-051 and TC-451 delta retains the closed eight-member contract, assigns producer adoption to QSL-766, and states focused implementation status without claiming a completed aggregate gate. No changed criterion or test procedure conflict was found against pinned QSpec FR-322.
 
 ## Verdict
 

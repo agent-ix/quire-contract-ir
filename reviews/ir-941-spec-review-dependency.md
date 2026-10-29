@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Exact. Examined FR-020 shared CLI boundary, AC-16 through AC-19, and both changed matrix declarations against ix-cli-kit main. The findings below need a same-PR fix.
+At the reviewed PR head, examined FR-020 shared CLI boundary, AC-16 through AC-19, and both changed matrix declarations against ix-cli-kit main. The findings below need a same-PR fix.
 
 ## Scope
 

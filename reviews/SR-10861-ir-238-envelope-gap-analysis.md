@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-238; PR #389 exact. The changed FR-051 AC-1 through AC-3 are tagged to real tests in the computed matrix. Inspected source and tests show no new unowned behavior, stub, or hollow trace. Plan completion: not assessed. This scoped verdict does not clear the repository's unrelated untagged criteria.
+Ticket IR-238; PR #389 at the reviewed head. The changed FR-051 AC-1 through AC-3 are tagged to real tests in the computed matrix. Inspected source and tests show no new unowned behavior, stub, or hollow trace. Plan completion: not assessed. This scoped verdict does not clear the repository's unrelated untagged criteria.
 
 ## Verdict
 

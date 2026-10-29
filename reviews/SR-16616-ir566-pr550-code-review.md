@@ -31,7 +31,7 @@ Ticket IR-566. Independent diff-scoped code and Rust review of PR 550. The optio
 
 ## Dispositions
 
-Same reviewer rechecked the fix at exact against the original failing command.
+Same reviewer rechecked the fix at the reviewed PR head against the original failing command.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |

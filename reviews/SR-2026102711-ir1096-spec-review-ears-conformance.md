@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #662 exact against QSpec #485 merged. spec-review/ears-conformance examined FR-038-AC-342, its behavior, and TC-048; no applicable AssuranceProfile found.
+Reviewed PR #662 against QSpec #485 merged. spec-review/ears-conformance examined FR-038-AC-342, its behavior, and TC-048; no applicable AssuranceProfile found.
 
 ## Scope
 

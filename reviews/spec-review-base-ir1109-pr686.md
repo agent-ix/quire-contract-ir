@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the six FR-038 AC-357..362 status/evidence prefixes added in PR #686 at exact. The normative criterion text and Test verification cells remain verbatim. The matching test controls use the public V2 reader and selected QSpec vectors. No applicable AssuranceProfile or enforced spec-review policy was found in this module.
+Reviewed the six FR-038 AC-357..362 status/evidence prefixes added in PR #686 at the reviewed PR head. The normative criterion text and Test verification cells remain verbatim. The matching test controls use the public V2 reader and selected QSpec vectors. No applicable AssuranceProfile or enforced spec-review policy was found in this module.
 
 ## Verdict
 

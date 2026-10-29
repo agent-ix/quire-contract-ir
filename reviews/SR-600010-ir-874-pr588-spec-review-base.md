@@ -34,4 +34,4 @@ Reviewed the single changed FR-019 API table row and its AC-5 against the source
 
 ## Final exact-head integration review
 
-Hosted Rust Checks at exact code passed Format, Lint and Test; Supply-chain Checks, language-boundary guard and CLA passed at the same head. The FR-019 public-items table still names exactly the added CheckedProtocolDecisionRead export, and the hosted Test step passed the public-interface inventory controls. Quire validation of this SpecReview passed. **Final scoped spec-review verdict: PASS.**
+Hosted Rust Checks on the reviewed PR head passed Format, Lint and Test; Supply-chain Checks, language-boundary guard and CLA passed at the same head. The FR-019 public-items table still names exactly the added CheckedProtocolDecisionRead export, and the hosted Test step passed the public-interface inventory controls. Quire validation of this SpecReview passed. **Final scoped spec-review verdict: PASS.**

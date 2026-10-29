@@ -34,4 +34,4 @@ CONDITIONAL. The finding requires an author fix or a documented scope decision b
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR #531 exact, Clock-place duplicates now compare retained typed `(model, path)` rather than the node position; guards are excluded. A new authenticated distinct-node/same-path/different-guards test asserts the exact `duplicate-clock-place` refusal and locus. |
+| FND-001 | fixed | At the reviewed PR #531 head, Clock-place duplicates now compare retained typed `(model, path)` rather than the node position; guards are excluded. A new authenticated distinct-node/same-path/different-guards test asserts the exact `duplicate-clock-place` refusal and locus. |

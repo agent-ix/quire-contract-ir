@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1087. Reviewed only the two FR-019 Public items table edits at exact PR against crate-root exports, FR-035 and FR-038 ownership, and the TC-058 inventory rule. They change implemented public-item status and name the typed refusal without changing any acceptance criterion or upstream dependency edge.
+Ticket: IR-1087. Reviewed only the two FR-019 Public items table edits in the reviewed PR against crate-root exports, FR-035 and FR-038 ownership, and the TC-058 inventory rule. They change implemented public-item status and name the typed refusal without changing any acceptance criterion or upstream dependency edge.
 
 ## Verdict
 

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #662 exact against QSpec #485 merged. spec-review/evidence examined FR-038-AC-342, its behavior, and TC-048; no applicable AssuranceProfile found. The earlier-stage control is weaker than the criterion. `quoin advise --json` did not finish after more than one minute and was stopped; this finding is a manual criterion-to-plan evidence check, not a deterministic advisor verdict.
+Reviewed PR #662 against QSpec #485 merged. spec-review/evidence examined FR-038-AC-342, its behavior, and TC-048; no applicable AssuranceProfile found. The earlier-stage control is weaker than the criterion. `quoin advise --json` did not finish after more than one minute and was stopped; this finding is a manual criterion-to-plan evidence check, not a deterministic advisor verdict.
 
 ## Scope
 

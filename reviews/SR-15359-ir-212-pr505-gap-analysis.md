@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-212. Independent nonauthor review of PR 505's three changed Rust files at exact. Scope is FR-035-AC-19 through AC-21.
+Ticket: IR-212. Independent nonauthor review of PR 505's three changed Rust files at the reviewed PR head. Scope is FR-035-AC-19 through AC-21.
 
 ## Verdict
 

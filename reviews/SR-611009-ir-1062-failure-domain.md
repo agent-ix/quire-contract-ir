@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #615 exact against IR and QSpec origin/main. Examined FR-068-AC-1 through AC-5, TC-463 and the spec index addition.
+Reviewed PR #615 against IR and QSpec origin/main. Examined FR-068-AC-1 through AC-5, TC-463 and the spec index addition.
 
 ## Verdict
 

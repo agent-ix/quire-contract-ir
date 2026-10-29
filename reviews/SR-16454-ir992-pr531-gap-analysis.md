@@ -38,4 +38,4 @@ Plan completion: not assessed. Incremental matrix inspection: the only new FR-03
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR #531 exact, The vocabulary-only test now has suite-only `TC-048` trace and no FR-038-AC-318 tag. The conformance tests remain suite-only; the full criterion is not claimed by this PR. |
+| FND-001 | fixed | At the reviewed PR #531 head, The vocabulary-only test now has suite-only `TC-048` trace and no FR-038-AC-318 tag. The conformance tests remain suite-only; the full criterion is not claimed by this PR. |

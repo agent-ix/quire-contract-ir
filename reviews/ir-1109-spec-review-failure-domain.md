@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Independent spec-review/failure-domain review of IR-1109 PR #682 at exact against QSpec. Ticket: IR-1109. The diff is spec-only; implementation evidence remains Planned/Unrun.
+Independent spec-review/failure-domain review of IR-1109 PR #682 at the reviewed PR head against QSpec. Ticket: IR-1109. The diff is spec-only; implementation evidence remains Planned/Unrun.
 
 ## Verdict
 

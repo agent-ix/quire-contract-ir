@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed IR-1100 PR #679 exact against merged QSpec FR-464 and IR FR-038-AC-344 through AC-356. No applicable AssuranceProfile or CI workflow changes were found. Rust review used repository conventions; aggregate gate remains with the code lead.
+Reviewed IR-1100 PR #679 against merged QSpec FR-464 and IR FR-038-AC-344 through AC-356. No applicable AssuranceProfile or CI workflow changes were found. Rust review used repository conventions; aggregate gate remains with the code lead.
 
 ## Verdict
 

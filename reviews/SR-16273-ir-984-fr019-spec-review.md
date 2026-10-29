@@ -29,4 +29,4 @@ Independent base spec review of the one-line FR-019 Public items change on PR #5
 
 ## Verdict
 
-PASS for the FR-019 row at exact.
+PASS for the FR-019 row at the reviewed PR head.
