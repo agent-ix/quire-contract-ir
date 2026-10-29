@@ -3517,7 +3517,7 @@ fn append_catalog_free_step(package: &mut Value, position: usize, class: &str) {
 
 #[trace("TC-062", "FR-061-AC-5", "FR-061-AC-16")]
 #[test]
-fn catalog_free_operation_step_order_precedes_first_row_join() {
+fn catalog_free_operation_steps_join_in_received_order() {
     let (mut package, evidence, position) = catalog_free_operation_package("object_type");
     append_catalog_free_step(&mut package, position, "other");
     let rows = package["semantic_graph"]["nodes"][position]["body"]["steps"]
@@ -3535,15 +3535,15 @@ fn catalog_free_operation_step_order_precedes_first_row_join() {
     );
     assert_step_refusal(
         read(&package, &evidence),
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        None,
-        &format!("{at}/1"),
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        &format!("{at}/1/source_class"),
     );
     assert_step_refusal(
         CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence),
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        None,
-        &format!("{at}/1"),
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        &format!("{at}/1/source_class"),
     );
     package["semantic_graph"]["nodes"][position]["body"]["steps"]
         .as_array_mut()
@@ -4350,7 +4350,7 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
 
 #[trace("TC-062", "FR-061-AC-4")]
 #[test]
-fn tied_protocol_and_memory_step_rows_keep_canonical_order_and_node_presence() {
+fn tied_protocol_and_memory_step_rows_keep_declaration_order_and_node_presence() {
     let (mut package, evidence, position) = memory_catalog_package();
     let catalog = &package["semantic_graph"]["nodes"][position]["body"]["class_catalog"];
     let fork = catalog["concrete"]
@@ -4408,6 +4408,47 @@ fn tied_protocol_and_memory_step_rows_keep_canonical_order_and_node_presence() {
         panic!("reread step rows missing");
     };
     assert_eq!(serde_json::to_value(steps).expect("reread rows"), rows);
+
+    for permutation in [[3, 2, 1, 0], [1, 0, 3, 2]] {
+        let mut permuted = package.clone();
+        let received = Value::Array(
+            permutation
+                .iter()
+                .map(|index| rows[*index].clone())
+                .collect(),
+        );
+        permuted["semantic_graph"]["nodes"][position]["body"]["steps"] = received.clone();
+        rekey_refinement(&mut permuted, position);
+        let key: quire_contract_model::CheckedNodeId = serde_json::from_value(
+            permuted["semantic_graph"]["nodes"][position]["node_id"].clone(),
+        )
+        .expect("permuted refinement id");
+        let CheckedPackageV2ReadResult::Admitted(first) = read(&permuted, &evidence) else {
+            panic!(
+                "valid step permutation refused: {:?}",
+                read(&permuted, &evidence)
+            );
+        };
+        let Some(CheckedTerm::Refinement { steps, .. }) = first.term(&key) else {
+            panic!("permuted step rows missing");
+        };
+        assert_eq!(serde_json::to_value(steps).expect("typed rows"), received);
+        let encoded = writer_bytes(&permuted);
+        let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
+        assert_eq!(
+            written["semantic_graph"]["nodes"][position]["body"]["steps"],
+            received
+        );
+        let CheckedPackageV2ReadResult::Admitted(second) =
+            CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        else {
+            panic!("written step permutation refused");
+        };
+        assert_eq!(
+            serde_json::to_value(second.term(&key)).expect("reread rows"),
+            permuted["semantic_graph"]["nodes"][position]["body"]
+        );
+    }
 
     let mut invalid = package.clone();
     invalid["semantic_graph"]["nodes"][position]["body"]["steps"][2]["source_node"] = fork;
@@ -5324,12 +5365,20 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
     node["body"]["steps"]
         .as_array_mut()
         .expect("steps")
-        .sort_by(|left, right| {
-            left["source_node"]["digest"]
-                .as_str()
-                .cmp(&right["source_node"]["digest"].as_str())
-        });
+        .reverse();
+    assert_eq!(node["body"]["steps"][0]["source_class"], "toggleAgain");
+    assert_eq!(node["body"]["steps"][1]["source_class"], "toggle");
     rekey_refinement(&mut two, two_position);
+    two["refinement_step_rows"][0]["region"]["start"] = json!(33);
+    two["refinement_step_rows"][0]["region"]["end"] = json!(34);
+    let id = two["semantic_graph"]["nodes"][two_position]["node_id"].clone();
+    for entry in two["source_map"].as_array_mut().expect("source map") {
+        if entry["node_id"] == id && entry["role"] == "generated" && entry["ordinal"] == 1 {
+            entry["regions"][0]["start"] = json!(33);
+            entry["regions"][0]["end"] = json!(34);
+        }
+    }
+    refresh_identity(&mut two);
     for (package, evidence, position, generated) in [
         (
             &empty,
@@ -5370,6 +5419,46 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
         assert_eq!(occurrences, expected);
         assert_eq!(owner.occurrences.len(), expected.len());
     }
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&two, &two_evidence) else {
+        panic!("permuted proof-eligible steps refused");
+    };
+    let key: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(id).expect("refinement id");
+    let Some(CheckedTerm::Refinement { steps, .. }) = admitted.term(&key) else {
+        panic!("permuted refinement missing");
+    };
+    assert_eq!(
+        serde_json::to_value(steps).expect("typed steps"),
+        two["semantic_graph"]["nodes"][two_position]["body"]["steps"]
+    );
+    let regions = admitted.refinement_step_rows().expect("step regions");
+    assert_eq!(regions.len(), 2);
+    assert_eq!(regions[0].ordinal, 0);
+    assert_eq!(regions[0].region.start, 33);
+    assert_eq!(regions[1].ordinal, 1);
+    assert_eq!(regions[1].region.start, 31);
+    for (ordinal, start) in [(1, 33), (2, 31)] {
+        let generated = admitted
+            .source_map()
+            .iter()
+            .find(|entry| {
+                entry.node_id == key
+                    && entry.role == CheckedOccurrenceRole::Generated
+                    && entry.ordinal == ordinal
+            })
+            .expect("step occurrence");
+        assert_eq!(generated.regions[0].start, start);
+    }
+    let encoded = writer_bytes(&two);
+    let CheckedPackageV2ReadResult::Admitted(reread) =
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &two_evidence)
+    else {
+        panic!("written proof-eligible steps refused");
+    };
+    assert_eq!(
+        serde_json::to_value(reread.term(&key)).expect("reread steps"),
+        two["semantic_graph"]["nodes"][two_position]["body"]
+    );
 
     let (mut any, any_evidence, position) = catalog_free_operation_package("object_type");
     let owner = &mut any["semantic_graph"]["nodes"][position];
