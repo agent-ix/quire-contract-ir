@@ -116,8 +116,11 @@ bytes can be retracted. Diagnostic delivery remains best effort on stderr and
 retains the existing error-buffer fallback.
 
 The closed invocation, version line, six operational JSON codes, complete-run
-payload classification, corpus comparison and ordering, published schema and
-fixture semantics, canonical-byte comparison and vectors SHALL remain unchanged. In particular,
+payload classification, corpus comparison and ordering, published input, schema,
+and canonical-file bytes SHALL remain unchanged. Published expectation files
+SHALL change only to remove canonical-digest fields; the corresponding mismatch
+kind SHALL be removed, and the generator's file-regeneration gate SHALL retire.
+All other fixture comparisons and vectors SHALL remain unchanged. In particular,
 no model error-cause discriminator is needed to map different resource failures
 to different process statuses: every incomplete run continues to select exit 2.
 
@@ -197,7 +200,7 @@ and exits 0 without reading a corpus.
 | FR-020-AC-16 | The root binary uses the authoritative kit's caller-owned exit API for statuses 0, 1 and 2; matched corpus and version invocations exit 0, complete mismatches exit 1, and every existing operational code, including invalid invocation, exits 2. No route requests 5 or implicitly terminates through the kit's pass-through error. | Test |
 | FR-020-AC-17 | Shared compact serialization preserves the exact existing result and diagnostic envelopes, serialized field order and one-newline framing; result serialization errors discard the private buffer, while stdout write/flush failure retains exit 2 and `fixture_io` at `stdout`. Existing fallback diagnostics are retained. | Test |
 | FR-020-AC-18 | Only the root bridge package optionally depends on `ix-cli-kit`, from its authoritative Git source with the selection in Cargo.lock. Locked Cargo metadata shows no kit in the root's default production closure and shows it in the root's `conformance-cli` closure; the conformance binary requires that feature, the model has no kit dependency, and no kit implementation or alternative argv grammar is copied into the repository. | Inspection, Test (TC-018) |
-| FR-020-AC-19 | Adoption preserves the published conformance inputs' semantic coverage, expectation comparison, schemas and canonical-byte behavior; process tests retain the closed argv rejection cases, exact version line, byte-identical repeated corpus output and complete mismatch payload behavior. | Inspection, Test |
+| FR-020-AC-19 | Published conformance input, schema, and canonical-file bytes remain unchanged. Published expectation files change only by removal of canonical-digest fields, and the generator's byte-for-byte file-regeneration gate retires; all other expected values and comparison behavior remain unchanged. Process tests retain the closed argv rejection cases, exact version line, byte-identical repeated corpus output, and complete five-kind mismatch payload behavior. | Inspection, Test |
 
 ## Dependencies
 
