@@ -5,8 +5,8 @@
 //! Clause and aggregate-order controls exercise the public V2 reader.
 use super::*;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedCollectionKind, CheckedMemberType,
-    CheckedPackageIdentityPreimageRefV2, CheckedTerm,
+    encode_checked_package_v2, CheckedCollectionKind, CheckedMemberType, CheckedNodeId,
+    CheckedOccurrenceRole, CheckedPackageIdentityPreimageRefV2, CheckedTerm,
 };
 
 fn published() -> Value {
@@ -40,6 +40,106 @@ fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
         }
         (operation, _) => panic!("unsupported published patch {operation} at {path}"),
     }
+}
+
+/// Trace: FR-038-AC-360, TC-048.
+#[test]
+fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() {
+    fn id_at(wire: &Value, index: usize) -> CheckedNodeId {
+        serde_json::from_value(wire["semantic_graph"]["nodes"][index]["node_id"].clone())
+            .expect("published node id")
+    }
+
+    fn member<'a>(body: &'a CheckedTerm, name: &str) -> &'a CheckedTerm {
+        let CheckedTerm::Aggregate { members } = body else {
+            panic!("retained timed body must be an aggregate")
+        };
+        let Some(CheckedTerm::Binding { value, .. }) = members.iter().find(|term| {
+            matches!(term, CheckedTerm::Binding { name: member_name, .. }
+                if member_name.as_ref() == name)
+        }) else {
+            panic!("retained timed body lacks {name}")
+        };
+        value
+    }
+
+    let wire = read_json(&fixtures_dir().join("positive-timed-clause-nodes.json"))
+        .expect("published clause package");
+    let document = proposal_dir_of(&fixtures_dir()).join("domain-package-acme-timed-clauses.json");
+    let CheckedPackageV2ReadResult::Admitted(package) =
+        read_package_with_document(&wire, "positive timed clauses", &document)
+            .expect("selected clause read")
+    else {
+        panic!("published timed clause package must admit")
+    };
+    let model_id = id_at(&wire, 53);
+    for (clause_position, anchor_position) in [(47, 75), (82, 75), (79, 73), (85, 73)] {
+        let clause_id = id_at(&wire, clause_position);
+        let anchor_id = id_at(&wire, anchor_position);
+        assert!(package
+            .graph()
+            .nodes
+            .iter()
+            .any(|node| node.node_id == clause_id));
+        assert!(matches!(
+            member(package.term(&clause_id).expect("retained clause"), "operation"),
+            CheckedTerm::Reference { target } if target == &anchor_id
+        ));
+        let anchors: Vec<_> = package
+            .graph()
+            .nodes
+            .iter()
+            .filter(|node| node.node_id == anchor_id)
+            .collect();
+        assert_eq!(
+            anchors.len(),
+            1,
+            "one retained anchor for clause {clause_position}"
+        );
+        let anchor = anchors[0];
+        assert_eq!(anchor.semantic_form.as_ref(), "operation_anchor");
+        assert_eq!(anchor.occurrences.len(), 1);
+        assert_eq!(anchor.occurrences[0].role, CheckedOccurrenceRole::Anchor);
+        assert_eq!(anchor.occurrences[0].ordinal, 0);
+        let CheckedTerm::OperationAnchorBody(body) =
+            package.term(&anchor_id).expect("retained anchor body")
+        else {
+            panic!("clause {clause_position} must target an operation anchor")
+        };
+        assert!(body.execution_point.is_none());
+        assert!(matches!(
+            &body.members[0],
+            CheckedTerm::Binding { name, value }
+                if name.as_ref() == "context"
+                    && matches!(value.as_ref(), CheckedTerm::Reference { target } if target == &model_id)
+        ));
+    }
+
+    let urgency_id = id_at(&wire, 50);
+    let urgency = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == urgency_id)
+        .expect("retained operation urgency");
+    assert_eq!(urgency.semantic_form.as_ref(), "urgency");
+    let urgency_body = package.term(&urgency_id).expect("retained urgency body");
+    let CheckedTerm::Aggregate { members } = urgency_body else {
+        panic!("operation urgency must retain its aggregate body")
+    };
+    assert_eq!(members.len(), 3, "operation urgency is model plus name");
+    assert!(matches!(
+        member(urgency_body, "kind"),
+        CheckedTerm::Literal { value, .. } if value == "operation"
+    ));
+    assert!(matches!(
+        member(urgency_body, "model"),
+        CheckedTerm::Reference { target } if target == &model_id
+    ));
+    assert!(matches!(
+        member(urgency_body, "operation_name"),
+        CheckedTerm::Literal { value, .. } if value == "size"
+    ));
 }
 
 /// Trace: FR-038-AC-3, FR-038-AC-359, TC-048.
@@ -1079,7 +1179,7 @@ fn timed_model_published_schema_vectors_precede_stale_identity() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-320", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30")]
+#[trace("TC-048", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30")]
 #[test]
 fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
     let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
