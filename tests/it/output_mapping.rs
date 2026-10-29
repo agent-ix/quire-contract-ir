@@ -90,6 +90,15 @@ fn nested_bound_package() -> BoundPackage {
         .expect("strict nested bound package")
 }
 
+fn changed_environment_bound_package() -> BoundPackage {
+    let mut value = projection();
+    for binding in value["bindings"].as_array_mut().expect("bindings") {
+        binding["expression"]["values"][0]["name"] = json!("other_input");
+    }
+    BoundPackage::from_json_bytes(&serde_json::to_vec(&value).expect("projection bytes"))
+        .expect("strict projection with changed declaration environment")
+}
+
 fn ocl_profile() -> OutputMappingProfile {
     OutputMappingProfile::new(
         "ocl",
@@ -1101,7 +1110,7 @@ fn tc_043_record_content_retains_each_semantic_axis() {
 
     let nested = nested_bound_package();
     let nested_request = one_request(&nested, 0, SourceFactState::Ready, ocl_profile());
-    let nested_record = mapped_record(&nested_request, baseline);
+    let nested_record = mapped_record(&nested_request, baseline.clone());
     assert_eq!(
         baseline_record.source().identity(),
         nested_record.source().identity()
@@ -1110,6 +1119,32 @@ fn tc_043_record_content_retains_each_semantic_axis() {
         baseline_record.source().expression(),
         nested_record.source().expression()
     );
+
+    let changed_environment = changed_environment_bound_package();
+    let environment_request = one_request(
+        &changed_environment,
+        0,
+        SourceFactState::Ready,
+        ocl_profile(),
+    );
+    let environment_record = mapped_record(&environment_request, baseline);
+    assert_eq!(
+        baseline_record.source().identity(),
+        environment_record.source().identity()
+    );
+    assert_eq!(
+        baseline_record.source().expression(),
+        environment_record.source().expression()
+    );
+    assert_eq!(
+        environment_record.source().environment(),
+        changed_environment.clauses()[0].environment()
+    );
+    assert_ne!(
+        baseline_record.source().environment(),
+        environment_record.source().environment()
+    );
+    assert_ne!(baseline_record, environment_record);
 }
 
 struct DeterministicMapper {
