@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-985. Exact IR; QSpec #415. The added FR-481 and TC-966 edges resolve at QSpec #415 head and allocate wire authority and fixture evidence to QSpec.
+Ticket: IR-985. Reviewed IR against QSpec #415. The added FR-481 and TC-966 edges resolve at QSpec #415 head and allocate wire authority and fixture evidence to QSpec.
 
 ## Findings
 

@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-985. Exact IR; QSpec #415. The changed FR-038 requirement statements name the reader and observable admission or refusal behavior. Targeted grammar validation reports no findings.
+Ticket: IR-985. Reviewed IR against QSpec #415. The changed FR-038 requirement statements name the reader and observable admission or refusal behavior. Targeted grammar validation reports no findings.
 
 ## Findings
 

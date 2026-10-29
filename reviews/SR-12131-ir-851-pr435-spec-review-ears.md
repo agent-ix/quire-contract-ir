@@ -48,5 +48,5 @@ PASS WITH FINDINGS. The API, UnknownNode, NotRelationshipEndClaim and Unresolved
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 : the Retention paragraph is now normative: "The reader shall retain... The reader shall keep this record outside package equality, shall charge no work beyond what admission already charges, and shall not change its refusal order." |
-| FND-002 | fixed | Round 1 : the field-read case moved to AC-264. AC-267 is the public shape only, and the new AC-268 holds model_object_fields non-interference and the re-export rule. Nothing is renumbered (AC-268 is new). |
+| FND-001 | fixed | Round 1: the Retention paragraph is now normative: "The reader shall retain... The reader shall keep this record outside package equality, shall charge no work beyond what admission already charges, and shall not change its refusal order." |
+| FND-002 | fixed | Round 1: the field-read case moved to AC-264. AC-267 is the public shape only, and the new AC-268 holds model_object_fields non-interference and the re-export rule. Nothing is renumbered (AC-268 is new). |

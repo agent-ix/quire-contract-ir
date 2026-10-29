@@ -74,7 +74,7 @@ scope:
 
 ## Dispositions
 
-Round 1, against fix (`git diff origin/main...HEAD`, which changes only composite_operands.rs). Re-run gates: `cargo test --workspace --test it checked_package_v2` 448 passed, model `--lib v2` 171 passed, fmt and clippy clean, `quire validate` 887/887, strict coverage 49 unbacked / 0 contradicted. Mutants re-run on the new head and killed: swapped mapping and wildcard-default-to-Eq (by the AC-246 and boolean.and AC-181 tests), extra charge and second lookup (by the exact-work tests at:632-633 and:1087). The refusal order and `consumed_work` are unchanged, and the fix round adds no finding.
+Round 1, against fix (`git diff origin/main...HEAD`, which changes only composite_operands.rs). Re-run gates: `cargo test --workspace --test it checked_package_v2` 448 passed, model `--lib v2` 171 passed, fmt and clippy clean, `quire validate` 887/887, strict coverage 49 unbacked / 0 contradicted. Mutants re-run on the new head and killed: swapped mapping and wildcard-default-to-Eq (by the AC-246 and boolean.and AC-181 tests), extra charge and second lookup (by the exact-work tests at lines 632-633 and 1087). The refusal order and `consumed_work` are unchanged, and the fix round adds no finding.
 
 | FND | outcome | reason |
 | --- | --- | --- |

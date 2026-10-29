@@ -15,7 +15,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-573 (the PR also closes IR-542). PR agent-ix/quire-contract-ir#287,. Method: spec-review, integrity
+Ticket: IR-573 (the PR also closes IR-542). PR agent-ix/quire-contract-ir#287. Method: spec-review, integrity
 sub-analysis, with the QSL source checked read-only.
 
 The PR amends FR-038-AC-110 and the FR-038 note on number spelling to QSL's

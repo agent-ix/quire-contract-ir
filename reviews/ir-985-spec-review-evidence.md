@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-985. Exact IR; QSpec #415. All seven new criteria name TC-048; the procedure selects published QSpec fixtures and separates IR reader checks from QSpec provider and host trace evidence.
+Ticket: IR-985. Reviewed IR against QSpec #415. All seven new criteria name TC-048; the procedure selects published QSpec fixtures and separates IR reader checks from QSpec provider and host trace evidence.
 
 ## Findings
 

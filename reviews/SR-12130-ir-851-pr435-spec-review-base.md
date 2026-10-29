@@ -62,9 +62,9 @@ PASS WITH FINDINGS. The measured gap, the direction and destination rule, the ad
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 : the new Retention paragraph retains "the derived model declaration node id of each end's type" and says "The accessor shall not recompute that id". The ids are already in the admission declaration index (ModelOwners::index), so this can be implemented without a second derivation. |
-| FND-002 | fixed | Round 1 : `destination_type` is "the declared end type to which every operand conforms, not the type of a particular operand, so a subtype operand does not change it". |
-| FND-003 | fixed | Round 1 : UnresolvedEnd is now a catch-all, "a reaches application whose operation.member no longer resolves as admission resolved it", listing absent member, wrong kind, non-node-id or unresolved declaration, and non-text, no-role or both-role name. AC-265 covers all seven. |
-| FND-004 | fixed | Round 1 : AC-262 and TC-048 name a bidirectional relationship. |
-| FND-005 | fixed | Round 1 : the parameter and field are renamed `application`, the error is `NotReachesApplication`, and the spec states the id is the reaches application, not the enclosing state_clause. A `relationship: CheckedNodeId` field was added (nine fields). |
-| FND-006 | fixed | Round 2 : TC-048:2298 now reads "a `source-to-target` or `target-to-source` direction", matching model_members.rs:2505-2506; no underscore spelling remains under spec/. |
+| FND-001 | fixed | Round 1: the new Retention paragraph retains "the derived model declaration node id of each end's type" and says "The accessor shall not recompute that id". The ids are already in the admission declaration index (ModelOwners::index), so this can be implemented without a second derivation. |
+| FND-002 | fixed | Round 1: `destination_type` is "the declared end type to which every operand conforms, not the type of a particular operand, so a subtype operand does not change it". |
+| FND-003 | fixed | Round 1: UnresolvedEnd is now a catch-all, "a reaches application whose operation.member no longer resolves as admission resolved it", listing absent member, wrong kind, non-node-id or unresolved declaration, and non-text, no-role or both-role name. AC-265 covers all seven. |
+| FND-004 | fixed | Round 1: AC-262 and TC-048 name a bidirectional relationship. |
+| FND-005 | fixed | Round 1: the parameter and field are renamed `application`, the error is `NotReachesApplication`, and the spec states the id is the reaches application, not the enclosing state_clause. A `relationship: CheckedNodeId` field was added (nine fields). |
+| FND-006 | fixed | Round 2: TC-048:2298 now reads "a `source-to-target` or `target-to-source` direction", matching model_members.rs:2505-2506; no underscore spelling remains under spec/. |

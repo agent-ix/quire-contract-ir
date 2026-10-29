@@ -58,4 +58,4 @@ Round 2 reviewed the amended PR (still one commit); the reviewed PR delta change
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Same temporal.rs hunk as (amended): `match operation.laws.as_slice { [law] if law.role_class == Some(LawRole::TemporalProfile) => Some(law), _ => None }`; two laws refuse operation-law-mismatch at laws/1, none operation-law-missing at operation/laws. |
+| FND-001 | fixed | The amended `temporal.rs` hunk: `match operation.laws.as_slice { [law] if law.role_class == Some(LawRole::TemporalProfile) => Some(law), _ => None }`; two laws refuse operation-law-mismatch at laws/1, none operation-law-missing at operation/laws. |

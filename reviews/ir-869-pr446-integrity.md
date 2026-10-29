@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-869. AC-195 now names the two Clippy lanes and the repository lint gate as an Analysis obligation. The initial PR added a dedicated lint row but retained AC-195 inside the broad FR-038 row's AC-186 through AC-196 range with TC-048 in its Test Cases cell. That assigned one criterion to two incompatible verification routes. The author fixed the range at: it now ends at AC-194 and names AC-196 separately, leaving AC-195 only in the lint row. Both edited Quire documents validate grammar-clean (2/2).
+Ticket IR-869. AC-195 now names the two Clippy lanes and the repository lint gate as an Analysis obligation. The initial PR added a dedicated lint row but retained AC-195 inside the broad FR-038 row's AC-186 through AC-196 range with TC-048 in its Test Cases cell. That assigned one criterion to two incompatible verification routes. The author fixed the range in the reviewed PR: it now ends at AC-194 and names AC-196 separately, leaving AC-195 only in the lint row. Both edited Quire documents validate grammar-clean (2/2).
 
 ## Reviewed scope
 

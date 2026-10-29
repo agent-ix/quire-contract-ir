@@ -27,7 +27,7 @@ The diff adds no unsafe code, panic or unchecked conversion in the production pa
 
 ## Scope
 
-Examined FR-038-AC-4, AC-107, AC-112, AC-123, AC-133, AC-154 and AC-310; FR-051-AC-4; FR-349-AC-3. Examined the PR's production Rust, test and conformance diff against QSpec FR-322 at published. The stale AC-123/AC-133 normative text is recorded in the spec-review artifacts.
+Examined FR-038-AC-4, AC-107, AC-112, AC-123, AC-133, AC-154 and AC-310; FR-051-AC-4; FR-349-AC-3. Examined the PR's production Rust, test and conformance diff against QSpec FR-322 at the published QSpec revision. The stale AC-123/AC-133 normative text is recorded in the spec-review artifacts.
 
 ## Custody correction
 

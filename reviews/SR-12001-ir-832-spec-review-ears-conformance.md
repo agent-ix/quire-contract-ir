@@ -37,4 +37,4 @@ PASS WITH FINDINGS. The API, UnknownNode, NotParameter and MalformedBody stateme
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 : the sentence is split into three `shall` statements: no partial declaration, no panic, admission and refusal order unchanged. |
+| FND-001 | fixed | Round 1: the sentence is split into three `shall` statements: no partial declaration, no panic, admission and refusal order unchanged. |

@@ -55,4 +55,4 @@ PASS WITH FINDINGS for this method. The API, its body-shape claims, the no-funct
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 : FR-038 now lists the full re-check (an aggregate of exactly the `"name"` and `"level"` bindings, a text name typed at `scalar_type`/`text` that is an identifier, an integer level typed at `scalar_type`/`integer` in canonical non-negative decimal) and adds "shall not otherwise re-check the package". AC-259 names five body mutations, and each maps to a check that `parameter_defect` (structural.rs) makes. |
+| FND-001 | fixed | Round 1: FR-038 now lists the full re-check (an aggregate of exactly the `"name"` and `"level"` bindings, a text name typed at `scalar_type`/`text` that is an identifier, an integer level typed at `scalar_type`/`integer` in canonical non-negative decimal) and adds "shall not otherwise re-check the package". AC-259 names five body mutations, and each maps to a check that `parameter_defect` (structural.rs) makes. |

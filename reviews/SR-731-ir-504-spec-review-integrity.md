@@ -52,7 +52,7 @@ origin/main (#247, code, tests and reviews only). A trial merge is clean, and
 ## New findings (disposition pass 2)
 
 Reviewed, rebased onto origin/main, so
-it is up to date. The spec delta since is only `spec/checked_package/matrix/tests.md`
+it is up to date. The spec delta since the preceding review is only `spec/checked_package/matrix/tests.md`
 (the FR-040 and TC-056 rows and the TC-056 coverage-design row). The four copied `reviews/`
 files (SR-730, SR-732, SR-733, SR-734) are byte-identical to the reviewer's final versions.
 `make spec`: validation passes, 163/185 rows backed, 23 unbacked (baseline).

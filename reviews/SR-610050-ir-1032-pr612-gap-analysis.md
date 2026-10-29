@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1032. Initial planless code-to-test-to-criterion audit at the reviewed PR #612 head. Disposition is PASS: the graph and precedence cases are now AC5-tagged public-reader tests. A subsequent is a Clippy-only `&at` to `at` adjustment with no test or semantic change. FR-063-AC-5 is tagged on the two new dimension-equivalence tests and the changed model-owner test. The tests reach the public `CheckedPackageV2::read` path; they are not hollow. The new production branches are owned by FR-063-AC-5. The remaining graph and precedence clauses are not asserted by a test bound to AC5. The semantic intent review is part of the assigned AC check; no repository-wide optional semantic sweep was run.
+Ticket: IR-1032. Initial planless code-to-test-to-criterion audit at the reviewed PR #612 head. Disposition is PASS: the graph and precedence cases are now AC5-tagged public-reader tests. A subsequent commit is a Clippy-only `&at` to `at` adjustment with no test or semantic change. FR-063-AC-5 is tagged on the two new dimension-equivalence tests and the changed model-owner test. The tests reach the public `CheckedPackageV2::read` path; they are not hollow. The new production branches are owned by FR-063-AC-5. The remaining graph and precedence clauses are not asserted by a test bound to AC5. The semantic intent review is part of the assigned AC check; no repository-wide optional semantic sweep was run.
 
 ## Findings
 
@@ -23,7 +23,7 @@ Ticket: IR-1032. Initial planless code-to-test-to-criterion audit at the reviewe
 
 ## Verdict
 
-PASS at reviewed. The initial review was CONDITIONAL because the graph and precedence clauses lacked AC5-tagged evidence; the Dispositions section records their added tests. Plan completion: not assessed.
+PASS on the reviewed PR head. The initial review was CONDITIONAL because the graph and precedence clauses lacked AC5-tagged evidence; the Dispositions section records their added tests. Plan completion: not assessed.
 
 ## Coverage
 

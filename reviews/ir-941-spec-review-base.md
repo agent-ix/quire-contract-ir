@@ -33,4 +33,4 @@ Pass for this method.
 
 ## Narrow re-review
 
-PR on main changes the reviewed patch only by adding the FR-003 dependency and changing AC-19 verification to Inspection, Test. The earlier clean verdict under this method carries.
+After rebasing on main, the PR changes the reviewed patch only by adding the FR-003 dependency and changing AC-19 verification to Inspection, Test. The earlier clean verdict under this method carries.

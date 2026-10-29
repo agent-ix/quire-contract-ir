@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-985. Exact IR; QSpec #415. The new hybrid criteria have unique IDs, named verification in TC-048, and matching QSpec authority. The only observed order conflict is recorded under integrity.
+Ticket: IR-985. Reviewed IR against QSpec #415. The new hybrid criteria have unique IDs, named verification in TC-048, and matching QSpec authority. The only observed order conflict is recorded under integrity.
 
 ## Findings
 

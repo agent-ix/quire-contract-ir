@@ -56,5 +56,5 @@ PASS WITH FINDINGS. The ids, the matrix rows, the TC-048 link, the FR-019 deferr
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 : AC-268 says "no selected_population item is pub use'd at the model crate root or re-exported from the quire-contract-ir root (FR-053-AC-5); selected_population stays reachable only by its module path". Verified: crates/quire-contract-model/src/lib.rs:92 has only `pub mod selected_population;` and no `pub use` of its items, and src/lib.rs re-exports nothing from it. |
-| FND-002 | fixed | Round 1 : the tests.md:21 aggregate row lists "FR-038-AC-262 through FR-038-AC-268" with a "🚧 AC-262 through AC-268 (IR-851)... PLANNED / UNRUN, spec only" note. |
+| FND-001 | fixed | Round 1: AC-268 says "no selected_population item is pub use'd at the model crate root or re-exported from the quire-contract-ir root (FR-053-AC-5); selected_population stays reachable only by its module path". Verified: crates/quire-contract-model/src/lib.rs:92 has only `pub mod selected_population;` and no `pub use` of its items, and src/lib.rs re-exports nothing from it. |
+| FND-002 | fixed | Round 1: the tests.md:21 aggregate row lists "FR-038-AC-262 through FR-038-AC-268" with a "🚧 AC-262 through AC-268 (IR-851)... PLANNED / UNRUN, spec only" note. |

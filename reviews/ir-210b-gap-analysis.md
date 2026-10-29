@@ -110,7 +110,7 @@ Pre-existing gaps (notes, not introduced here):
 - The eight fully-qualified `#[ix_trace_rs::trace]` tests are still credited through legacy doc-line forms only. That is the remainder of IR-210.
 - FR-018-AC-2's "independently" leg has a single, combined-mutation backer. See SR-12065 FND-003.
 
-Gates on: `cargo fmt --all -- --check` is clean, and `cargo test --locked --test it -- identity:: integration:: conformance::` passes 21 of 21. That is the 16 tests in the three files plus 5 `application_node_identity::` tests that the filter also matches.
+Gates on the reviewed PR head: `cargo fmt --all -- --check` is clean, and `cargo test --locked --test it -- identity:: integration:: conformance::` passes 21 of 21. That is the 16 tests in the three files plus 5 `application_node_identity::` tests that the filter also matches.
 
 ## Dispositions
 

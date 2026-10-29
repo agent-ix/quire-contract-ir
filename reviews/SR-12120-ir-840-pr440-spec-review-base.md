@@ -113,6 +113,6 @@ AC-21, AC-214, AC-225..235 and AC-242..245.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 : tests.md:32 now lists FR-038-AC-225 through AC-235 and AC-242 through AC-245. The cell holds exactly the 206 ids recommended in this review: ascending, no duplicates, none nonexistent, and AC-202..209 and AC-236..238 still absent. |
-| FND-002 | fixed | Round 1 : AC-214 is in the cell. Keeping it there is correct even though its FR-038 Verification cell reads "Test, Inspection" with no TC. TC-048 has the "Reader peak memory (FR-038-AC-214)" procedure, the tests carry TC-048 tags (tests/ir575_reader_memory.rs:36, checked_package_v2_canonical_encoding.rs:864), and no other TC claims it. The missing TC in the Verification cell is the defect IR-861 tracks (SR-12121 FND-001), and it is no reason to leave AC-214 out of the index. |
-| FND-003 | fixed | Round 1 : AC-9 and AC-21 are in the cell. |
+| FND-001 | fixed | Round 1: tests.md:32 now lists FR-038-AC-225 through AC-235 and AC-242 through AC-245. The cell holds exactly the 206 ids recommended in this review: ascending, no duplicates, none nonexistent, and AC-202..209 and AC-236..238 still absent. |
+| FND-002 | fixed | Round 1: AC-214 is in the cell. Keeping it there is correct even though its FR-038 Verification cell reads "Test, Inspection" with no TC. TC-048 has the "Reader peak memory (FR-038-AC-214)" procedure, the tests carry TC-048 tags (tests/ir575_reader_memory.rs:36, checked_package_v2_canonical_encoding.rs:864), and no other TC claims it. The missing TC in the Verification cell is the defect IR-861 tracks (SR-12121 FND-001), and it is no reason to leave AC-214 out of the index. |
+| FND-003 | fixed | Round 1: AC-9 and AC-21 are in the cell. |

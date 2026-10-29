@@ -87,7 +87,7 @@ Rust lane:
 - **Coverage of tests.** Every `#[test]` in both files now carries an attribute: 22 of 22 in `tests.rs` and 7 of 7 in `intake_retention.rs`.
 - **Surface.** The diff has no panic, unsafe or integer-conversion surface.
 
-Gates re-run on:
+Gates re-run on the reviewed PR head:
 
 - `cargo fmt --all -- --check` is clean.
 - `cargo clippy --locked -p quire-contract-model --all-targets -- -D warnings` is clean.

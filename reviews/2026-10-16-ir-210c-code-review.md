@@ -114,7 +114,7 @@ APPROVE WITH NITS. There are two low trace findings and no medium or high. Merge
 - **Untagged tests.** Every `#[test]` in the changed modules is tagged except two non-`tc_` tests in `v2/mod.rs`: `dependency_selection_required_members_match_the_type` and `exactly_one_kind_has_a_frame_body`. Both are outside this slice's "name-bound" scope.
 - **Surface.** The diff has no panic, unsafe, integer-conversion or lock surface.
 
-**Gates re-run on **
+**Gates re-run on the reviewed PR head**
 
 - `cargo fmt --all -- --check` is clean.
 - `cargo clippy --locked -p quire-contract-model --all-targets -- -D warnings` is clean.
@@ -126,5 +126,5 @@ No mutants were run. No body or assertion changed, so the tags were judged by re
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fix, checked on: `tc_048_a_document_within_the_parse_recursion_limit_is_read` now carries `#[trace("TC-048")]` and `/// Trace: TC-048`. `quire trace --file` shows only a TC-048 verifies claim. The doc sentence's "(FR-038-AC-117)" remains as an `evidence_near_miss` citation, not a claim. The AC-117 row keeps 14 binders. |
-| FND-002 | fixed | Fix, checked on: `tc_048_strict_shape_agrees_with_the_strict_parser` now carries `#[trace("TC-048")]` and `/// Trace: TC-048`. `quire trace --file` shows only a TC-048 verifies claim. The FR-038-AC-2 row keeps 8 binders. Strict coverage is still 508/565, 43 unbacked, 0 status lies, and minted targets are 508/565. |
+| FND-001 | fixed | Fix, checked on the reviewed PR head: `tc_048_a_document_within_the_parse_recursion_limit_is_read` now carries `#[trace("TC-048")]` and `/// Trace: TC-048`. `quire trace --file` shows only a TC-048 verifies claim. The doc sentence's "(FR-038-AC-117)" remains as an `evidence_near_miss` citation, not a claim. The AC-117 row keeps 14 binders. |
+| FND-002 | fixed | Fix, checked on the reviewed PR head: `tc_048_strict_shape_agrees_with_the_strict_parser` now carries `#[trace("TC-048")]` and `/// Trace: TC-048`. `quire trace --file` shows only a TC-048 verifies claim. The FR-038-AC-2 row keeps 8 binders. Strict coverage is still 508/565, 43 unbacked, 0 status lies, and minted targets are 508/565. |

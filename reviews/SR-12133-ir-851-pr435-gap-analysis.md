@@ -52,5 +52,5 @@ PASS WITH FINDINGS. The key claim (no relationship retention today; retention ou
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 : `destination_type` is the derived id, returned "whether or not the graph holds that node". The graph-presence cause is gone from UnresolvedEnd and AC-265. AC-263 and TC-048 add a subtype-operand case with a variant whose graph lacks the declared end type's node, expecting Ok. |
+| FND-001 | fixed | Round 1: `destination_type` is the derived id, returned "whether or not the graph holds that node". The graph-presence cause is gone from UnresolvedEnd and AC-265. AC-263 and TC-048 add a subtype-operand case with a variant whose graph lacks the declared end type's node, expecting Ok. |
 | FND-002 | deferred | The defect is in quire-contract-codegen PR #417 (FR-015-AC-108, the Description sequence, TC-025 and its tests.md row), not in this PR. Deferred to titan's CG lane, which must re-point the population half to IR-852. This PR's text ("a separate decision (IR-852)") is correct. |

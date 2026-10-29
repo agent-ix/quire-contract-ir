@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-880. PR agent-ix/quire-contract-ir#475,. This analysis is planless (Plan completion: not assessed). It checks every procedure obligation of the merged TC-456 against the test, using `quire matrix --scope .` and `quire coverage --scope . --strict` at the head and at the base. Strict coverage reports 40 unbacked rows and 0 contradicted statuses on both. Rows backed drop from 538 to 536 because NFR-002 falls from 3/3 to 1/3: the AC-1 and AC-3 tags are withheld, as intended. The head adds one new diagnostic: the TC-456 status cell matches no status class in the declared vocabulary. The spec-file changes are status prose only, so no spec-review sub-analysis was run.
+Ticket: IR-880. PR agent-ix/quire-contract-ir#475. This analysis is planless (Plan completion: not assessed). It checks every procedure obligation of the merged TC-456 against the test, using `quire matrix --scope .` and `quire coverage --scope . --strict` at the head and at the base. Strict coverage reports 40 unbacked rows and 0 contradicted statuses on both. Rows backed drop from 538 to 536 because NFR-002 falls from 3/3 to 1/3: the AC-1 and AC-3 tags are withheld, as intended. The head adds one new diagnostic: the TC-456 status cell matches no status class in the declared vocabulary. The spec-file changes are status prose only, so no spec-review sub-analysis was run.
 
 ## Examined scope
 

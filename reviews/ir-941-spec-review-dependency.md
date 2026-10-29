@@ -39,4 +39,4 @@ Findings open; PR is not ready to merge.
 
 ## Narrow re-review
 
-At PR on main, the prior finding is fixed. The remaining FR-020 AC-16 through AC-19 text and planned matrix claims are unchanged relative to the reviewed patch, apart from these two repairs.
+After rebasing the PR on main, the prior finding is fixed. The remaining FR-020 AC-16 through AC-19 text and planned matrix claims are unchanged relative to the reviewed patch, apart from these two repairs.

@@ -42,5 +42,5 @@ FAIL until FND-001 is fixed. Every other link is consistent: the inventory bulle
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 : FR-019 is byte-identical to origin/main again. FR-038 and TC-048 say the exporting code change adds the row. `cargo test --test it tc_058_` now passes 4/4, including `tc_058_model_root_exports_exactly_the_documented_public_items`. |
-| FND-002 | fixed | Round 1 : the FR-038 summary status cell now opens with "🚧 AC-258 through AC-261 (IR-832) typed parameter declaration are PLANNED/UNRUN." |
+| FND-001 | fixed | Round 1: FR-019 is byte-identical to origin/main again. FR-038 and TC-048 say the exporting code change adds the row. `cargo test --test it tc_058_` now passes 4/4, including `tc_058_model_root_exports_exactly_the_documented_public_items`. |
+| FND-002 | fixed | Round 1: the FR-038 summary status cell now opens with "🚧 AC-258 through AC-261 (IR-832) typed parameter declaration are PLANNED/UNRUN." |

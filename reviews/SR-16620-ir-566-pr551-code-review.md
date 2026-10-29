@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-566. Reviewed the sole changed file, Cargo.lock, against main and resolved its complete locked offline Cargo metadata graph. The QVC source moves from to published, QVC now depends on the existing quire-canonical package, and serde_json_canonicalizer leaves the graph.
+Ticket IR-566. Reviewed the sole changed file, Cargo.lock, against main and resolved its complete locked offline Cargo metadata graph. The QVC source moves from its prior pin to the published QVC revision, QVC now depends on the existing quire-canonical package, and serde_json_canonicalizer leaves the graph.
 
 ## Verdict
 
@@ -21,6 +21,6 @@ Ticket IR-566. Reviewed the sole changed file, Cargo.lock, against main and reso
 | --- | --- | --- | --- |
 | FND-001 | low | No findings (placeholder) | - |
 
-## Narrow carry —
+## Narrow carry
 
-**PASS.** The reviewed delta changes only the QVC Git source line. GitHub records as the merged commit of QVC PR #15. A complete package-object comparison against IR main finds only the QVC revision move from to and removal of serde_json_canonicalizer; no other package or revision moves. `cargo metadata --locked --offline --format-version 1` exits zero and resolves one QVC package and zero serde_json_canonicalizer packages. The original clean code-review verdict carries; no new finding or new review method arises. The author's focused test results are external evidence, not a result claimed by this review.
+**PASS.** The reviewed delta changes only the QVC Git source line. GitHub records QVC PR #15 as merged. A complete package-object comparison against IR main finds only the QVC revision move to the published version and removal of serde_json_canonicalizer; no other package or revision moves. `cargo metadata --locked --offline --format-version 1` exits zero and resolves one QVC package and zero serde_json_canonicalizer packages. The original clean code-review verdict carries; no new finding or new review method arises. The author's focused test results are external evidence, not a result claimed by this review.

@@ -107,7 +107,7 @@ Rust lane:
 - **Imports.** Each new `use ix_trace_rs::trace;` is used, and clippy stays clean. `identity.rs` now mixes `#[trace]` and `#[ix_trace_rs::trace]`. That is cosmetic and follows from the scope.
 - **Surface.** The diff has no panic, unsafe, integer-conversion, lock or async surface.
 
-Gates re-run on:
+Gates re-run on the reviewed PR head:
 
 - `cargo fmt --all -- --check` is clean.
 - `cargo test --locked --test it -- identity:: integration:: conformance::` passes 21 of 21. That is the 16 tests in the three files plus 5 `application_node_identity::` tests that the filter also matches.

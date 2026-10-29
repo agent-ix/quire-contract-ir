@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1032. Initial review at PR #612 against IR FR-063-AC-5 and QSpec FR-322-AC-139 at QSpec `origin/main`. The rust-review lane is folded into this code-review. Disposition is PASS: all findings below were fixed in the same PR. A subsequent changes only two Clippy-required `&at` calls to `at`, with no semantic change or new review sweep. Examined all four changed files. No vendoring, added dependency, unsafe code, or CI workflow change. `git diff --check` passes. Focused dimension-equivalence tests were reported 9/9 by the author; reviewer did not run Cargo while the shared heavy-build lock is occupied. Owner-version test and Clippy were not yet run at this head.
+Ticket: IR-1032. Initial review at PR #612 against IR FR-063-AC-5 and QSpec FR-322-AC-139 at QSpec `origin/main`. The rust-review lane is folded into this code-review. Disposition is PASS: all findings below were fixed in the same PR. A subsequent commit changes only two Clippy-required `&at` calls to `at`, with no semantic change or new review sweep. Examined all four changed files. No vendoring, added dependency, unsafe code, or CI workflow change. `git diff --check` passes. Focused dimension-equivalence tests were reported 9/9 by the author; reviewer did not run Cargo while the shared heavy-build lock is occupied. Owner-version test and Clippy were not yet run at this head.
 
 Examined unit: FR-063-AC-5 (full criterion in `spec/checked_package/functional/FR-063-dimension-equivalence-node.md:94`). Context unit: QSpec FR-322-AC-139 (`quire-specification/spec/objects/interfaces/FR-322-checked-package-artifact.md:2501`). The accepted shape, string-edge checks, and model-owner version routing agree with their named positive and malformed examples. The findings below concern remaining wire member presence and graph refusal location.
 
@@ -26,7 +26,7 @@ Examined unit: FR-063-AC-5 (full criterion in `spec/checked_package/functional/F
 
 ## Verdict
 
-PASS at reviewed. The initial review was CONDITIONAL on FND-001 and FND-002; both are fixed as recorded in Dispositions. The later is a Clippy-only adjustment of two `&at` calls to `at`. The reviewer made no code edits or merge.
+PASS on the reviewed PR head. The initial review was CONDITIONAL on FND-001 and FND-002; both are fixed as recorded in Dispositions. The later commit is a Clippy-only adjustment of two `&at` calls to `at`. The reviewer made no code edits or merge.
 
 ## Coverage
 
