@@ -1076,7 +1076,7 @@ fn timed_model_published_schema_vectors_precede_stale_identity() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-342", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30")]
+#[trace("TC-048", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30")]
 #[test]
 fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
     let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
