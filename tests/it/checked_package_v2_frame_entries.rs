@@ -4292,6 +4292,10 @@ fn tc_462_point_change_rekeys_node_and_package_without_losing_accessor_value() {
 /// Settle a relation fixture and map its second occurrence to the same source.
 fn settle_step_relation(package: &mut Value) {
     settle(package);
+    // A changed application-keyed premise is renamed by `settle`; that
+    // replacement is part of the enclosing structural claim's own key.
+    mint_ungrouped_structural_keys(package);
+    settle(package);
     let relation = position(package, "claim", "step_relation");
     let mut claim = package["source_map"]
         .as_array()
