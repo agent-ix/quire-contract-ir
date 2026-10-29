@@ -2982,6 +2982,44 @@ predicate. `CL-47` changes a shared term's region without changing either
 clause's position. Keep an otherwise canonical repeated-place path control
 that reaches `duplicate-clock-place` after aggregate ordering.
 
+For each remaining root branch—`resets` (binding 4), `guards` (5),
+`invariants` (6) and `constraints` (8)—build an admissible two-reference
+control with distinct member nodes and strictly increasing full order keys.
+For each, reverse the references, rebuild the root key, its source-map entry
+and the package identity, and require `invalid_semantic_graph` with null
+cause at `/semantic_graph/nodes/{i}/body/members/{b}/value/members/1`,
+using that control's actual graph index `i` and branch index `b`. Retain
+the admitted original and verify its exact dependencies, selected
+declarations and source-map joins, so a foreign defect cannot pass the
+negative control. For each branch also give two distinct member nodes one
+minimum region triple and distinct structural keys: their structural order
+admits and its reverse refuses at the same second-member locus. Repeat a reference to give two equal full keys (minimum region and
+structural tie-break) and require the same refusal at the second member. `AO-02`/`AO-03` already
+cover root `clock_places` and `AO-04` covers root `urgencies`; the deleted
+place `guards` branch has no aggregate-order control.
+
+For **each** of `AO-02`, `AO-03`, `AO-04`, `AO-06` and `AO-07`, make three
+independent mutations that keep its first out-of-order pair. First replace
+the timed root's required `occurrences` array with text and require
+`malformed_wire` at `/semantic_graph/nodes/{i}/occurrences` before any
+identity or order check. Second remove one still-referenced root dependency,
+keep the rest of the package identity-current and require
+`invalid_semantic_graph` with null cause at
+`/semantic_graph/nodes/{i}/dependencies` before key or timed-body checks.
+Third create a stale root key while preserving the order defect: for
+`AO-02`, `AO-03` and `AO-04`, retain the patched root body but restore its
+pre-patch `node_id` and self `semantic_type`; for `AO-06` and `AO-07`,
+whose patches change only `source_map`, append one more reference to the
+last clock place at the end of root `clock_places`, retaining its original
+`node_id` and self `semantic_type`. That appended reference names a node
+already in root dependencies, so graph shape still passes while the key is
+stale. In all five cases retain the matching root source-map reference,
+recompute package identity and require `invalid_package`/`stale-node-key`
+at `/semantic_graph/nodes/{i}/node_id` before timed order. Rebuild all
+affected keys and package identity except the intentionally stale root key
+in the third mutation. Verify each unmodified AO patch still reaches its
+published order refusal after the three precedence probes.
+
 For AC-357, inspect each admitted form and exact binding order in `CL-01`.
 Assert `CL-17`..`CL-20`, `CL-27` and `CL-28` refuse at strict wire validation
 before any semantic check: empty parts, empty bounds, unknown comparison,
