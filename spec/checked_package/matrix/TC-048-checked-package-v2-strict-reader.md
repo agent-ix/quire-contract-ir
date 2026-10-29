@@ -1429,7 +1429,7 @@ code change C the output-mapping identity steps and code change B the v1 part,
 so FR-038-AC-91 and FR-038-AC-92 are scanned over `checked_package/`, over the
 production source of `output_mapping.rs` (FR-038-AC-91's symbols and `u64::MAX`
 ceilings) and over that of `canonical.rs` and `binding.rs` (the symbols and
-calls, and the bound identity envelope deriving `FixedShape` with no `Value`).
+calls). FR-023 has no bound identity envelope to inspect.
 For the owner-free nominal fixture, recompute every node key and `package_id`
 and compare each with the digest the fixture recorded before the move; lower
 every node and compare each `ir_id`, the lowered package's `package_id` and its

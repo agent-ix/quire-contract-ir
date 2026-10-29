@@ -33,8 +33,8 @@ repairing, or approximating its disposition.
 
 ## Outputs
 
-- One ordered record per requested obligation, with a derived
-  `sha256-jcs` record identity.
+- One ordered record per requested obligation, carrying its source clause
+  reference and complete typed mapping content without a content digest.
 - One typed whole-operation refusal with no partial record set or target package.
 
 ## Behavior
@@ -43,16 +43,16 @@ repairing, or approximating its disposition.
   admitted request profile.
 - The coordinator shall pass obligations to the mapper exactly once and in the
   admitted source order.
-- The record constructor shall bind the exact source obligation, ordered actual
+- The record constructor shall retain the exact source obligation, ordered actual
   dependencies, target profile, disposition, conditions, causes, generated
   regions, source-fact state, and separately qualified observation/protocol
-  adequacy references into the record identity preimage.
-- The record constructor shall canonicalize the record identity material
+  adequacy references as typed record content.
+- The record constructor shall canonicalize that record material only to meter it
   through `quire-canonical` under the request's `maximum_request_bytes`: the
   material is mapper-supplied (dependencies, conditions, causes, regions and
   adequacy references), so it is bounded by the request's own limit and not
   encoded without a ceiling. Material over it refuses `request_limit_exceeded`
-  at `record.identity` as a whole-operation refusal, and material of exactly the
+  at `record` as a whole-operation refusal, and material of exactly the
   limit encodes (FR-034 owns the rule for the request, record and package).
 - The record constructor shall accept only `preserved` with no conditions or
   causes and represented output, `conditional` with nonempty conditions and
@@ -72,14 +72,16 @@ repairing, or approximating its disposition.
 | --- | --- | --- |
 | FR-033-AC-1 | Every requested obligation is dispatched once in source order and yields exactly one record; no missing, duplicate, unrequested, or cross-wired record is accepted. | Test (TC-043) |
 | FR-033-AC-2 | Preserved, conditional, unrepresented, and refused records satisfy their exact condition/cause/output invariants, and absent classification never defaults to preserved. | Test (TC-043) |
-| FR-033-AC-3 | Mutating any source, dependency, profile, disposition, condition, cause, region, source state, or adequacy-domain member changes the record identity or refuses construction. | Test (TC-043) |
+| FR-033-AC-3 | Mutating any source, dependency, profile, disposition, condition, cause, region, source state, or adequacy-domain member changes the retained typed record content or refuses construction; no record content digest is produced. | Test (TC-043) |
 | FR-033-AC-4 | Pending, incomplete, or refused source facts and plausible target text cannot become preserved, conditional, or Boolean success. | Test (TC-043) |
 | FR-033-AC-5 | Observation and protocol adequacy remain independently typed, and an omitted value remains absent without a cross-domain default. | Test (TC-043) |
-| FR-033-AC-6 | A mapper candidate whose record identity material exceeds `maximum_request_bytes` (for instance a condition or cause text longer than the limit) refuses `request_limit_exceeded` at `record.identity` with no record set or package, the same candidate maps under a larger limit, and material of exactly the limit yields a record. | Test (TC-043) |
+| FR-033-AC-6 | A mapper candidate whose canonical record material exceeds `maximum_request_bytes` (for instance a condition or cause text longer than the limit) refuses `request_limit_exceeded` at `record` with no record set or package, the same candidate maps under a larger limit, and material of exactly the limit yields a record. | Test (TC-043) |
 
 ## Dependencies
 
 - [FR-032](FR-032-admit-output-mapping-request.md) supplies the admitted request
   and exact target profile.
 - `ix://agent-ix/quire-specification/FR-121`, `FR-269`, and `FR-298` own the
-  complete accounting behavior, closed disposition vocabulary, and record identity.
+  complete accounting behavior and closed disposition vocabulary. Their current
+  record-identity clauses require a QSpec revision before this digest-free
+  record contract can be implemented.

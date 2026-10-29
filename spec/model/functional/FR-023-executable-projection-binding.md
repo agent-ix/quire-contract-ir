@@ -94,27 +94,20 @@ of the same executable clause.
 
 The immutable result exposes the validated package, all executable BoundClause
 entries in structural ClauseRef order, and the separately enumerable
-informational clause references. A BoundClause exposes its full identity, kind,
-anchor, source span, DeclarationEnvironment, TypedExpression and canonical
-declaration/expression identities. No clause disappears from the population:
+informational clause references. A BoundClause exposes its full clause reference,
+kind, anchor, source span, DeclarationEnvironment and TypedExpression. No clause disappears from the population:
 information is explicit, and unsupported executable content is a refusal rather
 than an omission or an information classification.
 
-The bound identity uses a versioned canonical envelope of the package's
-canonical identity and structurally ordered full clause references with their
-canonical declaration and expression identities. Binding-array order does not
-change this identity; a semantic expression or declaration change does. Existing
-canonical profile rules govern source exclusion; source provenance remains
-available separately through the package and clause/declaration source spans.
-This digest identifies bound semantics, not a frontend execution or a proof.
-
-The v1 bound identity is SHA-256 over compact UTF-8 JSON (no BOM, whitespace or
-trailing newline), with object keys in lexical order. Its exact envelope is
-`{"bindings":[{"clause":<full ClauseRef>,"declaration":<digest>,"expression":<digest>}],"canonical_profile":"quire.contract.canonical-json/v1","package":<digest>,"profile":"quire.contract.bound-identity/v1"}`.
-All digests are lowercase 64-character hexadecimal strings. Bindings use
-structural ClauseRef order; the nested ClauseRef uses the published wire fields
-in lexical key order. This profile is separate from the existing FR-014 package,
-declaration and expression identity profiles, which remain unchanged.
+The result carries no bound-content digest, digest envelope or declaration and
+expression digest fields. Its package name, schema version and full clause
+references (including requirement revisions) are the identifiers available to
+consumers. A consumer matching a bound package to a named source shall compare
+those names and versions; the IR binder does not claim to detect different
+content under the same name and version. Binding-array order does not change
+the structurally ordered result, while a semantic expression or declaration
+change remains visible in the exposed typed values. Source provenance remains
+available through the package and clause/declaration source spans.
 
 ## Outputs
 
@@ -124,7 +117,8 @@ A `BoundPackage` exposing read-only accessors, or structured IR diagnostics.
 
 - FR-011 and FR-012 own package, requirement, clause and reference identity.
 - FR-013 through FR-015 own declarations, typed expressions and definedness.
-- FR-016 owns canonical semantic identity; FR-018 owns the shared wire forms.
+- FR-016 owns canonical bytes; FR-018 owns the shared wire forms. QSL owns the
+  corresponding source-binding comparison when it consumes this result.
 
 ## Acceptance Criteria
 
@@ -132,8 +126,8 @@ A `BoundPackage` exposing read-only accessors, or structured IR diagnostics.
 |---|---|---|
 | FR-023-AC-1 | A labelled synthetic projection using shared corpus package/expression forms decodes through the public API into every expected executable clause plus explicit informational references, preserving identity, anchor, source, declarations and typed expression. | Test (TC-035) |
 | FR-023-AC-2 | Missing, duplicate, foreign, stale-revision, orphaned, informational, wrong-owner, wrong-anchor, non-Boolean-root and ill-typed bindings are refused with structured diagnostics and no partial result. | Test (TC-035) |
-| FR-023-AC-3 | Metadata/expression dependency disagreement is refused; changing binding order preserves the bound semantic digest and changing a bound expression changes it. | Test (TC-035) |
+| FR-023-AC-3 | Metadata/expression dependency disagreement is refused; changing binding order preserves the same structurally ordered BoundClause values, and changing a bound expression changes its exposed TypedExpression while leaving the package name, schema version and ClauseRef identifiers unchanged. No bound-content digest is produced. | Test (TC-035) |
 | FR-023-AC-4 | Unknown format/members, trailing JSON, invalid UTF-8 and byte/depth/node/collection overruns are refused without panic; aggregate limits cannot be multiplied by adding bindings. | Test (TC-035) |
 | FR-023-AC-5 | An external integration test consumes public BoundPackage/BoundClause accessors without private wire imports or a codegen-owned package schema; normative projection schema positive and negative controls agree with the decoder. | Test (TC-035) |
 | FR-023-AC-6 | A projection whose package source revision, package requirement revision, binding clause reference revision, expression source-identity revision or expression byte offset is 9007199254740993 (and, for each, `u64::MAX`) is refused `invalid_wire_format` at path `projection`, with no partial BoundPackage, and never `invalid_requirement_revision`, `invalid_source_revision` or `invalid_source_span`; the same projection with that member at 9007199254740992 binds. | Test (TC-035) |
-| FR-023-AC-7 | Across repeated valid and invalid projection decodes, the fixed embedded schema is compiled once per process, and a decode with D declarations and B binding/declaration lookups performs at most D+B declaration search visits; the same inputs yield byte-identical bound identities or the same ordered diagnostics as before caching and indexing. | Test (TC-035) |
+| FR-023-AC-7 | Across repeated valid and invalid projection decodes, the fixed embedded schema is compiled once per process, and a decode with D declarations and B binding/declaration lookups performs at most D+B declaration search visits; the same inputs yield equal ordered BoundClause values or the same ordered diagnostics as before caching and indexing. | Test (TC-035) |

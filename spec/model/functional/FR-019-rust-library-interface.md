@@ -21,7 +21,7 @@ inputs:
 outputs:
   - immutable validated packages
   - ordered structured diagnostics
-  - canonical bytes and digests
+  - canonical V1 bytes and V2 semantic identity digests
   - dependency and coverage classifications
   - fixed public conformance registries
 invariants:
@@ -33,7 +33,7 @@ invariants:
 ## Description
 
 The `quire-contract-model` crate shall expose construction, validation, dependency derivation,
-canonicalization, digest, and coverage-classification operations
+V1 canonicalization, V2 semantic identity derivation, and coverage-classification operations
 without exposing mutable internal caches or downstream engine types.
 
 ## Inputs
@@ -43,7 +43,7 @@ schema/canonicalization profiles.
 
 ## Outputs
 
-Immutable validated packages, ordered diagnostics, canonical bytes, digests,
+Immutable validated packages, ordered diagnostics, canonical V1 bytes, V2 semantic identity digests,
 dependency sets, and coverage classifications.
 
 ## Behavior
@@ -206,13 +206,13 @@ operation has its own owning requirement, as listed below.
 | --- | --- | --- |
 | `identity` | types `AnchorName`, `Clause`, `ClauseId`, `ClauseKind`, `ClauseRef`, `ContractPackage`, `DefinednessObligationKind`, `DependencyIdentity`, `DependencyKind`, `DependencyName`, `Diagnostic`, `DiagnosticCode`, `ExecutionPoint`, `ExecutionPointName`, `PackageId`, `ReferenceBody`, `Requirement`, `RequirementId`, `RequirementRef`, `RequirementRevision`, `SchemaVersion`, `SemanticIdentity`, `Severity`, `SourceDocumentId`, `SourceIdentity`, `SourceLocation`, `SourceRevision`, `SourceSpan`, `StateObservation`; trait `DependencySource` | FR-011, FR-012, STD-001 |
 | `expression` | types `BooleanOperator`, `CollectionType`, `ComparisonOperator`, `DeclarationEnvironment`, `DischargedObligation`, `EnumDeclaration`, `EnumVariantDeclaration`, `Expression`, `ExpressionKind`, `FunctionParameter`, `IntegerDomain`, `IntegerType`, `NumericOperator`, `OverflowPolicy`, `PureFunctionDeclaration`, `QuantifierDomain`, `QuantifierKind`, `RationalType`, `RecordDeclaration`, `RecordFieldDeclaration`, `RecordLiteralField`, `SymbolName`, `TypeDeclaration`, `TypedExpression`, `TypedNode`, `ValueDeclaration`, `ValueDeclarationKind`, `ValueType`; constants `MAX_EXPRESSION_DEPTH`, `MAX_EXPRESSION_NODES`, `MAX_TEXT_LENGTH` | FR-013 through FR-015 |
-| `canonical` | types `CanonicalBytes`, `CanonicalDigest`, `CanonicalKind`, `CanonicalOutput`, `CanonicalProfile`; trait `CanonicalBody`; constant `CANONICAL_PROFILE` | FR-016, FR-017 |
+| `canonical` | types `CanonicalBytes`, `CanonicalKind`, `CanonicalOutput`, `CanonicalProfile`; trait `CanonicalBody`; constant `CANONICAL_PROFILE` | FR-016, FR-017 |
 | `coverage` | function `classify_coverage`; types `ArtifactCoverageRow`, `ArtifactId`, `ArtifactTrace`, `CoverageClass`, `CoverageReport`, `CoverageResult`, `OrphanReason`, `RequirementCoverageRow`, `TraceDepth` | FR-017 |
-| `binding` | types `BoundClause`, `BoundPackage`; constants `BOUND_IDENTITY_PROFILE`, `EXECUTABLE_PROJECTION_FORMAT`, `EXECUTABLE_PROJECTION_SCHEMA` | FR-023 |
+| `binding` | types `BoundClause`, `BoundPackage`; constants `EXECUTABLE_PROJECTION_FORMAT`, `EXECUTABLE_PROJECTION_SCHEMA` | FR-023 |
 | `conformance` | functions `expected_inventory`, `run_corpus`; types `ConformanceOperation`, `FixtureResult`, `FixtureStatus`, `RunnerError`, `RunnerErrorCode`, `ToolIdentity`, `ValidationOptions`; constants `CONFORMANCE_BOUNDARIES`, `CONFORMANCE_PROTOCOL`, `CONFORMANCE_SCHEMA_ID`, `MAX_CONFORMANCE_FILE_BYTES`, `MAX_CONFORMANCE_FIXTURES`, `MAX_CONFORMANCE_TOTAL_BYTES`, `PACKAGE_SCHEMA_ID`, `PUBLIC_CONSTRUCT_TAGS` | FR-018 through FR-020 |
 | `code` | types `Std001Code`, `Std001CodeError`; macro `std001_code` | FR-044, STD-001 |
 | `limits` | constants `MAX_SEMANTIC_COLLECTION_ITEMS`, `MAX_SEMANTIC_DEPTH`, `MAX_SEMANTIC_NODES`, `MAX_WIRE_JSON_DEPTH` | FR-019 |
-| `output_mapping` | functions `assemble_output_package`, `map_admitted_request`, `map_admitted_request_controlled`; types `AdmittedMappingObligation`, `AdmittedMappingRequest`, `CompletedMappings`, `GeneratedOutputPackage`, `GeneratedOutputPackageId`, `MappingCancellation`, `MappingCancellationToken`, `MappingCandidate`, `MappingCause`, `MappingCondition`, `MappingDependencyKind`, `MappingDependencyRef`, `MappingDisposition`, `MappingExecutionControl`, `MappingLimits`, `MappingRecordId`, `MappingRecordSource`, `MappingRequestError`, `MappingRequestErrorCode`, `MappingRuleDigest`, `MappingSourcePackageRef`, `MappingWorkBudget`, `ModelSourceSelection`, `NativeSourceSelection`, `ObservationAdequacyRef`, `ObservationAdequacyState`, `OutputByteRegion`, `OutputCapability`, `OutputGeneratorIdentity`, `OutputMappingProfile`, `OutputMappingRecord`, `OutputTargetFamily`, `ProtocolAdequacyRef`, `ProtocolAdequacyState`, `RequestedMappingObligation`, `SemanticSourceSelection`, `SourceBytesDigest`, `SourceFactState`, `StructuralObservationOutcome`, `StructuralObservationRef`, `StructuralObserverIdentity`, `TargetBytesDigest`; trait `OutputMapper`; constants `GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION`, `OUTPUT_MAPPING_RECORD_IDENTITY_VERSION`, `OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION`, `OUTPUT_MAPPING_REVISION` | FR-032 through FR-034, STD-003 |
+| `output_mapping` | functions `assemble_output_package`, `map_admitted_request`, `map_admitted_request_controlled`; types `AdmittedMappingObligation`, `AdmittedMappingRequest`, `CompletedMappings`, `GeneratedOutputPackage`, `MappingCancellation`, `MappingCancellationToken`, `MappingCandidate`, `MappingCause`, `MappingCondition`, `MappingDependencyKind`, `MappingDependencyRef`, `MappingDisposition`, `MappingExecutionControl`, `MappingLimits`, `MappingRecordSource`, `MappingRequestError`, `MappingRequestErrorCode`, `MappingSourcePackageRef`, `MappingWorkBudget`, `ModelSourceSelection`, `NativeSourceSelection`, `ObservationAdequacyRef`, `ObservationAdequacyState`, `OutputByteRegion`, `OutputCapability`, `OutputGeneratorIdentity`, `OutputMappingProfile`, `OutputMappingRecord`, `OutputTargetFamily`, `ProtocolAdequacyRef`, `ProtocolAdequacyState`, `RequestedMappingObligation`, `SemanticSourceSelection`, `SourceFactState`, `StructuralObservationOutcome`, `StructuralObservationRef`, `StructuralObserverIdentity`; trait `OutputMapper`; constants `OUTPUT_MAPPING_REVISION` | FR-032 through FR-034, STD-003 |
 | `checked_package` | function `read_checked_package`; types `CheckedArtifactLocator`, `CheckedArtifactRef`, `CheckedCapability`, `CheckedNodeId`, `CheckedOccurrence`, `CheckedOccurrenceRole`, `CheckedPackageDispatchResult`, `CheckedPackageEvidence`, `CheckedPackageEvidenceInsertionError`, `CheckedPackageIncomplete`, `CheckedPackageLimit`, `CheckedPackageReadLimits`, `CheckedPackageRefusal`, `CheckedPackageRefusalCause`, `CheckedPackageRefusalCode`, `CheckedSelection`, `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedSourceRef`, `CheckedSourceRegion`, `CheckedTerminalDuplicate`, `JsonPointer` | FR-038, FR-047, FR-062 |
 | `checked_package` (V2 reader) | types `CheckedCollectionKind`, `CheckedDeclaration`, `CheckedDependencySelection`, `CheckedDiagnosticCause`, `CheckedDiagnosticCode`, `CheckedDiagnosticStage`, `CheckedDiagnosticV2`, `CheckedDiagnosticsV2`, `CheckedDomainPackageRef`, `CheckedMemberType`, `CheckedModelField`, `CheckedModelFieldsError`, `CheckedModelObjectFields`, `CheckedNodeOwner`, `CheckedNodeProjectionV2`, `CheckedPackageIdentityPreimageV2`, `CheckedPackageLockV2`, `CheckedPackageV2`, `CheckedPackageV2ReadResult`, `CheckedProtocolActivation`, `CheckedProtocolActivationRow`, `CheckedProtocolDecisionRead`, `CheckedProtocolRefusalDetail`, `CheckedSemanticGraphV2`, `CheckedSemanticNodeV2`; constants `CHECKED_PACKAGE_V2`, `DOMAIN_PACKAGE_DIGEST`, `PACKAGE_DOMAIN_V2` | FR-038, FR-040, FR-065 |
 | `checked_package` (V2 typed terms) | types `ApplicationOperator`, `CheckedAbstractionField`, `CheckedAbstractionFrame`, `CheckedAbstractionObject`, `CheckedAbstractionParameter`, `CheckedAbstractionPopulation`, `CheckedFieldScope`, `CheckedFrameModification`, `CheckedScopedDeletion`, `CheckedTerm`, `LiteralKind` | FR-349 |
