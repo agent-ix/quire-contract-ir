@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-350: closed step-relation claim body and its V2 body step.
+//! FR-351: closed step-relation claim body and its V2 body step.
 
 use super::frame::StepGraph;
 use super::model_members::ModelOwners;

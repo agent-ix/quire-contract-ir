@@ -4577,8 +4577,8 @@ fn step_relation_package() -> Value {
     package
 }
 
-/// Trace: FR-350-AC-1, FR-350-AC-2, FR-350-AC-3
-#[trace("FR-350-AC-1", "FR-350-AC-2", "FR-350-AC-3")]
+/// Trace: FR-351-AC-1, FR-351-AC-2, FR-351-AC-3
+#[trace("FR-351-AC-1", "FR-351-AC-2", "FR-351-AC-3")]
 #[test]
 fn step_relation_reader_retains_two_executions_and_roundtrips() {
     let package = step_relation_package();
@@ -4774,8 +4774,8 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
     }
 }
 
-/// Trace: FR-350-AC-3
-#[trace("FR-350-AC-3")]
+/// Trace: FR-351-AC-3
+#[trace("FR-351-AC-3")]
 #[test]
 fn step_relation_identity_tracks_effective_premises() {
     let base = step_relation_package();
@@ -4837,8 +4837,8 @@ fn step_relation_identity_tracks_effective_premises() {
     changed(&added);
 }
 
-/// Trace: FR-350-AC-3 (TC-962 RN-06)
-#[trace("FR-350-AC-3")]
+/// Trace: FR-351-AC-3 (TC-962 RN-06)
+#[trace("FR-351-AC-3")]
 #[test]
 fn step_relation_source_spelling_does_not_change_semantic_identity() {
     let base = step_relation_package();
@@ -4919,8 +4919,8 @@ fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Val
     package
 }
 
-/// Trace: FR-350-AC-4, FR-350-AC-5
-#[trace("FR-350-AC-4", "FR-350-AC-5")]
+/// Trace: FR-351-AC-4, FR-351-AC-5
+#[trace("FR-351-AC-4", "FR-351-AC-5")]
 #[test]
 fn step_relation_reader_refuses_layout_alias_targets_and_premises() {
     let base = step_relation_package();
@@ -5130,8 +5130,8 @@ fn bound_step_relation_package() -> Value {
     })
 }
 
-/// Trace: FR-350-AC-2, FR-350-AC-4
-#[trace("FR-350-AC-2", "FR-350-AC-4")]
+/// Trace: FR-351-AC-2, FR-351-AC-4
+#[trace("FR-351-AC-2", "FR-351-AC-4")]
 #[test]
 fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
     let package = bound_step_relation_package();
