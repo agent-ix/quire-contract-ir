@@ -67,11 +67,26 @@ fn timed_clause_published_vectors_match_the_production_reader() {
             .expect("selected clause package read");
         match (case["expected"].as_str(), actual) {
             (Some("admitted"), CheckedPackageV2ReadResult::Admitted(_)) => {}
-            (Some("refused") | Some("refused-by-schema"), CheckedPackageV2ReadResult::Refused(refusal)) => {
+            (
+                Some("refused") | Some("refused-by-schema"),
+                CheckedPackageV2ReadResult::Refused(refusal),
+            ) => {
                 if case["expected"] == "refused" {
-                    assert_eq!(Some(code_word(refusal.code)), case["expected_code"].as_str(), "{id}");
-                    assert_eq!(refusal.cause.map(cause_word), case["expected_cause"].as_str(), "{id}");
-                    assert_eq!(refusal.path.as_ref().map(ToString::to_string).as_deref(), case["locus"].as_str(), "{id}");
+                    assert_eq!(
+                        Some(code_word(refusal.code)),
+                        case["expected_code"].as_str(),
+                        "{id}"
+                    );
+                    assert_eq!(
+                        refusal.cause.map(cause_word),
+                        case["expected_cause"].as_str(),
+                        "{id}"
+                    );
+                    assert_eq!(
+                        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                        case["locus"].as_str(),
+                        "{id}"
+                    );
                 } else {
                     assert_eq!(refusal.code, Code::MalformedWire, "{id}: schema refusal");
                 }
