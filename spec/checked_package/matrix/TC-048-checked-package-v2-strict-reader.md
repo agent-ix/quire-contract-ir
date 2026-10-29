@@ -1483,7 +1483,9 @@ representative preimages against independently authored expected bytes and
 SHA-256 values, then mutate a semantic member and excluded provenance
 separately. For FR-038-AC-92, compile trait-bound probes for the assigned
 preimage types and compare representative nested and fixed-depth bytes with
-the independent expectations. Read a package that selects a model document
+the independent expectations. Qualified Inspection separately checks the
+negative `FixedShape` and `serde_json::Value` constraints; TC-048 tests do not
+scan source files to claim that evidence. Read a package that selects a model document
 holding 9007199254740993, -9007199254740993, 9.007199254740993e15, 1e20 and
 18446744073709551617 at `/package/count`, under the document's own digest and
 under another, and check `noncanonical_wire` at
