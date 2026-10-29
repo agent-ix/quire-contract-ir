@@ -2129,7 +2129,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ProtocolForm::Obligation
             | ProtocolForm::Compensation,
         ) => false,
-        K::Claim(ClaimForm::StateGraph | ClaimForm::StepRelation) => true,
+        K::Claim(ClaimForm::StateGraph) => true,
+        K::Claim(ClaimForm::StepRelation) => false,
         K::Claim(
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
