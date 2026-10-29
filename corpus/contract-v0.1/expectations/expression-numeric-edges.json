@@ -1,13 +1,11 @@
 {
   "canonical": [
     {
-      "digest": "60b3ab65fd0e2326eef9ebb7a8f0e06be8c6a5df2248cbb69cb644bd3a2a1c45",
       "identity": "declaration",
       "kind": "declaration",
       "bytes_path": "canonical/expression-numeric-edges-0.json"
     },
     {
-      "digest": "ff2880901ac4985c31965e3a7244fe603b757e2ee69468324814c311a12d1368",
       "identity": "expression",
       "kind": "expression",
       "bytes_path": "canonical/expression-numeric-edges-1.json"

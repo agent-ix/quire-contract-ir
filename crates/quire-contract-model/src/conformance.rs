@@ -2028,7 +2028,6 @@ pub(crate) fn canonical_value(
         "identity": identity,
         "kind": output.kind().as_str(),
         "bytes": bytes,
-        "digest": output.digest().to_string(),
     }))
 }
 
@@ -2155,9 +2154,6 @@ fn mismatch_kinds(actual: &Value, expected: &Value) -> Vec<&'static str> {
     }
     if canonical_projection(actual, "bytes") != canonical_projection(expected, "bytes") {
         kinds.push("canonical_bytes");
-    }
-    if canonical_projection(actual, "digest") != canonical_projection(expected, "digest") {
-        kinds.push("canonical_digest");
     }
     if field(actual, "dependencies") != field(expected, "dependencies") {
         kinds.push("dependencies");

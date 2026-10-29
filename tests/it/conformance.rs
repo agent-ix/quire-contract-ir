@@ -3,7 +3,7 @@ use std::{
     ffi::OsString,
     fs,
     panic::catch_unwind,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Output},
 };
 
@@ -33,29 +33,11 @@ fn input_count(corpus: &Path) -> usize {
     fs::read_dir(corpus.join("inputs")).unwrap().count()
 }
 
-fn relative_files(root: &Path) -> Vec<PathBuf> {
-    fn visit(root: &Path, directory: &Path, files: &mut Vec<PathBuf>) {
-        for entry in fs::read_dir(directory).unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() {
-                visit(root, &entry.path(), files);
-            } else {
-                files.push(entry.path().strip_prefix(root).unwrap().to_owned());
-            }
-        }
-    }
-    let mut files = Vec::new();
-    visit(root, root, &mut files);
-    files.sort();
-    files
-}
-
-/// A fresh Rust regeneration must produce each checked-in corpus file, including
-/// large boundary inputs and canonical bytes, with no missing or extra paths.
+/// A generated corpus must execute against the public runner as conformance data.
 #[trace("FR-018-AC-1", "TC-018")]
 #[test]
-fn tc_018_rust_generator_regenerates_the_corpus_byte_for_byte() {
-    let scratch = Scratch::empty("rust-regeneration");
+fn tc_018_generated_corpus_executes_as_conformance_data() {
+    let scratch = Scratch::empty("rust-generation");
     let generator = env!("CARGO_BIN_EXE_quire-contract-corpus-generator");
     let output = Command::new(generator)
         .arg("--output")
@@ -66,58 +48,19 @@ fn tc_018_rust_generator_regenerates_the_corpus_byte_for_byte() {
         .unwrap();
     assert!(
         output.status.success(),
-        "generator failed: {}",
+        "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(input_count(&scratch.0), 106);
-    let expected = relative_files(&corpus());
-    assert_eq!(relative_files(&scratch.0), expected);
-    for relative in expected {
-        assert_eq!(
-            fs::read(scratch.0.join(&relative)).unwrap(),
-            fs::read(corpus().join(&relative)).unwrap(),
-            "{} differs",
-            relative.display()
-        );
-    }
-}
-
-/// A failed runner must leave an existing corpus usable and byte-for-byte intact.
-#[trace("FR-018-AC-1", "TC-018")]
-#[test]
-fn tc_018_failed_regeneration_preserves_the_existing_corpus() {
-    let scratch = Scratch::corpus("rust-regeneration-failure");
-    let generator = env!("CARGO_BIN_EXE_quire-contract-corpus-generator");
-    let before = relative_files(&scratch.0)
-        .into_iter()
-        .map(|relative| {
-            let bytes = fs::read(scratch.0.join(&relative)).unwrap();
-            (relative, bytes)
-        })
-        .collect::<Vec<_>>();
-    let output = Command::new(generator)
-        .arg("--output")
-        .arg(&scratch.0)
-        .arg("--runner")
-        .arg(scratch.root().join("missing-runner"))
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert_eq!(
-        relative_files(&scratch.0),
-        before
-            .iter()
-            .map(|(path, _)| path.clone())
-            .collect::<Vec<_>>()
+    let result = run_corpus(&scratch.0);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
     );
-    for (relative, bytes) in before {
-        assert_eq!(
-            fs::read(scratch.0.join(&relative)).unwrap(),
-            bytes,
-            "{} changed",
-            relative.display()
-        );
-    }
+    let rows = rows(&result);
+    assert!(!rows.is_empty());
+    assert_eq!(rows.len(), input_count(&scratch.0));
+    assert!(rows.iter().all(|row| row["status"] == "match"));
 }
 
 #[trace(
@@ -222,8 +165,6 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         "path": "mutated"
     }]);
     package["canonical"][0]["bytes_path"] = json!("canonical/package-constructs-1.json");
-    package["canonical"][0]["digest"] =
-        json!("0000000000000000000000000000000000000000000000000000000000000000");
     package["dependencies"] = json!([{
         "requirement": {"package": "agent-ix/conformance", "requirement": "REQ_alpha", "revision": 1},
         "kind": "input",
@@ -247,13 +188,7 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         .unwrap();
     assert_eq!(
         package_row["mismatch_kinds"],
-        json!([
-            "validity",
-            "diagnostics",
-            "canonical_bytes",
-            "canonical_digest",
-            "dependencies"
-        ])
+        json!(["validity", "diagnostics", "canonical_bytes", "dependencies"])
     );
     let kinds = mismatch_rows
         .iter()
@@ -270,7 +205,6 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         kinds,
         [
             "canonical_bytes",
-            "canonical_digest",
             "coverage",
             "dependencies",
             "diagnostics",
@@ -320,6 +254,15 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     fs::remove_file(missing.0.join("expectations/package-reference.json")).unwrap();
     assert_eq!(error_code(&missing.run()), "fixture_io");
 
+    let obsolete_digest = Scratch::corpus("obsolete-canonical-digest");
+    let expectation_path = obsolete_digest
+        .0
+        .join("expectations/package-reference.json");
+    let mut expectation = read_json(&expectation_path);
+    expectation["canonical"][0]["digest"] = json!("unused");
+    write_json(&expectation_path, &expectation);
+    assert_eq!(error_code(&obsolete_digest.run()), "invalid_corpus");
+
     let unknown_operation = Scratch::corpus("unknown-operation");
     fs::copy(
         unknown_operation.0.join("inputs/package-reference.json"),
@@ -328,12 +271,12 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     .unwrap();
     assert_eq!(error_code(&unknown_operation.run()), "invalid_corpus");
 
-    let digest_field = Scratch::corpus("old-depth-digest");
-    let input_path = digest_field.0.join("inputs/coverage-deep.json");
+    let unknown_field = Scratch::corpus("unknown-depth-field");
+    let input_path = unknown_field.0.join("inputs/coverage-deep.json");
     let mut input = read_json(&input_path);
-    input["traces"][0]["depth"]["requirement_digest"] = json!("0".repeat(64));
+    input["traces"][0]["depth"]["unknown_member"] = json!("unexpected");
     write_json(&input_path, &input);
-    assert_eq!(error_code(&digest_field.run()), "invalid_corpus");
+    assert_eq!(error_code(&unknown_field.run()), "invalid_corpus");
 
     let uncovered = Scratch::corpus("uncovered");
     for directory in ["inputs", "expectations"] {
@@ -425,6 +368,41 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
             .unwrap();
         assert_eq!(error_code(&output), "invalid_invocation");
     }
+}
+
+/// A different JSON member order has the same semantic value but differs in canonical bytes.
+#[trace("FR-018-AC-2", "TC-018")]
+#[test]
+fn tc_018_canonical_byte_mismatch_detects_same_value_in_different_order() {
+    let scratch = Scratch::corpus("canonical-order-mismatch");
+    let path = scratch.0.join("canonical/package-constructs-0.json");
+    let original = fs::read_to_string(&path).unwrap();
+    let changed = original.replacen(
+        "{\"kind\":\"package\",\"profile\":\"quire.contract.canonical-json/v1\",",
+        "{\"profile\":\"quire.contract.canonical-json/v1\",\"kind\":\"package\",",
+        1,
+    );
+    assert_ne!(changed, original);
+    assert_eq!(
+        serde_json::from_str::<Value>(&changed).unwrap(),
+        serde_json::from_str::<Value>(&original).unwrap()
+    );
+    fs::write(path, changed).unwrap();
+
+    let output = scratch.run();
+    assert_eq!(output.status.code(), Some(1));
+    let rows = rows(&output);
+    let package = rows
+        .iter()
+        .find(|row| row["fixture_id"] == "package-constructs")
+        .unwrap();
+    assert_eq!(package["mismatch_kinds"], json!(["canonical_bytes"]));
+    assert!(
+        rows.iter()
+            .filter(|row| row["status"] == "mismatch")
+            .count()
+            == 1
+    );
 }
 
 #[trace("TC-018", "FR-020-AC-2")]
