@@ -100,6 +100,102 @@ fn timed_clause_published_vectors_match_the_production_reader() {
     }
 }
 
+/// Trace: FR-038-AC-358, FR-038-AC-362, TC-048.
+#[test]
+fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("timed-clause-node-vectors.json"))
+        .expect("published clause vectors");
+    let fixture = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
+        .expect("published clause fixture");
+    let document = proposal.join("domain-package-acme-timed-clauses.json");
+    let published_case = |id: &str| {
+        let case = vectors["cases"]
+            .as_array()
+            .expect("clause cases")
+            .iter()
+            .find(|case| case["id"] == id)
+            .expect("published case");
+        let mut candidate = fixture.clone();
+        for patch in case["patch"].as_array().expect("published patch") {
+            apply_published_timed_patch(&mut candidate, patch);
+        }
+        candidate
+    };
+
+    let mut order_before_unlisted = published_case("CL-05");
+    order_before_unlisted["semantic_graph"]["nodes"][52]["body"]["members"][5]["value"]["members"]
+        .as_array_mut()
+        .expect("root guards")
+        .swap(0, 1);
+    fixture_support::mint_ungrouped_structural_keys(&mut order_before_unlisted);
+    sort_timed_graph_dependencies(&mut order_before_unlisted);
+    fixture_support::refresh_identity(&mut order_before_unlisted);
+    let CheckedPackageV2ReadResult::Refused(order) =
+        read_package_with_document(&order_before_unlisted, "order before unlisted", &document)
+            .expect("selected package read")
+    else {
+        panic!("order defect must refuse before an unlisted clause")
+    };
+    assert_eq!(
+        (order.code, order.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        order.path.unwrap().to_string(),
+        "/semantic_graph/nodes/52/body/members/5/value/members/1"
+    );
+
+    let mut unlisted_before_join = published_case("CL-05");
+    let frame = unlisted_before_join["semantic_graph"]["nodes"][71]["node_id"].clone();
+    let guard = &mut unlisted_before_join["semantic_graph"]["nodes"][86];
+    let old = guard["body"]["members"][0]["value"]["target"].clone();
+    guard["body"]["members"][0]["value"]["target"] = frame.clone();
+    replace_dependency(guard, &old, &frame);
+    fixture_support::mint_ungrouped_structural_keys(&mut unlisted_before_join);
+    sort_timed_graph_dependencies(&mut unlisted_before_join);
+    fixture_support::refresh_identity(&mut unlisted_before_join);
+    let CheckedPackageV2ReadResult::Refused(unlisted) =
+        read_package_with_document(&unlisted_before_join, "unlisted before join", &document)
+            .expect("selected package read")
+    else {
+        panic!("unlisted clause must refuse before a wrong-kind anchor")
+    };
+    assert_eq!(
+        (unlisted.code, unlisted.cause),
+        (Code::InvalidPackage, Some(Cause::TimedNodeReference))
+    );
+    assert_eq!(
+        unlisted.path.unwrap().to_string(),
+        "/semantic_graph/nodes/76/body"
+    );
+
+    let mut join_before_model_wide = published_case("CL-06");
+    let frame = join_before_model_wide["semantic_graph"]["nodes"][71]["node_id"].clone();
+    let guard = &mut join_before_model_wide["semantic_graph"]["nodes"][86];
+    let old = guard["body"]["members"][0]["value"]["target"].clone();
+    guard["body"]["members"][0]["value"]["target"] = frame.clone();
+    replace_dependency(guard, &old, &frame);
+    fixture_support::mint_ungrouped_structural_keys(&mut join_before_model_wide);
+    sort_timed_graph_dependencies(&mut join_before_model_wide);
+    fixture_support::refresh_identity(&mut join_before_model_wide);
+    let CheckedPackageV2ReadResult::Refused(join) =
+        read_package_with_document(&join_before_model_wide, "join before model-wide", &document)
+            .expect("selected package read")
+    else {
+        panic!("wrong-kind anchor must refuse before unused constraint")
+    };
+    assert_eq!(
+        (join.code, join.cause),
+        (Code::InvalidPackage, Some(Cause::TimedNodeReference))
+    );
+    assert_eq!(
+        join.path.unwrap().to_string(),
+        "/semantic_graph/nodes/86/body/members/0/value/target"
+    );
+}
+
 fn sort_timed_graph_dependencies(package: &mut Value) {
     for node in package["semantic_graph"]["nodes"]
         .as_array_mut()
