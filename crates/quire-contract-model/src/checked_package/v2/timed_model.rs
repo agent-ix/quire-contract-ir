@@ -942,6 +942,12 @@ struct Graph<'a> {
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
 }
 
+struct PlaceBindings {
+    place: usize,
+    owner: usize,
+    slots: usize,
+}
+
 impl Graph<'_> {
     fn issue(
         &self,
@@ -1080,12 +1086,17 @@ impl Graph<'_> {
         &self,
         position: usize,
         body: &CheckedTerm,
-        place_binding: usize,
-        owner_binding: usize,
-        slots_binding: usize,
+        bindings: PlaceBindings,
         model: usize,
+        owners: &ModelOwners<'_>,
+        meter: &mut WorkMeter,
     ) -> Result<usize, ValidationFailure> {
         use CheckedPackageRefusalCause as Cause;
+        let PlaceBindings {
+            place: place_binding,
+            owner: owner_binding,
+            slots: slots_binding,
+        } = bindings;
         let place = self.target(
             position,
             bound(body, place_binding),
@@ -1106,6 +1117,7 @@ impl Graph<'_> {
                 binding_at(position, place_binding).key("target"),
             ));
         }
+        check_resolved_path(self, place, place_body, model, owners, meter)?;
         let owner = self.target(
             position,
             bound(body, owner_binding),
@@ -1120,7 +1132,7 @@ impl Graph<'_> {
         let owner_type = self.index.get(&self.nodes[owner].semantic_type).copied();
         let correct_owner = owner_type
             .and_then(|p| self.body(p).ok())
-            .and_then(|body| bound(body, 0))
+            .and_then(|body| typed_members(body).first())
             .and_then(typed_target)
             == Some(&self.nodes[model].node_id);
         if !correct_owner {
@@ -1306,7 +1318,7 @@ fn binding_at(position: usize, index: usize) -> JsonPointer {
 
 type SourceOrderKey<'a> = (&'a str, u64, u64);
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 enum OrderPart {
     End,
     Word(String),
@@ -1315,6 +1327,14 @@ enum OrderPart {
     Ratio(BigUint, BigUint),
     Start,
 }
+
+impl PartialEq for OrderPart {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for OrderPart {}
 
 impl Ord for OrderPart {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -1637,14 +1657,14 @@ fn check_timed_reference_order(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let keys = source_order_keys(source_map, meter)?;
-    for &position in graph.index.values() {
+    for position in 0..graph.nodes.len() {
+        let Some(body) = graph.terms.get(position).and_then(Option::as_ref) else {
+            continue;
+        };
         let bindings: &[usize] = match graph.kinds.get(position) {
             Some(CheckedNodeKind::TimedModel(TimedModelForm::Model)) => &[3, 4, 5, 6, 7, 8],
             Some(CheckedNodeKind::TimedModel(TimedModelForm::Invariant)) => &[1],
-            _ => continue,
-        };
-        let Some(body) = graph.terms.get(position).and_then(Option::as_ref) else {
-            continue;
+            _ => &[],
         };
         for &binding in bindings {
             check_reference_order(
@@ -1656,14 +1676,9 @@ fn check_timed_reference_order(
                 meter,
             )?;
         }
-    }
-    for &position in graph.index.values() {
         if graph.kinds.get(position) != Some(&CheckedNodeKind::TimedModel(TimedModelForm::Guard)) {
             continue;
         }
-        let Some(body) = graph.terms.get(position).and_then(Option::as_ref) else {
-            continue;
-        };
         for (part_index, part) in bound(body, 1)
             .map(typed_members)
             .unwrap_or_default()
@@ -1961,10 +1976,14 @@ pub(super) fn validate_models<'a>(
                     let place_position = graph.place_terms(
                         position,
                         body,
-                        place_index,
-                        owner_index,
-                        slots_index,
+                        PlaceBindings {
+                            place: place_index,
+                            owner: owner_index,
+                            slots: slots_index,
+                        },
                         root_model,
+                        owners,
+                        meter,
                     )?;
                     if let Some(anchor) = anchor {
                         if !graph.frame_writes_place(anchor, place_position, root_model) {

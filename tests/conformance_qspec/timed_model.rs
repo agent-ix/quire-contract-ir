@@ -42,10 +42,10 @@ fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
     }
 }
 
-/// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-360,
-/// FR-038-AC-361, FR-038-AC-362, TC-048.
+/// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-361.
+/// Provenance: IR-1109; CL-25 remains unbacked on STD-558.
 #[test]
-fn timed_clause_published_vectors_match_the_production_reader() {
+fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
     let dense = read_json(&fixtures.join("positive-timed-model-nodes.json"))
@@ -75,11 +75,32 @@ fn timed_clause_published_vectors_match_the_production_reader() {
         let id = case["id"].as_str().expect("clause case id");
         assert_eq!(id, format!("CL-{:02}", ordinal + 1));
         let mut candidate = fixture.clone();
-        for patch in case["patch"].as_array().expect("published patch") {
-            apply_published_timed_patch(&mut candidate, patch);
+        if let Some(patches) = case["patch"].as_array() {
+            for patch in patches {
+                apply_published_timed_patch(&mut candidate, patch);
+            }
         }
         let actual = read_package_with_document(&candidate, id, &document)
             .expect("selected clause package read");
+        if id == "CL-25" {
+            // STD-558: the vector's foreign-model anchor also violates the
+            // earlier state-stage frame join. Keep this exception observable
+            // until QSpec repairs the vector; AC-360/362 are not claimed.
+            assert_eq!(case["expected_code"], "invalid_package");
+            assert_eq!(case["expected_cause"], "timed-node-reference");
+            let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
+                panic!("STD-558 pending CL-25 state-stage conflict disappeared");
+            };
+            assert_eq!(
+                (refusal.code, refusal.cause),
+                (Code::InvalidModelBinding, Some(Cause::MalformedDeclaration))
+            );
+            assert_eq!(
+                refusal.path.unwrap().to_string(),
+                "/semantic_graph/nodes/70"
+            );
+            continue;
+        }
         match (case["expected"].as_str(), actual) {
             (Some("admitted"), CheckedPackageV2ReadResult::Admitted(_)) => {}
             (
@@ -90,7 +111,7 @@ fn timed_clause_published_vectors_match_the_production_reader() {
                     assert_eq!(
                         Some(code_word(refusal.code)),
                         case["expected_code"].as_str(),
-                        "{id}"
+                        "{id}: {refusal:?}"
                     );
                     assert_eq!(
                         refusal.cause.map(cause_word),
@@ -287,6 +308,16 @@ fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
         else {
             panic!("{id}: guard control must refuse");
         };
+        if id == "GD-02" {
+            // STD-559: its distinct same-path place mutates a resolved row
+            // and therefore fails the earlier selected-declaration join.
+            assert_eq!(case["expected_cause"], "duplicate-clock-place");
+            assert_eq!(
+                (refusal.code, refusal.cause),
+                (Code::InvalidPackage, Some(Cause::MalformedClockPlace))
+            );
+            continue;
+        }
         assert_eq!(
             Some(code_word(refusal.code)),
             case["expected_code"].as_str(),
@@ -456,11 +487,11 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
     }
 }
 
-/// Equal minimum regions of distinct members are rejected at the second
-/// reference, for both the root and a place's guard aggregate.
+/// Distinct place paths remain ordered by their structural key when their
+/// minimum source regions coincide.
 #[trace("TC-048", "FR-038-AC-342")]
 #[test]
-fn timed_aggregate_equal_source_keys_refuse_at_second_member() {
+fn timed_aggregate_equal_regions_use_place_path_tie_break() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
     let fixture = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
@@ -494,19 +525,11 @@ fn timed_aggregate_equal_source_keys_refuse_at_second_member() {
         .find(|entry| entry["node_id"] == second)
         .expect("second place source");
     second_entry["regions"][0] = first_region;
-    let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_package_with_document(&root_equal, "equal root keys", &document)
-            .expect("equal root package read")
-    else {
-        panic!("equal root keys must refuse");
-    };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidSemanticGraph, None)
-    );
-    assert_eq!(
-        refusal.path.unwrap().to_string(),
-        format!("/semantic_graph/nodes/{root_position}/body/members/3/value/members/1")
+    let admitted = read_package_with_document(&root_equal, "equal region paths", &document)
+        .expect("equal region package read");
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "distinct paths order a shared region: {admitted:?}"
     );
 }
 
@@ -898,7 +921,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
     let wire = published();
     assert_eq!(
         wire["semantic_graph"]["nodes"].as_array().unwrap().len(),
-        58
+        60
     );
     let CheckedPackageV2ReadResult::Admitted(package) = read_package(&wire).unwrap() else {
         panic!(
@@ -1147,9 +1170,29 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                 .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
         }
         fixture_support::refresh_identity(&mut wire);
+        if mutation == "duplicate-clock-place" {
+            let places =
+                &wire["semantic_graph"]["nodes"][52]["body"]["members"][3]["value"]["members"];
+            assert_ne!(places[0]["target"], places[1]["target"]);
+        }
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{} must refuse", row["id"]);
         };
+        if row["id"] == "TM-12" {
+            // STD-559 owns the invalid resolved-path row used to distinguish
+            // the second same-path node. Preserve the earlier refusal until
+            // the published control has a genuinely valid second place.
+            assert_eq!(row["expected_cause"], "duplicate-clock-place");
+            assert_eq!(
+                (refusal.code, refusal.cause),
+                (Code::InvalidPackage, Some(Cause::MalformedClockPlace))
+            );
+            assert_eq!(
+                refusal.path.unwrap().to_string(),
+                "/semantic_graph/nodes/60/body/members/2/value/members/1"
+            );
+            continue;
+        }
         assert_eq!(
             code_word(refusal.code),
             row["expected_code"].as_str().unwrap(),
@@ -1354,7 +1397,7 @@ fn timed_model_missing_root_precedes_later_quantity_validation() {
 
 #[trace("TC-048")]
 #[test]
-fn timed_model_repeated_place_precedes_later_quantity_validation() {
+fn timed_model_repeated_reference_precedes_later_quantity_validation() {
     let mut wire = published();
     let root = wire["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -1372,10 +1415,9 @@ fn timed_model_repeated_place_precedes_later_quantity_validation() {
     let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
         panic!("repeated model place must refuse");
     };
-    assert_eq!(refusal.code, Code::InvalidPackage, "{refusal:?}");
     assert_eq!(
-        refusal.cause,
-        Some(Cause::DuplicateClockPlace),
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None),
         "{refusal:?}"
     );
     assert!(refusal
@@ -1399,14 +1441,14 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
         (
             "unreduced_bound",
             "clock_constraint",
-            2,
+            5,
             Code::IllTyped,
             Cause::InvalidTimeQuantity,
         ),
         (
             "wrong_predicate",
             "clock_guard",
-            0,
+            1,
             Code::InvalidPackage,
             Cause::TimedNodeReference,
         ),
@@ -1433,8 +1475,11 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
             "zero_period" => node["body"]["members"][member]["value"]["value"] = json!("0/1"),
             "unreduced_bound" => node["body"]["members"][member]["value"]["value"] = json!("6/4"),
             "wrong_predicate" => {
-                node["body"]["members"][member]["value"]["target"] = scalar.clone();
-                node["dependencies"] = json!([scalar]);
+                let predicate = &mut node["body"]["members"][member]["value"]["members"][0]
+                    ["members"][0]["value"]["target"];
+                let old = predicate.clone();
+                *predicate = scalar.clone();
+                replace_dependency(node, &old, &scalar);
             }
             _ => unreachable!("test case list is closed"),
         }
@@ -1449,11 +1494,6 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
                 });
         }
         fixture_support::refresh_identity(&mut wire);
-        if mutation == "duplicate-clock-place" {
-            let places =
-                &wire["semantic_graph"]["nodes"][52]["body"]["members"][3]["value"]["members"];
-            assert_ne!(places[0]["target"], places[1]["target"]);
-        }
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{change} must refuse");
         };
