@@ -2374,7 +2374,12 @@ mod tests {
         let bytes = std::fs::read(path).expect("published timed slot vectors");
         let vectors: Value = serde_json::from_slice(&bytes).expect("published vector JSON");
         let cases = vectors["cases"].as_array().expect("published slot cases");
-        assert_eq!(cases.len(), 12);
+        let expected: BTreeSet<_> = [
+            "SL-01", "SL-02", "SL-03", "SL-04", "SL-05", "SL-06", "SL-07", "SR-01", "SR-02",
+            "SR-03", "SR-04",
+        ]
+        .into_iter()
+        .collect();
         let mut seen = BTreeSet::new();
         for case in cases {
             let id = case["id"].as_str().expect("case id");
@@ -2416,7 +2421,7 @@ mod tests {
                 };
                 let fits = selector_fits(parent, collection, member, selector_kind);
                 assert_eq!(fits, case["expected"] == "admitted", "{id}: selector fit");
-                if id == "SL-08" {
+                if id == "SL-07" {
                     let forged = format!("Option<{member}>");
                     assert!(
                         terminal_clock(&forged),
@@ -2430,12 +2435,7 @@ mod tests {
             }
             assert!(checked, "{id}: slot case has a slot step");
         }
-        for ordinal in 1..=8 {
-            assert!(seen.contains(format!("SL-{ordinal:02}").as_str()));
-        }
-        for ordinal in 1..=4 {
-            assert!(seen.contains(format!("SR-{ordinal:02}").as_str()));
-        }
+        assert_eq!(seen, expected, "published slot selector IDs");
     }
 
     #[test]

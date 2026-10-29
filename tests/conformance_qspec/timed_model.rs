@@ -1076,11 +1076,17 @@ fn timed_model_published_schema_vectors_precede_stale_identity() {
     }
 }
 
-#[trace("TC-048", "QSpec-TM-09", "QSpec-TM-21")]
+#[trace("TC-048", "FR-038-AC-342", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30")]
 #[test]
 fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
     let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
-    for row in vectors["semantic_refusals"].as_array().unwrap() {
+    let rows = vectors["semantic_refusals"].as_array().unwrap();
+    assert_eq!(
+        rows.iter().filter(|row| row["id"] == "TM-30").count(),
+        1,
+        "published TM-30 control must be present exactly once"
+    );
+    for row in rows {
         let mutation = row["mutation"].as_str().unwrap();
         if matches!(
             row["id"].as_str(),
@@ -1175,6 +1181,15 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                     .unwrap()
                     .push(provisional);
                 wire["source_map"].as_array_mut().unwrap().push(source);
+            }
+            "repeated-clock-place-reference" => {
+                let places = wire["semantic_graph"]["nodes"][52]["body"]["members"][3]["value"]
+                    ["members"]
+                    .as_array_mut()
+                    .expect("root places");
+                let first = places.first().expect("first clock place").clone();
+                places.insert(1, first);
+                assert_eq!(places[0], places[1], "TM-30 repeats one node reference");
             }
             "noncanonical-place-path" => {
                 wire["semantic_graph"]["nodes"][45]["body"]["members"][1]["value"]["members"][0]
