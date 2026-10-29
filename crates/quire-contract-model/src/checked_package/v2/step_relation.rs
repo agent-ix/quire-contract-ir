@@ -63,6 +63,7 @@ impl CheckedStepRelationBody {
 
 impl CheckedSemanticNodeV2 {
     /// The typed relation body, only for an admitted step-relation claim.
+    #[ix_trace_rs::string_edge]
     pub fn step_relation_body(&self) -> Option<CheckedStepRelationBody> {
         (self.node_tag.as_ref() == "claim" && self.semantic_form.as_ref() == "step_relation")
             .then(|| parse(&self.body, node_pointer(0).key("body")).ok())

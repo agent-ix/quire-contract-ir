@@ -2738,8 +2738,9 @@ fn validate_graph(
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
-            Some(CheckedNodeKind::Claim(ClaimForm::StateGraph))
-                | Some(CheckedNodeKind::Temporal(TemporalForm::Terminal))
+            Some(CheckedNodeKind::Claim(
+                ClaimForm::StateGraph | ClaimForm::StepRelation
+            )) | Some(CheckedNodeKind::Temporal(TemporalForm::Terminal))
         ) {
             continue;
         }
