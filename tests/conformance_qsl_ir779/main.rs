@@ -111,6 +111,7 @@ fn profile() -> CompleteLoweringProfileV2 {
             authority: "quire".into(),
             identity: "ir779-qsl-rr13".into(),
         },
+        required_source_selections: Vec::new(),
         supported_tags: quire_contract_model::CheckedNodeTag::ALL
             .iter()
             .copied()

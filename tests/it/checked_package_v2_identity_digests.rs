@@ -206,6 +206,7 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
                 authority: "quire".into(),
                 identity: "complete-v1".into(),
             },
+            required_source_selections: Vec::new(),
             supported_tags: package.node_kinds().iter().map(|kind| kind.tag()).collect(),
             require_bounds: false,
             work_limit: u64::MAX,

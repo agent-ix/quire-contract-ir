@@ -193,6 +193,7 @@ pub(crate) fn profile() -> CompleteLoweringProfileV2 {
             authority: "quire".into(),
             identity: "result-context".into(),
         },
+        required_source_selections: Vec::new(),
         supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
         require_bounds: false,
         work_limit: u64::MAX,

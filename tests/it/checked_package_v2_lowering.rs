@@ -75,6 +75,7 @@ fn profile(work_limit: u64) -> CompleteLoweringProfileV2 {
             authority: "quire".into(),
             identity: "complete-v1".into(),
         },
+        required_source_selections: Vec::new(),
         supported_tags: FAMILIES.iter().map(|(_, tag)| *tag).collect(),
         require_bounds: false,
         work_limit,

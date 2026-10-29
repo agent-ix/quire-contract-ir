@@ -648,6 +648,7 @@ fn tc_048_a_hundred_thousand_node_chain_is_admitted_and_lowered_on_a_small_stack
                 authority: "quire".into(),
                 identity: "complete-v1".into(),
             },
+            required_source_selections: Vec::new(),
             supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
             require_bounds: false,
             work_limit: u64::MAX / 2,

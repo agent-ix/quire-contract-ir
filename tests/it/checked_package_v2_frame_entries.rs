@@ -3832,6 +3832,7 @@ fn tc_050_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile() {
         },
         // Lowering needs every tag in a node's dependency closure supported,
         // so the profile admits each tag the package uses, state included.
+        required_source_selections: Vec::new(),
         supported_tags: nodes(&value)
             .iter()
             .map(|node| {

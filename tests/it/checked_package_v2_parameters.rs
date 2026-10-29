@@ -410,6 +410,7 @@ fn tc_048_a_function_with_parameters_reads_and_lowers() {
             authority: "quire".into(),
             identity: "complete-v1".into(),
         },
+        required_source_selections: Vec::new(),
         supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
         require_bounds: false,
         work_limit: 10_000,
