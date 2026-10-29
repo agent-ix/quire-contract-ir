@@ -4,9 +4,11 @@
 //! Public V2 reader controls for the local protocol-reference carrier.
 
 use crate::support::checked_package::{
-    admitted_dependency, canonical, evidence_for, family_key, fixture_source, node_id,
-    protocol_role_node, read_with_dependencies, rebuild_source_map, refresh_identity, refusal_at,
-    rekey_application_node, settle, source_owner, structural_key, v2_all_families, v2_nominal,
+    admitted_dependency, canonical, evidence_for, family_key, fixture_source, grouped_local_key,
+    mint_grouped_structural_keys, mint_ungrouped_structural_keys, node_id, protocol_role_node,
+    read_with_dependencies, rebuild_source_map, refresh_identity, refusal_at,
+    rekey_application_node, settle, sha256_hex, source_owner, structural_key, v2_all_families,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -14,6 +16,7 @@ use quire_contract_model::{
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, ProtocolForm,
 };
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
@@ -385,7 +388,6 @@ fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {
         ),
         ("owner", source_owner(&fixture_source())),
         ("nominal_identity_preimage", nominal),
-        ("recursion_group", json!("group")),
     ] {
         let mut changed = base.clone();
         changed["semantic_graph"]["nodes"][position][member] = value;
@@ -422,6 +424,72 @@ fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {
         actual.path.as_ref().expect("path").to_string(),
         format!("/semantic_graph/nodes/{position}/occurrences/0/role")
     );
+}
+
+#[trace("FR-038-AC-241", "TC-048")]
+#[test]
+fn grouped_protocol_reference_is_admitted_with_its_group_key() {
+    let mut package = v2_all_families();
+    let semantic_type = node_id(&family_key("aaaa"));
+    let first_target = node_id(&family_key("5050"));
+    let second_target = role_target(&mut package);
+    let first = add_carrier(&mut package, &first_target, &semantic_type);
+    let second = add_carrier(&mut package, &second_target, &semantic_type);
+    let first_id = package["semantic_graph"]["nodes"][first]["node_id"].clone();
+    let second_id = package["semantic_graph"]["nodes"][second]["node_id"].clone();
+    for (position, destination) in [(first, second_id), (second, first_id)] {
+        package["semantic_graph"]["nodes"][position]["body"] =
+            json!({"term": "reference", "target": destination});
+        package["semantic_graph"]["nodes"][position]["dependencies"] = json!([destination]);
+        package["semantic_graph"]["nodes"][position]["recursion_group"] = json!("protocol-cycle");
+    }
+    mint_ungrouped_structural_keys(&mut package);
+    mint_grouped_structural_keys(&mut package);
+    settle(&mut package);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let ids = [(first, &nodes[first]), (second, &nodes[second])]
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, (_, node))| {
+            (
+                node["node_id"]["digest"]
+                    .as_str()
+                    .expect("node digest")
+                    .to_owned(),
+                ordinal,
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let local = [first, second]
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, position)| grouped_local_key(&nodes[position], &ids, ordinal, None))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        nodes[first]["recursion_group"],
+        sha256_hex(&canonical(&json!(local))),
+        "fixture-derived group label"
+    );
+    assert_ne!(nodes[first]["node_id"], nodes[second]["node_id"]);
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
+        other => panic!("cyclic grouped protocol references did not admit: {other:?}"),
+    };
+    let nodes = &admitted.graph().nodes;
+    assert_eq!(nodes[first].recursion_group, nodes[second].recursion_group);
+    assert!(nodes[first].recursion_group.is_some());
+    assert_ne!(nodes[first].node_id, nodes[second].node_id);
+    for (position, target) in [
+        (first, &nodes[second].node_id),
+        (second, &nodes[first].node_id),
+    ] {
+        assert!(matches!(
+            &nodes[position].body,
+            quire_contract_model::CheckedTerm::Reference { target: actual } if actual == target
+        ));
+    }
 }
 
 fn repeated_reference_package(count: u64) -> (Value, usize) {
