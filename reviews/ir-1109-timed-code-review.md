@@ -33,3 +33,7 @@ Independent review of PR #683 at exact head 43c2f46c148b95dad9f8a1ff871cb7d141fe
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | fixed | Quadratic charge now precedes decimal scanning, BigUint parse and cross multiplication; the 1,000-digit equal-region reader test measures exact M/M-1 work exhaustion. After: `let digits = u64::try_from(value.len()).unwrap_or(u64::MAX);     meter.charge(digits.saturating_mul(digits), || at.clone())?;` |
+
+## Final gate delta review
+
+At PR head `0c3aa72613f51994607bf2f9712bb4a6f423cdda`, the delta from reviewed head `d79520e5` consists solely of `#[ix_trace_rs::string_edge]` on `check_wire` and `comparison_rank`. Both attributes annotate existing string decision boundaries; no branch, parser shape, ordering key, refusal, test oracle, or work charge changed. SR-2026102747 FND-001 remains fixed; no new finding. The code lead owns the aggregate gate.
