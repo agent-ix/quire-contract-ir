@@ -295,6 +295,7 @@ closed_vocabulary! {
         Hyperproperty => "hyperproperty",
         SynthesisRequest => "synthesis_request",
         StateGraph => "state_graph",
+        StepRelation => "step_relation",
     }
 }
 

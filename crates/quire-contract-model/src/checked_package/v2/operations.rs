@@ -1293,7 +1293,8 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
             | ClaimForm::SynthesisRequest
-            | ClaimForm::StateGraph,
+            | ClaimForm::StateGraph
+            | ClaimForm::StepRelation,
         ) => None,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
@@ -1441,7 +1442,8 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
             | ClaimForm::SynthesisRequest
-            | ClaimForm::StateGraph,
+            | ClaimForm::StateGraph
+            | ClaimForm::StepRelation,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus

@@ -4264,3 +4264,403 @@ fn tc_462_point_change_rekeys_node_and_package_without_losing_accessor_value() {
         }
     }
 }
+
+/// A source-declared relation over two executions of the selected Account operation.
+fn step_relation_package() -> Value {
+    let mut package = with_postcondition(StatePackage::new(), None).value;
+    let self_position = position(&package, "value", "parameter");
+    let mut second_self = package["semantic_graph"]["nodes"][self_position].clone();
+    second_self["node_id"] = node_id(&"ef".repeat(32));
+    second_self["body"]["members"][1]["value"]["value"] = json!("1");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_self);
+    mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    let model = nodes(&package)
+        .iter()
+        .find(|node| node["semantic_form"] == "model_root")
+        .expect("selected model root")["node_id"]
+        .clone();
+    let anchor = node_id(&digest(
+        &package,
+        position(&package, "state", "operation_anchor"),
+    ));
+    let first_self = nodes(&package)[self_position]["node_id"].clone();
+    let second_self = nodes(&package)
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "value"
+                && node["semantic_form"] == "parameter"
+                && node["body"]["members"][1]["value"]["value"] == "1"
+        })
+        .expect("second binder")["node_id"]
+        .clone();
+    let clause_id = |kind: &str| {
+        nodes(&package)
+            .iter()
+            .find(|node| {
+                node["semantic_form"] == "state_clause"
+                    && node["body"]["operation"]["member"]["clause"] == kind
+            })
+            .expect("clause")["node_id"]
+            .clone()
+    };
+    let invariant = clause_id("invariant");
+    let pre = clause_id("precondition");
+    let post = clause_id("postcondition");
+    let equality_body = json!({
+        "term": "application", "operator": "binary",
+        "operation": {"identity": "quire.op.structural.eq", "laws": [],
+            "mode": null, "member": null, "leaves": []},
+        "result_type": node_id(&boolean()),
+        "arguments": [
+            {"term": "reference", "target": first_self},
+            {"term": "reference", "target": second_self},
+        ],
+    });
+    let mut equality_deps = vec![first_self.clone(), second_self.clone()];
+    equality_deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id": node_id(&"ab".repeat(32)),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "expression", "semantic_form": "binary",
+            "semantic_type": node_id(&boolean()), "dependencies": equality_deps,
+            "occurrences": [{"role": "expression", "ordinal": 0}],
+            "body": equality_body,
+        }));
+    settle(&mut package);
+    let expression = nodes(&package)
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "expression"
+                && node["semantic_form"] == "binary"
+                && node["body"]["operation"]["identity"] == "quire.op.structural.eq"
+        })
+        .expect("relation equality")["node_id"]
+        .clone();
+    let ref_id = |id: Value| json!({"term": "reference", "target": id});
+    let agg = |members: Vec<Value>| json!({"term": "aggregate", "members": members});
+    let execution = |variable: &str, self_id: Value| {
+        binding(
+            variable,
+            agg(vec![
+                binding("alias", text("V")),
+                binding("operation", ref_id(anchor.clone())),
+                binding("parameters", agg(vec![ref_id(self_id)])),
+                binding("preconditions", agg(vec![ref_id(pre.clone())])),
+                binding("postconditions", agg(vec![ref_id(post.clone())])),
+                binding("implementation", agg(vec![])),
+            ]),
+        )
+    };
+    let body = agg(vec![
+        binding("subjects", agg(vec![binding("V", ref_id(model.clone()))])),
+        binding(
+            "executions",
+            agg(vec![
+                execution("x", first_self.clone()),
+                execution("y", second_self.clone()),
+            ]),
+        ),
+        binding(
+            "invariants",
+            agg(vec![binding("V", agg(vec![ref_id(invariant.clone())]))]),
+        ),
+        binding("body", ref_id(expression.clone())),
+    ]);
+    let mut dependencies = vec![
+        model,
+        anchor,
+        first_self,
+        second_self,
+        pre,
+        post,
+        invariant,
+        expression,
+    ];
+    dependencies.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    dependencies.dedup();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id": node_id(&"cd".repeat(32)),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "claim", "semantic_form": "step_relation",
+            "semantic_type": node_id(&boolean()), "dependencies": dependencies,
+            "declaration": {"qualified_name": ["Det"]},
+            "owner": source_owner(&fixture_source()),
+            "occurrences": [{"role": "declaration", "ordinal": 0}, {"role": "claim", "ordinal": 0}],
+            "body": body,
+        }));
+    mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    package
+}
+
+/// Trace: FR-350-AC-1, FR-350-AC-2, FR-350-AC-3
+#[trace("FR-350-AC-1", "FR-350-AC-2", "FR-350-AC-3")]
+#[test]
+fn step_relation_reader_retains_two_executions_and_roundtrips() {
+    let package = step_relation_package();
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("step relation must admit: {other:?}"),
+    };
+    let relation = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "step_relation")
+        .expect("relation");
+    let body = relation.step_relation_body().expect("typed relation");
+    assert_eq!(body.subjects.len(), 1);
+    assert_eq!(body.executions.len(), 2);
+    assert_eq!(body.executions[0].variable.as_ref(), "x");
+    assert_eq!(body.executions[1].variable.as_ref(), "y");
+    assert_ne!(body.executions[0].parameters, body.executions[1].parameters);
+    assert!(!body.requests_code_claim());
+    let bytes = encode_checked_package_v2(&admitted).expect("canonical writer");
+    match CheckedPackageV2::read(
+        &bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(reloaded) => {
+            let again = reloaded
+                .graph()
+                .nodes
+                .iter()
+                .find(|node| node.semantic_form.as_ref() == "step_relation")
+                .expect("relation");
+            assert_eq!(again.step_relation_body(), Some(body));
+            assert_eq!(again.node_id, relation.node_id);
+            assert_eq!(reloaded.package_id(), admitted.package_id());
+        }
+        other => panic!("written package must read back: {other:?}"),
+    }
+}
+
+fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Value {
+    fn targets(term: &Value, found: &mut std::collections::BTreeSet<String>) {
+        if term["term"] == "reference" {
+            if let Some(digest) = term["target"]["digest"].as_str() {
+                found.insert(digest.to_owned());
+            }
+        }
+        match term {
+            Value::Array(values) => {
+                for value in values {
+                    targets(value, found);
+                }
+            }
+            Value::Object(values) => {
+                for value in values.values() {
+                    targets(value, found);
+                }
+            }
+            _ => {}
+        }
+    }
+    let pos = position(&package, "claim", "step_relation");
+    edit(&mut package["semantic_graph"]["nodes"][pos]);
+    let mut refs = std::collections::BTreeSet::new();
+    targets(&package["semantic_graph"]["nodes"][pos]["body"], &mut refs);
+    package["semantic_graph"]["nodes"][pos]["dependencies"] = json!(refs
+        .into_iter()
+        .map(|digest| node_id(&digest))
+        .collect::<Vec<_>>());
+    mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    package
+}
+
+/// Trace: FR-350-AC-4, FR-350-AC-5
+#[trace("FR-350-AC-4", "FR-350-AC-5")]
+#[test]
+fn step_relation_reader_refuses_layout_alias_targets_and_premises() {
+    let base = step_relation_package();
+    let pos = position(&base, "claim", "step_relation");
+    let prefix = format!("/semantic_graph/nodes/{pos}/body/members");
+    let malformed = rekey_step_relation(base.clone(), |node| {
+        node["body"]["members"][1]["value"]["members"][0]["value"]["members"]
+            .as_array_mut()
+            .expect("execution bindings")
+            .remove(5);
+    });
+    expect(
+        "missing implementation",
+        &malformed,
+        Code::InvalidSemanticGraph,
+        None,
+        &format!("{prefix}/1/value/members/0/value/members/5"),
+        None,
+    );
+    let unknown = rekey_step_relation(base.clone(), |node| {
+        node["body"]["members"][1]["value"]["members"][0]["value"]["members"][0]["value"]
+            ["value"] = json!("W");
+    });
+    expect(
+        "unknown alias",
+        &unknown,
+        Code::MissingDeclaration,
+        Some(Cause::MissingName),
+        &format!("{prefix}/1/value/members/0/value/members/0"),
+        None,
+    );
+    let object = nodes(&base)
+        .iter()
+        .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+        .expect("object")["node_id"]
+        .clone();
+    let wrong_operation = rekey_step_relation(base.clone(), |node| {
+        node["body"]["members"][1]["value"]["members"][0]["value"]["members"][1]["value"]
+            ["target"] = object;
+    });
+    expect(
+        "wrong operation",
+        &wrong_operation,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("{prefix}/1/value/members/0/value/members/1/value/target"),
+        None,
+    );
+    let no_precondition = rekey_step_relation(base.clone(), |node| {
+        node["body"]["members"][1]["value"]["members"][0]["value"]["members"][3]["value"]
+            ["members"] = json!([]);
+    });
+    expect(
+        "missing precondition",
+        &no_precondition,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("{prefix}/1/value/members/0/value/members/3/value"),
+        None,
+    );
+    let no_invariant = rekey_step_relation(base.clone(), |node| {
+        node["body"]["members"][2]["value"]["members"][0]["value"]["members"] = json!([]);
+    });
+    expect(
+        "missing invariant",
+        &no_invariant,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("{prefix}/2/value/members/0/value"),
+        None,
+    );
+    let first = base["semantic_graph"]["nodes"][pos]["body"]["members"][1]["value"]["members"][0]
+        ["value"]["members"][2]["value"]["members"][0]["target"]
+        .clone();
+    let reused = rekey_step_relation(base.clone(), |node| {
+        node["body"]["members"][1]["value"]["members"][1]["value"]["members"][2]["value"]
+            ["members"][0]["target"] = first;
+    });
+    expect(
+        "reused binder",
+        &reused,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("{prefix}/1/value/members/1/value/members/2/value"),
+        None,
+    );
+    let mut stale = base;
+    stale["semantic_graph"]["nodes"][pos]["body"]["members"][1]["value"]["members"][1]["value"]
+        ["members"][2]["value"]["members"][0]["target"] = stale["semantic_graph"]["nodes"][pos]
+        ["body"]["members"][1]["value"]["members"][0]["value"]["members"][2]["value"]["members"][0]
+        ["target"]
+        .clone();
+    refresh_identity(&mut stale);
+    assert_eq!(
+        refused(&stale).code,
+        Code::InvalidSemanticGraph,
+        "stale key precedes binder join"
+    );
+}
+
+fn bound_step_relation_package() -> Value {
+    let mut package = step_relation_package();
+    let object = nodes(&package)
+        .iter()
+        .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+        .expect("object")["node_id"]
+        .clone();
+    let body = json!({
+        "term": "abstraction_relation",
+        "objects": [{"type": object, "rust_type": ["domain", "Account"],
+            "fields": [{"name": "balance", "rust_field": "balance"}]}],
+        "populations": [],
+        "frames": [{"context": object, "operation": "deposit",
+            "function": ["domain", "deposit"], "receiver": "self", "parameters": []}],
+    });
+    let key = sha256_hex(&canonical(&json!({
+        "version": "quire.abstraction-relation-node/v1", "body": body,
+    })));
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id": node_id(&key), "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "correspondence", "semantic_form": "abstraction_relation",
+            "semantic_type": node_id(&key), "dependencies": [object],
+            "occurrences": [{"role": "declaration", "ordinal": 0}], "body": body,
+        }));
+    settle(&mut package);
+    rekey_step_relation(package, |node| {
+        for entry in node["body"]["members"][1]["value"]["members"]
+            .as_array_mut()
+            .expect("executions")
+        {
+            entry["value"]["members"][5]["value"] = reference(&key);
+        }
+    })
+}
+
+/// Trace: FR-350-AC-2, FR-350-AC-4
+#[trace("FR-350-AC-2", "FR-350-AC-4")]
+#[test]
+fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
+    let package = bound_step_relation_package();
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("bound relation must admit: {other:?}"),
+    };
+    let body = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "step_relation")
+        .expect("relation")
+        .step_relation_body()
+        .expect("typed body");
+    assert!(body.requests_code_claim());
+    assert_eq!(
+        body.executions[0].implementation,
+        body.executions[1].implementation
+    );
+    let relation = position(&package, "claim", "step_relation");
+    let mut unbound = package.clone();
+    let abstraction = position(&package, "correspondence", "abstraction_relation");
+    unbound["semantic_graph"]["nodes"][abstraction]["body"]["frames"] = json!([]);
+    let new_body = unbound["semantic_graph"]["nodes"][abstraction]["body"].clone();
+    let new_key = sha256_hex(&canonical(
+        &json!({"version": "quire.abstraction-relation-node/v1", "body": new_body}),
+    ));
+    unbound["semantic_graph"]["nodes"][abstraction]["semantic_type"] = node_id(&new_key);
+    rename_node(
+        &mut unbound,
+        &package["semantic_graph"]["nodes"][abstraction]["node_id"]["digest"]
+            .as_str()
+            .expect("key"),
+        &new_key,
+    );
+    unbound["semantic_graph"]["nodes"][abstraction]["dependencies"] = json!([]);
+    mint_ungrouped_structural_keys(&mut unbound);
+    settle(&mut unbound);
+    expect("frame missing", &unbound, Code::InvalidModelBinding, Some(Cause::MalformedDeclaration),
+        &format!("/semantic_graph/nodes/{relation}/body/members/1/value/members/0/value/members/5/value/target"), None);
+}
