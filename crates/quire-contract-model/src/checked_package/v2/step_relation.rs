@@ -398,6 +398,23 @@ pub(super) fn validate_step_relations(
                 ));
             }
         }
+        let mut first_named = Vec::new();
+        let mut seen_aliases = BTreeSet::new();
+        for entry in &body.executions {
+            if seen_aliases.insert(entry.alias.as_ref()) {
+                first_named.push(entry.alias.as_ref());
+            }
+        }
+        for (i, ((alias, _), first)) in body.subjects.iter().zip(first_named).enumerate() {
+            if alias.as_ref() != first {
+                return Err(refuse(
+                    Code::InvalidSemanticGraph,
+                    None,
+                    subject_at.clone().index(i),
+                    &node.node_id,
+                ));
+            }
+        }
         let mut subject_models = BTreeMap::new();
         for (i, (alias, target)) in body.subjects.iter().enumerate() {
             let Some((model_node, kind)) = graph.node(target) else {
