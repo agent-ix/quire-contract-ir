@@ -4438,7 +4438,31 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
     assert_eq!(body.executions[1].variable.as_ref(), "y");
     assert_ne!(body.executions[0].parameters, body.executions[1].parameters);
     assert!(!body.requests_code_claim());
-    let bytes = encode_checked_package_v2(&admitted).expect("canonical writer");
+    let preimage = admitted.identity_preimage();
+    let borrowed = CheckedPackageIdentityPreimageRefV2 {
+        version: &preimage.version,
+        edition: &preimage.edition,
+        profile_selections: &preimage.profile_selections,
+        definition_selections: &preimage.definition_selections,
+        model_selections: &preimage.model_selections,
+        required_features: &preimage.required_features,
+        dependency_selections: &preimage.dependency_selections,
+        identity_projection: &admitted.graph().nodes,
+    };
+    let bytes = encode_checked_package_v2(
+        &borrowed,
+        admitted.package_id(),
+        admitted.lock(),
+        admitted.graph(),
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: admitted.source_map(),
+            refinement_step_rows: admitted.refinement_step_rows(),
+        },
+        admitted.capability_report(),
+        admitted.diagnostics(),
+        Limits::new(u64::MAX),
+    )
+    .expect("canonical writer");
     match CheckedPackageV2::read(
         &bytes,
         CheckedPackageReadLimits::bounded(),
