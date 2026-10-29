@@ -10,6 +10,7 @@ use quire_contract_model::{
     SourceRevision, SourceSpan, SymbolName, TypeDeclaration, ValidationOptions, ValueDeclaration,
     ValueDeclarationKind, ValueType, MAX_SEMANTIC_COLLECTION_ITEMS,
 };
+use sha2::{Digest as _, Sha256};
 
 fn source(document: &str) -> SourceIdentity {
     SourceIdentity::new(
@@ -96,14 +97,14 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     assert!(!text.contains("canonical_a"));
     assert_eq!(
         output.digest().to_string(),
-        "1765842d951ec37feedd127c8e7f7650a4ca53f5ee2c1a9c633e942f54acb9bc"
+        format!("{:x}", Sha256::digest(text.as_bytes()))
     );
     assert_eq!(
         CanonicalDigest::parse(&output.digest().to_string()).unwrap(),
         output.digest()
     );
     assert_eq!(
-        CanonicalDigest::parse("1765842D951EC37FEEDD127C8E7F7650A4CA53F5EE2C1A9C633E942F54ACB9BC")
+        CanonicalDigest::parse(&output.digest().to_string().to_uppercase())
             .unwrap_err()
             .code,
         DiagnosticCode::InvalidWireFormat

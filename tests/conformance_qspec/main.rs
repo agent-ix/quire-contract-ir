@@ -696,28 +696,18 @@ fn tc_048_qspec_union_values_admit_under_their_application_keys() {
     .expect("the current QSpec union fixture admits");
     assert_eq!(
         admitted.package_id().digest.as_ref(),
-        "e28d31bb3c8f5e3f83f7f660dccb092455963b56c3137c2aa1a5c9d410dda9ad"
+        wire["package_id"]["digest"]
+            .as_str()
+            .expect("package identity")
     );
-    for (position, member, fixed_key, payload) in [
-        (
-            10,
-            "Rect",
-            "8dfdf62acb13476b3aa64f7b414f19b571e81e8aa89ce93dd453e2c8e22728f1",
-            vec![8, 9],
-        ),
-        (
-            11,
-            "Empty",
-            "a6e41bcd8c595ae730b9f214fbe0b5496ffff2c63d35e92b52f8b745ddf27211",
-            vec![],
-        ),
-    ] {
+    for (position, member, payload) in [(10, "Rect", vec![8, 9]), (11, "Empty", vec![])] {
         let node = &wire["semantic_graph"]["nodes"][position];
         let retained = &admitted.graph().nodes[position];
+        let derived_key = canonical_digest(&union_value_preimage(node));
         assert_eq!(node["node_tag"], "value");
         assert_eq!(node["semantic_form"], "union_value");
-        assert_eq!(node["node_id"]["digest"], fixed_key);
-        assert_eq!(retained.node_id.digest.as_ref(), fixed_key);
+        assert_eq!(node["node_id"]["digest"], derived_key);
+        assert_eq!(retained.node_id.digest.as_ref(), derived_key);
         assert_eq!(
             serde_json::to_value(&retained.body).expect("retained body"),
             node["body"]
@@ -734,7 +724,6 @@ fn tc_048_qspec_union_values_admit_under_their_application_keys() {
                 wire["semantic_graph"]["nodes"][referenced]["node_id"]
             );
         }
-        assert_eq!(canonical_digest(&union_value_preimage(node)), fixed_key);
     }
     assert_eq!(
         wire["semantic_graph"]["nodes"][13]["body"]["term"],

@@ -2645,12 +2645,12 @@ fn tc_048_readable_selected_content_reports_typed_jcs_identities() {
     };
     assert_eq!(nonidentity_edit.package_id(), original.package_id());
 
-    // The selected identity is independently known for `{}`; whitespace has
-    // no effect on it. The edited member changes the canonical digest.
-    const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+    // The selected identity comes from the authored `{}` preimage; whitespace
+    // has no effect on it. The edited member changes the canonical digest.
+    let selected = sha256_hex(b"{}");
     let edited = br#"{ "a" : 1 }"#;
     let canonical_edited = br#"{"a":1}"#;
-    let CheckedPackageV2ReadResult::Refused(refused) = read_selecting(SELECTED, edited) else {
+    let CheckedPackageV2ReadResult::Refused(refused) = read_selecting(&selected, edited) else {
         panic!("edited selected document refuses");
     };
     assert_eq!(refused.code, CheckedPackageRefusalCode::StaleDependency);
@@ -2670,7 +2670,7 @@ fn tc_048_readable_selected_content_reports_typed_jcs_identities() {
             expected.algorithm.as_ref(),
             expected.digest.as_ref()
         ),
-        ("sha256-jcs", "sha256", SELECTED)
+        ("sha256-jcs", "sha256", selected.as_str())
     );
     assert_eq!(
         (
@@ -2708,7 +2708,7 @@ fn tc_048_readable_selected_content_reports_typed_jcs_identities() {
 #[trace("TC-048", "FR-038-AC-216", "FR-038-AC-218")]
 #[test]
 fn tc_048_unreadable_model_bytes_report_raw_identity_or_wrong_selection() {
-    const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+    let selected = sha256_hex(b"{}");
     for bytes in [
         b"[".as_slice(),
         b"\xff",
@@ -2716,7 +2716,7 @@ fn tc_048_unreadable_model_bytes_report_raw_identity_or_wrong_selection() {
         br#""\ud800""#,
     ] {
         let raw = sha256_hex(bytes);
-        let CheckedPackageV2ReadResult::Refused(mismatch) = read_selecting(SELECTED, bytes) else {
+        let CheckedPackageV2ReadResult::Refused(mismatch) = read_selecting(&selected, bytes) else {
             panic!("unreadable bytes refuse at foreign digest");
         };
         assert_eq!(mismatch.code, CheckedPackageRefusalCode::StaleDependency);
@@ -2736,7 +2736,7 @@ fn tc_048_unreadable_model_bytes_report_raw_identity_or_wrong_selection() {
                 expected.algorithm.as_ref(),
                 expected.digest.as_ref()
             ),
-            ("sha256-jcs", "sha256", SELECTED)
+            ("sha256-jcs", "sha256", selected.as_str())
         );
         assert_eq!(
             (
@@ -2763,13 +2763,13 @@ fn tc_048_unreadable_model_bytes_report_raw_identity_or_wrong_selection() {
 #[trace("TC-048", "FR-038-AC-218")]
 #[test]
 fn tc_048_mismatch_cause_keys_include_complete_typed_pair_but_not_path() {
-    const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+    let selected = sha256_hex(b"{}");
     let take_refusal = |result| match result {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected refusal, got {other:?}"),
     };
-    let first = take_refusal(read_selecting(SELECTED, br#"{"a":1}"#));
-    let second = take_refusal(read_selecting(SELECTED, br#"{"a":2}"#));
+    let first = take_refusal(read_selecting(&selected, br#"{"a":1}"#));
+    let second = take_refusal(read_selecting(&selected, br#"{"a":2}"#));
     let cause_key = |refusal: &CheckedPackageRefusal| {
         (
             refusal.code,
@@ -2812,7 +2812,7 @@ fn tc_048_mismatch_cause_keys_include_complete_typed_pair_but_not_path() {
     assert_ne!(key.2, raw_domain);
 
     let unreadable_under_own_digest = take_refusal(read_selecting(&sha256_hex(b"["), b"["));
-    let selected_without_evidence = package_selecting("total", SELECTED);
+    let selected_without_evidence = package_selecting("total", &selected);
     let missing = take_refusal(read(
         &selected_without_evidence,
         &evidence_for(&selected_without_evidence),

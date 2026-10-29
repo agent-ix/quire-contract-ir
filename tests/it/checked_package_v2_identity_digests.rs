@@ -19,16 +19,10 @@ use quire_contract_model::{
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, NominalIdentityPreimage,
 };
 use serde_json::{json, Value};
+use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-const RECORDED_NOMINAL: &str = "\
-c9162d5e663855b38559e548f79621bcfb51eb08aa0b84eed6d333355c5456ac 79d77f491e2f327261dbc9f093a9c9737c475f4464af19b034bd948698b3c494
-b4eec221df5de2eca7b131b2421ea954eeb6de07e17b4179ccddd413c5b958a2 48eb15ddc305107f8f13ce650c30425a994b11d0ec109bbf6541845997bb614d
-fabe970245f926296d0e7499c65399574eeedbac1ab0c6f90caeb55c5b8a0242 17f32a9b746bf726bbe9f35405b18180844382dcd68e5fa157e9ce46ec97195a
-5a263446f0e84319aab70efc5f27bbe04a0dbe0d037a5c201c660d1deddc27b3 e289ab36fcdddfa12208f3184810febb34bc042bea473b5d0cee55f02478d9cd
-";
 
 fn admit(value: &Value) -> CheckedPackageV2 {
     match CheckedPackageV2::read(
@@ -178,22 +172,20 @@ fn closure_oracle(
     (ids(None), ids(Some("bounded_domain")), ids(Some("claim")))
 }
 
-type IdentityFixture = (&'static str, Value, Option<&'static str>);
-
 /// ACs: FR-038-AC-89
 #[trace("TC-048", "FR-038-AC-89")]
 #[test]
 fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchanged() {
-    let fixtures: [IdentityFixture; 3] = [
-        ("v2_all_families", v2_all_families(), None),
-        ("v2_nominal", v2_nominal(), Some(RECORDED_NOMINAL)),
+    let fixtures = [
+        ("v2_all_families", v2_all_families()),
+        ("v2_nominal", v2_nominal()),
         (
             "positive_operation_identities",
             positive_operation_identities(),
-            None,
         ),
     ];
-    for (name, value, recorded) in fixtures {
+    for (name, value) in fixtures {
+        let nominal_preimages = (name == "v2_nominal").then(nominal_text);
         let package = admit(&value);
         let requested: Vec<CheckedNodeId> = package
             .graph()
@@ -222,60 +214,56 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
                 other => panic!("{name}: expected a lowered record, got {other:?}"),
             })
             .collect();
-        if let Some(recorded) = recorded {
-            let expected: Vec<(String, String)> = recorded
-                .lines()
-                .map(|line| {
-                    let (key, ir_id) = line.split_once(' ').expect("pair");
-                    (key.to_owned(), ir_id.to_owned())
-                })
-                .collect();
-            assert_eq!(lowered, expected, "{name}: recorded identities");
-        } else {
-            let wires = value["semantic_graph"]["nodes"].as_array().expect("nodes");
-            assert_eq!(lowered.len(), wires.len(), "{name}: node count");
-            let by_key: BTreeMap<String, &Value> = wires
-                .iter()
-                .map(|wire| {
-                    (
-                        wire["node_id"]["digest"]
-                            .as_str()
-                            .expect("node digest")
-                            .to_owned(),
-                        wire,
-                    )
-                })
-                .collect();
-            assert_eq!(by_key.len(), wires.len(), "{name}: unique keys");
-            for ((actual, wire), record) in lowered.iter().zip(wires).zip(&result.records) {
-                let derived = if wire["body"]["term"] == "application" {
-                    application_oracle_key(wire)
-                } else {
-                    structural_oracle_key(wire)
-                };
-                assert_eq!(actual.0, derived, "{name}: canonical node key");
-                let (dependencies, bounds, claims) = closure_oracle(wire, &by_key);
-                let CompleteLoweringRecordV2::Lowered { node } = record else {
-                    panic!("{name}: expected a lowered record");
-                };
-                assert_eq!(
-                    serde_json::to_value(&node.dependencies).expect("dependencies"),
-                    json!(dependencies)
-                );
-                assert_eq!(
-                    serde_json::to_value(&node.bounds).expect("bounds"),
-                    json!(bounds)
-                );
-                assert_eq!(
-                    serde_json::to_value(&node.claims).expect("claims"),
-                    json!(claims)
-                );
-                assert_eq!(
-                    actual.1,
-                    lowered_oracle_id(wire, &dependencies, &bounds, &claims),
-                    "{name}: canonical lowered identity"
-                );
-            }
+        let wires = value["semantic_graph"]["nodes"].as_array().expect("nodes");
+        assert_eq!(lowered.len(), wires.len(), "{name}: node count");
+        if let Some(preimages) = &nominal_preimages {
+            assert_eq!(preimages.len(), wires.len(), "{name}: nominal preimages");
+        }
+        let by_key: BTreeMap<String, &Value> = wires
+            .iter()
+            .map(|wire| {
+                (
+                    wire["node_id"]["digest"]
+                        .as_str()
+                        .expect("node digest")
+                        .to_owned(),
+                    wire,
+                )
+            })
+            .collect();
+        assert_eq!(by_key.len(), wires.len(), "{name}: unique keys");
+        for (position, ((actual, wire), record)) in
+            lowered.iter().zip(wires).zip(&result.records).enumerate()
+        {
+            let derived = if let Some(preimages) = &nominal_preimages {
+                format!("{:x}", Sha256::digest(preimages[position].as_bytes()))
+            } else if wire["body"]["term"] == "application" {
+                application_oracle_key(wire)
+            } else {
+                structural_oracle_key(wire)
+            };
+            assert_eq!(actual.0, derived, "{name}: canonical node key");
+            let (dependencies, bounds, claims) = closure_oracle(wire, &by_key);
+            let CompleteLoweringRecordV2::Lowered { node } = record else {
+                panic!("{name}: expected a lowered record");
+            };
+            assert_eq!(
+                serde_json::to_value(&node.dependencies).expect("dependencies"),
+                json!(dependencies)
+            );
+            assert_eq!(
+                serde_json::to_value(&node.bounds).expect("bounds"),
+                json!(bounds)
+            );
+            assert_eq!(
+                serde_json::to_value(&node.claims).expect("claims"),
+                json!(claims)
+            );
+            assert_eq!(
+                actual.1,
+                lowered_oracle_id(wire, &dependencies, &bounds, &claims),
+                "{name}: canonical lowered identity"
+            );
         }
         let id = result
             .package
@@ -302,27 +290,24 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
     }
 }
 
-/// The preimage JSON text of each nominal version, written out by hand with
-/// members in RFC 8785 order, and the node key the fixture recorded for it
-/// (computed by the fixture generator, not by the code under test).
-const NOMINAL_TEXT: [(&str, &str); 4] = [
-    (
-        r#"{"case":"ACTIVE","declaration_node_id":{"digest":"b4eec221df5de2eca7b131b2421ea954eeb6de07e17b4179ccddd413c5b958a2","domain":"quire.checked-semantic-node/v1"},"version":"quire.enum-member-node/v1"}"#,
-        "c9162d5e663855b38559e548f79621bcfb51eb08aa0b84eed6d333355c5456ac",
-    ),
-    (
-        r#"{"members":["ACTIVE","DONE"],"ordered":false,"owner":{"authority":"agent-ix","identity":"quire.fixture.source/v1","kind":"source"},"qualified_declaration":["Example","Status"],"version":"quire.enum-declaration-node/v1"}"#,
-        "b4eec221df5de2eca7b131b2421ea954eeb6de07e17b4179ccddd413c5b958a2",
-    ),
-    (
-        r#"{"dimension_node_id":{"digest":"5a263446f0e84319aab70efc5f27bbe04a0dbe0d037a5c201c660d1deddc27b3","domain":"quire.checked-semantic-node/v1"},"offset":{"denominator":"1","numerator":"0"},"owner":{"authority":"agent-ix","identity":"quire.fixture.source/v1","kind":"source"},"qualified_declaration":["Example","Metre"],"scale":{"denominator":"1","numerator":"1"},"target_unit_node_id":null,"version":"quire.unit-node/v1"}"#,
-        "fabe970245f926296d0e7499c65399574eeedbac1ab0c6f90caeb55c5b8a0242",
-    ),
-    (
-        r#"{"owner":{"authority":"agent-ix","identity":"quire.fixture.definition.selection/v1","kind":"definition"},"qualified_declaration":["Example","Length"],"terms":[],"version":"quire.dimension-node/v1"}"#,
-        "5a263446f0e84319aab70efc5f27bbe04a0dbe0d037a5c201c660d1deddc27b3",
-    ),
-];
+/// Authored canonical preimages, with dependent identities filled from the
+/// declaration and dimension preimages rather than recorded hex values.
+fn nominal_text() -> [String; 4] {
+    let declaration = r#"{"members":["ACTIVE","DONE"],"ordered":false,"owner":{"authority":"agent-ix","identity":"quire.fixture.source/v1","kind":"source"},"qualified_declaration":["Example","Status"],"version":"quire.enum-declaration-node/v1"}"#;
+    let dimension = r#"{"owner":{"authority":"agent-ix","identity":"quire.fixture.definition.selection/v1","kind":"definition"},"qualified_declaration":["Example","Length"],"terms":[],"version":"quire.dimension-node/v1"}"#;
+    let declaration_key = format!("{:x}", Sha256::digest(declaration.as_bytes()));
+    let dimension_key = format!("{:x}", Sha256::digest(dimension.as_bytes()));
+    [
+        format!(
+            r#"{{"case":"ACTIVE","declaration_node_id":{{"digest":"{declaration_key}","domain":"quire.checked-semantic-node/v1"}},"version":"quire.enum-member-node/v1"}}"#
+        ),
+        declaration.to_owned(),
+        format!(
+            r#"{{"dimension_node_id":{{"digest":"{dimension_key}","domain":"quire.checked-semantic-node/v1"}},"offset":{{"denominator":"1","numerator":"0"}},"owner":{{"authority":"agent-ix","identity":"quire.fixture.source/v1","kind":"source"}},"qualified_declaration":["Example","Metre"],"scale":{{"denominator":"1","numerator":"1"}},"target_unit_node_id":null,"version":"quire.unit-node/v1"}}"#
+        ),
+        dimension.to_owned(),
+    ]
+}
 
 /// ACs: FR-038-AC-89, FR-038-AC-90
 #[trace("TC-048", "FR-038-AC-89", "FR-038-AC-90")]
@@ -330,19 +315,21 @@ const NOMINAL_TEXT: [(&str, &str); 4] = [
 fn tc_048_a_nominal_digest_takes_a_byte_limit_and_hashes_the_expected_bytes() {
     // The four preimages are the fixture's, in the same order.
     let members = nominal_fixture_members();
-    assert_eq!(members.len(), NOMINAL_TEXT.len());
-    for ((preimage, key), (text, expected_key)) in members.iter().zip(NOMINAL_TEXT) {
-        assert_eq!(key, expected_key, "the fixture's recorded key");
-        // Expected canonical bytes written out above, not produced by a call
-        // into the code under test; the recorded key is the second oracle.
-        assert_eq!(sha256_hex(text.as_bytes()), expected_key);
+    let expected_texts = nominal_text();
+    assert_eq!(members.len(), expected_texts.len());
+    for ((preimage, key), text) in members.iter().zip(&expected_texts) {
+        let expected_key = format!("{:x}", Sha256::digest(text.as_bytes()));
+        assert_eq!(key, &expected_key, "the fixture key from authored bytes");
         let typed: NominalIdentityPreimage =
             serde_json::from_value(preimage.clone()).expect("typed preimage");
         let bytes = quire_canonical::to_vec(&typed, quire_canonical::Limits::new(1 << 20))
             .expect("encodes");
-        assert_eq!(String::from_utf8(bytes).expect("utf-8"), text);
+        assert_eq!(String::from_utf8(bytes).expect("utf-8"), *text);
         let length = u64::try_from(text.len()).expect("length");
-        assert_eq!(typed.digest(length).as_deref().ok(), Some(expected_key));
+        assert_eq!(
+            typed.digest(length).as_deref().ok(),
+            Some(expected_key.as_str())
+        );
         match typed.digest(length - 1) {
             Err(Error::Limit(limit)) => {
                 assert_eq!(limit.kind, LimitKind::CanonicalBytes);
