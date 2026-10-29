@@ -52,6 +52,35 @@ pub struct CheckedStepRelationBody {
     pub body: CheckedNodeId,
 }
 
+/// Capability kind distinguishing the two obligations over one claim occurrence.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum CheckedStepRelationCapability {
+    /// The relation over reachable model transitions.
+    TemporalSatisfaction,
+    /// The relation over bound implementation executions.
+    OperationContract,
+}
+
+impl CheckedStepRelationCapability {
+    /// QSpec capability spelling for the requested item.
+    #[ix_trace_rs::string_edge]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TemporalSatisfaction => "temporal-satisfaction",
+            Self::OperationContract => "operation-contract",
+        }
+    }
+}
+
+/// FR-402 obligation identity: a claim node and its capability kind.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct CheckedStepRelationObligationIdentity {
+    /// The one checked claim node that owns both possible items.
+    pub claim: CheckedNodeId,
+    /// The requested item's distinct capability kind.
+    pub capability: CheckedStepRelationCapability,
+}
+
 impl CheckedStepRelationBody {
     /// Whether every execution requests the code claim.
     pub fn requests_code_claim(&self) -> bool {
@@ -64,6 +93,23 @@ impl CheckedStepRelationBody {
 }
 
 impl CheckedSemanticNodeV2 {
+    /// Requested obligation identities over this step relation's claim occurrence.
+    pub fn step_relation_obligations(&self) -> Option<Vec<CheckedStepRelationObligationIdentity>> {
+        let body = self.step_relation_body()?;
+        let model = CheckedStepRelationObligationIdentity {
+            claim: self.node_id.clone(),
+            capability: CheckedStepRelationCapability::TemporalSatisfaction,
+        };
+        let mut requested = vec![model];
+        if body.requests_code_claim() {
+            requested.push(CheckedStepRelationObligationIdentity {
+                claim: self.node_id.clone(),
+                capability: CheckedStepRelationCapability::OperationContract,
+            });
+        }
+        Some(requested)
+    }
+
     /// Parse this node's step-relation body into its closed typed production.
     /// Reader admission additionally checks the referenced graph joins.
     #[ix_trace_rs::string_edge]

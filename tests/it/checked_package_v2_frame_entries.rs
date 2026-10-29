@@ -24,8 +24,9 @@ use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    ExecutionPoint, ExecutionPointName, StateClauseKind,
+    CheckedPackageV2ReadResult, CheckedStepRelationCapability, CheckedTerm,
+    CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName,
+    StateClauseKind,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -43,6 +44,18 @@ fn read(value: &Value) -> CheckedPackageV2ReadResult {
 
 fn step_model_document() -> Value {
     let mut document = family_model_document();
+    let mut low_field = document["types"][0]["fields"][0].clone();
+    low_field["identity"] = json!(format!(
+        "{}/l",
+        document["types"][0]["identity"]
+            .as_str()
+            .expect("object identity")
+    ));
+    low_field["name"] = json!("l");
+    document["types"][0]["fields"]
+        .as_array_mut()
+        .expect("fields")
+        .push(low_field);
     document["types"][0]["operations"][0]["params"] = json!([{
         "name": "i", "typeRef": "ix://quire/native/Integer",
         "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
@@ -4403,17 +4416,83 @@ fn step_relation_package() -> Value {
     let invariant = clause_id("invariant");
     let pre = clause_id("precondition");
     let post = clause_id("postcondition");
+    let object = nodes(&package)
+        .iter()
+        .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+        .expect("selected object")["node_id"]
+        .clone();
+    let operation = |identity: &str, member: Value| {
+        json!({"identity": identity, "laws": [], "mode": null, "member": member,
+            "leaves": []})
+    };
+    let application = |id: &str,
+                       form: &str,
+                       operator: &str,
+                       identity: &str,
+                       member: Value,
+                       result: Value,
+                       argument: Value| {
+        json!({
+            "node_id": node_id(id), "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "expression", "semantic_form": form,
+            "semantic_type": result, "dependencies": [argument],
+            "occurrences": [{"role": "expression", "ordinal": 0}],
+            "body": {"term": "application", "operator": operator,
+                "operation": operation(identity, member), "result_type": result,
+                "arguments": [{"term": "reference", "target": argument}]},
+        })
+    };
+    for (self_id, seed) in [(&first_self, "a1"), (&second_self, "a2")] {
+        let deref = node_id(&seed.repeat(32));
+        let field = node_id(&format!("{}{}", seed, "b1".repeat(31)));
+        let pre_read = node_id(&format!("{}{}", seed, "c1".repeat(31)));
+        let nodes = package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        nodes.push(application(
+            deref["digest"].as_str().expect("deref digest"),
+            "deref",
+            "deref",
+            "quire.op.model.deref",
+            Value::Null,
+            object.clone(),
+            self_id.clone(),
+        ));
+        nodes.push(application(
+            field["digest"].as_str().expect("field digest"),
+            "query",
+            "query",
+            "quire.op.record.project",
+            json!({"kind": "field", "declaration": object, "name": "l"}),
+            node_id(INTEGER),
+            deref,
+        ));
+        nodes.push(application(
+            pre_read["digest"].as_str().expect("pre digest"),
+            "pre_read",
+            "pre",
+            "quire.op.state.pre",
+            Value::Null,
+            node_id(INTEGER),
+            field,
+        ));
+    }
+    let pre_reads = nodes(&package)
+        .iter()
+        .filter(|node| node["semantic_form"] == "pre_read")
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
     let equality_body = json!({
         "term": "application", "operator": "binary",
-        "operation": {"identity": "quire.op.reference.eq", "laws": [],
+        "operation": {"identity": "quire.op.integer.eq", "laws": [],
             "mode": null, "member": null, "leaves": []},
         "result_type": node_id(&boolean()),
         "arguments": [
-            {"term": "reference", "target": first_self},
-            {"term": "reference", "target": second_self},
+            {"term": "reference", "target": pre_reads[0]},
+            {"term": "reference", "target": pre_reads[1]},
         ],
     });
-    let mut equality_deps = vec![first_self.clone(), second_self.clone()];
+    let mut equality_deps = pre_reads;
     equality_deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -4432,7 +4511,7 @@ fn step_relation_package() -> Value {
         .find(|node| {
             node["node_tag"] == "expression"
                 && node["semantic_form"] == "binary"
-                && node["body"]["operation"]["identity"] == "quire.op.reference.eq"
+                && node["body"]["operation"]["identity"] == "quire.op.integer.eq"
         })
         .expect("relation equality")["node_id"]
         .clone();
@@ -4553,7 +4632,103 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
         body.executions[0].parameters[1],
         body.executions[1].parameters[1]
     );
+    let expression = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == body.body)
+        .expect("Boolean relation expression");
+    let CheckedTerm::Application {
+        operation,
+        arguments,
+        ..
+    } = &expression.body
+    else {
+        panic!("relation body must be an equality application");
+    };
+    assert_eq!(operation.identity(), Some("quire.op.integer.eq"));
+    let read_self = |term: &CheckedTerm| {
+        let CheckedTerm::Reference { target: pre_id } = term else {
+            panic!("equality operand must reference a pre read");
+        };
+        let pre = admitted
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.node_id == *pre_id)
+            .expect("pre read");
+        let CheckedTerm::Application {
+            operation,
+            arguments,
+            ..
+        } = &pre.body
+        else {
+            panic!("pre read must be an application");
+        };
+        assert_eq!(operation.identity(), Some("quire.op.state.pre"));
+        let [CheckedTerm::Reference { target: field_id }] = arguments.as_slice() else {
+            panic!("pre must read one field");
+        };
+        let field = admitted
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.node_id == *field_id)
+            .expect("field read");
+        let CheckedTerm::Application {
+            operation,
+            arguments,
+            ..
+        } = &field.body
+        else {
+            panic!("field read must be an application");
+        };
+        assert_eq!(operation.identity(), Some("quire.op.record.project"));
+        assert_eq!(
+            operation
+                .projection_field()
+                .expect("admitted field")
+                .expect("field member")
+                .1,
+            "l"
+        );
+        let [CheckedTerm::Reference { target: deref_id }] = arguments.as_slice() else {
+            panic!("field must read one dereferenced receiver");
+        };
+        let deref = admitted
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.node_id == *deref_id)
+            .expect("deref");
+        let CheckedTerm::Application {
+            operation,
+            arguments,
+            ..
+        } = &deref.body
+        else {
+            panic!("deref must be an application");
+        };
+        assert_eq!(operation.identity(), Some("quire.op.model.deref"));
+        let [CheckedTerm::Reference { target: self_id }] = arguments.as_slice() else {
+            panic!("deref must read one receiver binder");
+        };
+        self_id.clone()
+    };
+    assert_eq!(arguments.len(), 2);
+    assert_eq!(read_self(&arguments[0]), body.executions[0].parameters[0]);
+    assert_eq!(read_self(&arguments[1]), body.executions[1].parameters[0]);
+    assert_ne!(read_self(&arguments[0]), read_self(&arguments[1]));
     assert!(!body.requests_code_claim());
+    let model_only = relation
+        .step_relation_obligations()
+        .expect("model obligation");
+    assert_eq!(model_only.len(), 1);
+    assert_eq!(model_only[0].claim, relation.node_id);
+    assert_eq!(
+        model_only[0].capability,
+        CheckedStepRelationCapability::TemporalSatisfaction
+    );
     let preimage = admitted.identity_preimage();
     let borrowed = CheckedPackageIdentityPreimageRefV2 {
         version: &preimage.version,
@@ -4660,6 +4835,54 @@ fn step_relation_identity_tracks_effective_premises() {
             .collect::<Vec<_>>());
     });
     changed(&added);
+}
+
+/// Trace: FR-350-AC-3 (TC-962 RN-06)
+#[trace("FR-350-AC-3")]
+#[test]
+fn step_relation_source_spelling_does_not_change_semantic_identity() {
+    let base = step_relation_package();
+    let spelled = |source: &str| {
+        let mut package = base.clone();
+        let digest = sha256_hex(source.as_bytes());
+        package["lock"]["sources"][0]["digest"] = json!(digest);
+        for entry in package["source_map"].as_array_mut().expect("source map") {
+            for region in entry["regions"].as_array_mut().expect("regions") {
+                region["source"]["digest"] = json!(digest);
+            }
+        }
+        package
+    };
+    let compact = spelled("relation Det { pre(x.self.l) = pre(y.self.l) }");
+    let spaced = spelled("// relation documentation\nrelation  Det {\n  pre(x.self.l) = pre(y.self.l) // same body\n}\n");
+    assert_ne!(
+        compact["lock"]["sources"][0]["digest"],
+        spaced["lock"]["sources"][0]["digest"]
+    );
+    let admitted = |package: &Value| match read(package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("lexical source variant must admit: {other:?}"),
+    };
+    let compact = admitted(&compact);
+    let spaced = admitted(&spaced);
+    let compact_relation = compact
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "step_relation")
+        .expect("compact relation");
+    let spaced_relation = spaced
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "step_relation")
+        .expect("spaced relation");
+    assert_eq!(compact_relation.node_id, spaced_relation.node_id);
+    assert_eq!(
+        compact_relation.step_relation_body(),
+        spaced_relation.step_relation_body()
+    );
+    assert_eq!(compact.package_id(), spaced.package_id());
 }
 
 fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Value {
@@ -4916,15 +5139,31 @@ fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("bound relation must admit: {other:?}"),
     };
-    let body = admitted
+    let relation_node = admitted
         .graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "step_relation")
-        .expect("relation")
-        .step_relation_body()
-        .expect("typed body");
+        .expect("relation");
+    let body = relation_node.step_relation_body().expect("typed body");
     assert!(body.requests_code_claim());
+    let obligations = relation_node
+        .step_relation_obligations()
+        .expect("two obligations");
+    assert_eq!(obligations.len(), 2);
+    assert_eq!(obligations[0].claim, relation_node.node_id);
+    assert_eq!(obligations[1].claim, relation_node.node_id);
+    assert_eq!(
+        obligations[0].capability,
+        CheckedStepRelationCapability::TemporalSatisfaction
+    );
+    assert_eq!(obligations[0].capability.as_str(), "temporal-satisfaction");
+    assert_eq!(
+        obligations[1].capability,
+        CheckedStepRelationCapability::OperationContract
+    );
+    assert_eq!(obligations[1].capability.as_str(), "operation-contract");
+    assert_ne!(obligations[0], obligations[1]);
     assert_eq!(
         body.executions[0].implementation,
         body.executions[1].implementation

@@ -97,7 +97,10 @@ pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
     CheckedScalarOperandRange,
 };
-pub use step_relation::{CheckedStepExecution, CheckedStepRelationBody};
+pub use step_relation::{
+    CheckedStepExecution, CheckedStepRelationBody, CheckedStepRelationCapability,
+    CheckedStepRelationObligationIdentity,
+};
 pub use structural_candidates::{
     derive_structural_candidates, CandidateRecursionGroupLabel, CandidateStructuralNodeId,
     StructuralCandidateError, StructuralCandidates,
