@@ -4408,6 +4408,193 @@ fn causal_edge(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+enum GuardOp {
+    Constant(bool),
+    Atom(usize),
+    Load(usize),
+    Store(usize),
+    Not,
+    And,
+    Or,
+    Implies,
+}
+
+enum GuardAtom<'a> {
+    Node(&'a CheckedNodeId),
+    Inline,
+}
+
+impl GuardAtom<'_> {
+    fn same_node(&self, id: &CheckedNodeId) -> bool {
+        matches!(self, Self::Node(candidate) if *candidate == id)
+    }
+}
+
+fn guard_connective(identity: Option<&str>, arity: usize) -> Option<GuardOp> {
+    match (identity, arity) {
+        (Some("quire.op.boolean.not"), 1) => Some(GuardOp::Not),
+        (Some("quire.op.boolean.and"), 2) => Some(GuardOp::And),
+        (Some("quire.op.boolean.or"), 2) => Some(GuardOp::Or),
+        (Some("quire.op.boolean.implies"), 2) => Some(GuardOp::Implies),
+        _ => None,
+    }
+}
+
+fn guard_never_exits(
+    check: &MemberCheck<'_>,
+    args: &[CheckedTerm],
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let mut atoms: Vec<GuardAtom<'_>> =
+        listed_targets(binding_value(args, "visible").expect("validated visible"))
+            .map(GuardAtom::Node)
+            .collect();
+    let mut program = Vec::new();
+    let mut compiled = Vec::new();
+    let guard = binding_value(args, "guard").expect("validated guard");
+    let mut pending = vec![(guard, None, false)];
+    while let Some((term, key, complete)) = pending.pop() {
+        if complete {
+            let CheckedTerm::Application {
+                operation,
+                arguments,
+                ..
+            } = term
+            else {
+                unreachable!("only connective applications complete")
+            };
+            program.push(
+                guard_connective(operation.identity(), arguments.len())
+                    .expect("validated connective arity"),
+            );
+            if let Some(id) = key {
+                let index = compiled
+                    .iter()
+                    .position(|candidate| candidate == &id)
+                    .expect("registered connective");
+                program.push(GuardOp::Store(index));
+            }
+            continue;
+        }
+        if let Some(id) = key {
+            if let Some(index) = atoms.iter().position(|candidate| candidate.same_node(id)) {
+                program.push(GuardOp::Atom(index));
+                continue;
+            }
+        }
+        let (term, key) = match term {
+            CheckedTerm::Reference { target } => {
+                if let Some(index) = atoms
+                    .iter()
+                    .position(|candidate| candidate.same_node(target))
+                {
+                    program.push(GuardOp::Atom(index));
+                    continue;
+                }
+                if let Some(index) = compiled.iter().position(|candidate| *candidate == target) {
+                    program.push(GuardOp::Load(index));
+                    continue;
+                }
+                let target_position = *check.index.get(target).expect("validated guard reference");
+                if !matches!(
+                    check.kinds[target_position],
+                    CheckedNodeKind::Value(ValueForm::Literal) | CheckedNodeKind::Expression(_)
+                ) {
+                    let index = atoms.len();
+                    atoms.push(GuardAtom::Node(target));
+                    program.push(GuardOp::Atom(index));
+                    continue;
+                }
+                let Some(referenced) = check.terms[target_position].as_ref() else {
+                    let index = atoms.len();
+                    atoms.push(GuardAtom::Node(target));
+                    program.push(GuardOp::Atom(index));
+                    continue;
+                };
+                (referenced, Some(target))
+            }
+            _ => (term, key),
+        };
+        match term {
+            CheckedTerm::Literal {
+                value_kind: LiteralKind::Boolean,
+                value,
+                ..
+            } => {
+                program.push(GuardOp::Constant(
+                    value.as_bool().expect("validated Boolean literal"),
+                ));
+            }
+            CheckedTerm::Application {
+                operation,
+                arguments,
+                ..
+            } if guard_connective(operation.identity(), arguments.len()).is_some() => {
+                if let Some(id) = key {
+                    compiled.push(id);
+                }
+                pending.push((term, key, true));
+                for argument in arguments {
+                    pending.push((argument, None, false));
+                }
+            }
+            _ => {
+                let index = if let Some(id) = key {
+                    let index = atoms.len();
+                    atoms.push(GuardAtom::Node(id));
+                    index
+                } else {
+                    let index = atoms.len();
+                    atoms.push(GuardAtom::Inline);
+                    index
+                };
+                program.push(GuardOp::Atom(index));
+            }
+        }
+    }
+    let mut valuation = vec![false; atoms.len()];
+    let mut values = Vec::with_capacity(program.len());
+    let mut cache = vec![false; compiled.len()];
+    loop {
+        meter.charge(1, || node_pointer(position))?;
+        values.clear();
+        for op in &program {
+            match op {
+                GuardOp::Constant(value) => values.push(*value),
+                GuardOp::Atom(index) => values.push(valuation[*index]),
+                GuardOp::Load(index) => values.push(cache[*index]),
+                GuardOp::Store(index) => {
+                    cache[*index] = *values.last().expect("validated connective result");
+                }
+                GuardOp::Not => {
+                    let value = values.pop().expect("validated not operand");
+                    values.push(!value);
+                }
+                GuardOp::And | GuardOp::Or | GuardOp::Implies => {
+                    let left = values.pop().expect("validated binary left operand");
+                    let right = values.pop().expect("validated binary right operand");
+                    values.push(match op {
+                        GuardOp::And => left && right,
+                        GuardOp::Or => left || right,
+                        GuardOp::Implies => !left || right,
+                        _ => unreachable!(),
+                    });
+                }
+            }
+        }
+        if !values.pop().expect("validated guard value") {
+            return Ok(false);
+        }
+        let Some(bit) = valuation.iter().position(|value| !value) else {
+            return Ok(true);
+        };
+        valuation[..bit].fill(false);
+        valuation[bit] = true;
+    }
+}
+
 #[string_edge]
 fn check_clause_causality(
     check: &MemberCheck<'_>,
@@ -4684,6 +4871,31 @@ fn check_clause_causality(
         }
     }
 
+    let mut nested = vec![false; check.nodes.len()];
+    let mut pending = vec![(root, false, false)];
+    while let Some((position, inside_body, in_exhausted)) = pending.pop() {
+        nested[position] = inside_body && !in_exhausted;
+        let (operator, args) = validated[position].expect("validated control");
+        let children = control_children(operator, args);
+        for (ordinal, target) in children.into_iter().enumerate().rev() {
+            let child = *check.index.get(target).expect("validated control child");
+            pending.push((
+                child,
+                inside_body || (operator == "repeat" && ordinal == 0),
+                in_exhausted || (operator == "repeat" && ordinal == 1),
+            ));
+        }
+    }
+    let mut guard_never_exits_by_control = vec![false; check.nodes.len()];
+    for &position in &preorder {
+        let Some(("repeat", args)) = validated[position] else {
+            continue;
+        };
+        if nested[position] {
+            guard_never_exits_by_control[position] =
+                guard_never_exits(check, args, position, meter)?;
+        }
+    }
     let mut steps = vec![false; check.nodes.len()];
     for &position in preorder.iter().rev() {
         meter.charge(1, || node_pointer(position))?;
@@ -4697,7 +4909,17 @@ fn check_clause_causality(
             | "parallel" => true,
             "sequence" => children.iter().any(|&child| steps[child]),
             "choice" => children.iter().all(|&child| steps[child]),
-            "repeat" | "check" => false,
+            "repeat" => {
+                let maximum_positive = binding_value(args, "maximum")
+                    .and_then(members)
+                    .expect("validated maximum")
+                    .first()
+                    .is_none_or(|maximum| {
+                        integer_value(maximum).expect("validated maximum") > BigInt::from(0)
+                    });
+                guard_never_exits_by_control[position] && maximum_positive && steps[children[0]]
+            }
+            "check" => false,
             _ => unreachable!("validated control operator"),
         };
     }
