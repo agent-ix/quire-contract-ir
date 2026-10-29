@@ -4268,7 +4268,14 @@ fn tc_462_point_change_rekeys_node_and_package_without_losing_accessor_value() {
 /// A source-declared relation over two executions of the selected Account operation.
 fn step_relation_package() -> Value {
     let mut package = with_postcondition(StatePackage::new(), None).value;
-    let self_position = position(&package, "value", "parameter");
+    let self_position = nodes(&package)
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "value"
+                && node["semantic_form"] == "parameter"
+                && node["body"]["members"][0]["value"]["value"] == "self"
+        })
+        .expect("self binder");
     let mut second_self = package["semantic_graph"]["nodes"][self_position].clone();
     second_self["node_id"] = node_id(&"ef".repeat(32));
     second_self["body"]["members"][1]["value"]["value"] = json!("1");
