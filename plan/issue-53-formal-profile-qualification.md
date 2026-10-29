@@ -32,22 +32,6 @@ external-parser gate for issue #53.
 Native implementation and mapping qualification remain in their owning tickets;
 they are not incomplete subtasks of this completed decision plan.
 
-## Input provenance
-
-Read in full: the filament-research notes `sysml-v2-integration-options.md`
-and `fret-vs-ears.md`.
-The final TypeSpec addendum supersedes their earlier structural-authority
-recommendation. The owner's #52 comment 5532708641 says this research is not a
-language decision and makes compiled domain packages from filament-core-data
-#36 the type-environment source. The actual FR-006 source, revision, digest,
-and limits of the three synthetic probes are recorded in ADR-0053.
-
-Upstream documentation and license/README/CLI materials were inspected
-on 2026-09-06 using read-only requests. Some browser fetches of GitHub
-files failed; successful GitHub content API reads supplied their actual bytes.
-The SysML license correction is a concrete finding: stable 2025-09 is
-LGPL-3.0-or-later per its README, not the unqualified EPL-2.0 assumption.
-
 ## Preserved mapping discriminators
 
 The table below is the original candidate corpus. Read OCL, FRETish and SysML
