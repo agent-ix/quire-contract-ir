@@ -16,7 +16,7 @@ Ticket: IR-358. Code review with the rust-review lane folded in, scoped to `git 
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | A stray `.bak` file (a byte copy of the new Cargo.toml, same blob ) is committed at the repo root of a public repo |.bak:1-34 |
+| FND-001 | medium | A stray `.bak` file (a byte copy of the new Cargo.toml, same blob) is committed at the repo root of a public repo |.bak:1-34 |
 | FND-002 | medium | The gate's premise is false. Makefile and deny.toml say `deny-multiple-versions` only sees copies with different versions. Measured: this PR's deny.toml over origin/main's Cargo.lock fails bans with `error[duplicate]` for quire-contract-model (path vs git, both 0.1.0) and quire-verification-contracts (two revs, both 0.1.0), while origin/main's deny.toml reports `bans ok`. The Cargo.lock count is redundant for every listed name, and it only runs after `cargo deny check` has already failed | Makefile:82-94 |
 | FND-003 | medium | The gate is a hardcoded name list kept twice (FIRST_PARTY and 18 `[[bans.deny]]` entries). It misses first-party crates the plan names (FCD `agent-ix-*`, quire-contract-runtime, quire-rs crates, codegen) and any crate added later. Nothing fails when the list drifts | Makefile:86 |
 | FND-004 | medium | `make use-local` breaks every `--locked` make target. The patch rewrites the tracked Cargo.lock by dropping the `source` lines of the patched crates, and `cargo metadata --locked` then exits 101 ("cannot update the lock file"). `make use-remote` does not restore Cargo.lock, so `--locked` still fails afterwards, and a lock with no git sources is one `git add -A` from being committed | Makefile:118-131 |

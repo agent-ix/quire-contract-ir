@@ -138,7 +138,7 @@ Round 3, reviewed. QSpec PR #268 and QSL PR #923  are both still OPEN. The PR #4
 
 ## New findings (disposition pass 4)
 
-Reviewed, against quire-specification origin/main (PR #268 merged) and quire-spec-language origin/main (PR #923 merged; FR-365/FR-380 unchanged ).
+Reviewed, against quire-specification origin/main (PR #268 merged) and quire-spec-language origin/main (PR #923 merged; FR-365/FR-380 unchanged).
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

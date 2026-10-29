@@ -62,7 +62,7 @@ Ticket: IR-661. Method: `spec-review/spec-integrity-analysis`. Reviewer model `c
 
 ## Dispositions
 
-Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
+Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -71,7 +71,7 @@ Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer mode
 
 ## New findings (disposition pass 2)
 
-Scoped PR307 amendment review at `agent-ix/quire-contract-ir` (prior), reviewer model `claude-opus-5-5`, run `ad2d17a1-a843-41fa-82e5-f0047b03193c`. Scope: only the two-file amendment (FR-038, TC-048) and its primary-source grounding. This is not a second initial review. FND-001 and FND-002 keep their round-1 `fixed` outcomes; their units are unchanged by this amendment.
+Scoped PR307 amendment review at `agent-ix/quire-contract-ir` (prior review), reviewer model `claude-opus-5-5`, run `ad2d17a1-a843-41fa-82e5-f0047b03193c`. Scope: only the two-file amendment (FR-038, TC-048) and its primary-source grounding. This is not a second initial review. FND-001 and FND-002 keep their round-1 `fixed` outcomes; their units are unchanged by this amendment.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -87,7 +87,7 @@ Scoped PR307 amendment review at `agent-ix/quire-contract-ir` (prior), reviewer 
 
 ## Dispositions (round 3)
 
-Round 3, scoped to FND-003 only, at `agent-ix/quire-contract-ir` (prior), reviewer model `claude-opus-5-5`, session `d6f52734-00fe-4ca2-b421-37940583dc56`, run `668e64d7-b4af-41c5-af2e-7844c203a24e`. FND-001 and FND-002 keep `fixed `. The round-2 `still-open` row for FND-003 stays above, unedited.
+Round 3, scoped to FND-003 only, at `agent-ix/quire-contract-ir` (prior review), reviewer model `claude-opus-5-5`, session `d6f52734-00fe-4ca2-b421-37940583dc56`, run `668e64d7-b4af-41c5-af2e-7844c203a24e`. FND-001 and FND-002 keep `fixed`. The round-2 `still-open` row for FND-003 stays above, unedited.
 
 | FND | outcome | reason |
 | --- | --- | --- |

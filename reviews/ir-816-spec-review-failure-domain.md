@@ -3,7 +3,7 @@ id: SR-11802
 title: IR-816 failure-domain review of receiver-scoped frame entries and deletes_scoped (FR-040-AC-17..29)
 type: SpecReview
 analysis: failure-domain
-scope: agent-ix/quire-contract-ir (PR 415, diff vs origin/main ); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
+scope: agent-ix/quire-contract-ir (PR 415, diff vs origin/main); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
 review_set: subset
 date: '2026-10-16'
 ---

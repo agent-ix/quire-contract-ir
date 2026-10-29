@@ -14,7 +14,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-347. Reviewed exact PR against. Diff-scoped review.
+Ticket: IR-347. Reviewed the exact PR diff. Diff-scoped review.
 
 ## Findings
 

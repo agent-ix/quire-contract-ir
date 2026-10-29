@@ -94,7 +94,7 @@ Traceability:
 
 ## Dispositions
 
-Round 1. The new commits are (a merge of origin/main ) and. The PR diff against origin/main is now `tests/it/conformance_mismatch_independence.rs`, `tests/it/main.rs`, the new `tests/it/support/corpus.rs`, `tests/it/support/mod.rs` (+1 line), `tests/it/conformance.rs` (imports only), and the two `reviews/` copies.
+Round 1. The new commits are a merge of origin/main and a follow-up commit. The PR diff against origin/main is now `tests/it/conformance_mismatch_independence.rs`, `tests/it/main.rs`, the new `tests/it/support/corpus.rs`, `tests/it/support/mod.rs` (+1 line), `tests/it/conformance.rs` (imports only), and the two `reviews/` copies.
 
 | FND | outcome | reason |
 | --- | --- | --- |

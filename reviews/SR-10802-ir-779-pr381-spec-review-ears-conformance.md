@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed IR-779 PR #381 at public (same tree as local ) against IR main and QSL main. No findings in this lens.
+Reviewed IR-779 PR #381 at the public PR head (same tree as the local checkout) against IR main and QSL main. No findings in this lens.
 
 ## Verdict
 

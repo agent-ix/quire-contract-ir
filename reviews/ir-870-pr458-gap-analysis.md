@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped traceability check of PR #458 against. The six cross-repository QSpec NFR tags are no longer claimed as local IR bindings, while all local bindings remain. Ticket: IR-870.
+Diff-scoped traceability check of PR #458. The six cross-repository QSpec NFR tags are no longer claimed as local IR bindings, while all local bindings remain. Ticket: IR-870.
 
 ## Reviewed Scope
 

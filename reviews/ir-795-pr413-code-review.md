@@ -3,7 +3,7 @@ id: SR-11760
 title: "Code and Rust review — IR-795 four-owner source-inventory port"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/source_obligation.rs, tests/it/source_obligation.rs (PR #413 )"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/source_obligation.rs, tests/it/source_obligation.rs (PR #413)"
 review_set: subset
 ---
 

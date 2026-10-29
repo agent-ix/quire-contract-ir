@@ -103,7 +103,7 @@ main's IR-567/IR-569 rows; it must be rebased and the gates re-run.
 
 ## Dispositions
 
-Round 1, reviewed: a rebase onto main plus one fix commit. The range-diff shows the two original commits unchanged apart from the `spec/tests.md` context. Gates rerun by this review: fmt-check, lint, test (348 + 147 + 7, 3:01 wall time, 4.0 GB peak), corpus, deny, cargo-audit, audit-unsafe, conformance-qspec (6/6 against QSpec ), validate (1 grammar finding, FR-014) and coverage --strict (23 rows, as on main) all pass.
+Round 1, reviewed: a rebase onto main plus one fix commit. The range-diff shows the two original commits unchanged apart from the `spec/tests.md` context. Gates rerun by this review: fmt-check, lint, test (348 + 147 + 7, 3:01 wall time, 4.0 GB peak), corpus, deny, cargo-audit, audit-unsafe, conformance-qspec (6/6 against QSpec), validate (1 grammar finding, FR-014) and coverage --strict (23 rows, as on main) all pass.
 
 | FND | Outcome | reason |
 | --- | --- | --- |

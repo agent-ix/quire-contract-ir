@@ -57,7 +57,7 @@ Integrity review of IR-1034 PR #594. The diff changes only FR-061. QSpec #447 su
 
 | FND-001 | still-open | Round 2: rebased on merged IR main. AC-1, AC-3 and AC-7 are byte-identical to main; AC-9 through AC-13 are byte-identical to the originally reviewed memory-drain. The multi-default catalog contradiction is unchanged and remains owned by STD-499. |
 
-| FND-001 | fixed | Round 3: QSpec #459 (merge ) defines declared-class key as `class` and memory-class key as (`class`, `memory_model`), ordered by class then model bytes. FR-061 now requires ra/sc/tso drains plus TSO flush, one entry per distinct source-default model, and rejects only equal catalog keys. The valid multi-default subject can now be admitted. |
+| FND-001 | fixed | Round 3: QSpec #459 (merge commit) defines declared-class key as `class` and memory-class key as (`class`, `memory_model`), ordered by class then model bytes. FR-061 now requires ra/sc/tso drains plus TSO flush, one entry per distinct source-default model, and rejects only equal catalog keys. The valid multi-default subject can now be admitted. |
 
 ## Current verdict
 

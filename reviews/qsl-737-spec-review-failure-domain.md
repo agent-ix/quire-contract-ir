@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: QSL-737. Edge cases of the FR-347 conformance walk were checked against the existing walk it reuses (`DomainModel::ancestors`, model_members.rs:826-847, at origin/main ): multi-parent and diamond ancestry, early stop, cycles, the work meter row, a foreign document, and source-owned lookalikes.
+Ticket: QSL-737. Edge cases of the FR-347 conformance walk were checked against the existing walk it reuses (`DomainModel::ancestors`, model_members.rs:826-847, at origin/main): multi-parent and diamond ancestry, early stop, cycles, the work meter row, a foreign document, and source-owned lookalikes.
 
 ## Verdict
 

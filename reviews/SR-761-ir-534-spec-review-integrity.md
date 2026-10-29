@@ -20,7 +20,7 @@ dependencies or domain packages, and for stale class numbers. These are clean:
 - #251: AC-62..64 are the next free ids after #251's AC-46..61, and #251's rows and planned
   markers are kept.
 
-Overlap with PR 250 (IR-505, ):
+Overlap with PR 250 (IR-505,):
 #250 does not touch FR-038 or TC-048. It edits only `tests.md` (the FR-040, FR-038, TC-048 and
 TC-056 status cells). `git merge-tree` shows #250 already conflicts with main (#251) in `tests.md`,
 and it conflicts with #252's head the same way. Whichever merges second hand-resolves the FR-038

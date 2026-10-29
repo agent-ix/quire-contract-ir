@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-320. This review covers the base checklist and a manual review of the renames and the diff. The spec-object-review lens is folded in here, because SpecReview has no object analysis value. Each check was run against origin/main and against.
+Ticket: IR-320. This review covers the base checklist and a manual review of the renames and the diff. The spec-object-review lens is folded in here, because SpecReview has no object analysis value. Each check was run against origin/main and the PR head.
 
 - Renames: commit 1 holds 79 renames at 100% similarity. That is 49 spec files plus 30 `spec/reviews/**` files moved to `reviews/SR-<id>-<slug>.md`. Each new file name matches that file's own frontmatter `id`. The commit also adds one new file, `reviews/SR-633-ir-317-code-review.md` (FND-003). Commit 2 adds the per-subsystem matrices, `spec/tests.md`, the registry and relative link fixes. Every link edit resolves.
 - Ids: the frontmatter `id:` set under `spec/` is identical before and after. The only differences are the 30 SR ids that moved to `reviews/` and the new TM-003 through TM-009. No TM-003..TM-009 id was used before anywhere in the repo. Every `ix://` relationship target is id-based, so the move cannot break one. Every StR/FR/NFR/STD/TC/AD/ADR/AC id that disappeared from the `spec/` tree went with the moved review files: ADR-0055, FR-024, FR-201-AC-5, NFR-005, TC-036, TC-037, TC-046, TM-001 and SR-411 are mentioned only in their prose.

@@ -34,7 +34,7 @@ Supplemental independent Codex EARS review for IR-658 SPEC PR #312, at artifact-
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
 
-FND-001 `after_excerpt` (verbatim public IR text ):
+FND-001 `after_excerpt` (verbatim public IR text):
 
 ```text
 If a well-shaped projection

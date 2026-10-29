@@ -3,7 +3,7 @@ id: SR-11630
 title: code-review and rust-review of IR-742 IEEE reader admission
 type: SpecReview
 analysis: code-review
-scope: agent-ix/quire-contract-ir; branch code/ir742-reader-admission; diff origin/main... (.., commits and );
+scope: agent-ix/quire-contract-ir; branch code/ir742-reader-admission; diff origin/main...HEAD;
   crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_ieee_admission.rs, tests/it/main.rs
 review_set: subset
 ---
@@ -50,14 +50,14 @@ The failure is the rebase resolution. The dropped pass refused an IEEE literal
 whose declared `type` resolves to no operand family; main's `literal_defect`
 skips such a literal, so those packages are now admitted (FND-001).
 
-Deleted-pass coverage (scratch scan ):
+Deleted-pass coverage (scratch scan):
 
 | Case the dropped pass refused | At HEAD |
 | --- | --- |
 | float32_bits / float64_bits at the opposite width, standalone body root | refused, same code/cause/pointer `/body/type`/locus |
 | same, at `arguments/0` or `arguments/1` of an application | refused, same, `/body/arguments/{i}/type` |
 | declared at any other familied type (boolean, integer, text, option, integer_range, pure_function, object_type, temporal formula, reference) | refused, same |
-| declared `type` absent from the graph, or not a node id | refused earlier, `invalid_semantic_graph` at the same `/type` pointer, no locus (wire stage precedes; unchanged ) |
+| declared `type` absent from the graph, or not a node id | refused earlier, `invalid_semantic_graph` at the same `/type` pointer, no locus (wire stage precedes; unchanged) |
 | declared at a node with no operand family (value/literal, value/parameter, model/namespace, model/process, relation/relationship, state/snapshot, state/frame, temporal/temporal_clause, protocol/protocol_clause, claim/verification_claim, correspondence/source_locus) | **ADMITTED**, standalone and in either argument position |
 
 ## Examined scope

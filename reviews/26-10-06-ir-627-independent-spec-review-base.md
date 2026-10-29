@@ -49,4 +49,4 @@ Base review of the changed FR-038 structural-key prose and AC-123 through AC-134
 
 **Current disposition: PASS** — every original finding is fixed.
 
-Rechecked against original reviewed. FR-038-AC-125 now explicitly requires rejection of a rekeyed collection-bounds node typed at a non-collection, and names the allowed collection forms. `cargo test --workspace tc_226_` passed (19 integration and 2 unit tests; one named performance test ignored). Targeted FR-038 Quire validation, changed-file rustfmt check, and `git diff --check` passed. No new defect was found in this focused fix diff.
+Rechecked against the original reviewed PR state. FR-038-AC-125 now explicitly requires rejection of a rekeyed collection-bounds node typed at a non-collection, and names the allowed collection forms. `cargo test --workspace tc_226_` passed (19 integration and 2 unit tests; one named performance test ignored). Targeted FR-038 Quire validation, changed-file rustfmt check, and `git diff --check` passed. No new defect was found in this focused fix diff.

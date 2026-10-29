@@ -3,7 +3,7 @@ id: SR-11811
 title: "IR-759 Slice C integrity review of FR-052 census construction rules"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir (PR 417, diff vs origin/main ); spec/model/functional/FR-052-source-obligation-correspondence.md, spec/model/matrix/TC-452-source-obligation-correspondence.md, spec/model/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir (PR 417, diff vs origin/main); spec/model/functional/FR-052-source-obligation-correspondence.md, spec/model/matrix/TC-452-source-obligation-correspondence.md, spec/model/matrix/tests.md"
 review_set: subset
 date: '2026-10-16'
 ---

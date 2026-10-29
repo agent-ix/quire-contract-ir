@@ -3,7 +3,7 @@ id: SR-11402
 title: "IR-800 PR 405 spec-review base review (fix round 1)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir (delta ); spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+scope: "agent-ix/quire-contract-ir (PR delta); spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
 review_set: subset
 ---
 

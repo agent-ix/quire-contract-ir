@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Independent diff-scoped code and Rust review against. The changed flat-wire header check uses `decode_node_kind` for the successful typed kind and rechecks only failed extension, hybrid and timed forms to retain their earlier `malformed_wire` refusal priority.
+Independent diff-scoped code and Rust review of the PR diff. The changed flat-wire header check uses `decode_node_kind` for the successful typed kind and rechecks only failed extension, hybrid and timed forms to retain their earlier `malformed_wire` refusal priority.
 
 ## Findings
 

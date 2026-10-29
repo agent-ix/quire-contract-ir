@@ -46,7 +46,7 @@ One low finding, which predates the PR. Nothing in this PR's scope blocks merge.
 
 ## Dispositions
 
-Round 1, against.
+Round 1, reviewed against the PR head.
 
 | FND | outcome | reason |
 | --- | --- | --- |

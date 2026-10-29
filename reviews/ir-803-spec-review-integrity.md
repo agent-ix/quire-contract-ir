@@ -3,7 +3,7 @@ id: SR-11661
 title: IR-803 integrity review of the typed composite operator on the composite operand accessor
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir (PR 407, diff vs origin/main ); spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir (PR 407, diff vs origin/main); spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md
 review_set: subset
 ---

@@ -3,7 +3,7 @@ id: SR-13090
 title: "code review of PR 476 (IR-878 canonicalization and coverage criteria tests)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD (main ): tests/it/canonicalization.rs, spec/core/matrix/tests.md, spec/model/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD (main): tests/it/canonicalization.rs, spec/core/matrix/tests.md, spec/model/matrix/tests.md"
 review_set: subset
 ---
 # SR-13090: code review of PR 476

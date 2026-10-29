@@ -28,7 +28,7 @@ Examined:
 
 Also checked against upstream: QSpec FR-322 (`recursion_group`), QSpec
 FR-143, QSL ADR-014 §4 (quire-specification origin/main,
-quire-spec-language origin/main ). `quire validate` on FR-038 is
+quire-spec-language origin/main). `quire validate` on FR-038 is
 clean.
 
 ## Verdict

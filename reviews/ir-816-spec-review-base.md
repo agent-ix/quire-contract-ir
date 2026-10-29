@@ -3,14 +3,14 @@ id: SR-11800
 title: IR-816 base spec review of receiver-scoped frame entries and deletes_scoped (FR-040-AC-17..29)
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir (PR 415, diff vs origin/main ); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
+scope: agent-ix/quire-contract-ir (PR 415, diff vs origin/main); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
 review_set: subset
 date: '2026-10-16'
 ---
 
 ## Summary
 
-Ticket: IR-816. Base checklist over the seven-file spec diff of PR 415: FR-040's four-member frame body, field-entry `scope`, `deletes_scoped`, ordering, `conflicting-binding` rank and the state-step scoped-deletes check; FR-038's frame text; TC-056/TC-053; matrices. Each rule was checked against merged QSpec FR-340/FR-342 (quire-specification origin/main ), QSL TC-1043 (quire-spec-language origin/main ) and the current reader (`v2/frame.rs`, `tests/it/checked_package_v2_frame_entries.rs`). Review only; no edits.
+Ticket: IR-816. Base checklist over the seven-file spec diff of PR 415: FR-040's four-member frame body, field-entry `scope`, `deletes_scoped`, ordering, `conflicting-binding` rank and the state-step scoped-deletes check; FR-038's frame text; TC-056/TC-053; matrices. Each rule was checked against merged QSpec FR-340/FR-342 (quire-specification origin/main), QSL TC-1043 (quire-spec-language origin/main) and the current reader (`v2/frame.rs`, `tests/it/checked_package_v2_frame_entries.rs`). Review only; no edits.
 
 ## Verdict
 

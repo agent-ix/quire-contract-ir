@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Independent diff-scoped code and Rust review against. The changed production path uses the retained node-kind vector for scalar, integer-range and selected-record joins and for refusal details. The extension body, expected type grammar, open extension-name comparison and admission stages are unchanged.
+Independent diff-scoped code and Rust review of the PR diff. The changed production path uses the retained node-kind vector for scalar, integer-range and selected-record joins and for refusal details. The extension body, expected type grammar, open extension-name comparison and admission stages are unchanged.
 
 ## Findings
 

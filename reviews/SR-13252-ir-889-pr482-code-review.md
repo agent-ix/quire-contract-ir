@@ -62,7 +62,7 @@ The full CI command was not re-run. No finding needed it.
 
 ## Dispositions
 
-Disposition pass 1, against (fix ).
+Disposition pass 1, against (fix round).
 
 | FND | outcome | reason |
 | --- | --- | --- |

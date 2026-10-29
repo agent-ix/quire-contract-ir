@@ -53,7 +53,7 @@ Measured:
   MUTANT panic fires. The arms are never executed. That is consistent with the reachability
   analysis.
 - **Gates.** `make fmt-check lint corpus test` passes at the head.
-- **Coder's log.** ir-360-ci.log has `head=... exit=2`. Only `spec` fails, with the 23
+- **Coder's log.** ir-360-ci.log has `exit=2`. Only `spec` fails, with the 23
   planned unbacked rows, none in expression.rs.
 
 **The v2/mod.rs claim holds.** The four `.expect("already validated by validate_frame_body")`

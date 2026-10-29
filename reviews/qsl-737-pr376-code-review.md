@@ -10,7 +10,7 @@ review_set: subset
 ## Summary
 
 Ticket: QSL-737. Code review with the rust-review lane folded in, over the
-diff of quire-contract-ir PR 376 (one commit, on main ).
+diff of quire-contract-ir PR 376 (one commit based on main).
 Reviewer-only: no build or test run. The coder's gate log at the PR head
 (`make ci`: fmt, both clippy lanes, 528 + 211 + 21 + 8 tests green, the 14
 `tc_448` tests among them; stop at `make spec` strict coverage) was read, not

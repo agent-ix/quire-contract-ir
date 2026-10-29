@@ -44,7 +44,7 @@ Ticket: IR-661. Method: `code-review`. Reviewer model `claude-opus-5-5`, run `23
 
 ## Dispositions
 
-Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
+Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -52,4 +52,4 @@ Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer mode
 
 ## Amendment round 2 correspondence
 
-Scoped PR307 amendment review at `agent-ix/quire-contract-ir` (prior ), reviewer model `claude-opus-5-5`, run `ad2d17a1-a843-41fa-82e5-f0047b03193c`. FND-001 keeps its latest round-1 outcome `fixed `; no new disposition row is needed. Current text: `FR-038-AC-170` at spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3446. Still fixed at the amended head. AC-170 now names FR-152's `unsupported_construct`/`expression-form` outcome as an observable acceptance result, and FR-038 still applies FR-152 by reference with no second direction or multiplicity table; checked against merged FR-152 Navigation. No new finding in this artifact's scope.
+Scoped PR307 amendment review at `agent-ix/quire-contract-ir` (prior review), reviewer model `claude-opus-5-5`, run `ad2d17a1-a843-41fa-82e5-f0047b03193c`. FND-001 keeps its latest round-1 outcome `fixed`; no new disposition row is needed. Current text: `FR-038-AC-170` at spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3446. Still fixed at the amended head. AC-170 now names FR-152's `unsupported_construct`/`expression-form` outcome as an observable acceptance result, and FR-038 still applies FR-152 by reference with no second direction or multiplicity table; checked against merged FR-152 Navigation. No new finding in this artifact's scope.

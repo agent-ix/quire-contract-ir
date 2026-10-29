@@ -116,7 +116,7 @@ No mutants were run. No body changed, so a mutant would only re-measure tests th
 
 ## Dispositions
 
-Round 1, (fix on top of ). Each fix was checked against the diff `..`, the criterion text and the test body. `quire trace --id` was re-measured. `cargo test --locked --test it -- tc_015_identity_anchor tc_018_the_corpus_runs` passes 2 of 2, and `cargo fmt --check` is clean.
+Round 1, (fix atop the reviewed PR). Each fix was checked against the diff `..`, the criterion text and the test body. `quire trace --id` was re-measured. `cargo test --locked --test it -- tc_015_identity_anchor tc_018_the_corpus_runs` passes 2 of 2, and `cargo fmt --check` is clean.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |

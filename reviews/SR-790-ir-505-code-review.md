@@ -3,7 +3,7 @@ id: SR-790
 title: "code review of PR 250 against IR-505 (content-only ModelOwner)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/{identity.rs,model_members.rs,operations.rs}; tests/it/checked_package_v2_{reader,model_members,frame_entries,dependency_reference}.rs; diff origin/main...HEAD (merge )"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/{identity.rs,model_members.rs,operations.rs}; tests/it/checked_package_v2_{reader,model_members,frame_entries,dependency_reference}.rs; diff origin/main...HEAD (merge commit)"
 review_set: subset
 ---
 # SR-790: code review of PR 250 against IR-505

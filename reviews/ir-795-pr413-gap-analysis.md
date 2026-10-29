@@ -3,7 +3,7 @@ id: SR-11761
 title: "Gap analysis — IR-795 four-owner source-inventory port"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/source_obligation.rs, tests/it/source_obligation.rs, spec/model/functional/FR-019-rust-library-interface.md, spec/model/functional/FR-052-source-obligation-correspondence.md, spec/model/matrix/TC-452-source-obligation-correspondence.md, spec/model/matrix/tests.md (PR #413 ); FR-052-AC-14, FR-052-AC-15, TC-452"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/source_obligation.rs, tests/it/source_obligation.rs, spec/model/functional/FR-019-rust-library-interface.md, spec/model/functional/FR-052-source-obligation-correspondence.md, spec/model/matrix/TC-452-source-obligation-correspondence.md, spec/model/matrix/tests.md (PR #413); FR-052-AC-14, FR-052-AC-15, TC-452"
 review_set: subset
 ---
 

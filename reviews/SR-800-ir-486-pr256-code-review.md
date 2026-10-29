@@ -80,7 +80,7 @@ it in the default lane matches repo convention, and AC-72 requires that size.
 
 ## Dispositions
 
-Round 1 (base still origin/main ). The delta adds one unit test, one FR-038 clause and one tests.md edit, with no production code change. The gate log ends head=… exit=2, and only spec fails: 23 unbacked, 166/212, FR-038 45/70, re-measured with quire coverage. Lib 101 and it 184 pass. No new findings.
+Round 1 (base still origin/main). The delta adds one unit test, one FR-038 clause and one tests.md edit, with no production code change. The gate log ends head=… exit=2, and only spec fails: 23 unbacked, 166/212, FR-038 45/70, re-measured with quire coverage. Lib 101 and it 184 pass. No new findings.
 
 | FND | Outcome | reason |
 | --- | --- | --- |

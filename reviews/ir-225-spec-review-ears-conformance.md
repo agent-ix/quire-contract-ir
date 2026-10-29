@@ -54,4 +54,4 @@ Round 1; reviewed (diff ..).
 
 ## Disposition round 2 verdict
 
-Round 2 reviewed ( plus plus a merge of origin/main ). **PASS**: the round-1 `fixed` outcome still holds on the merged tree, no row was added and there are no new findings.
+Round 2 reviewed (two follow-up commits and a merge of origin/main). **PASS**: the round-1 `fixed` outcome still holds on the merged tree, no row was added and there are no new findings.

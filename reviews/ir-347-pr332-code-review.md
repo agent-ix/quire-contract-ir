@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-347. Reviewed exact PR against. Rust review is folded into code-review.
+Ticket: IR-347. Reviewed the exact PR diff. Rust review is folded into code-review.
 
 ## Findings
 

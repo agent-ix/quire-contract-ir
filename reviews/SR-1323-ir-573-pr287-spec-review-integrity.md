@@ -94,7 +94,7 @@ pinned that QSL's text words differently.
 
 ## Dispositions
 
-Round 1, reviewed (fix on top of ). Checks run on this head: `make fmt-check` and `make lint` pass, the touched module passes (22 tests), and `make spec` gives one grammar finding (FR-014) and 23 strict unbacked rows, as on base. The full `make test` was not rerun. That is acceptable: the delta is spec wording plus two cases and a digest filter in one test of the module that was run, and no production code changed.  passed `make test` with 517 tests.
+Round 1, reviewed (fix atop the reviewed PR). Checks run on this head: `make fmt-check` and `make lint` pass, the touched module passes (22 tests), and `make spec` gives one grammar finding (FR-014) and 23 strict unbacked rows, as on base. The full `make test` was not rerun. That is acceptable: the delta is spec wording plus two cases and a digest filter in one test of the module that was run, and no production code changed.  passed `make test` with 517 tests.
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -15,7 +15,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-323. Reviewed (the planner-answers fold on top of ). Examined
+Ticket: IR-323. Reviewed the planner-answers fold on the PR. Examined
 both ADs in full and the spec.md registry and References edits. Checked them for
 ArchitectureDescription structure, traceability of every cited FR, AC and TC id, consistency
 with AD-001, FR-019, FR-028, FR-030 and FR-039 at origin/main, and with the sibling ADs:
@@ -68,7 +68,7 @@ Reviewed at agent-ix/quire-contract-ir.
 | FND-003 | fixed | AD-006:174-178 records the IR-311 ruling from codegen AD-004. The open question and R3-C3 are removed |
 | FND-004 | fixed | the date and the R1 and Remediation labels are gone from AD-005 (grep finds none) |
 | FND-005 | fixed | AD-005:50 and AD-006:51 and:80 no longer carry commit ids. They say "the commits... this AD was written against" |
-| FND-006 | accepted-no-change | The references to AD-004 remain and resolve once PR 239 merges first (merge-tree clean against 239 ). Codegen AD-002/003 (PR 214) and runtime AD-003 (PR 92) are proposed sibling ADs in open PRs. R-I3 is no longer cited |
+| FND-006 | accepted-no-change | The references to AD-004 remain and resolve once PR 239 merges first (merge-tree clean against 239). Codegen AD-002/003 (PR 214) and runtime AD-003 (PR 92) are proposed sibling ADs in open PRs. R-I3 is no longer cited |
 | FND-007 | fixed | D-2 keeps the by-source check in tc_041, and the bans row notes that a name ban goes stale |
 | FND-008 | fixed | divergence 2 cites FR-039 "Items QSL owns" and AD-001's internal contradiction |
 | FND-009 | fixed | Decision C cites FR-030-AC-5 for constructors only and decides a typed cause. The open question is removed |

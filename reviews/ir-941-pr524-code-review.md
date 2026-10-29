@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed frozen against. The changed root binary uses ix-cli-kit’s owner APIs, preserves caller-owned 0/1/2, buffers result serialization before stdout, handles partial diagnostic serialization, and keeps the model crate independent. New tests have trace tags, direct byte and failure assertions, and real Cargo metadata and Linux output-device controls. No defect found in the eight-path PR diff.
+Reviewed the frozen PR diff. The changed root binary uses ix-cli-kit’s owner APIs, preserves caller-owned 0/1/2, buffers result serialization before stdout, handles partial diagnostic serialization, and keeps the model crate independent. New tests have trace tags, direct byte and failure assertions, and real Cargo metadata and Linux output-device controls. No defect found in the eight-path PR diff.
 
 ## Scope
 

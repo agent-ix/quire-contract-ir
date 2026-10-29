@@ -23,7 +23,7 @@ review covers the hunks only. The hunks are:
 Checked:
 
 - Consistency with the upstream rule. Merged QSpec FR-322 "Record
-  conformance" (quire-specification main ) lets a parameter type be a
+  conformance" (quire-specification main) lets a parameter type be a
   record type node P ("Calls") and lists the union member payload position as
   a slot ("Slots"). That requires both FR-038 sentences. Before them, FR-038
   restricted the binder type to `scalar_type`, `composite_type` and

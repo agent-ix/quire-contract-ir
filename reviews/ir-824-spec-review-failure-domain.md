@@ -11,7 +11,7 @@ review_set: subset
 
 Ticket: IR-824. Combined-defect inputs and refusal precedence for
 `quire.op.model.reaches` over a relationship end, against QSpec FR-322-AC-57
-(origin/main ) and the current reader. The member-level order
+(origin/main) and the current reader. The member-level order
 (direction, multiplicity, type) matches QSpec and code, and each RN-23..RN-27
 code, cause and locus is pinned in AC-252 and TC-048 item 11. The multiplicity
 refusals come from the single FR-152 derivation the FR-038 binding already

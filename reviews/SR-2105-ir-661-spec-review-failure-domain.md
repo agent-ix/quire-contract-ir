@@ -54,7 +54,7 @@ Ticket: IR-661. Method: `spec-review/spec-failure-domain-analysis`. Reviewer mod
 
 ## Dispositions
 
-Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
+Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -63,4 +63,4 @@ Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer mode
 
 ## Amendment round 2 correspondence
 
-Scoped PR307 amendment review at `agent-ix/quire-contract-ir` (prior ), reviewer model `claude-opus-5-5`, run `ad2d17a1-a843-41fa-82e5-f0047b03193c`. FND-002 keeps its latest round-1 outcome `fixed `; no new disposition row is needed. Current text: `FR-038#non-end-refusal-retention` at spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1017-1025. Still fixed at the amended head: the non-end member refusal rule stands; the amendment changes only what that refusal retains. The retention gap against FR-154 is a separate new finding, SR-2103 FND-003, so it is not re-recorded here. No new finding in this artifact's scope.
+Scoped PR307 amendment review at `agent-ix/quire-contract-ir` (prior review), reviewer model `claude-opus-5-5`, run `ad2d17a1-a843-41fa-82e5-f0047b03193c`. FND-002 keeps its latest round-1 outcome `fixed`; no new disposition row is needed. Current text: `FR-038#non-end-refusal-retention` at spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1017-1025. Still fixed at the amended head: the non-end member refusal rule stands; the amendment changes only what that refusal retains. The retention gap against FR-154 is a separate new finding, SR-2103 FND-003, so it is not re-recorded here. No new finding in this artifact's scope.

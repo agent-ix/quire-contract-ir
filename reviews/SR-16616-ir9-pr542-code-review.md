@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Independent diff-scoped code and Rust review of PR #542 against. The changed file is `crates/quire-contract-model/src/checked_package/v2/comparison_operands.rs`. The review checked the retained kind lookup, existing error order, typed term checks, private mismatch controls, and the surrounding public accessor. No author files were edited.
+Independent diff-scoped code and Rust review of PR #542. The changed file is `crates/quire-contract-model/src/checked_package/v2/comparison_operands.rs`. The review checked the retained kind lookup, existing error order, typed term checks, private mismatch controls, and the surrounding public accessor. No author files were edited.
 
 ## Findings
 

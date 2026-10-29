@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-832, PR quire-contract-ir#427. This is a planless gap analysis; plan completion was not assessed. Authority is FR-038-AC-258..261 and the TC-048 section as merged in spec PR #425 (origin/main ), with QSL FR-092 "Parameter nodes" read-only from quire-spec-language origin/main.
+Ticket: IR-832, PR quire-contract-ir#427. This is a planless gap analysis; plan completion was not assessed. Authority is FR-038-AC-258..261 and the TC-048 section as merged in spec PR #425 (origin/main), with QSL FR-092 "Parameter nodes" read-only from quire-spec-language origin/main.
 
 Computed matrix (quire 0.36.2, `quire matrix --strict`):
 

@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed frozen against. The four new FR-020 criteria have concrete tagged binders at the candidate head. Tests exercise the root binary and actual dependency graph; AC-19 static unchanged-file claim holds by the eight-path PR diff. No newly unbacked row, unsupported test tag, stub, or unowned new behavior was found. Plan completion: not assessed.
+Reviewed the frozen PR diff. The four new FR-020 criteria have concrete tagged binders at the candidate head. Tests exercise the root binary and actual dependency graph; AC-19 static unchanged-file claim holds by the eight-path PR diff. No newly unbacked row, unsupported test tag, stub, or unowned new behavior was found. Plan completion: not assessed.
 
 ## Scope
 

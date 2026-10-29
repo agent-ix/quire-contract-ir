@@ -62,7 +62,7 @@ Ticket: IR-661. Method: `spec-review/base`. Reviewer model `claude-opus-5-5`, ru
 
 ## Dispositions
 
-Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
+Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-851. PR quire-contract-ir#438 is the reviewed change. This is a planless gap analysis, so plan completion was not assessed. The authority is FR-038 "Typed relationship end of a reaches application", AC-262..268 and the TC-048 section, all as merged in spec PR #435 (merge ).
+Ticket: IR-851. PR quire-contract-ir#438 is the reviewed change. This is a planless gap analysis, so plan completion was not assessed. The authority is FR-038 "Typed relationship end of a reaches application", AC-262..268 and the TC-048 section, all as merged in spec PR #435 (merge commit).
 
 **Computed traceability at head** (quire 0.36.2, engine 0.50.2):
 

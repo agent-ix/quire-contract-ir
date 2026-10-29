@@ -45,7 +45,7 @@ statement of how diagnostic order is measured. FND-002 to FND-004 are judgement 
 
 ## Dispositions
 
-Round 1, reviewed (fix ).
+Round 1, reviewed (fix round).
 
 | FND | Outcome | reason |
 | --- | --- | --- |

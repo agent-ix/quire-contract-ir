@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-118. Reviewed only PR #469's test-only diff against. The Rust review applied the repository's CLAUDE.md conventions and the rust-review checklist. No production source, manifest, specification, Kani proof, or CI file changes.
+Ticket IR-118. Reviewed only PR #469's test-only PR diff. The Rust review applied the repository's CLAUDE.md conventions and the rust-review checklist. No production source, manifest, specification, Kani proof, or CI file changes.
 
 ## Examined units
 

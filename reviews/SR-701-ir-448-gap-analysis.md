@@ -81,7 +81,7 @@ edits only, no row removed) or defer them to a ticket. Neither blocks this PR on
 
 ## Dispositions
 
-Round 1, reviewed (fix ).
+Round 1, reviewed (fix round).
 
 | FND | Outcome | reason |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ Round 1, reviewed (fix ).
 | FND-002 | fixed |  |
 | FND-003 | still-open | New this round; no fix yet |
 
-Round 2, reviewed (fix ).
+Round 2, reviewed (fix round).
 
 | FND | Outcome | reason |
 | --- | --- | --- |

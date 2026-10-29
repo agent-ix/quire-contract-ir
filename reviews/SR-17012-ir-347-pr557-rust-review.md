@@ -36,7 +36,7 @@ Both new tests carry `#[trace]` tags.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | The new `#[macro_export]` guard walks only each file's top-level `syn` items, so an exported `macro_rules!` inside a nested inline `mod` (for example a `#[cfg(test)] mod tests`) escapes it. Such a macro is still exported at the crate root. The pre-existing model-crate scan at line 951 splits the whole file text on `#[macro_export]` and has no such blind spot | tests/it/public_interface.rs:1433-1450 |
-| FND-002 | low | One 191-character `assert!(…matches!(…) if …)` line sits beyond the repository's 100-character `rustfmt.toml` width. rustfmt gave up on the nested macro, so `fmt-check` stays green without formatting it. Bind the `any(..)` result to a named local, or use a `let … else`, so it formats | tests/it/public_interface.rs:1403 |
+| FND-002 | low | One 191-character `assert!(…matches!(the reviewed PR head) if …)` line sits beyond the repository's 100-character `rustfmt.toml` width. rustfmt gave up on the nested macro, so `fmt-check` stays green without formatting it. Bind the `any(..)` result to a named local, or use a `let … else`, so it formats | tests/it/public_interface.rs:1403 |
 
 ## Verdict
 

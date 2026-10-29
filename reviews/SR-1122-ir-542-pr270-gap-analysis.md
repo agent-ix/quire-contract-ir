@@ -72,7 +72,7 @@ chooses the even digit.
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir (fix on the rebased = ).
+Reviewed at agent-ix/quire-contract-ir (fix on the rebased =).
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

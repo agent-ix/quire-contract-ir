@@ -35,7 +35,7 @@ All coverage was measured with quire 0.36.2 (engine 0.50.2) on four trees: the m
   - FR-015-AC-7: 3 -> 2 (numeric_policies, rational_literal_guards)
   - NFR-002-AC-4: 2 -> 1 (closed_types)
 - **StR-001-VC-1:** 2 binders -> 1 (`identity.rs` tc_015). It is still backed.
-- **Combined tree (this PR plus #430 ):** rows backed fall to 504/565. FR-014-AC-4, StR-001-VC-1, StR-001-VC-2 and StR-003-VC-1 all flip to unbacked. `quire trace --id StR-001-VC-1` finds no binder. Strict coverage still reads 43. The StR-001-VC-1 part of this comes from this PR and is SR-12060 FND-001.
+- **Combined tree (this PR plus #430):** rows backed fall to 504/565. FR-014-AC-4, StR-001-VC-1, StR-001-VC-2 and StR-003-VC-1 all flip to unbacked. `quire trace --id StR-001-VC-1` finds no binder. Strict coverage still reads 43. The StR-001-VC-1 part of this comes from this PR and is SR-12060 FND-001.
 
 **Already fully qualified tests:**
 

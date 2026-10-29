@@ -46,8 +46,8 @@ What was checked, and what holds:
   One change the PR body does not list: a malformed owner `package` or `requirement` now
   reports `invalid_package_namespace` or `invalid_identifier` at `reference.package` or
   `reference.requirement` (was `invalid_wire_format`). That is also what FR-011-AC-3 asks.
-- **Producers.** Nothing that produces these inputs breaks. QSL (origin/main )
-  and CG (origin/main ) reach IR expression inputs only through
+- **Producers.** Nothing that produces these inputs breaks. QSL (origin/main)
+  and CG (origin/main) reach IR expression inputs only through
   `BoundPackage::from_json_bytes`. That decoder checks the projection schema first, and the
   schema already refuses extra members in owner and span objects. QSL also serialises IR's
   own typed `SourceSpan`, which has no extra members. The conformance runner checks corpus

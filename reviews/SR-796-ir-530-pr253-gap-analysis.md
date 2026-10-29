@@ -14,7 +14,7 @@ Ticket: IR-530 (code also covers IR-503). Reviewed
 against origin/main, which is current. I ran `quire coverage --scope . --strict` at
 both commits. Base: 163/209 backed, 23 unbacked. Head: 186/209 backed, 21 unbacked. The two
 rows that left the unbacked list are TC-058 and FR-019-AC-5. The other 21 match the coder's
-gate log (`scratchpad/ir-530-final-ci.log` ends `head=... exit=2`, and only `spec`
+gate log (`scratchpad/ir-530-final-ci.log` ends `exit=2`, and only `spec`
 fails). FR-038's own document rises from 42/67 to 63/67 backed, which is AC-46..61 plus
 AC-65..69.
 
@@ -60,7 +60,7 @@ Round 1, reviewed (fix PR delta; the
 rebase onto is excluded). `quire coverage --strict`: 185/213 backed, 23 unbacked, with
 FR-019-AC-5 and TC-058 back on the unbacked list. FR-019 is 4/6 with AC-6 backed. FR-038 is
 63/70. The grammar baseline is 1 (FR-014, pre-existing). `make test` passes: it 199, model 96,
-doctests 7. The coder's log ends `head=... exit=2`, and only `spec` fails.
+doctests 7. The coder's log ends `exit=2`, and only `spec` fails.
 
 | FND | Outcome | reason |
 | --- | --- | --- |

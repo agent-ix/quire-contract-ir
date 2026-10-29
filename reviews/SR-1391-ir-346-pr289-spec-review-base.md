@@ -133,4 +133,4 @@ Re-reviewed at agent-ix/quire-contract-ir. AD-005 and AD-007 contain no remainin
 | FND-008 | fixed | the AD-005 bullet now opens "D-2 has no by-name check." |
 | FND-009 | fixed | R-3 and the QVC gap row cite VER-52 (Backlog) |
 | FND-010 | fixed | every code line-number citation in AD-005 is replaced by a file and symbol name; none remain in AD-005 or AD-007 (one replacement is new finding FND-011) |
-| FND-011 | fixed | AD-005 now cites `CheckedPackageLockV2` and `CheckedPackageIdentityPreimageV2` as built in QSL `qsl-package/src/emit.rs`, and `canonical_preimage` in `checked_v2.rs` for the reader side (both re-measured on QSL main ). The final grep of AD-005 and AD-007 finds no line-number citation and no SHA |
+| FND-011 | fixed | AD-005 now cites `CheckedPackageLockV2` and `CheckedPackageIdentityPreimageV2` as built in QSL `qsl-package/src/emit.rs`, and `canonical_preimage` in `checked_v2.rs` for the reader side (both re-measured on QSL main). The final grep of AD-005 and AD-007 finds no line-number citation and no SHA |

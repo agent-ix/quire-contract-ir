@@ -42,7 +42,7 @@ to `QSpec FR-154:` and reflow them.
 
 ## Dispositions
 
-Round 1, reviewed (fix ).
+Round 1, reviewed (fix round).
 
 | FND | Outcome | reason |
 | --- | --- | --- |

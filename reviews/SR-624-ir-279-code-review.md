@@ -43,7 +43,7 @@ Not mergeable. The classification fix is correct and well tested: 7 of 7 mutants
 
 ## New findings (disposition pass 1)
 
-Reviewed (fix round and the Drop fix, based on main ). The PR merges cleanly onto current origin/main. The merged tree passes every `make ci` target except `make spec`, which reports 17 unbacked rows, the same list as origin/main. Oracle strength: 12 of 13 mutants were killed, and the survivor is FND-008.
+Reviewed (fix round and the Drop fix, based on main). The PR merges cleanly onto current origin/main. The merged tree passes every `make ci` target except `make spec`, which reports 17 unbacked rows, the same list as origin/main. Oracle strength: 12 of 13 mutants were killed, and the survivor is FND-008.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

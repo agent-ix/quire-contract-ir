@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Scoped to the five `references` edges round 1 added to FR-038 (QSpec FR-152, FR-154, FR-043; FCD FR-094, FR-095), the only new `relationships:` edges in the diff. Every target exists at the merged revisions (QSpec, FCD ), and none of the five targets' frontmatter has an edge back into quire-contract-ir, so the edges add no cycle. All five are merged upstream enablement that FR-038 consumes: they are prerequisites already satisfied and do not block IR-661's feature order.
+Scoped to the five `references` edges round 1 added to FR-038 (QSpec FR-152, FR-154, FR-043; FCD FR-094, FR-095), the only new `relationships:` edges in the diff. Every target exists at the merged revisions (QSpec, FCD), and none of the five targets' frontmatter has an edge back into quire-contract-ir, so the edges add no cycle. All five are merged upstream enablement that FR-038 consumes: they are prerequisites already satisfied and do not block IR-661's feature order.
 
 Ticket: IR-661. Method: `spec-review/spec-dependency-analysis`. Reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`.
 

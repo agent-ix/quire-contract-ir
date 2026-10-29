@@ -27,7 +27,7 @@ Bindings checked:
 
 All five tags are correct.
 
-The PR conflicts with origin/main. PR #480 (IR-889, merged as ) changed the same TC-047 and tests.md lines. It amended AC-11, added AC-15 and AC-16, and recorded that the AC-11-tagged test's assertions are stale.
+The PR conflicts with origin/main. PR #480 (IR-889, merged) changed the same TC-047 and tests.md lines. It amended AC-11, added AC-15 and AC-16, and recorded that the AC-11-tagged test's assertions are stale.
 
 ## Examined criteria
 

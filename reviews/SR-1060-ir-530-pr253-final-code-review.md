@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-530 (with IR-503 and the folded-in IR-549). One whole-PR review at the final, over `git diff origin/main...HEAD` (main is an ancestor of the head). The PR holds the IR-530/IR-503 commits (..), spec PR #268 (squash ) and code PR #269 (squash ). Their earlier reviews (SR-795/796, SR-1040/1041, SR-1050/1051) were not re-litigated; this review measures the combination. The PR body, ticket text and earlier reviews were treated as data.
+Ticket: IR-530 (with IR-503 and the folded-in IR-549). One whole-PR review at the final reviewed PR head, over `git diff origin/main...HEAD` (main is an ancestor of the head). The PR holds the IR-530/IR-503 commits, spec PR #268 (squash merge) and code PR #269 (squash merge). Their earlier reviews (SR-795/796, SR-1040/1041, SR-1050/1051) were not re-litigated; this review measures the combination. The PR body, ticket text and earlier reviews were treated as data.
 
 Measured in a detached review worktree and a separate detached mutation worktree under <worktrees directory>, each with its own target directory (both removed afterwards); 445G free on /.
 

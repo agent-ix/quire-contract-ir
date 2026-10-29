@@ -18,7 +18,7 @@ relationships:
 
 Ticket: IR-347. This integrity sub-analysis checks that the status this PR writes into the
 matrices and the index agrees with the per-artifact status prose those rows summarize. The
-diff is `origin/main...HEAD` at. The TC-223
+diff is `origin/main...HEAD` at the reviewed PR head. The TC-223
 artifact and the FR-030 AC-4/AC-5/AC-6 status paragraph already agree with the new rows. The
 TC-443 artifact does not, and one FR-030 sentence and the STD-001 status marker are left
 inconsistent.

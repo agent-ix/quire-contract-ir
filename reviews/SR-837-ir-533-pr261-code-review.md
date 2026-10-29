@@ -81,8 +81,7 @@ What was checked, and what holds:
   - Model unit tests: 101/101 pass.
   - Reader tests: 31/31 pass.
   - All `checked_package_v2` integration tests: 118/118 pass.
-  - The coder's `make -k ci` log ends `head=
-    exit=2`, failing only `spec`, with 23 unbacked rows and 0 contradicted (main's strict
+  - The coder's `make -k ci` log ends `exit=2`, failing only `spec`, with 23 unbacked rows and 0 contradicted (main's strict
     baseline), in 85 s.
 - **Mutation probes.** The permission layer refused source edits in the review worktree,
   so the coder's six mutation probes were not re-run. Instead, the oracle that kills each
@@ -189,7 +188,7 @@ No new findings.
 | FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fixed in the reviewed PR. |
-| FND-002 | fixed | (rebase onto ) |
+| FND-002 | fixed | (rebase onto main) |
 | FND-003 | fixed | Fixed in the reviewed PR. |
 | FND-004 | fixed | Fixed in the reviewed PR. |
 | FND-005 | accepted-no-change | Process finding about the coder's tool use, acknowledged by the lead; no file was affected and the rebase diff holds only the intended matrix-row change |

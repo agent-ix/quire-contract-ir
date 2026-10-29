@@ -3,7 +3,7 @@ id: SR-1121
 title: "spec review of PR 270 (the inexact-number rule takes quire-canonical's tie-to-even spelling)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD (merge ): FR-038 (the canonical-encoding paragraph note, FR-038-AC-109), TC-048 \"Inexact numbers\"; cross-checked against quire-spec-language origin/main (FR-056-AC-13 to AC-15 and the FR-056 number prose, FR-106-AC-11)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD (merge commit): FR-038 (the canonical-encoding paragraph note, FR-038-AC-109), TC-048 \"Inexact numbers\"; cross-checked against quire-spec-language origin/main (FR-056-AC-13 to AC-15 and the FR-056 number prose, FR-106-AC-11)"
 review_set: subset
 ---
 # SR-1121: spec review of PR 270

@@ -72,7 +72,7 @@ Found.
 
 ## Dispositions
 
-Round 1, reviewed (rebased onto spec #268 ). The gates were rerun in a throwaway worktree, since removed. make ci passed fmt, clippy, test (it 266, model 111, doc 7) and corpus (99/99), and stopped at make spec on the baseline (validate passes, grammar 1, strict 23 unbacked, 0 contradicted). make deny, make cargo-audit and make audit-unsafe pass. make conformance-qspec passes against quire-specification, which is clean. git diff --check is clean.
+Round 1, reviewed (rebased onto spec #268). The gates were rerun in a throwaway worktree, since removed. make ci passed fmt, clippy, test (it 266, model 111, doc 7) and corpus (99/99), and stopped at make spec on the baseline (validate passes, grammar 1, strict 23 unbacked, 0 contradicted). make deny, make cargo-audit and make audit-unsafe pass. make conformance-qspec passes against quire-specification, which is clean. git diff --check is clean.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -80,7 +80,7 @@ Round 1, reviewed (rebased onto spec #268 ). The gates were rerun in a throwaway
 | FND-002 | fixed | The AC-101 test states that its oracle is compile-time. It asserts the four new cause words and unknown_profile through code_word/cause_word, and that a diagnostics entry whose cause_tag is 'expression-form' is refused. Each of those can fail. |
 | FND-003 | fixed | tc_048_an_unreached_formula_node_with_lower_above_upper_is_refused: an unreached once {3, 0} refuses invalid_package/invalid-value at its /body and {0, 3} admits. Mutant M11 is now killed. The spec (#268, AC-97) states the sweep. |
 
-Round 2, reviewed (rebased onto spec #268 ). The net change since is mod.rs (with_node_locus), temporal.rs and this PR's own temporal tests. No pre-existing test file was edited. Gates were rerun in a throwaway worktree, since removed. make ci passed fmt, clippy, test (it 266, model 111, doc 7) and corpus 99/99, and stopped at make spec on the baseline (validate passes, grammar 1, strict 23, 0 contradicted). deny, cargo-audit and audit-unsafe pass. conformance-qspec passes, with three fixtures admitted. git diff --check is clean. Mutants M29 and M31 to M38 (locus per row, and with_node_locus widened to every term-walk refusal) are all killed. M34 is caught by three pre-existing reader tests, so the locus of other refusals is unchanged.
+Round 2, reviewed (rebased onto spec #268). The net change since is mod.rs (with_node_locus), temporal.rs and this PR's own temporal tests. No pre-existing test file was edited. Gates were rerun in a throwaway worktree, since removed. make ci passed fmt, clippy, test (it 266, model 111, doc 7) and corpus 99/99, and stopped at make spec on the baseline (validate passes, grammar 1, strict 23, 0 contradicted). deny, cargo-audit and audit-unsafe pass. conformance-qspec passes, with three fixtures admitted. git diff --check is clean. Mutants M29 and M31 to M38 (locus per row, and with_node_locus widened to every term-walk refusal) are all killed. M34 is caught by three pre-existing reader tests, so the locus of other refusals is unchanged.
 
 | FND | outcome | reason |
 | --- | --- | --- |

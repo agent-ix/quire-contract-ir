@@ -30,7 +30,7 @@ Rust review: no new unsafe, async/lock path, wire cast or production panic in th
 
 ## Normative basis
 
-QSpec FR-322 “Model-owned members” step 1 requires this reader to admit each selected document under FR-154 before graph admission and to report the first FR-154 refusal. QSpec FR-154-AC-7 requires a population whose kind names no `constructs` entry, or resolves outside FR-208's meaning set, to refuse `invalid_model_binding`/`malformed-declaration`. IR FR-038's own “Model-owned members” step 1 (lines 810–833) states the same reader boundary. The locked `agent-ix-semantic-ir` PopulationRecord schema (`crates/semantic-ir/src/schema.rs:699–727` at filament-core-data rev ) requires `identity` and `kind`. `admit_document` authenticates and parses bytes but does not run that schema validator; `read_semantic_ir` is the only changed population-declaration check on the selected-document path.
+QSpec FR-322 “Model-owned members” step 1 requires this reader to admit each selected document under FR-154 before graph admission and to report the first FR-154 refusal. QSpec FR-154-AC-7 requires a population whose kind names no `constructs` entry, or resolves outside FR-208's meaning set, to refuse `invalid_model_binding`/`malformed-declaration`. IR FR-038's own “Model-owned members” step 1 (lines 810–833) states the same reader boundary. The locked `agent-ix-semantic-ir` PopulationRecord schema (`crates/semantic-ir/src/schema.rs:699–727` at filament-core-data rev) requires `identity` and `kind`. `admit_document` authenticates and parses bytes but does not run that schema validator; `read_semantic_ir` is the only changed population-declaration check on the selected-document path.
 
 ## Dispositions
 

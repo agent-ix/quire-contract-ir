@@ -96,7 +96,7 @@ Under the repo's cadence the full gate runs again on the merged state before mer
 
 Round 1, reviewed the PR. The PR was rebased onto
 origin/main, which is also its merge base. The range-diff shows the original
-commit unchanged ( = ), so only the fix commit is new.
+commit patch-identical, so only the fix commit is new.
 
 | FND | Outcome | reason |
 | --- | --- | --- |

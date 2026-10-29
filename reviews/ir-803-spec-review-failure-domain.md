@@ -3,7 +3,7 @@ id: SR-11663
 title: IR-803 failure-domain review of the typed composite operator on the composite operand accessor
 type: SpecReview
 analysis: failure-domain
-scope: agent-ix/quire-contract-ir (PR 407, diff vs origin/main ); spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir (PR 407, diff vs origin/main); spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
 review_set: subset
 ---
