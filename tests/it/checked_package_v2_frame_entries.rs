@@ -4408,6 +4408,19 @@ fn step_relation_package() -> Value {
 #[test]
 fn step_relation_reader_retains_two_executions_and_roundtrips() {
     let package = step_relation_package();
+    let swapped = rekey_step_relation(package.clone(), |node| {
+        node["body"]["members"][1]["value"]["members"]
+            .as_array_mut()
+            .expect("executions")
+            .swap(0, 1);
+    });
+    let original = position(&package, "claim", "step_relation");
+    let swapped_at = position(&swapped, "claim", "step_relation");
+    assert_ne!(
+        package["semantic_graph"]["nodes"][original]["node_id"],
+        swapped["semantic_graph"]["nodes"][swapped_at]["node_id"]
+    );
+    assert_ne!(package["package_id"], swapped["package_id"]);
     let admitted = match read(&package) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("step relation must admit: {other:?}"),
@@ -4551,6 +4564,65 @@ fn step_relation_reader_refuses_layout_alias_targets_and_premises() {
         Code::InvalidModelBinding,
         Some(Cause::MalformedDeclaration),
         &format!("{prefix}/2/value/members/0/value"),
+        None,
+    );
+    let mut integer_package = base.clone();
+    let mut integer_literal = nodes(&integer_package)
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "literal")
+        .expect("literal")
+        .clone();
+    integer_literal["node_id"] = node_id(&"f1".repeat(32));
+    integer_literal["semantic_type"] = node_id(&family_key("a3a3"));
+    integer_literal["dependencies"] = json!([node_id(&family_key("a3a3"))]);
+    integer_package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(integer_literal);
+    mint_ungrouped_structural_keys(&mut integer_package);
+    settle(&mut integer_package);
+    let integer_literal = nodes(&integer_package)
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "value"
+                && node["semantic_form"] == "literal"
+                && node["semantic_type"] == node_id(&family_key("a3a3"))
+        })
+        .expect("integer literal")["node_id"]
+        .clone();
+    let mut integer_expression = nodes(&integer_package)
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "reference")
+        .expect("reference expression")
+        .clone();
+    integer_expression["node_id"] = node_id(&"f2".repeat(32));
+    integer_expression["semantic_type"] = node_id(&family_key("a3a3"));
+    integer_expression["body"] = json!({"term": "reference", "target": integer_literal});
+    integer_expression["dependencies"] = json!([node_id(&family_key("a3a3")), integer_literal]);
+    integer_package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(integer_expression);
+    mint_ungrouped_structural_keys(&mut integer_package);
+    settle(&mut integer_package);
+    let integer_expression = nodes(&integer_package)
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "expression"
+                && node["semantic_form"] == "reference"
+                && node["semantic_type"] == node_id(&family_key("a3a3"))
+        })
+        .expect("integer expression")["node_id"]
+        .clone();
+    let nonboolean = rekey_step_relation(integer_package, |node| {
+        node["body"]["members"][3]["value"]["target"] = integer_expression;
+    });
+    expect(
+        "integer body",
+        &nonboolean,
+        Code::IllTyped,
+        Some(Cause::NonBooleanRoot),
+        &format!("{prefix}/3/value/target"),
         None,
     );
     let first = base["semantic_graph"]["nodes"][pos]["body"]["members"][1]["value"]["members"][0]
