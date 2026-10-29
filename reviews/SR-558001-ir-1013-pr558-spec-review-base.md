@@ -86,7 +86,7 @@ Checked at fix-round.
 
 ## Dispositions
 
-Round 1, checked against the repo (diff `..`; vs main only FR-058, TC-462 and six added lines in spec/spec.md; no existing FR/AC touched; QSL-1082 prerequisite and Planned status retained; `quire validate` 1380/1380 grammar-clean; strict coverage FR-058 0/8, 61 unbacked rows, AC-6 no longer reported as Inspection).
+Round 1, checked against the repo (PR delta; vs main only FR-058, TC-462 and six added lines in spec/spec.md; no existing FR/AC touched; QSL-1082 prerequisite and Planned status retained; `quire validate` 1380/1380 grammar-clean; strict coverage FR-058 0/8, 61 unbacked rows, AC-6 no longer reported as Inspection).
 
 | FND | outcome | reason |
 | --- | --- | --- |

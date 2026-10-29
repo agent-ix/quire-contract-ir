@@ -47,7 +47,7 @@ bindings: []
 
 ## Dispositions
 
-Round 1; reviewed (diff ..).
+Round 1; reviewed the PR delta.
 
 | FND | outcome | reason |
 | --- | --- | --- |

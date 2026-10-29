@@ -46,7 +46,7 @@ statements.
 
 ## Dispositions
 
-Round 1, checked against the repo (diff `..`).
+Round 1, checked against the repo (PR delta).
 
 | FND | outcome | reason |
 | --- | --- | --- |

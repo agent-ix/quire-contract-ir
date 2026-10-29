@@ -60,7 +60,7 @@ FR-058, TC-462 and the master-index paragraph.
 
 ## Dispositions
 
-Round 1, checked against the repo (diff `..`).
+Round 1, checked against the repo (PR delta).
 
 | FND | outcome | reason |
 | --- | --- | --- |

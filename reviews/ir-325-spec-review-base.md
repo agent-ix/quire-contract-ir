@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed against, current test and accessor source, TC-445's named producer gate, and FR-019's public inventory. This is a scoped review of the three changed spec and matrix files. Ticket IR-325.
+Reviewed the changed spec against the current test and accessor source, TC-445's named producer gate, and FR-019's public inventory. This is a scoped review of the three changed spec and matrix files. Ticket IR-325.
 
 ## Examined units
 

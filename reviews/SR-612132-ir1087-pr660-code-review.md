@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1087. Reviewed exact against, including Rust API, producer lowering, plain V1 reader, authenticated handoff, test assertions and FR-019 inventory. No applicable AssuranceProfile was found. No copied source, unsafe code, new wire member or identity change was introduced.
+Ticket: IR-1087. Reviewed the exact PR diff, including Rust API, producer lowering, plain V1 reader, authenticated handoff, test assertions and FR-019 inventory. No applicable AssuranceProfile was found. No copied source, unsafe code, new wire member or identity change was introduced.
 
 ## Verdict
 

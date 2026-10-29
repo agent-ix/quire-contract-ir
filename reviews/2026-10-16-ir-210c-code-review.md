@@ -99,7 +99,7 @@ APPROVE WITH NITS. There are two low trace findings and no medium or high. Merge
 - **AC-3, on the three `natural.rs` work tests.** They cover exact work admits and one-over is `incomplete` with kind `Work`, limit and consumed. The comparison test also asserts AC-121's work leg at unit level (not claimed).
 - **AC-121, on `compares_rationals_exactly_beyond_2_pow_64`.** It asserts AC-121's 2^64+1/3 against 2^64/3 ordering, the case a float comparison gets wrong.
 - **AC-22, on `structural_integer_grammars`.** It covers the level grammar and the nonzero exponent.
-- **AC-23, on `application_join`.** It asserts the join a dependencies list is checked against.
+- **AC-23, on `application_join`.** It asserts the join against which a dependencies list is checked.
 - **AC-12, on the `frame.rs` creates/deletes test.** It runs exhaustively over `CheckedNodeKind::all()`, which is the AC's "not sampled" predicate leg.
 - **FR-040-AC-2, on the modifies-entries test.** It asserts the exact relationship and field eligibility sets.
 - **AC-65, newly added on `the_catalog_vocabularies_are_the_decoded_enums`.** It asserts that the production catalog's member kinds and constraint kinds equal the closed enum sets. That is AC-65's "decodes to a member of its closed vocabulary" for two of the three vocabularies. Operator class is not covered here; the other binders back it.

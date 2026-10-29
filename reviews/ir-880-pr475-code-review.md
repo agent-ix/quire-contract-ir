@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-880. PR agent-ix/quire-contract-ir#475, diff `...HEAD`. This file covers the code-review method with its rust-review lane. It reviews the TC-456 inventory test in `tests/it/public_interface.rs`, which has a schema walker, a Rust source enumerator over every model `.rs` file, macro_rules handling, a seven-table STD-001 extractor, the allowlist, adverse controls and mutations. It also reviews the removal of the NFR-002-AC-3 tag in `tests/it/identity.rs`.
+Ticket: IR-880. PR agent-ix/quire-contract-ir#475, diff `origin/main...HEAD`. This file covers the code-review method with its rust-review lane. It reviews the TC-456 inventory test in `tests/it/public_interface.rs`, which has a schema walker, a Rust source enumerator over every model `.rs` file, macro_rules handling, a seven-table STD-001 extractor, the allowlist, adverse controls and mutations. It also reviews the removal of the NFR-002-AC-3 tag in `tests/it/identity.rs`.
 
 The reviewer ran its own mutants in a throwaway worktree, one rebuild per source mutant, with an env-gated harness for the test-side mutants. Killed: drop schema `const` extraction, drop public-field extraction, drop variant extraction, drop impl-const extraction, drop the across-words matcher, drop the `registered_codes!` constant rows. Survived: drop associated-const value extraction (M5); widen the allowlist to the prefix `KANI_` with any value (M6); drop the STD-001 row condition of the allowlist (M7); drop camelCase splitting (M9); drop the macro_rules escape check (M10); drop trait-fn extraction (M11); drop the allowlist value equality (M16). A source mutant adding the variant `SolverRuntimeBuffer` to the feature-gated export `MappingAllocationPoint` also survived.
 
