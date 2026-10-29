@@ -4294,6 +4294,11 @@ fn settle_step_relation(package: &mut Value) {
     settle(package);
     // A changed application-keyed premise is renamed by `settle`; that
     // replacement is part of the enclosing structural claim's own key.
+    let relation = position(package, "claim", "step_relation");
+    package["semantic_graph"]["nodes"][relation]["dependencies"]
+        .as_array_mut()
+        .expect("relation dependencies")
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
     mint_ungrouped_structural_keys(package);
     settle(package);
     let relation = position(package, "claim", "step_relation");
@@ -4618,7 +4623,7 @@ fn step_relation_identity_tracks_effective_premises() {
         })
         .expect("precondition");
     precondition["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["target"] =
-        node_id(&family_key("eeee"));
+        node_id(&family_key("a4a4"));
     settle_step_relation(&mut precondition);
     changed(&precondition);
 
@@ -4633,7 +4638,7 @@ fn step_relation_identity_tracks_effective_premises() {
         .clone();
     let mut next = invariant;
     next["node_id"] = node_id(&"f3".repeat(32));
-    next["body"]["arguments"][2]["target"] = node_id(&family_key("eeee"));
+    next["body"]["arguments"][2]["target"] = node_id(&family_key("a4a4"));
     added["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
