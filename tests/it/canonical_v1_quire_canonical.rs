@@ -522,7 +522,7 @@ fn tc_017_no_canonical_type_can_hold_a_null_a_float_or_a_value() {
 /// ACs: FR-016-AC-8
 #[trace("TC-017", "FR-016-AC-8")]
 #[test]
-fn tc_017_the_canonical_output_has_only_kind_and_bytes() {
+fn tc_017_the_canonical_output_exposes_kind_and_exact_bytes() {
     let package = package_with_revision(1);
     let output = package.canonical_package(CanonicalProfile::V1).unwrap();
     assert_eq!(output.kind(), CanonicalKind::Package);
