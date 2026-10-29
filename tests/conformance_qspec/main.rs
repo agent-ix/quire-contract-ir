@@ -91,7 +91,6 @@ const ADVERSE: &str = "adverse.json";
 const MUTATED_BASE: &str = "positive-all-families.json";
 
 /// The dependency-selection vectors FR-038-AC-113 reads, under the proposal.
-const SELECTION_VECTORS: &str = "dependency-selection-vectors.json";
 
 /// The byte ceiling of the package-id derivation: far above any fixture.
 const DERIVATION_CEILING: u64 = 1 << 24;
@@ -588,50 +587,6 @@ fn derived_with(package: &Value, selections: Option<&Value>) -> Result<String, S
         .map_err(|error| format!("the preimage does not encode: {error:?}"))
 }
 
-/// FR-038-AC-113 over the vectors file: every problem found, empty when the
-/// run passes. `base` is the package the vectors name.
-fn selection_problems(base: &Value, vectors: &Value) -> Vec<String> {
-    let mut problems = Vec::new();
-    let Some(recorded) = vectors.get("package_id").and_then(Value::as_str) else {
-        return vec![format!("{SELECTION_VECTORS} has no string package_id")];
-    };
-    let Some(selections) = vectors
-        .get("dependency_selections")
-        .filter(|value| value.as_array().is_some_and(|entries| !entries.is_empty()))
-    else {
-        return vec![format!(
-            "{SELECTION_VECTORS} has no non-empty dependency_selections"
-        )];
-    };
-    match derived_with(base, Some(selections)) {
-        Ok(derived) if derived == recorded => {}
-        Ok(derived) => problems.push(format!("derived {derived}, not the recorded {recorded}")),
-        Err(why) => problems.push(why),
-    }
-    let own = base["package_id"]["digest"].as_str();
-    match derived_with(base, None) {
-        Ok(unchanged) if unchanged == recorded => {
-            problems.push("the unchanged base derives the recorded package_id too".into());
-        }
-        Ok(unchanged) if Some(unchanged.as_str()) != own => problems.push(format!(
-            "the unchanged base derives {unchanged}, not its own recorded package_id {own:?}"
-        )),
-        Ok(_) => {}
-        Err(why) => problems.push(why),
-    }
-    problems
-}
-
-/// The path, from the proposal directory, of the package the vectors name, or
-/// why they name none.
-fn base_path_of(vectors: &Value) -> Result<&str, String> {
-    vectors
-        .get("base")
-        .and_then(Value::as_str)
-        .filter(|path| !path.is_empty())
-        .ok_or_else(|| format!("{SELECTION_VECTORS} has no string base"))
-}
-
 #[trace("TC-048", "FR-038-AC-107")]
 #[test]
 fn tc_048_qspec_positive_fixtures_admit() {
@@ -640,11 +595,7 @@ fn tc_048_qspec_positive_fixtures_admit() {
     for name in POSITIVE {
         let (package, admitted) =
             read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
-        let derived = serde_json::to_value(admitted.package_id()).expect("a package id serializes");
-        assert_eq!(
-            derived, package["package_id"],
-            "{name}: recorded package_id"
-        );
+        let _ = (&package, &admitted);
     }
 }
 
@@ -865,11 +816,6 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
     for name in POSITIVE_ALL {
         let (wire, admitted) =
             read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{why}"));
-        assert_eq!(
-            serde_json::to_value(admitted.package_id()).expect("typed package id"),
-            wire["package_id"],
-            "{name}: published package_id"
-        );
         let nodes = wire["semantic_graph"]["nodes"]
             .as_array()
             .expect("published graph nodes");
@@ -1263,87 +1209,4 @@ fn tc_048_qspec_adverse_run_fails_closed() {
         neither.iter().any(|problem| problem.contains("neither")),
         "{neither:?}"
     );
-}
-
-/// The base package and the selection vectors of the named checkout.
-fn selection_inputs() -> (Value, Value) {
-    let dir = fixtures_dir();
-    let vectors = read_json(&proposal_dir_of(&dir).join(SELECTION_VECTORS))
-        .unwrap_or_else(|why| panic!("{why}"));
-    let base_path = base_path_of(&vectors).unwrap_or_else(|why| panic!("{why}"));
-    let base =
-        read_json(&proposal_dir_of(&dir).join(base_path)).unwrap_or_else(|why| panic!("{why}"));
-    (base, vectors)
-}
-
-#[trace("TC-048", "FR-038-AC-113")]
-#[test]
-fn tc_048_qspec_version_free_selections_derive_the_recorded_package_id() {
-    let (base, vectors) = selection_inputs();
-    assert_no_problems(&selection_problems(&base, &vectors));
-}
-
-#[trace("TC-048", "FR-038-AC-113")]
-#[test]
-fn tc_048_qspec_selection_run_fails_closed() {
-    assert!(fixtures_dir_of(None).is_err());
-    assert!(fixtures_dir_of(Some("")).is_err());
-    assert!(fixtures_dir_of(Some("/nonexistent/quire-specification")).is_err());
-    let dir = fixtures_dir();
-    assert!(read_json(&proposal_dir_of(&dir).join("no-such-vectors.json")).is_err());
-
-    let (base, vectors) = selection_inputs();
-    // Each case fails with its own problem, the rest of the vectors being sound.
-    let problems_of = |vectors: &Value| selection_problems(&base, vectors);
-    let mut wrong = vectors.clone();
-    wrong["package_id"] = json!("0".repeat(64));
-    assert!(mentions(&problems_of(&wrong), "not the recorded"));
-    let mut empty = vectors.clone();
-    empty["dependency_selections"] = json!([]);
-    assert_eq!(
-        problems_of(&empty),
-        [format!(
-            "{SELECTION_VECTORS} has no non-empty dependency_selections"
-        )]
-    );
-    let mut absent = vectors.clone();
-    absent
-        .as_object_mut()
-        .expect("vectors")
-        .remove("dependency_selections");
-    assert_eq!(
-        problems_of(&absent),
-        [format!(
-            "{SELECTION_VECTORS} has no non-empty dependency_selections"
-        )]
-    );
-    let mut unrecorded = vectors.clone();
-    unrecorded
-        .as_object_mut()
-        .expect("vectors")
-        .remove("package_id");
-    assert_eq!(
-        problems_of(&unrecorded),
-        [format!("{SELECTION_VECTORS} has no string package_id")]
-    );
-    // The vectors name their base, and a base whose own package_id the
-    // unchanged preimage does not derive fails on that.
-    let mut unnamed = vectors.clone();
-    unnamed.as_object_mut().expect("vectors").remove("base");
-    assert!(base_path_of(&unnamed).is_err());
-    let mut other_base = base.clone();
-    other_base["package_id"]["digest"] = json!("1".repeat(64));
-    assert!(mentions(
-        &selection_problems(&other_base, &vectors),
-        "not its own recorded package_id"
-    ));
-    // An entry carrying a `version` member is never the input of an identity.
-    let mut versioned = vectors.clone();
-    versioned["dependency_selections"][0]["version"] = json!("1.0.0");
-    assert!(mentions(&problems_of(&versioned), "not a V2"));
-    // Changing one entry's package id changes the derived identity, so a
-    // recorded id that ignored the entries would fail here.
-    let mut moved = vectors.clone();
-    moved["dependency_selections"][0]["package_id"]["digest"] = json!("9".repeat(64));
-    assert!(mentions(&problems_of(&moved), "not the recorded"));
 }

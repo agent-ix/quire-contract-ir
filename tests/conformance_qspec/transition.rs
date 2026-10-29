@@ -963,7 +963,7 @@ fn integer_model_field_cannot_be_a_boolean_transition_subject() {
 #[trace("TC-064", "FR-067-AC-3")]
 #[test]
 fn selected_optional_boolean_field_refuses_at_the_transition() {
-    let mut package = published();
+    let package = published();
     let position = transition_position(&package);
     let mut document = read_json(&proposal_dir_of(&fixtures_dir()).join(DOMAIN_DOCUMENT))
         .expect("published selected model document");

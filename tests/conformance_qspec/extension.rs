@@ -20,7 +20,7 @@ fn read_with_retention_definition(
     for identity in fixture_support::selected_model_identities(package) {
         evidence
             .insert_domain_package_document(
-                &identity,
+                identity.as_str(),
                 serde_json::to_vec(document).expect("domain document bytes"),
             )
             .expect("domain evidence");
