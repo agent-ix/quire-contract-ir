@@ -2926,9 +2926,11 @@ selected QSpec checkout. Do not store a local copy. Apply its complete
 SL-01..SL-08, SR-01..SR-04, GD-01..GD-03 and PR-01..PR-06 cases through the
 public V2 reader, rebuilding dependent identities for a semantic mutation.
 Compare exact admission or each vector's expected code and cause. Compare the
-RFC 6901 locus suffix recorded by SR-01..04 and PR-04..06. For GD-02, derive
-the later root `clock_places` reference locus from QSpec FR-322-AC-120 and
-assert it separately from the vector. GD-03 records no locus suffix, and
+RFC 6901 locus suffix recorded by SR-01..04 and PR-04..06. For GD-02, assert `invalid_package`/`malformed-clock-place` at the twin
+place's first forged `resolved_path` row
+`/semantic_graph/nodes/72/body/members/2/value/members/1`, as fixed by QSpec
+FR-322-AC-120, and assert aggregate order passes before the row join. GD-03 records no locus
+suffix, and
 FR-322-AC-150 fixes no exact locus: assert its code, cause, stage and refusal
 now; keep the exact-locus check PLANNED under STD-540 until QSpec fixes that
 contract. Check the reader stage against FR-322's stated order. Keep
@@ -2942,7 +2944,8 @@ the exact Text key type node for Map; and the slot-step refusal for a literal,
 an expression or the wrong domain type node. For AC-336, admit an empty guard aggregate on a guard-free root. Add one
 root-listed guard and verify its own and the root key change while the place
 path template key does not. A place `guards` binding refuses at strict wire
-validation; an otherwise ordered duplicate path refuses as a duplicate place,
+validation; an otherwise ordered second place of the same path refuses at its forged
+`resolved_path` row as `invalid_package`/`malformed-clock-place`,
 and an unlisted guard refuses at its own `body`.
 
 For AC-337 and AC-338, admit `present(other.v)`, `present(self.q[i])` and the
@@ -2963,7 +2966,7 @@ missing or mismatched selected member is refused at the place join.
 Status: PLANNED/UNRUN (IR-1096, IR-1109). Read QSpec's published
 `proposals/checked-package-v2/timed-slot-selector-vectors.json` and
 `proposals/checked-package-v2/timed-clause-node-vectors.json` through the
-selected checkout. Apply `AO-01`..`AO-10` and `CL-01`..`CL-53` to the public
+selected checkout. Apply `AO-01`..`AO-10` and `CL-01`..`CL-54` to the public
 V2 reader with their selected packages; never store local copies. For every
 vector compare admission or exact code, cause and RFC 6901 locus. Assert
 `AO-01`, `AO-05`, `AO-08`, `CL-01` and each in-key-order `CL` pair admit;
@@ -2979,8 +2982,13 @@ one region. `CL-29`..`CL-53` distinguish constraint, reset and invariant
 keys, including comparison rank, rational numeric bound, owner and slot
 terms, operation, condition, value, binder order, all invariant bounds and
 predicate. `CL-47` changes a shared term's region without changing either
-clause's position. Keep an otherwise canonical repeated-place path control
-that reaches `duplicate-clock-place` after aggregate ordering.
+clause's position. Keep an otherwise ordered repeated-place path control that passes aggregate
+order and refuses `invalid_package`/`malformed-clock-place` at its forged row
+(`/semantic_graph/nodes/59/body/members/2/value/members/1` for TM-12).
+Retain a separate
+equal-key repeated-reference control that refuses at aggregate order.
+`duplicate-clock-place` remains the post-row-join rejection obligation, but
+no conforming second node with the same model and path can reach it.
 
 For each remaining root branch—`resets` (binding 4), `guards` (5),
 `invariants` (6) and `constraints` (8)—build an admissible two-reference
@@ -3035,18 +3043,25 @@ refuses a listed but unused constraint at the root member. Keep `CL-01` as
 an admitted control for both membership paths.
 
 For AC-360 and AC-361, assert the operation-anchor join for `CL-02`, `CL-03`
-and `CL-25` and the exact typed/locus refusals of `CL-07`..`CL-15` and
+and state-valid foreign-model `CL-25` plus the state-stage `CL-54` control,
+and the exact typed/locus refusals of `CL-07`..`CL-15` and
 `CL-21`..`CL-24`. `CL-03` is a reader-level test only while STD-555 leaves
 an `execution_point` binding schema-invalid; do not count it as a schema-valid
 package. A guard/reset/parameter constraint uses the anchor of its own root
-model, while an operation urgency retains model plus operation name. Check
+model, while an operation urgency retains model plus operation name. `CL-25`
+has a valid `Gadget.ping` anchor with matching context, frame and
+`semantic_type`, so the state step passes and the timed join refuses
+`invalid_package`/`timed-node-reference` at the operation target. `CL-54`
+has a foreign context and `semantic_type` but the first model's frame, and
+refuses `invalid_model_binding`/`malformed-declaration` at
+`/semantic_graph/nodes/70` in the earlier state step. Check
 place owner and selector-domain terms, binder order, frame writes, Boolean
 conditions/predicates, Clock parameter declarations, same-operation guard
 constraints and upper-only invariant bounds. For each mutated semantic case,
 rebuild dependent node and package identities before calling the reader.
 
 For AC-362, inspect the positive dense timed-model and timed-slot fixtures
-for the same closed clause forms with current keys, then replay every `CL`
+for the same closed clause forms with current keys, then replay every `CL-01`..`CL-54`
 patch on the selected clause fixture. Independently check the staged first
 refusal order: strict wire, graph shape, stale key, aggregate order,
 unlisted timed nodes, per-node joins, model-wide checks, followed by protocol
