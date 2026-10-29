@@ -43,6 +43,44 @@ fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
     }
 }
 
+/// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-360,
+/// FR-038-AC-361, FR-038-AC-362, TC-048.
+#[test]
+fn timed_clause_published_vectors_match_the_production_reader() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("timed-clause-node-vectors.json"))
+        .expect("published clause vectors");
+    let cases = vectors["cases"].as_array().expect("published clause cases");
+    assert_eq!(cases.len(), 53);
+    let fixture = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
+        .expect("published clause fixture");
+    let document = proposal.join("domain-package-acme-timed-clauses.json");
+    for (ordinal, case) in cases.iter().enumerate() {
+        let id = case["id"].as_str().expect("clause case id");
+        assert_eq!(id, format!("CL-{:02}", ordinal + 1));
+        let mut candidate = fixture.clone();
+        for patch in case["patch"].as_array().expect("published patch") {
+            apply_published_timed_patch(&mut candidate, patch);
+        }
+        let actual = read_package_with_document(&candidate, id, &document)
+            .expect("selected clause package read");
+        match (case["expected"].as_str(), actual) {
+            (Some("admitted"), CheckedPackageV2ReadResult::Admitted(_)) => {}
+            (Some("refused") | Some("refused-by-schema"), CheckedPackageV2ReadResult::Refused(refusal)) => {
+                if case["expected"] == "refused" {
+                    assert_eq!(Some(code_word(refusal.code)), case["expected_code"].as_str(), "{id}");
+                    assert_eq!(refusal.cause.map(cause_word), case["expected_cause"].as_str(), "{id}");
+                    assert_eq!(refusal.path.as_ref().map(ToString::to_string).as_deref(), case["locus"].as_str(), "{id}");
+                } else {
+                    assert_eq!(refusal.code, Code::MalformedWire, "{id}: schema refusal");
+                }
+            }
+            (expected, actual) => panic!("{id}: expected {expected:?}, got {actual:?}"),
+        }
+    }
+}
+
 fn sort_timed_graph_dependencies(package: &mut Value) {
     for node in package["semantic_graph"]["nodes"]
         .as_array_mut()

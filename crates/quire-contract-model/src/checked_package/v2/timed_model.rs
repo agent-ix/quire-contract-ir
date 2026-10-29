@@ -335,11 +335,7 @@ pub(super) fn check_wire(
             }
         }
         TimedModelForm::Place => {
-            let b = bindings(
-                &node.body,
-                &["model", "path", "resolved_path", "guards"],
-                &body_at,
-            )?;
+            let b = bindings(&node.body, &["model", "path", "resolved_path"], &body_at)?;
             reference(b[0].0, &b[0].1)?;
             path(b[1].0, &b[1].1)?;
             let rows = aggregate(b[2].0, &b[2].1)?;
@@ -363,16 +359,89 @@ pub(super) fn check_wire(
                     text(value, at)?;
                 }
             }
-            references(b[3].0, &b[3].1)?;
         }
         TimedModelForm::Reset => {
-            let b = bindings(&node.body, &["place", "value"], &body_at)?;
-            reference(b[0].0, &b[0].1)?;
-            magnitude(b[1].0, "quantity", &b[1].1)?;
+            let members = aggregate(&node.body, &body_at)?;
+            let kind_at = body_at.clone().key("members").index(0).key("value");
+            let kind = members
+                .first()
+                .and_then(possible_binding_value)
+                .ok_or_else(|| malformed(body_at.clone()))?;
+            match text(kind, &kind_at)? {
+                "place" => {
+                    let b = bindings(
+                        &node.body,
+                        &[
+                            "kind",
+                            "operation",
+                            "place",
+                            "owner",
+                            "slots",
+                            "binders",
+                            "condition",
+                            "value",
+                        ],
+                        &body_at,
+                    )?;
+                    reference(b[1].0, &b[1].1)?;
+                    reference(b[2].0, &b[2].1)?;
+                    reference(b[3].0, &b[3].1)?;
+                    references(b[4].0, &b[4].1)?;
+                    references(b[5].0, &b[5].1)?;
+                    reference(b[6].0, &b[6].1)?;
+                    magnitude(b[7].0, "quantity", &b[7].1)?;
+                }
+                "parameter" => {
+                    let b = bindings(
+                        &node.body,
+                        &["kind", "operation", "parameter", "value"],
+                        &body_at,
+                    )?;
+                    reference(b[1].0, &b[1].1)?;
+                    text(b[2].0, &b[2].1)?;
+                    magnitude(b[3].0, "quantity", &b[3].1)?;
+                }
+                _ => return Err(malformed(kind_at.key("value"))),
+            }
         }
-        TimedModelForm::Guard | TimedModelForm::Invariant => {
-            let b = bindings(&node.body, &["predicate"], &body_at)?;
+        TimedModelForm::Guard => {
+            let b = bindings(&node.body, &["operation", "parts"], &body_at)?;
             reference(b[0].0, &b[0].1)?;
+            let parts = aggregate(b[1].0, &b[1].1)?;
+            if parts.is_empty() {
+                return Err(malformed(body_at));
+            }
+            for (index, part) in parts.iter().enumerate() {
+                let at = b[1].1.clone().key("members").index(index);
+                let members = aggregate(part, &at)?;
+                if members.len() < 2 {
+                    return Err(malformed(body_at));
+                }
+                // A part is flat: its first member is a predicate binding, followed by bare references.
+                let first_at = at.clone().key("members").index(0);
+                let predicate = match CheckedTerm::view(&members[0]) {
+                    Some(CheckedTermView::Binding {
+                        name: "predicate",
+                        value,
+                    }) => value,
+                    _ => return Err(malformed(first_at)),
+                };
+                reference(predicate, &first_at.key("value"))?;
+                for (reference_index, member) in members.iter().enumerate().skip(1) {
+                    reference(member, &at.clone().key("members").index(reference_index))?;
+                }
+            }
+        }
+        TimedModelForm::Invariant => {
+            let b = bindings(&node.body, &["predicate", "bounds"], &body_at)?;
+            reference(b[0].0, &b[0].1)?;
+            let bounds = aggregate(b[1].0, &b[1].1)?;
+            if bounds.is_empty() {
+                return Err(malformed(body_at));
+            }
+            for (index, member) in bounds.iter().enumerate() {
+                reference(member, &b[1].1.clone().key("members").index(index))?;
+            }
         }
         TimedModelForm::Urgency => {
             let members = aggregate(&node.body, &body_at)?;
@@ -395,10 +464,38 @@ pub(super) fn check_wire(
             }
         }
         TimedModelForm::Constraint => {
-            let b = bindings(&node.body, &["place", "comparison", "bound"], &body_at)?;
-            reference(b[0].0, &b[0].1)?;
-            word(b[1].0, &["lt", "le", "gt", "ge"], &b[1].1)?;
-            magnitude(b[2].0, "quantity", &b[2].1)?;
+            let members = aggregate(&node.body, &body_at)?;
+            let kind_at = body_at.clone().key("members").index(0).key("value");
+            let kind = members
+                .first()
+                .and_then(possible_binding_value)
+                .ok_or_else(|| malformed(body_at.clone()))?;
+            match text(kind, &kind_at)? {
+                "place" => {
+                    let b = bindings(
+                        &node.body,
+                        &["kind", "place", "owner", "slots", "comparison", "bound"],
+                        &body_at,
+                    )?;
+                    reference(b[1].0, &b[1].1)?;
+                    reference(b[2].0, &b[2].1)?;
+                    references(b[3].0, &b[3].1)?;
+                    word(b[4].0, &["lt", "le", "eq", "ge", "gt"], &b[4].1)?;
+                    magnitude(b[5].0, "quantity", &b[5].1)?;
+                }
+                "parameter" => {
+                    let b = bindings(
+                        &node.body,
+                        &["kind", "operation", "parameter", "comparison", "bound"],
+                        &body_at,
+                    )?;
+                    reference(b[1].0, &b[1].1)?;
+                    text(b[2].0, &b[2].1)?;
+                    word(b[3].0, &["lt", "le", "eq", "ge", "gt"], &b[3].1)?;
+                    magnitude(b[4].0, "quantity", &b[4].1)?;
+                }
+                _ => return Err(malformed(kind_at.key("value"))),
+            }
         }
     }
     Ok(())
@@ -934,7 +1031,6 @@ impl Graph<'_> {
 }
 
 /// Compare the retained path terms exactly, charging each actual term visit.
-/// Guards are a separate place binding and never enter this comparison.
 fn same_place_path(
     left: &CheckedTerm,
     right: &CheckedTerm,
@@ -1063,7 +1159,8 @@ fn check_timed_reference_order(
     for &position in index.values() {
         let bindings: &[usize] = match kinds.get(position) {
             Some(CheckedNodeKind::TimedModel(TimedModelForm::Model)) => &[3, 4, 5, 6, 7, 8],
-            Some(CheckedNodeKind::TimedModel(TimedModelForm::Place)) => &[3],
+            Some(CheckedNodeKind::TimedModel(TimedModelForm::Guard)) => &[1],
+            Some(CheckedNodeKind::TimedModel(TimedModelForm::Invariant)) => &[1],
             _ => continue,
         };
         let Some(body) = terms.get(position).and_then(Option::as_ref) else {
@@ -1122,11 +1219,9 @@ pub(super) fn validate_models<'a>(
         check_timed_reference_order(kinds, terms, index, source_map, meter)?;
     }
     for &position in index.values() {
-        let Some(CheckedNodeKind::TimedModel(form)) = kinds.get(position).copied() else {
+        let Some(CheckedNodeKind::TimedModel(_)) = kinds.get(position).copied() else {
             continue;
         };
-        meter.charge(1, || node_pointer(position))?;
-        let body = graph.body(position)?;
         if roots.is_empty() {
             return Err(graph.issue(
                 position,
@@ -1141,6 +1236,13 @@ pub(super) fn validate_models<'a>(
                 node_pointer(position).key("body"),
             ));
         }
+    }
+    for &position in index.values() {
+        let Some(CheckedNodeKind::TimedModel(form)) = kinds.get(position).copied() else {
+            continue;
+        };
+        meter.charge(1, || node_pointer(position))?;
+        let body = graph.body(position)?;
         match form {
             Form::Model => {
                 let model =
@@ -1317,22 +1419,22 @@ pub(super) fn validate_models<'a>(
                 graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
                     matches!(kind, CheckedNodeKind::Model(_))
                 })?;
-                for (child_index, child) in bound(body, 3)
-                    .map(typed_members)
-                    .unwrap_or_default()
-                    .iter()
-                    .enumerate()
-                {
-                    let at = binding_at(position, 3).key("members").index(child_index);
-                    meter.charge(1, || at.clone())?;
-                    graph.boolean(position, Some(child), at)?;
-                }
             }
             Form::Reset | Form::Constraint => {
-                graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
-                    kind == CheckedNodeKind::TimedModel(Form::Place)
-                })?;
-                let amount = if form == Form::Reset { 1 } else { 2 };
+                let place = bound(body, 0).and_then(spelling) == Some("place");
+                if place {
+                    let place_index = if form == Form::Reset { 2 } else { 1 };
+                    graph.target(position, bound(body, place_index), binding_at(position, place_index), |kind| {
+                        kind == CheckedNodeKind::TimedModel(Form::Place)
+                    })?;
+                }
+                let amount = match (form, place) {
+                    (Form::Reset, true) => 7,
+                    (Form::Reset, false) => 3,
+                    (Form::Constraint, true) => 5,
+                    (Form::Constraint, false) => 4,
+                    _ => unreachable!(),
+                };
                 graph.exact(
                     position,
                     bound(body, amount),
@@ -1360,9 +1462,8 @@ pub(super) fn validate_models<'a>(
                     ));
                 }
             }
-            Form::Guard | Form::Invariant => {
-                graph.boolean(position, bound(body, 0), binding_at(position, 0))?
-            }
+            Form::Guard => {}
+            Form::Invariant => graph.boolean(position, bound(body, 0), binding_at(position, 0))?,
             Form::Urgency => {
                 if bound(body, 0).and_then(spelling) == Some("when") {
                     graph.boolean(position, bound(body, 1), binding_at(position, 1))?;
