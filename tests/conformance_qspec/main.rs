@@ -47,6 +47,7 @@ mod hybrid;
 mod model_root;
 mod model_tuple_union;
 mod reaches_population;
+mod selection_vectors;
 mod single_body;
 mod timed_model;
 mod transition;
