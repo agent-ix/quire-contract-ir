@@ -1879,7 +1879,7 @@ fn selected_union_members<'m>(
     if !cases.values().any(Option::is_some) {
         return Ok(None);
     }
-    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+    let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(units(cases.len()))?;
     let mut members = Vec::with_capacity(cases.len());
     for (name, payload_type) in cases {
@@ -2233,7 +2233,7 @@ fn conforms_to_type(
     {
         return Ok(false);
     }
-    let mut budget = Budget::new(meter, parameter.selection, parameter.package.bytes);
+    let mut budget = Budget::new(meter, parameter.package.root, parameter.package.bytes);
     parameter
         .package
         .conforms_to(argument.node, parameter.node, &mut budget)
@@ -2451,7 +2451,7 @@ fn check_reference_edge(
         .and_then(Value::as_str)
         .unwrap_or("");
     let resolved = {
-        let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+        let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
         match owner
             .package
             .resolve(owner.node, MemberKind::Field, name, &mut budget)
@@ -2528,7 +2528,7 @@ fn check_reference_edge(
     if !std::ptr::eq(end_owner.package, owner.package) || end_owner.object_type().is_none() {
         return ineligible(argument_at(target));
     }
-    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+    let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     if owner
         .package
         .conforms_to(end_owner.node, edge_owner, &mut budget)?
@@ -2622,7 +2622,7 @@ fn check_tuple_position(
     if operand_type.as_ref() != Some(&declaration.node_id) {
         return ineligible();
     }
-    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+    let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(1)?;
     let Ok(expected_type) = position_type.node_key(owner.package.bytes) else {
         return Ok(Some(ValidationFailure::refused(
@@ -2683,7 +2683,7 @@ fn check_relationship_member(
     let Some(relationship) = owner.package.relationships.get(owner.node) else {
         return refuse(member_at("declaration"), ModelRefusal::unselected());
     };
-    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+    let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(1)?;
     let name = operation
         .member
@@ -2919,7 +2919,7 @@ fn check_conforming_reference(
     if !std::ptr::eq(a.package, b.package) {
         return ineligible(operands[1]);
     }
-    let mut budget = Budget::new(meter, a.selection, a.package.bytes);
+    let mut budget = Budget::new(meter, a.package.root, a.package.bytes);
     if a.package.conforms(a.node, b.node, &mut budget)? {
         Ok(None)
     } else {
@@ -3192,7 +3192,7 @@ fn check_model_member(
     if kind == MemberKind::Operation && owner.form == DeclarationForm::RecordValueType {
         return ineligible(member_at("name"));
     }
-    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+    let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     let resolved = match owner.package.resolve(owner.node, kind, name, &mut budget) {
         Ok(resolved) => resolved,
         Err(ModelFailure::Refused(refusal)) => return refuse(member_at("name"), refusal),
@@ -5287,7 +5287,6 @@ mod tests {
             },
             profile_selections: Vec::new(),
             definition_selections: Vec::new(),
-            model_selections: Vec::new(),
             required_features: Vec::new(),
             dependency_selections: Vec::new(),
         }

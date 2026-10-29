@@ -1797,7 +1797,7 @@ fn check_related_types(
                 if actual_owner.object_type().is_some()
                     && std::ptr::eq(owner.package, actual_owner.package)
                 {
-                    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+                    let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
                     owner
                         .package
                         .conforms_to(actual_owner.node, declared, &mut budget)?
@@ -2476,7 +2476,6 @@ fn check_member(
     arguments: &[CheckedTerm],
     validated: &[Option<(&str, &[CheckedTerm])>],
     owners: &ModelOwners<'_>,
-    lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (ordinal, term) in arguments.iter().enumerate() {
@@ -2495,15 +2494,8 @@ fn check_member(
         ProtocolForm::Role => {
             let replication = check.at(arguments, 1);
             if let Some(identity) = text_value(check.at(arguments, 0)) {
-                let mut selected = false;
-                for row in &lock.model_selections {
-                    meter.charge(1, || node_pointer(check.position))?;
-                    if row.identity.as_ref() == identity {
-                        selected = true;
-                        break;
-                    }
-                }
-                if !selected {
+                meter.charge(1, || node_pointer(check.position))?;
+                if !owners.selects(identity) {
                     return Err(check.refuse(
                         Code::MissingDeclaration,
                         Some(Cause::MissingSelection),
@@ -5058,9 +5050,7 @@ pub(super) fn validate_protocol_nodes(
                 index,
                 profile: selected_profile.expect("validated protocol profile law"),
             };
-            check_member(
-                &check, form, operator, arguments, &validated, owners, lock, meter,
-            )?;
+            check_member(&check, form, operator, arguments, &validated, owners, meter)?;
         }
     }
     validate_protocol_membership(nodes, kinds, &validated, index, meter)?;

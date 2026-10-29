@@ -20,21 +20,13 @@ fn expected_source(path: &str) -> IntakeDeclarationOrigin {
 
 fn selected(document: Value, work: u64) -> (Result<DomainModel, SelectionFailure>, u64) {
     let bytes = serde_json::to_vec(&document).expect("authored bytes");
-    let digest = quire_canonical::sha256(&document, quire_canonical::Limits::new(BYTES))
-        .expect("authored document has exact numbers")
-        .to_string();
-    let selection = CheckedDomainPackageRef {
-        identity: "acme/orders".into(),
-        digest_domain: DOMAIN_PACKAGE_DIGEST.into(),
-        digest: digest.clone().into(),
-    };
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(digest, bytes)
+        .insert_domain_package_document("acme/orders", bytes)
         .expect("first domain evidence insertion succeeds");
     let mut meter = WorkMeter::new(work);
     let result = admit_selection(
-        &selection,
+        "acme/orders",
         &evidence,
         &mut Budget::new(&mut meter, 3, BYTES),
         &Arc::new(BTreeMap::new()),
@@ -483,7 +475,7 @@ fn assert_retention_work_limit(failure: ValidationFailure, limit: u64, consumed:
     assert_eq!(record.consumed, consumed);
     assert_eq!(
         record.path.as_ref().map(ToString::to_string).as_deref(),
-        Some("/lock/model_selections/3")
+        Some("/semantic_graph/nodes/3/owner")
     );
 }
 
@@ -579,7 +571,7 @@ fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
             assert_eq!(failure.consumed, used);
             assert_eq!(
                 failure.path.as_ref().map(ToString::to_string).as_deref(),
-                Some("/lock/model_selections/3")
+                Some("/semantic_graph/nodes/3/owner")
             );
         }
         other => panic!("expected first unpayable charge, got {other:?}"),
@@ -591,16 +583,13 @@ fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
 fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
     let original_document = document(vec![bad_type(source("unused.md"))]);
     let bytes = serde_json::to_vec(&original_document).expect("bytes");
-    let digest = quire_canonical::sha256(&original_document, quire_canonical::Limits::new(BYTES))
-        .expect("digest")
-        .to_string();
     for (identity, supplied, cause, member) in [
-        ("acme/orders", None, Cause::MissingSelection, "digest"),
+        ("acme/orders", None, Cause::MissingSelection, "identity"),
         (
             "acme/orders",
-            Some(b"{}".as_slice()),
-            Cause::ContentMismatch,
-            "digest",
+            Some(b"{".as_slice()),
+            Cause::MalformedJson,
+            "identity",
         ),
         (
             "acme/other",
@@ -609,20 +598,22 @@ fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
             "identity",
         ),
     ] {
-        let selection = CheckedDomainPackageRef {
-            identity: identity.into(),
-            digest_domain: DOMAIN_PACKAGE_DIGEST.into(),
-            digest: digest.clone().into(),
-        };
         let mut evidence = CheckedPackageEvidence::new();
         if let Some(bytes) = supplied {
             evidence
-                .insert_domain_package_document(digest.clone(), bytes.to_vec())
+                .insert_domain_package_document(
+                    if identity == "acme/other" {
+                        "acme/other"
+                    } else {
+                        "acme/orders"
+                    },
+                    bytes.to_vec(),
+                )
                 .expect("first domain evidence insertion succeeds");
         }
         let mut meter = WorkMeter::new(u64::MAX);
         let Err(SelectionFailure::Refused(retained)) = admit_selection(
-            &selection,
+            identity,
             &evidence,
             &mut Budget::new(&mut meter, 0, BYTES),
             &Arc::new(BTreeMap::new()),
@@ -642,20 +633,13 @@ fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
         "startLine": 9007199254740993_u64, "startColumn": 1
     }}))]);
     let bytes = serde_json::to_vec(&inexact).expect("authored exact number text");
-    use sha2::{Digest, Sha256};
-    let raw_digest = format!("{:x}", Sha256::digest(&bytes));
-    for selected_digest in [raw_digest, digest] {
-        let selection = CheckedDomainPackageRef {
-            identity: "acme/orders".into(),
-            digest_domain: DOMAIN_PACKAGE_DIGEST.into(),
-            digest: selected_digest.clone().into(),
-        };
+    {
         let mut evidence = CheckedPackageEvidence::new();
         evidence
-            .insert_domain_package_document(selected_digest, bytes.clone())
+            .insert_domain_package_document("acme/orders", bytes.clone())
             .expect("first domain evidence insertion succeeds");
         let mut meter = WorkMeter::new(u64::MAX);
-        match admit_selection(&selection, &evidence, &mut Budget::new(&mut meter, 0, BYTES), &Arc::new(BTreeMap::new())) {
+        match admit_selection("acme/orders", &evidence, &mut Budget::new(&mut meter, 0, BYTES), &Arc::new(BTreeMap::new())) {
             Err(SelectionFailure::InexactNumber { document_pointer, cause }) => {
                 assert_eq!(document_pointer.to_string(), "/types/0/origin/source/startLine");
                 assert_eq!(cause, Cause::InexactInteger);

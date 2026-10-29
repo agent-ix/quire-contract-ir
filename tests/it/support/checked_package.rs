@@ -117,11 +117,7 @@ pub fn family_model_document() -> Value {
 pub fn add_family_reference_target(package: &mut Value) -> String {
     let key = family_key("1515");
     let selected = v2_all_families();
-    let selection = selected["lock"]["model_selections"][0].clone();
-    package["lock"]["model_selections"]
-        .as_array_mut()
-        .expect("model selections")
-        .push(selection);
+    select_model(package, FAMILY_MODEL_IDENTITY);
     let mut declaration = selected["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -320,36 +316,44 @@ pub fn domain_package_document(identity: &str, version: &str, types: Vec<Value>)
     })
 }
 
-/// The `sha256-jcs` digest a lock names [`domain_package_document`] under.
-pub fn domain_package_digest(document: &Value) -> String {
-    sha256_hex(&canonical(document))
-}
-
 /// Evidence for a package: its domain package documents plus the complete-value feature.
 pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
     let mut evidence = CheckedPackageEvidence::new();
-    // A lock's compiled-model selections are `sha256-jcs` domain packages,
-    // supplied as documents. A selection whose digest names no document this
-    // helper builds is left unsupplied, so the reader refuses it.
-    for model in package["lock"]["model_selections"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-    {
-        // The row names no version; the document it is supplied as carries
-        // `1`, which nothing reads.
-        let identity = model["identity"].as_str().expect("model identity");
+    // Each `model_root` owner selects a domain package by identity; the
+    // evidence holds the document this helper builds for that identity.
+    for identity in selected_model_identities(package) {
         let document = if identity == FAMILY_MODEL_IDENTITY {
             family_model_document()
         } else {
-            domain_package_document(identity, "1", Vec::new())
+            domain_package_document(&identity, "1", Vec::new())
         };
-        let digest = domain_package_digest(&document);
-        if model["digest"].as_str() == Some(digest.as_str()) {
-            evidence
-                .insert_domain_package_document(digest, canonical(&document))
-                .expect("domain evidence declarations agree on exact bytes");
-        }
+        evidence
+            .insert_domain_package_document(identity, canonical(&document))
+            .expect("domain evidence declarations agree on exact bytes");
+    }
+    evidence.support_feature(COMPLETE_VALUE_FEATURE);
+    evidence
+}
+
+/// Evidence for a package whose selected domain package `identity` is supplied
+/// as `document` in place of the helper's default document.
+pub fn evidence_with_document(
+    package: &Value,
+    identity: &str,
+    document: &Value,
+) -> CheckedPackageEvidence {
+    let mut evidence = CheckedPackageEvidence::new();
+    for selected in selected_model_identities(package) {
+        let supplied = if selected == identity {
+            document.clone()
+        } else if selected == FAMILY_MODEL_IDENTITY {
+            family_model_document()
+        } else {
+            domain_package_document(&selected, "1", Vec::new())
+        };
+        evidence
+            .insert_domain_package_document(selected, canonical(&supplied))
+            .expect("domain evidence declarations agree on exact bytes");
     }
     evidence.support_feature(COMPLETE_VALUE_FEATURE);
     evidence
@@ -417,109 +421,75 @@ pub fn identity_input(package: &Value) -> Value {
 
 /// Rebuilds the identity projection from the graph and re-derives the package id.
 pub fn refresh_identity(package: &mut Value) {
-    ensure_model_roots(package);
     refresh_identity_projection(package);
 }
 
-/// Completes synthetic selected-model fixtures with their identity-bound roots.
-/// Existing roots are retained so adverse tests can mutate them without repair.
-pub fn ensure_model_roots(package: &mut Value) {
-    let selections = package["lock"]["model_selections"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    // A fixture may replace a selected document after its initial build.
-    // Rebuild only the synthetic roots for the current selection rows.
-    let stale_root_ids: Vec<_> = package["semantic_graph"]["nodes"]
+/// The identity of every domain package a synthetic package selects: one per
+/// `model_root` owner.
+pub fn selected_model_identities(package: &Value) -> Vec<String> {
+    package["semantic_graph"]["nodes"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|node| {
-            node["semantic_form"] == "model_root"
-                && !selections.iter().any(|selection| {
-                    node["owner"]["identity"] == selection["identity"]
-                        && node["owner"]["digest"] == selection["digest"]
-                })
-        })
-        .map(|node| node["node_id"].clone())
-        .collect();
-    if !stale_root_ids.is_empty() {
+        .filter(|node| node["semantic_form"] == "model_root")
+        .filter_map(|node| node["owner"]["identity"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// Selects the domain package `identity` in a synthetic package by adding its
+/// identity-named `model_root` node and source-map entry. Selecting an
+/// identity twice adds nothing.
+pub fn select_model(package: &mut Value, identity: &str) {
+    let owner = json!({"kind": "model_root", "identity": identity});
+    let exists = package["semantic_graph"]["nodes"]
+        .as_array()
+        .is_some_and(|nodes| {
+            nodes
+                .iter()
+                .any(|node| node["semantic_form"] == "model_root" && node["owner"] == owner)
+        });
+    if exists {
+        return;
+    }
+    let body = json!({"term": "aggregate", "members": []});
+    let preimage = json!({
+        "version": "quire.structural-node/v1", "node_tag": "model",
+        "semantic_form": "model_root", "semantic_type": null,
+        "declaration": null, "recursion": null, "owner": owner,
+        "body": body,
+    });
+    let node_id = node_id(&sha256_hex(&canonical(&preimage)));
+    let node = json!({
+        "node_id": node_id, "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "model", "semantic_form": "model_root",
+        "semantic_type": node_id, "dependencies": [],
+        "occurrences": [{"role": "generated", "ordinal": 0}],
+        "owner": owner, "body": body,
+    });
+    let region = package["source_map"]
+        .as_array()
+        .and_then(|entries| entries.first())
+        .and_then(|entry| entry["regions"].as_array())
+        .and_then(|regions| regions.first())
+        .cloned()
+        .or_else(|| {
+            package["lock"]["sources"]
+                .as_array()
+                .and_then(|sources| sources.first())
+                .map(|source| json!({"source": source, "start": 0, "end": 1}))
+        });
+    if let Some(region) = region {
         package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("synthetic graph nodes")
-            .retain(|node| !stale_root_ids.contains(&node["node_id"]));
+            .push(node);
         package["source_map"]
             .as_array_mut()
             .expect("synthetic source map")
-            .retain(|entry| !stale_root_ids.contains(&entry["node_id"]));
-    }
-    for selection in selections {
-        let (Some(identity), Some(digest)) =
-            (selection["identity"].as_str(), selection["digest"].as_str())
-        else {
-            continue;
-        };
-        if identity.is_empty()
-            || digest.len() != 64
-            || !digest
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-        {
-            continue;
-        }
-        let owner = json!({"kind": "model_root", "identity": identity, "digest": digest});
-        let exists = package["semantic_graph"]["nodes"]
-            .as_array()
-            .is_some_and(|nodes| {
-                nodes.iter().any(|node| {
-                    node["node_tag"] == "model"
-                        && node["semantic_form"] == "model_root"
-                        && node["owner"] == owner
-                })
-            });
-        if exists {
-            continue;
-        }
-        let body = json!({"term": "aggregate", "members": []});
-        let preimage = json!({
-            "version": "quire.structural-node/v1", "node_tag": "model",
-            "semantic_form": "model_root", "semantic_type": null,
-            "declaration": null, "recursion": null, "owner": owner,
-            "body": body,
-        });
-        let node_id = node_id(&sha256_hex(&canonical(&preimage)));
-        let node = json!({
-            "node_id": node_id, "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "model", "semantic_form": "model_root",
-            "semantic_type": node_id, "dependencies": [],
-            "occurrences": [{"role": "generated", "ordinal": 0}],
-            "owner": owner, "body": body,
-        });
-        let region = package["source_map"]
-            .as_array()
-            .and_then(|entries| entries.first())
-            .and_then(|entry| entry["regions"].as_array())
-            .and_then(|regions| regions.first())
-            .cloned()
-            .or_else(|| {
-                package["lock"]["sources"]
-                    .as_array()
-                    .and_then(|sources| sources.first())
-                    .map(|source| json!({"source": source, "start": 0, "end": 1}))
-            });
-        if let Some(region) = region {
-            package["semantic_graph"]["nodes"]
-                .as_array_mut()
-                .expect("synthetic graph nodes")
-                .push(node);
-            package["source_map"]
-                .as_array_mut()
-                .expect("synthetic source map")
-                .push(
-                    json!({"node_id": node_id, "role": "generated", "ordinal": 0,
-                    "regions": [region]}),
-                );
-        }
+            .push(
+                json!({"node_id": node_id, "role": "generated", "ordinal": 0,
+                "regions": [region]}),
+            );
     }
 }
 
@@ -542,7 +512,6 @@ pub fn refresh_identity_projection(package: &mut Value) {
         "edition",
         "profile_selections",
         "definition_selections",
-        "model_selections",
         "required_features",
         "dependency_selections",
     ] {
@@ -960,10 +929,7 @@ impl PartialEq<ExpectedRefusal> for CheckedPackageRefusal {
                     expected.code == CheckedPackageRefusalCode::StaleDependency
                         && matches!(
                             expected.cause,
-                            Some(
-                                CheckedPackageRefusalCause::ContentMismatch
-                                    | CheckedPackageRefusalCause::ByteDigestMismatch
-                            )
+                            Some(CheckedPackageRefusalCause::ContentMismatch)
                         ),
                     self.expected.as_ref(),
                     self.actual.as_ref(),
@@ -1972,7 +1938,6 @@ fn fixture_lock(profile_selections: Vec<Value>) -> Value {
         "edition": {"role": "edition", "definition": fixture_edition_definition()},
         "profile_selections": profile_selections,
         "definition_selections": Value::Array(Vec::new()),
-        "model_selections": Value::Array(Vec::new()),
         "required_features": [COMPLETE_VALUE_FEATURE],
         "dependency_selections": Value::Array(Vec::new()),
     })
@@ -2165,7 +2130,6 @@ fn placeholder_identity_preimage() -> Value {
         "edition": Value::Null,
         "profile_selections": Value::Array(Vec::new()),
         "definition_selections": Value::Array(Vec::new()),
-        "model_selections": Value::Array(Vec::new()),
         "required_features": Value::Array(Vec::new()),
         "dependency_selections": Value::Array(Vec::new()),
     })
@@ -2599,17 +2563,12 @@ fn build_v2_all_families() -> Value {
         "capability_report": fixture_capability_report(),
         "diagnostics": {"catalog": fixture_diagnostics_catalog(), "entries": Value::Array(Vec::new())},
     });
-    let family_document = family_model_document();
-    package["lock"]["model_selections"] = json!([{
-        "identity": FAMILY_MODEL_IDENTITY,
-        "digest_domain": "sha256-jcs",
-        "digest": domain_package_digest(&family_document),
-    }]);
     let nodes_array = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .clone();
     package["source_map"] = source_map_for(&nodes_array, &source);
+    select_model(&mut package, FAMILY_MODEL_IDENTITY);
     refresh_identity(&mut package);
     package
 }

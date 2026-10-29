@@ -749,10 +749,10 @@ fn reader_refuses_wrong_string_version_before_shape_identity_and_nodes() {
 fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
     let output = lower(&mixed_fixture(), &request());
     let wire = bytes(&output);
-    assert_eq!(wire.len(), 9862);
+    let size = wire.len() as u64;
     assert!(matches!(read(wire), ContractPackageReadResult::Admitted(_)));
     let cases = [
-        (CheckedPackageLimit::Bytes, 100, 9862, None),
+        (CheckedPackageLimit::Bytes, 100, size, None),
         (
             CheckedPackageLimit::Nodes,
             1,

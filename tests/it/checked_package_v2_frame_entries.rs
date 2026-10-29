@@ -10,10 +10,10 @@
 //! vocabulary.
 
 use crate::support::checked_package::{
-    canonical, domain_package_digest, evidence_for, family_key, family_model_document,
+    canonical, evidence_for, evidence_with_document, family_key, family_model_document,
     fixture_source, mint_ungrouped_structural_keys, node_id, over_body, rebuild_source_map,
-    refresh_identity, rename_node, settle, sha256_hex, source_owner, structural_key, typed_node_id,
-    v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
+    refresh_identity, rename_node, select_model, settle, sha256_hex, source_owner, structural_key,
+    typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
@@ -63,19 +63,20 @@ fn step_model_document() -> Value {
     document
 }
 
+/// The evidence for `package`: the step model document when the package holds
+/// the step execution binders `step_relation_package` adds, else the helper's
+/// default document for each selected model.
 fn step_relation_evidence(package: &Value) -> CheckedPackageEvidence {
-    let mut evidence = evidence_for(package);
-    let document = step_model_document();
-    let digest = domain_package_digest(&document);
-    if package["lock"]["model_selections"]
-        .as_array()
-        .is_some_and(|models| models.iter().any(|model| model["digest"] == digest))
-    {
-        evidence
-            .insert_domain_package_document(digest, canonical(&document))
-            .expect("step model evidence");
+    let has_step_binder = nodes(package).iter().any(|node| {
+        node["node_tag"] == "value"
+            && node["semantic_form"] == "parameter"
+            && node["body"]["members"][0]["value"]["value"] == "i"
+    });
+    if has_step_binder {
+        evidence_with_document(package, "test/families", &step_model_document())
+    } else {
+        evidence_for(package)
     }
-    evidence
 }
 
 fn admits(value: &Value) {
@@ -1184,7 +1185,6 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
         edition: &preimage.edition,
         profile_selections: &preimage.profile_selections,
         definition_selections: &preimage.definition_selections,
-        model_selections: &preimage.model_selections,
         required_features: &preimage.required_features,
         dependency_selections: &preimage.dependency_selections,
         identity_projection: &admitted.graph().nodes,
@@ -2114,14 +2114,9 @@ fn tc_056_shared_frame_checks_scoped_deletes_for_each_anchor() {
         "name": "a", "typeRef": "ix://test/families/Account",
         "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}
     }]);
-    let document_digest = domain_package_digest(&document);
-    package["lock"]["model_selections"][0]["digest"] = json!(document_digest.clone());
     refresh_identity(&mut package);
     let read_custom = |value: &Value| {
-        let mut evidence = evidence_for(value);
-        evidence
-            .insert_domain_package_document(document_digest.clone(), canonical(&document))
-            .expect("selected document");
+        let evidence = evidence_with_document(value, "test/families", &document);
         CheckedPackageV2::read(
             &canonical(value),
             CheckedPackageReadLimits::bounded(),
@@ -2733,12 +2728,7 @@ fn record_key_for(node: &str) -> String {
 }
 
 fn record_package() -> Value {
-    record_package_for(&records_document())
-}
-
-fn record_package_for(document: &Value) -> Value {
     let mut package = ModelPackage::new().value;
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(document)));
     let account = model_key(ACCOUNT_NODE);
     let address = record_key();
     for (key, form, owner) in [
@@ -2781,10 +2771,7 @@ fn record_package_for(document: &Value) -> Value {
 }
 
 fn read_record_package(package: &Value, document: &Value, work: u64) -> CheckedPackageV2ReadResult {
-    let mut evidence = evidence_for(package);
-    evidence
-        .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
-        .expect("distinct record document key");
+    let evidence = evidence_with_document(package, ORDERS, document);
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
     CheckedPackageV2::read(&canonical(package), limits, &evidence)
@@ -2887,7 +2874,7 @@ fn tc_056_selected_record_frame_field_keeps_inherited_ambiguity() {
             .expect("types")
             .push(record);
     }
-    let mut package = record_package_for(&document);
+    let mut package = record_package();
     let key = record_key_for(both);
     let mut owner = plain(
         &key,
@@ -2976,7 +2963,7 @@ fn tc_056_selected_record_fields_obey_exact_work_limit() {
             );
             assert_eq!(
                 record.path.as_ref().map(|path| path.as_str()),
-                Some("/semantic_graph/nodes/39/body/arguments/2/target")
+                Some("/semantic_graph/nodes/40/body/arguments/2/target")
             );
         }
         other => panic!("one unit below exact must be incomplete: {other:?}"),
@@ -3167,17 +3154,14 @@ fn unselected_key() -> String {
     model_key_in(OTHER_PACKAGE, ORDER_NODE)
 }
 
-/// Reads `value` with [`orders_document`] supplied under its digest.
+/// Reads `value` with [`orders_document`] supplied under its identity.
 fn read_model(value: &Value) -> CheckedPackageV2ReadResult {
     read_model_with_work(value, CheckedPackageReadLimits::bounded().work)
 }
 
 fn read_model_with_work(value: &Value, work: u64) -> CheckedPackageV2ReadResult {
     let document = orders_document();
-    let mut evidence = evidence_for(value);
-    evidence
-        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(value, ORDERS, &document);
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
     CheckedPackageV2::read(&canonical(value), limits, &evidence)
@@ -3253,17 +3237,7 @@ impl ModelPackage {
         let frame = state.at("state", "frame");
         let frame_key = state.digest(frame);
         let value = &mut state.value;
-        let document = orders_document();
-        value["lock"]["model_selections"]
-            .as_array_mut()
-            .expect("model selections")
-            .insert(
-                0,
-                json!({
-                    "identity": ORDERS,
-                    "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
-                }),
-            );
+        select_model(value, ORDERS);
         let empty = || json!({"term": "aggregate", "members": []});
         let mut added = Vec::new();
         for declared in [ORDER_NODE, SUB_NODE, LEFT_NODE, RIGHT_NODE, BOTH_NODE] {
@@ -3592,7 +3566,6 @@ fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
 fn tc_227_a_frame_field_entry_charges_its_effective_table_end_to_end() {
     let mut document = orders_document();
     document["types"][1]["fields"] = json!([domain_field(SUB_NODE, "extra")]);
-    let digest = sha256_hex(&canonical(&document));
     let smallest = |declaring: &str| {
         let mut value = ModelPackage::new().modifying(declaring, "total").value;
         let frame = position(&value, "state", "frame");
@@ -3600,12 +3573,8 @@ fn tc_227_a_frame_field_entry_charges_its_effective_table_end_to_end() {
             .as_array()
             .expect("frame dependencies")
             .len();
-        value["lock"]["model_selections"][0]["digest"] = json!(digest);
         refresh_identity(&mut value);
-        let mut evidence = evidence_for(&value);
-        evidence
-            .insert_domain_package_document(digest.clone(), canonical(&document))
-            .expect("domain evidence declarations agree on exact bytes");
+        let evidence = evidence_with_document(&value, ORDERS, &document);
         let read = |work| {
             let mut limits = CheckedPackageReadLimits::bounded();
             limits.work = work;
@@ -4334,10 +4303,6 @@ fn settle_step_relation(package: &mut Value) {
 /// A source-declared relation over two executions of the selected Account operation.
 fn step_relation_package() -> Value {
     let mut package = with_postcondition(StatePackage::new(), None).value;
-    let model_digest = domain_package_digest(&step_model_document());
-    package["lock"]["model_selections"][0]["digest"] = json!(model_digest.clone());
-    let root = position(&package, "model", "model_root");
-    package["semantic_graph"]["nodes"][root]["owner"]["digest"] = json!(model_digest);
     let self_position = nodes(&package)
         .iter()
         .position(|node| {
@@ -4736,7 +4701,6 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
         edition: &preimage.edition,
         profile_selections: &preimage.profile_selections,
         definition_selections: &preimage.definition_selections,
-        model_selections: &preimage.model_selections,
         required_features: &preimage.required_features,
         dependency_selections: &preimage.dependency_selections,
         identity_projection: &admitted.graph().nodes,

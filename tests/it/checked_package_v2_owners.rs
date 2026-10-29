@@ -4,9 +4,9 @@
 //! Owner-wire admission and refusal cases built from this crate's public wire vocabulary.
 
 use crate::support::checked_package::{
-    application_node_key, bounds_body, canonical, evidence_for, integer_key, node_id,
-    refresh_identity, refresh_identity_projection, settle, sha256_hex, structural_key,
-    v2_all_families, v2_nominal,
+    application_node_key, bounds_body, canonical, evidence_for, evidence_with_document,
+    integer_key, node_id, refresh_identity, refresh_identity_projection, select_model, settle,
+    sha256_hex, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -98,10 +98,6 @@ fn model_package() -> (Value, Value) {
     });
     let id = node_id(&sha256_hex(&canonical(&preimage)));
     let mut package = v2_nominal();
-    package["lock"]["model_selections"] = json!([{
-        "identity": "acme/owners", "digest_domain": "sha256-jcs",
-        "digest": sha256_hex(&canonical(&document)),
-    }]);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -120,9 +116,22 @@ fn model_package() -> (Value, Value) {
             "node_id": id, "role": "type", "ordinal": 0,
             "regions": [{"source": source, "start": 10, "end": 11}],
         }));
+    select_model(&mut package, "acme/owners");
     refresh_identity(&mut package);
     keep_model_declaration_last(&mut package);
     (package, document)
+}
+
+/// The pointer of the owner of the `model_root` selecting `acme/owners`, where
+/// the reader locates a fault of the selected document.
+fn root_owner(package: &Value) -> String {
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("selected model root");
+    format!("/semantic_graph/nodes/{position}/owner")
 }
 
 fn keep_model_declaration_last(package: &mut Value) {
@@ -147,10 +156,7 @@ fn keep_model_declaration_last(package: &mut Value) {
 }
 
 fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadResult {
-    let mut evidence = evidence_for(package);
-    evidence
-        .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(package, "acme/owners", document);
     CheckedPackageV2::read(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
@@ -166,7 +172,6 @@ fn unit_field_document(type_ref: &str) -> (Value, Value) {
         "defaultKind": "none",
         "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
     }]);
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
     keep_model_declaration_last(&mut package);
     (package, document)
@@ -217,7 +222,7 @@ fn tc_230_selected_model_field_refuses_unknown_unit_type_ref() {
     assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
     assert_eq!(
         refusal.path.as_ref().map(ToString::to_string).as_deref(),
-        Some("/lock/model_selections/0"),
+        Some(root_owner(&package).as_str()),
     );
     assert!(refusal.locus.is_none());
 }
@@ -228,7 +233,6 @@ fn tc_230_checked_unit_field_obeys_collection_multiplicity() {
     let (mut package, mut document) = unit_field_document("ix://quire/unit/Example/Metre");
     document["types"][0]["fields"][0]["multiplicity"] =
         json!({"lower": 0, "ordered": false, "unique": true});
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
     let CheckedPackageV2ReadResult::Admitted(admitted) = read_with_model(&package, &document)
     else {
@@ -265,7 +269,6 @@ fn tc_230_checked_unit_field_obeys_collection_multiplicity() {
 fn tc_230_checked_unit_field_obeys_optional_presence() {
     let (mut package, mut document) = unit_field_document("ix://quire/unit/Example/Metre");
     document["types"][0]["fields"][0]["presence"] = json!("optional");
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
     let CheckedPackageV2ReadResult::Admitted(admitted) = read_with_model(&package, &document)
     else {
@@ -307,7 +310,6 @@ fn tc_230_selected_model_operation_parameter_and_result_resolve_checked_unit() {
         "identity": "ix://acme/owners/Point/advance",
         "params": [slot.clone()], "returns": slot,
     }]);
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
     assert!(matches!(
         read_with_model(&package, &document),
@@ -342,7 +344,6 @@ fn declared_population_package_for_owner(population: &str, owner_identity: &str)
         "acme/owners",
         "ix://acme/owners/Point",
     )]);
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
 
     let node = package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -393,7 +394,6 @@ fn tc_229_raw_population_record_joins_by_identity() {
             "inputIdentities": ["ix://acme/owners/counters"],
         }},
     }]);
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
 
     assert!(matches!(
@@ -407,7 +407,6 @@ fn tc_229_raw_population_record_joins_by_identity() {
 fn tc_229_population_node_without_identity_refuses_at_selection() {
     let (mut package, mut document) = declared_population_package();
     document["populations"] = json!([{"node": "ix://acme/owners/counters"}]);
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
 
     let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
@@ -418,10 +417,7 @@ fn tc_229_population_node_without_identity_refuses_at_selection() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
-    assert_eq!(
-        refusal.path.expect("path").as_str(),
-        "/lock/model_selections/0"
-    );
+    assert_eq!(refusal.path.expect("path").as_str(), root_owner(&package));
 }
 
 #[trace("TC-229", "FR-038-AC-304")]
@@ -429,7 +425,6 @@ fn tc_229_population_node_without_identity_refuses_at_selection() {
 fn tc_229_population_with_node_member_refuses_at_selection() {
     let (mut package, mut document) = declared_population_package();
     document["populations"][0]["node"] = document["populations"][0]["identity"].clone();
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
 
     let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
@@ -440,10 +435,7 @@ fn tc_229_population_with_node_member_refuses_at_selection() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
-    assert_eq!(
-        refusal.path.expect("path").as_str(),
-        "/lock/model_selections/0"
-    );
+    assert_eq!(refusal.path.expect("path").as_str(), root_owner(&package));
 }
 
 #[trace("TC-229", "FR-038-AC-304")]
@@ -454,7 +446,6 @@ fn tc_229_population_with_unresolved_construct_refuses() {
         .as_array_mut()
         .expect("constructs")
         .retain(|entry| entry["kind"]["name"] != "population");
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
 
     let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
@@ -472,7 +463,6 @@ fn tc_229_population_with_unresolved_construct_refuses() {
 fn tc_229_population_kind_with_wrong_meaning_refuses() {
     let (mut package, mut document) = declared_population_package();
     document["populations"][0]["kind"]["name"] = json!("entity");
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
 
     let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
@@ -948,7 +938,6 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
             None => {}
             Some(other) => panic!("unknown QSpec population document variant: {other}"),
         }
-        package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
         let owner = case["owner_node"]
             .as_str()
             .map(|node| json!({"kind":"model","identity":"acme/orders","node":node}));
@@ -1071,9 +1060,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 let locus = match id {
                     "population-entry-without-an-identity-refused"
                     | "population-entry-with-a-node-member-refused"
-                    | "population-entry-lacking-only-an-identity-refused" => {
-                        "/lock/model_selections/0".to_owned()
-                    }
+                    | "population-entry-lacking-only-an-identity-refused" => root_owner(&package),
                     "population-owned-by-an-object-type"
                     | "population-owned-by-an-undeclared-node"
                     | "population-without-an-owner" => {
@@ -1126,8 +1113,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
     assert_ne!(counters.2, archive.2);
 }
 
-fn owned_clause(mut package: Value, document: &Value, declared: &str, clause: &str) -> Value {
-    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(document)));
+fn owned_clause(mut package: Value, _document: &Value, declared: &str, clause: &str) -> Value {
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -1431,8 +1417,6 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
         }},
     }]);
     let mut wrong_kind = base.clone();
-    wrong_kind["lock"]["model_selections"][0]["digest"] =
-        json!(sha256_hex(&canonical(&relation_document)));
     wrong_kind["semantic_graph"]["nodes"][position]["owner"]["node"] = json!(relationship);
     refresh_identity(&mut wrong_kind);
     keep_model_declaration_last(&mut wrong_kind);
@@ -1456,8 +1440,6 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
         json!("quire.meaning.systems.interface/v1");
     interface_document["types"][0]["interfaceFeatures"] = json!({});
     let mut wrong_subtype = base.clone();
-    wrong_subtype["lock"]["model_selections"][0]["digest"] =
-        json!(sha256_hex(&canonical(&interface_document)));
     refresh_identity(&mut wrong_subtype);
     keep_model_declaration_last(&mut wrong_subtype);
     let CheckedPackageV2ReadResult::Refused(refusal) =
@@ -1624,13 +1606,11 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
-        .len()
-        - 1;
+        .iter()
+        .position(|node| node["node_tag"] == "model" && node["owner"]["kind"] == "model")
+        .expect("model-owned node");
     let owner_path = format!("/semantic_graph/nodes/{position}/node_id");
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(&package, "acme/owners", &document);
     let bytes = canonical(&package);
     for work in 0..4096 {
         let mut limits = CheckedPackageReadLimits::bounded();
@@ -1647,15 +1627,14 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
             assert_eq!(incomplete.consumed, work + 1);
             limits.work = work + 1;
             let next = CheckedPackageV2::read(&bytes, limits, &evidence);
-            // The owner join uses this charge. FR-038-AC-150 subsequently
-            // charges the structural key at the same node_id pointer.
+            // The owner join uses this charge; a structural-key visit follows.
             let CheckedPackageV2ReadResult::Incomplete(key_charge) = next else {
                 panic!("the structural-key visit follows the owner lookup");
             };
-            assert_eq!(
-                key_charge.path.as_ref().map(|path| path.as_str()),
-                Some(owner_path.as_str())
-            );
+            assert!(key_charge
+                .path
+                .as_ref()
+                .is_some_and(|path| path.as_str().ends_with("/node_id")));
             assert_eq!(key_charge.consumed, work + 2);
             return;
         }

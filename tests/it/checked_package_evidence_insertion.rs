@@ -4,8 +4,8 @@
 //! Public evidence insertion and first-value retention controls.
 
 use crate::support::checked_package::{
-    canonical, domain_package_digest, domain_package_document, evidence_for, family_key, node_id,
-    pointer, refresh_identity, rekey_application_node, v2_all_families, v2_nominal,
+    canonical, domain_package_document, evidence_for, family_key, node_id, pointer,
+    refresh_identity, rekey_application_node, select_model, v2_all_families, v2_nominal,
     COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
@@ -67,8 +67,8 @@ fn add_sentinels(evidence: &mut CheckedPackageEvidence) {
 
 fn expect_domain_conflict(result: Result<(), CheckedPackageEvidenceInsertionError>, key: &str) {
     match result {
-        Err(CheckedPackageEvidenceInsertionError::DomainDocumentConflict { digest }) => {
-            assert_eq!(digest.as_ref(), key);
+        Err(CheckedPackageEvidenceInsertionError::DomainDocumentConflict { identity }) => {
+            assert_eq!(identity.as_ref(), key);
         }
         other => panic!("expected keyed domain conflict: {other:?}"),
     }
@@ -85,10 +85,10 @@ fn expect_dependency_conflict(result: Result<(), CheckedPackageEvidenceInsertion
 
 fn domain_parent(document: &Value) -> Value {
     let mut parent = v2_nominal();
-    parent["lock"]["model_selections"] = json!([{
-        "identity": document["package"]["identity"],
-        "digest_domain": "sha256-jcs", "digest": domain_package_digest(document),
-    }]);
+    select_model(
+        &mut parent,
+        document["package"]["identity"].as_str().expect("identity"),
+    );
     refresh_identity(&mut parent);
     parent
 }
@@ -104,34 +104,40 @@ fn expect_stale(result: CheckedPackageV2ReadResult, path: &str, cause: CheckedPa
     let actual = refusal.actual.expect("supplied identity");
     assert_eq!(expected.algorithm.as_ref(), "sha256");
     assert_eq!(actual.algorithm.as_ref(), "sha256");
-    assert_eq!(
-        actual.domain.as_ref(),
-        if cause == CheckedPackageRefusalCause::ByteDigestMismatch {
-            "raw-artifact-digest"
-        } else if path == "/lock/model_selections/0/digest" {
-            "sha256-jcs"
-        } else {
-            "quire.package.semantic/v2"
-        }
-    );
+    assert_eq!(actual.domain.as_ref(), "quire.package.semantic/v2");
+}
+
+fn expect_refused(
+    result: CheckedPackageV2ReadResult,
+    code: CheckedPackageRefusalCode,
+    cause: CheckedPackageRefusalCause,
+) {
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("expected evidence refusal: {result:?}");
+    };
+    assert_eq!(refusal.code, code);
+    assert_eq!(refusal.cause, Some(cause));
+    assert!(refusal.expected.is_none() && refusal.actual.is_none());
 }
 
 #[trace("FR-047-AC-1", "FR-047-AC-2", "FR-047-AC-6")]
 #[test]
 fn domain_repeats_preserve_first_only_public_read_in_both_orders() {
     let document = domain_package_document("test/evidence", "1", Vec::new());
-    let different = domain_package_document("test/evidence", "2", Vec::new());
+    let different = domain_package_document("test/other", "1", Vec::new());
     let bytes = canonical(&document);
-    let key = domain_package_digest(&document);
+    let key = "test/evidence".to_owned();
     let parent = domain_parent(&document);
-    for (adverse, cause) in [
+    for (adverse, code, cause) in [
         (
             canonical(&different),
-            CheckedPackageRefusalCause::ContentMismatch,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            CheckedPackageRefusalCause::WrongModelSelection,
         ),
         (
             b"not JSON".to_vec(),
-            CheckedPackageRefusalCause::ByteDigestMismatch,
+            CheckedPackageRefusalCode::MalformedWire,
+            CheckedPackageRefusalCause::MalformedJson,
         ),
     ] {
         for valid_first in [true, false] {
@@ -150,7 +156,7 @@ fn domain_repeats_preserve_first_only_public_read_in_both_orders() {
             if valid_first {
                 require_admission(before.clone());
             } else {
-                expect_stale(before.clone(), "/lock/model_selections/0/digest", cause);
+                expect_refused(before.clone(), code, cause);
             }
             assert_eq!(
                 evidence.insert_domain_package_document(key.clone(), first.clone()),

@@ -47,7 +47,7 @@ The seam is described as what crosses it, how identity is asserted, which way de
 | Item | Direction | Owner | Notes |
 | --- | --- | --- | --- |
 | `quire.checked-package/v2` bytes: `contract_version`, `package_id`, `identity_preimage`, `lock`, `semantic_graph`, `source_map`, `diagnostics` | QSL (producer) to IR | QSpec FR-322 and FR-340 to FR-342 define the wire | IR holds no copy of QSpec files; it states the shape it admits in its own reader (`crates/quire-contract-model/src/checked_package/`) |
-| `CheckedPackageEvidence`: selected domain package documents (supplied under their `sha256-jcs` digest), dependency packages (already admitted), supported features | caller to IR | IR defines the type | only `lock.sources` rows carry a raw-source byte digest (`quire.source.bytes/v1`), which is not checked against evidence (the `sha256-jcs` digest of a `model_selections` row and the `package_id` of a dependency row are); definition references (`lock` selections, `diagnostics.catalog`, operation laws) are `{authority, identity}` with no revision or digest (FR-038 "Artifact references"); `package_id` is the content identity (`evidence.rs` doc) |
+| `CheckedPackageEvidence`: selected domain package documents (supplied under their identity), dependency packages (already admitted), supported features | caller to IR | IR defines the type | only `lock.sources` rows carry a raw-source byte digest (`quire.source.bytes/v1`), which is not checked against evidence (the `package_id` of a dependency row is); definition references (`lock` selections, `diagnostics.catalog`, operation laws) are `{authority, identity}` with no revision or digest (FR-038 "Artifact references"); `package_id` is the content identity (`evidence.rs` doc) |
 | `quire.checked-operation-catalog/v1`: the closed catalog every V2 `application` term's `operation` is validated against | `quire-verification-contracts` (owner) to IR | `quire-verification-contracts` | IR depends on that crate and owns only the reader; it holds no copy of the catalog (`v2/operation_catalog.rs`) |
 | `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits; no depth member, and no `CheckedPackageLimit::Depth` or `CheckedPackageReadLimits::MAXIMUM_DEPTH`, FR-038-AC-117 having removed them, a breaking change for a consumer across this seam that builds any of them) | caller to IR | IR | every member finite |
 | `CheckedPackageDispatchResult`: `AdmittedV2` / `Refused` / `Incomplete` | IR to caller | IR | typed code and RFC 6901 pointer on refusal |
@@ -88,10 +88,9 @@ codegen consumer adoption remains IR-744.
   bytes. `package_id` is the package's content identity: it binds a
   package to its content and is the value QSL's replay recomputes later. The wire carries other
   digests (application node keys, nominal identity digests, dependency `package_id`s, the lock's
-  raw-source digests; a definition reference carries none) and domain package documents carry `sha256-jcs` digests; these are
+  raw-source digests; a definition reference carries none) ; these are
   QSpec-owned identities of the package's parts, and IR adds none. A domain package document is
-  checked by recomputing its `sha256-jcs` digest from the supplied bytes, never by trusting the
-  digest it is supplied under.
+  supplied under its identity and checked to name that identity; it carries no digest.
 - There is no commit id, tool pin or version-tracking record on this seam, and IR checks none.
 
 ### Dependency direction
@@ -155,8 +154,7 @@ no backing test was measured here) or gap (not true today).
   `unknown_contract_version` before any version-specific decode. Current: FR-038 Description.
 - Q-3. The recomputed `package_id` equals the wire's for every admitted package; changing any
   byte of the preimage changes it or refuses. Current: FR-038-AC-4.
-- Q-4. A domain package document supplied under another document's digest is refused. Stated:
-  `CheckedPackageEvidence` doc; backing test not measured.
+- Q-4. A domain package document whose own identity differs from the identity it is supplied under is refused `invalid_model_binding`/`wrong-model-selection`. Stated: `CheckedPackageEvidence` doc; FR-038-AC-27.
 - Q-5. Every refusal carries a pointer that resolves in the given document, except a refusal of
   the byte stream. Stated: FR-038 pointer rules; backing test not measured.
 - Q-6. Every closed wire vocabulary is decoded into an enum once at intake and every later

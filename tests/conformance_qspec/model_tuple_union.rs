@@ -3,7 +3,7 @@
 
 //! The published tuple and payload-variant fixture through production intake.
 
-use super::{canonical_digest, fixtures_dir, proposal_dir_of, read_json};
+use super::{fixtures_dir, proposal_dir_of, read_json};
 use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
@@ -11,6 +11,17 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
+
+/// The refusal pointer of the first selected model root: its owner.
+fn root_owner_pointer(package: &Value) -> String {
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("a selected model root");
+    format!("/semantic_graph/nodes/{position}/owner")
+}
 
 /// Apply one published RFC 6902 operation. The vector's patch is the source of
 /// both the mutation and its expected package identity.
@@ -60,13 +71,16 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
         .as_str()
         .expect("selected Semantic IR document path");
     let selected = read_json(&proposal.join(selected_path)).expect("selected document");
-    let digest = canonical_digest(&selected);
-    assert_eq!(vectors["selection_digest"], digest);
     let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(digest, super::fixture_support::canonical(&selected))
+        .insert_domain_package_document(
+            selected["package"]["identity"]
+                .as_str()
+                .expect("document identity"),
+            super::fixture_support::canonical(&selected),
+        )
         .expect("selected document evidence");
     evidence.support_feature("quire.value.complete/v1");
     let rows = vectors["wire_cases"]
@@ -138,10 +152,14 @@ fn selected_declaration_rekey_preserves_independent_refusal_order() {
         .as_str()
         .expect("selected document path");
     let selected = read_json(&proposal.join(selected_path)).expect("selected document");
-    let digest = canonical_digest(&selected);
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(digest, super::fixture_support::canonical(&selected))
+        .insert_domain_package_document(
+            selected["package"]["identity"]
+                .as_str()
+                .expect("document identity"),
+            super::fixture_support::canonical(&selected),
+        )
         .expect("selected document evidence");
     evidence.support_feature("quire.value.complete/v1");
     let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
@@ -210,10 +228,14 @@ fn rekeyed_scalar_type_precedes_its_dependent_parameter_reference() {
         ),
     )
     .expect("selected document");
-    let digest = canonical_digest(&selected);
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(digest, super::fixture_support::canonical(&selected))
+        .insert_domain_package_document(
+            selected["package"]["identity"]
+                .as_str()
+                .expect("document identity"),
+            super::fixture_support::canonical(&selected),
+        )
         .expect("selected document evidence");
     evidence.support_feature("quire.value.complete/v1");
     let mut package = read_json(&fixtures.join("positive-model-tuple-union.json"))
@@ -463,14 +485,16 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
         let mut document = selected.clone();
         let mut package = base.clone();
         apply_published_intake_patch(&mut document, row);
-        let digest = canonical_digest(&document);
-        package["lock"]["model_selections"][0]["digest"] = json!(digest);
-        package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
         super::fixture_support::refresh_identity(&mut package);
 
         let mut evidence = CheckedPackageEvidence::new();
         evidence
-            .insert_domain_package_document(digest, super::fixture_support::canonical(&document))
+            .insert_domain_package_document(
+                document["package"]["identity"]
+                    .as_str()
+                    .expect("document identity"),
+                super::fixture_support::canonical(&document),
+            )
             .expect("selected document evidence");
         evidence.support_feature("quire.value.complete/v1");
         let result = CheckedPackageV2::read(
@@ -501,7 +525,7 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
         );
         assert_eq!(
             refusal.path.as_ref().map(ToString::to_string).as_deref(),
-            Some("/lock/model_selections/0"),
+            Some(root_owner_pointer(&package).as_str()),
             "{name}"
         );
         let projection_locus = expected["at"].as_str().expect("published refusal locus");
@@ -594,7 +618,6 @@ fn duration_projection_control(scenario: DurationCase) {
             "origin":origin
         }]);
     }
-    let digest = canonical_digest(&selected);
 
     let mut package = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
@@ -653,13 +676,16 @@ fn duration_projection_control(scenario: DurationCase) {
         package["semantic_graph"]["nodes"][11]["body"]["result_type"] = unit_id.clone();
         package["semantic_graph"]["nodes"][11]["semantic_type"] = unit_id.clone();
     }
-    package["lock"]["model_selections"][0]["digest"] = json!(digest);
-    package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
     super::fixture_support::rekey_application_node(&mut package, 11);
     super::fixture_support::refresh_identity(&mut package);
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(digest, super::fixture_support::canonical(&selected))
+        .insert_domain_package_document(
+            selected["package"]["identity"]
+                .as_str()
+                .expect("document identity"),
+            super::fixture_support::canonical(&selected),
+        )
         .expect("selected evidence");
     evidence.support_feature("quire.value.complete/v1");
     let expected_locus = package["semantic_graph"]["nodes"][11]["node_id"]["digest"]
@@ -819,13 +845,15 @@ fn combined_tuple_and_variant_defects_keep_published_intake_order() {
                 .expect("published intake row");
             apply_published_intake_patch(&mut document, row);
         }
-        let digest = canonical_digest(&document);
-        package["lock"]["model_selections"][0]["digest"] = json!(digest);
-        package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
         super::fixture_support::refresh_identity(&mut package);
         let mut evidence = CheckedPackageEvidence::new();
         evidence
-            .insert_domain_package_document(digest, super::fixture_support::canonical(&document))
+            .insert_domain_package_document(
+                document["package"]["identity"]
+                    .as_str()
+                    .expect("document identity"),
+                super::fixture_support::canonical(&document),
+            )
             .expect("selected document evidence");
         evidence.support_feature("quire.value.complete/v1");
         let result = CheckedPackageV2::read(
@@ -844,7 +872,7 @@ fn combined_tuple_and_variant_defects_keep_published_intake_order() {
         );
         assert_eq!(
             refusal.path.as_ref().map(ToString::to_string).as_deref(),
-            Some("/lock/model_selections/0"),
+            Some(root_owner_pointer(&package).as_str()),
             "{first}"
         );
         assert_eq!(
@@ -872,16 +900,15 @@ fn published_model_tuple_union_fixture_admits() {
     let document = read_json(&proposal.join(selected)).expect("selected full document");
     let package = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
-    let digest = canonical_digest(&document);
-    assert_eq!(vector["selection_digest"].as_str(), Some(digest.as_str()));
-    assert_eq!(
-        package["lock"]["model_selections"][0]["digest"].as_str(),
-        Some(digest.as_str())
-    );
 
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(digest, super::fixture_support::canonical(&document))
+        .insert_domain_package_document(
+            document["package"]["identity"]
+                .as_str()
+                .expect("document identity"),
+            super::fixture_support::canonical(&document),
+        )
         .expect("selected document evidence");
     evidence.support_feature("quire.value.complete/v1");
     let result = CheckedPackageV2::read(
@@ -928,14 +955,16 @@ fn unsupported_selected_variant_payloads_refuse_at_document_member() {
                     "scalar":"integer","constraints":[]}));
         }
         document["types"][5]["variants"][0]["payloadType"] = json!(payload_type);
-        let digest = canonical_digest(&document);
-        package["lock"]["model_selections"][0]["digest"] = json!(digest);
-        package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
         super::fixture_support::refresh_identity(&mut package);
 
         let mut evidence = CheckedPackageEvidence::new();
         evidence
-            .insert_domain_package_document(digest, super::fixture_support::canonical(&document))
+            .insert_domain_package_document(
+                document["package"]["identity"]
+                    .as_str()
+                    .expect("document identity"),
+                super::fixture_support::canonical(&document),
+            )
             .expect("selected document evidence");
         evidence.support_feature("quire.value.complete/v1");
         let result = CheckedPackageV2::read(
@@ -954,7 +983,7 @@ fn unsupported_selected_variant_payloads_refuse_at_document_member() {
         );
         assert_eq!(
             refusal.path.as_ref().map(ToString::to_string).as_deref(),
-            Some("/lock/model_selections/0"),
+            Some(root_owner_pointer(&package).as_str()),
             "{payload_type}",
         );
         assert_eq!(

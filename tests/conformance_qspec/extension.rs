@@ -17,13 +17,10 @@ fn read_with_retention_definition(
     {
         evidence.support_feature(feature.as_str().expect("feature"));
     }
-    for selection in package["lock"]["model_selections"]
-        .as_array()
-        .expect("model selections")
-    {
+    for identity in fixture_support::selected_model_identities(package) {
         evidence
             .insert_domain_package_document(
-                selection["digest"].as_str().expect("model digest"),
+                &identity,
                 serde_json::to_vec(document).expect("domain document bytes"),
             )
             .expect("domain evidence");
@@ -85,12 +82,6 @@ fn record_extension_case(actual: &str) -> (Value, Value, usize) {
                 "supertypes":supertypes, "fields":[], "operations":[]
             }));
     }
-    let digest = quire_canonical::sha256(&document, Limits::new(DERIVATION_CEILING))
-        .expect("selected document digest")
-        .to_string();
-    package["lock"]["model_selections"][0]["digest"] = json!(digest);
-    package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
-    fixture_support::ensure_model_roots(&mut package);
 
     let mut actual_id = Value::Null;
     for (offset, name) in ["Base", "Child", "Unrelated"].iter().enumerate() {

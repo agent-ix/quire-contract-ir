@@ -697,7 +697,7 @@ pub(super) fn validate_nominal_nodes(
         )?;
         match preimage {
             NominalIdentityPreimage::EnumDeclaration(declaration) => {
-                validate_enum_declaration(declaration, &site, lock, meter)?;
+                validate_enum_declaration(declaration, &site, &graph, lock, meter)?;
             }
             NominalIdentityPreimage::EnumMember(member) => {
                 validate_enum_member(&site, member, &graph)?;
@@ -1281,6 +1281,7 @@ impl NominalGraph<'_> {
 fn validate_owner(
     owner: &NominalOwner,
     lock: &CheckedPackageLockV2,
+    graph: &NominalGraph<'_>,
     at: impl FnOnce() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
     let joined = match owner {
@@ -1297,23 +1298,15 @@ fn validate_owner(
         } => lock.definition_selections.iter().any(|definition| {
             definition.authority == *authority && definition.identity == *identity
         }),
-        // The lock selects whole domain packages; the node is not a lock
-        // member, so the join is by package identity, and the owner's
-        // identity and node must each be nonempty (FR-038-AC-45). The owner
-        // is content-only: it carries no version, and neither does the lock's
-        // selection row, which binds by identity and digest. `validate_lock` refuses a
-        // `model_selections` array holding two entries with the same
-        // identity (a repeat or a different digest) before this join ever
-        // runs, so the lock guarantees at most one selection per model
-        // identity — that single-selection invariant is what makes joining
-        // by identity alone sound.
+        // A selected domain package is named by its `model_root` owner; the
+        // node is not a lock member, so the join is by package identity, and
+        // the owner's identity and node must each be nonempty (FR-038-AC-45).
+        // Each identity has at most one root, so joining by identity alone is
+        // sound.
         NominalOwner::Model { identity, node } => {
             !node.is_empty()
                 && !identity.is_empty()
-                && lock
-                    .model_selections
-                    .iter()
-                    .any(|model| model.identity == *identity)
+                && graph.selected_models.contains_key(identity.as_ref())
         }
     };
     require(joined, at)
@@ -1398,10 +1391,13 @@ fn validate_rational(
 fn validate_enum_declaration(
     declaration: &EnumDeclarationPreimage,
     site: &Site<'_>,
+    graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    validate_owner(&declaration.owner, lock, || site.preimage(&["owner"]))?;
+    validate_owner(&declaration.owner, lock, graph, || {
+        site.preimage(&["owner"])
+    })?;
     validate_qualified_name(&declaration.qualified_declaration, &|| {
         site.preimage(&["qualified_declaration"])
     })?;
@@ -1484,7 +1480,7 @@ fn validate_dimension(
     bytes: u64,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
-    validate_owner(&dimension.owner, lock, || site.preimage(&["owner"]))?;
+    validate_owner(&dimension.owner, lock, graph, || site.preimage(&["owner"]))?;
     validate_qualified_name(&dimension.qualified_declaration, &|| {
         site.preimage(&["qualified_declaration"])
     })?;
@@ -1540,7 +1536,7 @@ fn validate_unit(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
-    validate_owner(&unit.owner, lock, || site.preimage(&["owner"]))?;
+    validate_owner(&unit.owner, lock, graph, || site.preimage(&["owner"]))?;
     validate_qualified_name(&unit.qualified_declaration, &|| {
         site.preimage(&["qualified_declaration"])
     })?;

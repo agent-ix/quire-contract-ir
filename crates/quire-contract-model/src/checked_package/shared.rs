@@ -106,7 +106,7 @@ pub enum CheckedPackageRefusalCode {
     /// member's name resolves to two exposed effective members.
     AmbiguousDeclaration,
     /// The caller supplied no domain package document under a
-    /// `model_selections` digest (FR-154 admission, FR-322 "Model-owned
+    /// selected domain package identity (FR-154 admission, FR-322 "Model-owned
     /// members" step 1).
     MissingImport,
     /// `unknown_profile`: a temporal clause's `temporal_profile` law names no
@@ -198,14 +198,9 @@ pub enum CheckedPackageRefusalCause {
     /// effective members of its declaring type.
     AmbiguousName,
     /// `missing-selection`: no document is supplied under a selected domain
-    /// package digest, or a model declaration node's owner is not a
-    /// lock-selected domain package declaration.
+    /// package identity, or a model declaration node's owner names no
+    /// `model_root`.
     MissingSelection,
-    /// `digest-domain-mismatch`: a domain package selection's digest domain
-    /// is not `sha256-jcs`.
-    DigestDomainMismatch,
-    /// Unreadable selected model bytes have a different raw SHA-256 digest.
-    ByteDigestMismatch,
     /// `wrong-model-selection`: a supplied domain package document's own
     /// identity differs from its selection's.
     WrongModelSelection,
@@ -575,11 +570,7 @@ impl CheckedPackageRefusal {
         expected: CheckedSemanticId,
         actual: CheckedSemanticId,
     ) -> Self {
-        debug_assert!(matches!(
-            cause,
-            CheckedPackageRefusalCause::ContentMismatch
-                | CheckedPackageRefusalCause::ByteDigestMismatch
-        ));
+        debug_assert!(matches!(cause, CheckedPackageRefusalCause::ContentMismatch));
         let mut refusal = Self::new(RefusalFields {
             code: CheckedPackageRefusalCode::StaleDependency,
             path: Some(path),

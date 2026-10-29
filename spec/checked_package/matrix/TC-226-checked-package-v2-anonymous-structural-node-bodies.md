@@ -42,7 +42,7 @@ single mutation the criteria name (a body value, a body member, a
 patch `identity_projection`, recompute `package_id` through `quire-canonical`
 in the test and not through the reader, and read each mutated package. Also
 read the packages of AC-127 that pair a tampered node with another defect, and
-the AC-129 package whose `model_selections` row is re-pointed, with and
+the AC-129 package whose evidence holds a re-pointed document under the root's identity, with and
 without the other document in the evidence. Read the three QSpec positive
 fixtures of FR-038-AC-107 and the in-repo fixture packages with their derived
 keys (admit) and with one placeholder key restored on an undeclared

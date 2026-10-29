@@ -31,7 +31,7 @@ declaration nodes and package identity when a producer supplies them.
 ## Inputs
 
 Canonical checked-package V2 bytes and the selected Semantic IR document
-supplied under the package's `lock.model_selections` row; for writing, the
+supplied under the identity of the package's `model_root`; for writing, the
 existing typed V2 envelope members and an explicit canonical encoding limit.
 
 ## Outputs
@@ -147,7 +147,7 @@ silently skipped by an in-repo fixed count or range.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-069-AC-1 | The authoritative positive model tuple and union package admits with `model`/`tuple_value_type` declarations for `Pair`, `Swap`, `Nest` and `Cell`, owner-nested position identities, ordered zero-based positions and their exact type references; no position is a graph node or source-map key. The production reader's re-derived declaration node keys equal QSpec `model-tuple-union-vectors.json` and remain unchanged across aliases. | Test |
-| FR-069-AC-2 | Changing only a tuple position type or order changes the selected document digest, model-root key and package id while leaving the tuple declaration key unchanged; two named tuples of identical shape have distinct owner-derived keys. A test compares `(node key, model_selections row)` as the complete tuple type identity. | Test |
+| FR-069-AC-2 | Changing only a tuple position type or order changes the model-owned tuple declaration's content while leaving the tuple declaration key unchanged; two named tuples of identical shape have distinct owner-derived keys. A test compares the node key and the owning package identity as the complete tuple type identity. | Test |
 | FR-069-AC-3 | A `quire.op.tuple.project` over a selected model tuple resolves each valid position to the published type, including a tuple or union type reference; an out-of-range position or wrong declaring tuple refuses `ill_typed`/`operator-ineligible` at the application member. An anonymous structural tuple is not accepted as that model declaration. | Test |
 | FR-069-AC-4 | A payload-free variant has family `enum`; a mixed nullary/payload variant has family `union`, case order is ascending UTF-8 name, and payload cases retain exactly one resolved position-zero type. Adding or removing the first payload changes the selected document digest, model-root key and package id without changing the variant declaration key. | Test |
 | FR-069-AC-5 | The published `union_value`, `enum_value`, equality, case-arm and structural-leaf cases pass through the production reader: a nullary union case uses an empty-payload `union_value`; union-family `enum_value` and enum-family `union_value` refuse with the specified typed mismatch; recursive tuple/union declarations admit without a graph recursion group and their leaf walk terminates with QSpec's reachable-text rule. | Test |

@@ -90,9 +90,6 @@ fn published_selected_model_fixtures_carry_one_ordered_and_sourced_root() {
         "positive-timed-model-nodes.json",
     ] {
         let package = read_json(&fixtures_dir().join(name)).expect("published package");
-        let selections = package["lock"]["model_selections"]
-            .as_array()
-            .expect("selections");
         let nodes = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes");
@@ -110,25 +107,28 @@ fn published_selected_model_fixtures_carry_one_ordered_and_sourced_root() {
             .enumerate()
             .filter(|(_, node)| node["semantic_form"] == "model_root")
             .collect::<Vec<_>>();
+        assert!(!roots.is_empty(), "{name}: a selected root");
+        let identities = roots
+            .iter()
+            .map(|(_, root)| root["owner"]["identity"].as_str().expect("identity"))
+            .collect::<Vec<_>>();
+        let mut ordered = identities.clone();
+        ordered.sort_unstable();
+        ordered.dedup();
         assert_eq!(
-            roots.len(),
-            selections.len(),
-            "{name}: one root per selection"
+            identities, ordered,
+            "{name}: one root per identity, ordered"
         );
-        for (offset, selection) in selections.iter().enumerate() {
-            let (position, root) = roots[offset];
+        for (offset, (position, root)) in roots.iter().copied().enumerate() {
             assert_eq!(
                 position,
-                nodes.len() - selections.len() + offset,
+                nodes.len() - roots.len() + offset,
                 "{name}: root order"
             );
-            assert_eq!(
-                root["owner"]["identity"], selection["identity"],
-                "{name}: owner identity"
-            );
-            assert_eq!(
-                root["owner"]["digest"], selection["digest"],
-                "{name}: owner digest"
+            assert_eq!(root["owner"]["kind"], "model_root", "{name}: owner kind");
+            assert!(
+                root["owner"].get("digest").is_none(),
+                "{name}: owner carries no digest"
             );
             assert_eq!(
                 root["occurrences"],

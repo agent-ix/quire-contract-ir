@@ -289,14 +289,6 @@ fn timed_clause_published_vectors_match_reader() {
     let fixture = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
         .expect("published clause fixture");
     let document = proposal.join("domain-package-acme-timed-clauses.json");
-    let selected_document = read_json(&document).expect("selected clause document");
-    assert_eq!(
-        canonical_digest(&selected_document),
-        fixture["lock"]["model_selections"][0]["digest"]
-            .as_str()
-            .expect("model digest"),
-        "published fixture must select the changed document by its independently computed digest"
-    );
     for (ordinal, case) in cases.iter().enumerate() {
         let id = case["id"].as_str().expect("clause case id");
         assert_eq!(id, format!("CL-{:02}", ordinal + 1));
@@ -1105,7 +1097,6 @@ fn encode_package(package: &CheckedPackageV2) -> Vec<u8> {
         edition: &selected.edition,
         profile_selections: &selected.profile_selections,
         definition_selections: &selected.definition_selections,
-        model_selections: &selected.model_selections,
         required_features: &selected.required_features,
         dependency_selections: &selected.dependency_selections,
         identity_projection: &package.graph().nodes,

@@ -113,13 +113,17 @@ fn read_package_with_limits(
     let domain: Value = serde_json::from_slice(domain_package).expect("QSL domain package JSON");
     let domain_bytes = canonical(&domain);
     let mut evidence = CheckedPackageEvidence::new();
-    for selection in package["lock"]["model_selections"]
+    for root in package["semantic_graph"]["nodes"]
         .as_array()
-        .expect("QSL model selections")
+        .expect("QSL graph nodes")
+        .iter()
+        .filter(|node| node["semantic_form"] == "model_root")
     {
-        let digest = selection["digest"].as_str().expect("selected model digest");
+        let identity = root["owner"]["identity"]
+            .as_str()
+            .expect("selected model identity");
         evidence
-            .insert_domain_package_document(digest, domain_bytes.clone())
+            .insert_domain_package_document(identity, domain_bytes.clone())
             .expect("QSL domain model selection matches producer document");
     }
     evidence.support_feature(COMPLETE_VALUE_FEATURE);

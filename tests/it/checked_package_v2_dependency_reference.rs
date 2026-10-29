@@ -12,10 +12,10 @@
 //! fixture.
 
 use crate::support::checked_package::{
-    admitted_dependency, canonical, domain_package_digest, domain_package_document, family_key,
-    mint_ungrouped_structural_keys, node_id, nominal_package, over_body, pointer,
-    read_with_dependencies, rebuild_source_map, refresh_identity, rekey, rekey_application_node,
-    rename_node, settle, sha256_hex, source_owner, structural_key, v2_all_families, v2_nominal,
+    admitted_dependency, canonical, family_key, mint_ungrouped_structural_keys, node_id,
+    nominal_package, over_body, pointer, read_with_dependencies, rebuild_source_map,
+    refresh_identity, rekey, rekey_application_node, rename_node, select_model, settle, sha256_hex,
+    source_owner, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1128,11 +1128,7 @@ fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
     let fresh = rekey(&mut preimages, &keys);
     let members = preimages.into_iter().zip(fresh).collect::<Vec<_>>();
     let mut owned = nominal_package(&members);
-    let document = domain_package_document("test/orders", "1", Vec::new());
-    owned["lock"]["model_selections"] = json!([{
-        "identity": "test/orders",
-        "digest_domain": "sha256-jcs", "digest": domain_package_digest(&document),
-    }]);
+    select_model(&mut owned, "test/orders");
     refresh_identity(&mut owned);
     let enum_key = node_key(&owned, 0);
     let dependency = nominal_dependency(owned, &enum_key, |nodes| {

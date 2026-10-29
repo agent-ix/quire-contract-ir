@@ -828,7 +828,8 @@ fn check_resolved_path(
                 .recover(model_node)
                 .map_err(|_| fail(path_at.clone()))?;
             let declaration = expected_declaring.as_deref().unwrap_or_default();
-            let mut budget = Budget::new(meter, model_owner.selection, model_owner.package.bytes);
+            let mut budget =
+                Budget::new(meter, model_owner.package.root, model_owner.package.bytes);
             let resolved = model_owner
                 .package
                 .resolve(
@@ -1245,7 +1246,7 @@ fn frame_writes_clock(
         if declaration != &graph.nodes[model].node_id {
             continue;
         }
-        let mut budget = Budget::new(meter, model_owner.selection, model_owner.package.bytes);
+        let mut budget = Budget::new(meter, model_owner.package.root, model_owner.package.bytes);
         match model_owner
             .package
             .resolve(model_owner.node, MemberKind::Field, name, &mut budget)
@@ -2102,7 +2103,7 @@ pub(super) fn validate_models<'a>(
                         graph.issue(position, Cause::TimedNodeReference, binding_at(position, 2))
                     })?;
                     let mut budget =
-                        Budget::new(meter, model_owner.selection, model_owner.package.bytes);
+                        Budget::new(meter, model_owner.package.root, model_owner.package.bytes);
                     let declared = model_owner.package.resolve(
                         model_owner.node,
                         MemberKind::Operation,

@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! Selected model root shape and completeness for FR-065.
+//! Selected model root shape for FR-065.
 
-use super::{
-    member_pointer, CheckedNodeKind, CheckedNodeOwner, CheckedPackageLockV2, CheckedTerm,
-    ModelForm, RawSemanticNodeV2,
-};
+use super::{CheckedNodeKind, CheckedTerm, ModelForm, RawSemanticNodeV2};
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
 };
-use std::collections::BTreeSet;
 
 /// Checks the root's closed graph and occurrence shape before key derivation.
 pub(super) fn validate_shape(
@@ -61,38 +57,6 @@ pub(super) fn validate_shape(
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSourceMap,
                 at.key("occurrences").index(0).key("ordinal"),
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// Requires one authenticated root for each selected package, in lock order.
-pub(super) fn validate_completeness(
-    nodes: &[RawSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    lock: &CheckedPackageLockV2,
-) -> Result<(), ValidationFailure> {
-    let present: BTreeSet<(&str, &str)> = nodes
-        .iter()
-        .zip(kinds)
-        .filter_map(|(node, kind)| {
-            if *kind != CheckedNodeKind::Model(ModelForm::ModelRoot) {
-                return None;
-            }
-            match &node.owner {
-                Some(CheckedNodeOwner::ModelRoot { identity, digest }) => {
-                    Some((identity.as_ref(), digest.as_ref()))
-                }
-                _ => None,
-            }
-        })
-        .collect();
-    for selection in &lock.model_selections {
-        if !present.contains(&(selection.identity.as_ref(), selection.digest.as_ref())) {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                member_pointer(&["semantic_graph", "nodes"]),
             ));
         }
     }

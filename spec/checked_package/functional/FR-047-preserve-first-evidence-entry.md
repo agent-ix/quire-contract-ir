@@ -31,7 +31,7 @@ repeated builder calls.
 
 ## Inputs
 
-An existing mutable `CheckedPackageEvidence`; an exact supplied domain digest
+An existing mutable `CheckedPackageEvidence`; an exact supplied domain package identity
 string and document bytes for `insert_domain_package_document`; an exact
 supplied library identity string and already admitted `CheckedPackageV2` for
 `insert_dependency_package`; or an exact feature string for `support_feature`.
@@ -50,7 +50,7 @@ returns one of these closed variants:
 
 | Variant | Typed context |
 | --- | --- |
-| `DomainDocumentConflict { digest: Box<str> }` | The exact supplied occupied domain key. |
+| `DomainDocumentConflict { identity: Box<str> }` | The exact supplied occupied domain package identity. |
 | `DependencyPackageConflict { identity: Box<str> }` | The exact supplied occupied dependency key. |
 
 `support_feature` returns unit; it has no conflicting-value case.
@@ -79,7 +79,7 @@ key is occupied by different bytes, the evidence builder SHALL return
 `DomainDocumentConflict` carrying the exact key.
 
 Document equality means equal lengths and equal bytes at every position. It
-does not mean equal parsed JSON, canonical JSON, claimed digest or domain
+does not mean equal parsed JSON, canonical JSON, claimed identity or domain
 identity. Two encodings of the same JSON value with different whitespace
 therefore conflict under one key. Insertion neither parses nor canonicalizes
 either document.

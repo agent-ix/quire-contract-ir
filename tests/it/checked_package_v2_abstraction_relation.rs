@@ -14,8 +14,8 @@
 //! canonical bytes, and never through the reader.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_package, rebuild_source_map, refresh_identity,
-    settle, sha256_hex, structural_key, typed_node_id, INTEGER_KEY,
+    canonical, evidence_with_document, node_id, nominal_package, rebuild_source_map,
+    refresh_identity, select_model, settle, sha256_hex, structural_key, typed_node_id, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -229,20 +229,11 @@ fn object_types() -> Vec<String> {
         .collect()
 }
 
-/// The package every case builds on: the lock selects the domain document,
-/// and the graph holds the object type, population and scalar nodes the
+/// The package every case builds on: a model root selects the domain
+/// package, and the graph holds the object type, population and scalar nodes the
 /// relation nodes name.
 fn base() -> Value {
-    base_over(&domain_document())
-}
-
-/// [`base`] over a lock that selects `document`.
-fn base_over(document: &Value) -> Value {
     let mut package = nominal_package(&[]);
-    package["lock"]["model_selections"] = json!([{
-        "identity": IDENTITY, "digest_domain": "sha256-jcs",
-        "digest": sha256_hex(&canonical(document)),
-    }]);
     let mut nodes = vec![
         plain(
             INTEGER,
@@ -292,6 +283,7 @@ fn base_over(document: &Value) -> Value {
         nodes.push(node);
     }
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
+    select_model(&mut package, IDENTITY);
     settled(package)
 }
 
@@ -510,10 +502,7 @@ fn read(value: &Value) -> CheckedPackageV2ReadResult {
 
 /// Reads `value` with `document` supplied as the selected domain package.
 fn read_over(value: &Value, document: &Value) -> CheckedPackageV2ReadResult {
-    let mut evidence = evidence_for(value);
-    evidence
-        .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(value, IDENTITY, document);
     CheckedPackageV2::read(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
@@ -628,11 +617,8 @@ fn tc_227_an_abstraction_field_entry_charges_its_effective_table_end_to_end() {
             vec![],
             vec![],
         ));
-        let value = with_nodes(base_over(&document), vec![relation_node(&body)]);
-        let mut evidence = evidence_for(&value);
-        evidence
-            .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document))
-            .expect("domain evidence declarations agree on exact bytes");
+        let value = with_nodes(base(), vec![relation_node(&body)]);
+        let evidence = evidence_with_document(&value, IDENTITY, &document);
         let read = |work| {
             let mut limits = CheckedPackageReadLimits::bounded();
             limits.work = work;
@@ -1016,10 +1002,7 @@ fn tc_225_a_deeply_nested_member_refuses_as_the_wrong_shape() {
         node["body"]["objects"][0]["rust_type"] = nested;
     });
     let document = domain_document();
-    let mut evidence = evidence_for(&deep);
-    evidence
-        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(&deep, IDENTITY, &document);
     let bytes = canonical(&deep);
     let limits = CheckedPackageReadLimits::bounded();
     // The read runs on a stack far smaller than the frames a native recursion
@@ -1763,10 +1746,7 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
     };
     let valid_document = domain_document();
     let valid_relation = ordered(rebase(&[("from", "a"), ("to", "b")]));
-    let valid_value = with_nodes(
-        base_over(&valid_document),
-        vec![relation_node(&valid_relation)],
-    );
+    let valid_value = with_nodes(base(), vec![relation_node(&valid_relation)]);
     assert!(
         matches!(
             read_over(&valid_value, &valid_document),
@@ -1779,10 +1759,7 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
     second["identity"] = json!(format!("{CONFIG_VERSION}/rebase/From"));
     second["name"] = json!("From");
     let case_distinct_relation = ordered(rebase(&[("from", "a"), ("From", "b")]));
-    let case_distinct_value = with_nodes(
-        base_over(&case_distinct_document),
-        vec![relation_node(&case_distinct_relation)],
-    );
+    let case_distinct_value = with_nodes(base(), vec![relation_node(&case_distinct_relation)]);
     assert!(
         matches!(
             read_over(&case_distinct_value, &case_distinct_document),
@@ -1867,7 +1844,7 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
         ),
     ];
     for (case, document, relation, cause) in cases {
-        let value = with_nodes(base_over(&document), vec![relation_node(&relation)]);
+        let value = with_nodes(base(), vec![relation_node(&relation)]);
         let refusal = match read_over(&value, &document) {
             CheckedPackageV2ReadResult::Refused(refusal) => refusal,
             other => panic!("{case}: expected a refusal, read {other:?}"),
@@ -1880,7 +1857,16 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
         assert_eq!(refusal.cause, Some(cause), "{case}");
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
-            Some("/lock/model_selections/0"),
+            Some(
+                format!(
+                    "/semantic_graph/nodes/{}/owner",
+                    nodes(&value)
+                        .iter()
+                        .position(|node| node["semantic_form"] == "model_root")
+                        .expect("model root")
+                )
+                .as_str()
+            ),
             "{case}"
         );
         assert_eq!(refusal.locus.as_ref().map(|id| &*id.digest), None, "{case}");

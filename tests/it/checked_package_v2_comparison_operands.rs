@@ -52,8 +52,14 @@ fn run(program: &Path, arguments: &[&Path]) -> Vec<u8> {
 }
 
 fn selected_model(wire: &Value) -> &str {
-    wire.pointer("/lock/model_selections/0/digest")
-        .and_then(Value::as_str)
+    wire.pointer("/semantic_graph/nodes")
+        .and_then(Value::as_array)
+        .and_then(|nodes| {
+            nodes
+                .iter()
+                .find(|node| node["semantic_form"] == "model_root")
+        })
+        .and_then(|root| root["owner"]["identity"].as_str())
         .expect("ConfigVersion selects its domain model")
 }
 
@@ -93,15 +99,7 @@ fn selected_model_variant(
     expression: &str,
 ) -> PathBuf {
     let model_path = case.join("spine-model.semantic-ir.json");
-    let digest = quire_canonical::sha256(model, quire_canonical::Limits::new(1 << 20))
-        .expect("selected producer model digest")
-        .to_string();
-    let selected = original_unit
-        .split("digest \"sha256-jcs:")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .expect("producer model selection");
-    let unit = original_unit.replacen(selected, &digest, 1).replacen(
+    let unit = original_unit.replacen(
         "self.versionNumber = pre(self.versionNumber)",
         expression,
         1,

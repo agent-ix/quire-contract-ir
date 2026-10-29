@@ -305,28 +305,27 @@ fn read_package_with_document_and_extensions_at_limit(
                 .ok_or("a required feature is not a string")?,
         );
     }
-    let selections = package["lock"]["model_selections"]
+    // Each `model_root` owner selects a domain package by identity.
+    let roots = package["semantic_graph"]["nodes"]
         .as_array()
-        .ok_or_else(|| format!("{name}: lock.model_selections is not an array"))?;
-    for selection in selections {
-        let identity = selection["identity"]
+        .ok_or_else(|| format!("{name}: semantic_graph.nodes is not an array"))?
+        .iter()
+        .filter(|node| node["semantic_form"] == "model_root");
+    for root in roots {
+        let identity = root["owner"]["identity"]
             .as_str()
-            .ok_or_else(|| format!("{name}: model selection has no identity"))?;
+            .ok_or_else(|| format!("{name}: model root has no identity"))?;
         if identity != "acme/orders" {
             return Err(format!(
                 "{name}: unknown selected model identity {identity}"
             ));
         }
-        let digest = selection["digest"]
-            .as_str()
-            .filter(|digest| !digest.is_empty())
-            .ok_or_else(|| format!("{name}: model selection {identity} has no digest"))?;
         let document = std::fs::read(domain_document)
             .map_err(|error| format!("{} cannot be read: {error}", domain_document.display()))?;
         serde_json::from_slice::<Value>(&document)
             .map_err(|error| format!("{} is not JSON: {error}", domain_document.display()))?;
         evidence
-            .insert_domain_package_document(digest, document)
+            .insert_domain_package_document(identity, document)
             .map_err(|error| format!("{name}: evidence insertion failed: {error}"))?;
     }
     Ok(CheckedPackageV2::read(&bytes, limits, &evidence))
@@ -399,8 +398,6 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::DeclarationNominalMismatch => "declaration-nominal-mismatch",
         Cause::AmbiguousName => "ambiguous-name",
         Cause::MissingSelection => "missing-selection",
-        Cause::DigestDomainMismatch => "digest-domain-mismatch",
-        Cause::ByteDigestMismatch => "byte-digest-mismatch",
         Cause::WrongModelSelection => "wrong-model-selection",
         Cause::ConflictingBinding => "conflicting-binding",
         Cause::UnpreservedModelMeaning => "unpreserved-model-meaning",
@@ -582,7 +579,6 @@ fn derived_with(package: &Value, selections: Option<&Value>) -> Result<String, S
         edition: &preimage.edition,
         profile_selections: &preimage.profile_selections,
         definition_selections: &preimage.definition_selections,
-        model_selections: &preimage.model_selections,
         required_features: &preimage.required_features,
         dependency_selections: &preimage.dependency_selections,
         identity_projection: &graph.nodes,
@@ -837,8 +833,8 @@ fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() 
 }
 
 /// Read one QSpec positive package with the selected domain document, if any.
-/// The document is supplied under the selection's own digest; the production
-/// reader verifies that claim against its bytes.
+/// The document is supplied under the selected package identity; the
+/// production reader checks that it names that identity.
 fn read_positive(
     fixtures: &Path,
     name: &str,
@@ -938,19 +934,17 @@ fn tc_048_qspec_positive_inputs_fail_closed() {
     assert!(malformed.contains("is not JSON"), "{malformed}");
     let package = read_json(&fixtures.join(base)).expect("published positive package");
     let mut unknown = package.clone();
-    unknown["lock"]["model_selections"][0]["identity"] = json!("acme/unknown");
+    for node in unknown["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["semantic_form"] == "model_root" {
+            node["owner"]["identity"] = json!("acme/unknown");
+        }
+    }
     let refused = read_positive_package(unknown, base, &document)
         .expect_err("unknown selected model must fail");
     assert!(refused.contains("acme/unknown"), "{refused}");
-    let mut absent_digest = package.clone();
-    absent_digest["lock"]["model_selections"][0]
-        .as_object_mut()
-        .expect("published selection")
-        .remove("digest");
-    let refused = read_positive_package(absent_digest, base, &document)
-        .expect_err("selection without digest must fail");
-    assert!(refused.contains("acme/orders"), "{refused}");
-    assert!(refused.contains("no digest"), "{refused}");
     let mut changed_package_id = package;
     changed_package_id["package_id"]["digest"] = json!("0".repeat(64));
     let refused = read_positive_package(changed_package_id, base, &document)

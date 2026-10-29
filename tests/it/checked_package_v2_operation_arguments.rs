@@ -13,9 +13,9 @@
 //! the reader's own derivation keys a node.
 
 use crate::support::checked_package::{
-    application_node_key, canonical, evidence_for, fixture_source, node_id, nominal_package,
-    pointer, rebuild_source_map, refresh_identity, rekey_application_node, sha256_hex,
-    source_owner,
+    application_node_key, canonical, fixture_source, node_id, nominal_package, pointer,
+    rebuild_source_map, refresh_identity, rekey_application_node, select_model,
+    selected_model_identities, sha256_hex, source_owner, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -650,29 +650,24 @@ impl Scene {
                 .to_owned()
         });
         let mut package = nominal_package(&[]);
-        package["lock"]["model_selections"] = Value::Array(
-            documents
-                .iter()
-                .map(|document| {
-                    json!({
-                        "identity": document["package"]["identity"],
-                        "digest_domain": "sha256-jcs",
-                        "digest": sha256_hex(&canonical(document)),
-                    })
-                })
-                .collect(),
-        );
+        for document in &documents {
+            select_model(
+                &mut package,
+                document["package"]["identity"].as_str().expect("identity"),
+            );
+        }
         package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes")
             .extend(self.nodes);
         rebuild_source_map(&mut package);
         refresh_identity(&mut package);
-        let mut evidence = evidence_for(&package);
+        let mut evidence = CheckedPackageEvidence::new();
+        evidence.support_feature(COMPLETE_VALUE_FEATURE);
         for document in &documents {
             evidence
                 .insert_domain_package_document(
-                    sha256_hex(&canonical(document)),
+                    document["package"]["identity"].as_str().expect("identity"),
                     canonical(document),
                 )
                 .expect("distinct argument document key");
@@ -985,11 +980,23 @@ fn tc_448_conformance_charges_every_reachable_supertype_edge_once() {
             // The walk is charged at the selection row of the document that
             // declares the expected record: that many more limits run out there.
             let at_row = |case: &Case, total: u64| {
+                // The first selected document, by identity, owns the row.
+                let roots = selected_model_identities(&case.package);
+                let first = roots.iter().min().expect("a selected model");
+                let position = case.package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("nodes")
+                    .iter()
+                    .position(|node| {
+                        node["semantic_form"] == "model_root" && node["owner"]["identity"] == *first
+                    })
+                    .expect("model root");
+                let row = format!("/semantic_graph/nodes/{position}/owner");
                 (0..total)
                     .filter(|limit| match case.read_at(Some(*limit)) {
                         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
                             incomplete.path.map(|path| path.to_string()).as_deref()
-                                == Some("/lock/model_selections/0")
+                                == Some(row.as_str())
                         }
                         _ => false,
                     })

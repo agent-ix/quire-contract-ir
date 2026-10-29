@@ -28,7 +28,6 @@ fn write(read: &CheckedPackageV2) -> Value {
         edition: &selection.edition,
         profile_selections: &selection.profile_selections,
         definition_selections: &selection.definition_selections,
-        model_selections: &selection.model_selections,
         required_features: &selection.required_features,
         dependency_selections: &selection.dependency_selections,
         identity_projection: &read.graph().nodes,
@@ -120,20 +119,9 @@ fn rekey_application_with_references(package: &mut Value, position: usize) {
     fixture_support::rekey_application_node(package, position);
 }
 
-fn select_model_document(package: &mut Value, document: &Value) -> String {
-    let digest = quire_canonical::sha256(document, Limits::new(DERIVATION_CEILING))
-        .expect("selected document digest")
-        .to_string();
-    package["lock"]["model_selections"][0]["digest"] = json!(digest);
-    package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
-    fixture_support::refresh_identity(package);
-    digest
-}
-
 fn read_with_selected_model_document(
     package: &Value,
     document: &Value,
-    digest: &str,
 ) -> CheckedPackageV2ReadResult {
     let mut evidence = CheckedPackageEvidence::new();
     for feature in package["lock"]["required_features"]
@@ -144,7 +132,7 @@ fn read_with_selected_model_document(
     }
     evidence
         .insert_domain_package_document(
-            digest,
+            "acme/orders",
             serde_json::to_vec(document).expect("selected document bytes"),
         )
         .expect("selected model evidence");
@@ -992,9 +980,8 @@ fn selected_optional_boolean_field_refuses_at_the_transition() {
         .find(|field| field["identity"] == "ix://acme/orders/Switch/on")
         .expect("selected on field");
     on["presence"] = json!("optional");
-    let digest = select_model_document(&mut package, &document);
     let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_with_selected_model_document(&package, &document, &digest)
+        read_with_selected_model_document(&package, &document)
     else {
         panic!("optional Boolean model field cannot be a transition subject");
     };
@@ -1077,9 +1064,8 @@ fn two_boolean_inputs_must_follow_the_selected_operation_order() {
         .expect("transition inputs")
         .insert(0, json!({"term":"reference","target":other_id}));
     refresh_transition(&mut package, position);
-    let digest = select_model_document(&mut package, &document);
     let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_with_selected_model_document(&package, &document, &digest)
+        read_with_selected_model_document(&package, &document)
     else {
         panic!("reversed Boolean inputs must refuse");
     };

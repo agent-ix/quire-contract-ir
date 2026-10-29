@@ -710,10 +710,12 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
             .clone();
         selected["dependencies"] = json!([]);
         nodes.as_array_mut().expect("nodes").push(selected);
-    } else {
-        value["lock"]["model_selections"] = json!([]);
     }
     value["semantic_graph"]["nodes"] = nodes;
+    if composite_form == "reference" {
+        // The selected Account is declared by the families model.
+        checked_package::select_model(&mut value, "test/families");
+    }
     checked_package::rebuild_source_map(&mut value);
     refresh_identity(&mut value);
     Forms {

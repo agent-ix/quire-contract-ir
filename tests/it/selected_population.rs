@@ -60,13 +60,15 @@ fn admitted(package: &Value, domain: &Value) -> CheckedPackageV2 {
     let domain_bytes = quire_canonical::to_vec(domain, quire_canonical::Limits::new(1 << 30))
         .expect("QSL domain package is canonicalizable");
     let mut evidence = CheckedPackageEvidence::new();
-    for selection in package["lock"]["model_selections"]
+    for root in package["semantic_graph"]["nodes"]
         .as_array()
-        .expect("QSL model selections")
+        .expect("QSL graph nodes")
+        .iter()
+        .filter(|node| node["semantic_form"] == "model_root")
     {
-        let digest = selection["digest"].as_str().expect("model digest");
+        let identity = root["owner"]["identity"].as_str().expect("model identity");
         evidence
-            .insert_domain_package_document(digest, domain_bytes.clone())
+            .insert_domain_package_document(identity, domain_bytes.clone())
             .expect("selected domain package evidence");
     }
     evidence.support_feature("quire.value.complete/v1");

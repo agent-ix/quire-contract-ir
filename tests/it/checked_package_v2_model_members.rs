@@ -12,9 +12,10 @@
 //! from FR-322's and QSL FR-092's preimages; nothing of QSpec is copied in.
 
 use crate::support::checked_package::{
-    application_node_key, bounds_body, canonical, evidence_for, node_id, nominal_fixture_members,
-    nominal_package, over_body, pointer, rebuild_source_map, refresh_identity,
-    refresh_identity_projection, refusal_bytes, refusal_cause, settle, sha256_hex, ExpectedRefusal,
+    application_node_key, bounds_body, canonical, evidence_for, evidence_with_document, node_id,
+    nominal_fixture_members, nominal_package, over_body, pointer, rebuild_source_map,
+    refresh_identity, refusal_bytes, refusal_cause, select_model, settle, sha256_hex,
+    ExpectedRefusal, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -22,7 +23,7 @@ use quire_contract_model::{
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedRelationshipEnd, CheckedRelationshipEndError,
-    CheckedSemanticId, CheckedSemanticNodeV2,
+    CheckedSemanticNodeV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -160,26 +161,35 @@ fn package_over(
     document: &Value,
     name: &str,
 ) -> (Value, quire_contract_model::CheckedPackageEvidence) {
-    let digest = sha256_hex(&canonical(document));
-    let package = package_selecting(name, &digest);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let package = package_selecting(name);
+    let evidence = evidence_with_document(&package, IDENTITY, document);
     (package, evidence)
 }
 
-/// [`package_over`]'s package, whose one `model_selections` row names `digest`.
-fn package_selecting(name: &str, digest: &str) -> Value {
-    package_selecting_form(name, digest, "object_type", ORDER)
+/// [`package_over`]'s package, whose one `model_root` selects [`IDENTITY`].
+fn package_selecting(name: &str) -> Value {
+    package_selecting_form(name, "object_type", ORDER)
 }
 
-fn package_selecting_form(name: &str, digest: &str, form: &str, declaring: &str) -> Value {
+/// The position of the `model_root` of [`IDENTITY`] in `package`.
+fn root_position(package: &Value) -> usize {
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == IDENTITY
+        })
+        .expect("selected root")
+}
+
+/// The pointer of the selected root's owner, where document faults are located.
+fn root_owner(package: &Value) -> String {
+    format!("/semantic_graph/nodes/{}/owner", root_position(package))
+}
+
+fn package_selecting_form(name: &str, form: &str, declaring: &str) -> Value {
     let mut package = nominal_package(&[]);
-    package["lock"]["model_selections"] = json!([{
-        "identity": IDENTITY,
-        "digest_domain": "sha256-jcs", "digest": digest,
-    }]);
 
     let order = structural_key(
         "model",
@@ -245,6 +255,7 @@ fn package_selecting_form(name: &str, digest: &str, form: &str, declaring: &str)
         .expect("nodes")
         .extend(nodes);
     rebuild_source_map(&mut package);
+    select_model(&mut package, IDENTITY);
     refresh_identity(&mut package);
     package
 }
@@ -391,9 +402,7 @@ fn selected_tuple_and_payload_variant_declarations_admit() {
 fn selected_payload_variant_uses_union_family_in_binary_operations() {
     let mut document = variant_document_named(TIER, &["Gold", "2x"]);
     document["types"][1]["variants"][0]["payloadType"] = json!("ix://quire/native/Integer");
-    let digest = sha256_hex(&canonical(&document));
     let (mut package, _, variant_key) = variant_package(&["Gold", "2x"], &[], false);
-    package["lock"]["model_selections"][0]["digest"] = json!(digest);
     let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
     let (left, left_node) = parameter("left", "3", &variant_key);
     let (right, right_node) = parameter("right", "4", &variant_key);
@@ -423,10 +432,7 @@ fn selected_payload_variant_uses_union_family_in_binary_operations() {
     equality["occurrences"] = json!([{"role":"expression","ordinal":0}]);
     nodes.push(equality);
     settle(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(&document))
-        .expect("payload variant selected document");
+    let evidence = evidence_with_document(&package, IDENTITY, &document);
     let result = read(&package, &evidence);
     assert!(
         matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
@@ -642,25 +648,20 @@ fn selected_variant_case_keys_bind_exact_case_and_declaration() {
         rank["semantic_graph"]["nodes"][9]["node_id"],
     );
 
-    // A selected document's display alias changes its digest, but the
+    // A selected document's display alias changes its content, but the
     // declaration identity and exact case still determine the member key.
     let mut alias_document = variant_document_named(TIER, &["Gold", "Gold Plus", "2x", "Café"]);
     alias_document["types"][1]["displayName"] = json!("Level");
-    let alias_digest = sha256_hex(&canonical(&alias_document));
     let mut alias_package = tier.clone();
-    alias_package["lock"]["model_selections"][0]["digest"] = json!(alias_digest);
     refresh_identity(&mut alias_package);
-    let mut alias_evidence = evidence_for(&alias_package);
-    alias_evidence
-        .insert_domain_package_document(alias_digest, canonical(&alias_document))
-        .expect("distinct alias document key");
+    let alias_evidence = evidence_with_document(&alias_package, IDENTITY, &alias_document);
     assert!(matches!(
         read(&alias_package, &alias_evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     assert_eq!(
         tier_nodes[9]["node_id"],
-        alias_package["semantic_graph"]["nodes"][8]["node_id"],
+        alias_package["semantic_graph"]["nodes"][9]["node_id"],
     );
 }
 
@@ -806,7 +807,7 @@ fn selected_variant_refuses_absent_case_and_empty_declaration() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
-    assert_eq!(refusal.path, Some(pointer("/lock/model_selections/0")));
+    assert_eq!(refusal.path, Some(pointer(&root_owner(&package))));
 }
 
 #[trace("TC-048", "FR-038-AC-236")]
@@ -835,32 +836,6 @@ fn selected_variant_requires_its_exact_model_owner() {
         );
         assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/5/owner")));
     }
-}
-
-#[trace("TC-048", "FR-038-AC-238")]
-#[test]
-fn selected_variant_cases_are_bound_to_the_selected_document_digest() {
-    let (package, _, _) = variant_package(&["Gold"], &["Gold"], false);
-    let digest = package["lock"]["model_selections"][0]["digest"]
-        .as_str()
-        .expect("selection digest");
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(
-            digest,
-            canonical(&variant_document_named(TIER, &["Silver"])),
-        )
-        .expect("distinct selected document key");
-    let refusal = refused(&package, &evidence);
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::StaleDependency);
-    assert_eq!(
-        refusal.cause,
-        Some(CheckedPackageRefusalCause::ContentMismatch)
-    );
-    assert_eq!(
-        refusal.path,
-        Some(pointer("/lock/model_selections/0/digest"))
-    );
 }
 
 /// The position of the `dispatch_call` application in [`package_over`]'s graph.
@@ -904,8 +879,7 @@ fn relationship_operation_package(
     reaches: bool,
 ) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     let document = domain_document(json!({"relationships": [relationship]}));
-    let digest = sha256_hex(&canonical(&document));
-    let mut package = package_selecting("total", &digest);
+    let mut package = package_selecting("total");
     let relationship_key = structural_key(
         "relation",
         "relationship",
@@ -993,10 +967,7 @@ fn relationship_operation_package(
     }
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(&document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(&package, IDENTITY, &document);
     (package, evidence)
 }
 
@@ -1134,14 +1105,9 @@ fn navigation_with_result(
         &result_type,
         &call["body"],
     ));
-    let digest = sha256_hex(&canonical(&document));
-    package["lock"]["model_selections"][0]["digest"] = json!(digest);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(&document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(&package, IDENTITY, &document);
     (package, evidence)
 }
 
@@ -1263,14 +1229,9 @@ fn reaches_over(
             .expect("Boolean"),
         &nodes[CALL]["body"],
     ));
-    let digest = sha256_hex(&canonical(&document));
-    package["lock"]["model_selections"][0]["digest"] = json!(digest);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(&document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(&package, IDENTITY, &document);
     (package, evidence)
 }
 
@@ -1898,7 +1859,7 @@ fn tc_048_selected_relationship_declaration_refusals_precede_navigation() {
         );
         assert_eq!(
             refusal.path.as_ref().map(ToString::to_string).as_deref(),
-            Some("/lock/model_selections/0")
+            Some(root_owner(&package).as_str())
         );
     }
     let mut no_inverse = authored_relationship();
@@ -1952,12 +1913,8 @@ fn selected_flow_process_go_resolves_its_operation_and_reference_receiver() {
         "identity":format!("{flow}/advance"), "name":"advance",
         "stepKind":"command", "consumes":[], "emits":[]
     }]);
-    let digest = sha256_hex(&canonical(&document));
-    let package = package_selecting_form("go", &digest, "process", &flow);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(&document))
-        .expect("selected process");
+    let package = package_selecting_form("go", "process", &flow);
+    let evidence = evidence_with_document(&package, IDENTITY, &document);
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
         panic!("selected Flow.go and Reference<Flow> must admit");
     };
@@ -1977,8 +1934,7 @@ fn unit_dispatch_call(
     if result_unit {
         document["types"][0]["operations"][0]["returns"] = slot(None, "ix://quire/unit/ms");
     }
-    let digest = sha256_hex(&canonical(&document));
-    let mut package = package_selecting("total", &digest);
+    let mut package = package_selecting("total");
     let mut members = nominal_fixture_members();
     let unit = members
         .iter_mut()
@@ -2023,10 +1979,7 @@ fn unit_dispatch_call(
     }
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(&document))
-        .expect("domain evidence");
+    let evidence = evidence_with_document(&package, IDENTITY, &document);
     (package, evidence)
 }
 
@@ -2094,17 +2047,12 @@ fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes
     }
 
     // A document that differs only in content the keys do not read (its
-    // display name), so the selected row's digest changes and its version
-    // does not: the keys are unchanged (FR-038-AC-45).
+    // display name): the keys are unchanged (FR-038-AC-45).
     let renamed = domain_document(json!({"displayName": "Order renamed"}));
     let (digest_only, digest_evidence) = package_over(&renamed, "total");
-    assert_ne!(
-        selected["lock"]["model_selections"][0]["digest"],
-        digest_only["lock"]["model_selections"][0]["digest"]
-    );
     match read(&digest_only, &digest_evidence) {
         CheckedPackageV2ReadResult::Admitted(_) => {}
-        other => panic!("expected admission under the changed digest, got {other:?}"),
+        other => panic!("expected admission under the changed document, got {other:?}"),
     }
     let declarations = |package: &Value| {
         package["semantic_graph"]["nodes"]
@@ -2169,10 +2117,9 @@ fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
     ));
 }
 
-/// A selection binds by identity and content digest: the document's own
+/// A selection binds by identity: the document's own
 /// `package.version` is neither required nor read, so a matching document
-/// with no version, a non-string one or any string admits, each document
-/// selected under its own digest. The model-owned node keys carry no version
+/// with no version, a non-string one or any string admits. The model-owned node keys carry no version
 /// by construction (the owner is `{kind, identity, node}`, pinned by
 /// `tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes`),
 /// so admission per version is the oracle here, not graph equality.
@@ -2188,7 +2135,6 @@ fn tc_048_a_selected_document_needs_no_package_version() {
         };
         document
     };
-    let mut digests = std::collections::BTreeSet::new();
     for (case, version) in [
         ("version 1.0.0", Some(json!("1.0.0"))),
         ("version 2.0.0", Some(json!("2.0.0"))),
@@ -2201,13 +2147,9 @@ fn tc_048_a_selected_document_needs_no_package_version() {
             CheckedPackageV2ReadResult::Admitted(_) => {}
             other => panic!("{case}: expected admission, got {other:?}"),
         }
-        digests.insert(package["lock"]["model_selections"][0]["digest"].to_string());
     }
-    // Each document differs only in its version, so each is selected under
-    // its own digest: the admissions above are five distinct bindings.
-    assert_eq!(digests.len(), 5, "each version case is its own document");
 
-    // A document naming another identity is refused at the row's identity,
+    // A document naming another identity is refused at the root's identity,
     // whatever its version.
     let mut other = versioned(Some(json!("1.0.0")));
     other["package"]["identity"] = json!("acme/other");
@@ -2216,7 +2158,7 @@ fn tc_048_a_selected_document_needs_no_package_version() {
         refused(&package, &evidence),
         refusal_cause(
             CheckedPackageRefusalCode::InvalidModelBinding,
-            "/lock/model_selections/0/identity",
+            &format!("{}/identity", root_owner(&package)),
             CheckedPackageRefusalCause::WrongModelSelection
         )
     );
@@ -2240,19 +2182,17 @@ fn tc_048_a_model_owned_operation_the_document_does_not_declare_refuses() {
 
 #[trace("TC-048", "FR-038-AC-27", "FR-038-AC-28")]
 #[test]
-fn tc_048_a_declaration_refusal_is_located_at_its_model_selection_row() {
+fn tc_048_a_declaration_refusal_is_located_at_its_model_root() {
     let dangling = domain_document(json!({"supertypes": ["ix://acme/orders/Nope"]}));
     let (package, evidence) = package_over(&dangling, "total");
     assert_eq!(
         refused(&package, &evidence),
         refusal_cause(
             CheckedPackageRefusalCode::MissingDeclaration,
-            "/lock/model_selections/0",
+            &root_owner(&package),
             CheckedPackageRefusalCause::MissingName
         )
     );
-    // The refusal is the document's, not a stale-digest one: the same
-    // document, named by its own digest, was supplied and admitted.
 }
 
 #[trace("TC-048", "FR-038-AC-30")]
@@ -2272,7 +2212,7 @@ fn tc_048_reading_a_domain_package_is_charged_to_the_work_limit() {
             assert_eq!(limit, 0);
             assert_eq!(
                 path.map(|path| path.to_string()).as_deref(),
-                Some("/lock/model_selections/0")
+                Some(root_owner(&package).as_str())
             );
         }
         other => panic!("expected an incomplete read, got {other:?}"),
@@ -2291,14 +2231,15 @@ fn document_bytes_with_number(member: &str, number: &str) -> Vec<u8> {
         .into_bytes()
 }
 
-/// A read of a package whose one selection row names `digest`, with `bytes`
-/// supplied under it.
-fn read_selecting(digest: &str, bytes: &[u8]) -> CheckedPackageV2ReadResult {
-    let package = package_selecting("total", digest);
-    let mut evidence = evidence_for(&package);
+/// A read of a package whose one root selects [`IDENTITY`], with `bytes`
+/// supplied as its document.
+fn read_selecting(bytes: &[u8]) -> CheckedPackageV2ReadResult {
+    let package = package_selecting("total");
+    let mut evidence = quire_contract_model::CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(digest.to_owned(), bytes.to_vec())
+        .insert_domain_package_document(IDENTITY.to_owned(), bytes.to_vec())
         .expect("domain evidence declarations agree on exact bytes");
+    evidence.support_feature(COMPLETE_VALUE_FEATURE);
     read(&package, &evidence)
 }
 
@@ -2307,7 +2248,7 @@ fn number_refusal(document_pointer: &str, cause: CheckedPackageRefusalCause) -> 
         document_pointer: Some(pointer(document_pointer)),
         ..refusal_cause(
             CheckedPackageRefusalCode::NoncanonicalWire,
-            "/lock/model_selections/0/digest",
+            &format!("{}/identity", root_owner(&package_selecting("total"))),
             cause,
         )
     }
@@ -2316,7 +2257,6 @@ fn number_refusal(document_pointer: &str, cause: CheckedPackageRefusalCause) -> 
 #[trace("TC-048", "FR-038-AC-93")]
 #[test]
 fn tc_048_a_model_document_number_past_2_pow_53_refuses_with_its_document_pointer() {
-    let other = "ab".repeat(32);
     for text in [
         "9007199254740993",
         "-9007199254740993",
@@ -2325,44 +2265,35 @@ fn tc_048_a_model_document_number_past_2_pow_53_refuses_with_its_document_pointe
         "18446744073709551617",
     ] {
         let bytes = document_bytes_with_number("count", text);
-        // Under the document's own digest and under another one: the refusal
-        // precedes `byte-digest-mismatch` either way.
-        for digest in [sha256_hex(&bytes), other.clone()] {
-            match read_selecting(&digest, &bytes) {
-                CheckedPackageV2ReadResult::Refused(refused) => {
-                    assert_eq!(
-                        refused,
-                        number_refusal(
-                            "/package/count",
-                            CheckedPackageRefusalCause::InexactInteger
-                        ),
-                        "{text}"
-                    );
-                }
-                other => panic!("{text}: expected a refusal, read {other:?}"),
+        match read_selecting(&bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => {
+                assert_eq!(
+                    refused,
+                    number_refusal("/package/count", CheckedPackageRefusalCause::InexactInteger),
+                    "{text}"
+                );
             }
+            other => panic!("{text}: expected a refusal, read {other:?}"),
         }
     }
 }
 
 #[trace("TC-048", "FR-038-AC-93")]
 #[test]
-fn tc_048_a_model_document_number_at_or_under_2_pow_53_is_digested() {
-    for (text, canonical_text) in [
+fn tc_048_a_model_document_number_at_or_under_2_pow_53_is_admitted() {
+    for (text, _) in [
         ("9007199254740992", "9007199254740992"),
         ("-9007199254740992", "-9007199254740992"),
         ("9.007199254740992e15", "9007199254740992"),
         ("0.5", "0.5"),
     ] {
         let bytes = document_bytes_with_number("count", text);
-        // The digest is of the canonical form of the number read.
-        let digest = sha256_hex(&document_bytes_with_number("count", canonical_text));
         assert!(
             matches!(
-                read_selecting(&digest, &bytes),
+                read_selecting(&bytes),
                 CheckedPackageV2ReadResult::Admitted(_)
             ),
-            "{text} is digested and admitted"
+            "{text} is admitted"
         );
     }
 }
@@ -2400,7 +2331,7 @@ fn tc_048_an_integer_value_type_bound_past_2_pow_53_is_refused_as_a_number() {
     // the reader admitted it before.
     let past = document_with_count_bound(json!(9_007_199_254_740_993_i64));
     let bytes = canonical(&past);
-    match read_selecting(&sha256_hex(&bytes), &bytes) {
+    match read_selecting(&bytes) {
         CheckedPackageV2ReadResult::Refused(refused) => {
             assert_eq!(
                 refused,
@@ -2416,7 +2347,7 @@ fn tc_048_an_integer_value_type_bound_past_2_pow_53_is_refused_as_a_number() {
     let at = document_with_count_bound(json!(9_007_199_254_740_992_i64));
     let bytes = canonical(&at);
     assert!(matches!(
-        read_selecting(&sha256_hex(&bytes), &bytes),
+        read_selecting(&bytes),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     // Written as a decimal string, the bound is not a number of the document:
@@ -2424,7 +2355,7 @@ fn tc_048_an_integer_value_type_bound_past_2_pow_53_is_refused_as_a_number() {
     let spelled = document_with_count_bound(json!("9007199254740993"));
     let bytes = canonical(&spelled);
     assert!(matches!(
-        read_selecting(&sha256_hex(&bytes), &bytes),
+        read_selecting(&bytes),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 }
@@ -2441,7 +2372,7 @@ fn tc_048_the_first_number_in_document_order_past_2_pow_53_is_named() {
         &text[1..]
     );
     let bytes = spelled.into_bytes();
-    match read_selecting(&sha256_hex(&bytes), &bytes) {
+    match read_selecting(&bytes) {
         CheckedPackageV2ReadResult::Refused(refused) => {
             assert_eq!(
                 refused,
@@ -2464,7 +2395,6 @@ fn document_bytes_led_by(members: &str) -> Vec<u8> {
 #[trace("TC-048", "FR-038-AC-109")]
 #[test]
 fn tc_048_a_model_document_number_with_no_exact_rfc_8785_spelling_refuses_inexact_number() {
-    let other = "ab".repeat(32);
     for text in [
         "0.1000000000000000000001",
         "9007199254740993.5",
@@ -2478,25 +2408,23 @@ fn tc_048_a_model_document_number_with_no_exact_rfc_8785_spelling_refuses_inexac
         "2.9802322387695313e-8",
     ] {
         let bytes = document_bytes_with_number("ratio", text);
-        for digest in [sha256_hex(&bytes), other.clone()] {
-            match read_selecting(&digest, &bytes) {
-                CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
-                    refused,
-                    number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactNumber),
-                    "{text}"
-                ),
-                other => panic!("{text}: expected a refusal, read {other:?}"),
-            }
+        match read_selecting(&bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                refused,
+                number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactNumber),
+                "{text}"
+            ),
+            other => panic!("{text}: expected a refusal, read {other:?}"),
         }
     }
 }
 
 #[trace("TC-048", "FR-038-AC-109")]
 #[test]
-fn tc_048_a_model_document_number_whose_value_its_encoding_keeps_is_digested() {
+fn tc_048_a_model_document_number_whose_value_its_encoding_keeps_is_admitted() {
     // Each pair is the number as spelled and the text `quire-canonical` writes
     // for it: the value is the same, so the spelling does not matter.
-    for (text, canonical_text) in [
+    for (text, _) in [
         ("0.1", "0.1"),
         ("0.5", "0.5"),
         ("1.5", "1.5"),
@@ -2511,13 +2439,12 @@ fn tc_048_a_model_document_number_whose_value_its_encoding_keeps_is_digested() {
         ("2.9802322387695312e-8", "2.9802322387695312e-8"),
     ] {
         let bytes = document_bytes_with_number("ratio", text);
-        let digest = sha256_hex(&document_bytes_with_number("ratio", canonical_text));
         assert!(
             matches!(
-                read_selecting(&digest, &bytes),
+                read_selecting(&bytes),
                 CheckedPackageV2ReadResult::Admitted(_)
             ),
-            "{text} is digested and admitted"
+            "{text} is admitted"
         );
     }
 }
@@ -2552,7 +2479,7 @@ fn tc_048_the_first_inexact_number_in_document_order_is_named_with_its_own_cause
         ),
     ] {
         let bytes = document_bytes_led_by(members);
-        match read_selecting(&sha256_hex(&bytes), &bytes) {
+        match read_selecting(&bytes) {
             CheckedPackageV2ReadResult::Refused(refused) => {
                 assert_eq!(refused, number_refusal(pointer, cause), "{members}");
             }
@@ -2564,24 +2491,21 @@ fn tc_048_the_first_inexact_number_in_document_order_is_named_with_its_own_cause
 #[trace("TC-048", "FR-038-AC-110")]
 #[test]
 fn tc_048_a_number_past_the_double_range_refuses_inexact_integer_with_its_pointer() {
-    let other = "ab".repeat(32);
     for text in ["1e400", "-1e400", "1e309"] {
-        // Nested: at a member of the model document, under its own digest and
-        // another, so the refusal precedes `byte-digest-mismatch`.
+        // Nested: at a member of the model document.
         let bytes = document_bytes_with_number("ratio", text);
-        for digest in [sha256_hex(&bytes), other.clone()] {
-            match read_selecting(&digest, &bytes) {
-                CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
-                    refused,
-                    number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactInteger),
-                    "{text}"
-                ),
-                other => panic!("{text}: expected a refusal, read {other:?}"),
-            }
+        match read_selecting(&bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                refused,
+                number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactInteger),
+                "{text}"
+            ),
+            other => panic!("{text}: expected a refusal, read {other:?}"),
         }
+
         // In an array, so the pointer carries an index.
         let bytes = document_bytes_led_by(&format!("\"a\":[0,{text}]"));
-        match read_selecting(&sha256_hex(&bytes), &bytes) {
+        match read_selecting(&bytes) {
             CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
                 refused,
                 number_refusal("/a/1", CheckedPackageRefusalCause::InexactInteger),
@@ -2591,7 +2515,7 @@ fn tc_048_a_number_past_the_double_range_refuses_inexact_integer_with_its_pointe
         }
         // At the top level the document is the number and the pointer is empty.
         let bytes = text.as_bytes().to_vec();
-        match read_selecting(&sha256_hex(&bytes), &bytes) {
+        match read_selecting(&bytes) {
             CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
                 refused,
                 number_refusal("", CheckedPackageRefusalCause::InexactInteger),
@@ -2602,272 +2526,13 @@ fn tc_048_a_number_past_the_double_range_refuses_inexact_integer_with_its_pointe
     }
 }
 
-/// The refusal of a model document the reader does not parse: the digest is
-/// taken over the raw bytes, so it matches no `sha256-jcs` digest.
-fn raw_digest_refusal() -> ExpectedRefusal {
+/// The refusal of a model document the reader does not parse.
+fn unreadable_refusal() -> ExpectedRefusal {
     refusal_cause(
-        CheckedPackageRefusalCode::StaleDependency,
-        "/lock/model_selections/0/digest",
-        CheckedPackageRefusalCause::ByteDigestMismatch,
+        CheckedPackageRefusalCode::MalformedWire,
+        &format!("{}/identity", root_owner(&package_selecting("total"))),
+        CheckedPackageRefusalCause::MalformedJson,
     )
-}
-
-#[trace("TC-048", "FR-038-AC-215", "FR-038-AC-218")]
-#[test]
-fn tc_048_readable_selected_content_reports_typed_jcs_identities() {
-    let document = domain_document(json!({}));
-    let (package, evidence) = package_over(&document, "total");
-    let CheckedPackageV2ReadResult::Admitted(original) = read(&package, &evidence) else {
-        panic!("unedited selected document admits");
-    };
-    let selected_digest = package["lock"]["model_selections"][0]["digest"]
-        .as_str()
-        .expect("selection digest");
-    let mut respelled = b" \n".to_vec();
-    respelled.extend_from_slice(&canonical(&document));
-    respelled.extend_from_slice(b"\n ");
-    assert_ne!(sha256_hex(&respelled), selected_digest);
-    let mut respelled_evidence = evidence_for(&package);
-    respelled_evidence
-        .insert_domain_package_document(selected_digest, respelled)
-        .expect("same selected document in another spelling");
-    let CheckedPackageV2ReadResult::Admitted(whitespace_only) = read(&package, &respelled_evidence)
-    else {
-        panic!("whitespace-respelled selected document admits");
-    };
-    assert_eq!(whitespace_only.package_id(), original.package_id());
-    let mut source_map_only = package.clone();
-    source_map_only["source_map"][0]["regions"][0]["end"] = json!(9);
-    let CheckedPackageV2ReadResult::Admitted(nonidentity_edit) =
-        read(&source_map_only, &respelled_evidence)
-    else {
-        panic!("source-map-only edit admits with the same selected content");
-    };
-    assert_eq!(nonidentity_edit.package_id(), original.package_id());
-
-    // The selected identity is independently known for `{}`; whitespace has
-    // no effect on it. The edited member changes the canonical digest.
-    const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
-    let edited = br#"{ "a" : 1 }"#;
-    let canonical_edited = br#"{"a":1}"#;
-    let CheckedPackageV2ReadResult::Refused(refused) = read_selecting(SELECTED, edited) else {
-        panic!("edited selected document refuses");
-    };
-    assert_eq!(refused.code, CheckedPackageRefusalCode::StaleDependency);
-    assert_eq!(
-        refused.cause,
-        Some(CheckedPackageRefusalCause::ContentMismatch)
-    );
-    assert_eq!(
-        refused.path,
-        Some(pointer("/lock/model_selections/0/digest"))
-    );
-    let expected = refused.expected.expect("selected identity");
-    let actual = refused.actual.expect("recomputed identity");
-    assert_eq!(
-        (
-            expected.domain.as_ref(),
-            expected.algorithm.as_ref(),
-            expected.digest.as_ref()
-        ),
-        ("sha256-jcs", "sha256", SELECTED)
-    );
-    assert_eq!(
-        (
-            actual.domain.as_ref(),
-            actual.algorithm.as_ref(),
-            actual.digest.as_ref()
-        ),
-        (
-            "sha256-jcs",
-            "sha256",
-            sha256_hex(canonical_edited).as_str()
-        )
-    );
-    assert_ne!(sha256_hex(edited), sha256_hex(canonical_edited));
-    let CheckedPackageV2ReadResult::Refused(raw_selected) =
-        read_selecting(&sha256_hex(edited), edited)
-    else {
-        panic!("parseable bytes selected under raw digest refuse");
-    };
-    assert_eq!(
-        raw_selected.cause,
-        Some(CheckedPackageRefusalCause::ContentMismatch)
-    );
-    assert_eq!(
-        raw_selected
-            .actual
-            .as_ref()
-            .expect("canonical identity")
-            .digest
-            .as_ref(),
-        sha256_hex(canonical_edited)
-    );
-}
-
-#[trace("TC-048", "FR-038-AC-216", "FR-038-AC-218")]
-#[test]
-fn tc_048_unreadable_model_bytes_report_raw_identity_or_wrong_selection() {
-    const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
-    for bytes in [
-        b"[".as_slice(),
-        b"\xff",
-        br#"{"a":1,"a":2}"#,
-        br#""\ud800""#,
-    ] {
-        let raw = sha256_hex(bytes);
-        let CheckedPackageV2ReadResult::Refused(mismatch) = read_selecting(SELECTED, bytes) else {
-            panic!("unreadable bytes refuse at foreign digest");
-        };
-        assert_eq!(mismatch.code, CheckedPackageRefusalCode::StaleDependency);
-        assert_eq!(
-            mismatch.cause,
-            Some(CheckedPackageRefusalCause::ByteDigestMismatch)
-        );
-        assert_eq!(
-            mismatch.path,
-            Some(pointer("/lock/model_selections/0/digest"))
-        );
-        let expected = mismatch.expected.expect("selected identity");
-        let actual = mismatch.actual.expect("raw identity");
-        assert_eq!(
-            (
-                expected.domain.as_ref(),
-                expected.algorithm.as_ref(),
-                expected.digest.as_ref()
-            ),
-            ("sha256-jcs", "sha256", SELECTED)
-        );
-        assert_eq!(
-            (
-                actual.domain.as_ref(),
-                actual.algorithm.as_ref(),
-                actual.digest.as_ref()
-            ),
-            ("raw-artifact-digest", "sha256", raw.as_str())
-        );
-        assert_ne!(expected, actual);
-        let CheckedPackageV2ReadResult::Refused(own) = read_selecting(&raw, bytes) else {
-            panic!("unreadable bytes refuse under own raw digest");
-        };
-        assert_eq!(own.code, CheckedPackageRefusalCode::InvalidModelBinding);
-        assert_eq!(
-            own.cause,
-            Some(CheckedPackageRefusalCause::WrongModelSelection)
-        );
-        assert_eq!(own.path, Some(pointer("/lock/model_selections/0/identity")));
-        assert_eq!((own.expected, own.actual), (None, None));
-    }
-}
-
-#[trace("TC-048", "FR-038-AC-218")]
-#[test]
-fn tc_048_mismatch_cause_keys_include_complete_typed_pair_but_not_path() {
-    const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
-    let take_refusal = |result| match result {
-        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
-        other => panic!("expected refusal, got {other:?}"),
-    };
-    let first = take_refusal(read_selecting(SELECTED, br#"{"a":1}"#));
-    let second = take_refusal(read_selecting(SELECTED, br#"{"a":2}"#));
-    let cause_key = |refusal: &CheckedPackageRefusal| {
-        (
-            refusal.code,
-            refusal.cause,
-            refusal
-                .expected
-                .clone()
-                .expect("mismatch expected identity"),
-            refusal.actual.clone().expect("mismatch actual identity"),
-        )
-    };
-    assert_eq!(first.code, CheckedPackageRefusalCode::StaleDependency);
-    assert_eq!(
-        first.cause,
-        Some(CheckedPackageRefusalCause::ContentMismatch)
-    );
-    assert_eq!(second.code, first.code);
-    assert_eq!(second.cause, first.cause);
-    assert_ne!(cause_key(&first), cause_key(&second));
-    let mut another_path = first.clone();
-    another_path.path = Some(pointer("/another/location"));
-    assert_eq!(cause_key(&first), cause_key(&another_path));
-    assert_ne!(first, another_path);
-
-    let key = cause_key(&first);
-    for identity in [&key.2, &key.3] {
-        assert_eq!(identity.domain.as_ref(), "sha256-jcs");
-        assert_eq!(identity.algorithm.as_ref(), "sha256");
-        assert_eq!(identity.digest.len(), 64);
-        assert!(identity
-            .digest
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
-    }
-    let raw_domain = CheckedSemanticId {
-        domain: "raw-artifact-digest".into(),
-        algorithm: key.2.algorithm.clone(),
-        digest: key.2.digest.clone(),
-    };
-    assert_ne!(key.2, raw_domain);
-
-    let unreadable_under_own_digest = take_refusal(read_selecting(&sha256_hex(b"["), b"["));
-    let selected_without_evidence = package_selecting("total", SELECTED);
-    let missing = take_refusal(read(
-        &selected_without_evidence,
-        &evidence_for(&selected_without_evidence),
-    ));
-    let mut wrong_domain = selected_without_evidence.clone();
-    wrong_domain["lock"]["model_selections"][0]["digest_domain"] = json!("raw-artifact-digest");
-    refresh_identity(&mut wrong_domain);
-    let domain = take_refusal(read(&wrong_domain, &evidence_for(&wrong_domain)));
-    let (invalid_graph_package, invalid_graph_evidence, _) =
-        variant_package(&["Gold"], &["Silver"], false);
-    let invalid_graph = refused(&invalid_graph_package, &invalid_graph_evidence);
-    let malformed = take_refusal(CheckedPackageV2::read(
-        b"{",
-        CheckedPackageReadLimits::bounded(),
-        &evidence_for(&selected_without_evidence),
-    ));
-    let mut noncanonical_bytes = b" ".to_vec();
-    noncanonical_bytes.extend_from_slice(&canonical(&selected_without_evidence));
-    let noncanonical = take_refusal(CheckedPackageV2::read(
-        &noncanonical_bytes,
-        CheckedPackageReadLimits::bounded(),
-        &evidence_for(&selected_without_evidence),
-    ));
-    for (refusal, code, cause) in [
-        (
-            unreadable_under_own_digest,
-            CheckedPackageRefusalCode::InvalidModelBinding,
-            Some(CheckedPackageRefusalCause::WrongModelSelection),
-        ),
-        (
-            missing,
-            CheckedPackageRefusalCode::MissingImport,
-            Some(CheckedPackageRefusalCause::MissingSelection),
-        ),
-        (
-            domain,
-            CheckedPackageRefusalCode::DigestDomainMismatch,
-            None,
-        ),
-        (
-            invalid_graph,
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            None,
-        ),
-        (malformed, CheckedPackageRefusalCode::MalformedWire, None),
-        (
-            noncanonical,
-            CheckedPackageRefusalCode::NoncanonicalWire,
-            None,
-        ),
-    ] {
-        assert_eq!(refusal.code, code);
-        assert_eq!(refusal.cause, cause);
-        assert_eq!((refusal.expected, refusal.actual), (None, None));
-    }
 }
 
 #[trace("TC-048", "FR-038-AC-110")]
@@ -2881,7 +2546,7 @@ fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
     let cases: [(Vec<u8>, ExpectedRefusal); 11] = [
         // The reader checks that the whole input is UTF-8 before it reads any
         // value, so invalid UTF-8 after the number is the first fault.
-        (b"[1e400,\"\xFF\"]".to_vec(), raw_digest_refusal()),
+        (b"[1e400,\"\xFF\"]".to_vec(), unreadable_refusal()),
         // A lone surrogate escape is found when the string is read, after the
         // number.
         (
@@ -2895,11 +2560,11 @@ fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
             number("/n", CheckedPackageRefusalCause::InexactInteger),
         ),
         // The repeated name is in an object that closes before `1e400`, so it
-        // is the first fault and the bytes take the raw-digest path.
-        (b"[{\"a\":1,\"a\":2},1e400]".to_vec(), raw_digest_refusal()),
+        // is the first fault and the bytes are unreadable.
+        (b"[{\"a\":1,\"a\":2},1e400]".to_vec(), unreadable_refusal()),
         // An inexact-number-to-be (`1e-400` reads as zero) is no reader
         // fault, so the repeated name is the first fault.
-        (led("\"a\":1,\"a\":2,\"n\":1e-400"), raw_digest_refusal()),
+        (led("\"a\":1,\"a\":2,\"n\":1e-400"), unreadable_refusal()),
         // Truncation after the number: the number is read first.
         (
             b"[1e400".to_vec(),
@@ -2933,49 +2598,16 @@ fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
             number("/a/0", CheckedPackageRefusalCause::InexactNumber),
         ),
     ];
-    let other = "ab".repeat(32);
     for (bytes, expected) in cases {
         let shown = String::from_utf8_lossy(&bytes)
             .chars()
             .take(60)
             .collect::<String>();
-        // Reader faults keep their precedence over the digest comparison.
-        let own = sha256_hex(&bytes);
-        let digests = if expected == raw_digest_refusal() {
-            vec![other.clone()]
-        } else {
-            vec![own, other.clone()]
-        };
-        for digest in digests {
-            match read_selecting(&digest, &bytes) {
-                CheckedPackageV2ReadResult::Refused(refused) => {
-                    if expected == raw_digest_refusal() {
-                        assert_eq!(
-                            refused.code,
-                            CheckedPackageRefusalCode::StaleDependency,
-                            "{shown}"
-                        );
-                        assert_eq!(
-                            refused.cause,
-                            Some(CheckedPackageRefusalCause::ByteDigestMismatch),
-                            "{shown}"
-                        );
-                        assert_eq!(
-                            refused.expected.as_ref().expect("selected").digest.as_ref(),
-                            digest,
-                            "{shown}"
-                        );
-                        assert_eq!(
-                            refused.actual.as_ref().expect("raw").digest.as_ref(),
-                            sha256_hex(&bytes),
-                            "{shown}"
-                        );
-                    } else {
-                        assert_eq!(refused, expected, "{shown}");
-                    }
-                }
-                other => panic!("{shown}: expected a refusal, read {other:?}"),
+        match read_selecting(&bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => {
+                assert_eq!(refused, expected, "{shown}")
             }
+            other => panic!("{shown}: expected a refusal, read {other:?}"),
         }
     }
 }
@@ -2988,7 +2620,7 @@ fn tc_048_a_non_whole_number_past_the_double_range_refuses_inexact_number() {
     let text = format!("{}.5", "9".repeat(400));
     for number in [text.clone(), format!("-{text}")] {
         let bytes = document_bytes_with_number("ratio", &number);
-        match read_selecting(&sha256_hex(&bytes), &bytes) {
+        match read_selecting(&bytes) {
             CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
                 refused,
                 number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactNumber),
@@ -3003,18 +2635,15 @@ fn tc_048_a_non_whole_number_past_the_double_range_refuses_inexact_number() {
 fn tc_048_a_number_below_the_double_range_refuses_inexact_number_on_its_text() {
     // These read as zero with their text kept, so the rule is IR's own, on
     // the text: zero is not their exact value.
-    let other = "ab".repeat(32);
     for text in ["1e-400", "-1e-400"] {
         let bytes = document_bytes_with_number("ratio", text);
-        for digest in [sha256_hex(&bytes), other.clone()] {
-            match read_selecting(&digest, &bytes) {
-                CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
-                    refused,
-                    number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactNumber),
-                    "{text}"
-                ),
-                other => panic!("{text}: expected a refusal, read {other:?}"),
-            }
+        match read_selecting(&bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                refused,
+                number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactNumber),
+                "{text}"
+            ),
+            other => panic!("{text}: expected a refusal, read {other:?}"),
         }
     }
 }
@@ -3022,7 +2651,7 @@ fn tc_048_a_number_below_the_double_range_refuses_inexact_number_on_its_text() {
 #[trace("TC-048", "FR-038-AC-93")]
 #[test]
 fn tc_048_a_package_stream_refusal_carries_no_document_pointer() {
-    let package = package_selecting("total", &"ab".repeat(32));
+    let package = package_selecting("total");
     let mut bytes = canonical(&package);
     bytes.push(b' ');
     match CheckedPackageV2::read(
@@ -3047,18 +2676,14 @@ fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
     let mut document = domain_document(json!({}));
     document["package"]["padding"] = json!("x".repeat(30_000));
     let bytes = canonical(&document);
-    let digest = sha256_hex(&bytes);
     let length = u64::try_from(bytes.len()).expect("length");
-    let package = package_selecting("total", &digest);
+    let package = package_selecting("total");
     let package_bytes = canonical(&package);
     assert!(
         u64::try_from(package_bytes.len()).expect("length") < length,
         "the package is shorter than the document"
     );
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, bytes)
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(&package, IDENTITY, &document);
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.bytes = length;
     assert!(
@@ -3066,7 +2691,7 @@ fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
             CheckedPackageV2::read(&package_bytes, limits, &evidence),
             CheckedPackageV2ReadResult::Admitted(_)
         ),
-        "a document exactly `limits.bytes` long is read, digested and matches"
+        "a document exactly `limits.bytes` long is read and matches"
     );
     limits.bytes = length - 1;
     match CheckedPackageV2::read(&package_bytes, limits, &evidence) {
@@ -3078,7 +2703,7 @@ fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
         }
         other => panic!("expected an incomplete read, got {other:?}"),
     }
-    // The work limit charged for the same document is located at the row.
+    // The work limit charged for the same document is located at the root.
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = length.div_ceil(1024) - 1;
     match CheckedPackageV2::read(&package_bytes, limits, &evidence) {
@@ -3086,7 +2711,7 @@ fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
             assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
             assert_eq!(
                 incomplete.path.map(|path| path.to_string()).as_deref(),
-                Some("/lock/model_selections/0")
+                Some(root_owner(&package).as_str())
             );
         }
         other => panic!("expected an incomplete read, got {other:?}"),
@@ -3227,12 +2852,7 @@ fn reaches_package(
     target: Operand,
 ) -> (Value, quire_contract_model::CheckedPackageEvidence, usize) {
     let document = edge_document();
-    let digest = sha256_hex(&canonical(&document));
     let mut package = nominal_package(&[]);
-    package["lock"]["model_selections"] = json!([{
-        "identity": IDENTITY,
-        "digest_domain": "sha256-jcs", "digest": digest,
-    }]);
 
     let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
     let mut models: Vec<(String, String)> = MODELS
@@ -3352,11 +2972,9 @@ fn reaches_package(
         .expect("nodes")
         .extend(nodes);
     rebuild_source_map(&mut package);
+    select_model(&mut package, IDENTITY);
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence
-        .insert_domain_package_document(digest, canonical(&document))
-        .expect("domain evidence declarations agree on exact bytes");
+    let evidence = evidence_with_document(&package, IDENTITY, &document);
     (package, evidence, position)
 }
 
