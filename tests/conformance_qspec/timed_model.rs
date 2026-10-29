@@ -5,8 +5,8 @@
 //! Clause and aggregate-order controls exercise the public V2 reader.
 use super::*;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedCollectionKind, CheckedMemberType,
-    CheckedPackageIdentityPreimageRefV2, CheckedTerm,
+    encode_checked_package_v2, CheckedCollectionKind, CheckedMemberType, CheckedNodeId,
+    CheckedOccurrenceRole, CheckedPackageIdentityPreimageRefV2, CheckedTerm,
 };
 
 fn published() -> Value {
@@ -40,6 +40,154 @@ fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
         }
         (operation, _) => panic!("unsupported published patch {operation} at {path}"),
     }
+}
+
+/// Trace: FR-038-AC-357, FR-038-AC-360, TC-048.
+#[test]
+fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() {
+    fn id_at(wire: &Value, index: usize) -> CheckedNodeId {
+        serde_json::from_value(wire["semantic_graph"]["nodes"][index]["node_id"].clone())
+            .expect("published node id")
+    }
+
+    fn member<'a>(body: &'a CheckedTerm, name: &str) -> &'a CheckedTerm {
+        let CheckedTerm::Aggregate { members } = body else {
+            panic!("retained timed body must be an aggregate")
+        };
+        let Some(CheckedTerm::Binding { value, .. }) = members.iter().find(|term| {
+            matches!(term, CheckedTerm::Binding { name: member_name, .. }
+                if member_name.as_ref() == name)
+        }) else {
+            panic!("retained timed body lacks {name}")
+        };
+        value
+    }
+
+    let wire = read_json(&fixtures_dir().join("positive-timed-clause-nodes.json"))
+        .expect("published clause package");
+    let document = proposal_dir_of(&fixtures_dir()).join("domain-package-acme-timed-clauses.json");
+    let CheckedPackageV2ReadResult::Admitted(package) =
+        read_package_with_document(&wire, "positive timed clauses", &document)
+            .expect("selected clause read")
+    else {
+        panic!("published timed clause package must admit")
+    };
+    let encoded: Value =
+        serde_json::from_slice(&encode_package(&package)).expect("typed clause writer JSON");
+    assert_eq!(
+        encoded, wire,
+        "all admitted clause bodies retain their exact wire form"
+    );
+    for (form, kind) in [
+        ("clock_constraint", "place"),
+        ("clock_constraint", "parameter"),
+        ("clock_reset", "place"),
+        ("clock_reset", "parameter"),
+    ] {
+        assert!(
+            package.graph().nodes.iter().any(|node| {
+                node.semantic_form.as_ref() == form
+                    && matches!(
+                        member(&node.body, "kind"),
+                        CheckedTerm::Literal { value, .. } if value == kind
+                    )
+            }),
+            "admitted clause fixture lacks {form}/{kind}"
+        );
+    }
+    for form in ["clock_guard", "time_invariant", "clock_place"] {
+        assert!(
+            package
+                .graph()
+                .nodes
+                .iter()
+                .any(|node| node.semantic_form.as_ref() == form),
+            "admitted clause fixture lacks {form}"
+        );
+    }
+    for place in package
+        .graph()
+        .nodes
+        .iter()
+        .filter(|node| node.semantic_form.as_ref() == "clock_place")
+    {
+        let CheckedTerm::Aggregate { members } = &place.body else {
+            panic!("admitted clock place must retain an aggregate body")
+        };
+        assert_eq!(
+            members.len(),
+            3,
+            "clock place retains model, path and resolved_path"
+        );
+    }
+    let model_id = id_at(&wire, 53);
+    for (clause_position, anchor_position) in [(47, 75), (82, 75), (79, 73), (85, 73)] {
+        let clause_id = id_at(&wire, clause_position);
+        let anchor_id = id_at(&wire, anchor_position);
+        assert!(package
+            .graph()
+            .nodes
+            .iter()
+            .any(|node| node.node_id == clause_id));
+        assert!(matches!(
+            member(package.term(&clause_id).expect("retained clause"), "operation"),
+            CheckedTerm::Reference { target } if target == &anchor_id
+        ));
+        let anchors: Vec<_> = package
+            .graph()
+            .nodes
+            .iter()
+            .filter(|node| node.node_id == anchor_id)
+            .collect();
+        assert_eq!(
+            anchors.len(),
+            1,
+            "one retained anchor for clause {clause_position}"
+        );
+        let anchor = anchors[0];
+        assert_eq!(anchor.semantic_form.as_ref(), "operation_anchor");
+        assert_eq!(anchor.occurrences.len(), 1);
+        assert_eq!(anchor.occurrences[0].role, CheckedOccurrenceRole::Anchor);
+        assert_eq!(anchor.occurrences[0].ordinal, 0);
+        let CheckedTerm::OperationAnchorBody(body) =
+            package.term(&anchor_id).expect("retained anchor body")
+        else {
+            panic!("clause {clause_position} must target an operation anchor")
+        };
+        assert!(body.execution_point.is_none());
+        assert!(matches!(
+            &body.members[0],
+            CheckedTerm::Binding { name, value }
+                if name.as_ref() == "context"
+                    && matches!(value.as_ref(), CheckedTerm::Reference { target } if target == &model_id)
+        ));
+    }
+
+    let urgency_id = id_at(&wire, 50);
+    let urgency = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == urgency_id)
+        .expect("retained operation urgency");
+    assert_eq!(urgency.semantic_form.as_ref(), "urgency");
+    let urgency_body = package.term(&urgency_id).expect("retained urgency body");
+    let CheckedTerm::Aggregate { members } = urgency_body else {
+        panic!("operation urgency must retain its aggregate body")
+    };
+    assert_eq!(members.len(), 3, "operation urgency is model plus name");
+    assert!(matches!(
+        member(urgency_body, "kind"),
+        CheckedTerm::Literal { value, .. } if value == "operation"
+    ));
+    assert!(matches!(
+        member(urgency_body, "model"),
+        CheckedTerm::Reference { target } if target == &model_id
+    ));
+    assert!(matches!(
+        member(urgency_body, "operation_name"),
+        CheckedTerm::Literal { value, .. } if value == "size"
+    ));
 }
 
 /// Trace: FR-038-AC-3, FR-038-AC-359, TC-048.
@@ -112,10 +260,10 @@ fn timed_equal_region_rational_order_charges_before_big_integer_work() {
     );
 }
 
-/// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-361.
-/// Provenance: IR-1109; CL-25 remains unbacked on STD-558.
+/// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-360, FR-038-AC-361, FR-038-AC-362, TC-048.
+/// Provenance: IR-1109; QSpec CL-25 and CL-54.
 #[test]
-fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
+fn timed_clause_published_vectors_match_reader() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
     let dense = read_json(&fixtures.join("positive-timed-model-nodes.json"))
@@ -137,10 +285,18 @@ fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
     let vectors = read_json(&proposal.join("timed-clause-node-vectors.json"))
         .expect("published clause vectors");
     let cases = vectors["cases"].as_array().expect("published clause cases");
-    assert_eq!(cases.len(), 53);
+    assert_eq!(cases.len(), 54);
     let fixture = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
         .expect("published clause fixture");
     let document = proposal.join("domain-package-acme-timed-clauses.json");
+    let selected_document = read_json(&document).expect("selected clause document");
+    assert_eq!(
+        canonical_digest(&selected_document),
+        fixture["lock"]["model_selections"][0]["digest"]
+            .as_str()
+            .expect("model digest"),
+        "published fixture must select the changed document by its independently computed digest"
+    );
     for (ordinal, case) in cases.iter().enumerate() {
         let id = case["id"].as_str().expect("clause case id");
         assert_eq!(id, format!("CL-{:02}", ordinal + 1));
@@ -152,25 +308,6 @@ fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
         }
         let actual = read_package_with_document(&candidate, id, &document)
             .expect("selected clause package read");
-        if id == "CL-25" {
-            // STD-558: the vector's foreign-model anchor also violates the
-            // earlier state-stage frame join. Keep this exception observable
-            // until QSpec repairs the vector; AC-360/362 are not claimed.
-            assert_eq!(case["expected_code"], "invalid_package");
-            assert_eq!(case["expected_cause"], "timed-node-reference");
-            let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
-                panic!("STD-558 pending CL-25 state-stage conflict disappeared");
-            };
-            assert_eq!(
-                (refusal.code, refusal.cause),
-                (Code::InvalidModelBinding, Some(Cause::MalformedDeclaration))
-            );
-            assert_eq!(
-                refusal.path.unwrap().to_string(),
-                "/semantic_graph/nodes/70"
-            );
-            continue;
-        }
         match (case["expected"].as_str(), actual) {
             (Some("admitted"), CheckedPackageV2ReadResult::Admitted(_)) => {}
             (
@@ -195,6 +332,7 @@ fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
                     );
                 } else {
                     assert_eq!(refusal.code, Code::MalformedWire, "{id}: schema refusal");
+                    assert_eq!(refusal.cause, None, "{id}: schema refusal cause");
                     assert_eq!(
                         refusal.path.as_ref().map(ToString::to_string).as_deref(),
                         case["locus"].as_str(),
@@ -207,7 +345,7 @@ fn timed_clause_published_vectors_except_pending_cl25_match_reader() {
     }
 }
 
-/// Trace: FR-038-AC-358, TC-048. AC-362 awaits STD-558.
+/// Trace: FR-038-AC-358, FR-038-AC-360, FR-038-AC-362, TC-048.
 #[test]
 fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
     let fixtures = fixtures_dir();
@@ -230,6 +368,30 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
         }
         candidate
     };
+
+    for (id, code, cause, locus) in [
+        (
+            "CL-25",
+            Code::InvalidPackage,
+            Cause::TimedNodeReference,
+            "/semantic_graph/nodes/46/body/members/1/value/target",
+        ),
+        (
+            "CL-54",
+            Code::InvalidModelBinding,
+            Cause::MalformedDeclaration,
+            "/semantic_graph/nodes/70",
+        ),
+    ] {
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package_with_document(&published_case(id), id, &document)
+                .expect("selected package read")
+        else {
+            panic!("{id}: stage control must refuse");
+        };
+        assert_eq!((refusal.code, refusal.cause), (code, Some(cause)), "{id}");
+        assert_eq!(refusal.path.unwrap().to_string(), locus, "{id}");
+    }
 
     let mut order_before_unlisted = published_case("CL-05");
     order_before_unlisted["semantic_graph"]["nodes"][52]["body"]["members"][5]["value"]["members"]
@@ -300,6 +462,55 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
     assert_eq!(
         join.path.unwrap().to_string(),
         "/semantic_graph/nodes/86/body/members/0/value/target"
+    );
+}
+
+/// Trace: FR-038-AC-358, TC-048.
+#[test]
+fn timed_clause_first_of_two_unlisted_nodes_follows_node_digest_order() {
+    let fixtures = fixtures_dir();
+    let mut wire = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
+        .expect("published clause fixture");
+    let reset = wire["semantic_graph"]["nodes"][85]["node_id"].clone();
+    let constraint = wire["semantic_graph"]["nodes"][76]["node_id"].clone();
+    assert!(
+        reset["digest"].as_str() < constraint["digest"].as_str(),
+        "the later graph node has the earlier digest"
+    );
+    let root = &mut wire["semantic_graph"]["nodes"][52];
+    let resets = root["body"]["members"][4]["value"]["members"]
+        .as_array_mut()
+        .expect("root resets");
+    let reset_count = resets.len();
+    resets.retain(|reference| reference["target"] != reset);
+    assert_eq!(resets.len(), reset_count - 1);
+    let constraints = root["body"]["members"][8]["value"]["members"]
+        .as_array_mut()
+        .expect("root constraints");
+    let constraint_count = constraints.len();
+    constraints.retain(|reference| reference["target"] != constraint);
+    assert_eq!(constraints.len(), constraint_count - 1);
+    root["dependencies"]
+        .as_array_mut()
+        .expect("root dependencies")
+        .retain(|dependency| dependency != &reset && dependency != &constraint);
+    fixture_support::mint_ungrouped_structural_keys(&mut wire);
+    sort_timed_graph_dependencies(&mut wire);
+    fixture_support::refresh_identity(&mut wire);
+    let document = proposal_dir_of(&fixtures).join("domain-package-acme-timed-clauses.json");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package_with_document(&wire, "two unlisted timed nodes", &document)
+            .expect("selected package read")
+    else {
+        panic!("the first unlisted timed node must refuse")
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::TimedNodeReference))
+    );
+    assert_eq!(
+        refusal.path.unwrap().to_string(),
+        "/semantic_graph/nodes/85/body"
     );
 }
 
@@ -378,16 +589,6 @@ fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
         else {
             panic!("{id}: guard control must refuse");
         };
-        if id == "GD-02" {
-            // STD-559: its distinct same-path place mutates a resolved row
-            // and therefore fails the earlier selected-declaration join.
-            assert_eq!(case["expected_cause"], "duplicate-clock-place");
-            assert_eq!(
-                (refusal.code, refusal.cause),
-                (Code::InvalidPackage, Some(Cause::MalformedClockPlace))
-            );
-            continue;
-        }
         assert_eq!(
             Some(code_word(refusal.code)),
             case["expected_code"].as_str(),
@@ -762,7 +963,7 @@ fn timed_aggregate_each_root_branch_enforces_source_order() {
     }
 }
 
-/// Trace: TC-048.
+/// Trace: FR-038-AC-359, TC-048.
 #[test]
 fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() {
     let fixtures = fixtures_dir();
@@ -1131,7 +1332,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                     target.clone();
                 replace_dependency(&mut wire["semantic_graph"]["nodes"][44], &old, &target);
             }
-            "duplicate-clock-place" => {
+            "second-place-forged-row" => {
                 let mut second = wire["semantic_graph"]["nodes"][45].clone();
                 let rows = second["body"]["members"][2]["value"]["members"]
                     .as_array_mut()
@@ -1170,7 +1371,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                 wire["semantic_graph"]["nodes"]
                     .as_array_mut()
                     .unwrap()
-                    .push(second);
+                    .insert(59, second);
                 let root = &mut wire["semantic_graph"]["nodes"][52];
                 root["body"]["members"][3]["value"]["members"]
                     .as_array_mut()
@@ -1255,7 +1456,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                 .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
         }
         fixture_support::refresh_identity(&mut wire);
-        if mutation == "duplicate-clock-place" {
+        if mutation == "second-place-forged-row" {
             let places =
                 &wire["semantic_graph"]["nodes"][52]["body"]["members"][3]["value"]["members"];
             assert_ne!(places[0]["target"], places[1]["target"]);
@@ -1263,21 +1464,6 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{} must refuse", row["id"]);
         };
-        if row["id"] == "TM-12" {
-            // STD-559 owns the invalid resolved-path row used to distinguish
-            // the second same-path node. Preserve the earlier refusal until
-            // the published control has a genuinely valid second place.
-            assert_eq!(row["expected_cause"], "duplicate-clock-place");
-            assert_eq!(
-                (refusal.code, refusal.cause),
-                (Code::InvalidPackage, Some(Cause::MalformedClockPlace))
-            );
-            assert_eq!(
-                refusal.path.unwrap().to_string(),
-                "/semantic_graph/nodes/60/body/members/2/value/members/1"
-            );
-            continue;
-        }
         assert_eq!(
             code_word(refusal.code),
             row["expected_code"].as_str().unwrap(),
@@ -1599,10 +1785,10 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
 }
 
 /// A root that stops listing an existing guard still leaves a real guard node.
-/// STD-540 owns GD-03's exact locus; this control checks its published code
-/// and cause after authenticated package identities are rebuilt.
+/// This control checks GD-03's published code, cause and locus after
+/// authenticated package identities are rebuilt.
 /// Provenance: IR-1083, QSpec STD-526 GD-03.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-358")]
 #[test]
 fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
     let vectors = read_json(&fixtures_dir().join("../timed-slot-selector-vectors.json"))
@@ -1642,6 +1828,10 @@ fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
         (refusal.code, refusal.cause),
         (Code::InvalidPackage, Some(Cause::TimedNodeReference)),
         "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        gd03["locus"].as_str()
     );
 }
 
