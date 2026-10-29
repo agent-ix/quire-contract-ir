@@ -38,7 +38,16 @@ Plan completion: not assessed. Optional repository-wide semantic review was not 
 | FND-001 | still-open | `tc_935_rows()` now spells the exact T/D/U values, but it independently defines the three QSpec-owned selection rows in IR test code, contrary to TC-044's explicit no-copy/no-redefinition clause. An owner-sourced vector or owner decision is still needed. |
 | FND-002 | fixed | The successful path compares each lowered typed node's full serialized value against the corresponding originating checked-package node by requested key. |
 | FND-003 | fixed | `assert_tc_935_failed_work` checks typed `Failed`, empty lowered/dependencies/semantic graph, exact retained lock/package id/profile reference, and decimal-string wire limit/consumed for mismatch and one-under cases. |
+| FND-001 | fixed | QSpec commit `ae67d17d` publishes authoritative JSON; `vectors()` reads it from `QUIRE_SPECIFICATION_DIR`, `row()` resolves T/D/U from `selections`, and the local literal rows are removed. |
 
 ## Review ID correction
 
 This artifact replaces the same PR review artifact formerly identified as `SR-612090`. The old ID collided with another review on merged main and is superseded. Findings and disposition history above are unchanged.
+
+## Owner-vector and rebase review
+
+At frozen PR head `70f23389574af7a0880013fd3b0c2cb845d4e9ec` rebased on main `09d9edc7`, the changed scope adds `tests/conformance_qspec/main.rs` and `tests/conformance_qspec/selection_vectors.rs`. The latter reads `proposals/checked-package-v2/contract-package-selection-vectors.json` through `QUIRE_SPECIFICATION_DIR` in the named QSpec conformance target; no selection row values or fixture file are copied into IR. QSpec current main carries the same file bytes as merged owner commit `ae67d17d`. Its owner test checks the JSON against TC-935's rows and case prose. The target has `test = false`, is compiled by `make ci` through `conformance-qspec-compile`, and is executed by `make conformance-qspec`. Both new `#[trace("TC-935", "FR-035-AC-9")]` tests call the real admitted V2 reader, lowering API and wire adapter. No code or gate narrowing appears in this PR diff. Final aggregate and named QSpec conformance execution remain the code lead's gate.
+
+## Current verdict
+
+**PASS** at frozen head `70f23389574af7a0880013fd3b0c2cb845d4e9ec`: latest disposition for FND-001 is fixed, and FND-002/FND-003 remain fixed. The original conditional verdict and findings are retained as the review history.
