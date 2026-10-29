@@ -38,7 +38,7 @@ Plan completion: not assessed. Optional repository-wide semantic review was not 
 | FND-001 | still-open | `tc_935_rows()` now spells the exact T/D/U values, but it independently defines the three QSpec-owned selection rows in IR test code, contrary to TC-044's explicit no-copy/no-redefinition clause. An owner-sourced vector or owner decision is still needed. |
 | FND-002 | fixed | The successful path compares each lowered typed node's full serialized value against the corresponding originating checked-package node by requested key. |
 | FND-003 | fixed | `assert_tc_935_failed_work` checks typed `Failed`, empty lowered/dependencies/semantic graph, exact retained lock/package id/profile reference, and decimal-string wire limit/consumed for mismatch and one-under cases. |
-| FND-001 | fixed | QSpec publishes authoritative JSON; `vectors` reads it from `QUIRE_SPECIFICATION_DIR`, `row` resolves T/D/U from `selections`, and the local literal rows are removed. |
+| FND-001 | fixed | QSpec publishes authoritative JSON; `vectors()` reads it from `QUIRE_SPECIFICATION_DIR`, `row()` resolves T/D/U from `selections`, and the local literal rows are removed. |
 
 ## Review ID correction
 

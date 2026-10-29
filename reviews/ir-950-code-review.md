@@ -40,7 +40,7 @@ The ordered JSON serializer intentionally preserves object declaration order for
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1: the requirement digest is derived from the parsed fixture package through `canonical_requirement(..., CanonicalProfile::V1).digest`; the 64-digit literal is gone. |
+| FND-001 | fixed | Round 1: the requirement digest is derived from the parsed fixture package through `canonical_requirement(..., CanonicalProfile::V1).digest()`; the 64-digit literal is gone. |
 | FND-002 | fixed | Round 1: generation and runner self-check complete in a sibling stage before the destination is renamed; the new `tc_018_failed_regeneration_preserves_the_existing_corpus` test verifies paths and bytes after a missing runner. |
 
 After excerpts (same source locations):

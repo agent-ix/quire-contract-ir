@@ -40,7 +40,7 @@ The changed files add no CI or gate edits, unsafe code, wire decoder, or depende
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | In the reviewed PR, `known` is explicitly `BTreeMap<usize, Vec<ProtocolBinderOrigin>>`, and the index comparison is `index > usize::from(activation.is_some)`; both cited source defects are removed. Exact-head hosted Rust Checks are pending. |
+| FND-001 | fixed | In the reviewed PR, `known` is explicitly `BTreeMap<usize, Vec<ProtocolBinderOrigin>>`, and the index comparison is `index > usize::from(activation.is_some())`; both cited source defects are removed. Exact-head hosted Rust Checks are pending. |
 | FND-002 | fixed | In the reviewed PR, the terminal readable set starts empty and inserts `over` and captures only for `origin`; the new public-reader test admits `origin` over and requires `missing_declaration`/`missing-name`, stage `terminal`, for the same read under `each`. Exact-head hosted execution is pending. |
 
 ## Disposition verdict

@@ -66,7 +66,7 @@ scope:
 
 ## Dispositions
 
-Round 1, checked the fix atop the reviewed PR. All 25 mutants were re-run in a throwaway worktree, which has since been removed: 24 killed and 1 equivalent (`accepted.sort`). The six round-0 survivors (M1, M4b, M8b, M11, M12, M14) are now killed. fmt, both clippy runs (-D warnings), the 20 source_obligation and public_interface tests and the 10 doctests pass. The census builder split into `checked_census_positions`, `order_inventory_rows`, `census_endpoints`, `process_census_assertions`, `order_census_results` and `census_dispositions` moves code without changing behaviour: the bodies are textually the same apart from `input.source` becoming the threaded `source`. No new findings.
+Round 1, checked the fix atop the reviewed PR. All 25 mutants were re-run in a throwaway worktree, which has since been removed: 24 killed and 1 equivalent (`accepted.sort()`). The six round-0 survivors (M1, M4b, M8b, M11, M12, M14) are now killed. fmt, both clippy runs (-D warnings), the 20 source_obligation and public_interface tests and the 10 doctests pass. The census builder split into `checked_census_positions`, `order_inventory_rows`, `census_endpoints`, `process_census_assertions`, `order_census_results` and `census_dispositions` moves code without changing behaviour: the bodies are textually the same apart from `input.source` becoming the threaded `source`. No new findings.
 
 | FND | outcome | reason |
 | --- | --- | --- |

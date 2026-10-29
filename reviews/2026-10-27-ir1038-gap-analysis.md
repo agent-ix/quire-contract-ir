@@ -34,7 +34,7 @@ CONDITIONAL — FR-066-AC-3 has an executable external integration test, includi
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | In the reviewed PR, `typed_clause_body` uses `operation.execution_point.cloned` as its admitted point carrier; the raw point check is confined to structural malformed-input refusal. |
+| FND-001 | fixed | In the reviewed PR, `typed_clause_body` uses `operation.execution_point().cloned()` as its admitted point carrier; the raw point check is confined to structural malformed-input refusal. |
 | FND-002 | fixed | In the reviewed PR, TC-056 integration tests tag FR-066-AC-4 at the duplicate-member precedence, malformed-point, point-agreement, distinct-anchor, and duplicate-anchor assertions. |
 
 ## Disposition verdict

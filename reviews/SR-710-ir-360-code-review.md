@@ -94,7 +94,7 @@ suppressions, and no new `pub` surface.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-003 | low | The PR body says "Re-measured on origin/main ", an abbreviated commit id. It is also stale: IR main is now (PR #247). Use the full id or drop it. Body edit only | PR #245 body |
+| FND-003 | low | The PR body used an abbreviated origin/main revision reference that was stale after PR #247 landed. Drop the revision reference and identify the compared branch in words. Body edit only | PR #245 body |
 
 ## Dispositions
 
@@ -102,4 +102,4 @@ suppressions, and no new `pub` surface.
 | --- | --- | --- |
 | FND-001 | accepted-no-change | Round 1. The finding is real and the code still does not pair them structurally: `Checked.range` is still `Option<NumericRange>`. The leader took the finding's second option, as the PR body and the commit at the head show. adds comments at both fall-through arms. They say each arm guards an internal invariant break, not user input, and that the compiler does not enforce the pairing. The comments are accurate (reachability was re-checked in SR-710). The body now says plainly that the CheckedNumeric pairing is not done and that the PR does not close IR-360. Accepting this is sound only because the PR is labelled "Part of IR-360" and IR-360 stays open (In Progress), so the structural remedy is still owed there. If IR-360 closes on this merge, this outcome no longer holds. The branch is fix/ir-360-untrusted-input-panics, and Linear's branch link can move the issue to Done on merge, so check IR-360's state after merge. One part is accepted as is: a broken invariant would still surface as a user-facing IllTypedExpression |
 | FND-002 | fixed | No commit (PR body edit). The body now opens "Part of IR-360 (audit IR-317)." and ends "this PR therefore does not close IR-360." It says nothing contradictory about closing |
-| FND-003 | still-open | Found this round. The PR body still says "origin/main " (abbreviated and stale). Body edit only, no code change |
+| FND-003 | still-open | Found this round. The PR body still carries a stale abbreviated origin/main revision reference. Body edit only, no code change |

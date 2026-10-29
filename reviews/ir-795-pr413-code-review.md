@@ -47,5 +47,5 @@ The weak point is the AC-14 "cannot substitute" oracle (FND-001).
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fixed in the reviewed PR. The doctests now pin `compile_fail,E0308` for coercion and add `::from` / `.into` probes pinned to `compile_fail,E0277` for both ClauseRef and SourceRequirementOccurrenceId. Re-running mutation M6 (`From<ClauseRef>`) turns the doctests at lines 320 and 330 red. M6b (`From<SourceRequirementOccurrenceId>`) turns the doctests at lines 346 and 352 red. |
+| FND-001 | fixed | Fixed in the reviewed PR. The doctests now pin `compile_fail,E0308` for coercion and add `::from` / `.into()` probes pinned to `compile_fail,E0277` for both ClauseRef and SourceRequirementOccurrenceId. Re-running mutation M6 (`From<ClauseRef>`) turns the doctests at lines 320 and 330 red. M6b (`From<SourceRequirementOccurrenceId>`) turns the doctests at lines 346 and 352 red. |
 | FND-002 | deferred | FR-052:139-140 now states that the provisional envelope input retains reports by position, and that the completed census shall refuse an envelope whose owner does not match its position. Enforcement belongs to the IR-759 Slice C census builder. |

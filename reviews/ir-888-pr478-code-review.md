@@ -71,7 +71,7 @@ Run in a throwaway worktree. Each mutation was applied alone and tested with `ca
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-004 | medium | The AC-11 nodes case (limit 2, consumed 3) cannot tell the real `consumed` from `limit + 1`, the same defect class as FND-002, which the round-0 review missed for nodes. Mutation M10b (nodes `consumed = limits.nodes + 1`) survives. Use nodes limit 1: consumed is `nodes.len` = 3, so the case separates the two | tests/it/complete_v1_contract_package.rs:224-229, crates/quire-contract-model/src/checked_package/v2/contract_package.rs:1619-1625 |
+| FND-004 | medium | The AC-11 nodes case (limit 2, consumed 3) cannot tell the real `consumed` from `limit + 1`, the same defect class as FND-002, which the round-0 review missed for nodes. Mutation M10b (nodes `consumed = limits.nodes + 1`) survives. Use nodes limit 1: consumed is `nodes.len()` = 3, so the case separates the two | tests/it/complete_v1_contract_package.rs:224-229, crates/quire-contract-model/src/checked_package/v2/contract_package.rs:1619-1625 |
 
 ## Dispositions
 

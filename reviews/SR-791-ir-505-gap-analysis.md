@@ -25,8 +25,8 @@ Spec coverage, measured with `make spec`:
 | Contradicted statuses | 0 | 0 |
 
 At both commits the 23 unbacked rows are all in `spec/kani`, `spec/core` and
-`spec/model`, and none is in `spec/checked_package`. The coder's `ir-505-ci.log` ends
-`head= exit=2`, and the only failing target is
+`spec/model`, and none is in `spec/checked_package`. The coder's `ir-505-ci.log` records
+an exit-2 result at the reviewed PR head, and the only failing target is
 `spec`. fmt, clippy, the workspace tests (181 + 88 + 2), deny, audit and the unsafe
 audit are all green.
 
@@ -99,11 +99,11 @@ commit patch-identical, so only the fix commit is new.
 
 | FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | the new `tc_048_a_declaration_node_keyed_under_another_domain_package_refuses` (traced TC-048, FR-038-AC-45) reads a real package whose member declaration is `Order` keyed under `OTHER_PACKAGE`. It asserts `MissingDeclaration`/`MissingSelection` at `body/operation/member/declaration`, plus a positive control: the selected package's key admits. Probes: changing the reader's `unselected` cause to `MissingName` fails it; putting `version` back into `declaration_key` fails its positive control. |
+| FND-001 | fixed | the new `tc_048_a_declaration_node_keyed_under_another_domain_package_refuses` (traced TC-048, FR-038-AC-45) reads a real package whose member declaration is `Order` keyed under `OTHER_PACKAGE`. It asserts `MissingDeclaration`/`MissingSelection` at `body/operation/member/declaration`, plus a positive control: the selected package's key admits. Probes: changing the reader's `unselected()` cause to `MissingName` fails it; putting `version` back into `declaration_key` fails its positive control. |
 | FND-002 | fixed | the FR-038 cell now says AC-16 and AC-34 do not exist. It names the reason for 🚧: the depth-ceiling deviation pending STD-125, and incomplete operand typing (operands not refused `operator-ineligible`). Both match FR-038's own text. |
 | FND-003 | fixed | PR body edit at (not a commit): the body now opens "Part of IR-505" and says the QSL-emitted A3k admission test is not here and IR-243 is left open. IR-505 therefore stays open for those two items, and IR-243 is still Backlog. |
 
 Round-1 measurements:
-- `make -k ci` log (`ir-505-final-ci.log`) ends `head= exit=2`. Only `spec` fails: 164/185 rows backed, 23 strict unbacked, 0 contradicted (the same baseline). The workspace tests pass (183 integration, 88 unit, 2 doc), and fmt, clippy, deny, audit and the unsafe audit are green.
+- `make -k ci` log (`ir-505-final-ci.log`) records exit 2 at the reviewed PR head. Only `spec` fails: 164/185 rows backed, 23 strict unbacked, 0 contradicted (the same baseline). The workspace tests pass (183 integration, 88 unit, 2 doc), and fmt, clippy, deny, audit and the unsafe audit are green.
 - Focused tests rerun here: `cargo test --test it checked_package_v2` 103 passed, quire-contract-model unit tests 88 passed.
 - No new findings.

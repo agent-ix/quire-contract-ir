@@ -44,7 +44,7 @@ Plan completion: not assessed. `quire matrix --scope . --format tsv` completed: 
 | --- | --- | --- |
 | FND-001 | fixed | In the reviewed PR, AC-290 tags now cover existing bounded and unbounded repeat admissions and compensation-anchor admission; an added unbounded-with-proof repeat admits. Public tests newly assert effect-before-attempt and compensation-forward-effect causal cycles, and a later-sibling await cycle that wins over a conflicting guard. |
 | FND-002 | still-open | In the reviewed PR, TC-226's `read_at(M - 1)` outcome checks `limit_kind`, `limit` and `consumed` but does not assert `incomplete.path`, although FR-038-AC-149 requires the first unpaid value's pointer at this exact whole-read boundary. |
-| FND-002 | fixed | In the reviewed PR, TC-226 now asserts `/semantic_graph/nodes/22` for the exact whole-read M-1 refusal. Fixture `base` puts the empty sequence root at node 22, `recursive` appends nodes without moving it, and `check_clause_causality`'s seventh and final work charge is the reverse-preorder progress visit at that root. The earlier Tree 489/490 pointer assertion remains. |
+| FND-002 | fixed | In the reviewed PR, TC-226 now asserts `/semantic_graph/nodes/22` for the exact whole-read M-1 refusal. Fixture `base()` puts the empty sequence root at node 22, `recursive()` appends nodes without moving it, and `check_clause_causality`'s seventh and final work charge is the reverse-preorder progress visit at that root. The earlier Tree 489/490 pointer assertion remains. |
 
 ## Disposition verdict
 

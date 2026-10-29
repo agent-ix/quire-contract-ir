@@ -55,8 +55,7 @@ dependency. The tests build QSL-shaped nodes from this crate's own vocabulary
 Tests. The focused run (`cargo test --test it checked_package_v2_require_bounds`) passed
 14 of 14. The whole `checked_package_v2` filter passed 109 of 109, including
 `tc_052_unbounded_forms_are_exactly_the_eight_declared_forms`. `make deny` passed
-(advisories, bans, licenses, sources, one-copy). The gate log `ir-450-ci.log` ends
-`head= exit=2`. Only `spec` fails, at the strict
+(advisories, bans, licenses, sources, one-copy). The gate log `ir-450-ci.log` records exit 2 at the reviewed PR head. Only `spec` fails, at the strict
 baseline: 23 unbacked rows and 0 contradicted, none of them FR-038. The `it` suite passed
 189 and lib passed 101.
 
@@ -110,8 +109,7 @@ tests.md.
 `git diff origin/main HEAD -- spec/checked_package/matrix/tests.md` changes exactly two
 rows, FR-038 and TC-050. Every other row is identical to main.
 
-The gate log ir-450-r2-ci.log ends
-`head= exit=2`. Only `spec` fails: 23 unbacked,
+The gate log ir-450-r2-ci.log records exit 2 at the reviewed PR head. Only `spec` fails: 23 unbacked,
 0 contradicted, and none of them FR-038. `it` passed 189 and lib 101. Re-run here:
 require_bounds passed 14 of 14 and the TC-052 eight-forms test passed. No new findings.
 

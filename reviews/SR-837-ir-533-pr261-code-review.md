@@ -178,7 +178,7 @@ matrix-row change.
 
 Gate and tests:
 
-- The coder's log ends `head= exit=2`. Only
+- The coder's log records exit 2 at the reviewed PR head. Only
   `spec` fails, with 23 unbacked rows and 0 contradicted, which is main's baseline.
 - I ran these myself and all pass: 15/15 encoding, 31/31 reader and 101/101 model unit
   tests, plus `make deny` with the one-copy gate.

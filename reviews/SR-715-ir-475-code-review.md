@@ -45,7 +45,7 @@ What was measured:
   --all-targets -D warnings` is clean. `make spec` on head and on main both report "23
   unbacked row(s) and 0 contradicted status(es)". The only difference is one more bound
   symbol (239 to 240 bound, 267 to 268 candidates), and no new warning. The coder's
-  ir-475-ci.log ends with `head= exit=2`, and its
+  ir-475-ci.log records exit 2 at the reviewed PR head, and its
   only failing target is `spec` (Makefile:63).
 - Downstream. quire-driver and quire-contract-runtime have no `KaniProfile` reference. CG
   has no `KaniProfile { .. }` literal. Every CG construction is `KaniProfile::new`, and CG
@@ -56,7 +56,7 @@ What was measured:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | The PR body's list of CG call sites comes from a stale CG checkout, 25 commits behind origin/main. On CG origin/main the `profile.selection` reads are at src/bounded_kani_corpus.rs:394, 399, 404, 450, 494 and 499, not 206, 211, 216, 310, 315 and 329. Line 450 is a borrow (`profile: &profile.selection`) that becomes `profile.selection`, not `.selection.revision`. The compiler will find every site, so the risk is only a misleading handoff | PR body; quire-contract-codegen/src/bounded_kani_corpus.rs:394-499 |
+| FND-001 | low | The PR body's list of CG call sites comes from a stale CG checkout, 25 commits behind origin/main. On CG origin/main the `profile.selection()` reads are at src/bounded_kani_corpus.rs:394, 399, 404, 450, 494 and 499, not 206, 211, 216, 310, 315 and 329. Line 450 is a borrow (`profile: &profile.selection`) that becomes `profile.selection`, not `.selection().revision`. The compiler will find every site, so the risk is only a misleading handoff | PR body; quire-contract-codegen/src/bounded_kani_corpus.rs:394-499 |
 | FND-002 | low | The deserialize arm of the new test asserts only `is_err()`. It does not check that the refusal is the one `new` gives (same `ProfileError` message). If the wire shape later drifts from `Serialize`, a plain shape error would satisfy the assertion and the arm would go vacuous. The mutation passes today. Comparing `err.to_string()` with the `new` error's `Display` would pin it | tests/it/kani_shared.rs:111-115 |
 
 ## Verdict
@@ -68,7 +68,7 @@ without the fix. Both findings are low and need not block the merge. FND-001 sho
 corrected in the PR body or in the CG follow-up ticket.
 
 On the CG break (brief question 4): landing this before CG is the only workable order,
-because CG cannot call `selection` until IR has it. CG's lock is on IR, so
+because CG cannot call `selection()` until IR has it. CG's lock is on IR, so
 nothing breaks until CG bumps. The leader should file a CG follow-up that bumps the IR lock
 past this merge and switches the six reads to `profile.selection()` in the same PR, and
 should not demand that CG change here. Removing the `pub` fields is a breaking change to the
@@ -84,13 +84,13 @@ Reviewed (PR delta, one commit, tests/it/kani_shared.rs only).
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-003 | low | The PR body uses abbreviated commit ids: "Re-measured on origin/main " and "Re-measured on CG origin/main ". The first is also stale: IR origin/main is now (PR #247 landed), and the PR shows BEHIND. Use full ids or drop them | PR body |
+| FND-003 | low | The PR body used abbreviated revision references for IR and CG origin/main. The IR reference was stale after PR #247 landed, and this PR showed BEHIND. Drop the revision references and identify the compared branches in words | PR body |
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | No commit: the PR body and Linear comment 7deadaea-2440-41d8-b660-a48dc80c07aa now list bounded_kani_corpus.rs:394, 399, 404, 450, 494, 499, with:450 as a borrow. Re-measured on CG origin/main: the six `profile.selection` reads are at exactly those lines |
-| FND-002 | fixed | the deserialize arm now does `expect_err` and `assert_eq!(deserialized.to_string, constructed.to_string)`. Mutation check: adding `#[serde(rename = "sel")]` to `KaniProfileWire.selection` fails it at tests/it/kani_shared.rs:117 (left "missing field `sel`", right "unsupported bounded-Kani profile `kani-bounded/2`"). The test passes at head |
+| FND-001 | fixed | No commit: the PR body and Linear comment 7deadaea-2440-41d8-b660-a48dc80c07aa now list bounded_kani_corpus.rs:394, 399, 404, 450, 494, 499, with the line-450 read as a borrow. Re-measured on CG origin/main: the six `profile.selection` reads are at exactly those lines |
+| FND-002 | fixed | the deserialize arm now does `expect_err` and `assert_eq!(deserialized.to_string(), constructed.to_string())`. Mutation check: adding `#[serde(rename = "sel")]` to `KaniProfileWire.selection` fails it at tests/it/kani_shared.rs:117 (left "missing field `sel`", right "unsupported bounded-Kani profile `kani-bounded/2`"). The test passes at head |
 | FND-003 | still-open | Found this round. The PR body still has the abbreviated ids. Fixing it is a body edit only, with no code change |
 | FND-003 | fixed | No commit (PR body edit), verified: the body now says "Re-measured on origin/main:" and "Re-measured on CG origin/main:" with no commit ids, and no other abbreviated id appears in it |
