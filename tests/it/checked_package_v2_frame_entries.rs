@@ -4749,7 +4749,7 @@ fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
     unbound["semantic_graph"]["nodes"][abstraction]["semantic_type"] = node_id(&new_key);
     rename_node(
         &mut unbound,
-        &package["semantic_graph"]["nodes"][abstraction]["node_id"]["digest"]
+        package["semantic_graph"]["nodes"][abstraction]["node_id"]["digest"]
             .as_str()
             .expect("key"),
         &new_key,

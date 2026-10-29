@@ -172,7 +172,9 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
             // term of the closed grammar, placed by the abstraction step.
             BodyGrammar::Frame => scan_members(&node.body, &at).map(|_| ()),
             BodyGrammar::Term => {
-                if kind == CheckedNodeKind::State(super::StateForm::OperationAnchor) {
+                if kind == CheckedNodeKind::Claim(super::ClaimForm::StepRelation) {
+                    scan_members(&node.body, &at).map(|_| ())
+                } else if kind == CheckedNodeKind::State(super::StateForm::OperationAnchor) {
                     check_anchor_flat_wire(&node.body, &at)
                 } else if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
                     && body_term(&node.body) == Some(BodyTerm::Application)
