@@ -2929,11 +2929,9 @@ Compare exact admission or each vector's expected code and cause. Compare the
 RFC 6901 locus suffix recorded by SR-01..04 and PR-04..06. For GD-02, assert `invalid_package`/`malformed-clock-place` at the twin
 place's first forged `resolved_path` row
 `/semantic_graph/nodes/72/body/members/2/value/members/1`, as fixed by QSpec
-FR-322-AC-120, and assert aggregate order passes before the row join. GD-03 records no locus
-suffix, and
-FR-322-AC-150 fixes no exact locus: assert its code, cause, stage and refusal
-now; keep the exact-locus check PLANNED under STD-540 until QSpec fixes that
-contract. Check the reader stage against FR-322's stated order. Keep
+FR-322-AC-120, and assert aggregate order passes before the row join. For GD-03, assert `invalid_package`/`timed-node-reference` at
+`/semantic_graph/nodes/47/body` with vector suffix `body`, as fixed by QSpec
+FR-322-AC-243. This reader control remains PLANNED/UNRUN. Check the reader stage against FR-322's stated order. Keep
 strict-wire, graph-shape and stale-key checks ahead of the timed-model and
 operation-body checks.
 
