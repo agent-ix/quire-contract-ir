@@ -102,10 +102,9 @@ than an omission or an information classification.
 The result carries no bound-content digest, digest envelope or declaration and
 expression digest fields. Its package name, schema version and full clause
 references (including requirement revisions) are the identifiers available to
-consumers. A consumer matching a bound package to a named source shall compare
-those names and versions; the IR binder does not claim to detect different
-content under the same name and version. Binding-array order does not change
-the structurally ordered result, while a semantic expression or declaration
+consumers. The IR binder does not produce a digest-only mismatch refusal or
+claim to detect different content under the same name and version. Binding-array
+order does not change the structurally ordered result, while a semantic expression or declaration
 change remains visible in the exposed typed values. Source provenance remains
 available through the package and clause/declaration source spans.
 
@@ -117,8 +116,9 @@ A `BoundPackage` exposing read-only accessors, or structured IR diagnostics.
 
 - FR-011 and FR-012 own package, requirement, clause and reference identity.
 - FR-013 through FR-015 own declarations, typed expressions and definedness.
-- FR-016 owns canonical bytes; FR-018 owns the shared wire forms. QSL owns the
-  corresponding source-binding comparison when it consumes this result.
+- FR-016 owns canonical bytes; FR-018 owns the shared wire forms. QSL owns
+  source association when it consumes this result; IR defines no replacement
+  source-mismatch refusal.
 
 ## Acceptance Criteria
 

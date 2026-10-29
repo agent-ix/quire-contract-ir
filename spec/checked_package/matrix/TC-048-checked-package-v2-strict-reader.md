@@ -1424,12 +1424,14 @@ is on the stated path; `make deny` passes.
 
 ## Identity digests through quire-canonical (FR-038-AC-89 through FR-038-AC-95)
 
-Code change A of IR-274 implements the V2 reader and lowering cases below and
-code change C the output-mapping identity steps and code change B the v1 part,
-so FR-038-AC-91 and FR-038-AC-92 are scanned over `checked_package/`, over the
-production source of `output_mapping.rs` (FR-038-AC-91's symbols and `u64::MAX`
-ceilings) and over that of `canonical.rs` and `binding.rs` (the symbols and
-calls). FR-023 has no bound identity envelope to inspect.
+Code change A of IR-274 implements the V2 reader and lowering cases below;
+code change C covers output-mapping material and code change B covers the V1
+canonical-byte path. For FR-038-AC-91, construct the nominal, structural,
+application, lowered-node and lowered-package expected preimage bytes
+independently and compare each derived result with SHA-256 of those bytes.
+Change one semantic member and then only excluded source provenance to check
+the respective change and stability claims. FR-023 has no bound identity
+envelope to inspect. FR-038-AC-92 retains its separate type-shape controls.
 For the owner-free nominal fixture, recompute every node key and `package_id`
 and compare each with the digest the fixture recorded before the move; lower
 every node and compare each `ir_id`, the lowered package's `package_id` and its
@@ -1475,14 +1477,10 @@ published model-declaration vector through the private production function; ordi
 
 Call
 `NominalIdentityPreimage::digest` for a preimage of each of the four versions with
-a limit equal to its canonical length and one byte lower (FR-038-AC-90). A test
-reads `canonical.rs`, `binding.rs`, `output_mapping.rs` and `checked_package/` and
-counts `CanonicalWriter`, `canonical_envelope_bytes`, `digest_json`,
-`serde_json_canonicalizer`, and `serde_json::to_vec` and `serde_json::to_value`
-calls reaching a digest (FR-038-AC-91, including its no-`value_to_vec`, no-`Encode`-for-`Value`
-and `serde_json` feature clauses); it lists
-the derives and `Encode` implementations of the six preimage types of the
-assignment table (FR-038-AC-92). Read a package that selects a model document
+a limit equal to its canonical length and one byte lower (FR-038-AC-90). For FR-038-AC-91, compare canonical bytes and derived results for
+representative preimages against independently authored expected bytes and
+SHA-256 values, then mutate a semantic member and excluded provenance
+separately. FR-038-AC-92 checks the assigned preimage type shapes. Read a package that selects a model document
 holding 9007199254740993, -9007199254740993, 9.007199254740993e15, 1e20 and
 18446744073709551617 at `/package/count`, under the document's own digest and
 under another, and check `noncanonical_wire` at
