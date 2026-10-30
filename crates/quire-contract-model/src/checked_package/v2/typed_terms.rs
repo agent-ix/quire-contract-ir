@@ -1729,7 +1729,7 @@ mod tests {
         }
         assert!(
             CheckedTerm::decode_admitted(&json!({"term":"group_reference","ordinal":0})).is_err(),
-            "a preimage-only group reference cannot become a wire term"
+            "an internal group reference cannot become a wire term"
         );
     }
 

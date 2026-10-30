@@ -166,9 +166,9 @@ pub enum CheckedAuthoredCompositeDomain {
     },
     /// Original nominal enum order and identifiers.
     Enum {
-        /// Whether preimage order is semantically ordered.
+        /// Whether authored member order is semantically ordered.
         ordered: bool,
-        /// Admitted preimage order, byte-ascending when unordered.
+        /// Admitted member order, byte-ascending when unordered.
         members: Vec<Box<str>>,
     },
     /// Recursion at a record/tuple's first-entry path.

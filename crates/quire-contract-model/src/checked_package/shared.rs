@@ -89,8 +89,7 @@ pub enum CheckedPackageRefusalCode {
     /// A frame entry named a declared dependency of a meaning its member
     /// does not admit.
     InvalidModelBinding,
-    /// An application node's `operation` failed catalog validation, or its
-    /// retained key is not its own preimage digest.
+    /// An application node's `operation` failed catalog validation.
     InvalidPackage,
     /// An application node's argument, member or leaf is ill-typed against
     /// its catalogued operation.
@@ -179,7 +178,7 @@ pub enum CheckedPackageRefusalCause {
     /// the awaited event or a repeat body with a path that makes no step.
     DeclarationForm,
     /// `declaration-nominal-mismatch`: a node's declared `qualified_name`
-    /// differs from its nominal identity preimage's `qualified_declaration`.
+    /// differs from its declaration's `qualified_name` path.
     DeclarationNominalMismatch,
     /// `ambiguous-name`: another node carries the same declared
     /// `qualified_name`, or a model-owned member's name matches two exposed

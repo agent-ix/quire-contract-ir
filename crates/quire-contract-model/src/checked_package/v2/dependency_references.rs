@@ -471,7 +471,7 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
 
 /// Whether a node is package-dependent: it carries a `declaration`, or it is
 /// keyed by a `ModelOwner` (a `model` or `relation` node, or a nominal
-/// preimage owned by a domain package).
+/// nominal declaration owned by a domain package).
 fn carries_declaration_or_owner<Body>(
     node: &super::CheckedSemanticNodeV2<Body>,
     kind: CheckedNodeKind,
