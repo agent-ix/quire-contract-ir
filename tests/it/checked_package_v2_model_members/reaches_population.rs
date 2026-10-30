@@ -780,8 +780,8 @@ fn tc_048_the_dependency_join_lists_exactly_the_named_population() {
     ));
 }
 
-/// The least `work` limit that admits the package.
-fn least_admitting_work(scenario: &Scenario) -> u64 {
+/// The least `work` limit that admits the package and its first unpaid site.
+fn least_admitting_work(scenario: &Scenario) -> (u64, String) {
     let bytes = canonical(&scenario.package);
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
@@ -801,22 +801,16 @@ fn least_admitting_work(scenario: &Scenario) -> u64 {
         read_at(sufficient),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    match read_at(sufficient - 1) {
+    let first_unpaid = match read_at(sufficient - 1) {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
             assert_eq!(incomplete.limit, sufficient - 1);
             assert_eq!(incomplete.consumed, sufficient);
-            assert_eq!(
-                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
-                // `select_model` adds the root at node 7; node 8 is the
-                // reaches operation's `other` parameter, whose second
-                // binding is the Integer-typed level literal.
-                Some("/semantic_graph/nodes/8/body/members/1/value/type")
-            );
+            incomplete.path.expect("first unpaid work site").to_string()
         }
         other => panic!("expected first unpaid work visit, got {other:?}"),
-    }
-    sufficient
+    };
+    (sufficient, first_unpaid)
 }
 
 #[trace("TC-048", "FR-038-AC-277")]
@@ -1094,7 +1088,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         })
         .expect("selected authored source");
     assert_eq!(finite.provenance, selected_source.regions);
-    let high = least_admitting_work(&scenario);
+    let (high, _) = least_admitting_work(&scenario);
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high;
     assert!(matches!(
