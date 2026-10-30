@@ -5,7 +5,7 @@
 
 use super::{
     fixtures_dir, positive_document, proposal_dir_of, read_json, read_package,
-    read_package_with_document, POSITIVE_ALL,
+    read_package_with_document, vector_selected_documents, POSITIVE_ALL,
 };
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
@@ -26,8 +26,13 @@ fn admitted(package: &Value) -> Box<CheckedPackageV2> {
     }
 }
 
-fn admitted_positive(name: &str, package: &Value) -> Box<CheckedPackageV2> {
-    let document = proposal_dir_of(&fixtures_dir()).join(positive_document(name));
+fn admitted_positive(
+    name: &str,
+    package: &Value,
+    proposal: &std::path::Path,
+    documents: &std::collections::BTreeMap<String, String>,
+) -> Box<CheckedPackageV2> {
+    let document = proposal.join(positive_document(name, documents));
     match read_package_with_document(package, name, &document)
         .expect("published evidence can be prepared")
     {
@@ -39,9 +44,11 @@ fn admitted_positive(name: &str, package: &Value) -> Box<CheckedPackageV2> {
 #[trace("TC-048", "FR-038-AC-107")]
 #[test]
 fn published_single_body_packages_round_trip_through_the_writer() {
+    let proposal = proposal_dir_of(&fixtures_dir());
+    let documents = vector_selected_documents(&proposal).expect("published document selections");
     for name in POSITIVE_ALL {
         let package = fixture(name);
-        let read = admitted_positive(name, &package);
+        let read = admitted_positive(name, &package, &proposal, &documents);
         assert_eq!(
             read.name(),
             package["name"].as_str().expect("published name")
@@ -73,7 +80,10 @@ fn published_single_body_packages_round_trip_through_the_writer() {
             bytes,
             quire_canonical::to_vec(&package, Limits::new(1 << 24)).unwrap()
         );
-        assert_eq!(admitted_positive(name, &encoded).name(), read.name());
+        assert_eq!(
+            admitted_positive(name, &encoded, &proposal, &documents).name(),
+            read.name()
+        );
     }
 }
 
