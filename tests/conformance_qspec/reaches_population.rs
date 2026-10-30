@@ -4,10 +4,7 @@
 //! The published QSpec reaches-population descriptors through the IR reader.
 
 use super::*;
-
-fn node_id(digest: &str) -> Value {
-    json!({"domain": "quire.checked-semantic-node/v1", "digest": digest})
-}
+use quire_contract_model::CheckedNodeId;
 
 fn node_index(package: &Value, tag: &str, form: &str) -> usize {
     package["semantic_graph"]["nodes"]
@@ -35,43 +32,24 @@ fn append_node(package: &mut Value, node: Value) -> Value {
     id
 }
 
-fn structural_id(node: &Value) -> Value {
-    let preimage = json!({
-        "version": "quire.structural-node/v1",
-        "node_tag": node["node_tag"],
-        "semantic_form": node["semantic_form"],
-        "semantic_type": if node["semantic_type"] == node["node_id"] {
-            Value::Null
-        } else {
-            node["semantic_type"].clone()
-        },
-        "declaration": node.get("declaration"),
-        "recursion": node.get("recursion_group"),
-        "body": node["body"],
-        "owner": node.get("owner"),
-    });
-    // Optional owner is absent from anonymous structural preimages.
-    let mut preimage = preimage;
-    if node.get("owner").is_none() {
-        preimage.as_object_mut().expect("preimage").remove("owner");
-    }
-    node_id(&canonical_digest(&preimage))
-}
-
 fn append_rekeyed(package: &mut Value, mut node: Value) -> Value {
     let self_typed = node["semantic_type"] == node["node_id"];
-    let id = structural_id(&node);
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    let id = fixture_support::structural_id(
+        package["name"].as_str().expect("package name"),
+        vec![
+            node["node_tag"].clone(),
+            node["semantic_form"].clone(),
+            json!(format!("population-case-{position}")),
+        ],
+        0,
+    );
     node["node_id"] = id.clone();
     if self_typed {
         node["semantic_type"] = id.clone();
-    }
-    if package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .any(|existing| existing["node_id"] == id)
-    {
-        return id;
     }
     append_node(package, node)
 }
@@ -104,7 +82,11 @@ fn append_population(package: &mut Value, object: &Value, max: &str) -> Value {
         }
     }]});
     let mut dependencies = vec![integer, set];
-    dependencies.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    dependencies.sort_by(|a, b| {
+        let a: CheckedNodeId = serde_json::from_value(a.clone()).expect("node id");
+        let b: CheckedNodeId = serde_json::from_value(b.clone()).expect("node id");
+        a.cmp(&b)
+    });
     population["dependencies"] = json!(dependencies);
     append_rekeyed(package, population)
 }
@@ -121,7 +103,7 @@ fn candidate(base: &Value, case: &Value) -> Value {
     let link = if descriptor.is_null() {
         None
     } else if descriptor["absent"] == true {
-        Some(node_id(&"f".repeat(64)))
+        Some(fixture_support::node_id("missing-population"))
     } else if let Some(owner) = descriptor["model_population_over"].as_str() {
         let order_node = package["semantic_graph"]["nodes"]
             .as_array()
@@ -161,16 +143,16 @@ fn candidate(base: &Value, case: &Value) -> Value {
         if case["dependencies"] != "without-population" {
             let mut dependencies = node["dependencies"].as_array().expect("deps").clone();
             dependencies.push(link);
-            dependencies.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+            dependencies.sort_by(|a, b| {
+                let a: CheckedNodeId = serde_json::from_value(a.clone()).expect("node id");
+                let b: CheckedNodeId = serde_json::from_value(b.clone()).expect("node id");
+                a.cmp(&b)
+            });
             dependencies.dedup();
             node["dependencies"] = json!(dependencies);
         }
-        let old = node["node_id"]["digest"].as_str().expect("id").to_owned();
-        let new = canonical_digest(&union_value_preimage(node));
-        rewrite_digest(&mut package, &old, &new);
     }
-    package["package_id"]["digest"] =
-        json!(derived_with(&package, None).expect("package identity"));
+    fixture_support::settle(&mut package);
     package
 }
 
