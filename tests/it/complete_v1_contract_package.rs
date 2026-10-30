@@ -772,6 +772,7 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
         .package
         .wire()
         .expect("two-dependency package")
+        .wire()
         .semantic_graph
         .nodes;
     let mut preceding_edges = 0_u64;
@@ -1357,7 +1358,7 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         Err(ContractSourceHandoffError::MissingNode(missing()))
     );
     let mut wrong_source_wire = mixed_fixture();
-    wrong_source_wire["name"] = json!("test/other-v1-source");
+    wrong_source_wire["name"] = json!("test/different");
     refresh_identity(&mut wrong_source_wire);
     let wrong_source = admit(&wrong_source_wire);
     assert_ne!(wrong_source.name(), source.name());
@@ -1969,18 +1970,20 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
         .iter()
         .map(|node| &node.node_id)
         .collect::<BTreeSet<_>>();
+    let local_source = admit(&mixed_fixture());
+    let local_keys = local_source
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| &node.node_id)
+        .collect::<BTreeSet<_>>();
     let external_only_key = dependency
         .graph()
         .nodes
         .iter()
         .map(|node| &node.node_id)
-        .find(|key| !represented_keys.contains(key))
-        .expect("selected dependency has a node outside the represented local graph");
-    assert!(admit(&mixed_fixture())
-        .graph()
-        .nodes
-        .iter()
-        .any(|node| node.node_id == *external_only_key));
+        .find(|key| !represented_keys.contains(key) && local_keys.contains(key))
+        .expect("an identically keyed local node cannot satisfy a selected dependency");
     assert_eq!(package.node_kind(external_only_key), None);
     let ContractPackageReadResult::Refused(missing) = read(&bytes) else {
         panic!("selection requires input");
