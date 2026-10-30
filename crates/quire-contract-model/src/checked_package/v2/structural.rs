@@ -42,25 +42,19 @@
 //!   (the `quire.value.compound-unit/v1` term order); `dependencies` is
 //!   exactly those unit keys in that order. The empty body is the
 //!   dimensionless unit.
-//! - **Application-node dependency join** (FR-322
-//!   `application_node_preimage`): a node whose body contains an
+//! - **Application-node dependency join** (FR-322): a node whose body contains an
 //!   `application` term anywhere has `dependencies` exactly the unique,
-//!   digest-ascending reference targets and operation member declarations
+//!   node-id-ascending reference targets and operation member declarations
 //!   of its body. `result_type` and literal `type` annotations are not
 //!   dependencies.
 //!
-//! This shape stage does not re-derive keys. A missing target that equals a
-//! rekeyed node's canonical key resolves to that node for shape checks; its
-//! dependent absence waits for the later key stage. Independent malformed
-//! shape still refuses here. `derived_keys` checks owner-free,
-//! ungrouped structural nodes against QSL's `quire.structural-node/v1`
-//! preimage after application keys and before nominal keys; IR-630 owns the
-//! owner-bearing and grouped follow-up (FR-038-AC-123).
+//! This stage checks declared structural identities and graph shape. No body
+//! or preimage derives a node identity.
 //!
 //! Every violation refuses as `invalid_semantic_graph` with no cause, at the
 //! member it breaks (the node's `body` for a body or binding shape, the
 //! occurrence's `role` for a role), located at the offending node, at the
-//! first such node in ascending node-id digest order.
+//! first such node in ascending structural node-id order.
 //! These are graph-shape refusals, so they run before the stale-key stage.
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
