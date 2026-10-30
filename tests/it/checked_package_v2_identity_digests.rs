@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! Public V2 structural identity and canonical-byte controls. The positive
-//! fixture is read from the authoritative QSpec checkout at test time.
+//! Public V2 structural identity and canonical-byte controls over an authored
+//! single-node fixture. The published QSpec readback runs in conformance_qspec.
 
 use ix_trace_rs::trace;
 use quire_canonical::{Error, LimitKind, Limits};
@@ -11,16 +11,22 @@ use quire_contract_model::{
     CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
-use std::fs;
-use std::path::Path;
 
-fn qspec_nominal() -> Value {
-    let root = std::env::var_os("QUIRE_SPECIFICATION_DIR")
-        .expect("QUIRE_SPECIFICATION_DIR is required for QSpec conformance");
-    let path = Path::new(&root)
-        .join("proposals/checked-package-v2/fixtures/positive-nominal-identities.json");
-    serde_json::from_slice(&fs::read(path).expect("authoritative QSpec nominal fixture"))
-        .expect("QSpec fixture JSON")
+use crate::support::checked_package::v2_all_families;
+
+fn local_package() -> Value {
+    let mut package = v2_all_families();
+    let scalar = package["semantic_graph"]["nodes"][0].clone();
+    let scalar_id = scalar["node_id"].clone();
+    package["semantic_graph"]["nodes"] = json!([scalar]);
+    package["source_map"] = json!(package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .filter(|entry| entry["node_id"] == scalar_id)
+        .cloned()
+        .collect::<Vec<_>>());
+    package
 }
 
 fn admit(value: &Value) -> Box<CheckedPackageV2> {
@@ -29,7 +35,7 @@ fn admit(value: &Value) -> Box<CheckedPackageV2> {
     let bytes = quire_canonical::to_vec(value, Limits::new(u64::MAX)).expect("fixture bytes");
     match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
-        other => panic!("QSpec positive package must admit, got {other:?}"),
+        other => panic!("structural package must admit, got {other:?}"),
     }
 }
 
@@ -48,66 +54,35 @@ fn encode(package: &CheckedPackageV2, limit: u64) -> Result<Vec<u8>, Error> {
     )
 }
 
-/// The independent expected paths come from the QSpec declarations and the
-/// published structural path grammar, not from an identity helper in IR.
+/// The independently authored path is not computed from a body or digest.
 #[trace("TC-048", "FR-038-AC-89")]
 #[test]
-fn qspec_declared_and_derived_ids_and_complete_bodies_survive_reading() {
-    let wire = qspec_nominal();
+fn structural_id_and_complete_body_survive_reading() {
+    let wire = local_package();
     let package = admit(&wire);
-    let name = wire["name"].as_str().expect("package name");
-    let id = |path: Vec<Value>| json!({"package":name,"path":path,"ordinal":0});
-    let status = id(vec![json!("Example"), json!("Status")]);
-    let length = id(vec![json!("Example"), json!("Length")]);
-    let distance = id(vec![json!("Example"), json!("Distance")]);
-    let expected = [
-        id(vec![
-            json!("value"),
-            json!("enum_value"),
-            status.clone(),
-            json!("READY"),
-        ]),
-        status,
-        id(vec![json!("Example"), json!("metre")]),
-        length.clone(),
-        distance.clone(),
-        id(vec![
-            json!("scalar_type"),
-            json!("dimension_equivalence"),
-            distance,
-            length,
-        ]),
-    ];
-    let nodes = wire["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("QSpec nodes");
-    assert_eq!(package.name(), name);
-    assert_eq!(package.graph().nodes.len(), expected.len());
-    for ((retained, source), expected_id) in package.graph().nodes.iter().zip(nodes).zip(&expected)
-    {
-        assert_eq!(
-            serde_json::to_value(&retained.node_id).expect("id"),
-            *expected_id
-        );
-        assert_eq!(source["node_id"], *expected_id);
-        let retained = serde_json::to_value(retained).expect("retained node");
-        assert_eq!(retained["body"], source["body"]);
-        assert_eq!(retained["owner"], source["owner"]);
-    }
+    let expected = json!({"package":"test/families","path":["builtin/boolean"],"ordinal":0});
+    let nodes = wire["semantic_graph"]["nodes"].as_array().expect("nodes");
+    assert_eq!(package.name(), "test/families");
+    assert_eq!(package.graph().nodes.len(), 1);
+    assert_eq!(nodes[0]["node_id"], expected);
+    let retained = serde_json::to_value(&package.graph().nodes[0]).expect("retained node");
+    assert_eq!(retained["node_id"], expected);
+    assert_eq!(retained["body"], nodes[0]["body"]);
+    assert_eq!(retained["owner"], nodes[0]["owner"]);
 }
 
 /// Canonical envelope bytes are checked through the public writer against
-/// an independently constructed JSON value from the QSpec fixture.
+/// an independently constructed JSON value from the local fixture.
 #[trace("TC-048", "FR-038-AC-91")]
 #[test]
 fn canonical_envelope_bytes_follow_semantic_and_source_edits() {
-    let wire = qspec_nominal();
+    let wire = local_package();
     let original = admit(&wire);
     let expected = quire_canonical::to_vec(&wire, Limits::new(u64::MAX)).expect("expected bytes");
     assert_eq!(encode(&original, u64::MAX).expect("writer bytes"), expected);
 
     let mut semantic = wire.clone();
-    semantic["semantic_graph"]["nodes"][1]["body"]["ordered"] = json!(true);
+    semantic["semantic_graph"]["nodes"][0]["semantic_form"] = json!("integer");
     let semantic_package = admit(&semantic);
     let semantic_bytes = encode(&semantic_package, u64::MAX).expect("semantic bytes");
     assert_ne!(semantic_bytes, expected);
@@ -129,7 +104,7 @@ fn canonical_envelope_bytes_follow_semantic_and_source_edits() {
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
 fn typed_node_and_envelope_encoding_have_exact_byte_limits() {
-    let package = admit(&qspec_nominal());
+    let package = admit(&local_package());
     let node = &package.graph().nodes[0];
     let node_bytes = quire_canonical::to_vec(node, Limits::new(u64::MAX)).expect("node bytes");
     assert_eq!(
