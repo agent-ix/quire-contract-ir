@@ -27,8 +27,8 @@ request past the work limit. Repeat the supported request alone.
 ## Expected Results
 
 Each supported node lowers with its exact source-map entries, semantic type,
-reachable dependencies, bounding domains, reachable claims and a stable
-`quire.contract-ir.semantic/v1` digest. Each other request returns exactly its
+reachable dependencies, bounding domains and reachable claims. The complete
+V1 package has exact canonical bytes and no digest field. Each other request returns exactly its
 `invalid_input`, `unsupported`, `requires_bound` or `failed` record without a
 node, and the supported sibling's record equals its stand-alone record.
 
