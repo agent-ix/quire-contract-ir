@@ -83,7 +83,11 @@ fn model_package() -> (Value, Value) {
     let owner = json!({
         "kind": "model", "identity": "acme/owners", "node": "ix://acme/owners/Point",
     });
-    let id = node_id("model/object_type/Point");
+    let id = json!({
+        "package": "acme/owners",
+        "path": ["model", "object_type", "ix://acme/owners/Point"],
+        "ordinal": 0,
+    });
     let mut package = v2_nominal();
     package["semantic_graph"]["nodes"]
         .as_array_mut()

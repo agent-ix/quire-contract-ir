@@ -56,7 +56,7 @@ fn declaration_with(name: &str, ordered: bool, members: [&str; 2]) -> (Value, St
         "ordered": ordered,
         "members": members,
     });
-    let key = format!("enum/{name}");
+    let key = format!("qualified:{name}");
     (preimage, key)
 }
 
