@@ -1749,7 +1749,7 @@ fn check_timed_reference_order(
     Ok(())
 }
 
-/// Join the retained timed roots, members and local typed targets in digest order.
+/// Join the retained timed roots, members and local typed targets in structural ID order.
 pub(super) fn validate_models<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
@@ -2404,11 +2404,11 @@ mod tests {
                     .as_str()
                     .expect("selected member type");
                 let selector = &step["members"][2]["value"];
-                let selector_kind = match selector["target"]["digest"].as_str() {
-                    Some(digest) if Some(digest) == vectors["type_nodes"]["integer"].as_str() => {
+                let selector_kind = match selector.get("target") {
+                    Some(target) if target == &vectors["type_nodes"]["integer"] => {
                         Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Integer))
                     }
-                    Some(digest) if Some(digest) == vectors["type_nodes"]["text"].as_str() => {
+                    Some(target) if target == &vectors["type_nodes"]["text"] => {
                         Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
                     }
                     Some(_) => Some(CheckedNodeKind::Expression(
