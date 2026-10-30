@@ -1845,7 +1845,12 @@ pub fn rebuild_source_map(package: &mut Value) {
         .as_array()
         .expect("nodes")
         .clone();
-    package["source_map"] = source_map_for(&nodes, &fixture_source());
+    let source = package["lock"]["sources"]
+        .as_array()
+        .and_then(|sources| sources.first())
+        .expect("locked fixture source")
+        .clone();
+    package["source_map"] = source_map_for(&nodes, &source);
 }
 
 /// Re-derives the application key of the node at `position` from its own
