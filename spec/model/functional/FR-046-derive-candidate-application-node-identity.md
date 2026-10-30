@@ -18,7 +18,7 @@ When a producer assembles a V2 application before reader admission, the model cr
 
 ## Inputs
 
-A package name, application node tag and semantic form, ordered path operands, and graph-order ordinal when a recursion group requires it. An operand is a string or nested structural node id. The complete draft graph and body are supplied to the package encoder and reader, not to an identity hash function.
+A package name, application node tag and semantic form, ordered path operands for an ungrouped derived application, and a producer-assigned structural ordinal. An operand is a string or nested structural node id. The complete draft graph and body are supplied to the package encoder and reader, not to an identity hash function.
 
 ## Outputs
 
@@ -26,7 +26,7 @@ A typed `CheckedNodeId { package, path, ordinal }` may be constructed before adm
 
 ## Behavior
 
-The model crate SHALL export the structural `CheckedNodeId` by name. Its package and path are explicit and its ordinal is bounded by QSpec FR-322. Ordinary ungrouped applications use ordinal zero and derived path `[node_tag, semantic_form, ...operands]`. A recursion-group member uses its declared path and graph-order ordinal. The producer keeps references and dependencies consistent with the final ids. The reader validates closed shape, uniqueness, reference resolution, owner joins, body grammar and operation semantics; it does not hash the draft or authenticate content-derived keys. No candidate helper constructs an admitted package.
+The model crate SHALL export the structural `CheckedNodeId` by name. Its package and path are explicit and its producer-assigned ordinal is bounded by QSpec FR-322 and unique only among nodes sharing package and path; zero, contiguity and graph order are not required. An ungrouped derived application uses path `[node_tag, semantic_form, ...operands]`. A declared recursion-group member keeps its own declaration path; an anonymous derived member uses the sole declared member's path when exactly one exists, or a producer-chosen path when zero or multiple exist. No grouped path is operand-derived. The producer keeps references and dependencies consistent with the final ids. The reader validates closed shape, uniqueness, reference resolution, owner joins, body grammar and operation semantics; it does not hash the draft or authenticate content-derived keys. No candidate helper constructs an admitted package.
 
 ## Acceptance Criteria
 
@@ -34,8 +34,8 @@ The model crate SHALL export the structural `CheckedNodeId` by name. Its package
 | --- | --- | --- |
 | FR-046-AC-1 | An external model-crate consumer constructs a typed structural application id before any package read, encodes a complete package and obtains the same id only after strict reader admission. A raw id alone cannot construct `CheckedPackageV2`; the root bridge exports none of the model crate's V2 identity surface. | Test, Inspection |
 | FR-046-AC-2 | Withdrawn by the IR-1141 structural-identity decision: an application path is an identity label; the reader does not recompute it from body, semantic type or other node members. The former every-member-changes-digest proof has no replacement criterion and this id is not reused. | Withdrawn |
-| FR-046-AC-3 | A group containing application and nonapplication nodes uses every member in graph order. Self and internal references resolve by the exact group ordinal; outside and dependency references retain their complete structural ids. Permuting members changes group ordinals while preserving the specified graph order. | Test |
-| FR-046-AC-4 | A missing group member, repeated structural id, wrong group size or ordinal, unresolved target, nonapplication body in an application form, or mismatched body target returns its exact typed reader refusal without an admitted package. A 100000-node chain and deep in-memory body do not overflow a 256 KiB stack during the applicable iterative reader and encoder walks. | Test, Inspection |
+| FR-046-AC-3 | A group containing declared application and nonapplication nodes admits with each declared member's own declaration path and one shared non-empty `recursion_group` label. An anonymous derived member uses the sole declared member's path when exactly one exists, or a producer-chosen path when zero or multiple exist. Self, internal, outside and dependency references resolve by exact structural node id. Permuting otherwise valid members retains their structural ids and references, including their producer-assigned ordinals, while changing the complete graph-array value. | Test |
+| FR-046-AC-4 | A missing exactly referenced member, repeated structural id, malformed ordinal, mismatched cycle label, unresolved target, nonapplication body in an application form, or mismatched body target returns its exact typed reader refusal without an admitted package. A 100000-node chain and deep in-memory body do not overflow a 256 KiB stack during the applicable iterative reader and encoder walks. | Test, Inspection |
 | FR-046-AC-5 | Canonical envelope encoding at its exact byte limit succeeds, one byte lower refuses with the typed encoder limit and no bytes; an unencodable value returns the typed encoder error. The byte ceiling makes no claim to bound caller-owned graph memory. | Test, Inspection |
 | FR-046-AC-6 | Withdrawn by the IR-1141 structural-identity decision: the former candidate-key, retained-body stale-key and expected-key proof does not apply to structural node ids. The reader still validates bodies, references and operations under their own criteria; this id is not reused. | Withdrawn |
 
