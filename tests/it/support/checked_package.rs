@@ -931,12 +931,6 @@ pub fn pointer(text: &str) -> JsonPointer {
 /// Independently authored expected reader fields. Tests build this value from
 /// their chosen input and compare each public field with the real refusal.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExpectedNodeId {
-    Absent,
-    Present,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExpectedRefusal {
     pub code: CheckedPackageRefusalCode,
     pub path: Option<JsonPointer>,
@@ -944,7 +938,6 @@ pub struct ExpectedRefusal {
     pub locus: Option<CheckedNodeId>,
     pub contract_version: Option<Box<str>>,
     pub document_pointer: Option<JsonPointer>,
-    pub expected_node_id: ExpectedNodeId,
 }
 
 impl PartialEq<ExpectedRefusal> for CheckedPackageRefusal {
@@ -955,22 +948,6 @@ impl PartialEq<ExpectedRefusal> for CheckedPackageRefusal {
             && self.locus == expected.locus
             && self.contract_version == expected.contract_version
             && self.document_pointer == expected.document_pointer
-            && matches!(
-                (
-                    expected.code == CheckedPackageRefusalCode::StaleDependency
-                        && matches!(
-                            expected.cause,
-                            Some(CheckedPackageRefusalCause::ContentMismatch)
-                        ),
-                    self.expected.as_ref(),
-                    self.actual.as_ref(),
-                ),
-                (true, Some(_), Some(_)) | (false, None, None)
-            )
-            && match expected.expected_node_id {
-                ExpectedNodeId::Absent => self.expected_node_id().is_none(),
-                ExpectedNodeId::Present => self.expected_node_id().is_some(),
-            }
     }
 }
 
@@ -998,7 +975,6 @@ pub fn refusal(code: CheckedPackageRefusalCode, path: &str) -> ExpectedRefusal {
         locus: None,
         contract_version: None,
         document_pointer: None,
-        expected_node_id: ExpectedNodeId::Absent,
     }
 }
 
@@ -1023,7 +999,6 @@ pub fn refusal_bytes(code: CheckedPackageRefusalCode) -> ExpectedRefusal {
         locus: None,
         contract_version: None,
         document_pointer: None,
-        expected_node_id: ExpectedNodeId::Absent,
     }
 }
 
@@ -1037,7 +1012,6 @@ pub fn unknown_version(version: &str) -> ExpectedRefusal {
         locus: None,
         contract_version: Some(version.into()),
         document_pointer: None,
-        expected_node_id: ExpectedNodeId::Absent,
     }
 }
 
@@ -1048,22 +1022,29 @@ pub fn refusal_at(
     code: CheckedPackageRefusalCode,
     path: &str,
     cause: Option<CheckedPackageRefusalCause>,
-    locus_digest: &str,
+    locus_label: &str,
 ) -> ExpectedRefusal {
     ExpectedRefusal {
         code,
         path: Some(pointer(path)),
         cause,
-        locus: Some(typed_node_id(locus_digest)),
+        locus: Some(typed_node_id(locus_label)),
         contract_version: None,
         document_pointer: None,
-        expected_node_id: if code == CheckedPackageRefusalCode::InvalidPackage
-            && cause == Some(CheckedPackageRefusalCause::StaleNodeKey)
-        {
-            ExpectedNodeId::Present
-        } else {
-            ExpectedNodeId::Absent
-        },
+    }
+}
+
+/// A refusal located at a complete structural node identity.
+pub fn refusal_at_id(
+    code: CheckedPackageRefusalCode,
+    path: &str,
+    cause: Option<CheckedPackageRefusalCause>,
+    locus: &Value,
+) -> ExpectedRefusal {
+    ExpectedRefusal {
+        cause,
+        locus: Some(serde_json::from_value(locus.clone()).expect("structural locus")),
+        ..refusal(code, path)
     }
 }
 
@@ -1376,15 +1357,41 @@ pub fn family_key(prefix: &str) -> String {
     match prefix {
         "aaaa" | "a6a6" => boolean_key(),
         "a3a3" => integer_key(),
-        "ffff" => "function/pure_function/call".into(),
-        "4040" => "temporal/temporal_clause".into(),
-        "a2a2" => "temporal/formula/eventually".into(),
-        "a5a5" => "temporal/formula/holds".into(),
-        "5050" => "protocol/protocol_clause".into(),
-        "p-run" => "protocol/control/run".into(),
-        "p-finish" => "protocol/obligation/finish".into(),
+        "ffff" => application_key(
+            "function",
+            "pure_function",
+            &node_id(&family_key("aaaa")),
+            &function_call_body(),
+        ),
+        "4040" => application_key(
+            "temporal",
+            "temporal_clause",
+            &node_id(&family_key("aaaa")),
+            &temporal_clause_body(),
+        ),
+        "a2a2" => application_key(
+            "temporal",
+            "formula",
+            &node_id(&family_key("aaaa")),
+            &eventually_formula_body(),
+        ),
+        "a5a5" => application_key(
+            "temporal",
+            "formula",
+            &node_id(&family_key("aaaa")),
+            &holds_formula_body(),
+        ),
+        "5050" => "qualified:Example/OrderFlow".into(),
+        "p-run" => "qualified:Example/OrderFlow/run/Main".into(),
+        "p-finish" => "qualified:Example/OrderFlow/finish/Closed".into(),
         "p-close" => "value/parameter/closed".into(),
-        "6060" => "claim/verification_claim".into(),
+        "6060" => application_key(
+            "claim",
+            "verification_claim",
+            &node_id(&family_key("aaaa")),
+            &claim_clause_body(),
+        ),
+        "8080" => "qualified:Example/Function".into(),
         other => format!("fixture/{other}"),
     }
 }
@@ -1654,12 +1661,7 @@ fn closing_parameter_body() -> Value {
 }
 
 fn closing_parameter_key() -> String {
-    structural_key(
-        "value",
-        "parameter",
-        Some(&family_key("aaaa")),
-        &closing_parameter_body(),
-    )
+    family_key("p-close")
 }
 
 fn protocol_finish_body() -> Value {
