@@ -239,10 +239,8 @@ pub(super) fn check_wire(
     position: usize,
 ) -> Result<(), ValidationFailure> {
     let at = node_pointer(position);
-    for (name, present) in [("recursion_group", node.recursion_group.is_some())] {
-        if present {
-            return Err(malformed(at.clone().key(name)));
-        }
+    if node.recursion_group.is_some() {
+        return Err(malformed(at.clone().key("recursion_group")));
     }
     let root = form == TimedModelForm::Model;
     if root {
