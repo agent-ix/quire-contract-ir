@@ -202,6 +202,83 @@ fn ten_derived_shapes_admit_with_structural_ids_and_refuse_wrong_types() {
     }
 }
 
+#[trace("TC-226", "FR-038-AC-124")]
+#[test]
+fn ten_derived_shapes_refuse_open_or_malformed_bodies_at_their_nodes() {
+    let (package, positions) = all_ten_shapes();
+    let boolean = package["semantic_graph"]["nodes"][index_of(&package, "scalar_type", "boolean")]
+        ["node_id"]
+        .clone();
+    for (form, position) in positions {
+        let mut missing = package.clone();
+        let members = missing["semantic_graph"]["nodes"][position]["body"]["members"]
+            .as_array_mut()
+            .expect("aggregate members");
+        if matches!(form, "boolean" | "integer") {
+            members.push(json!({"term":"reference","target":boolean}));
+        } else {
+            members.pop();
+        }
+        assert_derived_refusal(&missing, position);
+    }
+
+    for form in ["integer_range", "collection_bounds"] {
+        let position = index_of(&package, "bounded_domain", form);
+        let mut reversed = package.clone();
+        reversed["semantic_graph"]["nodes"][position]["body"]["members"]
+            .as_array_mut()
+            .expect("bounds members")
+            .swap(0, 1);
+        assert_derived_refusal(&reversed, position);
+
+        let mut extra = package.clone();
+        let member = extra["semantic_graph"]["nodes"][position]["body"]["members"][1].clone();
+        extra["semantic_graph"]["nodes"][position]["body"]["members"]
+            .as_array_mut()
+            .expect("bounds members")
+            .push(member);
+        assert_derived_refusal(&extra, position);
+
+        for malformed in ["01", "+1", "-0", "1.0", "one"] {
+            let mut changed = package.clone();
+            changed["semantic_graph"]["nodes"][position]["body"]["members"][0]["value"]["value"] =
+                json!(malformed);
+            assert_derived_refusal(&changed, position);
+        }
+    }
+}
+
+#[trace("TC-226", "FR-038-AC-128")]
+#[test]
+fn integer_range_extreme_bound_text_is_retained_without_rounding() {
+    let (mut package, _) = all_ten_shapes();
+    let position = index_of(&package, "bounded_domain", "integer_range");
+    for (min, max) in [
+        ("0", "0"),
+        (
+            "-170141183460469231731687303715884105728",
+            "170141183460469231731687303715884105727",
+        ),
+        (
+            "-170141183460469231731687303715884105729",
+            "170141183460469231731687303715884105728",
+        ),
+        ("-5", "7"),
+    ] {
+        package["semantic_graph"]["nodes"][position]["body"]["members"][0]["value"]["value"] =
+            json!(min);
+        package["semantic_graph"]["nodes"][position]["body"]["members"][1]["value"]["value"] =
+            json!(max);
+        let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+            panic!("canonical decimal endpoints {min}..{max} must admit");
+        };
+        let retained = serde_json::to_value(&admitted.graph().nodes[position].body)
+            .expect("typed body serialization");
+        assert_eq!(retained["members"][0]["value"]["value"], min);
+        assert_eq!(retained["members"][1]["value"]["value"], max);
+    }
+}
+
 #[trace("TC-048")]
 #[test]
 fn structural_identity_is_retained_without_body_derivation() {
