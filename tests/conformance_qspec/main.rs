@@ -33,7 +33,7 @@ use quire_contract_model::{
     CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 mod dependency_call;
