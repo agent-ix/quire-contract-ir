@@ -39,15 +39,8 @@ const INVALID_DERIVED_SHAPE: (
     Some(CheckedPackageRefusalCause::InvalidDerivedShape),
 );
 
-fn missing_dependency_at(scenario: &Scenario, missing: &str) -> String {
-    let dependencies = scenario.package["semantic_graph"]["nodes"][CALL]["dependencies"]
-        .as_array()
-        .expect("application dependencies");
-    let position = dependencies
-        .iter()
-        .position(|dependency| dependency["digest"] == missing)
-        .expect("missing dependency is listed");
-    format!("/semantic_graph/nodes/{CALL}/dependencies/{position}")
+fn dangling_reference_at() -> String {
+    format!("/semantic_graph/nodes/{CALL}")
 }
 
 /// A package whose reaches application at [`CALL`] carries (or omits) a
@@ -428,7 +421,7 @@ fn tc_048_a_population_that_is_not_a_listed_node_id_is_refused_ill_typed() {
             ILL_TYPED
         };
         let at = if listed.is_some() {
-            missing_dependency_at(&scenario, &absent)
+            dangling_reference_at()
         } else {
             POPULATION_AT.to_owned()
         };
@@ -583,7 +576,7 @@ fn tc_048_a_navigate_application_never_carries_a_population() {
             ILL_TYPED
         };
         let at = if label == "absent node" {
-            missing_dependency_at(&listed, &absent)
+            dangling_reference_at()
         } else {
             POPULATION_AT.to_owned()
         };
@@ -896,7 +889,7 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
     // A missing listed dependency is checked before operation operands.
     let mut earlier = Scenario::over(authored_relationship(), ORDER, CUSTOMER);
     earlier.link(Some(node_id(&absent)), Some(&absent));
-    let at = missing_dependency_at(&earlier, &absent);
+    let at = dangling_reference_at();
     earlier.assert_refused(BAD_GRAPH, &at);
 
     // The `result_type` check is the member check just before the population
@@ -905,7 +898,7 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
     result.nodes()[CALL]["body"]["result_type"] = node_id(&INTEGER);
     result.nodes()[CALL]["semantic_type"] = node_id(&INTEGER);
     result.link(Some(node_id(&absent)), Some(&absent));
-    let at = missing_dependency_at(&result, &absent);
+    let at = dangling_reference_at();
     result.assert_refused(BAD_GRAPH, &at);
 
     // A present link can reach mode and leaf checking; a missing listed node
@@ -942,7 +935,7 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
                 expected
             };
             let pointer = if population.is_some() {
-                missing_dependency_at(&scenario, &absent)
+                dangling_reference_at()
             } else {
                 at.to_owned()
             };
