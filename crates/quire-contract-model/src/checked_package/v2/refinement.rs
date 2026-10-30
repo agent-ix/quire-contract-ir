@@ -2,8 +2,7 @@
 
 use super::CheckedTerm;
 use crate::checked_package::common::{
-    decoder_pointer, locate_closed_value_failure, validate_term, ReferenceVisitor, TermGrammar,
-    Trail, ValidationFailure,
+    validate_term, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry, CheckedSourceRef,
@@ -13,6 +12,7 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -789,6 +789,277 @@ fn array<'a>(
         .ok_or_else(|| invalid(&at.key(name)))
 }
 
+fn typed<T: DeserializeOwned>(value: &Value, at: &Trail<'_>) -> Result<T, ValidationFailure> {
+    serde_json::from_value(value.clone()).map_err(|_| invalid(at))
+}
+
+fn shape(
+    value: &Value,
+    required: &[&str],
+    optional: &[&str],
+    at: &Trail<'_>,
+) -> Result<(), ValidationFailure> {
+    let object = value.as_object().ok_or_else(|| invalid(at))?;
+    for name in required {
+        if !object.contains_key(*name) {
+            return Err(invalid(&at.key(name)));
+        }
+    }
+    if let Some(extra) = object
+        .keys()
+        .find(|name| !required.contains(&name.as_str()) && !optional.contains(&name.as_str()))
+    {
+        return Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::UnknownMember,
+            at.key(extra).pointer(),
+        ));
+    }
+    Ok(())
+}
+
+fn text(value: &Value, at: &Trail<'_>) -> Result<Box<str>, ValidationFailure> {
+    value.as_str().map(Into::into).ok_or_else(|| invalid(at))
+}
+
+fn node(value: &Value, at: &Trail<'_>) -> Result<CheckedNodeId, ValidationFailure> {
+    CheckedNodeId::from_value(value).ok_or_else(|| invalid(at))
+}
+
+fn key(value: &Value, at: &Trail<'_>) -> Result<RefinementKey, ValidationFailure> {
+    if value.get("node").is_some() {
+        shape(value, &["package", "node"], &[], at)?;
+        let package = text(member(value, "package", at)?, &at.key("package"))?;
+        let target = node(member(value, "node", at)?, &at.key("node"))?;
+        Ok(RefinementKey::External(RefinementPackageNodeKey {
+            package,
+            node: target,
+        }))
+    } else {
+        node(value, at).map(RefinementKey::Local)
+    }
+}
+
+fn term(value: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure> {
+    super::flat_wire::check_refinement_term(value, at)?;
+    CheckedTerm::decode_admitted(value).map_err(|_| invalid(at))
+}
+
+fn rows<T>(
+    value: &Value,
+    name: &str,
+    at: &Trail<'_>,
+    mut parse: impl FnMut(&Value, &Trail<'_>) -> Result<T, ValidationFailure>,
+) -> Result<Vec<T>, ValidationFailure> {
+    array(value, name, at)?
+        .iter()
+        .enumerate()
+        .map(|(index, row)| parse(row, &at.key(name).index(index)))
+        .collect()
+}
+
+fn parse_argument(
+    value: &Value,
+    at: &Trail<'_>,
+) -> Result<RefinementStepArgument, ValidationFailure> {
+    if value.get("term").and_then(Value::as_str) == Some("open") {
+        shape(value, &["term"], &[], at)?;
+        Ok(RefinementStepArgument::Open(RefinementOpen {
+            term: "open".into(),
+        }))
+    } else {
+        Ok(RefinementStepArgument::Term(Box::new(term(value, at)?)))
+    }
+}
+
+fn parse_target(value: &Value, at: &Trail<'_>) -> Result<RefinementStepTarget, ValidationFailure> {
+    let kind = member(value, "kind", at)?
+        .as_str()
+        .ok_or_else(|| invalid(&at.key("kind")))?;
+    match kind {
+        "operation" => {
+            shape(
+                value,
+                &["kind", "operation", "receiver", "arguments"],
+                &[],
+                at,
+            )?;
+            Ok(RefinementStepTarget::Operation {
+                operation: key(member(value, "operation", at)?, &at.key("operation"))?,
+                receiver: Box::new(term(member(value, "receiver", at)?, &at.key("receiver"))?),
+                arguments: rows(value, "arguments", at, parse_argument)?,
+            })
+        }
+        "protocol_step" => {
+            shape(value, &["kind", "class", "arguments"], &["node"], at)?;
+            Ok(RefinementStepTarget::ProtocolStep {
+                class: text(member(value, "class", at)?, &at.key("class"))?,
+                node: value
+                    .get("node")
+                    .map(|v| key(v, &at.key("node")))
+                    .transpose()?,
+                arguments: rows(value, "arguments", at, parse_argument)?,
+            })
+        }
+        "stutter" => {
+            shape(value, &["kind"], &[], at)?;
+            Ok(RefinementStepTarget::Stutter)
+        }
+        "any" => {
+            shape(value, &["kind"], &[], at)?;
+            Ok(RefinementStepTarget::Any)
+        }
+        _ => Err(invalid(&at.key("kind"))),
+    }
+}
+
+fn parse_concrete_class(
+    value: &Value,
+    at: &Trail<'_>,
+) -> Result<RefinementConcreteClass, ValidationFailure> {
+    if value.get("node").is_none() {
+        return typed(value, at).map(RefinementConcreteClass::Memory);
+    }
+    shape(value, &["class", "node", "binder_types"], &[], at)?;
+    Ok(RefinementConcreteClass::Declared {
+        class: text(member(value, "class", at)?, &at.key("class"))?,
+        node: node(member(value, "node", at)?, &at.key("node"))?,
+        binder_types: rows(value, "binder_types", at, node)?,
+    })
+}
+
+fn parse_abstract_class(
+    value: &Value,
+    at: &Trail<'_>,
+) -> Result<RefinementAbstractClass, ValidationFailure> {
+    if value.get("node").is_none() {
+        return typed(value, at).map(RefinementAbstractClass::Memory);
+    }
+    shape(value, &["class", "node", "binder_types"], &[], at)?;
+    Ok(RefinementAbstractClass::Declared {
+        class: text(member(value, "class", at)?, &at.key("class"))?,
+        node: key(member(value, "node", at)?, &at.key("node"))?,
+        binder_types: rows(value, "binder_types", at, key)?,
+    })
+}
+
+/// Decode a refinement after the closed wire checks, without passing a
+/// structural node path through serde's recursive Value deserializer.
+pub(super) fn decode_body(body: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure> {
+    check_body_header(body, at)?;
+    let populations = rows(body, "populations", at, |value, at| {
+        shape(value, &["abstract", "concrete"], &[], at)?;
+        Ok(RefinementPopulation {
+            r#abstract: key(member(value, "abstract", at)?, &at.key("abstract"))?,
+            concrete: node(member(value, "concrete", at)?, &at.key("concrete"))?,
+        })
+    })?;
+    let objects = rows(body, "objects", at, |value, at| {
+        shape(
+            value,
+            &["abstract_type", "concrete_type", "fields"],
+            &[],
+            at,
+        )?;
+        Ok(RefinementObject {
+            abstract_type: key(
+                member(value, "abstract_type", at)?,
+                &at.key("abstract_type"),
+            )?,
+            concrete_type: node(
+                member(value, "concrete_type", at)?,
+                &at.key("concrete_type"),
+            )?,
+            fields: rows(value, "fields", at, |value, at| {
+                shape(value, &["name", "expression"], &[], at)?;
+                Ok(RefinementField {
+                    name: text(member(value, "name", at)?, &at.key("name"))?,
+                    expression: term(member(value, "expression", at)?, &at.key("expression"))?,
+                })
+            })?,
+        })
+    })?;
+    let steps = rows(body, "steps", at, |value, at| {
+        shape(value, &["source_class", "target"], &["source_node"], at)?;
+        Ok(RefinementStep {
+            source_class: text(member(value, "source_class", at)?, &at.key("source_class"))?,
+            source_node: value
+                .get("source_node")
+                .map(|v| node(v, &at.key("source_node")))
+                .transpose()?,
+            target: parse_target(member(value, "target", at)?, &at.key("target"))?,
+        })
+    })?;
+    let histories = rows(body, "histories", at, |value, at| {
+        shape(
+            value,
+            &["concrete_type", "name", "type", "initial", "updates"],
+            &[],
+            at,
+        )?;
+        Ok(RefinementHistory {
+            concrete_type: node(
+                member(value, "concrete_type", at)?,
+                &at.key("concrete_type"),
+            )?,
+            name: text(member(value, "name", at)?, &at.key("name"))?,
+            type_id: node(member(value, "type", at)?, &at.key("type"))?,
+            initial: term(member(value, "initial", at)?, &at.key("initial"))?,
+            updates: rows(value, "updates", at, |value, at| {
+                shape(value, &["operation", "expression"], &[], at)?;
+                Ok(RefinementHistoryUpdate {
+                    operation: node(member(value, "operation", at)?, &at.key("operation"))?,
+                    expression: term(member(value, "expression", at)?, &at.key("expression"))?,
+                })
+            })?,
+        })
+    })?;
+    let assume = rows(body, "assume", at, |value, at| {
+        shape(value, &["operation", "kind", "granularity"], &[], at)?;
+        Ok(RefinementAssume {
+            operation: node(member(value, "operation", at)?, &at.key("operation"))?,
+            kind: typed(member(value, "kind", at)?, &at.key("kind"))?,
+            granularity: typed(member(value, "granularity", at)?, &at.key("granularity"))?,
+        })
+    })?;
+    let ensure = rows(body, "ensure", at, |value, at| {
+        shape(value, &["operation", "kind", "granularity"], &[], at)?;
+        Ok(RefinementEnsure {
+            operation: key(member(value, "operation", at)?, &at.key("operation"))?,
+            kind: typed(member(value, "kind", at)?, &at.key("kind"))?,
+            granularity: typed(member(value, "granularity", at)?, &at.key("granularity"))?,
+        })
+    })?;
+    let class_catalog = body
+        .get("class_catalog")
+        .map(|value| {
+            let at = at.key("class_catalog");
+            Ok(RefinementClassCatalog {
+                concrete: rows(value, "concrete", &at, parse_concrete_class)?,
+                r#abstract: rows(value, "abstract", &at, parse_abstract_class)?,
+            })
+        })
+        .transpose()?;
+    Ok(CheckedTerm::Refinement {
+        abstract_key: Box::new(key(member(body, "abstract", at)?, &at.key("abstract"))?),
+        profile: typed(member(body, "profile", at)?, &at.key("profile"))?,
+        populations,
+        objects,
+        steps,
+        histories,
+        assume,
+        ensure,
+        protocol: body
+            .get("protocol")
+            .map(|v| key(v, &at.key("protocol")).map(Box::new))
+            .transpose()?,
+        abstract_internal: body
+            .get("abstract_internal")
+            .map(|_| rows(body, "abstract_internal", at, text))
+            .transpose()?,
+        class_catalog,
+    })
+}
+
 /// Walk each actual semantic term in FR-375 row order. The special `open`
 /// argument is not a semantic term and is excluded here.
 fn row_terms(
@@ -856,12 +1127,7 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
     if let Some(catalog) = body.get("class_catalog") {
         check_catalog_wire(catalog, &at.key("class_catalog"))?;
     }
-    let typed = serde_json::from_value::<CheckedTerm>(body.clone()).map_err(|_| {
-        let path = locate_closed_value_failure::<CheckedTerm>(body)
-            .map(|(path, _)| decoder_pointer(at.pointer(), &path))
-            .unwrap_or_else(|| at.pointer());
-        ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, path)
-    })?;
+    let typed = decode_body(body, at)?;
     let CheckedTerm::Refinement {
         steps,
         histories,

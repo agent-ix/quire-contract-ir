@@ -600,18 +600,6 @@ fn classify_closed_error<E>(
     ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
 }
 
-/// Re-run a closed value's failed decode to locate the error and distinguish a
-/// rejected member from another field error. This is also used after the
-/// internally tagged nominal preimage has been unwrapped into its variant.
-pub(super) fn locate_closed_value_failure<T: serde::de::DeserializeOwned>(
-    value: &Value,
-) -> Option<(serde_path_to_error::Path, bool)> {
-    let provenance = ClosedMemberProvenance::new();
-    serde_path_to_error::deserialize::<_, T>(provenance.trace(value))
-        .err()
-        .map(|error| (error.path().clone(), provenance.unknown_member()))
-}
-
 /// The decoder's position below `base` (the value it decoded) as a pointer.
 /// A position the decoder reached only through buffered content (an
 /// internally tagged enum's members) is not tracked below that enum, so the
