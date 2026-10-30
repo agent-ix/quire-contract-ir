@@ -545,6 +545,11 @@ pub(super) struct OperationTypes {
 }
 
 impl RetainedModels {
+    /// Selected documents retained by this already admitted package.
+    pub(super) fn selected_models(&self) -> &[DomainModel] {
+        &self.models
+    }
+
     /// Effective operation classes of the selected model document named by its identity.
     pub(super) fn operation_classes(
         &self,

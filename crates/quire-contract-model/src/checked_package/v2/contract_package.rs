@@ -2499,6 +2499,7 @@ impl ContractPackageWireV1 {
             &positions,
             &self.package.source.lock,
             &[],
+            &supplied,
             &mut *meter,
             limits.bytes,
         )?;
