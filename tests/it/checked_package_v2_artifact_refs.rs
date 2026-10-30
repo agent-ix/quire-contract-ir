@@ -453,6 +453,14 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
             (expected.code, expected.path.clone(), expected.cause),
             "{member}"
         );
+        assert_eq!(
+            actual
+                .locus
+                .as_ref()
+                .map(|id| serde_json::to_value(id).expect("node id")),
+            Some(base["semantic_graph"]["nodes"][node]["node_id"].clone()),
+            "{member} calling node locus"
+        );
     }
 }
 
