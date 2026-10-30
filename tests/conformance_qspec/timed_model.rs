@@ -488,9 +488,13 @@ fn timed_clause_first_of_two_unlisted_nodes_follows_structural_id_order() {
     let reset = wire["semantic_graph"]["nodes"][85]["node_id"].clone();
     let constraint = wire["semantic_graph"]["nodes"][76]["node_id"].clone();
     assert!(
-        node_id_less(&reset, &constraint),
-        "the later graph node has the earlier structural id"
+        node_id_less(&constraint, &reset),
+        "the constraint has the earlier structural id"
     );
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .swap(76, 85);
     let root = &mut wire["semantic_graph"]["nodes"][52];
     let resets = root["body"]["members"][4]["value"]["members"]
         .as_array_mut()
