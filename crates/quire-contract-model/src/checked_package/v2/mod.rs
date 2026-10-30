@@ -14,7 +14,6 @@ mod comparison_operands;
 mod composite_operands;
 mod contract_package;
 mod dependency_references;
-mod derived_keys;
 pub(in crate::checked_package) mod encode;
 mod execution_point;
 mod execution_point_accessor;
@@ -43,7 +42,6 @@ mod scalar_operands;
 mod state;
 mod step_relation;
 mod structural;
-mod structural_candidates;
 mod temporal;
 mod timed_model;
 mod typed_terms;
@@ -99,10 +97,6 @@ pub use scalar_operands::{
 pub use step_relation::{
     CheckedStepExecution, CheckedStepRelationBody, CheckedStepRelationCapability,
     CheckedStepRelationObligationIdentity,
-};
-pub use structural_candidates::{
-    derive_structural_candidates, CandidateRecursionGroupLabel, CandidateStructuralNodeId,
-    StructuralCandidateError, StructuralCandidates,
 };
 pub use typed_terms::*;
 pub use vocabulary::*;
