@@ -25,7 +25,7 @@ use std::collections::BTreeSet;
 pub struct CheckedRefinementStepRowRegion {
     /// Retained refinement relation node.
     pub node_id: CheckedNodeId,
-    /// Zero-based position in its canonical steps array.
+    /// Zero-based position in its received steps array.
     pub ordinal: u64,
     /// The checked source row's single region.
     pub region: CheckedSourceRegion,
@@ -997,12 +997,11 @@ fn order_defect(position: usize, array: &str, index: usize) -> ValidationFailure
     )
 }
 
-/// Check the six FR-375 row arrays and their nested arrays in published order.
+/// Check the ordered FR-375 row arrays and their nested arrays in published order.
 fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), ValidationFailure> {
     let CheckedTerm::Refinement {
         populations,
         objects,
-        steps,
         histories,
         assume,
         ensure,
@@ -1039,21 +1038,6 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
     for (index, pair) in objects.windows(2).enumerate() {
         if pair[0].abstract_type.digest() >= pair[1].abstract_type.digest() {
             return Err(order_defect(position, "objects", index + 1));
-        }
-    }
-    for (index, pair) in steps.windows(2).enumerate() {
-        fn key(step: &RefinementStep) -> (bool, &str, &str) {
-            (
-                step.source_node.is_none(),
-                step.source_node
-                    .as_ref()
-                    .map(|node| node.digest.as_ref())
-                    .unwrap_or(""),
-                step.source_class.as_ref(),
-            )
-        }
-        if key(&pair[0]) >= key(&pair[1]) {
-            return Err(order_defect(position, "steps", index + 1));
         }
     }
     for (index, history) in histories.iter().enumerate() {
