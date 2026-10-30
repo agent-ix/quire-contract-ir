@@ -159,6 +159,33 @@ pub struct CheckedRational {
 
 /// A validated closed body of a source-authored nominal node. Constructors
 /// check body shape; the package reader checks owner and semantic joins.
+///
+/// ```
+/// use quire_contract_model::{CheckedTerm, NominalBody};
+/// let body = NominalBody::try_enum(false, vec!["Ready".into()]).expect("valid body");
+/// let term = CheckedTerm::NominalBody(Box::new(body));
+/// assert_eq!(serde_json::to_value(term).expect("serializes")["members"], serde_json::json!(["Ready"]));
+/// ```
+///
+/// Raw variants and mutable fields cannot bypass the constructors.
+/// ```compile_fail
+/// use quire_contract_model::NominalBody;
+/// let _ = NominalBody::Enum { ordered: false, members: vec!["Ready".into()] };
+/// ```
+/// ```compile_fail
+/// use quire_contract_model::NominalBody;
+/// let mut body = NominalBody::try_enum(false, vec!["Ready".into()]).unwrap();
+/// body.kind = body.kind.clone();
+/// ```
+/// Unchecked conversion and direct deserialization are also unavailable.
+/// ```compile_fail
+/// use quire_contract_model::NominalBody;
+/// let _: NominalBody = serde_json::json!({"term":"enum","ordered":false,"members":["Ready"]}).into();
+/// ```
+/// ```compile_fail
+/// use quire_contract_model::NominalBody;
+/// let _: NominalBody = serde_json::from_str(r#"{"term":"enum","ordered":false,"members":["Ready"]}"#).unwrap();
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct NominalBody {
