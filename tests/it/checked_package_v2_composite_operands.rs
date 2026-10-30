@@ -1324,7 +1324,11 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
             if node["semantic_form"] == "object_type" {
                 object = Some(key.clone());
             }
-            f.nodes.insert(key, node.clone());
+            let mut node = node.clone();
+            if node["semantic_form"] == "object_type" {
+                node["dependencies"] = json!([]);
+            }
+            f.nodes.insert(key, node);
         }
     }
     let object = object.expect("family object type");

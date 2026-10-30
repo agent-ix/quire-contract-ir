@@ -353,8 +353,8 @@ fn dependent_compound_unit_references_wait_for_target_key() {
     rebuild_source_map(&mut root);
     refresh_identity(&mut root);
     let root_refusal = refused(&root);
-    // STD-536 will settle the nominal-stage code, cause and locus. The
-    // dependent compound-body refusal must not mask the root node's key.
+    // The compound unit's nominal target join observes the rekeyed target
+    // before the target's own key can be authenticated.
     assert_eq!(
         root_refusal.path.as_ref().map(ToString::to_string),
         Some(format!(
