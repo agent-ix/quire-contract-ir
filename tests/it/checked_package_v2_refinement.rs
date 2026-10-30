@@ -5237,7 +5237,7 @@ fn refinement_class_catalog_body_edit_keeps_structural_id_and_refuses_invalid_ca
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().map(|path| path.as_str()),
-        Some(format!("/semantic_graph/nodes/{position}/body").as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str()),
     );
 }
 
