@@ -1571,6 +1571,11 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
             limits.work = work + 1;
             let next = CheckedPackageV2::read(&bytes, limits, &evidence);
             // The next visit is independent of the selected-document lookup.
+            assert!(
+                !matches!(next, CheckedPackageV2ReadResult::Incomplete(ref later)
+                    if later.path.as_ref().is_some_and(|path| path.as_str() == owner_path)),
+                "one additional visit must pass the owner lookup"
+            );
             return;
         }
     }
