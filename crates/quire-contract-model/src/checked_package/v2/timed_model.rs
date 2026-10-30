@@ -241,13 +241,7 @@ pub(super) fn check_wire(
     position: usize,
 ) -> Result<(), ValidationFailure> {
     let at = node_pointer(position);
-    for (name, present) in [
-        ("recursion_group", node.recursion_group.is_some()),
-        (
-            "nominal_identity_preimage",
-            node.nominal_identity_preimage.is_some(),
-        ),
-    ] {
+    for (name, present) in [("recursion_group", node.recursion_group.is_some())] {
         if present {
             return Err(malformed(at.clone().key(name)));
         }
@@ -1865,11 +1859,16 @@ pub(super) fn validate_models<'a>(
                     |kind| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
                 )?;
                 let is_base_time = matches!(
-                    nodes[dimension].nominal_identity_preimage.as_ref(),
-                    Some(super::NominalIdentityPreimage::Dimension(preimage))
-                        if preimage.terms.is_empty()
-                            && preimage.qualified_declaration.last().is_some_and(|name| name.as_ref() == "Time")
-                );
+                    super::identity::NominalBody::from_value(
+                        &nodes[dimension].body,
+                        node_pointer(dimension).key("body"),
+                    ),
+                    Ok(super::identity::NominalBody::Dimension { terms }) if terms.is_empty()
+                ) && nodes[dimension]
+                    .declaration
+                    .as_ref()
+                    .and_then(|declaration| declaration.qualified_name.last())
+                    .is_some_and(|name| name.as_ref() == "Time");
                 if !is_base_time || nodes[unit].semantic_type != nodes[dimension].node_id {
                     return Err(graph.issue(
                         source,
