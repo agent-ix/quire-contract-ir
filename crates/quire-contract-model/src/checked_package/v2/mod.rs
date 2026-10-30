@@ -800,6 +800,8 @@ impl WorkMeter {
     ) -> Result<(), ValidationFailure> {
         self.consumed = self.consumed.saturating_add(work);
         if exceeds(self.consumed, self.limit) {
+            #[cfg(test)]
+            work_probe::charge_denied();
             Err(ValidationFailure::incomplete(
                 CheckedPackageLimit::Work,
                 self.limit,
@@ -809,6 +811,45 @@ impl WorkMeter {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod work_probe {
+    use std::cell::Cell;
+
+    thread_local! {
+        static DENIED: Cell<bool> = const { Cell::new(false) };
+        static VISITS_AFTER_DENIAL: Cell<u64> = const { Cell::new(0) };
+        static CONTINUE_AFTER_DENIAL: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(super) fn reset() {
+        DENIED.with(|denied| denied.set(false));
+        VISITS_AFTER_DENIAL.with(|visits| visits.set(0));
+        CONTINUE_AFTER_DENIAL.with(|mutant| mutant.set(false));
+    }
+
+    pub(super) fn charge_denied() {
+        DENIED.with(|denied| denied.set(true));
+    }
+
+    pub(super) fn recursion_edge_visited() {
+        if DENIED.with(Cell::get) {
+            VISITS_AFTER_DENIAL.with(|visits| visits.set(visits.get().saturating_add(1)));
+        }
+    }
+
+    pub(super) fn visits_after_denial() -> u64 {
+        VISITS_AFTER_DENIAL.with(Cell::get)
+    }
+
+    pub(super) fn continue_after_denial(enabled: bool) {
+        CONTINUE_AFTER_DENIAL.with(|mutant| mutant.set(enabled));
+    }
+
+    pub(super) fn mutant_enabled() -> bool {
+        CONTINUE_AFTER_DENIAL.with(Cell::get)
     }
 }
 
@@ -2916,7 +2957,19 @@ fn validate_recursion(
                 .and_then(|edges| edges.get(edge))
                 .copied();
             if let Some((successor, site)) = successor {
-                meter.charge(1, || edge_pointer(vertex, site))?;
+                let charged = meter.charge(1, || edge_pointer(vertex, site));
+                #[cfg(test)]
+                if work_probe::mutant_enabled() {
+                    // Test-only mutation: continue the actual Tarjan walk
+                    // after a denied edge charge.
+                    let _ = charged;
+                } else {
+                    charged?;
+                }
+                #[cfg(not(test))]
+                charged?;
+                #[cfg(test)]
+                work_probe::recursion_edge_visited();
                 if let Some(frame) = calls.last_mut() {
                     frame.1 = edge.saturating_add(1);
                 }
@@ -3391,6 +3444,56 @@ mod tests {
             CheckedPackageRefusalCode::MalformedWire,
             node_pointer(0).key("recursion_group").to_string(),
         );
+    }
+
+    #[trace("FR-038-AC-149", "TC-226")]
+    #[test]
+    fn tc_226_large_group_stops_before_visiting_a_denied_edge() {
+        const MEMBERS: usize = 100_000;
+        let mut nodes = vec![recursion_test_node('a', Some("shared")); MEMBERS];
+        for (position, node) in nodes.iter_mut().enumerate() {
+            node.node_id.path = vec![super::CheckedNodePathSegment::Name(
+                format!("member-{position}").into(),
+            )];
+        }
+        let adjacency = (0..MEMBERS)
+            .map(|position| vec![((position + 1) % MEMBERS, EdgeSite::Reference(0))])
+            .collect::<Vec<_>>();
+        let at = |vertex: usize, _: EdgeSite| node_pointer(vertex).key("body");
+
+        super::work_probe::reset();
+        let mut exact = WorkMeter::new(u64::MAX);
+        validate_recursion(&nodes, &adjacency, &mut exact, &at).expect("large cycle admits");
+        let minimum = exact.consumed();
+        assert_eq!(minimum, MEMBERS as u64);
+        assert_eq!(super::work_probe::visits_after_denial(), 0);
+
+        super::work_probe::reset();
+        let mut short = WorkMeter::new(minimum - 1);
+        let Err(ValidationFailure::Incomplete(incomplete)) =
+            validate_recursion(&nodes, &adjacency, &mut short, &at)
+        else {
+            panic!("one unit less must stop at the first unpaid edge");
+        };
+        assert_eq!(incomplete.limit_kind, super::CheckedPackageLimit::Work);
+        assert_eq!(incomplete.limit, minimum - 1);
+        assert_eq!(incomplete.consumed, minimum);
+        assert_eq!(
+            incomplete.path,
+            Some(at(MEMBERS - 1, EdgeSite::Reference(0)))
+        );
+        assert_eq!(super::work_probe::visits_after_denial(), 0);
+
+        // Apply the continue-after-denial mutation to the actual Tarjan walk,
+        // then restore normal propagation. The observer must detect the
+        // unpaid edge visit that the production branch prevents.
+        super::work_probe::reset();
+        super::work_probe::continue_after_denial(true);
+        let mut mutant = WorkMeter::new(minimum - 1);
+        validate_recursion(&nodes, &adjacency, &mut mutant, &at)
+            .expect("test mutation deliberately ignores the denied charge");
+        assert_eq!(super::work_probe::visits_after_denial(), 1);
+        super::work_probe::reset();
     }
 
     fn tc_451_private_owned_wire() -> super::CheckedPackageWireV2 {
