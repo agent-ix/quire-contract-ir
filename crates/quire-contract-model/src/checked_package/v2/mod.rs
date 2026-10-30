@@ -2097,18 +2097,12 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
 }
 
 /// FR-322's declaration-name refusals, after the nominal checks and before
-/// frame and operation checks. First, a node carrying both a `declaration` and
-/// a nominal preimage that fixes a name must declare exactly that name, else
-/// `invalid_package` / `declaration-nominal-mismatch`. Then no two
-/// non-protocol nodes in one namespace may declare the same `qualified_name`,
-/// else `ambiguous_declaration` / `ambiguous-name`. The namespaces are units,
-/// dimensions and all other types. Protocol-involved duplicates run in the
-/// protocol step, after its placement and operator checks. Each sweep reports
-/// at the first offending node in ascending node-id digest order (`index`);
-/// for an ambiguous name that is the later node sharing it. FR-322 orders
-/// both before any operation refusal but not against each other: this reader
-/// checks the nominal join first. Takes no work meter: every name compared
-/// here was already charged when `validate_graph`'s per-node loop admitted it.
+/// frame and operation checks. Declared paths equal their assigned node paths.
+/// Non-protocol declarations share separate unit, dimension and other-type
+/// namespaces. A model-owned unit also occupies its package-qualified unit
+/// name, so a source unit with the same type reference is ambiguous. The
+/// later structural node id is refused. Protocol duplicates run in their own
+/// later stage. Names were charged by the preceding graph walk.
 fn validate_declaration_names(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
@@ -2146,20 +2140,46 @@ fn validate_declaration_names(
             continue;
         }
         let node = &nodes[position];
-        if let Some(declaration) = &node.declaration {
-            let namespace = match (node.node_tag.as_ref(), node.semantic_form.as_ref()) {
-                ("scalar_type", "dimension") => 0_u8,
-                ("scalar_type", "unit") => 1,
-                _ => 2,
-            };
-            if !holders.insert((namespace, declaration.qualified_name.as_slice())) {
-                return Err(refuse_at(
-                    CheckedPackageRefusalCode::AmbiguousDeclaration,
-                    name_pointer(position),
-                    Some(CheckedPackageRefusalCause::AmbiguousName),
-                    node_id.clone(),
-                ));
+        let namespace = match (node.node_tag.as_ref(), node.semantic_form.as_ref()) {
+            ("scalar_type", "dimension") => 0_u8,
+            ("scalar_type", "unit") => 1,
+            _ => 2,
+        };
+        let name = match (&node.declaration, &node.owner, namespace) {
+            (Some(declaration), _, _) => declaration
+                .qualified_name
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<&str>>()
+                .join("/"),
+            (
+                None,
+                Some(CheckedNodeOwner::Model {
+                    identity,
+                    node: owner_node,
+                }),
+                1,
+            ) => {
+                let prefix = format!("ix://{identity}/unit/");
+                let Some(unit_name) = owner_node.strip_prefix(&prefix) else {
+                    continue;
+                };
+                format!("{identity}/{unit_name}")
             }
+            _ => continue,
+        };
+        if !holders.insert((namespace, name)) {
+            let path = if node.declaration.is_some() {
+                name_pointer(position)
+            } else {
+                node_pointer(position)
+            };
+            return Err(refuse_at(
+                CheckedPackageRefusalCode::AmbiguousDeclaration,
+                path,
+                Some(CheckedPackageRefusalCause::AmbiguousName),
+                node_id.clone(),
+            ));
         }
     }
     Ok(())
