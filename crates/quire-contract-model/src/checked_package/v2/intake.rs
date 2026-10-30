@@ -156,21 +156,7 @@ struct BorrowedDiagnostic<'a> {
 pub(super) fn decode_borrowed_wire(
     bytes: &[u8],
 ) -> Result<RawCheckedPackageWireV2, ValidationFailure> {
-    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|failure| {
-        let ValidationFailure::Refused(mut refusal) = failure else {
-            return failure;
-        };
-        if refusal.code == CheckedPackageRefusalCode::UnknownMember
-            && refusal.path.as_ref().is_some_and(|path| {
-                path.as_str()
-                    .strip_prefix("/identity_preimage/")
-                    .is_some_and(|member| !member.contains('/'))
-            })
-        {
-            refusal.code = CheckedPackageRefusalCode::MalformedWire;
-        }
-        ValidationFailure::Refused(refusal)
-    })?;
+    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes)?;
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
     let mut nodes = Vec::with_capacity(graph.nodes.len());
