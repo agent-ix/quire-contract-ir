@@ -20,7 +20,6 @@
 use super::{
     CheckedDeclaration, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner,
     CheckedNodeProjectionV2, CheckedSemanticGraphV2, CheckedSemanticNodeV2,
-    NominalIdentityPreimage,
 };
 use crate::checked_package::shared::CheckedNodeId;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
@@ -116,7 +115,6 @@ struct ProjectionFields<'a, Body> {
     semantic_type: &'a CheckedNodeId,
     dependencies: &'a [CheckedNodeId],
     recursion_group: Option<&'a str>,
-    nominal_identity_preimage: Option<&'a NominalIdentityPreimage>,
     declaration: Option<&'a CheckedDeclaration>,
     owner: Option<&'a CheckedNodeOwner>,
     owner_model: Option<&'a CheckedNodeId>,
@@ -133,7 +131,6 @@ impl<'a, Body> ProjectionFields<'a, Body> {
             semantic_type: &node.semantic_type,
             dependencies: &node.dependencies,
             recursion_group: node.recursion_group.as_deref(),
-            nominal_identity_preimage: node.nominal_identity_preimage.as_ref(),
             declaration: node.declaration.as_ref(),
             owner: node.owner.as_ref(),
             owner_model: node.owner_model.as_ref(),
@@ -153,9 +150,6 @@ impl<Body: Encode> Encode for ProjectionFields<'_, Body> {
         elements(writer, "dependencies", self.dependencies)?;
         if let Some(group) = self.recursion_group {
             member(writer, "recursion_group", group)?;
-        }
-        if let Some(preimage) = self.nominal_identity_preimage {
-            member(writer, "nominal_identity_preimage", preimage)?;
         }
         if let Some(declaration) = self.declaration {
             member(writer, "declaration", declaration)?;
@@ -197,11 +191,6 @@ impl<Body: Encode> Encode for CheckedSemanticNodeV2<Body> {
         elements(writer, "dependencies", &self.dependencies)?;
         member(writer, "occurrences", &self.occurrences)?;
         present(writer, "recursion_group", &self.recursion_group)?;
-        present(
-            writer,
-            "nominal_identity_preimage",
-            &self.nominal_identity_preimage,
-        )?;
         present(writer, "declaration", &self.declaration)?;
         present(writer, "owner", &self.owner)?;
         present_encoded(writer, "owner_model", &self.owner_model)?;
