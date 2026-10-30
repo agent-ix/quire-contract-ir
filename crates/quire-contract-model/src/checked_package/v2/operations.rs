@@ -5289,6 +5289,7 @@ mod tests {
             definition_selections: Vec::new(),
             required_features: Vec::new(),
             dependency_selections: Vec::new(),
+            refinement_internals: None,
         }
     }
 
