@@ -2059,6 +2059,11 @@ fn union_defect(
         }
         // Implements: FR-347. a payload term conforms to a record payload type.
         for (term, expected) in payload.iter().zip(&member.payload) {
+            // Leave an unresolved body reference to the graph reference join,
+            // which reports the missing target at that reference's path.
+            if matches!(term, CheckedTerm::Reference { target } if !index.contains_key(target)) {
+                return Ok(None);
+            }
             if !conforms_to_type(
                 expected,
                 operand_type_node_typed(term, nodes, kinds, index).as_ref(),

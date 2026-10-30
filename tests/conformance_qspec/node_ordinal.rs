@@ -64,7 +64,7 @@ fn case_package(base: &Value, case: &Value) -> (Value, Vec<usize>) {
 }
 
 /// Trace: TC-233, FR-322-AC-272, FR-322-AC-273.
-#[trace("TC-233", "FR-322-AC-272", "FR-322-AC-273")]
+#[trace("TC-233", "FR-322-AC-272", "FR-322-AC-273", "FR-038-AC-133")]
 #[test]
 fn qspec_node_ordinal_uniqueness_cases_read_exactly() {
     let fixtures = fixtures_dir();
