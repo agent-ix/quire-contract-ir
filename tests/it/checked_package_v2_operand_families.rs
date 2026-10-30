@@ -343,7 +343,7 @@ fn refuses(
         (
             actual.code,
             actual.cause,
-            actual.path.as_ref().map(ToString::to_string)
+            actual.loci[0].path.as_ref().map(ToString::to_string)
         ),
         (code, Some(cause), Some(path.to_owned()))
     );
@@ -401,7 +401,7 @@ fn native_refuses(
     assert_eq!(actual.code, code, "{actual:?}");
     assert_eq!(actual.cause, Some(cause));
     assert_eq!(
-        actual.path.as_ref().map(ToString::to_string),
+        actual.loci[0].path.as_ref().map(ToString::to_string),
         Some(path.to_owned())
     );
     assert_eq!(
@@ -714,7 +714,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
     assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(actual.cause, Some(CheckedPackageRefusalCause::InvalidValue));
     assert_eq!(
-        actual.path.as_ref().map(ToString::to_string),
+        actual.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{at}/body/value"))
     );
     native_refuses(
@@ -1027,7 +1027,7 @@ fn aggregate_arguments_admit_at_clause_positions_and_refuse_at_boolean_position(
     };
     assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
     assert_eq!(
-        actual.path.expect("path").as_str(),
+        actual.loci[0].path.clone().expect("path").as_str(),
         format!("/semantic_graph/nodes/{at}/body")
     );
 
@@ -1247,7 +1247,7 @@ fn quantity_convert_checks_member_result_before_rounding_type() {
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some(format!("/semantic_graph/nodes/{at}/body/result_type"))
         );
         assert_eq!(

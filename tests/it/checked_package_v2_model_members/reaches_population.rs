@@ -191,7 +191,11 @@ impl Scenario {
             "code and cause at {at}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(at)
         );
     }
@@ -556,7 +560,11 @@ fn tc_048_a_navigate_application_never_carries_a_population() {
         let refusal = refused(&unlisted.package, &unlisted.evidence);
         assert_eq!((refusal.code, refusal.cause), BAD_GRAPH, "{label} unlisted");
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some("/semantic_graph/nodes/6/dependencies"),
             "{label} unlisted"
         );

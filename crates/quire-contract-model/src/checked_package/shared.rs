@@ -492,18 +492,22 @@ pub struct CheckedProtocolDecisionRead {
     pub field: Box<str>,
 }
 
-/// A typed refusal with a stable code and the location of the value it is
-/// about.
+/// One exact location of a typed refusal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedPackageRefusalLocation {
+    /// RFC 6901 pointer of the value; absent only for a byte-stream defect.
+    pub path: Option<JsonPointer>,
+    /// Exact admitted source region of this value, when one exists.
+    pub source_region: Option<CheckedSourceRegion>,
+}
+
+/// A typed refusal with a stable code and one or more ordered locations.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedPackageRefusal {
     /// The condition callers can distinguish without parsing prose.
     pub code: CheckedPackageRefusalCode,
-    /// The RFC 6901 pointer of the value the refusal is about; absent when
-    /// the refusal concerns the byte stream rather than a value (malformed
-    /// JSON, non-canonical bytes).
-    pub path: Option<JsonPointer>,
-    /// The other importer-rooted selection path in a dependency diamond conflict.
-    pub related_path: Option<JsonPointer>,
+    /// Nonempty locations in declaration order; the first is primary.
+    pub loci: Vec<CheckedPackageRefusalLocation>,
     /// The cause tag paired with `code` under FR-322's `DiagnosticCausePairing`,
     /// present exactly when this reader determined one.
     pub cause: Option<CheckedPackageRefusalCause>,
@@ -548,8 +552,10 @@ impl CheckedPackageRefusal {
     pub(crate) fn new(fields: RefusalFields) -> Self {
         Self {
             code: fields.code,
-            path: fields.path,
-            related_path: None,
+            loci: vec![CheckedPackageRefusalLocation {
+                path: fields.path,
+                source_region: None,
+            }],
             cause: fields.cause,
             locus: fields.locus,
             contract_version: fields.contract_version,
@@ -561,6 +567,26 @@ impl CheckedPackageRefusal {
             terminal_duplicate: None,
             expected_node_id: None,
         }
+    }
+
+    /// The primary RFC 6901 pointer, if this is a value refusal.
+    pub(crate) fn primary_path(&self) -> Option<&JsonPointer> {
+        self.loci
+            .first()
+            .and_then(|location| location.path.as_ref())
+    }
+
+    /// Replace the primary value pointer after a more precise decode locates it.
+    pub(crate) fn set_primary_path(&mut self, path: Option<JsonPointer>) {
+        self.loci[0].path = path;
+    }
+
+    /// Add another independently identified refusal location in declaration order.
+    pub(crate) fn push_path(&mut self, path: JsonPointer) {
+        self.loci.push(CheckedPackageRefusalLocation {
+            path: Some(path),
+            source_region: None,
+        });
     }
 
     /// A selected or pinned identity differs from the supplied content.

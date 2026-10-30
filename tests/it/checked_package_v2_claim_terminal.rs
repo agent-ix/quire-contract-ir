@@ -386,7 +386,7 @@ fn duplicate_parties(refusal: &CheckedPackageRefusal) -> (CheckedNodeId, Checked
     assert_eq!(refusal.code, Code::AmbiguousDeclaration);
     assert_eq!(refusal.cause, Some(Cause::AmbiguousName));
     assert_eq!(refusal.document_pointer, None);
-    assert_eq!(refusal.related_path, None);
+    assert_eq!(refusal.loci.len(), 1);
     assert_eq!(refusal.expected, None);
     assert_eq!(refusal.actual, None);
     assert_eq!(refusal.extension_detail, None);
@@ -1070,7 +1070,7 @@ fn terminal_identity_and_uniqueness_per_model() {
         .position(|node| node["node_id"] == json!(second))
         .expect("second terminal position");
     assert_eq!(
-        duplicate_result.path.as_ref().map(AsRef::as_ref),
+        duplicate_result.loci[0].path.as_ref().map(AsRef::as_ref),
         Some(format!("/semantic_graph/nodes/{second_position}").as_str())
     );
     let mut reversed = duplicate.clone();
@@ -1108,11 +1108,11 @@ fn terminal_identity_and_uniqueness_per_model() {
     assert_eq!(repeated_result.code, Code::AmbiguousDeclaration);
     assert_eq!(repeated_result.cause, Some(Cause::AmbiguousName));
     assert_eq!(
-        repeated_result.path.as_ref().map(AsRef::as_ref),
+        repeated_result.loci[0].path.as_ref().map(AsRef::as_ref),
         Some(format!("/semantic_graph/nodes/{}", base_node_index()).as_str())
     );
     assert_eq!(repeated_result.document_pointer, None);
-    assert_eq!(repeated_result.related_path, None);
+    assert_eq!(repeated_result.loci.len(), 1);
     assert_eq!(repeated_result.expected, None);
     assert_eq!(repeated_result.actual, None);
     assert_eq!(repeated_result.extension_detail, None);
@@ -1225,7 +1225,7 @@ fn terminal_self_parameter_must_have_right_name_level_and_type() {
                 assert_eq!(value.code, Code::IllTyped);
                 assert_eq!(value.cause, Some(Cause::OperatorIneligible));
                 assert!(
-                    value.path.as_ref().is_some_and(|path| path
+                    value.loci[0].path.as_ref().is_some_and(|path| path
                         .as_str()
                         .ends_with("/body/members/2/value/members/0/target")),
                     "{value:?}"

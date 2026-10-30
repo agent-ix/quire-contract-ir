@@ -317,7 +317,11 @@ fn timed_clause_published_vectors_match_reader() {
                         "{id}"
                     );
                     assert_eq!(
-                        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                        refusal.loci[0]
+                            .path
+                            .as_ref()
+                            .map(ToString::to_string)
+                            .as_deref(),
                         case["locus"].as_str(),
                         "{id}"
                     );
@@ -325,7 +329,11 @@ fn timed_clause_published_vectors_match_reader() {
                     assert_eq!(refusal.code, Code::MalformedWire, "{id}: schema refusal");
                     assert_eq!(refusal.cause, None, "{id}: schema refusal cause");
                     assert_eq!(
-                        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                        refusal.loci[0]
+                            .path
+                            .as_ref()
+                            .map(ToString::to_string)
+                            .as_deref(),
                         case["locus"].as_str(),
                         "{id}: schema refusal locus"
                     );
@@ -381,7 +389,11 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
             panic!("{id}: stage control must refuse");
         };
         assert_eq!((refusal.code, refusal.cause), (code, Some(cause)), "{id}");
-        assert_eq!(refusal.path.unwrap().to_string(), locus, "{id}");
+        assert_eq!(
+            refusal.loci[0].path.clone().unwrap().to_string(),
+            locus,
+            "{id}"
+        );
     }
 
     let mut order_before_unlisted = published_case("CL-05");
@@ -403,7 +415,7 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
         (Code::InvalidSemanticGraph, None)
     );
     assert_eq!(
-        order.path.unwrap().to_string(),
+        order.loci[0].path.clone().unwrap().to_string(),
         "/semantic_graph/nodes/52/body/members/5/value/members/1"
     );
 
@@ -427,7 +439,7 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
         (Code::InvalidPackage, Some(Cause::TimedNodeReference))
     );
     assert_eq!(
-        unlisted.path.unwrap().to_string(),
+        unlisted.loci[0].path.clone().unwrap().to_string(),
         "/semantic_graph/nodes/76/body"
     );
 
@@ -451,7 +463,7 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
         (Code::InvalidPackage, Some(Cause::TimedNodeReference))
     );
     assert_eq!(
-        join.path.unwrap().to_string(),
+        join.loci[0].path.clone().unwrap().to_string(),
         "/semantic_graph/nodes/86/body/members/0/value/target"
     );
 }
@@ -500,7 +512,7 @@ fn timed_clause_first_of_two_unlisted_nodes_follows_node_digest_order() {
         (Code::InvalidPackage, Some(Cause::TimedNodeReference))
     );
     assert_eq!(
-        refusal.path.unwrap().to_string(),
+        refusal.loci[0].path.clone().unwrap().to_string(),
         "/semantic_graph/nodes/85/body"
     );
 }
@@ -555,7 +567,11 @@ fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
                 );
                 assert_eq!(refusal.cause, None, "{id}");
                 assert_eq!(
-                    refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                    refusal.loci[0]
+                        .path
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .as_deref(),
                     case["locus"].as_str(),
                     "{id}"
                 );
@@ -591,7 +607,11 @@ fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
             "{id}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             case["locus"].as_str(),
             "{id}"
         );
@@ -667,7 +687,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
             "{id}"
         );
         assert_eq!(
-            refusal.path.unwrap().to_string(),
+            refusal.loci[0].path.clone().unwrap().to_string(),
             format!("{root_at}/occurrences"),
             "{id}"
         );
@@ -698,7 +718,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
             "{id}"
         );
         assert_eq!(
-            refusal.path.unwrap().to_string(),
+            refusal.loci[0].path.clone().unwrap().to_string(),
             format!("{root_at}/dependencies"),
             "{id}"
         );
@@ -742,7 +762,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
             "{id}"
         );
         assert_eq!(
-            refusal.path.unwrap().to_string(),
+            refusal.loci[0].path.clone().unwrap().to_string(),
             format!("{root_at}/node_id"),
             "{id}"
         );
@@ -820,7 +840,7 @@ fn timed_aggregate_repeated_reference_refuses_as_order_defect() {
         (Code::InvalidSemanticGraph, None)
     );
     assert_eq!(
-        refusal.path.unwrap().to_string(),
+        refusal.loci[0].path.clone().unwrap().to_string(),
         format!("/semantic_graph/nodes/{root}/body/members/3/value/members/1")
     );
 }
@@ -891,7 +911,7 @@ fn timed_aggregate_source_identity_precedes_region_start() {
         (Code::InvalidSemanticGraph, None)
     );
     assert_eq!(
-        refusal.path.unwrap().to_string(),
+        refusal.loci[0].path.clone().unwrap().to_string(),
         format!("/semantic_graph/nodes/{root_position}/body/members/3/value/members/1")
     );
 }
@@ -947,7 +967,7 @@ fn timed_aggregate_each_root_branch_enforces_source_order() {
             "root binding {binding}"
         );
         assert_eq!(
-            refusal.path.unwrap().to_string(),
+            refusal.loci[0].path.clone().unwrap().to_string(),
             format!("/semantic_graph/nodes/{root_position}/body/members/{binding}/value/members/1"),
             "root binding {binding}"
         );
@@ -1011,7 +1031,7 @@ fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() 
         (Code::InvalidSemanticGraph, None)
     );
     assert_eq!(
-        refusal.path.unwrap().to_string(),
+        refusal.loci[0].path.clone().unwrap().to_string(),
         format!("/semantic_graph/nodes/{root_position}/body/members/8/value/members/1")
     );
 }
@@ -1467,7 +1487,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
             row["id"]
         );
         assert_eq!(
-            refusal.path.unwrap().to_string(),
+            refusal.loci[0].path.clone().unwrap().to_string(),
             row["locus"].as_str().unwrap(),
             "{}",
             row["id"]
@@ -1606,7 +1626,7 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
             "{id}: {refusal:?}"
         );
         assert_eq!(
-            refusal.path.unwrap().to_string(),
+            refusal.loci[0].path.clone().unwrap().to_string(),
             row["locus"].as_str().unwrap(),
             "{id}"
         );
@@ -1820,7 +1840,11 @@ fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
         "{refusal:?}"
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         gd03["locus"].as_str()
     );
 }

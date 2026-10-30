@@ -129,7 +129,10 @@ fn refusal_of(case: &str, package: &Value) -> (Outcome, Option<String>) {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.map(|path| path.as_str().to_owned()),
+                refusal.loci[0]
+                    .path
+                    .clone()
+                    .map(|path| path.as_str().to_owned()),
             ),
             refusal.locus.map(|locus| locus.digest.to_string()),
         ),
@@ -2065,7 +2068,7 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
     assert_eq!(refusal.code, Code::InvalidModelBinding);
     assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
     assert_eq!(
-        refusal.path.expect("path").as_str(),
+        refusal.loci[0].path.clone().expect("path").as_str(),
         at_node(fair, "/body/operation/member/declaration")
     );
     assert_eq!(
@@ -2117,7 +2120,7 @@ fn fairness_resolves_the_most_derived_operation_redefinition() {
             assert_eq!(refusal.cause, Some(Cause::AmbiguousName));
             let fair = find_identity(&package, &temporal_identity("fair"));
             assert_eq!(
-                refusal.path.map(|path| path.to_string()),
+                refusal.loci[0].path.clone().map(|path| path.to_string()),
                 Some(at_node(fair, "/body/operation/member/name"))
             );
             assert_eq!(
@@ -3095,7 +3098,10 @@ fn tc_048_the_timed_bound_checks_are_charged_to_the_work_limit() {
     };
     assert_eq!(refusal.code, Code::InvalidSemanticGraph);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str().to_owned()),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(|path| path.as_str().to_owned()),
         Some(at_node(root, "/body/operation/member/interval/lower"))
     );
     assert_eq!(

@@ -358,7 +358,7 @@ fn protocol_reference_requires_closed_body() {
         };
         assert_eq!(actual.code, CheckedPackageRefusalCode::MalformedWire);
         assert_eq!(
-            actual.path.as_ref().expect("path").to_string(),
+            actual.loci[0].path.as_ref().expect("path").to_string(),
             format!("/semantic_graph/nodes/{position}/body")
         );
     }
@@ -405,7 +405,7 @@ fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {
             "{member}: {actual:?}"
         );
         assert_eq!(
-            actual.path.as_ref().expect("path").to_string(),
+            actual.loci[0].path.as_ref().expect("path").to_string(),
             format!("/semantic_graph/nodes/{position}/{member}"),
             "{member}"
         );
@@ -421,7 +421,7 @@ fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {
     };
     assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
     assert_eq!(
-        actual.path.as_ref().expect("path").to_string(),
+        actual.loci[0].path.as_ref().expect("path").to_string(),
         format!("/semantic_graph/nodes/{position}/occurrences/0/role")
     );
 }
@@ -541,7 +541,7 @@ fn stale_grouped_protocol_reference_key_is_rejected_as_stale_node_key() {
         })
         .expect("group member");
     assert_eq!(
-        actual.path.as_ref().expect("path").to_string(),
+        actual.loci[0].path.as_ref().expect("path").to_string(),
         format!("/semantic_graph/nodes/{expected_position}/node_id")
     );
 }
@@ -562,7 +562,7 @@ fn acyclic_protocol_reference_with_group_matches_qspec_k10() {
     };
     assert_eq!(actual.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
-        actual.path.as_ref().expect("path").to_string(),
+        actual.loci[0].path.as_ref().expect("path").to_string(),
         format!("/semantic_graph/nodes/{position}/recursion_group")
     );
 }
@@ -759,7 +759,14 @@ fn assert_reference_refusal(wire: &Value, code: CheckedPackageRefusalCode, path:
         other => panic!("expected {code:?} at {path}: {other:?}"),
     };
     assert_eq!(refused.code, code);
-    assert_eq!(refused.path.expect("refusal path").to_string(), path);
+    assert_eq!(
+        refused.loci[0]
+            .path
+            .clone()
+            .expect("refusal path")
+            .to_string(),
+        path
+    );
 }
 
 #[trace("FR-038-AC-295", "TC-048")]

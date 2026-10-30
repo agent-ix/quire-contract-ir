@@ -167,7 +167,7 @@ fn tc_048_numeric_narrow_result_equals_type_argument() {
         Some(CheckedPackageRefusalCause::OperatorIneligible)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{at}/body/result_type"))
     );
     assert_eq!(

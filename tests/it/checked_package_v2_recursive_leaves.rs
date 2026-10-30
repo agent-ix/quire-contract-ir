@@ -567,7 +567,7 @@ fn residual_operand_source_reads_referenced_application_result_type() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!(
             "/semantic_graph/nodes/{position}/body/arguments/0"
         )))
@@ -1166,7 +1166,7 @@ fn residual_non_member_terms_refuse_before_operand_family_and_leaves() {
             "{refusal:?}"
         );
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&format!(
                 "/semantic_graph/nodes/{position}/body/arguments/0"
             )))
