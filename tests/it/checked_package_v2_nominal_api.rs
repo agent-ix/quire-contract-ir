@@ -196,3 +196,30 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
     }
     assert!(NominalBody::try_dimension_equivalence([id.clone(), id], one).is_ok());
 }
+
+#[trace("TC-048", "FR-038-AC-374")]
+#[test]
+fn constructed_body_does_not_bypass_package_semantic_admission() {
+    let body = NominalBody::try_dimension(Vec::new()).expect("closed base dimension body");
+    let mut wire = v2_nominal();
+    wire["semantic_graph"]["nodes"][3]["body"] =
+        serde_json::to_value(CheckedTerm::NominalBody(Box::new(body))).expect("body serializes");
+    wire["semantic_graph"]["nodes"][3]["semantic_type"] =
+        wire["semantic_graph"]["nodes"][1]["node_id"].clone();
+    let refusal = match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("wrong semantic type must refuse: {other:?}"),
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some("/semantic_graph/nodes/3/semantic_type"),
+    );
+}
