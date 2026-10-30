@@ -491,6 +491,80 @@ pub(super) fn validate_structural_nodes(
     Ok(())
 }
 
+/// FR-038-AC-124/125: validate the closed bodies of the ten derived type
+/// forms independently of their producer-assigned structural node IDs.
+pub(super) fn validate_derived_type_shapes(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    let graph = Graph {
+        nodes,
+        kinds,
+        index,
+    };
+    for (&node_id, &position) in index {
+        let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
+            continue;
+        };
+        let term = terms.get(position).and_then(Option::as_ref);
+        let valid = match kind {
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean | ScalarTypeForm::Integer) => {
+                node.semantic_type == node.node_id
+                    && term.and_then(typed_aggregate).is_some_and(<[_]>::is_empty)
+            }
+            CheckedNodeKind::CompositeType(
+                CompositeTypeForm::Reference
+                | CompositeTypeForm::Option
+                | CompositeTypeForm::Set
+                | CompositeTypeForm::Bag
+                | CompositeTypeForm::Sequence
+                | CompositeTypeForm::OrderedSet,
+            ) => {
+                node.semantic_type == node.node_id
+                    && term
+                        .and_then(typed_aggregate)
+                        .is_some_and(|members| matches!(members, [CheckedTerm::Reference { target }] if target.is_well_formed()))
+            }
+            CheckedNodeKind::BoundedDomain(
+                BoundedDomainForm::IntegerRange | BoundedDomainForm::CollectionBounds,
+            ) => {
+                let base_valid = match kind {
+                    CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => {
+                        graph.type_matches(&node.semantic_type, ScalarTypeForm::Integer)
+                    }
+                    _ => matches!(graph.kind(&node.semantic_type),
+                        Some(CheckedNodeKind::CompositeType(
+                            CompositeTypeForm::Set | CompositeTypeForm::Bag
+                            | CompositeTypeForm::Sequence | CompositeTypeForm::OrderedSet))),
+                };
+                let natural = kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds);
+                base_valid && term.and_then(typed_aggregate).is_some_and(|members| {
+                    let [min, max] = members else { return false; };
+                    [(min, "min"), (max, "max")].into_iter().all(|(member, name)| {
+                        let Some(CheckedTerm::Literal { type_id, value_kind: LiteralKind::Integer, value }) =
+                            typed_binding(member, name) else { return false; };
+                        let Some(text) = value.as_str() else { return false; };
+                        graph.type_matches(type_id, ScalarTypeForm::Integer)
+                            && (if natural { is_non_negative_integer(text) } else { is_integer_bound(text) })
+                    })
+                })
+            }
+            _ => continue,
+        };
+        if !valid {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                node_pointer(position).key("node_id"),
+                Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
+                node_id.clone(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Carrier-only members and the local edge shape, checked before keys or target resolution.
 fn protocol_reference_defect(
     node: &CheckedSemanticNodeV2,
