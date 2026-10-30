@@ -583,6 +583,27 @@ fn derived_shape_order_uses_structural_ids_after_graph_shape() {
     );
 }
 
+#[trace("TC-226", "FR-038-AC-127")]
+#[test]
+fn source_owner_join_precedes_derived_shape_refusal() {
+    let (mut package, option, record) = list_group();
+    package["semantic_graph"]["nodes"][record]["owner"]["identity"] = json!("unselected-source");
+    package["semantic_graph"]["nodes"][option]["body"]["members"] = json!([]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("unselected source owner and malformed Option must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::MissingDeclaration,
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{record}/node_id")),
+        "{refusal:?}"
+    );
+}
+
 #[trace("TC-048", "FR-038-AC-185")]
 #[test]
 fn pregraph_refusal_invents_no_structural_node_locus() {
