@@ -1633,6 +1633,34 @@ fn validate_node_id(
     Ok(())
 }
 
+/// A group keeps one structural package and declaration path, including on
+/// anonymous members. A declared or owned member supplies the independently
+/// checked path anchor; a group without one can only be checked for agreement
+/// among its members.
+fn validate_recursion_group_paths(nodes: &[RawSemanticNodeV2]) -> Result<(), ValidationFailure> {
+    let mut paths = BTreeMap::<&str, &CheckedNodeId>::new();
+    for node in nodes {
+        if node.declaration.is_some() || node.owner.is_some() {
+            if let Some(label) = node.recursion_group.as_deref() {
+                paths.entry(label).or_insert(&node.node_id);
+            }
+        }
+    }
+    for (position, node) in nodes.iter().enumerate() {
+        let Some(label) = node.recursion_group.as_deref() else {
+            continue;
+        };
+        let anchor = paths.entry(label).or_insert(&node.node_id);
+        if node.node_id.package != anchor.package || node.node_id.path != anchor.path {
+            return Err(refuse(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                node_pointer(position).key("node_id").key("path"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Enforces the schema's `DeclarationTagRules` and `DeclarationOccurrenceRule`
 /// (FR-208): `declaration` is forbidden on `expression`, `relation`, `state`,
 /// `temporal` and `correspondence` nodes and on `value`/`enum_value` nodes;
@@ -2565,6 +2593,7 @@ fn validate_graph(
         limits.bytes,
     )?;
     validate_declaration_names(&graph.nodes, &kinds, &index)?;
+    validate_recursion_group_paths(&graph.nodes)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
