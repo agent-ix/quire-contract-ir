@@ -5,11 +5,11 @@
 //! Two stages, in the reader's first-refusal order:
 //!
 //! 1. [`admit_dependencies`], in the lock stage: every entry, in lock order,
-//!    must have a package supplied under its identity (`missing_import` /
-//!    `missing-selection` at the entry), whose own `package_id` equals the
-//!    entry's (`stale_dependency` / `content-mismatch` at the entry's
-//!    `package_id.digest`). This runs before any node is read, so before any
-//!    `dependency_reference` check.
+//!    must have a package supplied under its name (`missing_import` /
+//!    `missing-selection` at the entry), whose own name equals the entry's
+//!    (`stale_dependency` / `content-mismatch` at the entry's `identity`).
+//!    This runs before any node is read, so before any `dependency_reference`
+//!    check.
 //! 2. [`DependencyReferences::walk_admitted`] in step 7 of the operation stage
 //!    and strict contract-package intake: a
 //!    term is checked at its place in its node's pre-order walk, wherever it
@@ -479,9 +479,7 @@ fn carries_declaration_or_owner<Body>(
 
 /// Selected package/key pairs retained in an admitted body's dependency
 /// references, in document pre-order.
-pub(super) fn selected_reference_targets(
-    body: &CheckedTerm,
-) -> Vec<(CheckedSemanticId, CheckedNodeId)> {
+pub(super) fn selected_reference_targets(body: &CheckedTerm) -> Vec<(Box<str>, CheckedNodeId)> {
     let mut selected = Vec::new();
     let mut pending = vec![body];
     while let Some(term) = pending.pop() {
