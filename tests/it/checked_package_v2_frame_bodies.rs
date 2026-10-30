@@ -180,7 +180,7 @@ fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
     // ("1515") — a canonical-order defect, since both entries are
     // individually eligible for `deletes`.
     package["semantic_graph"]["nodes"][index]["body"]["deletes"] =
-        Value::Array(vec![process, object_type]);
+        Value::Array(vec![process, object_type.clone()]);
     refresh_identity(&mut package);
 
     expect_refusal_at(
