@@ -27,6 +27,7 @@ fn selected(document: Value, work: u64) -> (Result<DomainModel, SelectionFailure
     let mut meter = WorkMeter::new(work);
     let result = admit_selection(
         "acme/orders",
+        "checked",
         &evidence,
         &mut Budget::new(&mut meter, 3, BYTES),
         &Arc::new(BTreeMap::new()),
@@ -614,6 +615,7 @@ fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
         let mut meter = WorkMeter::new(u64::MAX);
         let Err(SelectionFailure::Refused(retained)) = admit_selection(
             identity,
+            "checked",
             &evidence,
             &mut Budget::new(&mut meter, 0, BYTES),
             &Arc::new(BTreeMap::new()),
@@ -639,7 +641,7 @@ fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
             .insert_domain_package_document("acme/orders", bytes.clone())
             .expect("first domain evidence insertion succeeds");
         let mut meter = WorkMeter::new(u64::MAX);
-        match admit_selection("acme/orders", &evidence, &mut Budget::new(&mut meter, 0, BYTES), &Arc::new(BTreeMap::new())) {
+        match admit_selection("acme/orders", "checked", &evidence, &mut Budget::new(&mut meter, 0, BYTES), &Arc::new(BTreeMap::new())) {
             Err(SelectionFailure::InexactNumber { document_pointer, cause }) => {
                 assert_eq!(document_pointer.to_string(), "/types/0/origin/source/startLine");
                 assert_eq!(cause, Cause::InexactInteger);
