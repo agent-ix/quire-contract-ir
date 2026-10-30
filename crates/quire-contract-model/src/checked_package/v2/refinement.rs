@@ -868,6 +868,7 @@ fn parse_argument(
     }
 }
 
+#[ix_trace_rs::string_edge]
 fn parse_target(value: &Value, at: &Trail<'_>) -> Result<RefinementStepTarget, ValidationFailure> {
     let kind = member(value, "kind", at)?
         .as_str()

@@ -236,6 +236,7 @@ pub(super) fn decode_borrowed_wire(
 
 /// Refine a buffered structural ID decode error to the actual ordinal member.
 /// Nested operand IDs are walked on the heap, without a path-depth cap.
+#[ix_trace_rs::string_edge]
 fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
     const MAX_SAFE: u64 = 9_007_199_254_740_991;
     let mut pending = vec![(source_raw(bytes, at)?, at.clone())];
