@@ -25,7 +25,6 @@ fn requirement(
     node_tag: &str,
     semantic_form: &str,
     declaration: Option<&CheckedDeclaration>,
-    nominal: bool,
     body: &Value,
     self_typed: bool,
     owner: Option<&CheckedNodeOwner>,
@@ -33,11 +32,29 @@ fn requirement(
     if kind == Some(CheckedNodeKind::Model(super::ModelForm::ModelRoot)) {
         return OwnerRequirement::ModelRoot;
     }
-    if nominal || body_term(body) == Some(super::BodyTerm::Application) {
+    if body_term(body) == Some(super::BodyTerm::Application) {
         return OwnerRequirement::None;
+    }
+    if kind
+        == Some(CheckedNodeKind::ScalarType(
+            super::ScalarTypeForm::DimensionEquivalence,
+        ))
+    {
+        return OwnerRequirement::Source;
     }
     if declaration.is_some() {
         return OwnerRequirement::Source;
+    }
+    if matches!(
+        kind,
+        Some(CheckedNodeKind::ScalarType(
+            super::ScalarTypeForm::Enum
+                | super::ScalarTypeForm::Dimension
+                | super::ScalarTypeForm::Unit
+        ))
+    ) && matches!(owner, Some(CheckedNodeOwner::Model { .. }))
+    {
+        return OwnerRequirement::Model;
     }
     match (node_tag, semantic_form) {
         ("model", "record_value_type" | "tuple_value_type" | "variant_type") => {
@@ -137,7 +154,6 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
                 &node.node_tag,
                 &node.semantic_form,
                 node.declaration.as_ref(),
-                node.nominal_identity_preimage.is_some(),
                 &node.body,
                 node.semantic_type == node.node_id,
                 node.owner.as_ref(),
