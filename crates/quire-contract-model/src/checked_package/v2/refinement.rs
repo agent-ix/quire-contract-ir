@@ -1140,8 +1140,8 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
         }
     }
     for (index, pair) in histories.windows(2).enumerate() {
-        if (pair[0].concrete_type.digest.as_ref(), pair[0].name.as_ref())
-            >= (pair[1].concrete_type.digest.as_ref(), pair[1].name.as_ref())
+        if (&pair[0].concrete_type, pair[0].name.as_ref())
+            >= (&pair[1].concrete_type, pair[1].name.as_ref())
         {
             return Err(order_defect(position, "histories", index + 1));
         }
@@ -1159,12 +1159,8 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
                 RefinementGranularity::Whole => "whole",
             }
         }
-        fn key(row: &RefinementAssume) -> (&str, &str, &str) {
-            (
-                &row.operation.digest,
-                kind(row.kind),
-                granularity(row.granularity),
-            )
+        fn key(row: &RefinementAssume) -> (&CheckedNodeId, &str, &str) {
+            (&row.operation, kind(row.kind), granularity(row.granularity))
         }
         if key(&pair[0]) >= key(&pair[1]) {
             return Err(order_defect(position, "assume", index + 1));
