@@ -31,6 +31,86 @@ fn local_package() -> Value {
     package
 }
 
+fn derived_range_package() -> Value {
+    let mut package = v2_all_families();
+    let boolean = package["semantic_graph"]["nodes"][0].clone();
+    let integer = package["semantic_graph"]["nodes"][20].clone();
+    let mut range = package["semantic_graph"]["nodes"][2].clone();
+    let old_range_id = range["node_id"].clone();
+    range["node_id"] = json!({
+        "package": "test/families",
+        "path": ["bounded_domain", "integer_range", integer["node_id"], "0", "9"],
+        "ordinal": 0,
+    });
+    range["semantic_type"] = integer["node_id"].clone();
+    range["dependencies"] = json!([integer["node_id"]]);
+    range["body"] = json!({"term":"aggregate","members":[
+        {"term":"binding","name":"min","value":
+            {"term":"literal","type":integer["node_id"],"value_kind":"integer","value":"0"}},
+        {"term":"binding","name":"max","value":
+            {"term":"literal","type":integer["node_id"],"value_kind":"integer","value":"9"}}
+    ]});
+    let selected = [
+        boolean["node_id"].clone(),
+        integer["node_id"].clone(),
+        old_range_id,
+    ];
+    let mut maps = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .filter(|entry| selected.contains(&entry["node_id"]))
+        .cloned()
+        .collect::<Vec<_>>();
+    let range_map = maps
+        .iter_mut()
+        .find(|entry| entry["node_id"] == selected[2])
+        .expect("range source");
+    range_map["node_id"] = range["node_id"].clone();
+    package["semantic_graph"]["nodes"] = json!([boolean, integer, range]);
+    package["source_map"] = json!(maps);
+    package
+}
+
+#[trace("TC-226", "FR-038-AC-124")]
+#[test]
+fn derived_range_binding_name_is_validated_independently_of_its_id() {
+    let mut package = derived_range_package();
+    let _admitted = admit(&package);
+    let retained_id = package["semantic_graph"]["nodes"][2]["node_id"].clone();
+    package["semantic_graph"]["nodes"][2]["body"]["members"][0]["name"] = json!("oops");
+    assert_eq!(
+        package["semantic_graph"]["nodes"][2]["node_id"],
+        retained_id
+    );
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence.support_feature("quire.value.complete/v1");
+    let outcome = CheckedPackageV2::read(
+        &quire_canonical::to_vec(&package, Limits::new(u64::MAX)).expect("canonical bytes"),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    );
+    let refusal = match outcome {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        CheckedPackageV2ReadResult::Admitted(_) => panic!("malformed derived body was admitted"),
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            panic!("malformed derived body exhausted a limit: {incomplete:?}")
+        }
+    };
+    assert_eq!(
+        refusal.code,
+        quire_contract_model::CheckedPackageRefusalCode::InvalidPackage
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(quire_contract_model::CheckedPackageRefusalCause::InvalidDerivedShape)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/semantic_graph/nodes/2/node_id".to_owned())
+    );
+}
+
 fn package_with_independent_requests() -> Value {
     let mut package = local_package();
     let boolean = package["semantic_graph"]["nodes"][0].clone();
