@@ -106,18 +106,17 @@ use structural::validate_structural_nodes;
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
-    count, exceeds, first_difference, is_digest, is_nonempty, node_pointer, read_typed_prefix,
-    validate_definition_ref, validate_locked_source, validate_source_map_entries, validate_term,
-    ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
-    NODE_DOMAIN,
+    count, exceeds, is_nonempty, node_pointer, read_typed_prefix, validate_definition_ref,
+    validate_locked_source, validate_source_map_entries, validate_term, ReferenceMember,
+    ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedNodePathSegment,
     CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId, CheckedSourceMapEntry,
-    CheckedSourceRef, CheckedSourceRegion, JsonPointer,
+    CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry, CheckedSourceRef,
+    CheckedSourceRegion, JsonPointer,
 };
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
