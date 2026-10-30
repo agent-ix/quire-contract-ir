@@ -1210,26 +1210,19 @@ pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
     WireTerm::decode(value).kind()
 }
 
-/// A `dependency_reference` term's `package`: a `quire.package.semantic/v2`
-/// SHA-256 [`CheckedSemanticId`]; `None` for any other shape, a bare digest
-/// or another digest domain included.
-// Intake check of a dependency reference's package domain and algorithm.
+/// A `dependency_reference` term's selected package name.
 #[ix_trace_rs::string_edge]
-pub(super) fn dependency_reference_package(term: WireTerm<'_>) -> Option<CheckedSemanticId> {
-    let package = CheckedSemanticId::deserialize(term.field(TermField::Package)?).ok()?;
-    (package.domain.as_ref() == PACKAGE_DOMAIN_V2
-        && package.algorithm.as_ref() == "sha256"
-        && is_digest(&package.digest))
-    .then_some(package)
+pub(super) fn dependency_reference_package(term: WireTerm<'_>) -> Option<Box<str>> {
+    let package = term.field(TermField::Package)?.as_str()?;
+    (!package.is_empty()).then(|| package.into())
 }
 
-/// A `dependency_reference` term's `node`: a node key in the node domain;
+/// A `dependency_reference` term's `node`: a structural node identity;
 /// `None` for any other shape.
-// Intake check of a dependency reference's node domain.
 #[ix_trace_rs::string_edge]
 pub(super) fn dependency_reference_node(term: WireTerm<'_>) -> Option<CheckedNodeId> {
     let node = CheckedNodeId::deserialize(term.field(TermField::Node)?).ok()?;
-    (node.domain.as_ref() == NODE_DOMAIN && is_digest(&node.digest)).then_some(node)
+    node.is_well_formed().then_some(node)
 }
 
 /// An `application` term's decoded `operator` class.
@@ -1260,7 +1253,7 @@ fn visit_member(
 /// [`ReferenceSite`] naming `member` and `is_body_root` to `visit`, and
 /// charges one unit of work. Shared by `reference.target`, `literal.type`,
 /// `application.result_type`, and the V2 `frame` body's reference arrays.
-// Intake check of a node reference's domain and digest text.
+// Intake check of a structural node reference.
 #[ix_trace_rs::string_edge]
 pub(super) fn visit_reference(
     value: &Value,
@@ -1275,7 +1268,7 @@ pub(super) fn visit_reference(
             at.pointer(),
         )
     })?;
-    if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) {
+    if target.is_well_formed() {
         visit(
             &target,
             ReferenceSite {
@@ -1287,7 +1280,7 @@ pub(super) fn visit_reference(
         Ok(1)
     } else {
         Err(ValidationFailure::refused(
-            CheckedPackageRefusalCode::DigestDomainMismatch,
+            CheckedPackageRefusalCode::MalformedWire,
             at.pointer(),
         ))
     }

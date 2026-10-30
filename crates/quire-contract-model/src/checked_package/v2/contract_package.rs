@@ -31,12 +31,12 @@ use super::{
     CheckedTerm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
 use crate::checked_package::common::{
-    read_typed_prefix, strict_parse, Step, Trail, ValidationFailure, NODE_DOMAIN,
+    read_typed_prefix, strict_parse, Step, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageIncomplete, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedSemanticId, CheckedSourceMapEntry, JsonPointer,
+    CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
 use quire_canonical::{Encode, Error as CanonicalError, FixedShape, Sink, Writer};
 use serde::de::DeserializeOwned;
@@ -49,7 +49,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 #[serde(deny_unknown_fields)]
 pub struct ContractSourceV1 {
     /// Originating admitted checked-package identity.
-    pub package_id: CheckedSemanticId,
+    pub name: Box<str>,
     /// Exact originating lock.
     pub lock: CheckedPackageLockV2,
 }
@@ -502,7 +502,7 @@ pub struct ContractReachedNodeV1<'a> {
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ContractSelectedReferenceV1 {
     /// Identity of the selected dependency package.
-    pub package: CheckedSemanticId,
+    pub package: Box<str>,
     /// Typed target key in that selected package.
     pub node: CheckedNodeId,
 }
@@ -944,7 +944,7 @@ impl ContractPackageWireV1 {
             .collect();
         let package = ContractProvenanceV1 {
             source: ContractSourceV1 {
-                package_id: source.package_id().clone(),
+                name: source.name().into(),
                 lock: source.lock().clone(),
             },
             lowering_profile: profile.reference.clone(),
@@ -1023,7 +1023,7 @@ impl ContractPackageWireV1 {
             ContractPackageReadResult::Admitted(package) => package,
             other => return Ok(other),
         };
-        if package.wire.package.source.package_id != *source.package_id() {
+        if package.wire.package.source.name.as_ref() != source.name() {
             return Err(ContractSourceHandoffError::SourceIdentity);
         }
         if package.wire.package.source.lock != *source.lock() {
@@ -1219,15 +1219,45 @@ fn decimal(value: &Value, path: JsonPointer) -> Result<u64, ValidationFailure> {
         .map_err(|_| malformed(path, CheckedPackageRefusalCause::InvalidValue))
 }
 
-fn id_shape(value: &Value, at: JsonPointer, package: bool) -> Result<(), ValidationFailure> {
-    let required = if package {
-        &["domain", "algorithm", "digest"][..]
-    } else {
-        &["domain", "digest"][..]
-    };
-    let object = shape(value, at.clone(), required, &[])?;
-    for name in required {
-        string(member(object, name, &at)?, at.clone().key(name))?;
+fn id_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFailure> {
+    let mut pending = vec![(value, at)];
+    while let Some((value, at)) = pending.pop() {
+        let object = shape(value, at.clone(), &["package", "path", "ordinal"], &[])?;
+        if string(member(object, "package", &at)?, at.clone().key("package"))?.is_empty() {
+            return Err(malformed(
+                at.key("package"),
+                CheckedPackageRefusalCause::InvalidValue,
+            ));
+        }
+        let path_at = at.clone().key("path");
+        let path = array(member(object, "path", &at)?, path_at.clone())?;
+        if path.is_empty() {
+            return Err(malformed(path_at, CheckedPackageRefusalCause::InvalidValue));
+        }
+        let ordinal_at = at.clone().key("ordinal");
+        if !object
+            .get("ordinal")
+            .and_then(Value::as_u64)
+            .is_some_and(|ordinal| ordinal <= 9_007_199_254_740_991)
+        {
+            return Err(malformed(
+                ordinal_at,
+                CheckedPackageRefusalCause::InvalidValue,
+            ));
+        }
+        for (index, segment) in path.iter().enumerate().rev() {
+            let segment_at = path_at.clone().index(index);
+            match segment {
+                Value::String(_) => {}
+                Value::Object(_) => pending.push((segment, segment_at)),
+                _ => {
+                    return Err(malformed(
+                        segment_at,
+                        CheckedPackageRefusalCause::InvalidValue,
+                    ))
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -1273,13 +1303,12 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
     let source = shape(
         member(package, "source", &package_at)?,
         source_at.clone(),
-        &["package_id", "lock"],
+        &["name", "lock"],
         &[],
     )?;
-    id_shape(
-        member(source, "package_id", &source_at)?,
-        source_at.clone().key("package_id"),
-        true,
+    string(
+        member(source, "name", &source_at)?,
+        source_at.clone().key("name"),
     )?;
     let lock_at = source_at.clone().key("lock");
     let lock = shape(
@@ -1375,15 +1404,10 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
                 "owner",
             ],
         )?;
-        id_shape(
-            member(node, "node_id", &at)?,
-            at.clone().key("node_id"),
-            false,
-        )?;
+        id_shape(member(node, "node_id", &at)?, at.clone().key("node_id"))?;
         id_shape(
             member(node, "semantic_type", &at)?,
             at.clone().key("semantic_type"),
-            false,
         )?;
         for name in ["schema_version", "node_tag", "semantic_form"] {
             string(member(node, name, &at)?, at.clone().key(name))?;
@@ -1475,14 +1499,10 @@ fn validate_record_shape(value: &Value, at: JsonPointer) -> Result<(), Validatio
         .chain(payload.iter().copied())
         .collect();
     let record = shape(value, at.clone(), &required, &[])?;
-    id_shape(
-        member(record, "node_id", &at)?,
-        at.clone().key("node_id"),
-        false,
-    )?;
+    id_shape(member(record, "node_id", &at)?, at.clone().key("node_id"))?;
     for name in ["unsupported_node_id", "unbounded_type", "body_node_id"] {
         if let Some(value) = record.get(name) {
-            id_shape(value, at.clone().key(name), false)?;
+            id_shape(value, at.clone().key(name))?;
         }
     }
     if disposition == ContractDispositionV1::Failed {
@@ -1635,20 +1655,10 @@ fn validate_body_incomplete(value: &Value, at: JsonPointer) -> Result<(), Valida
     Ok(())
 }
 
-fn valid_digest(text: &str) -> bool {
-    text.len() == 64
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ContractWireTag {
     Version,
-    PackageDomain,
-    Sha256,
     GraphVersion,
-    NodeDomain,
 }
 
 impl ContractWireTag {
@@ -1656,18 +1666,14 @@ impl ContractWireTag {
     fn from_wire(text: &str) -> Option<Self> {
         match text {
             CONTRACT_PACKAGE_VERSION => Some(Self::Version),
-            super::PACKAGE_DOMAIN_V2 => Some(Self::PackageDomain),
-            "sha256" => Some(Self::Sha256),
             "quire.checked-semantic-graph/v2" => Some(Self::GraphVersion),
-            NODE_DOMAIN => Some(Self::NodeDomain),
             _ => None,
         }
     }
 }
 
 fn valid_node_id(id: &CheckedNodeId) -> bool {
-    ContractWireTag::from_wire(&id.domain) == Some(ContractWireTag::NodeDomain)
-        && valid_digest(&id.digest)
+    id.is_well_formed()
 }
 
 impl ContractPackageWireV1 {
@@ -1677,16 +1683,9 @@ impl ContractPackageWireV1 {
         work_meter: &mut super::WorkMeter,
     ) -> Result<(Vec<CheckedNodeKind>, Vec<Option<CheckedNodeTag>>), ValidationFailure> {
         let source = &self.package.source;
-        let package_id = &source.package_id;
-        if ContractWireTag::from_wire(&package_id.domain) != Some(ContractWireTag::PackageDomain)
-            || ContractWireTag::from_wire(&package_id.algorithm) != Some(ContractWireTag::Sha256)
-            || !valid_digest(&package_id.digest)
-        {
+        if source.name.is_empty() {
             return Err(malformed(
-                JsonPointer::root()
-                    .key("package")
-                    .key("source")
-                    .key("package_id"),
+                JsonPointer::root().key("package").key("source").key("name"),
                 CheckedPackageRefusalCause::InvalidValue,
             ));
         }
@@ -1782,17 +1781,6 @@ impl ContractPackageWireV1 {
                 ));
             }
             previous_identity = Some(&selected.identity);
-            if ContractWireTag::from_wire(&selected.package_id.domain)
-                != Some(ContractWireTag::PackageDomain)
-                || ContractWireTag::from_wire(&selected.package_id.algorithm)
-                    != Some(ContractWireTag::Sha256)
-                || !valid_digest(&selected.package_id.digest)
-            {
-                return Err(malformed(
-                    at.key("package_id"),
-                    CheckedPackageRefusalCause::InvalidValue,
-                ));
-            }
         }
         if ContractWireTag::from_wire(&self.semantic_graph.graph_version)
             != Some(ContractWireTag::GraphVersion)
@@ -2196,15 +2184,12 @@ impl ContractPackageWireV1 {
                     CheckedPackageRefusalCause::MissingSelection,
                 ));
             }
-            if input.package.package_id() != &selection.package_id {
-                return Err(ValidationFailure::Refused(Box::new(
-                    CheckedPackageRefusal::mismatch(
-                        at,
-                        CheckedPackageRefusalCause::ContentMismatch,
-                        selection.package_id.clone(),
-                        input.package.package_id().clone(),
-                    ),
-                )));
+            if input.package.name() != selection.identity.as_ref() {
+                return Err(ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::StaleDependency,
+                    at.key("identity"),
+                    CheckedPackageRefusalCause::ContentMismatch,
+                ));
             }
             packages.push(input.package);
         }

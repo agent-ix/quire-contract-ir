@@ -669,6 +669,26 @@ pub struct CheckedNodeId {
     pub ordinal: u64,
 }
 
+impl CheckedNodeId {
+    /// Whether every segment and nested operand is within the V2 wire bounds.
+    pub(crate) fn is_well_formed(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(candidate) = pending.pop() {
+            if candidate.package.is_empty()
+                || candidate.path.is_empty()
+                || candidate.ordinal > 9_007_199_254_740_991
+            {
+                return false;
+            }
+            pending.extend(candidate.path.iter().filter_map(|segment| match segment {
+                CheckedNodePathSegment::Name(_) => None,
+                CheckedNodePathSegment::Node(node) => Some(node.as_ref()),
+            }));
+        }
+        true
+    }
+}
+
 #[cfg(test)]
 impl PartialEq for CheckedNodeId {
     fn eq(&self, other: &Self) -> bool {
