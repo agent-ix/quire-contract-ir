@@ -2032,6 +2032,7 @@ fn settled_value(mut value: Value) -> Value {
 fn refusal_path(case: &str, value: &Value) -> String {
     refused(case, value).loci[0]
         .path
+        .as_ref()
         .map(|path| path.as_str().to_owned())
         .expect("a pointer")
 }
