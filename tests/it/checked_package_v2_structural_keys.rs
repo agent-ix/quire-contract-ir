@@ -10,8 +10,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedNodeId, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -36,6 +36,12 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
     )
+}
+
+fn read_with_work(package: &Value, work: u64) -> CheckedPackageV2ReadResult {
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = work;
+    CheckedPackageV2::read(&canonical(package), limits, &evidence_for(package))
 }
 
 fn index_of(package: &Value, tag: &str, form: &str) -> usize {
@@ -760,4 +766,42 @@ fn off_cycle_set_member_participates_in_tree_group_checks() {
         refusal.code,
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
+}
+
+#[trace("TC-226", "FR-038-AC-149")]
+#[test]
+fn recursive_group_reader_has_an_exact_work_boundary() {
+    for (name, package) in [("List", list_group().0), ("Tree", tree_group().0)] {
+        let mut low = 0_u64;
+        let mut high = CheckedPackageReadLimits::bounded().work;
+        assert!(matches!(
+            read_with_work(&package, high),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+        while low + 1 < high {
+            let mid = low + (high - low) / 2;
+            match read_with_work(&package, mid) {
+                CheckedPackageV2ReadResult::Admitted(_) => high = mid,
+                CheckedPackageV2ReadResult::Incomplete(incomplete)
+                    if incomplete.limit_kind == CheckedPackageLimit::Work =>
+                {
+                    low = mid;
+                }
+                other => panic!("{name}: unexpected work result at {mid}: {other:?}"),
+            }
+        }
+        assert!(high > 0, "{name}: group visits consume work");
+        assert!(matches!(
+            read_with_work(&package, high),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+        let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_with_work(&package, high - 1)
+        else {
+            panic!("{name}: one less work must be incomplete");
+        };
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+        assert_eq!(incomplete.limit, high - 1);
+        assert_eq!(incomplete.consumed, high);
+        assert!(incomplete.path.is_some(), "{name}: failing visit position");
+    }
 }
