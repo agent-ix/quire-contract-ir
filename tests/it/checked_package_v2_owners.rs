@@ -6,7 +6,7 @@
 use crate::support::checked_package::{
     application_node_key, bounds_body, canonical, evidence_for, evidence_with_document,
     integer_key, node_id, refresh_identity, refresh_identity_projection, select_model, settle,
-    sha256_hex, structural_key, v2_all_families, v2_nominal,
+    structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -21,14 +21,7 @@ fn source_package_form(tag: &str, form: &str, name: &str) -> Value {
     let owner = json!({
         "kind": "source", "authority": source["authority"], "identity": source["identity"],
     });
-    let preimage = json!({
-        "version": "quire.structural-node/v1", "node_tag": tag,
-        "semantic_form": form, "semantic_type": null,
-        "declaration": {"qualified_name": ["Example", name]},
-        "recursion": null, "owner": owner,
-        "body": {"term": "aggregate", "members": []},
-    });
-    let id = node_id(&sha256_hex(&canonical(&preimage)));
+    let id = node_id(&format!("qualified:Example/{name}"));
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -90,13 +83,7 @@ fn model_package() -> (Value, Value) {
     let owner = json!({
         "kind": "model", "identity": "acme/owners", "node": "ix://acme/owners/Point",
     });
-    let preimage = json!({
-        "version": "quire.structural-node/v1", "node_tag": "model",
-        "semantic_form": "object_type", "semantic_type": null,
-        "declaration": null, "recursion": null, "owner": owner,
-        "body": {"term": "aggregate", "members": []},
-    });
-    let id = node_id(&sha256_hex(&canonical(&preimage)));
+    let id = node_id("model/object_type/Point");
     let mut package = v2_nominal();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -358,14 +345,7 @@ fn declared_population_package_for_owner(population: &str, owner_identity: &str)
     node["semantic_form"] = json!("population");
     node["owner"]["identity"] = json!(owner_identity);
     node["owner"]["node"] = json!(population);
-    let preimage = json!({
-        "version": "quire.structural-node/v1",
-        "node_tag": "relation", "semantic_form": "population",
-        "semantic_type": null, "declaration": null, "recursion": null,
-        "owner": node["owner"],
-        "body": {"term": "aggregate", "members": []},
-    });
-    let id = node_id(&sha256_hex(&canonical(&preimage)));
+    let id = node_id(&format!("relation/population/{population}"));
     node["node_id"] = id.clone();
     node["semantic_type"] = id.clone();
     package["source_map"]
@@ -951,11 +931,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
         let owner = case["owner_node"]
             .as_str()
             .map(|node| json!({"kind":"model","identity":"acme/orders","node":node}));
-        let preimage = json!({"version":"quire.structural-node/v1",
-            "node_tag":"relation","semantic_form":"population","semantic_type":null,
-            "declaration":null,"recursion":null,"owner":owner,
-            "body":{"term":"aggregate","members":[]}});
-        let population = node_id(&sha256_hex(&canonical(&preimage)));
+        let population = node_id(&format!("relation/population/{id}"));
         let mut population_node = json!({
             "node_id":population,"schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"relation","semantic_form":"population",
@@ -1048,7 +1024,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                     (
                         population.clone(),
                         application["node_id"].clone(),
-                        package["package_id"].clone(),
+                        canonical(&package),
                     ),
                 );
             }
@@ -1140,13 +1116,7 @@ fn owned_clause(mut package: Value, _document: &Value, declared: &str, clause: &
                   "value_kind": "text", "value": clause},
     }]});
     node["body"] = body.clone();
-    let preimage = json!({
-        "version": "quire.structural-node/v1", "node_tag": "function",
-        "semantic_form": "pure_function", "semantic_type": null,
-        "declaration": null, "recursion": null,
-        "owner": node["owner"], "body": body,
-    });
-    let id = node_id(&sha256_hex(&canonical(&preimage)));
+    let id = node_id(&format!("function/pure_function/{declared}/{clause}"));
     node["node_id"] = id.clone();
     node["semantic_type"] = id.clone();
     package["source_map"]
@@ -1310,16 +1280,21 @@ fn tc_228_required_and_forbidden_owner_shapes_refuse_before_identity() {
 
 #[trace("TC-228", "FR-038-AC-310")]
 #[test]
-fn tc_228_shipped_model_owner_projection_refuses_before_join() {
-    let mut package = v2_all_families();
-    package["identity_preimage"]["identity_projection"] = json!([{
-        "owner": {"kind":"model", "identity":"unselected", "node":"absent"}
-    }]);
-    refused(
-        &package,
-        CheckedPackageRefusalCode::MalformedWire,
-        "/identity_preimage/identity_projection",
-    );
+fn tc_228_shipped_package_identity_members_refuse_before_owner_join() {
+    let base = v2_all_families();
+    assert!(matches!(
+        read(&base),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    for member in ["identity_preimage", "package_id", "identity_projection"] {
+        let mut package = base.clone();
+        package[member] = json!({"owner": {"kind": "model", "identity": "unselected"}});
+        refused(
+            &package,
+            CheckedPackageRefusalCode::UnknownMember,
+            &format!("/{member}"),
+        );
+    }
 }
 
 #[trace("TC-228", "FR-038-AC-155")]
@@ -1563,55 +1538,6 @@ fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
     }
 }
 
-/// An owner-bearing function's body participates in its FR-092 key.
-#[trace("TC-228", "FR-038-AC-148")]
-#[test]
-fn tc_228_owner_bearing_function_refuses_a_stale_body_key() {
-    let (base, mut document) = model_package();
-    let operation = "ix://acme/owners/Point/op";
-    document["types"][0]["operations"] = json!([{"identity": operation, "params": []}]);
-    let mut package = owned_clause(base, &document, operation, "precondition");
-    assert!(matches!(
-        read_with_model(&package, &document),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
-    let position = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .len()
-        - 1;
-    let node = &mut package["semantic_graph"]["nodes"][position];
-    node["body"]["members"][0]["value"]["value"] = json!("body");
-    let would_be_key = sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "function",
-        "semantic_form": "pure_function", "semantic_type": null,
-        "declaration": null, "recursion": null,
-        "owner": node["owner"], "body": node["body"],
-    })));
-    assert_ne!(node["node_id"]["digest"], would_be_key);
-    refresh_identity(&mut package);
-    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
-        panic!("changed owner-bearing function must refuse");
-    };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
-    assert_eq!(
-        refusal.cause,
-        Some(CheckedPackageRefusalCause::StaleNodeKey)
-    );
-    assert_eq!(
-        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
-        Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
-    );
-    assert_eq!(
-        refusal
-            .expected_node_id()
-            .expect("derived key")
-            .digest
-            .as_ref(),
-        would_be_key
-    );
-}
-
 #[trace("TC-228", "FR-038-AC-155")]
 #[test]
 fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
@@ -1640,15 +1566,7 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
             assert_eq!(incomplete.consumed, work + 1);
             limits.work = work + 1;
             let next = CheckedPackageV2::read(&bytes, limits, &evidence);
-            // The owner join uses this charge; a structural-key visit follows.
-            let CheckedPackageV2ReadResult::Incomplete(key_charge) = next else {
-                panic!("the structural-key visit follows the owner lookup");
-            };
-            assert!(key_charge
-                .path
-                .as_ref()
-                .is_some_and(|path| path.as_str().ends_with("/node_id")));
-            assert_eq!(key_charge.consumed, work + 2);
+            // The next visit is independent of the selected-document lookup.
             return;
         }
     }
@@ -1657,85 +1575,25 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
 
 #[trace("TC-228", "FR-038-AC-155")]
 #[test]
-fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
-    let mut package = v2_all_families();
-    let application = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .enumerate()
-        .filter(|(_, node)| node["body"]["term"] == "application")
-        .min_by_key(|(_, node)| {
-            node["node_id"]["digest"]
-                .as_str()
-                .expect("digest")
-                .to_owned()
-        })
-        .map(|(position, _)| position)
-        .expect("application-keyed node");
-    let stale_key = package["semantic_graph"]["nodes"][application]["node_id"]["digest"]
-        .as_str()
-        .expect("digest")
-        .to_owned();
-    let operation = package["semantic_graph"]["nodes"][application]["body"]["operation"]
-        ["identity"]
-        .as_str()
-        .expect("operation")
-        .to_owned();
-    package["semantic_graph"]["nodes"][application]["body"]["operation"]["identity"] =
-        json!(format!("{operation}.changed"));
-    refresh_identity(&mut package);
-    let CheckedPackageV2ReadResult::Refused(stale_refusal) = read(&package) else {
-        panic!("the changed application preimage must have a stale key");
-    };
-    assert_eq!(
-        stale_refusal.code,
-        CheckedPackageRefusalCode::InvalidPackage
-    );
-    assert_eq!(
-        stale_refusal.cause,
-        Some(CheckedPackageRefusalCause::StaleNodeKey)
-    );
-    assert_eq!(
-        stale_refusal.loci[0].path.clone().expect("path").as_str(),
-        format!("/semantic_graph/nodes/{application}/node_id")
-    );
-
-    let mut owners = Vec::new();
-    for index in 0..64 {
-        let form = if index % 2 == 0 { "record" } else { "tuple" };
-        let fixture = source_package_form("composite_type", form, &format!("Owner{index}"));
-        let node = fixture["semantic_graph"]["nodes"]
+fn tc_228_two_owner_defects_select_the_least_structural_node_id() {
+    let mut package = v2_nominal();
+    // Reverse graph order relative to the structural paths to distinguish
+    // identity order from source order.
+    for name in ["OwnerZ", "OwnerA"] {
+        let fixture = source_package_form("composite_type", "record", name);
+        let mut node = fixture["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
             .last()
             .expect("owner node")
             .clone();
-        let digest = node["node_id"]["digest"].as_str().expect("digest");
-        if digest > stale_key.as_str() {
-            let entry = fixture["source_map"]
-                .as_array()
-                .expect("map")
-                .last()
-                .expect("entry")
-                .clone();
-            owners.push((node, entry));
-            if owners.len() == 2 {
-                break;
-            }
-        }
-    }
-    assert_eq!(
-        owners.len(),
-        2,
-        "two owner keys above the stale application key"
-    );
-    owners.sort_by(|left, right| {
-        right.0["node_id"]["digest"]
-            .as_str()
-            .cmp(&left.0["node_id"]["digest"].as_str())
-    });
-    for (node, entry) in owners {
+        node["owner"]["identity"] = json!("unselected");
+        let entry = fixture["source_map"]
+            .as_array()
+            .expect("map")
+            .last()
+            .expect("entry")
+            .clone();
         package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes")
@@ -1746,24 +1604,11 @@ fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
             .push(entry);
     }
     let nodes = package["semantic_graph"]["nodes"]
-        .as_array_mut()
+        .as_array()
         .expect("nodes");
-    let positions = [nodes.len() - 2, nodes.len() - 1];
-    for position in positions {
-        nodes[position]["owner"]["identity"] = json!("unselected");
-    }
-    let first = positions
-        .into_iter()
-        .min_by_key(|position| {
-            nodes[*position]["node_id"]["digest"]
-                .as_str()
-                .expect("digest")
-                .to_owned()
-        })
-        .expect("owner positions");
-    refresh_identity(&mut package);
+    let first = nodes.len() - 1; // OwnerA precedes OwnerZ by structural path.
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
-        panic!("the first unselected source owner must refuse");
+        panic!("unselected source owner must refuse");
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
     assert_eq!(
