@@ -112,7 +112,7 @@ absence of content-mismatch and digest-derived expected/actual identity fields, 
 
 ## Test Procedure
 
-For FR-038-AC-239 through AC-241, construct local `protocol_clause`, `role` and `control` targets and a closed `protocol_reference` carrier through the public typed graph. Give each carrier its authored structural id, one expression occurrence, exact body target and sole dependency, and the target's semantic type. Read each complete package through the production reader and compare the exact retained target, body, graph and source correspondence. Retarget the carrier with its dependency updated; valid target joins admit under the same structural id, while missing, wrong-form and wrong-type targets refuse with their exact code, cause and `/body/target` pointer. An extra or unequal dependency refuses at `/dependencies` before the target join. Exercise reciprocal carriers in a valid recursion group; retain their producer-assigned structural node IDs and resolve in-group references by separate graph-order group-position ordinals. Duplicate id, malformed group, forbidden owner/declaration and non-reference body controls refuse at their independent stages. No preimage, key recomputation or package digest is used.
+For FR-038-AC-239 through AC-241, construct local `protocol_clause`, `role` and `control` targets and a closed `protocol_reference` carrier through the public typed graph. Give each carrier its authored structural id, one expression occurrence, exact body target and sole dependency, and the target's semantic type. Read each complete package through the production reader and compare the exact retained target, body, graph and source correspondence. Retarget the carrier with its dependency updated; valid target joins admit under the same structural id, while missing, wrong-form and wrong-type targets refuse with their exact code, cause and `/body/target` pointer. An extra or unequal dependency refuses at `/dependencies` before the target join. Exercise reciprocal carriers in a valid recursion group; retain their producer-assigned structural node IDs, shared non-empty label and exact in-group structural references. Duplicate id, malformed group, forbidden owner/declaration and non-reference body controls refuse at their independent stages. No preimage, key recomputation or package digest is used.
 
 For FR-038-AC-294 and FR-038-AC-295 (IR-785), take that
 otherwise admitted public-reader package with one carrier occurrence of
@@ -198,15 +198,17 @@ NO-07 duplicates the original's ordinal 0 and NO-08 repeats ordinal 4,
 each refusing `invalid_semantic_graph` at the recorded later `node_id`.
 Apply the vector's declared placement and compare exact code and locus.
 Also supply a negative, fractional, string or above-safe-integer ordinal
-and require `malformed_wire` at that ordinal. Keep recursion-group
-`{size,ordinal}` group-position evidence and its graph-order controls separate
-from producer-assigned structural `node_id.ordinal`. A valid permutation
-retains each structural id while updating in-group reference ordinals to the
-intended members' new positions. Read QSpec FR-322-AC-274's four positive
+and require `malformed_wire` at that ordinal. Keep recursion-group membership tied to its shared non-empty string label,
+with `node_id.ordinal` producer assigned and each in-group reference naming an
+exact structural ID. Permute an otherwise valid group without changing its
+IDs, labels or references; require admission and a changed complete graph-array
+value. The former group-position and group-reference-ordinal controls are
+withdrawn in place because the checked wire has no such carrier. Read QSpec FR-322-AC-274's four positive
 group fixtures directly from the selected checkout: `positive-recursive-records`,
 `positive-two-owners-a`, `positive-two-owners-b` and
-`positive-integer-literal-references`. Assert every member, including an
-anonymous derived member, uses its group's declaration path and retains its
+`positive-integer-literal-references`. Each fixture group has a declared
+member: assert every member, including an anonymous derived member, shares
+that member's declaration path and retains its
 producer-assigned structural ordinal; assert admission without deriving that
 ordinal from graph position. Read QSpec XP-04
 directly from its selected checkout: its second equivalence node's ordinal
@@ -723,7 +725,7 @@ literals of one type and of two, and two nested applications of one result type
 and of two (AC-86). Compare the operand family and the type-shaped predicate of
 every kind of the closed node taxonomy with the stated pairs, the
 `temporal`/`formula` pair added when the IR-503 code lands and the
-`composite_type`/`union` pair when the IR-549 code lands (AC-87). Build an application member at group position 1 of a two-node recursion group with an independently producer-assigned structural `node_id.ordinal`. Verify its structural id remains unchanged across a group permutation and rewrite group references in an aggregate member, binding value and nested arguments to preserve their intended targets. An out-of-range group-reference position, a wrong in-range position naming a type-incompatible member, a malformed structural ordinal or an unresolved target refuses under its own rule; a valid group admits (AC-88).
+`composite_type`/`union` pair when the IR-549 code lands (AC-87). Build an application member in a two-node recursion group with a producer-assigned structural `node_id.ordinal` and exact references to an in-group and an outside node. Verify its ID and references in an aggregate member, binding value and nested arguments; a valid graph permutation retains them and admits. A duplicate ID, malformed structural ordinal or unresolved target refuses under its own rule (AC-88). The former group-reference-position mutations are withdrawn in place.
 
 Expected: the uncatalogued identity refuses `unknown-operation` at
 `operation.identity`, the `unary` case `operation-class-mismatch` at `operator`,
@@ -738,7 +740,7 @@ and `operator-ineligible` at `operation.member.name` and
 third argument and at the argument for the `boolean` literal and the clause, and
 at `arguments/1` for each differing type; every same-type admission admits; the
 table equals the stated pairs; the bare string refuses `invalid_semantic_graph`
-at `operation`; the group-position ordinals and references resolve against the authored structural graph while each producer-assigned structural id is retained; malformed structural ordinals, out-of-range group-reference positions, type-incompatible in-range positions and unresolved references refuse at their own locations. Compare the whole refusal code, cause and pointer. The `definition`
+at `operation`; the shared group label and exact structural references resolve against the authored graph while each producer-assigned structural ID is retained; malformed structural ordinals, duplicate IDs, type-incompatible exact targets and unresolved references refuse at their own locations. Compare the whole refusal code, cause and pointer. The `definition`
 of a law of the right role is FR-038-AC-56 and FR-038-AC-57's, and the modes of a
 leaf are FR-038-AC-44's.
 
@@ -2140,7 +2142,7 @@ AC-183 and AC-184 are withdrawn under QSpec #517. For AC-185, read malformed-wir
 
 ## Aggregate-bodied union values (FR-038-AC-225 through FR-038-AC-227)
 
-Read QSpec `positive-union-nodes.json` directly from the selected checkout through the production reader. Verify payload-bearing and nullary union-value nodes preserve their exact structural ids and complete aggregate bodies; separately admit ordinary applications, record values and tuple values. Duplicate a union-value id, break one body reference and make a case/payload invalid in separate copies; assert the specified graph, reference and body refusals. For a valid group with union and nonapplication members, verify separate graph-order group positions, producer-assigned structural IDs, and both in-group and outside references. A valid graph permutation retains every structural ID while updating in-group group-reference positions. Malformed structural ordinal, out-of-range group-reference position, type-incompatible in-range position, repeated id and unresolved target controls refuse at their own graph or wire stage. No content-key or expected-key accessor is involved.
+Read QSpec `positive-union-nodes.json` directly from the selected checkout through the production reader. Verify payload-bearing and nullary union-value nodes preserve their exact structural ids and complete aggregate bodies; separately admit ordinary applications, record values and tuple values. Duplicate a union-value id, break one body reference and make a case/payload invalid in separate copies; assert the specified graph, reference and body refusals. For a valid group with union and nonapplication members, verify its shared non-empty label, producer-assigned structural IDs, and exact in-group and outside references. A valid graph permutation retains every structural ID and reference. Malformed structural ordinal, invalid cycle label, type-incompatible exact target, repeated ID and unresolved target controls refuse at their own graph or wire stage. No content-key or expected-key accessor is involved.
 
 ## Dependency selection and diamond conflict (FR-038-AC-217, FR-038-AC-218)
 
@@ -2189,7 +2191,7 @@ PLANNED/UNRUN (IR-1141). Construct a typed `CheckedNodeId { package, path, ordin
 
 For FR-048, assemble owner-free derived nodes, a source-owned declaration, a
 model-owned declaration and a mixed recursion group. Verify exact
-package/path/producer-assigned structural ordinals, separate graph-order group-position ordinals, self and internal
+package/path/producer-assigned structural ordinals, shared group labels, self and internal
 reference resolution, outside/dependency references, and typed refusals for
 duplicate ID, missing target, malformed ordinal and an independently invalid
 body shape or join. A valid body edit under the same structural ID may admit.
