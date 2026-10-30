@@ -4,9 +4,8 @@
 //! Public evidence insertion and first-value retention controls.
 
 use crate::support::checked_package::{
-    canonical, domain_package_document, evidence_for, family_key, node_id, pointer,
-    refresh_identity, rekey_application_node, select_model, v2_all_families, v2_nominal,
-    COMPLETE_VALUE_FEATURE,
+    canonical, domain_package_document, evidence_for, pointer, refresh_identity, select_model,
+    settle, structural_id, v2_all_families, v2_nominal, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -93,18 +92,16 @@ fn domain_parent(document: &Value) -> Value {
     parent
 }
 
-fn expect_stale(result: CheckedPackageV2ReadResult, path: &str, cause: CheckedPackageRefusalCause) {
+fn expect_missing_selection(result: CheckedPackageV2ReadResult, path: &str) {
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
-        panic!("expected stale evidence refusal: {result:?}");
+        panic!("expected missing dependency selection: {result:?}");
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::StaleDependency);
-    assert_eq!(refusal.cause, Some(cause));
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingImport);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
     assert_eq!(refusal.loci[0].path.clone(), Some(pointer(path)));
-    let expected = refusal.expected.expect("selected identity");
-    let actual = refusal.actual.expect("supplied identity");
-    assert_eq!(expected.algorithm.as_ref(), "sha256");
-    assert_eq!(actual.algorithm.as_ref(), "sha256");
-    assert_eq!(actual.domain.as_ref(), "quire.package.semantic/v2");
 }
 
 fn expect_refused(
@@ -117,7 +114,12 @@ fn expect_refused(
     };
     assert_eq!(refusal.code, code);
     assert_eq!(refusal.cause, Some(cause));
-    assert!(refusal.expected.is_none() && refusal.actual.is_none());
+}
+
+fn named_fixture(mut package: Value, name: &str) -> Value {
+    package["name"] = json!(name);
+    refresh_identity(&mut package);
+    package
 }
 
 #[trace("FR-047-AC-1", "FR-047-AC-2", "FR-047-AC-6")]
@@ -234,9 +236,7 @@ fn domain_equality_is_raw_bytes_and_exact_keys_are_independent() {
 
 fn dependency_parent(dependency: &CheckedPackageV2, identity: &str) -> Value {
     let mut parent = v2_all_families();
-    parent["lock"]["dependency_selections"] = json!([{
-        "identity": identity, "package_id": dependency.package_id(),
-    }]);
+    parent["lock"]["dependency_selections"] = json!([{"identity": identity}]);
     let nodes = parent["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
@@ -245,19 +245,18 @@ fn dependency_parent(dependency: &CheckedPackageV2, identity: &str) -> Value {
         .position(|node| node["node_tag"] == "function" && node["body"]["term"] == "application")
         .expect("function call");
     nodes[position]["body"]["arguments"][0] = json!({
-        "term": "dependency_reference", "package": dependency.package_id(),
-        "node": node_id(&family_key("8080")),
+        "term": "dependency_reference", "package": identity,
+        "node": structural_id(dependency.name(), vec![json!("Example"), json!("Function")], 0),
     });
     nodes[position]["dependencies"] = json!([]);
-    rekey_application_node(&mut parent, position);
-    refresh_identity(&mut parent);
+    settle(&mut parent);
     parent
 }
 
 #[trace("FR-047-AC-3", "FR-047-AC-6")]
 #[test]
 fn equal_independent_admissions_retain_the_first_arc_and_ceiling_in_both_orders() {
-    let document = v2_all_families();
+    let document = named_fixture(v2_all_families(), "test/library");
     let bytes = canonical(&document);
     let ceiling = u64::try_from(bytes.len()).expect("fixture length");
     let admit_at = |bytes_limit| {
@@ -300,11 +299,12 @@ fn equal_independent_admissions_retain_the_first_arc_and_ceiling_in_both_orders(
         assert_eq!(evidence, control);
         assert_eq!(read(&parent, &evidence), before);
         for identity in ["Test/library", "test/library ", "test/library/v2"] {
+            let separate = admit(&named_fixture(document.clone(), identity));
             assert_eq!(
-                evidence.insert_dependency_package(identity, Arc::clone(&second)),
+                evidence.insert_dependency_package(identity, Arc::clone(&separate)),
                 Ok(())
             );
-            let selected = dependency_parent(&second, identity);
+            let selected = dependency_parent(&separate, identity);
             require_admission(read(&selected, &evidence));
         }
     }
@@ -313,10 +313,10 @@ fn equal_independent_admissions_retain_the_first_arc_and_ceiling_in_both_orders(
 #[trace("FR-047-AC-4", "FR-047-AC-6")]
 #[test]
 fn dependency_conflicts_preserve_first_only_public_read_in_both_orders() {
-    let document = v2_all_families();
+    let document = named_fixture(v2_all_families(), "test/library");
     let matching = admit(&document);
-    let different = admit(&v2_nominal());
-    assert_ne!(matching.package_id(), different.package_id());
+    let different = admit(&named_fixture(v2_nominal(), "test/other"));
+    assert_ne!(matching.name(), different.name());
     let identity = "test/library";
     let parent = dependency_parent(&matching, identity);
     for matching_first in [true, false] {
@@ -336,11 +336,7 @@ fn dependency_conflicts_preserve_first_only_public_read_in_both_orders() {
         if matching_first {
             require_admission(before.clone());
         } else {
-            expect_stale(
-                before.clone(),
-                "/lock/dependency_selections/0/package_id/digest",
-                CheckedPackageRefusalCause::ContentMismatch,
-            );
+            expect_missing_selection(before.clone(), "/lock/dependency_selections/0");
         }
         expect_dependency_conflict(
             evidence.insert_dependency_package(identity, Arc::clone(second)),
@@ -364,7 +360,7 @@ fn dependency_conflicts_preserve_first_only_public_read_in_both_orders() {
 
 #[trace("FR-047-AC-4", "FR-047-AC-6")]
 #[test]
-fn equal_package_ids_do_not_hide_independently_admitted_metadata_conflicts() {
+fn equal_package_names_do_not_hide_independently_admitted_metadata_conflicts() {
     let original = v2_nominal();
     let mut source_map = original.clone();
     source_map["source_map"][0]["regions"][0]["end"] = json!(100);
@@ -404,7 +400,7 @@ fn equal_package_ids_do_not_hide_independently_admitted_metadata_conflicts() {
     ] {
         let left = admit(base);
         let right = admit(changed);
-        assert_eq!(left.package_id(), right.package_id(), "{label}");
+        assert_eq!(left.name(), right.name(), "{label}");
         assert_ne!(left, right, "{label}");
         for (first, second) in [(&left, &right), (&right, &left)] {
             let mut evidence = sentinels();

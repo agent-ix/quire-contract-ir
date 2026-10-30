@@ -18,8 +18,9 @@ use quire_contract_model::source_obligation::{
     SourceTypeWorkDimension, SourceUnitHandle,
 };
 use quire_contract_model::{
-    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete,
-    CheckedPackageLimit, SourceDocumentId, SourceIdentity, SourceRevision,
+    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedPackageIncomplete, CheckedPackageLimit, SourceDocumentId, SourceIdentity,
+    SourceRevision,
 };
 
 fn source() -> SourceIdentity {
@@ -63,8 +64,12 @@ fn binding(selected: SourceIdentity) -> SourceCriterionSourceBinding {
 fn occurrence() -> SourceSemanticOccurrenceId {
     SourceSemanticOccurrenceId::new(
         CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: "a".repeat(64).into(),
+            package: "obligations".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("source".into()),
+                CheckedNodePathSegment::Name("occurrence".into()),
+            ],
+            ordinal: 0,
         },
         CheckedOccurrence {
             role: CheckedOccurrenceRole::Expression,
@@ -508,8 +513,9 @@ fn census_outcome(
 
 fn semantic_type(id: char) -> CheckedNodeId {
     CheckedNodeId {
-        domain: "quire.checked-semantic-node/v1".into(),
-        digest: id.to_string().repeat(64).into(),
+        package: "obligations".into(),
+        path: vec![CheckedNodePathSegment::Name(id.to_string().into())],
+        ordinal: 0,
     }
 }
 
