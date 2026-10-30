@@ -106,7 +106,7 @@ fn public_constructors_round_trip_all_four_nominal_forms_through_reader() {
 }
 
 fn assert_malformed(
-    result: Result<NominalBody, quire_contract_model::CheckedPackageRefusal>,
+    result: Result<NominalBody, Box<quire_contract_model::CheckedPackageRefusal>>,
     at: &str,
 ) {
     let refusal = result.expect_err("malformed nominal body must refuse");
