@@ -151,7 +151,7 @@ pub(super) mod tests {
     const SAME: &str = "ix://acme/orders/relationship/Order-same-Order";
 
     pub(in crate::checked_package::v2) fn raw_id(digit: char) -> Value {
-        json!({"domain": NODE_DOMAIN, "digest": digit.to_string().repeat(64)})
+        json!({"package":"placeholder", "path":[digit.to_string()], "ordinal":0})
     }
 
     fn end(role: &str, lower: u64, upper: u64, unique: bool) -> Value {
@@ -212,18 +212,11 @@ pub(super) mod tests {
 
     /// A package admitted by the reader, with a model declaration node for
     /// `Order`, relation nodes for both relationships, and the reaches
-    /// application `7` over `LINKS` naming role `links`. Node keys are the
-    /// digests of their own preimages, authored in dependency order. Returns
-    /// the selected model root, the package, the evidence and the
-    /// placeholder-to-key map.
+    /// application `7` over `LINKS` naming role `links`. Structural node
+    /// IDs are assigned in dependency order. Returns the admitted package
+    /// and the placeholder-to-ID map.
     pub(in crate::checked_package::v2) fn admitted(
     ) -> (CheckedPackageV2, BTreeMap<char, CheckedNodeId>) {
-        let limits = quire_canonical::Limits::new(1 << 20);
-        let digest_of = |value: &Value| {
-            quire_canonical::sha256(value, limits)
-                .expect("fixture digest")
-                .to_string()
-        };
         let empty = json!({"term": "aggregate", "members": []});
         let owner = |node: &str| json!({"kind": "model", "identity": IDENTITY, "node": node});
         let node = |digit, tag, form, ty, role, body: Value| {
@@ -281,7 +274,8 @@ pub(super) mod tests {
                     "term": "application", "operator": "reaches",
                     "operation": {"identity": "quire.op.model.reaches", "laws": [], "mode": null,
                         "leaves": [], "member": {"kind": "relationship_end",
-                            "declaration": raw_id('c'), "name": "links"}},
+                            "declaration": raw_id('c'), "name": "links",
+                            "destination_type":raw_id('a')}},
                     "result_type": raw_id('1'),
                     "arguments": [{"term": "reference", "target": raw_id('5')},
                         {"term": "reference", "target": raw_id('8')}],
@@ -301,22 +295,32 @@ pub(super) mod tests {
                 .iter()
                 .position(|n| n["node_id"] == raw_id(digit))
                 .expect("node");
-            let current = &nodes[at];
-            let semantic_type = if current["node_id"] == current["semantic_type"] {
-                Value::Null
-            } else {
-                current["semantic_type"].clone()
+            let fresh = match digit {
+                '1' => {
+                    json!({"package":"relationship-end", "path":["scalar_type","boolean"],"ordinal":0})
+                }
+                '2' => {
+                    json!({"package":"relationship-end", "path":["scalar_type","integer"],"ordinal":0})
+                }
+                '3' => {
+                    json!({"package":"relationship-end", "path":["scalar_type","text"],"ordinal":0})
+                }
+                'a' => {
+                    json!({"package":IDENTITY, "path":["model","object_type",ORDER],"ordinal":0})
+                }
+                'b' => {
+                    json!({"package":"relationship-end", "path":["composite_type","reference",ids[&'a']],"ordinal":0})
+                }
+                'c' => {
+                    json!({"package":IDENTITY, "path":["relation","relationship",LINKS],"ordinal":0})
+                }
+                'd' => {
+                    json!({"package":IDENTITY, "path":["relation","relationship",SAME],"ordinal":0})
+                }
+                _ => {
+                    json!({"package":"relationship-end", "path":["authored",digit.to_string()],"ordinal":0})
+                }
             };
-            let mut preimage = json!({
-                "version": if digit == '7' { "quire.application-node/v1" } else { "quire.structural-node/v1" },
-                "node_tag": current["node_tag"], "semantic_form": current["semantic_form"],
-                "semantic_type": semantic_type, "declaration": null, "recursion": null,
-                "body": current["body"],
-            });
-            if !current["owner"].is_null() {
-                preimage["owner"] = current["owner"].clone();
-            }
-            let fresh = json!({"domain": NODE_DOMAIN, "digest": digest_of(&preimage)});
             for other in &mut nodes {
                 replace_id(other, &raw_id(digit), &fresh);
             }
@@ -344,13 +348,8 @@ pub(super) mod tests {
             "kind": "model_root", "identity": IDENTITY,
         });
         let root_body = json!({"term": "aggregate", "members": []});
-        let root_preimage = json!({
-            "version": "quire.structural-node/v1", "node_tag": "model",
-            "semantic_form": "model_root", "semantic_type": null,
-            "declaration": null, "recursion": null,
-            "owner": root_owner, "body": root_body,
-        });
-        let root_id = json!({"domain": NODE_DOMAIN, "digest": digest_of(&root_preimage)});
+        let root_id =
+            json!({"package":IDENTITY,"path":["model","model_root",IDENTITY],"ordinal":0});
         nodes.push(json!({
             "node_id": root_id, "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "model", "semantic_form": "model_root", "semantic_type": root_id,
@@ -366,33 +365,10 @@ pub(super) mod tests {
                     "regions": [{"source": source, "start": at, "end": at + 1}]})
             })
             .collect();
-        let projection: Vec<Value> = nodes
-            .iter()
-            .cloned()
-            .map(|mut n| {
-                n.as_object_mut().expect("node").remove("occurrences");
-                n
-            })
-            .collect();
-        let preimage = json!({
-            "version": "quire.checked-package-id/v2", "edition": edition,
-            "profile_selections": [], "definition_selections": [],
-            "required_features": [],
-            "dependency_selections": [], "identity_projection": projection,
-        });
-        let mut wire_selection = preimage.clone();
-        wire_selection
-            .as_object_mut()
-            .expect("selection")
-            .remove("identity_projection");
         let wire = json!({
-            "contract_version": "quire.checked-package/v2",
-            "package_id": {"domain": "quire.package.semantic/v2", "algorithm": "sha256",
-                "digest": digest_of(&preimage)},
-            "identity_preimage": wire_selection,
+            "contract_version": "quire.checked-package/v2", "name": "relationship-end",
             "lock": {"sources": [source], "edition": edition, "profile_selections": [],
-                "definition_selections": [],
-                "required_features": [], "dependency_selections": []},
+                "definition_selections": [], "required_features": [], "dependency_selections": []},
             "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
             "source_map": source_map, "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"},
