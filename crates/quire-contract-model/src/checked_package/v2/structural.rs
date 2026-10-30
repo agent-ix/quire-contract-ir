@@ -89,8 +89,6 @@ enum Defect {
     Body,
     /// A malformed state-clause execution point.
     ClausePoint,
-    /// One member of the node body's `aggregate`.
-    BodyMember(usize),
     /// The role of the occurrence at this index.
     Role(usize),
 }
@@ -109,7 +107,6 @@ impl Defect {
                 .key("operation")
                 .key("member")
                 .key("execution_point"),
-            Self::BodyMember(member) => node.key("body").key("members").index(member),
             Self::Role(occurrence) => node.key("occurrences").index(occurrence).key("role"),
         }
     }
@@ -422,7 +419,9 @@ pub(super) fn validate_structural_nodes(
                 }
             }
             Some(StructuralForm::Parameter) => parameter_defect(node, term, &graph),
-            Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, term, &graph),
+            Some(StructuralForm::CompoundUnit) => {
+                compound_unit_dependencies_defect(node, term, &graph)
+            }
             Some(StructuralForm::OperationAnchor) => term
                 .and_then(typed_anchor_body)
                 .is_none()
@@ -563,6 +562,47 @@ pub(super) fn validate_derived_type_shapes(
                             && (if natural { is_non_negative_integer(text) } else { is_integer_bound(text) })
                     })
                 })
+            }
+            CheckedNodeKind::BoundedDomain(BoundedDomainForm::ModelPopulation) => {
+                let set_of_reference = graph.kind(&node.semantic_type)
+                    == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Set))
+                    && index
+                    .get(&node.semantic_type)
+                    .and_then(|&position| terms.get(position).and_then(Option::as_ref))
+                    .and_then(typed_aggregate)
+                    .is_some_and(|members| {
+                        matches!(members, [CheckedTerm::Reference { target }]
+                            if graph.kind(target) == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)))
+                    });
+                set_of_reference && term.and_then(typed_aggregate).is_some_and(|members| {
+                    match members {
+                        [] => true,
+                        [member] => {
+                            let Some(CheckedTerm::Literal { type_id, value_kind: LiteralKind::Integer, value }) =
+                                typed_binding(member, "max") else { return false; };
+                            value.as_str().is_some_and(is_non_negative_integer)
+                                && graph.type_matches(type_id, ScalarTypeForm::Integer)
+                        }
+                        _ => false,
+                    }
+                })
+            }
+            CheckedNodeKind::ScalarType(ScalarTypeForm::CompoundUnit) => {
+                node.semantic_type == node.node_id
+                    && node.recursion_group.is_none()
+                    && term.and_then(typed_aggregate).is_some_and(|members| {
+                        let mut previous: Option<CheckedNodeId> = None;
+                        for member in members {
+                            let Some(unit) = typed_compound_unit_term(member, &graph) else {
+                                return false;
+                            };
+                            if previous.as_ref().is_some_and(|last| last >= &unit) {
+                                return false;
+                            }
+                            previous = Some(unit);
+                        }
+                        true
+                    })
             }
             _ => continue,
         };
@@ -718,29 +758,17 @@ fn typed_parameter_binding_with<'a>(
     Some((name, level))
 }
 
-/// The first rule a `scalar_type`/`compound_unit` node breaks, as the member
-/// it breaks it at.
-fn compound_unit_defect(
+/// Graph-shape dependency control for compound units. Their semantic body
+/// shape is checked at the later derived-shape stage.
+fn compound_unit_dependencies_defect(
     node: &CheckedSemanticNodeV2,
     term: Option<&super::CheckedTerm>,
     graph: &Graph<'_>,
 ) -> Option<Defect> {
-    if node.semantic_type != node.node_id {
-        return Some(Defect::SemanticType);
-    }
-    let Some(terms) = term.and_then(typed_aggregate) else {
-        return Some(Defect::Body);
-    };
+    let terms = term.and_then(typed_aggregate)?;
     let mut units: Vec<CheckedNodeId> = Vec::with_capacity(terms.len());
-    for (index, term) in terms.iter().enumerate() {
-        let Some(unit) = typed_compound_unit_term(term, graph) else {
-            return Some(Defect::BodyMember(index));
-        };
-        // Strictly ascending: canonical order and no repeated unit.
-        if units.last().is_some_and(|previous| *previous >= unit) {
-            return Some(Defect::BodyMember(index));
-        }
-        units.push(unit);
+    for term in terms {
+        units.push(typed_compound_unit_term(term, graph)?);
     }
     if node.dependencies != units {
         return Some(Defect::Dependencies);
