@@ -983,7 +983,6 @@ fn with_bad_frame() -> Value {
 fn graph_dependency_and_selected_model_owner_refuse_before_a_frame_defect() {
     let mut graph = with_bad_frame();
     graph["semantic_graph"]["nodes"][9]["dependencies"] = json!([]);
-    fixture_support::settle(&mut graph);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&graph).expect("selected QSpec evidence")
     else {
