@@ -60,6 +60,7 @@
 //! parsed, shape-validated and charged once by the per-node body loop.
 
 use super::identity::is_identifier;
+use super::model_members::{DomainModel, MemberType, ValueBounds};
 use super::{
     ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
     OperationMemberKind, StateClauseKind,
@@ -612,6 +613,57 @@ pub(super) fn validate_derived_type_shapes(
                 Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
                 node_id.clone(),
             ));
+        }
+    }
+    Ok(())
+}
+
+/// Join an admitted bounded type's actual members to the selected Semantic IR
+/// declaration. A structural node ID names the type but does not attest to
+/// its body: keeping the ID while changing a bound must not change the type
+/// selected by a model field.
+pub(super) fn validate_selected_type_bounds(
+    models: &[DomainModel],
+    terms: &[Option<CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    for model in models {
+        for bounds in model.value_types.values().flatten() {
+            let ValueBounds::Integer(expected) = bounds else {
+                continue;
+            };
+            let Some(id) = (MemberType::IntRange(*expected)).node_id(&model.checked_package) else {
+                continue;
+            };
+            let Some(&position) = index.get(&id) else {
+                continue;
+            };
+            let actual = terms
+                .get(position)
+                .and_then(Option::as_ref)
+                .and_then(typed_aggregate)
+                .and_then(|members| {
+                    let [minimum, maximum] = members else {
+                        return None;
+                    };
+                    let bound = |term, name| match typed_binding(term, name)? {
+                        CheckedTerm::Literal {
+                            value_kind: LiteralKind::Integer,
+                            value,
+                            ..
+                        } => value.as_str()?.parse::<i128>().ok(),
+                        _ => None,
+                    };
+                    Some((bound(minimum, "min")?, bound(maximum, "max")?))
+                });
+            if actual != Some((expected.lower, expected.upper)) {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    node_pointer(position).key("node_id"),
+                    Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
+                    id,
+                ));
+            }
         }
     }
     Ok(())
