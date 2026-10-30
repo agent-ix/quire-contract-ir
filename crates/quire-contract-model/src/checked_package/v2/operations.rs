@@ -31,7 +31,7 @@ use super::{
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{decoder_pointer, node_pointer};
 use crate::checked_package::selected_population::{
-    is_model_population, least_type_occurrence, population_maximum, population_object_type,
+    is_model_population, least_type_occurrence, population_maximum, population_object_type_typed,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -2666,26 +2666,30 @@ fn check_relationship_member(
     if !reaches {
         return ineligible(member_at("population"));
     }
-    let node_of = |id: &CheckedNodeId| graph.index.get(id).map(|&at| &graph.nodes[at]);
-    let linked = serde_json::from_value::<CheckedNodeId>(named.clone())
-        .ok()
+    let term_of = |id: &CheckedNodeId| {
+        graph
+            .index
+            .get(id)
+            .and_then(|&at| graph.terms.get(at))
+            .and_then(Option::as_ref)
+    };
+    let linked = CheckedNodeId::from_value(named)
         .and_then(|id| graph.index.get(&id).copied())
         .and_then(|position| Some((graph.nodes.get(position)?, graph.kinds.get(position)?)))
         .filter(|(node, kind)| {
             is_model_population(**kind)
                 && least_type_occurrence(node).is_some()
-                && CheckedTerm::decode_admitted(&node.body)
-                    .ok()
-                    .as_ref()
-                    .and_then(population_maximum)
-                    .is_some()
+                && term_of(&node.node_id).is_some_and(|term| {
+                    population_maximum(term).is_some()
+                        || matches!(term, CheckedTerm::Aggregate { members } if members.is_empty())
+                })
         })
         .map(|(node, _)| node);
     let Some(population) = linked else {
         return ineligible(member_at("population"));
     };
     // A reaches application's ends share one declared type (checked above).
-    if population_object_type(population, node_of) != Some(destination_id.clone()) {
+    if population_object_type_typed(population, term_of) != Some(destination_id.clone()) {
         return ineligible(member_at("population"));
     }
     Ok(None)
