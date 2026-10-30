@@ -1165,14 +1165,12 @@ pub fn structural_key(
     format!("structural/{preimage}")
 }
 
-/// The same structural preimage for fixture nodes with an owner or declaration.
-/// Model declarations and source declarations must include those members in
-/// their key; the anonymous helper above deliberately leaves them absent.
+/// An authored structural path for fixture nodes with an owner or declaration.
 fn owned_structural_key(
     node_tag: &str,
     semantic_form: &str,
-    semantic_type: Option<&str>,
-    owner: Value,
+    _semantic_type: Option<&str>,
+    _owner: Value,
     declaration: Value,
 ) -> String {
     if let Some(names) = declaration["qualified_name"].as_array() {
@@ -1185,17 +1183,7 @@ fn owned_structural_key(
                 .join("/")
         );
     }
-    let preimage = json!({
-        "version": "quire.structural-node/v1",
-        "node_tag": node_tag,
-        "semantic_form": semantic_form,
-        "semantic_type": semantic_type.map_or(Value::Null, node_id),
-        "owner": owner,
-        "declaration": declaration,
-        "recursion": Value::Null,
-        "body": empty_aggregate(),
-    });
-    format!("owned/{preimage}")
+    format!("owned/{node_tag}/{semantic_form}")
 }
 
 /// A second selected local model declaration in the family package.
