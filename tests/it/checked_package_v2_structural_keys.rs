@@ -10,7 +10,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
@@ -165,6 +165,13 @@ fn assert_derived_refusal(package: &Value, position: usize) {
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}/node_id"))
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(
+            serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+                .expect("authored structural locus")
+        )
     );
 }
 
@@ -352,4 +359,74 @@ fn a_distinct_path_is_a_distinct_node_even_with_equal_bodies() {
         admitted.graph().nodes[0].body,
         admitted.graph().nodes[1].body
     );
+}
+
+#[trace("TC-226", "FR-038-AC-127")]
+#[test]
+fn derived_shape_order_uses_structural_ids_after_graph_shape() {
+    let (package, _) = all_ten_shapes();
+    let mut two_bad = package.clone();
+    let boolean = index_of(&two_bad, "scalar_type", "boolean");
+    let set = index_of(&two_bad, "composite_type", "set");
+    let boolean_id: CheckedNodeId =
+        serde_json::from_value(two_bad["semantic_graph"]["nodes"][boolean]["node_id"].clone())
+            .expect("Boolean id");
+    let set_id: CheckedNodeId =
+        serde_json::from_value(two_bad["semantic_graph"]["nodes"][set]["node_id"].clone())
+            .expect("Set id");
+    assert!(boolean_id < set_id);
+    two_bad["semantic_graph"]["nodes"][boolean]["body"]["members"] =
+        json!([{"term":"reference","target":set_id}]);
+    two_bad["semantic_graph"]["nodes"][set]["body"]["members"] = json!([]);
+    two_bad["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .swap(boolean, set);
+    let boolean_position = index_of(&two_bad, "scalar_type", "boolean");
+    let set_position = index_of(&two_bad, "composite_type", "set");
+    assert!(boolean_position > set_position, "reverse graph order");
+    assert_derived_refusal(&two_bad, boolean_position);
+
+    let mut duplicate_and_bad = package.clone();
+    let duplicate = duplicate_and_bad["semantic_graph"]["nodes"][boolean].clone();
+    duplicate_and_bad["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(duplicate);
+    duplicate_and_bad["semantic_graph"]["nodes"][set]["body"]["members"] = json!([]);
+    let duplicate_position = duplicate_and_bad["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&duplicate_and_bad) else {
+        panic!("duplicate graph id must refuse before derived body");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{duplicate_position}/node_id"
+        ))
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-185")]
+#[test]
+fn pregraph_refusal_invents_no_structural_node_locus() {
+    let mut package = local_package();
+    package["semantic_graph"]["nodes"][0]
+        .as_object_mut()
+        .expect("node")
+        .remove("node_id");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("missing required node_id must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(refusal.locus, None);
+    let debug = format!("{refusal:?}");
+    assert!(!debug.contains("expected_node_id"));
 }
