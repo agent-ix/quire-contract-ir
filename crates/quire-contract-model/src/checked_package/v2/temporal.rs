@@ -463,9 +463,9 @@ pub(in crate::checked_package) fn member_is_well_formed(
             .is_ok_and(|member| member.kind == OperationMemberKind::TypeArgument),
         OperationMemberKind::Field => {
             member.get("name").and_then(Value::as_str).is_some()
-                && member.get("declaration").is_some_and(|value| {
-                    serde_json::from_value::<CheckedNodeId>(value.clone()).is_ok()
-                })
+                && member
+                    .get("declaration")
+                    .is_some_and(|value| CheckedNodeId::from_value(value).is_some())
         }
         OperationMemberKind::Position
         | OperationMemberKind::Element
