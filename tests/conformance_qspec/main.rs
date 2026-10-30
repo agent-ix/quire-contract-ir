@@ -570,7 +570,7 @@ fn adverse_problems(base: &Value, adverse: &Value, expected: &[ExpectedFailure])
     problems
 }
 
-#[trace("TC-048", "FR-038-AC-107")]
+#[trace("TC-048", "FR-038-AC-107", "FR-038-AC-133")]
 #[test]
 fn tc_048_qspec_positive_fixtures_admit() {
     let dir = fixtures_dir();
@@ -663,26 +663,24 @@ fn tc_048_qspec_union_values_refuse_duplicate_ids_and_invalid_bodies() {
         else {
             panic!("invalid union case at node {position} admitted");
         };
-        assert_eq!(refusal.code, Code::InvalidPackage);
-        assert!(
-            refusal.loci[0]
-                .path
-                .as_ref()
-                .expect("body refusal path")
-                .to_string()
-                .starts_with(&format!("/semantic_graph/nodes/{position}/body")),
-            "{refusal:?}"
+        assert_eq!(refusal.code, Code::IllTyped);
+        assert_eq!(refusal.cause, Some(Cause::TypeMismatch));
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(format!("/semantic_graph/nodes/{position}"))
         );
     }
     let mut missing = base;
     missing["semantic_graph"]["nodes"][10]["body"]["members"][0]["value"]["members"][0]["target"] =
         json!({"package":"example","path":["Missing"],"ordinal":0});
+    fixture_support::settle(&mut missing);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&missing).expect("reader result")
     else {
         panic!("unresolved union payload reference admitted");
     };
-    assert_eq!(refusal.code, Code::MissingDeclaration);
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+    assert_eq!(refusal.cause, None);
     assert!(
         refusal.loci[0]
             .path
@@ -950,110 +948,6 @@ fn tc_226_qspec_recursive_records_admit() {
     assert_eq!(reading_of(&package).expect("fixture reading"), "admitted");
 }
 
-/// Apply a QSpec derived-shape mutation to every matching node in its positive package,
-/// preserving the structural node id. The fixture and mutation are always
-/// read from the QSpec checkout.
-fn derived_shape_mutations(dir: &Path, row: &Value) -> Result<Vec<(usize, Value)>, String> {
-    let base = text_of(row, "base")?;
-    let original = read_json(&dir.join(format!("{base}.json")))?;
-    let tag = row["node"]["node_tag"]
-        .as_str()
-        .ok_or("mutation has no node_tag")?;
-    let form = row["node"]["semantic_form"]
-        .as_str()
-        .ok_or("mutation has no semantic_form")?;
-    let nodes = original["semantic_graph"]["nodes"]
-        .as_array()
-        .ok_or("semantic_graph.nodes is not an array")?;
-    let matches = nodes
-        .iter()
-        .enumerate()
-        .filter(|(_, node)| node["node_tag"] == tag && node["semantic_form"] == form)
-        .map(|(position, _)| position)
-        .collect::<Vec<_>>();
-    if matches.is_empty() {
-        return Err(format!("{base}: no {tag}/{form} node"));
-    }
-    let patches = row["patch"]
-        .as_array()
-        .ok_or("mutation has no patch array")?;
-    matches
-        .into_iter()
-        .map(|position| {
-            let mut package = original.clone();
-            for patch in patches {
-                if text_of(patch, "op")? != "replace" {
-                    return Err("mutation uses an unsupported patch op".into());
-                }
-                let path = text_of(patch, "path")?;
-                let replacement = patch.get("value").ok_or("patch has no value")?;
-                replace_at(
-                    &mut package,
-                    &format!("/semantic_graph/nodes/{position}{path}"),
-                    replacement,
-                )?;
-            }
-            Ok((position, package))
-        })
-        .collect()
-}
-
-#[trace("FR-038-AC-123", "FR-038-AC-133")]
-#[test]
-fn tc_226_qspec_ungrouped_derived_shape_mutations_refuse() {
-    let dir = fixtures_dir();
-    let adverse = read_json(&dir.join(ADVERSE)).expect("QSpec adverse fixture");
-    let rows = mutations(&adverse, "derived_shape_key_mutations").expect("mutation rows");
-    for row in rows.iter().filter(|row| {
-        row["base"] != "positive-recursive-records" && row["node"]["semantic_form"] != "record"
-    }) {
-        let id = text_of(row, "id").expect("mutation id");
-        let packages =
-            derived_shape_mutations(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
-        let expected = format!(
-            "refused:{}/{}",
-            text_of(row, "expected_code").expect("expected code"),
-            text_of(row, "expected_cause").expect("expected cause")
-        );
-        for (position, package) in packages {
-            assert_eq!(
-                reading_of(&package).expect("package reading"),
-                expected,
-                "{id}: node {position}"
-            );
-        }
-    }
-}
-
-/// IR-630, after QSL-638 supplies the declared SourceOwner on the wire.
-#[trace("FR-038-AC-150")]
-#[test]
-#[ignore = "IR-630: declared SourceOwner is absent from the v2 semantic node wire"]
-fn tc_226_qspec_grouped_and_declared_derived_shape_mutations_refuse() {
-    let dir = fixtures_dir();
-    let adverse = read_json(&dir.join(ADVERSE)).expect("QSpec adverse fixture");
-    let rows = mutations(&adverse, "derived_shape_key_mutations").expect("mutation rows");
-    for row in rows.iter().filter(|row| {
-        row["base"] == "positive-recursive-records" || row["node"]["semantic_form"] == "record"
-    }) {
-        let id = text_of(row, "id").expect("mutation id");
-        let packages =
-            derived_shape_mutations(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
-        let expected = format!(
-            "refused:{}/{}",
-            text_of(row, "expected_code").expect("expected code"),
-            text_of(row, "expected_cause").expect("expected cause")
-        );
-        for (position, package) in packages {
-            assert_eq!(
-                reading_of(&package).expect("package reading"),
-                expected,
-                "{id}: node {position}"
-            );
-        }
-    }
-}
-
 /// The base package and the adverse mutations of the named checkout; a test
 /// failure when either cannot be read.
 fn adverse_inputs() -> (Value, Value) {
@@ -1071,7 +965,7 @@ fn assert_no_problems(problems: &[String]) {
 /// Every mutation refuses as recorded, with the expected-failure list empty
 /// (FR-038-AC-118): each of the five `body_grammar_mutations` refuses
 /// `malformed_wire`, with no identity refreshed.
-#[trace("TC-048", "FR-038-AC-112", "FR-038-AC-118")]
+#[trace("TC-048", "FR-038-AC-112", "FR-038-AC-118", "FR-038-AC-133")]
 #[test]
 fn tc_048_qspec_adverse_mutations_refuse_as_recorded() {
     let (base, adverse) = adverse_inputs();

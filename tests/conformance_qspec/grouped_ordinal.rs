@@ -56,7 +56,7 @@ fn corrected_qspec_grouped_fixtures_admit_with_declared_paths() {
 
 /// QSpec FR-322-AC-274: changing an anonymous List member's structural path
 /// while retaining every exact reference leaves only the group-path defect.
-#[trace("TC-233", "FR-038-AC-145", "FR-038-AC-147")]
+#[trace("TC-233", "FR-038-AC-145", "FR-038-AC-147", "FR-038-AC-133")]
 #[test]
 fn anonymous_group_member_with_non_declaration_path_refuses() {
     let fixtures = fixtures_dir();
