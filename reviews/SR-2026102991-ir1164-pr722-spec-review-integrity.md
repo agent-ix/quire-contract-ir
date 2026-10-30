@@ -24,3 +24,9 @@ FR-038-AC-136, AC-142, AC-370 through AC-373 and TC-227 were examined; QSpec FR-
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | TC-227 still says every accessor error is a variant AC-139 names, excluding the new MissingDeclaringNode and AmbiguousDeclaringNode errors | spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md:67 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At c92ee600, TC-227 separates the AC-139 node errors from the AC-372 declaring-node errors. |
