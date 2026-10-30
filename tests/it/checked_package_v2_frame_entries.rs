@@ -2518,6 +2518,7 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
     assert_eq!(
         refused(&value).loci[0]
             .path
+            .as_ref()
             .map(|path| path.as_str().to_owned()),
         Some(format!("/semantic_graph/nodes/{frame}/body/deletes/0")),
         "a frame defect before a state defect"
@@ -2529,6 +2530,7 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
     assert_eq!(
         refused(&value).loci[0]
             .path
+            .as_ref()
             .map(|path| path.as_str().to_owned()),
         Some(format!("/semantic_graph/nodes/{anchor}")),
         "an anchor defect before a clause defect"
@@ -2543,6 +2545,7 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
     assert_eq!(
         refused(&value).loci[0]
             .path
+            .as_ref()
             .map(|path| path.as_str().to_owned()),
         Some(format!("/semantic_graph/nodes/{anchor}")),
         "a state defect before an operation defect"
