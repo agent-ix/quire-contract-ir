@@ -102,6 +102,60 @@ fn derived_reference_target_joins_eligible_declaration_kinds() {
         );
     }
 
+    // A state machine requires a selected model declaration document. Reuse
+    // the in-repo selected-machine fixture and its authentic evidence rather
+    // than changing the form of an unrelated graph node.
+    let (mut machine, evidence) = crate::checked_package_v2_refinement::machine_package();
+    let target = machine["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("selected machine nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "state_machine")
+        .expect("selected state machine")["node_id"]
+        .clone();
+    let reference = json!({
+        "package": machine["name"],
+        "path": ["composite_type", "reference", target],
+        "ordinal": 0,
+    });
+    machine["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("machine nodes")
+        .push(json!({
+            "node_id": reference,
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "composite_type", "semantic_form": "reference",
+            "semantic_type": reference, "dependencies": [target],
+            "occurrences": [{"role": "type", "ordinal": 0}],
+            "body": {"term": "aggregate", "members": [
+                {"term": "reference", "target": target}
+            ]},
+        }));
+    let mut source = machine["source_map"][0].clone();
+    source["node_id"] = reference.clone();
+    source["role"] = json!("type");
+    source["ordinal"] = json!(0);
+    machine["source_map"]
+        .as_array_mut()
+        .expect("machine source map")
+        .push(source);
+    let result = CheckedPackageV2::read(
+        &canonical(&machine),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    );
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("selected state_machine reference must admit: {result:?}");
+    };
+    let id: CheckedNodeId = serde_json::from_value(reference).expect("reference identity");
+    assert!(matches!(
+        admitted.term(&id),
+        Some(CheckedTerm::Aggregate { members }) if matches!(
+            members.as_slice(), [CheckedTerm::Reference { target: actual }] if
+                serde_json::to_value(actual).expect("target") == target
+        )
+    ));
+
     let (package, reference, position) = reference_package("scalar_type", "boolean");
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
         panic!("scalar target must refuse as an invalid derived reference");
