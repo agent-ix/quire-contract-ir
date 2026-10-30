@@ -198,7 +198,7 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
     for index in 0..length {
         let body = json!({"term": "reference", "target": node_id(&previous)});
         let key = format!("expression/reference/{index}");
-        let mut node = plain_node(
+        let node = plain_node(
             &key,
             "expression",
             "reference",

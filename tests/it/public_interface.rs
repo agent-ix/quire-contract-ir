@@ -1353,7 +1353,7 @@ fn tc_058_test_support_exports_are_independent_of_fault_injection() {
 #[test]
 fn tc_058_fixture_operation_does_not_bypass_strict_package_admission() {
     use crate::support::checked_package::{
-        canonical, evidence_for, pointer, refresh_identity, rekey_application_node, v2_all_families,
+        canonical, evidence_for, pointer, settle, v2_all_families,
     };
     use quire_contract_model::{
         CheckedApplicationOperation, CheckedApplicationOperationFixture, CheckedPackageReadLimits,
@@ -1374,8 +1374,7 @@ fn tc_058_fixture_operation_does_not_bypass_strict_package_admission() {
         .position(|node| node["node_tag"] == "function" && node["body"]["term"] == "application")
         .expect("function call application");
     package["semantic_graph"]["nodes"][position]["body"]["operation"] = operation;
-    rekey_application_node(&mut package, position);
-    refresh_identity(&mut package);
+    settle(&mut package);
     let result = CheckedPackageV2::read(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
