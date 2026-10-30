@@ -265,38 +265,6 @@ fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer
     None
 }
 
-#[cfg(test)]
-mod ordinal_locus_tests {
-    use super::*;
-
-    #[test]
-    fn malformed_structural_ordinals_keep_their_exact_member_pointer() {
-        let node = JsonPointer::parse("/semantic_graph/nodes/1/node_id").unwrap();
-        for ordinal in ["9007199254740992", "1.5", "-1", "\"one\""] {
-            let bytes = format!(
-                "{{\"semantic_graph\":{{\"nodes\":[null,{{\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":{ordinal}}}}}]}}}}"
-            );
-            assert_eq!(
-                invalid_node_id_ordinal(bytes.as_bytes(), &node),
-                Some(node.clone().key("ordinal"))
-            );
-        }
-
-        let nested = br#"{"semantic_graph":{"nodes":[null,{"node_id":{"package":"p","path":[{"package":"p","path":["x"],"ordinal":1.5}],"ordinal":0}}]}}"#;
-        assert_eq!(
-            invalid_node_id_ordinal(nested, &node),
-            Some(node.key("path").index(0).key("ordinal"))
-        );
-
-        let dependency = br#"{"semantic_graph":{"nodes":[{"dependencies":[{"package":"p","path":["x"],"ordinal":"one"}]}]}}"#;
-        let reference = JsonPointer::parse("/semantic_graph/nodes/0/dependencies/0").unwrap();
-        assert_eq!(
-            invalid_node_id_ordinal(dependency, &reference),
-            Some(reference.key("ordinal"))
-        );
-    }
-}
-
 /// Read only the JSON value named by `pointer`. Borrowed raw subtrees retain
 /// slices of the caller's bytes; no ancestor is decoded into a `Value`.
 pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value> {
@@ -509,4 +477,36 @@ fn raw_array<'a>(
         .fold(JsonPointer::root(), |pointer, key| pointer.key(key));
     serde_json::from_str(raw.ok_or_else(|| malformed(pointer.clone()))?.get())
         .map_err(|_| malformed(pointer))
+}
+
+#[cfg(test)]
+mod ordinal_locus_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_structural_ordinals_keep_their_exact_member_pointer() {
+        let node = JsonPointer::parse("/semantic_graph/nodes/1/node_id").unwrap();
+        for ordinal in ["9007199254740992", "1.5", "-1", "\"one\""] {
+            let bytes = format!(
+                "{{\"semantic_graph\":{{\"nodes\":[null,{{\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":{ordinal}}}}}]}}}}"
+            );
+            assert_eq!(
+                invalid_node_id_ordinal(bytes.as_bytes(), &node),
+                Some(node.clone().key("ordinal"))
+            );
+        }
+
+        let nested = br#"{"semantic_graph":{"nodes":[null,{"node_id":{"package":"p","path":[{"package":"p","path":["x"],"ordinal":1.5}],"ordinal":0}}]}}"#;
+        assert_eq!(
+            invalid_node_id_ordinal(nested, &node),
+            Some(node.key("path").index(0).key("ordinal"))
+        );
+
+        let dependency = br#"{"semantic_graph":{"nodes":[{"dependencies":[{"package":"p","path":["x"],"ordinal":"one"}]}]}}"#;
+        let reference = JsonPointer::parse("/semantic_graph/nodes/0/dependencies/0").unwrap();
+        assert_eq!(
+            invalid_node_id_ordinal(dependency, &reference),
+            Some(reference.key("ordinal"))
+        );
+    }
 }
