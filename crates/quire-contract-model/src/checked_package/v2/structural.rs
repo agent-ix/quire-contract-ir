@@ -706,7 +706,9 @@ fn parameter_defect(
     let is_binder_type = node.semantic_type != node.node_id
         && graph
             .node(&node.semantic_type)
-            .is_some_and(|(type_node, kind)| {
+            .is_none_or(|(type_node, kind)| {
+                // An absent target is a dependent graph edge checked after
+                // owner selection, not an independent parameter-shape defect.
                 // A binder may also be typed at a selected model value declaration.
                 kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
                     || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)

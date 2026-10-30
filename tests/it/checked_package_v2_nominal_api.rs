@@ -108,6 +108,105 @@ fn public_constructors_round_trip_all_four_nominal_forms_through_reader() {
     );
 }
 
+/// Trace: FR-038-AC-343, FR-038-AC-365, TC-048.
+#[trace("FR-038-AC-343", "FR-038-AC-365", "TC-048")]
+#[test]
+fn nominal_semantic_refusals_visit_structural_ids_before_graph_positions() {
+    let mut members = nominal_fixture_members();
+    let unit = members
+        .iter()
+        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+        .expect("root unit")
+        .clone();
+    let mut earlier = unit.0;
+    earlier["qualified_declaration"] = json!(["Example", "Acre"]);
+    earlier["scale"]["numerator"] = json!("3");
+    members.push((earlier, "qualified:Example/Acre".to_owned()));
+    let original = members
+        .iter_mut()
+        .find(|(_, key)| key == "qualified:Example/Metre")
+        .expect("original root unit");
+    original.0["scale"]["numerator"] = json!("2");
+
+    let package = nominal_package(&members);
+    let earlier_position = members.len() - 1;
+    let later_position = members
+        .iter()
+        .position(|(_, key)| key == "qualified:Example/Metre")
+        .expect("original root unit");
+    assert!(earlier_position > later_position, "graph order is reversed");
+    assert!(
+        node_id(&package["semantic_graph"]["nodes"][earlier_position]["node_id"])
+            < node_id(&package["semantic_graph"]["nodes"][later_position]["node_id"]),
+        "structural order is the opposite of graph order"
+    );
+    let result = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package),
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("two invalid root units must refuse: {result:?}");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{earlier_position}/body/scale"
+        )),
+    );
+}
+
+/// Trace: FR-038-AC-365, TC-048.
+#[trace("FR-038-AC-365", "TC-048")]
+#[test]
+fn nominal_record_decoding_refuses_in_structural_order() {
+    let mut members = nominal_fixture_members();
+    let mut earlier = members
+        .iter()
+        .find(|(_, key)| key == "value/enum_value/ACTIVE")
+        .expect("enum member")
+        .0
+        .clone();
+    earlier["case"] = json!("AAA");
+    members.push((earlier, "value/enum_value/AAA".to_owned()));
+    let mut package = nominal_package(&members);
+    let later_position = members
+        .iter()
+        .position(|(_, key)| key == "value/enum_value/ACTIVE")
+        .expect("original enum member");
+    let earlier_position = members.len() - 1;
+    for position in [later_position, earlier_position] {
+        package["semantic_graph"]["nodes"][position]["body"]["value"] = json!(1);
+    }
+    assert!(later_position < earlier_position);
+    assert!(
+        node_id(&package["semantic_graph"]["nodes"][earlier_position]["node_id"])
+            < node_id(&package["semantic_graph"]["nodes"][later_position]["node_id"])
+    );
+    let result = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package),
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("two non-string enum cases must refuse: {result:?}");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{earlier_position}/body/value"
+        ))
+    );
+}
+
 #[trace("TC-048", "TC-058", "FR-038-AC-375")]
 #[test]
 fn admitted_nominal_enum_details_borrow_authored_order_and_members() {

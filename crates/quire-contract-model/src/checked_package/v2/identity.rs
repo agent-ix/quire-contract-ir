@@ -1061,16 +1061,18 @@ pub(super) fn validate_nominal_nodes(
             _ => None,
         })
         .collect::<BTreeMap<_, _>>();
-    let records = nodes
-        .iter()
-        .zip(kinds)
-        .enumerate()
-        .map(|(position, (node, kind))| {
-            NominalKind::required_by(*kind)
-                .map(|required| record_from_node(node, required, position, models, &model_nodes))
-                .transpose()
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut records = vec![None; nodes.len()];
+    for &position in index.values() {
+        if let Some(required) = NominalKind::required_by(kinds[position]) {
+            records[position] = Some(record_from_node(
+                &nodes[position],
+                required,
+                position,
+                models,
+                &model_nodes,
+            )?);
+        }
+    }
     let selected_models = models
         .iter()
         .map(|model| (model.identity.as_ref(), model))
@@ -1087,9 +1089,11 @@ pub(super) fn validate_nominal_nodes(
     let mut roots = BTreeSet::new();
     let mut equivalence_pairs = BTreeSet::new();
     let mut equivalences = Vec::new();
-    for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
+    for &position in index.values() {
+        let node = &nodes[position];
+        let kind = kinds[position];
         let site = Site { node, position };
-        let required = NominalKind::required_by(*kind);
+        let required = NominalKind::required_by(kind);
         let record = match (required, records[position].as_ref()) {
             (None, None) => continue,
             (Some(kind), Some(record)) if NominalKind::of(record) == kind => record,

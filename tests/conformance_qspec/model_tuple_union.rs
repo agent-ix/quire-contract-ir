@@ -4,6 +4,7 @@
 //! The published tuple and payload-variant fixture through production intake.
 
 use super::{fixtures_dir, proposal_dir_of, read_json};
+use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
@@ -11,6 +12,15 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
+
+fn selected_document(proposal: &Path) -> Value {
+    let documents = super::vector_selected_documents(proposal).expect("selected documents");
+    read_json(&proposal.join(super::positive_document(
+        "positive-model-tuple-union.json",
+        &documents,
+    )))
+    .expect("selected tuple/union document")
+}
 
 /// The refusal pointer of the first selected model root: its owner.
 fn root_owner_pointer(package: &Value) -> String {
@@ -25,12 +35,13 @@ fn root_owner_pointer(package: &Value) -> String {
 
 /// Apply one published RFC 6902 operation. The vector's patch is the source of
 /// both the mutation and its expected package identity.
-fn apply_wire_patch(package: &mut Value, patch: &Value) {
+pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
     let path = patch["path"].as_str().expect("published patch path");
     let (parent, member) = path.rsplit_once('/').expect("patch member");
     let target = package.pointer_mut(parent).expect("published patch parent");
     let operation = patch["op"].as_str().expect("published patch operation");
     match (operation, target) {
+        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
         ("replace", Value::Object(map)) => {
             *map.get_mut(member).expect("published replacement target") = patch["value"].clone();
         }
@@ -55,11 +66,9 @@ fn apply_wire_patch(package: &mut Value, patch: &Value) {
     }
 }
 
-/// The published wire cases exercise the production reader's closed schema,
-/// declaration join, typed operation and key-validation stages. Every row in
-/// the authoritative vector is replayed, including rows added later.
-/// FR-069-AC-6 remains open until its full intake matrix is replayed.
-/// Provenance: IR-1059, QSpec TW-00 through TW-26.
+/// Replay every published wire row, including rows added after this test.
+/// Trace: TC-048. The full FR-069-AC-8 stage oracle remains open.
+#[trace("TC-048")]
 #[test]
 fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     let fixtures = fixtures_dir();
@@ -67,10 +76,7 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
         .expect("published tuple/union vectors");
     assert_eq!(vectors["base"], "fixtures/positive-model-tuple-union.json");
-    let selected_path = vectors["selected_document"]
-        .as_str()
-        .expect("selected Semantic IR document path");
-    let selected = read_json(&proposal.join(selected_path)).expect("selected document");
+    let selected = selected_document(&proposal);
     let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     let mut evidence = CheckedPackageEvidence::new();
@@ -306,8 +312,9 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
     }
 }
 
-/// Provenance: IR-1059, QSpec FR-322 intake rows TK-01 through TK-35.
-/// FR-069-AC-6 stays open until every published intake and wire row passes.
+/// Replay every published intake row through the selected document join.
+/// Trace: TC-048. The full FR-069-AC-8 stage oracle remains open.
+#[trace("TC-048")]
 #[test]
 fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let fixtures = fixtures_dir();
@@ -315,11 +322,7 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
         .expect("published tuple/union vectors");
     assert_eq!(vectors["base"], "fixtures/positive-model-tuple-union.json");
-    let selected_path = vectors["selected_document"]
-        .as_str()
-        .expect("selected full Semantic IR document path");
-    let selected =
-        read_json(&proposal.join(selected_path)).expect("selected full Semantic IR document");
+    let selected = selected_document(&proposal);
     let mut base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     // Intake mutations can change the types of the published expression
@@ -425,8 +428,7 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
 
 /// An admitted Duration position is usable as the
 /// Quantity<s> result of a tuple projection when s is one second of its
-/// owner's Time. The upstream fixtures are read at test time. FR-069-AC-6
-/// remains open until the full published matrix passes.
+/// owner's Time. The upstream fixtures are read at test time.
 #[test]
 fn duration_tuple_position_projects_to_resolved_second_unit() {
     for scenario in [
@@ -724,10 +726,7 @@ fn combined_tuple_and_variant_defects_keep_published_intake_order() {
     let proposal = proposal_dir_of(&fixtures);
     let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
         .expect("published tuple/union vectors");
-    let selected_path = vectors["selected_document"]
-        .as_str()
-        .expect("selected document path");
-    let selected = read_json(&proposal.join(selected_path)).expect("selected document");
+    let selected = selected_document(&proposal);
     let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     let rows = vectors["intake_cases"].as_array().expect("intake cases");
@@ -795,12 +794,7 @@ fn combined_tuple_and_variant_defects_keep_published_intake_order() {
 fn published_model_tuple_union_fixture_admits() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
-    let vector = read_json(&proposal.join("model-tuple-union-vectors.json"))
-        .expect("published tuple/union vector");
-    let selected = vector["selected_document"]
-        .as_str()
-        .expect("selected full Semantic IR document path");
-    let document = read_json(&proposal.join(selected)).expect("selected full document");
+    let document = selected_document(&proposal);
     let package = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
 
@@ -825,9 +819,8 @@ fn published_model_tuple_union_fixture_admits() {
     );
 }
 
-/// IR-1059 slice 2: unsupported selected payloads fail at model intake with
-/// the selected document member retained as a public location. The complete
-/// published FR-069-AC-6 mutation matrix remains open.
+/// Unsupported selected payloads fail at model intake with the selected
+/// document member retained as a public location.
 #[test]
 fn unsupported_selected_variant_payloads_refuse_at_document_member() {
     let fixtures = fixtures_dir();
