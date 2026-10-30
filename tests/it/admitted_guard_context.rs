@@ -419,7 +419,7 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
         record.node_id() == &guard_inner.node_id
             && record.disposition() == ContractDispositionV1::Lowered
     }));
-    assert_ne!(plain_result_roots.identity(), contextual.identity());
+    assert_ne!(plain_result_roots.wire(), contextual.wire());
     assert_eq!(
         serde_json::to_value(contextual.wire())
             .expect("wire fields")
@@ -453,7 +453,6 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
     let then_view = lowered(&contextual, &app_id, &app_first, &then_guards);
     assert_eq!(then_view.application, app_first);
     assert_eq!(then_view.provenance, &contextual.wire().package);
-    assert_eq!(then_view.identity, contextual.identity());
     assert_eq!(then_view.guards.len(), 3);
     assert_eq!(
         then_view
@@ -766,13 +765,6 @@ fn tc_450_reader_refuses_a_lowered_guard_root_without_its_node() {
     }) {
         entry["occurrences"] = json!([]);
     }
-    let projection = json!({
-        "contract_version": malformed["contract_version"],
-        "package": malformed["package"],
-        "semantic_graph": malformed["semantic_graph"],
-        "feature_accounting": malformed["feature_accounting"],
-    });
-    malformed["identity"]["digest"] = json!(sha256_hex(&canonical(&projection)));
     let outcome = ContractPackageWireV1::read(
         &canonical(&malformed),
         CheckedPackageReadLimits::bounded(),

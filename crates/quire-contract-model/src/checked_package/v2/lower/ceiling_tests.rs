@@ -538,12 +538,12 @@ fn lowered_ids(records: &[CompleteLoweringRecordV2]) -> Vec<&CheckedNodeId> {
         .collect()
 }
 
-/// The emitter's graph input order is not part of semantic identity: keyed
-/// nodes are ordered by their identities before the four-member projection is
-/// hashed. Request order remains fixed in the accounting records.
-#[trace("TC-047", "FR-035-AC-5")]
+/// The emitter's graph input order does not change the canonical package: keyed
+/// nodes are ordered by their identities. Request order remains fixed in the
+/// accounting records.
+#[trace("TC-047", "FR-035-AC-4")]
 #[test]
-fn tc_047_equivalent_graph_construction_orders_have_one_package_identity() {
+fn tc_047_equivalent_graph_construction_orders_have_one_package_value() {
     let source = package(u64::MAX);
     let selected = profile();
     let result = source.lower(&requested(), &selected);
@@ -566,7 +566,7 @@ fn tc_047_equivalent_graph_construction_orders_have_one_package_identity() {
     assert_ne!(original, reversed, "the graph inputs differ in order");
     let (first, first_bytes) = encode(original);
     let (second, second_bytes) = encode(&reversed);
-    assert_eq!(first.identity(), second.identity());
+    assert_eq!(first.wire(), second.wire());
     assert_eq!(first_bytes, second_bytes);
 }
 
@@ -611,7 +611,6 @@ fn tc_048_a_package_over_the_ceiling_fails_every_record_and_returns_no_package()
     assert!(under.package.lowered().is_empty());
     assert!(under.package.dependencies().is_empty());
     assert_eq!(under.package.canonical_bytes(), None);
-    assert_eq!(under.package.package_id(), None);
     assert_eq!(
         under.package.source_package_id(),
         package(u64::MAX).package_id()
@@ -676,9 +675,12 @@ fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged(
         without.package.dependencies()
     );
     assert_eq!(without.package, siblings_only.package);
-    // The failed `x` record belongs to this call's six-field wire and thus
-    // changes its accounting and semantic identity without changing siblings.
-    assert_ne!(result.package.package_id(), without.package.package_id());
+    // The failed `x` record changes this call's accounting and canonical
+    // package bytes without changing siblings.
+    assert_ne!(
+        result.package.canonical_bytes(),
+        without.package.canonical_bytes()
+    );
 }
 
 /// A work-budget failure still names the `work` limit.

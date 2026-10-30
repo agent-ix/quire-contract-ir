@@ -24,8 +24,7 @@ use super::dependency_references::{
 use super::encode::{elements, encoded, member as encode_member};
 use super::lower::{
     CompleteContractNodeV2, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    ContractPackageDependencyV2, LoweringProfileRef, NodeSourceMaps, CONTRACT_IR_SEMANTIC_DOMAIN,
-    CONTRACT_PACKAGE_VERSION,
+    ContractPackageDependencyV2, LoweringProfileRef, NodeSourceMaps, CONTRACT_PACKAGE_VERSION,
 };
 use super::{
     CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole,
@@ -43,7 +42,6 @@ use quire_canonical::{Encode, Error as CanonicalError, FixedShape, Sink, Writer}
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The source package's exact admitted identity and lock.
@@ -335,7 +333,7 @@ impl From<&CompleteLoweringRecordV2> for ContractFeatureRecordV1 {
     }
 }
 
-/// The one closed six-member FR-330 package value.
+/// The one closed five-member FR-330 package value.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractPackageWireV1 {
@@ -349,8 +347,6 @@ pub struct ContractPackageWireV1 {
     pub source_map: ContractSourceMapV1,
     /// One result per request, in request order.
     pub feature_accounting: Vec<ContractFeatureRecordV1>,
-    /// SHA-256 of the four-member canonical semantic projection.
-    pub identity: CheckedSemanticId,
 }
 
 /// A ContractPackage produced from an admitted source or admitted by the sole
@@ -675,7 +671,7 @@ impl ContractPackageV1 {
         }))
     }
 
-    /// The exact six-field wire, available for read-only inspection.
+    /// The exact five-field wire, available for read-only inspection.
     pub fn wire(&self) -> &ContractPackageWireV1 {
         &self.wire
     }
@@ -752,13 +748,8 @@ impl ContractPackageV1 {
         true
     }
 
-    /// The canonical semantic identity retained in the admitted value.
-    pub fn identity(&self) -> &CheckedSemanticId {
-        &self.wire.identity
-    }
-
     /// Reads one exact requested key and, when lowered, its local reached
-    /// closure. The six-field wire and identity are never changed.
+    /// closure. The five-field wire is never changed.
     pub fn reached_closure(
         &self,
         requested: &CheckedNodeId,
@@ -809,13 +800,6 @@ pub struct ContractDependencyInput<'a> {
     pub package: &'a CheckedPackageV2,
 }
 
-struct SemanticProjection<'a> {
-    contract_version: &'a str,
-    package: &'a ContractProvenanceV1,
-    semantic_graph: &'a ContractSemanticGraphV1,
-    feature_accounting: &'a [ContractFeatureRecordV1],
-}
-
 impl Encode for ContractSemanticGraphV1 {
     fn encode_into<S: Sink + ?Sized>(
         &self,
@@ -824,20 +808,6 @@ impl Encode for ContractSemanticGraphV1 {
         writer.begin_object()?;
         encode_member(writer, "graph_version", &self.graph_version)?;
         elements(writer, "nodes", &self.nodes)?;
-        writer.end_object()
-    }
-}
-
-impl Encode for SemanticProjection<'_> {
-    fn encode_into<S: Sink + ?Sized>(
-        &self,
-        writer: &mut Writer<'_, S>,
-    ) -> Result<(), CanonicalError> {
-        writer.begin_object()?;
-        encode_member(writer, "contract_version", &self.contract_version)?;
-        encode_member(writer, "package", self.package)?;
-        encoded(writer, "semantic_graph", self.semantic_graph)?;
-        encode_member(writer, "feature_accounting", &self.feature_accounting)?;
         writer.end_object()
     }
 }
@@ -853,7 +823,6 @@ impl Encode for ContractPackageWireV1 {
         encoded(writer, "semantic_graph", &self.semantic_graph)?;
         encode_member(writer, "source_map", &self.source_map)?;
         encode_member(writer, "feature_accounting", &self.feature_accounting)?;
-        encode_member(writer, "identity", &self.identity)?;
         writer.end_object()
     }
 }
@@ -1000,28 +969,12 @@ impl ContractPackageWireV1 {
             requested_items,
             refusals,
         };
-        let projection = SemanticProjection {
-            contract_version: CONTRACT_PACKAGE_VERSION,
-            package: &package,
-            semantic_graph: &semantic_graph,
-            feature_accounting: &accounting,
-        };
-        // The package ceiling charges the emitted six-field value. Hashing its
-        // smaller semantic projection must not report that projection's length
-        // as the package's failed byte charge.
-        let preimage = canonical(&projection, u64::MAX)?;
-        let digest = format!("{:x}", Sha256::digest(&preimage));
         let wire = Self {
             contract_version: CONTRACT_PACKAGE_VERSION.into(),
             package,
             semantic_graph,
             source_map,
             feature_accounting: accounting,
-            identity: CheckedSemanticId {
-                domain: CONTRACT_IR_SEMANTIC_DOMAIN.into(),
-                algorithm: "sha256".into(),
-                digest: digest.into_boxed_str(),
-            },
         };
         let bytes = canonical(&wire, ceiling)?.into_boxed_slice();
         Ok((
@@ -1159,7 +1112,6 @@ impl ContractPackageWireV1 {
         let (node_kinds, unsupported_tags) = wire.validate_values(limits, &mut work_meter)?;
         wire.validate_correspondence(limits)?;
         wire.validate_accounting()?;
-        wire.validate_identity(limits.bytes)?;
         wire.validate_dependencies(dependencies, &mut work_meter)?;
         let terms = wire.validate_references(dependencies, limits, &mut work_meter)?;
         let node_index = wire
@@ -1307,7 +1259,6 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
             "semantic_graph",
             "source_map",
             "feature_accounting",
-            "identity",
         ],
         &[],
     )?;
@@ -1496,7 +1447,6 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
     {
         validate_record_shape(record, accounting_at.clone().index(index))?;
     }
-    id_shape(member(top, "identity", &root)?, root.key("identity"), true)?;
     Ok(())
 }
 
@@ -1698,7 +1648,6 @@ enum ContractWireTag {
     PackageDomain,
     Sha256,
     GraphVersion,
-    ResultDomain,
     NodeDomain,
 }
 
@@ -1710,7 +1659,6 @@ impl ContractWireTag {
             super::PACKAGE_DOMAIN_V2 => Some(Self::PackageDomain),
             "sha256" => Some(Self::Sha256),
             "quire.checked-semantic-graph/v2" => Some(Self::GraphVersion),
-            CONTRACT_IR_SEMANTIC_DOMAIN => Some(Self::ResultDomain),
             NODE_DOMAIN => Some(Self::NodeDomain),
             _ => None,
         }
@@ -1939,21 +1887,6 @@ impl ContractPackageWireV1 {
                 _ => None,
             };
             unsupported_tags.push(unsupported_tag);
-        }
-        if ContractWireTag::from_wire(&self.identity.domain) != Some(ContractWireTag::ResultDomain)
-        {
-            return Err(malformed(
-                JsonPointer::root().key("identity").key("domain"),
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
-        }
-        if ContractWireTag::from_wire(&self.identity.algorithm) != Some(ContractWireTag::Sha256)
-            || !valid_digest(&self.identity.digest)
-        {
-            return Err(malformed(
-                JsonPointer::root().key("identity").key("digest"),
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
         }
         Ok((node_kinds, unsupported_tags))
     }
@@ -2229,28 +2162,6 @@ impl ContractPackageWireV1 {
         if refusal != self.source_map.refusals.len() {
             return Err(malformed(
                 JsonPointer::root().key("source_map"),
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_identity(&self, ceiling: u64) -> Result<(), ValidationFailure> {
-        let projection = SemanticProjection {
-            contract_version: &self.contract_version,
-            package: &self.package,
-            semantic_graph: &self.semantic_graph,
-            feature_accounting: &self.feature_accounting,
-        };
-        let preimage = canonical(&projection, ceiling).map_err(|_| {
-            malformed(
-                JsonPointer::root().key("identity"),
-                CheckedPackageRefusalCause::InvalidValue,
-            )
-        })?;
-        if format!("{:x}", Sha256::digest(&preimage)) != self.identity.digest.as_ref() {
-            return Err(malformed(
-                JsonPointer::root().key("identity").key("digest"),
                 CheckedPackageRefusalCause::InvalidValue,
             ));
         }

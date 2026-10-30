@@ -687,7 +687,6 @@ fn tc_048_preimages_take_the_path_their_depth_allows() {
     for encoded in [
         "impl Encode for ApplicationNodePreimage",
         "impl Encode for LoweredNodePreimage",
-        "impl Encode for SemanticProjection",
         "impl Encode for ContractPackageWireV1",
     ] {
         assert!(all.contains(encoded), "{encoded}");
@@ -722,7 +721,6 @@ fn tc_048_preimages_take_the_path_their_depth_allows() {
     for encoded in [
         "ApplicationNodePreimage",
         "LoweredNodePreimage",
-        "SemanticProjection",
         "ContractPackageWireV1",
     ] {
         assert!(
