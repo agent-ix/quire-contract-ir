@@ -286,7 +286,7 @@ fn tc_048_refusal_pointers_escape_member_names_and_resolve() {
 /// node-identity vectors, this is not an independent conformance oracle —
 /// each entry asserts the reader's own documented structural rule
 /// (`contract_version`/`lock.sources`/`semantic_graph.graph_version`/
-/// `lock.sources[0].digest_domain`/`capability_report`, all checked
+/// `lock.sources[0].authority`/`capability_report`, all checked
 /// directly by `v2::mod::validate`) against itself, so authoring it in this
 /// repository makes no assertion tautological.
 const STRUCTURAL_MUTATIONS: [(&str, &str, CheckedPackageRefusalCode); 5] = [
@@ -306,9 +306,9 @@ const STRUCTURAL_MUTATIONS: [(&str, &str, CheckedPackageRefusalCode); 5] = [
         CheckedPackageRefusalCode::InvalidSemanticGraph,
     ),
     (
-        "/lock/sources/0/digest_domain",
-        "digest_domain_mismatch",
-        CheckedPackageRefusalCode::DigestDomainMismatch,
+        "/lock/sources/0/authority",
+        "malformed_wire",
+        CheckedPackageRefusalCode::MalformedWire,
     ),
     (
         "/capability_report",
@@ -322,7 +322,7 @@ fn structural_mutation_replacement(pointer: &str) -> Value {
         "/contract_version" => json!("quire.checked-package/v3"),
         "/lock/sources" => json!([]),
         "/semantic_graph/graph_version" => json!("quire.checked-semantic-graph/v3"),
-        "/lock/sources/0/digest_domain" => json!("quire.fixture.wrong-domain/v1"),
+        "/lock/sources/0/authority" => json!(""),
         "/capability_report" => json!([]),
         other => panic!("no replacement authored for structural mutation pointer {other}"),
     }
@@ -915,19 +915,19 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
     report[future]["disposition"] = json!("unimplemented");
     assert_eq!(*admitted(&disposition).package_id(), recorded);
 
-    // A raw source digest is outside the preimage: every reference to the
-    // source moves with it, and the caller supplies the new bytes, whose digest the reader recomputes.
-    let mut source_digest = base.clone();
-    let old_source = base["lock"]["sources"][0].clone();
+    // A secondary source's nominal identity is outside the preimage. Every
+    // source-map reference moves with the locked source row.
+    let mut source_identity = base.clone();
+    let old_source = base["lock"]["sources"][1].clone();
     let mut new_source = old_source.clone();
-    new_source["digest"] = json!("5".repeat(64));
-    replace_everywhere(&mut source_digest, &old_source, &new_source);
-    assert_ne!(source_digest["lock"], base["lock"]);
+    new_source["identity"] = json!("quire.fixture.source.secondary-renamed/v1");
+    replace_everywhere(&mut source_identity, &old_source, &new_source);
+    assert_ne!(source_identity["lock"], base["lock"]);
     assert_eq!(
-        source_digest["identity_preimage"],
+        source_identity["identity_preimage"],
         base["identity_preimage"]
     );
-    assert_eq!(*admitted(&source_digest).package_id(), recorded);
+    assert_eq!(*admitted(&source_identity).package_id(), recorded);
 
     // Every preimage member changes the identity once re-derived, and is
     // refused as stale when it is not.

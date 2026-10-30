@@ -3,7 +3,7 @@
 
 //! FR-038 "Artifact references" (FR-038-AC-46 through FR-038-AC-61): a
 //! definition reference is exactly `{authority, identity}` and a source
-//! reference exactly `{authority, identity, digest_domain, digest}`, each
+//! reference exactly `{authority, identity}`, each
 //! refused as the closed shape it is. The operation catalog's own read
 //! (FR-038-AC-58) and the value-role law join (FR-038-AC-56) are unit tests in
 //! `crates/quire-contract-model/src/checked_package/v2/`.
@@ -20,7 +20,7 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 
 const DEFINITION_MEMBERS: [&str; 2] = ["authority", "identity"];
-const SOURCE_MEMBERS: [&str; 4] = ["authority", "identity", "digest_domain", "digest"];
+const SOURCE_MEMBERS: [&str; 2] = ["authority", "identity"];
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
@@ -159,7 +159,7 @@ fn tc_048_definition_references_of_exactly_authority_and_identity_admit() {
 
 #[trace("TC-048", "FR-038-AC-47")]
 #[test]
-fn tc_048_source_references_of_exactly_four_members_admit() {
+fn tc_048_source_references_of_exactly_two_members_admit() {
     for (package, place) in source_places() {
         assert_eq!(
             members(package.pointer(&place).expect("place")),
@@ -267,7 +267,7 @@ fn tc_048_an_operation_law_definition_refuses_as_a_closed_graph_shape() {
 
 #[trace("TC-048", "FR-038-AC-50")]
 #[test]
-fn tc_048_a_source_reference_with_a_revision_or_export_is_an_unknown_member() {
+fn tc_048_a_source_reference_with_an_extra_member_is_an_unknown_member() {
     for (package, place) in source_places() {
         for (member, value) in [
             (
@@ -275,6 +275,8 @@ fn tc_048_a_source_reference_with_a_revision_or_export_is_an_unknown_member() {
                 json!({"namespace": "quire-draft", "value": "1"}),
             ),
             ("export", json!("Status")),
+            ("digest_domain", json!("quire.source.bytes/v1")),
+            ("digest", json!("1".repeat(64))),
         ] {
             let mut mutated = package.clone();
             at(&mut mutated, &place)[member] = value;
@@ -359,52 +361,42 @@ fn tc_048_a_source_reference_member_that_is_absent_or_not_a_string_is_malformed(
 
 #[trace("TC-048", "FR-038-AC-53")]
 #[test]
-fn tc_048_a_lock_source_of_another_domain_refuses_ahead_of_its_other_members() {
+fn tc_048_a_lock_source_digest_member_is_unknown_before_row_validation() {
     let base = v2_nominal();
     let row = "/lock/sources/0";
-    let domain = format!("{row}/digest_domain");
-    for (name, edit) in [
-        ("alone", json!({})),
-        ("beside an empty authority", json!({"authority": ""})),
-        ("beside an empty identity", json!({"identity": ""})),
-        ("beside a non-hex digest", json!({"digest": "x".repeat(64)})),
-        ("beside a short digest", json!({"digest": "1"})),
+    for (member, value) in [
+        ("digest_domain", json!("quire.source.bytes/v1")),
+        ("digest", json!("1".repeat(64))),
     ] {
-        let mut mutated = base.clone();
-        let source = at(&mut mutated, row);
-        source["digest_domain"] = json!("quire.definition.bytes/v1");
-        for (member, value) in edit.as_object().expect("object") {
+        for empty_authority in [false, true] {
+            let mut mutated = base.clone();
+            let source = at(&mut mutated, row);
             source[member] = value.clone();
+            if empty_authority {
+                source["authority"] = json!("");
+            }
+            expect(
+                &mutated,
+                CheckedPackageRefusalCode::UnknownMember,
+                &format!("{row}/{member}"),
+                member,
+            );
         }
-        expect(
-            &mutated,
-            CheckedPackageRefusalCode::DigestDomainMismatch,
-            &domain,
-            name,
-        );
     }
 }
 
 #[trace("TC-048", "FR-038-AC-54")]
 #[test]
-fn tc_048_a_lock_source_of_the_right_domain_refuses_an_empty_member_or_a_bad_digest() {
+fn tc_048_a_lock_source_refuses_an_empty_authority_or_identity() {
     let base = v2_nominal();
-    for (member, value) in [
-        ("authority", json!("")),
-        ("identity", json!("")),
-        ("digest", json!("A".repeat(64))),
-        ("digest", json!("1".repeat(63))),
-        ("digest", json!("1".repeat(65))),
-        ("digest", json!("g".repeat(64))),
-        ("digest", json!("")),
-    ] {
+    for member in SOURCE_MEMBERS {
         let mut mutated = base.clone();
-        at(&mut mutated, "/lock/sources/0")[member] = value.clone();
+        at(&mut mutated, "/lock/sources/0")[member] = json!("");
         expect(
             &mutated,
             CheckedPackageRefusalCode::MalformedWire,
             &format!("/lock/sources/0/{member}"),
-            &format!("{member} {value}"),
+            member,
         );
     }
 }
@@ -415,13 +407,9 @@ fn tc_048_a_region_or_locus_source_equal_to_no_lock_row_is_an_invalid_source_map
     let edits = [
         ("authority", json!("other")),
         ("identity", json!("other")),
-        ("digest_domain", json!("quire.definition.bytes/v1")),
-        ("digest", json!("2".repeat(64))),
-        // Malformed members differ from every lock row too: a region is not
-        // checked as a row, it is compared to the rows.
+        // Regions are joined to checked lock rows; an empty member cannot join.
         ("authority", json!("")),
-        ("digest", json!("x".repeat(64))),
-        ("digest_domain", json!("")),
+        ("identity", json!("")),
     ];
     for (package, place) in source_places().into_iter().skip(1) {
         for (member, value) in &edits {
@@ -596,13 +584,10 @@ fn tc_018_the_artifact_reference_member_sets_are_exact() {
     let source = CheckedSourceRef {
         authority: "a".into(),
         identity: "i".into(),
-        digest_domain: "d".into(),
-        digest: "x".into(),
     };
     let locator = CheckedArtifactLocator {
         authority: "a".into(),
         identity: "i".into(),
-        domain: "d".into(),
     };
     assert_eq!(
         members(&serde_json::to_value(&definition).expect("serializes")),
@@ -612,10 +597,7 @@ fn tc_018_the_artifact_reference_member_sets_are_exact() {
         members(&serde_json::to_value(&source).expect("serializes")),
         sorted(&SOURCE_MEMBERS)
     );
-    assert_eq!(
-        (&*locator.authority, &*locator.identity, &*locator.domain),
-        ("a", "i", "d")
-    );
+    assert_eq!((&*locator.authority, &*locator.identity), ("a", "i"));
 }
 
 /// Replaces every value equal to `from` inside `value` with `to`.

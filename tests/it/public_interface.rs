@@ -652,7 +652,6 @@ fn macro_items(
         }
         "identifier_type"
         | "positive_revision"
-        | "raw_digest_type"
         | "source_selection_type"
         | "qualified_code_type" => {
             let owner = item
@@ -667,11 +666,8 @@ fn macro_items(
             let members: &[&str] = match name.as_str() {
                 "identifier_type" => &["new", "as_str"],
                 "positive_revision" => &["new", "get"],
-                "raw_digest_type" => &["from_bytes", "digest", "as_bytes", "parse"],
-                "source_selection_type" => &["new", "identity", "revision", "digest"],
-                "qualified_code_type" => {
-                    &["new", "owner", "contract", "revision", "digest", "code"]
-                }
+                "source_selection_type" => &["new", "identity", "revision"],
+                "qualified_code_type" => &["new", "owner", "contract", "revision", "code"],
                 _ => unreachable!(),
             };
             out.extend(
@@ -706,7 +702,6 @@ fn macro_items(
                     "registered_codes",
                     "identifier_type",
                     "positive_revision",
-                    "raw_digest_type",
                     "source_selection_type",
                     "qualified_code_type",
                     "closed_vocabulary",

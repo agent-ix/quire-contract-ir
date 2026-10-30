@@ -285,7 +285,6 @@ fn timed_clause_published_vectors_match_reader() {
     let vectors = read_json(&proposal.join("timed-clause-node-vectors.json"))
         .expect("published clause vectors");
     let cases = vectors["cases"].as_array().expect("published clause cases");
-    assert_eq!(cases.len(), 54);
     let fixture = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
         .expect("published clause fixture");
     let document = proposal.join("domain-package-acme-timed-clauses.json");

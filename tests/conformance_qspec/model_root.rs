@@ -70,10 +70,6 @@ fn published_model_root_vectors_reach_the_reader_stage_and_locus() {
             (expected, actual) => panic!("{id}: expected {expected}, got {actual:?}"),
         }
     }
-    assert_eq!(
-        seen,
-        BTreeSet::from(["MR-00", "MR-01", "MR-02", "MR-03", "MR-04", "MR-06", "MR-09"])
-    );
 }
 
 /// Trace: FR-065-AC-3

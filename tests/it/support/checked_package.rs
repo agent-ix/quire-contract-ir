@@ -1071,7 +1071,6 @@ pub fn incomplete(
 
 const FIXTURE_SOURCE_AUTHORITY: &str = "agent-ix";
 const FIXTURE_SOURCE_IDENTITY: &str = "quire.fixture.source/v1";
-const FIXTURE_SOURCE_DOMAIN: &str = "quire.source.bytes/v1";
 const APPLICATION_NODE_VERSION: &str = "quire.application-node/v1";
 
 /// A `CheckedArtifactRef`-shaped definition reference: exactly `{authority,
@@ -1083,16 +1082,11 @@ pub fn definition_ref(authority: &str, identity: &str) -> Value {
     })
 }
 
-/// A `CheckedSourceRef`-shaped locked source: exactly `{authority, identity,
-/// digest_domain, digest}` (QSpec `RawSourceRef`). `digest` need not be a real
-/// content hash: no evidence is attested for a source's bytes, so any
-/// syntactically valid 64-hex-digit string is a current lock row.
-pub fn source_ref(authority: &str, identity: &str, domain: &str, digest: &str) -> Value {
+/// A `CheckedSourceRef`-shaped locked source: exactly `{authority, identity}`.
+pub fn source_ref(authority: &str, identity: &str) -> Value {
     json!({
         "authority": authority,
         "identity": identity,
-        "digest_domain": domain,
-        "digest": digest,
     })
 }
 
@@ -1874,12 +1868,7 @@ fn application_node(
 }
 
 pub fn fixture_source() -> Value {
-    source_ref(
-        FIXTURE_SOURCE_AUTHORITY,
-        FIXTURE_SOURCE_IDENTITY,
-        FIXTURE_SOURCE_DOMAIN,
-        &"1".repeat(64),
-    )
+    source_ref(FIXTURE_SOURCE_AUTHORITY, FIXTURE_SOURCE_IDENTITY)
 }
 
 /// A second locked source, distinct from [`fixture_source`]. Nominal
@@ -1893,8 +1882,6 @@ fn fixture_secondary_source() -> Value {
     source_ref(
         FIXTURE_SOURCE_AUTHORITY,
         "quire.fixture.source.secondary/v1",
-        FIXTURE_SOURCE_DOMAIN,
-        &"9".repeat(64),
     )
 }
 

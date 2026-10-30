@@ -1697,7 +1697,6 @@ enum ContractWireTag {
     Version,
     PackageDomain,
     Sha256,
-    SourceBytes,
     GraphVersion,
     ResultDomain,
     NodeDomain,
@@ -1710,7 +1709,6 @@ impl ContractWireTag {
             CONTRACT_PACKAGE_VERSION => Some(Self::Version),
             super::PACKAGE_DOMAIN_V2 => Some(Self::PackageDomain),
             "sha256" => Some(Self::Sha256),
-            super::SOURCE_BYTES => Some(Self::SourceBytes),
             "quire.checked-semantic-graph/v2" => Some(Self::GraphVersion),
             CONTRACT_IR_SEMANTIC_DOMAIN => Some(Self::ResultDomain),
             NODE_DOMAIN => Some(Self::NodeDomain),
@@ -1770,20 +1768,6 @@ impl ContractPackageWireV1 {
                         CheckedPackageRefusalCause::InvalidValue,
                     ));
                 }
-            }
-            if ContractWireTag::from_wire(&selected.digest_domain)
-                != Some(ContractWireTag::SourceBytes)
-            {
-                return Err(malformed(
-                    at.clone().key("digest_domain"),
-                    CheckedPackageRefusalCause::InvalidValue,
-                ));
-            }
-            if !valid_digest(&selected.digest) {
-                return Err(malformed(
-                    at.key("digest"),
-                    CheckedPackageRefusalCause::InvalidValue,
-                ));
             }
         }
         for (at, definition) in std::iter::once((

@@ -1,7 +1,7 @@
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    classify_coverage, AnchorName, ArtifactId, ArtifactTrace, CanonicalDigest, CanonicalKind,
-    CanonicalProfile, Clause, ClauseId, ClauseKind, CollectionType, ContractPackage, CoverageClass,
+    classify_coverage, AnchorName, ArtifactId, ArtifactTrace, CanonicalKind, CanonicalProfile,
+    Clause, ClauseId, ClauseKind, CollectionType, ContractPackage, CoverageClass,
     DeclarationEnvironment, DiagnosticCode, EnumDeclaration, EnumVariantDeclaration,
     ExecutionPoint, Expression, ExpressionKind, FunctionParameter, OrphanReason, PackageId,
     PureFunctionDeclaration, RationalType, RecordDeclaration, RecordFieldDeclaration,
@@ -76,7 +76,7 @@ fn reference(package: &ContractPackage<ReferenceBody>, id: &str, revision: u64) 
 
 #[trace("TC-017", "FR-016-AC-2", "FR-016-AC-4")]
 #[test]
-fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
+fn tc_017_canonical_bytes_ordering_and_resource_failure_conform() {
     let package = package_fixture("canonical_a", false, false);
     let permuted = package_fixture("canonical_b", true, false);
     let output = package.canonical_package(CanonicalProfile::V1).unwrap();
@@ -94,38 +94,23 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
         "{\"kind\":\"package\",\"profile\":\"quire.contract.canonical-json/v1\",\"value\":{\"id\":\"agent-ix/pkg\",\"requirements\":[{\"clauses\":[{\"body\":{\"node\":\"literal\"},\"id\":\"note\",\"kind\":\"information\",\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_a\",\"revision\":1}}],\"id\":\"REQ_a\",\"package\":\"agent-ix/pkg\",\"revision\":1},{\"clauses\":[{\"body\":{\"node\":\"literal\"},\"id\":\"note\",\"kind\":\"information\",\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_b\",\"revision\":2}}],\"id\":\"REQ_b\",\"package\":\"agent-ix/pkg\",\"revision\":2}],\"schema_version\":{\"major\":1,\"minor\":1}}}"
     );
     assert!(!text.contains("canonical_a"));
-    assert_eq!(
-        output.digest().to_string(),
-        "1765842d951ec37feedd127c8e7f7650a4ca53f5ee2c1a9c633e942f54acb9bc"
-    );
-    assert_eq!(
-        CanonicalDigest::parse(&output.digest().to_string()).unwrap(),
-        output.digest()
-    );
-    assert_eq!(
-        CanonicalDigest::parse("1765842D951EC37FEEDD127C8E7F7650A4CA53F5EE2C1A9C633E942F54ACB9BC")
-            .unwrap_err()
-            .code,
-        DiagnosticCode::InvalidWireFormat
-    );
-
     let changed = package_fixture("canonical_c", false, true);
     assert_ne!(
-        output.digest(),
+        output.bytes(),
         changed
             .canonical_package(CanonicalProfile::V1)
             .unwrap()
-            .digest()
+            .bytes()
     );
     assert_ne!(
         package
             .canonical_requirement(&package.requirements()[0], CanonicalProfile::V1)
             .unwrap()
-            .digest(),
+            .bytes(),
         changed
             .canonical_requirement(&changed.requirements()[0], CanonicalProfile::V1)
             .unwrap()
-            .digest()
+            .bytes()
     );
     assert_ne!(
         package
@@ -135,7 +120,7 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
                 CanonicalProfile::V1
             )
             .unwrap()
-            .digest(),
+            .bytes(),
         changed
             .canonical_clause(
                 &changed.requirements()[0],
@@ -143,17 +128,17 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
                 CanonicalProfile::V1
             )
             .unwrap()
-            .digest()
+            .bytes()
     );
     assert_eq!(
         package
             .canonical_requirement(&package.requirements()[1], CanonicalProfile::V1)
             .unwrap()
-            .digest(),
+            .bytes(),
         changed
             .canonical_requirement(&changed.requirements()[1], CanonicalProfile::V1)
             .unwrap()
-            .digest()
+            .bytes()
     );
     assert_eq!(
         package
@@ -163,7 +148,7 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
                 CanonicalProfile::V1
             )
             .unwrap()
-            .digest(),
+            .bytes(),
         changed
             .canonical_clause(
                 &changed.requirements()[1],
@@ -171,7 +156,7 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
                 CanonicalProfile::V1
             )
             .unwrap()
-            .digest()
+            .bytes()
     );
     assert_eq!(
         package

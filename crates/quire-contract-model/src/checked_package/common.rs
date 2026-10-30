@@ -9,8 +9,8 @@ mod closed_members;
 
 use super::shared::{push_index, push_key};
 use super::shared::{
-    CheckedArtifactLocator, CheckedArtifactRef, CheckedNodeId, CheckedOccurrence,
-    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedArtifactRef, CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
     CheckedSourceMapEntry, CheckedSourceRef, JsonPointer, RefusalFields,
 };
@@ -696,40 +696,18 @@ pub(super) fn is_digest(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-pub(super) fn artifact_locator(value: &CheckedSourceRef) -> CheckedArtifactLocator {
-    CheckedArtifactLocator {
-        authority: value.authority.clone(),
-        identity: value.identity.clone(),
-        domain: value.digest_domain.clone(),
-    }
-}
-
-/// Checks one locked source row's digest domain and shape. `at` names the
-/// source reference; each refusal points at the member it is about. The digest
-/// domain is checked first, so a row with another domain and also an empty
-/// member or a non-hex digest refuses for the domain.
-// Intake check of a locked source's digest domain and digest text.
-pub(super) fn validate_locked_artifact(
+/// Checks one locked source row's nonempty authority and identity.
+pub(super) fn validate_locked_source(
     artifact: &CheckedSourceRef,
-    expected_domain: &str,
     at: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
     let refuse = |code, member: &str| ValidationFailure::refused(code, at().key(member));
-    if artifact.digest_domain.as_ref() != expected_domain {
-        return Err(refuse(
-            CheckedPackageRefusalCode::DigestDomainMismatch,
-            "digest_domain",
-        ));
-    }
     let members: [(&str, &str); 2] = [
         (&artifact.authority, "authority"),
         (&artifact.identity, "identity"),
     ];
     if let Some((_, member)) = members.iter().find(|(value, _)| !is_nonempty(value)) {
         return Err(refuse(CheckedPackageRefusalCode::MalformedWire, member));
-    }
-    if !is_digest(&artifact.digest) {
-        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, "digest"));
     }
     Ok(())
 }
@@ -813,7 +791,7 @@ pub(super) fn validate_source_map_entries<'a>(
                 )),
             ));
         }
-        let mut ranges = BTreeMap::<CheckedArtifactLocator, Vec<(u64, u64, usize)>>::new();
+        let mut ranges = BTreeMap::<CheckedSourceRef, Vec<(u64, u64, usize)>>::new();
         for (region_index, region) in entry.regions.iter().enumerate() {
             let source_pointer = || region_pointer(entry_index, region_index).key("source");
             if !locked_sources.contains(&region.source) {
@@ -828,10 +806,11 @@ pub(super) fn validate_source_map_entries<'a>(
                     region_pointer(entry_index, region_index),
                 ));
             }
-            ranges
-                .entry(artifact_locator(&region.source))
-                .or_default()
-                .push((region.start, region.end, region_index));
+            ranges.entry(region.source.clone()).or_default().push((
+                region.start,
+                region.end,
+                region_index,
+            ));
         }
         for ranges in ranges.values_mut() {
             ranges.sort_unstable();
