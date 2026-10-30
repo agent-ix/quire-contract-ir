@@ -10,7 +10,7 @@
 //! A refused request contributes nothing to it, so the package never holds a
 //! substitute for meaning it could not represent.
 
-use super::encode::{encoded, member};
+use super::encode::{elements, encoded};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2,
     ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
@@ -21,7 +21,7 @@ use super::{
 use super::{ReferenceMember, Step, Trail};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
-    CheckedSelection, CheckedSemanticId, CheckedSourceMapEntry,
+    CheckedSelection, CheckedSourceMapEntry,
 };
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits, Sink, Writer};
 use serde::{Deserialize, Serialize, Serializer};
@@ -35,9 +35,6 @@ thread_local! {
     static LOWERING_SOURCE_INDEX_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// Identity domain of a lowered Contract IR node.
-pub const CONTRACT_IR_SEMANTIC_DOMAIN: &str = "quire.contract-ir.semantic/v1";
-const LOWERED_NODE_PREIMAGE: &str = "quire.contract-ir.lowered-node/v1";
 /// Schema version of the target-neutral `ContractPackage` wire.
 pub const CONTRACT_PACKAGE_VERSION: &str = "quire.contract-package/v1";
 
@@ -265,8 +262,6 @@ pub struct CompleteContractNodeV2 {
     pub bounds: Vec<CheckedNodeId>,
     /// Reachable `claim` keys, excluding the node itself, ascending.
     pub claims: Vec<CheckedNodeId>,
-    /// `quire.contract-ir.semantic/v1` identity of this lowered node.
-    pub ir_id: CheckedSemanticId,
 }
 
 /// One terminal per-request V2 lowering outcome.
@@ -340,7 +335,7 @@ pub enum CompleteLoweringRecordV2 {
 }
 
 /// An admitted node a lowered node reaches without itself being requested.
-/// It carries no `ir_id` or closure of its own: it is represented only as
+/// It carries no closure of its own: it is represented only as
 /// exact meaning some lowered node depends on.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ContractPackageDependencyV2 {
@@ -423,30 +418,6 @@ pub struct CompleteLoweringResultV2 {
     pub package: CompleteContractPackageV2,
 }
 
-/// A lowered node as it is encoded: the node's identity projection and the
-/// three key sets of its closure. It holds the node's `Value` body, so it
-/// implements [`quire_canonical::Encode`] and not `FixedShape`.
-struct LoweredNodePreimage<'a> {
-    version: &'static str,
-    node: super::CheckedNodeProjectionV2,
-    dependencies: &'a [CheckedNodeId],
-    bounds: &'a [CheckedNodeId],
-    claims: &'a [CheckedNodeId],
-}
-
-impl Encode for LoweredNodePreimage<'_> {
-    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        writer.begin_object()?;
-        writer.name("version")?;
-        writer.string(self.version)?;
-        encoded(writer, "node", &self.node)?;
-        member(writer, "dependencies", self.dependencies)?;
-        member(writer, "bounds", self.bounds)?;
-        member(writer, "claims", self.claims)?;
-        writer.end_object()
-    }
-}
-
 /// The `consumed` of a `failed` record for the `bytes` limit. When the refusal
 /// is the encoder's canonical-bytes limit it is that refusal's `required`, the
 /// canonical output written when it refused, which is above `ceiling`. Every
@@ -454,8 +425,7 @@ impl Encode for LoweredNodePreimage<'_> {
 /// number the encoder has no encoding for, and any refusal a later
 /// `quire-canonical` adds) is `ceiling + 1`, the smallest count above the
 /// ceiling, saturating at `u64::MAX`. So every refusal is a `failed` record,
-/// none is an error beside the records, and none panics (FR-038 "Every
-/// identity digest is computed through quire-canonical").
+/// none is an error beside the records, and none panics (FR-038-AC-95).
 fn required_bytes(error: &Error, ceiling: u64) -> u64 {
     match error {
         Error::Limit(limit) if limit.kind == LimitKind::CanonicalBytes => limit.required,
@@ -463,12 +433,11 @@ fn required_bytes(error: &Error, ceiling: u64) -> u64 {
     }
 }
 
-/// The SHA-256 of a lowered node preimage's canonical bytes, by
-/// `quire-canonical`; the byte count the encoder needed when `ceiling` was
-/// exceeded otherwise.
-fn identify_node(preimage: &LoweredNodePreimage<'_>, ceiling: u64) -> Result<String, u64> {
-    quire_canonical::sha256(preimage, Limits::new(ceiling))
-        .map(|digest| digest.to_string())
+/// Charge the complete typed node's canonical bytes without retaining a
+/// partial encoding or constructing a content identity.
+fn measure_node(node: &CompleteContractNodeV2, ceiling: u64) -> Result<u64, u64> {
+    let mut sink = quire_canonical::WriteSink(std::io::sink());
+    quire_canonical::encode(&mut sink, node, Limits::new(ceiling))
         .map_err(|error| required_bytes(&error, ceiling))
 }
 
@@ -497,12 +466,11 @@ impl Encode for CompleteContractNodeV2 {
         encoded(writer, "node", &self.node)?;
         writer.name("node_tag")?;
         writer.string(self.node_tag.as_wire())?;
-        member(writer, "source_map", &self.source_map)?;
-        member(writer, "semantic_type", &self.semantic_type)?;
-        member(writer, "dependencies", &self.dependencies)?;
-        member(writer, "bounds", &self.bounds)?;
-        member(writer, "claims", &self.claims)?;
-        member(writer, "ir_id", &self.ir_id)?;
+        elements(writer, "source_map", &self.source_map)?;
+        encoded(writer, "semantic_type", &self.semantic_type)?;
+        elements(writer, "dependencies", &self.dependencies)?;
+        elements(writer, "bounds", &self.bounds)?;
+        elements(writer, "claims", &self.claims)?;
         writer.end_object()
     }
 }
@@ -513,7 +481,7 @@ impl Encode for ContractPackageDependencyV2 {
         encoded(writer, "node", &self.node)?;
         writer.name("node_tag")?;
         writer.string(self.node_tag.as_wire())?;
-        member(writer, "source_map", &self.source_map)?;
+        elements(writer, "source_map", &self.source_map)?;
         writer.end_object()
     }
 }
@@ -950,17 +918,19 @@ impl CheckedPackageV2 {
             .filter(|(candidate, _)| candidate.node_id != node.node_id)
             .map(|(candidate, _)| candidate.node_id.clone())
             .collect::<Vec<_>>();
-        let preimage = LoweredNodePreimage {
-            version: LOWERED_NODE_PREIMAGE,
-            node: node.into(),
-            dependencies: &dependencies,
-            bounds: &bounds,
-            claims: &claims,
+        let lowered = CompleteContractNodeV2 {
+            node: node.clone(),
+            node_tag: kind.tag(),
+            source_map: source_maps.of(&node.node_id),
+            semantic_type: node.semantic_type.clone(),
+            dependencies,
+            bounds,
+            claims,
         };
-        // A preimage over the ceiling is terminal for this request alone
-        // rather than an unidentified node.
-        let digest = match identify_node(&preimage, ceiling) {
-            Ok(digest) => digest,
+        // A complete typed node over the ceiling is terminal for this request
+        // alone; independent sibling requests retain their own outcomes.
+        match measure_node(&lowered, ceiling) {
+            Ok(_) => {}
             Err(required) => {
                 return CompleteLoweringRecordV2::Failed {
                     node_id: request.clone(),
@@ -971,20 +941,7 @@ impl CheckedPackageV2 {
             }
         };
         CompleteLoweringRecordV2::Lowered {
-            node: Box::new(CompleteContractNodeV2 {
-                node: node.clone(),
-                node_tag: kind.tag(),
-                source_map: source_maps.of(&node.node_id),
-                semantic_type: node.semantic_type.clone(),
-                dependencies,
-                bounds,
-                claims,
-                ir_id: CheckedSemanticId {
-                    domain: CONTRACT_IR_SEMANTIC_DOMAIN.into(),
-                    algorithm: "sha256".into(),
-                    digest: digest.into_boxed_str(),
-                },
-            }),
+            node: Box::new(lowered),
         }
     }
 }
