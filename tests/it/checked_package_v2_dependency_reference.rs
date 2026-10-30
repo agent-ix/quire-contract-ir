@@ -30,6 +30,21 @@ const LIBRARY: &str = "test/families";
 /// The `node` a well-formed callee names when no test says otherwise.
 const OTHER_NODE: &str = "missing-node";
 
+fn sort_graph_dependencies(package: &mut Value) {
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+    {
+        node["dependencies"]
+            .as_array_mut()
+            .expect("node dependencies")
+            .sort_by_key(|value| {
+                serde_json::from_value::<CheckedNodeId>(value.clone())
+                    .expect("structural dependency")
+            });
+    }
+}
+
 /// One dependency package: its document, the admitted package the reader
 /// hands back and its structural name.
 struct Dependency {
@@ -199,6 +214,7 @@ fn importing_with(entries: Vec<Value>, edit: impl FnOnce(&mut Vec<Value>)) -> Va
     let mut package = v2_all_families();
     package["name"] = json!("test/importer");
     refresh_identity(&mut package);
+    sort_graph_dependencies(&mut package);
     package["lock"]["dependency_selections"] = Value::Array(entries);
     let position = call_position(&package);
     let call = &mut package["semantic_graph"]["nodes"][position];
@@ -392,6 +408,7 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
     let mut other_wire = crate::support::checked_package::positive_operation_identities();
     other_wire["name"] = json!("test/other");
     refresh_identity(&mut other_wire);
+    sort_graph_dependencies(&mut other_wire);
     let (_, other) = admitted_dependency(&other_wire);
     let mut stale = ContractDependencies::new();
     stale.insert(
@@ -666,6 +683,7 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
     let mut other = dependency_document(|_| {});
     other["name"] = json!("test/other");
     refresh_identity(&mut other);
+    sort_graph_dependencies(&mut other);
     let (_, other) = admitted_dependency(&other);
     let refusal = refused(read_with_dependencies(&package, &[(LIBRARY, &other)]));
     expect_refusal(
@@ -710,6 +728,7 @@ fn dependency_selection_checks_presence_then_binding_in_lock_order() {
     let mut wrong_name = dependency_document(|_| {});
     wrong_name["name"] = json!("test/other");
     refresh_identity(&mut wrong_name);
+    sort_graph_dependencies(&mut wrong_name);
     let (_, stale) = admitted_dependency(&wrong_name);
     expect_refusal(
         &refused(read_with_dependencies(&package, &[(LIBRARY, &stale)])),
