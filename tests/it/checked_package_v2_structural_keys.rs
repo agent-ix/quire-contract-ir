@@ -255,6 +255,30 @@ fn ten_derived_shapes_refuse_open_or_malformed_bodies_at_their_nodes() {
         assert_derived_refusal(&missing, position);
     }
 
+    for form in [
+        "option",
+        "reference",
+        "set",
+        "bag",
+        "sequence",
+        "ordered_set",
+    ] {
+        let position = index_of(&package, "composite_type", form);
+        let mut extra = package.clone();
+        let member = extra["semantic_graph"]["nodes"][position]["body"]["members"][0].clone();
+        extra["semantic_graph"]["nodes"][position]["body"]["members"]
+            .as_array_mut()
+            .expect("reference member")
+            .push(member);
+        assert_derived_refusal(&extra, position);
+
+        let mut wrong_term = package.clone();
+        wrong_term["semantic_graph"]["nodes"][position]["body"]["members"][0] = json!({
+            "term":"literal", "type":boolean, "value_kind":"boolean", "value":true
+        });
+        assert_derived_refusal(&wrong_term, position);
+    }
+
     for form in ["integer_range", "collection_bounds"] {
         let position = index_of(&package, "bounded_domain", form);
         let mut reversed = package.clone();
