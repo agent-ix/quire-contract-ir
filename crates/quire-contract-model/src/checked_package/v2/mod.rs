@@ -111,9 +111,8 @@ pub use vocabulary::*;
 use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
-use derived_keys::{deferred_key_targets, validate_derived_keys};
 use ix_trace_rs::string_edge;
-use operations::{validate_application_keys, validate_operations};
+use operations::validate_operations;
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::validate_structural_nodes;
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
@@ -735,9 +734,17 @@ macro_rules! encode_envelope_field {
     ($writer:expr, $name:expr, $value:expr, nested) => {
         encode::encoded($writer, $name, $value)?
     };
+    ($writer:expr, $name:expr, $value:expr, elements) => {
+        encode::elements($writer, $name, $value)?
+    };
     ($writer:expr, $name:expr, $value:expr, optional) => {
         if let Some(value) = $value {
             encode::member($writer, $name, value)?;
+        }
+    };
+    ($writer:expr, $name:expr, $value:expr, optional_elements) => {
+        if let Some(value) = $value {
+            encode::elements($writer, $name, value)?;
         }
     };
 }
@@ -770,7 +777,7 @@ macro_rules! checked_package_envelope {
             ) -> Result<(), quire_canonical::Error> {
                 writer.begin_object()?;
                 $(encode_envelope_field!(writer, stringify!($name), self.$name, $encoding);)+
-                encode_envelope_field!(writer, "refinement_step_rows", self.refinement_step_rows, optional);
+                encode_envelope_field!(writer, "refinement_step_rows", self.refinement_step_rows, optional_elements);
                 writer.end_object()
             }
         }
@@ -782,7 +789,7 @@ checked_package_envelope! {
     name: N => fixed,
     lock: L => fixed,
     semantic_graph: G => nested,
-    source_map: S => fixed,
+    source_map: S => elements,
     capability_report: A => fixed,
     diagnostics: D => nested,
 }
@@ -2575,8 +2582,7 @@ fn validate_graph(
     // so an entry, anchor or clause reference naming no node is the step's
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
-    let deferred_keys = deferred_key_targets(&graph.nodes, &kinds, limits.bytes);
-    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index, &deferred_keys)?;
+    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
@@ -2604,19 +2610,6 @@ fn validate_graph(
         }
     }
     refinement::validate_dependencies(&graph.nodes, &kinds, &terms)?;
-    validate_application_keys(&graph.nodes, &kinds, &terms, &index, meter, limits.bytes)?;
-    // FR-038-AC-127: the derived-shape key stage, after the application keys
-    // and before the nominal keys.
-    validate_derived_keys(
-        &graph.nodes,
-        &kinds,
-        &terms,
-        &index,
-        &deferred_keys,
-        &references,
-        meter,
-        limits.bytes,
-    )?;
     validate_nominal_nodes(
         &graph.nodes,
         &kinds,
@@ -2737,7 +2730,6 @@ fn validate_graph(
         ),
         &wire.lock,
         &owners,
-        limits.bytes,
         meter,
     )?;
     hybrid::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;

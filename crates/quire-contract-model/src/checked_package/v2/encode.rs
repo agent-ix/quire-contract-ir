@@ -77,14 +77,14 @@ impl Encode for ApplicationNodePreimage<'_> {
         writer.string(self.node_tag)?;
         writer.name("semantic_form")?;
         writer.string(self.semantic_form)?;
-        member(writer, "semantic_type", self.semantic_type)?;
+        encoded(writer, "semantic_type", self.semantic_type)?;
         writer.name("declaration")?;
         match self.declaration {
             Some(declaration) => writer.serialize(declaration)?,
             None => writer.null()?,
         }
         if let Some(owner_model) = self.owner_model {
-            member(writer, "owner_model", owner_model)?;
+            encoded(writer, "owner_model", owner_model)?;
         }
         writer.name("recursion")?;
         match self.recursion {
@@ -165,27 +165,6 @@ impl Encode for GroupBody<'_> {
 /// relation node preimage (QSpec FR-451, FR-346).
 pub(super) const ABSTRACTION_NODE_VERSION: &str = "quire.abstraction-relation-node/v1";
 
-/// The dedicated closed refinement-node identity domain of QSpec FR-375.
-pub(super) const REFINEMENT_NODE_VERSION: &str = "quire.refinement-node/v1";
-
-/// The refinement preimage includes the concrete model semantic type even
-/// when all six row arrays are empty.
-pub(super) struct RefinementNodePreimage<'a> {
-    pub(super) semantic_type: &'a CheckedNodeId,
-    pub(super) body: &'a Value,
-}
-
-impl Encode for RefinementNodePreimage<'_> {
-    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        writer.begin_object()?;
-        writer.name("version")?;
-        writer.string(REFINEMENT_NODE_VERSION)?;
-        member(writer, "semantic_type", self.semantic_type)?;
-        value(writer, "body", self.body)?;
-        writer.end_object()
-    }
-}
-
 /// QSpec FR-451's preimage of a `correspondence`/`abstraction_relation`
 /// node: `{version, body}`. The node key is the SHA-256 of its canonical
 /// bytes, so every binding of the body is part of the key.
@@ -235,6 +214,22 @@ where
         Some(value) => member(writer, name, value),
         None => Ok(()),
     }
+}
+
+/// Writes a present optional member whose value has input-dependent depth.
+pub(super) fn present_encoded<S, T>(
+    writer: &mut Writer<'_, S>,
+    name: &str,
+    value: &Option<T>,
+) -> Result<(), Error>
+where
+    S: Sink + ?Sized,
+    T: Encode,
+{
+    if let Some(value) = value {
+        encoded(writer, name, value)?;
+    }
+    Ok(())
 }
 
 /// Writes the member `name` as an array of values that encode themselves.
@@ -388,12 +383,12 @@ impl<'a, Body> ProjectionFields<'a, Body> {
 impl<Body: Encode> Encode for ProjectionFields<'_, Body> {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
-        member(writer, "node_id", self.node_id)?;
+        encoded(writer, "node_id", self.node_id)?;
         member(writer, "schema_version", self.schema_version)?;
         member(writer, "node_tag", self.node_tag)?;
         member(writer, "semantic_form", self.semantic_form)?;
-        member(writer, "semantic_type", self.semantic_type)?;
-        member(writer, "dependencies", self.dependencies)?;
+        encoded(writer, "semantic_type", self.semantic_type)?;
+        elements(writer, "dependencies", self.dependencies)?;
         if let Some(group) = self.recursion_group {
             member(writer, "recursion_group", group)?;
         }
@@ -407,7 +402,7 @@ impl<Body: Encode> Encode for ProjectionFields<'_, Body> {
             member(writer, "owner", owner)?;
         }
         if let Some(owner_model) = self.owner_model {
-            member(writer, "owner_model", owner_model)?;
+            encoded(writer, "owner_model", owner_model)?;
         }
         encoded(writer, "body", self.body)?;
         writer.end_object()
@@ -432,12 +427,12 @@ impl<Body: Encode> Encode for CheckedSemanticGraphV2<Body> {
 impl<Body: Encode> Encode for CheckedSemanticNodeV2<Body> {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
-        member(writer, "node_id", &self.node_id)?;
+        encoded(writer, "node_id", &self.node_id)?;
         member(writer, "schema_version", &self.schema_version)?;
         member(writer, "node_tag", &self.node_tag)?;
         member(writer, "semantic_form", &self.semantic_form)?;
-        member(writer, "semantic_type", &self.semantic_type)?;
-        member(writer, "dependencies", &self.dependencies)?;
+        encoded(writer, "semantic_type", &self.semantic_type)?;
+        elements(writer, "dependencies", &self.dependencies)?;
         member(writer, "occurrences", &self.occurrences)?;
         present(writer, "recursion_group", &self.recursion_group)?;
         present(
@@ -447,7 +442,7 @@ impl<Body: Encode> Encode for CheckedSemanticNodeV2<Body> {
         )?;
         present(writer, "declaration", &self.declaration)?;
         present(writer, "owner", &self.owner)?;
-        present(writer, "owner_model", &self.owner_model)?;
+        present_encoded(writer, "owner_model", &self.owner_model)?;
         encoded(writer, "body", &self.body)?;
         writer.end_object()
     }
