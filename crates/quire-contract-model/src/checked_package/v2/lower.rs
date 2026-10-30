@@ -318,8 +318,7 @@ pub enum CompleteLoweringRecordV2 {
         incomplete: CheckedPackageIncomplete,
     },
     /// This request exceeded a budget: its work budget, or the byte limit the
-    /// package was read under (FR-038 "Every identity digest is computed
-    /// through quire-canonical").
+    /// package was read under (FR-038 bounded canonical encoding).
     Failed {
         /// Requested key.
         node_id: CheckedNodeId,

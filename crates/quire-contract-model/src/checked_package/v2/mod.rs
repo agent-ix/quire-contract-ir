@@ -754,8 +754,7 @@ impl Drop for CheckedPackageV2 {
 /// retains for its lowering is not content, so two admissions of the same bytes
 /// under different limits are equal; nor are the retained field tables,
 /// declaration index, operation parameter types and relationship records, which
-/// are derived from the documents the content's
-/// digests fix.
+/// are derived from the same admitted documents.
 impl PartialEq for CheckedPackageV2 {
     fn eq(&self, other: &Self) -> bool {
         self.wire == other.wire && self.kinds == other.kinds
@@ -2479,10 +2478,8 @@ fn validate_graph(
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
-    // Graph-shape body and dependency rules FR-322 orders before the general
-    // stale-key stage: the structural forms' bodies and occurrence roles and
-    // the application-node dependency join. Then, in reader order, the
-    // stale-key, declaration, frame, state and operation steps. All of them
+    // Graph-shape body and dependency rules precede declaration, frame, state
+    // and operation checks. All of them
     // run before the dependency and body-reference edges below are resolved,
     // so an entry, anchor or clause reference naming no node is the step's
     // own `missing_declaration` refusal rather than the generic
