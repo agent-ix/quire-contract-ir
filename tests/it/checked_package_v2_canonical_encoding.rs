@@ -833,32 +833,101 @@ fn repository_file(path: &str) -> String {
     fs::read_to_string(&full).unwrap_or_else(|error| panic!("{}: {error}", full.display()))
 }
 
-/// AC-367 public API absence slice. The root export and checked-package
-/// implementation contain no retired semantic-id or candidate-key API.
+/// AC-367 public API absence slice. Production sources contain no retired
+/// semantic-id, candidate-key, stale-key or digest-pair API.
 #[trace("TC-048", "FR-038-AC-367")]
 #[test]
 fn structural_v2_public_surface_has_no_stale_identity_api() {
-    let mut files = files_under(&["crates/quire-contract-model/src/checked_package"], "rs");
-    files
-        .push(Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/quire-contract-model/src/lib.rs"));
-    for path in files {
+    for path in files_under(&["crates/quire-contract-model/src", "src"], "rs") {
         let source = fs::read_to_string(&path).expect("checked-package source");
-        let source = crate::checked_package_v2_identity_digests::production_source(&source);
-        for line in source.lines().map(str::trim_start) {
-            if line.starts_with("pub ")
-                || line.starts_with("pub(")
-                || line.starts_with("StaleNodeKey")
+        let retired = retired_identity_identifiers(&source);
+        assert!(
+            retired.is_empty(),
+            "{} contains retired identity identifiers: {retired:?}",
+            path.display()
+        );
+    }
+}
+
+fn retired_identity_identifiers(source: &str) -> Vec<String> {
+    const RETIRED: [&str; 5] = [
+        "CheckedSemanticId",
+        "candidate_key",
+        "StaleNodeKey",
+        "expected_digest",
+        "actual_digest",
+    ];
+
+    struct Retired(Vec<String>);
+
+    impl<'ast> syn::visit::Visit<'ast> for Retired {
+        fn visit_item(&mut self, item: &'ast syn::Item) {
+            let attrs = match item {
+                syn::Item::Const(item) => &item.attrs,
+                syn::Item::Enum(item) => &item.attrs,
+                syn::Item::Fn(item) => &item.attrs,
+                syn::Item::Impl(item) => &item.attrs,
+                syn::Item::Macro(item) => &item.attrs,
+                syn::Item::Mod(item) => &item.attrs,
+                syn::Item::Static(item) => &item.attrs,
+                syn::Item::Struct(item) => &item.attrs,
+                syn::Item::Trait(item) => &item.attrs,
+                syn::Item::Type(item) => &item.attrs,
+                syn::Item::Use(item) => &item.attrs,
+                _ => return syn::visit::visit_item(self, item),
+            };
+            if attrs.iter().any(|attr| {
+                attr.path().is_ident("cfg")
+                    && attr
+                        .parse_args::<syn::Ident>()
+                        .is_ok_and(|ident| ident == "test")
+            }) {
+                return;
+            }
+            syn::visit::visit_item(self, item);
+        }
+
+        fn visit_ident(&mut self, ident: &'ast syn::Ident) {
+            let name = ident.to_string();
+            if RETIRED.contains(&name.as_str()) {
+                self.0.push(name);
+            }
+        }
+
+        fn visit_macro(&mut self, macro_item: &'ast syn::Macro) {
+            for token in macro_item
+                .tokens
+                .to_string()
+                .split(|character: char| !character.is_alphanumeric() && character != '_')
             {
-                for retired in ["CheckedSemanticId", "candidate_key", "StaleNodeKey"] {
-                    assert!(
-                        !line.contains(retired),
-                        "{} exposes {retired}: {line}",
-                        path.display()
-                    );
+                if RETIRED.contains(&token) {
+                    self.0.push(token.to_owned());
                 }
             }
         }
     }
+
+    let syntax = syn::parse_file(source).expect("production Rust syntax");
+    let mut retired = Retired(Vec::new());
+    syn::visit::Visit::visit_file(&mut retired, &syntax);
+    retired.0
+}
+
+#[test]
+fn structural_v2_absence_scan_catches_multiline_reexports_and_digest_pair() {
+    let mutant = "pub use identity::{\n CheckedSemanticId,\n StaleNodeKey,\n};\n\
+        pub struct OldReceipt { pub expected_digest: String, pub actual_digest: String }\n\
+        pub fn candidate_key() {}";
+    assert_eq!(
+        retired_identity_identifiers(mutant),
+        [
+            "CheckedSemanticId",
+            "StaleNodeKey",
+            "expected_digest",
+            "actual_digest",
+            "candidate_key"
+        ]
+    );
 }
 
 /// Every file under `directories` (relative to the repository root) with the
