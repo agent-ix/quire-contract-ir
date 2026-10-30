@@ -1021,17 +1021,6 @@ pub(super) fn aggregate_members(term: &Value) -> Option<&[Value]> {
     }
 }
 
-/// A `binding` term's value, when the binding is named `name`.
-pub(super) fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
-    match CheckedTerm::view(term)? {
-        CheckedTermView::Binding {
-            name: actual,
-            value,
-        } if actual == name => Some(value),
-        _ => None,
-    }
-}
-
 /// A `reference` term's target.
 pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
     let target = reference_selector(term)?;

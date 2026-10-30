@@ -1260,7 +1260,7 @@ mod tests {
             // Author canonical node identities in dependency order. This is a
             // test producer; public assertions use independently named paths.
             let mut ids = BTreeMap::new();
-            for (position, digit) in [(0,'1'),(1,'2'),(2,'3'),(3,'4'),(4,'5'),(6,'7'),(7,'8'),(8,'a'),(5,'6')] {
+            for (_, digit) in [(0,'1'),(1,'2'),(2,'3'),(3,'4'),(4,'5'),(6,'7'),(7,'8'),(8,'a'),(5,'6')] {
                 let fresh = match digit {
                     '1' => CheckedNodeId { package:"composite".into(), path:vec![super::super::CheckedNodePathSegment::Name("scalar_type".into()),super::super::CheckedNodePathSegment::Name("boolean".into())],ordinal:0 },
                     '2' => CheckedNodeId { package:"composite".into(), path:vec![super::super::CheckedNodePathSegment::Name("scalar_type".into()),super::super::CheckedNodePathSegment::Name("integer".into())],ordinal:0 },
@@ -1415,7 +1415,6 @@ mod tests {
                           form: &str,
                           semantic_type: Option<&CheckedNodeId>,
                           kind: CheckedNodeKind| {
-            let body = json!({"term":"aggregate","members":[]});
             let id = CheckedNodeId {
                 package: "composite".into(),
                 path: vec![

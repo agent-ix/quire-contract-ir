@@ -81,7 +81,6 @@ pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/
 mod intake_origin;
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
 
-const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
 const NATIVE_PREFIX: &str = "ix://quire/native/";
 
 /// FR-208 meaning ids, as the constructs table of a Semantic IR document
