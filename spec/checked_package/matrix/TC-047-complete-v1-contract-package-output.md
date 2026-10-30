@@ -36,14 +36,18 @@ For work, assert `/semantic_graph/nodes/<i>/body` when value
 validation stops or the failed-charge pointer reported by reference validation,
 which may name another node member. Assert neither outcome admits a package.
 For FR-035-AC-15, use `mixed_fixture()` and `request()` for the work
-boundary: value validation
-charges 7 visits, reference validation charges 20, and the combined count is
-27. A work limit of 27 admits. Limits 7, 20, and 26 return `Incomplete` with
-`consumed` 8 at `/semantic_graph/nodes/0/node_id`, 21 at
-`/semantic_graph/nodes/2/node_id`, and 27 at
-`/semantic_graph/nodes/2/body/members/1/value/type`, respectively. Assert
-`limit_kind = Work` and the selected limit in each case. A lower limit that
-stops in value validation reports its body pointer.
+boundary: value validation charges 7 visits (1, 5 and 1 across the three
+node bodies), reference validation charges 6 (node 1's semantic type and
+dependency, two member-value types, then node 2's semantic type and
+dependency), and the combined count is 13. A work limit of 13 admits.
+Limits 6, 7, 10 and 12 return `Incomplete` with `consumed` 7 at
+`/semantic_graph/nodes/2/body`, 8 at
+`/semantic_graph/nodes/1/semantic_type`, 11 at
+`/semantic_graph/nodes/1/body/members/1/value/type`, and 13 at
+`/semantic_graph/nodes/2/dependencies/0`, respectively. Assert
+`limit_kind = Work` and the selected limit in each case. A lower limit of 2
+stops in value validation with `consumed` 6 at
+`/semantic_graph/nodes/1/body`.
 For FR-035-AC-16, use the same fixture and charge one unit for each
 occurrence before one unit for
 each of its regions, in array order within `nodes`, `requested_items`, then
@@ -136,10 +140,10 @@ bytes before and after the typed queries.
 One FR-330 package carries the exact represented node set and its reached local closure in structural key order. Its source map and accounting are complete. Equivalent construction order yields equal complete canonical bytes; changing a represented body, profile, accounting or valid source region changes the corresponding typed member. Corrupt correspondence, missing required properties, duplicate or disordered keys, extra graph partitions and wrong versions refuse before consumption.
 The wrong-version reader refusal retains its exact typed code, path and supplied
 version. Every exhausted read limit returns the typed incomplete fields and
-admits no package. The mixed fixture admits at work limit 27 and occurrence
-limit 18 under FR-035-AC-15 and FR-035-AC-16; its work stops at limits 7, 20
-and 26 and occurrence stops at limits
-0 and 17 have the exact counts and pointers specified above. The
+admits no package. The mixed fixture admits at work limit 13 and occurrence
+limit 18 under FR-035-AC-15 and FR-035-AC-16. Its work stops at limits 2, 6,
+7, 10 and 12; its occurrence stops at limits 0 and 17. Each stop has the
+exact count and pointer specified above. The
 `requested_items` occurrence stop names its first charged occurrence.
 The malformed, noncanonical and bad-accounting fixtures return the exact
 FR-035-AC-12 through FR-035-AC-14 refusal fields. Source and dependency selection mutations return FR-035-AC-2’s applicable independent refusal fields.
