@@ -1052,16 +1052,14 @@ fn catalog_free_operation_package_config(
         "state_machine" => "toggle",
         _ => panic!("unsupported model form"),
     };
-    let context = declaring["digest"].as_str().expect("context digest");
     let frame_body = json!({
         "term":"frame", "modifies":[], "creates":[], "deletes":[], "deletes_scoped":[]
     });
-    let frame = node_id(&structural_key(
-        "state",
-        "frame",
-        Some(context),
-        &frame_body,
-    ));
+    let frame = crate::support::checked_package::structural_id(
+        package["name"].as_str().expect("package name"),
+        vec![json!("state"), json!("frame"), declaring.clone()],
+        0,
+    );
     let text_type = node_id(&crate::support::checked_package::family_key("a1a1"));
     let text_body = json!({"term":"aggregate", "members":[]});
     let anchor_body = json!({"term":"aggregate", "members":[
@@ -1070,14 +1068,19 @@ fn catalog_free_operation_package_config(
             "value_kind":"text", "value":operation}},
         {"term":"binding", "name":"frame", "value":{"term":"reference", "target":frame}}
     ]});
-    let anchor = node_id(&structural_key(
-        "state",
-        "operation_anchor",
-        Some(context),
-        &anchor_body,
-    ));
+    let anchor = crate::support::checked_package::structural_id(
+        package["name"].as_str().expect("package name"),
+        vec![json!("state"), json!("operation_anchor"), declaring.clone()],
+        0,
+    );
     let mut dependencies = vec![declaring.clone(), frame.clone()];
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(|left, right| {
+        let left: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(left.clone()).expect("anchor dependency");
+        let right: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(right.clone()).expect("anchor dependency");
+        left.cmp(&right)
+    });
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -3536,6 +3539,12 @@ fn catalog_free_operation_steps_join_in_received_order() {
 /// Reconcile source-map and package value after a body edit; the authored
 /// structural node ID remains stable.
 fn settle_refinement(package: &mut Value, _position: usize) {
+    // The shared fixture settle repairs application dependencies but rebuilds
+    // one source-map row per node. A refinement has both declaration and
+    // generated occurrences, so retain its authored complete source map.
+    let source_map = package["source_map"].clone();
+    settle(package);
+    package["source_map"] = source_map;
     refresh_identity(package);
 }
 
@@ -3570,7 +3579,13 @@ fn set_concrete_catalog(package: &mut Value, entries: Vec<Value>) -> usize {
             dependencies.extend(binders.iter().cloned());
         }
     }
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(|left, right| {
+        let left: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(left.clone()).expect("catalog dependency");
+        let right: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(right.clone()).expect("catalog dependency");
+        left.cmp(&right)
+    });
     dependencies.dedup();
     node["body"]["class_catalog"] = json!({"concrete": entries, "abstract": []});
     node["dependencies"] = json!(dependencies);
@@ -4875,8 +4890,11 @@ fn memory_catalog_completeness_identity_and_dependency_precedence() {
     assert_eq!(
         refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(
-            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/{first_drain}")
-                .as_str()
+            format!(
+                "/semantic_graph/nodes/{position}/body/class_catalog/concrete/{}",
+                first_drain + 1
+            )
+            .as_str()
         ),
     );
 
@@ -5029,12 +5047,11 @@ fn concrete_protocol_refinement_with_model(
         .expect("model type")
         .remove("transitions");
     model["semantic_form"] = json!("object_type");
-    let model_key = node_id(&sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "model",
-        "semantic_form": "object_type", "semantic_type": null,
-        "declaration": null, "recursion": null,
-        "owner": model["owner"], "body": model["body"]
-    }))));
+    let model_key = crate::support::checked_package::structural_id(
+        MODEL_IDENTITY,
+        vec![json!("model"), json!("object_type"), json!(MODEL_NODE)],
+        0,
+    );
     model["node_id"] = model_key.clone();
     model["semantic_type"] = model_key;
     let mut package = base;
@@ -5727,14 +5744,14 @@ fn refinement_source_map_precedes_invalid_refinement_profile() {
     };
     assert_eq!(
         profile.code,
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        CheckedPackageRefusalCode::InvalidModelBinding,
         "{profile:?}"
     );
     assert_eq!(
         profile.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(
             format!(
-                "/semantic_graph/nodes/{}/body",
+                "/semantic_graph/nodes/{}/body/profile",
                 package["semantic_graph"]["nodes"]
                     .as_array()
                     .expect("nodes")
