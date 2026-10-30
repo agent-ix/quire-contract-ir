@@ -106,7 +106,7 @@ fn tc_048_ieee_bits_literal_requires_its_own_declared_family() {
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&format!(
                 "/semantic_graph/nodes/{position}/body/type"
             )))
@@ -199,7 +199,7 @@ fn assert_literal_type_refusal(package: &Value, position: usize, suffix: &str) {
         Some(CheckedPackageRefusalCause::OperatorIneligible)
     );
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!(
             "/semantic_graph/nodes/{position}/body{suffix}/type"
         )))
@@ -298,7 +298,7 @@ fn tc_048_ieee_literal_width_refuses_before_an_accepting_operand_family() {
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&format!(
                 "/semantic_graph/nodes/{position}/body/arguments/0/type"
             )))
@@ -448,7 +448,7 @@ fn tc_048_cross_width_ieee_result_is_the_type_argument_of_the_catalogued_family(
                 Some(CheckedPackageRefusalCause::OperatorIneligible)
             );
             assert_eq!(
-                refusal.path,
+                refusal.loci[0].path.clone(),
                 Some(pointer(&format!(
                     "/semantic_graph/nodes/{position}/body/result_type"
                 )))
@@ -481,7 +481,7 @@ fn tc_048_cross_width_ieee_result_is_the_type_argument_of_the_catalogued_family(
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&format!(
                 "/semantic_graph/nodes/{position}/body/arguments/0"
             )))
@@ -506,7 +506,7 @@ fn assert_member_result_refusal(
     assert_eq!(refusal.code, code, "{refusal:?}");
     assert_eq!(refusal.cause, Some(cause));
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!(
             "/semantic_graph/nodes/{position}/body/{suffix}"
         )))

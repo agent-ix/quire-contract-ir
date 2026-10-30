@@ -39,7 +39,7 @@ fn assert_refusal(case: &str, value: &Value, code: CheckedPackageRefusalCode, pa
     let refusal = refused(value);
     assert_eq!(refusal.code, code, "{case}: {refusal:?}");
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(path),
         "{case}: {refusal:?}"
     );
