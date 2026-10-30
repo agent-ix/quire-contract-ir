@@ -108,7 +108,7 @@ use temporal::{validate_temporal, validate_timed_bounds_reduced};
 use super::common::{
     count, exceeds, is_nonempty, node_pointer, read_typed_prefix, validate_definition_ref,
     validate_locked_source, validate_source_map_entries, validate_term, ReferenceMember,
-    ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
+    ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -147,7 +147,6 @@ const GRAPH_V2: &str = "quire.checked-semantic-graph/v2";
 enum PackageWireTag {
     ContractVersion,
     GraphVersion,
-    NodeDomain,
 }
 
 impl PackageWireTag {
@@ -156,14 +155,9 @@ impl PackageWireTag {
         match text {
             CHECKED_PACKAGE_V2 => Some(Self::ContractVersion),
             GRAPH_V2 => Some(Self::GraphVersion),
-            NODE_DOMAIN => Some(Self::NodeDomain),
             _ => None,
         }
     }
-}
-
-fn is_node_domain(domain: &str) -> bool {
-    PackageWireTag::from_wire(domain) == Some(PackageWireTag::NodeDomain)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3130,10 +3124,10 @@ mod test_support {
 mod tests {
     use super::{
         body_grammar, node_pointer, reference_requires_cycle_edge, validate_body,
-        validate_recursion, BodyGrammar, CheckedDependencySelection, CheckedNodeId,
-        CheckedNodeKind, CheckedPackageRefusalCode, CheckedSemanticNodeV2, CorrespondenceForm,
-        EdgeSite, ExpressionForm, ReferenceMember, ReferenceSite, StateForm, Step, Trail,
-        ValidationFailure, WorkMeter, DEPENDENCY_SELECTION_MEMBERS,
+        validate_recursion, BodyGrammar, CheckedDependencySelection, CheckedNodeKind,
+        CheckedPackageRefusalCode, CheckedSemanticNodeV2, CorrespondenceForm, EdgeSite,
+        ExpressionForm, ReferenceMember, ReferenceSite, StateForm, Step, Trail, ValidationFailure,
+        WorkMeter, DEPENDENCY_SELECTION_MEMBERS,
     };
     use ix_trace_rs::trace;
     use serde_json::json;

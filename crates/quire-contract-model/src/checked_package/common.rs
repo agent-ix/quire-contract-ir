@@ -27,6 +27,7 @@ use std::fmt;
 use std::ops::ControlFlow;
 
 /// Identity domain shared by every checked semantic node key.
+#[cfg(test)]
 pub(super) const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 
 /// A terminal front-end or validation outcome, before it is wrapped in a
@@ -632,6 +633,7 @@ pub(super) fn decoder_pointer(base: JsonPointer, path: &serde_path_to_error::Pat
 /// differs from `original`, where `original` sits at `base`: the member or
 /// element whose value differs or is missing from `other`, or the container
 /// whose shape differs. Descends iteratively, one differing child at a time.
+#[cfg(test)]
 pub(super) fn first_difference(base: JsonPointer, original: &Value, other: &Value) -> JsonPointer {
     let mut steps = Vec::new();
     let (mut left, mut right) = (original, other);
@@ -1744,7 +1746,7 @@ impl<'de> Visitor<'de> for StrictSeed<'_> {
 mod tests {
     use super::{
         canonical_value, first_difference, is_literal_value, validate_term, Step, TermGrammar,
-        Trail, ValidationFailure, NODE_DOMAIN,
+        Trail, ValidationFailure,
     };
     use crate::checked_package::shared::{
         CheckedPackageReadLimits, CheckedPackageRefusalCode, JsonPointer,
