@@ -672,14 +672,16 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
         return None;
     };
     let unit = typed_binding(unit, "unit").and_then(typed_reference)?;
-    // A dimension's canonical root unit has no target unit in its nominal
-    // preimage; the nominal stage admits exactly one such unit.
+    // A dimension's canonical root unit has no target unit in its body;
+    // the nominal stage admits exactly one such unit.
     let is_root_unit = graph.node(unit).is_some_and(|(node, kind)| {
         kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
             && matches!(
-                &node.nominal_identity_preimage,
-                Some(NominalIdentityPreimage::Unit(preimage))
-                    if preimage.target_unit_node_id.is_none()
+                super::identity::NominalBody::from_value(&node.body, JsonPointer::root()),
+                Ok(super::identity::NominalBody::Unit {
+                    target_unit_node_id: None,
+                    ..
+                })
             )
     });
     let exponent_ok = typed_binding(exponent, "exponent")
