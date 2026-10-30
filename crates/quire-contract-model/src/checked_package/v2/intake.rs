@@ -112,8 +112,6 @@ struct BorrowedNode<'a> {
     occurrences: Vec<CheckedOccurrence>,
     #[serde(default)]
     recursion_group: Option<Box<str>>,
-    #[serde(default)]
-    nominal_identity_preimage: Option<NominalIdentityPreimage>,
     #[serde(default, deserialize_with = "present_nullable")]
     declaration: Option<Option<CheckedDeclaration>>,
     #[serde(default)]
@@ -161,10 +159,9 @@ pub(super) fn decode_borrowed_wire(
     let diagnostics = wire.diagnostics;
     let mut nodes = Vec::with_capacity(graph.nodes.len());
     for (position, node) in graph.nodes.into_iter().enumerate() {
-        if matches!(
-            &node.nominal_identity_preimage,
-            Some(NominalIdentityPreimage::DimensionEquivalence(_))
-        ) && node.declaration.is_some()
+        if node.node_tag.as_ref() == "scalar_type"
+            && node.semantic_form.as_ref() == "dimension_equivalence"
+            && node.declaration.is_some()
         {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::MalformedWire,
@@ -187,7 +184,6 @@ pub(super) fn decode_borrowed_wire(
             dependencies: node.dependencies,
             occurrences: node.occurrences,
             recursion_group: node.recursion_group,
-            nominal_identity_preimage: node.nominal_identity_preimage,
             declaration: node.declaration.flatten(),
             owner: node.owner,
             owner_model: node.owner_model,
