@@ -1,6 +1,5 @@
 //! Closed FR-375 refinement body vocabulary and reader checks.
 
-use super::encode::RefinementNodePreimage;
 use super::CheckedTerm;
 use crate::checked_package::common::{
     decoder_pointer, locate_closed_value_failure, validate_term, ReferenceVisitor, TermGrammar,
@@ -20,7 +19,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 /// Source region of one canonical refinement step row, outside package identity.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedRefinementStepRowRegion {
     /// Retained refinement relation node.
@@ -31,39 +30,18 @@ pub struct CheckedRefinementStepRowRegion {
     pub region: CheckedSourceRegion,
 }
 
-fn node_at(position: usize) -> crate::checked_package::shared::JsonPointer {
-    crate::checked_package::common::node_pointer(position)
+impl Encode for CheckedRefinementStepRowRegion {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::encoded(writer, "node_id", &self.node_id)?;
+        super::encode::member(writer, "ordinal", &self.ordinal)?;
+        super::encode::member(writer, "region", &self.region)?;
+        writer.end_object()
+    }
 }
 
-pub(super) fn stale_refinement_key(
-    node: &super::RawSemanticNodeV2,
-    position: usize,
-    bytes: u64,
-) -> Result<(), ValidationFailure> {
-    let computed = quire_canonical::sha256(
-        &RefinementNodePreimage {
-            semantic_type: &node.semantic_type,
-            body: &node.body,
-        },
-        quire_canonical::Limits::new(bytes),
-    )
-    .map_err(|_| {
-        ValidationFailure::refused(
-            CheckedPackageRefusalCode::MalformedWire,
-            node_at(position).key("body"),
-        )
-    })?;
-    if computed.to_string() == node.node_id.digest.as_ref() {
-        return Ok(());
-    }
-    Err(ValidationFailure::refused_stale_node_key(
-        node_at(position).key("node_id"),
-        node.node_id.clone(),
-        CheckedNodeId {
-            domain: node.node_id.domain.clone(),
-            digest: computed.to_string().into(),
-        },
-    ))
+fn node_at(position: usize) -> crate::checked_package::shared::JsonPointer {
+    crate::checked_package::common::node_pointer(position)
 }
 
 /// A refinement target is either a local node or a node in a directly selected package.
@@ -2257,7 +2235,6 @@ pub(super) fn validate_refinements(
     graph: RefinementGraph<'_, '_>,
     lock: &super::CheckedPackageLockV2,
     owners: &super::model_members::ModelOwners<'_>,
-    bytes: u64,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for &position in graph.index.values() {
@@ -2280,7 +2257,6 @@ pub(super) fn validate_refinements(
                 )
             })?;
         meter.charge(1, || node_at(position))?;
-        stale_refinement_key(node, position, bytes)?;
         canonical_order(body, position)?;
         check_headers(node, body, position, &graph, lock)?;
         validate_catalog(
@@ -3536,33 +3512,5 @@ pub(super) fn visit_reference_targets<'a>(
         for update in &history.updates {
             update.expression.visit_reference_targets(visitor);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn refinement_preimage_matches_jcs_value() {
-        let semantic_type = CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: "a".repeat(64).into(),
-        };
-        let body = json!({"term":"refinement","abstract":semantic_type,"profile":{"authority":"test","identity":"quire.temporal.infinite-trace/v1"},"populations":[],"objects":[],"steps":[],"histories":[],"assume":[],"ensure":[]});
-        let value =
-            json!({"version":"quire.refinement-node/v1","semantic_type":semantic_type,"body":body});
-        let limits = quire_canonical::Limits::new(u64::MAX);
-        let expected = quire_canonical::to_vec(&value, limits).expect("value");
-        let actual = quire_canonical::to_vec(
-            &RefinementNodePreimage {
-                semantic_type: &semantic_type,
-                body: &body,
-            },
-            limits,
-        )
-        .expect("preimage");
-        assert_eq!(actual, expected);
     }
 }
