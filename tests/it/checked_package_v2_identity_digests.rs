@@ -111,6 +111,58 @@ fn derived_range_binding_name_is_validated_independently_of_its_id() {
     );
 }
 
+#[trace("TC-226", "FR-038-AC-125")]
+#[test]
+fn derived_range_type_and_literal_type_are_checked_independently_of_id() {
+    let package = derived_range_package();
+    let _admitted = admit(&package);
+    let boolean_id = package["semantic_graph"]["nodes"][0]["node_id"].clone();
+    for edit in ["semantic_type", "bound_literal_type"] {
+        let mut changed = package.clone();
+        let retained_id = changed["semantic_graph"]["nodes"][2]["node_id"].clone();
+        match edit {
+            "semantic_type" => {
+                changed["semantic_graph"]["nodes"][2]["semantic_type"] = boolean_id.clone()
+            }
+            "bound_literal_type" => {
+                changed["semantic_graph"]["nodes"][2]["body"]["members"][0]["value"]["type"] =
+                    boolean_id.clone()
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            changed["semantic_graph"]["nodes"][2]["node_id"],
+            retained_id
+        );
+        let mut evidence = CheckedPackageEvidence::new();
+        evidence.support_feature("quire.value.complete/v1");
+        let outcome = CheckedPackageV2::read(
+            &quire_canonical::to_vec(&changed, Limits::new(u64::MAX)).expect("canonical bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        );
+        let refusal = match outcome {
+            CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+            other => panic!("{edit}: expected derived-shape refusal, got {other:?}"),
+        };
+        assert_eq!(
+            refusal.code,
+            quire_contract_model::CheckedPackageRefusalCode::InvalidPackage,
+            "{edit}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(quire_contract_model::CheckedPackageRefusalCause::InvalidDerivedShape),
+            "{edit}"
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some("/semantic_graph/nodes/2/node_id".to_owned()),
+            "{edit}"
+        );
+    }
+}
+
 fn package_with_independent_requests() -> Value {
     let mut package = local_package();
     let boolean = package["semantic_graph"]["nodes"][0].clone();
