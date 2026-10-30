@@ -13,6 +13,15 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
 
+fn selected_document(proposal: &Path) -> Value {
+    let documents = super::vector_selected_documents(proposal).expect("selected documents");
+    read_json(&proposal.join(super::positive_document(
+        "positive-model-tuple-union.json",
+        &documents,
+    )))
+    .expect("selected tuple/union document")
+}
+
 /// The refusal pointer of the first selected model root: its owner.
 fn root_owner_pointer(package: &Value) -> String {
     let position = package["semantic_graph"]["nodes"]
@@ -67,10 +76,7 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
         .expect("published tuple/union vectors");
     assert_eq!(vectors["base"], "fixtures/positive-model-tuple-union.json");
-    let selected_path = vectors["selected_document"]
-        .as_str()
-        .expect("selected Semantic IR document path");
-    let selected = read_json(&proposal.join(selected_path)).expect("selected document");
+    let selected = selected_document(&proposal);
     let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     let mut evidence = CheckedPackageEvidence::new();
@@ -316,11 +322,7 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
         .expect("published tuple/union vectors");
     assert_eq!(vectors["base"], "fixtures/positive-model-tuple-union.json");
-    let selected_path = vectors["selected_document"]
-        .as_str()
-        .expect("selected full Semantic IR document path");
-    let selected =
-        read_json(&proposal.join(selected_path)).expect("selected full Semantic IR document");
+    let selected = selected_document(&proposal);
     let mut base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     // Intake mutations can change the types of the published expression
@@ -724,10 +726,7 @@ fn combined_tuple_and_variant_defects_keep_published_intake_order() {
     let proposal = proposal_dir_of(&fixtures);
     let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
         .expect("published tuple/union vectors");
-    let selected_path = vectors["selected_document"]
-        .as_str()
-        .expect("selected document path");
-    let selected = read_json(&proposal.join(selected_path)).expect("selected document");
+    let selected = selected_document(&proposal);
     let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     let rows = vectors["intake_cases"].as_array().expect("intake cases");
@@ -795,12 +794,7 @@ fn combined_tuple_and_variant_defects_keep_published_intake_order() {
 fn published_model_tuple_union_fixture_admits() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
-    let vector = read_json(&proposal.join("model-tuple-union-vectors.json"))
-        .expect("published tuple/union vector");
-    let selected = vector["selected_document"]
-        .as_str()
-        .expect("selected full Semantic IR document path");
-    let document = read_json(&proposal.join(selected)).expect("selected full document");
+    let document = selected_document(&proposal);
     let package = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
 
