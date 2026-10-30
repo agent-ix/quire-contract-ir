@@ -536,7 +536,6 @@ fn qspec_hybrid_claim_refuses_unknown_fairness_mode() {
         json!("Halted");
     fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
-    let claim_position = timed_claim_position(&package);
     fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("published evidence");
