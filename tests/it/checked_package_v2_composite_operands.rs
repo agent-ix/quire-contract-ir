@@ -1332,8 +1332,8 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
         }
     }
     let object = object.expect("family object type");
-    let reference = f.collection("reference", &object);
-    let population_set = f.collection("set", &reference);
+    let object_reference = f.collection("reference", &object);
+    let population_set = f.collection("set", &object_reference);
     let population = f.ty(
         "bounded_domain",
         "model_population",
