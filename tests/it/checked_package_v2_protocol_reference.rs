@@ -363,7 +363,6 @@ fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {
             json!({"qualified_name": ["Example", "Carrier"]}),
         ),
         ("owner", source_owner(&fixture_source())),
-        ("nominal_identity_preimage", json!({"obsolete": true})),
     ] {
         let mut changed = base.clone();
         changed["semantic_graph"]["nodes"][position][member] = value;
@@ -386,6 +385,19 @@ fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {
             "{member}"
         );
     }
+
+    let mut unknown = base.clone();
+    unknown["semantic_graph"]["nodes"][position]["unknown_carrier_member"] = json!(true);
+    refresh_identity(&mut unknown);
+    let refusal = match read(&unknown) {
+        CheckedPackageV2ReadResult::Refused(value) => value,
+        other => panic!("expected unknown carrier member refusal: {other:?}"),
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::UnknownMember);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().expect("path").to_string(),
+        format!("/semantic_graph/nodes/{position}/unknown_carrier_member")
+    );
 
     let mut wrong_role = base.clone();
     wrong_role["semantic_graph"]["nodes"][position]["occurrences"][0]["role"] = json!("generated");
