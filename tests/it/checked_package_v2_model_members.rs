@@ -848,6 +848,13 @@ fn relationship_operation_package(
     role: &str,
     reaches: bool,
 ) -> (Value, quire_contract_model::CheckedPackageEvidence) {
+    let destination = if relationship["sourceEnd"]["role"] == role {
+        &relationship["targetEnd"]["type"]
+    } else {
+        &relationship["sourceEnd"]["type"]
+    };
+    let destination = destination.as_str().expect("destination type");
+    let destination_type = node_id(&model_key("object_type", IDENTITY, destination));
     let document = domain_document(json!({"relationships": [relationship]}));
     let mut package = package_selecting("total");
     let relationship_key = format!("relationship|{RELATIONSHIP}");
@@ -877,7 +884,8 @@ fn relationship_operation_package(
     let body = json!({
         "term": "application", "operator": operator,
         "operation": {"identity": operation, "laws": [], "mode": null,
-            "member": {"kind": "relationship_end", "declaration": node_id(&relationship_key), "name": role},
+            "member": {"kind": "relationship_end", "declaration": node_id(&relationship_key),
+                "name": role, "destination_type": destination_type},
             "leaves": []},
         "result_type": node_id(result_type),
         "arguments": arguments,
@@ -1086,7 +1094,7 @@ fn reaches_over(
             let mut declaration = wire_node(&object, "model", "object_type", &object, &[], empty());
             declaration["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": ty});
             nodes.push(declaration);
-            let body = over_body(&object);
+            let body = json!({"term": "aggregate", "members": [reference(&object)]});
             let reference = format!("reference/{ty}");
             nodes.push(wire_node(
                 &reference,
