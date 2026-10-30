@@ -6,7 +6,8 @@
 //! assigned structural node IDs.
 
 use crate::support::checked_package::{
-    boolean_key, canonical, evidence_for, node_id, pointer, settle, v2_all_families,
+    boolean_key, canonical, evidence_for, node_id, pointer, refresh_identity, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -496,8 +497,16 @@ fn tc_048_type_argument_member_requires_closed_declaration() {
         json!({"kind": "type_argument", "type_argument": valid["semantic_graph"]["nodes"][position]["body"]["result_type"]}),
     ] {
         let mut adverse = valid.clone();
+        let dependency = member
+            .get("declaration")
+            .filter(|value| value.is_object())
+            .cloned();
         adverse["semantic_graph"]["nodes"][position]["body"]["operation"]["member"] = member;
-        settle(&mut adverse);
+        // The malformed member has no structural declaration target. Keep
+        // graph dependencies aligned so the operation member is first to fail.
+        adverse["semantic_graph"]["nodes"][position]["dependencies"] =
+            Value::Array(dependency.into_iter().collect());
+        refresh_identity(&mut adverse);
         assert_member_result_refusal(
             &adverse,
             position,
