@@ -700,7 +700,16 @@ fn read_positive(
     domain_document: &Path,
 ) -> Result<(Value, CheckedPackageV2), String> {
     let package = read_json(&fixtures.join(name))?;
-    read_positive_package(package, name, domain_document)
+    let selected_document = match name {
+        "positive-timed-clause-nodes.json" => {
+            proposal_dir_of(fixtures).join("domain-package-acme-timed-clauses.json")
+        }
+        "positive-timed-slot-nodes.json" => {
+            proposal_dir_of(fixtures).join("domain-package-acme-timed-slots.json")
+        }
+        _ => domain_document.to_path_buf(),
+    };
+    read_positive_package(package, name, &selected_document)
 }
 
 /// Admit a published positive package or a single-input adverse mutation of it.
