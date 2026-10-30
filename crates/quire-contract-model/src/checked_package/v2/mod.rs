@@ -2326,6 +2326,7 @@ fn validate_graph(
     // Each frame node's typed body, read once here and joined by the frame step.
     let mut frames = Vec::new();
     let mut edges = 0_u64;
+    let mut group_ordinals: BTreeMap<&str, u64> = BTreeMap::new();
     for (position, node) in graph.nodes.iter().enumerate() {
         let at = |member: &str| node_pointer(position).key(member);
         validate_node_id(&node.node_id, || at("node_id"))?;
@@ -2346,6 +2347,16 @@ fn validate_graph(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 at("node_id").key("package"),
             ));
+        }
+        if let Some(label) = node.recursion_group.as_deref() {
+            let next = group_ordinals.entry(label).or_default();
+            if node.node_id.ordinal != *next {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at("node_id").key("ordinal"),
+                ));
+            }
+            *next = next.saturating_add(1);
         }
         if index.insert(&node.node_id, position).is_some() {
             return Err(refuse(
