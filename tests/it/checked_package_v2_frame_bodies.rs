@@ -6,12 +6,12 @@
 //! `state`/`frame` nodes.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, mint_ungrouped_structural_keys, node_id, refresh_identity, refusal_at,
+    canonical, evidence_for, mint_ungrouped_structural_keys, node_id, refresh_identity,
     v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedTerm,
 };
@@ -54,6 +54,37 @@ fn refused(value: &Value) -> CheckedPackageRefusal {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected V2 refusal, got {other:?}"),
     }
+}
+
+fn id_order(left: &Value, right: &Value) -> std::cmp::Ordering {
+    let left: CheckedNodeId = serde_json::from_value(left.clone()).expect("left node id");
+    let right: CheckedNodeId = serde_json::from_value(right.clone()).expect("right node id");
+    left.cmp(&right)
+}
+
+fn expect_refusal_at(
+    package: &Value,
+    code: CheckedPackageRefusalCode,
+    path: &str,
+    cause: Option<CheckedPackageRefusalCause>,
+    locus: &Value,
+) {
+    let refusal = refused(package);
+    assert_eq!(refusal.code, code, "{refusal:?}");
+    assert_eq!(refusal.cause, cause, "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(path),
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal
+            .locus
+            .as_ref()
+            .map(|id| serde_json::to_value(id).expect("node id")),
+        Some(locus.clone()),
+        "{refusal:?}"
+    );
 }
 
 /// The single `state`/`frame` node in `v2_all_families()`.
@@ -127,7 +158,7 @@ fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
 /// and `process` nodes, places `object_type` as a `modifies` relationship
 /// entry, whose declaring node must be a `relation`/`relationship`,
 /// (a meaning-join defect), and places both entries into `deletes` in
-/// descending digest order (`process` before `object_type`; both are
+/// descending structural ID order (`process` before `object_type`; both are
 /// individually eligible for `deletes`, so this is a pure canonical-order
 /// defect there, not a second meaning-join defect). FR-340 requires the
 /// meaning-join defect to win: `invalid_model_binding`/`malformed-declaration`
@@ -140,10 +171,6 @@ fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
     let index = frame_index(&base);
     let object_type = base["semantic_graph"]["nodes"][index]["body"]["creates"][0].clone();
     let process = base["semantic_graph"]["nodes"][index]["body"]["deletes"][0].clone();
-    let object_type_digest = object_type["digest"]
-        .as_str()
-        .expect("digest string")
-        .to_owned();
 
     let mut package = base.clone();
     package["semantic_graph"]["nodes"][index]["dependencies"] =
@@ -151,84 +178,62 @@ fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
     package["semantic_graph"]["nodes"][index]["body"]["modifies"] =
         Value::Array(vec![relationship(object_type.clone())]);
     package["semantic_graph"]["nodes"][index]["body"]["creates"] = Value::Array(vec![]);
-    // Descending digest order: `process` ("1616...") before `object_type`
-    // ("1515...") — a canonical-order defect, since both entries are
+    // Descending ID order: `process` ("1616") before `object_type`
+    // ("1515") — a canonical-order defect, since both entries are
     // individually eligible for `deletes`.
     package["semantic_graph"]["nodes"][index]["body"]["deletes"] =
         Value::Array(vec![process, object_type]);
     mint_ungrouped_structural_keys(&mut package);
     refresh_identity(&mut package);
 
-    let refusal = refused(&package);
-    assert_eq!(
-        refusal,
-        refusal_at(
-            CheckedPackageRefusalCode::InvalidModelBinding,
-            &modifies_entry(index, 0),
-            Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            &object_type_digest,
-        ),
-        "meaning-join defect must win over the co-occurring order defect"
+    expect_refusal_at(
+        &package,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        &modifies_entry(index, 0),
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        &object_type,
     );
 }
 
-/// FR-038-AC-13: a frame entry naming a digest that is not among the frame
+/// FR-038-AC-13: a frame entry naming an ID that is not among the frame
 /// node's own `dependencies` refuses as `missing_declaration`/`missing-name`
 /// at that entry — whether the digest belongs to a real node elsewhere in the
 /// graph (declared to the package, just never to this frame) or to no node
 /// anywhere in the graph at all. Both are the same refusal: the check
 /// (`frame_defect`'s `!declared.contains(&entry)` branch) looks only at
 /// membership in the frame's own `dependencies`, before it ever asks whether
-/// the digest resolves to a real node.
+/// the ID resolves to a real node.
 #[trace("TC-053", "FR-038-AC-13")]
 #[test]
 fn tc_053_frame_entry_outside_dependencies_refuses_as_missing_declaration() {
     let base = v2_all_families();
     let index = frame_index(&base);
     let real_elsewhere = base["semantic_graph"]["nodes"][0]["node_id"].clone();
-    let real_digest = real_elsewhere["digest"]
-        .as_str()
-        .expect("digest string")
-        .to_owned();
-    let nowhere = node_id(&"0123456789abcdef".repeat(4));
-    let nowhere_digest = nowhere["digest"]
-        .as_str()
-        .expect("digest string")
-        .to_owned();
+    let nowhere = node_id("absent/frame-entry");
 
-    for (name, entry, digest) in [
-        (
-            "a real node elsewhere in the graph, never declared to this frame",
-            real_elsewhere,
-            real_digest,
-        ),
-        ("no node anywhere in the graph", nowhere, nowhere_digest),
-    ] {
+    for entry in [real_elsewhere, nowhere] {
         let mut package = base.clone();
         package["semantic_graph"]["nodes"][index]["body"]["modifies"] =
-            Value::Array(vec![relationship(entry)]);
+            Value::Array(vec![relationship(entry.clone())]);
         mint_ungrouped_structural_keys(&mut package);
         refresh_identity(&mut package);
-        assert_eq!(
-            refused(&package),
-            refusal_at(
-                CheckedPackageRefusalCode::MissingDeclaration,
-                &modifies_entry(index, 0),
-                Some(CheckedPackageRefusalCause::MissingName),
-                &digest,
-            ),
-            "{name}"
+        expect_refusal_at(
+            &package,
+            CheckedPackageRefusalCode::MissingDeclaration,
+            &modifies_entry(index, 0),
+            Some(CheckedPackageRefusalCause::MissingName),
+            &entry,
         );
     }
 }
 
 /// FR-038-AC-15: with two defective `state`/`frame` nodes, the reader reports
-/// the first one it visits (ascending `node_id` digest) rather than comparing
+/// the first one it visits (ascending structural `node_id`) rather than comparing
 /// every frame's defect.
 ///
-/// Adds a second frame node keyed below the published frame's own digest,
+/// Adds a second frame node keyed below the published frame's own ID,
 /// built from the same entries the published frame already declares, but
-/// with `deletes` in descending digest order — a pure canonical-order defect
+/// with `deletes` in descending ID order — a pure canonical-order defect
 /// (the *weaker* of the two defect classes; both entries stay individually
 /// eligible for `deletes`, so there is no meaning-join defect alongside it).
 /// The published frame itself is then mutated to carry a missing-declaration
@@ -244,13 +249,13 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
     let object_type = base["semantic_graph"]["nodes"][index]["body"]["creates"][0].clone();
     let process = base["semantic_graph"]["nodes"][index]["body"]["deletes"][0].clone();
 
-    // A second frame, keyed below the published frame's own digest, sharing
+    // A second frame, keyed below the published frame's own ID, sharing
     // the same declared dependencies and `modifies` entries, but with
     // `deletes` reversed.
-    lower_frame["node_id"] = node_id(&"0505".repeat(16));
+    lower_frame["node_id"] = node_id("0505");
     lower_frame["body"]["creates"] = Value::Array(Vec::new());
     let mut deletes = vec![process, object_type];
-    deletes.sort_by(|left, right| right["digest"].as_str().cmp(&left["digest"].as_str()));
+    deletes.sort_by(|left, right| id_order(right, left));
     lower_frame["body"]["deletes"] = Value::Array(deletes);
 
     let mut package = base.clone();
@@ -276,37 +281,26 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
             variant["semantic_graph"]["nodes"][index]["body"]["modifies"] =
                 Value::Array(vec![relationship(target)]);
             mint_ungrouped_structural_keys(&mut variant);
-            let lower = variant["semantic_graph"]["nodes"][lower_index]["node_id"]["digest"]
-                .as_str()
-                .expect("derived frame digest");
-            let stronger = variant["semantic_graph"]["nodes"][index]["node_id"]["digest"]
-                .as_str()
-                .expect("derived frame digest");
-            (lower < stronger).then_some(variant)
+            let lower = &variant["semantic_graph"]["nodes"][lower_index]["node_id"];
+            let stronger = &variant["semantic_graph"]["nodes"][index]["node_id"];
+            (id_order(lower, stronger).is_lt()).then_some(variant)
         })
         .next()
         .expect("valid derived keys with the weaker frame first");
     let mut package = package;
     refresh_identity(&mut package);
-    let lower_digest = package["semantic_graph"]["nodes"][lower_index]["node_id"]["digest"]
-        .as_str()
-        .expect("derived frame digest");
-    let stronger_digest = package["semantic_graph"]["nodes"][index]["node_id"]["digest"]
-        .as_str()
-        .expect("derived frame digest");
+    let lower_id = &package["semantic_graph"]["nodes"][lower_index]["node_id"];
+    let stronger_id = &package["semantic_graph"]["nodes"][index]["node_id"];
     assert!(
-        lower_digest < stronger_digest,
+        id_order(lower_id, stronger_id).is_lt(),
         "weaker defect must sort first"
     );
 
-    assert_eq!(
-        refused(&package),
-        refusal_at(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            &frame_body(lower_index),
-            None,
-            lower_digest,
-        ),
-        "the lower-keyed frame's own defect must be reported before the higher-keyed frame"
+    expect_refusal_at(
+        &package,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &frame_body(lower_index),
+        None,
+        lower_id,
     );
 }
