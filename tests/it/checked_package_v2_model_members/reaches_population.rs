@@ -808,7 +808,10 @@ fn least_admitting_work(scenario: &Scenario) -> u64 {
             assert_eq!(incomplete.consumed, sufficient);
             assert_eq!(
                 incomplete.path.as_ref().map(ToString::to_string).as_deref(),
-                Some("/semantic_graph/nodes/6/body/arguments/0/target")
+                // `select_model` adds the root at node 7; node 8 is the
+                // reaches operation's `other` parameter, whose second
+                // binding is the Integer-typed level literal.
+                Some("/semantic_graph/nodes/8/body/members/1/value/type")
             );
         }
         other => panic!("expected first unpaid work visit, got {other:?}"),
