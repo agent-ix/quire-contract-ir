@@ -11,9 +11,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedMemberType, CheckedNodeId, CheckedPackageLimit, CheckedPackageReadLimits,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, ContractBodyRefusalV1, ContractFeatureRecordV1,
+    CheckedMemberType, CheckedNodeId, CheckedPackageEvidence, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageV2, CheckedPackageV2ReadResult, ContractBodyRefusalV1, ContractFeatureRecordV1,
 };
 use serde_json::{json, Value};
 
@@ -44,6 +44,69 @@ fn read_with_work(package: &Value, work: u64) -> CheckedPackageV2ReadResult {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
     CheckedPackageV2::read(&canonical(package), limits, &evidence_for(package))
+}
+
+fn minimum_work(package: &Value) -> u64 {
+    let mut low = 0_u64;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    assert!(matches!(
+        read_with_work(package, high),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    while low + 1 < high {
+        let mid = low + (high - low) / 2;
+        match read_with_work(package, mid) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = mid,
+            CheckedPackageV2ReadResult::Incomplete(incomplete)
+                if incomplete.limit_kind == CheckedPackageLimit::Work =>
+            {
+                low = mid
+            }
+            other => panic!("unexpected work result at {mid}: {other:?}"),
+        }
+    }
+    high
+}
+
+fn chain_work_result(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    nodes: u64,
+    work: u64,
+) -> CheckedPackageV2ReadResult {
+    let limits = CheckedPackageReadLimits {
+        bytes: 1 << 36,
+        nodes: nodes * 2,
+        edges: nodes * 16,
+        occurrences: nodes * 16,
+        diagnostics: 1 << 20,
+        work,
+    };
+    CheckedPackageV2::read(bytes, limits, evidence)
+}
+
+fn minimum_chain_work(length: usize, evidence: &CheckedPackageEvidence, base_nodes: usize) -> u64 {
+    let (bytes, _) = v2_reference_chain(length);
+    let nodes = u64::try_from(length + base_nodes).expect("node count");
+    let mut low = 0_u64;
+    let mut high = 1_000_000_u64;
+    assert!(matches!(
+        chain_work_result(&bytes, evidence, nodes, high),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    while low + 1 < high {
+        let mid = low + (high - low) / 2;
+        match chain_work_result(&bytes, evidence, nodes, mid) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = mid,
+            CheckedPackageV2ReadResult::Incomplete(incomplete)
+                if incomplete.limit_kind == CheckedPackageLimit::Work =>
+            {
+                low = mid
+            }
+            other => panic!("chain length {length}, work {mid}: {other:?}"),
+        }
+    }
+    high
 }
 
 fn index_of(package: &Value, tag: &str, form: &str) -> usize {
@@ -764,6 +827,70 @@ fn derived_shape_refusal_precedes_dependent_frame_check() {
     assert_derived_refusal(&both, boolean);
 }
 
+#[trace("TC-226", "FR-038-AC-127")]
+#[test]
+fn derived_shape_refusal_precedes_declaration_operation_and_temporal_checks() {
+    let mut duplicate_declaration = v2_all_families();
+    let function = duplicate_declaration["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["declaration"]["qualified_name"] == json!(["Example", "Function"]))
+        .expect("declared function");
+    let mut second = duplicate_declaration["semantic_graph"]["nodes"][function].clone();
+    second["node_id"]["ordinal"] = json!(1);
+    append_authored(&mut duplicate_declaration, second);
+    settle(&mut duplicate_declaration);
+    let CheckedPackageV2ReadResult::Refused(declaration_refusal) = read(&duplicate_declaration)
+    else {
+        panic!("duplicate qualified function name must refuse");
+    };
+    assert_eq!(
+        declaration_refusal.code,
+        CheckedPackageRefusalCode::AmbiguousDeclaration
+    );
+
+    let mut unknown_operation = v2_all_families();
+    let call_position = unknown_operation["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["term"] == "application" && node["node_tag"] == "function")
+        .expect("function call application");
+    unknown_operation["semantic_graph"]["nodes"][call_position]["body"]["operation"]["identity"] =
+        json!("quire.op.unselected.invalid");
+    settle(&mut unknown_operation);
+    let CheckedPackageV2ReadResult::Refused(operation_refusal) = read(&unknown_operation) else {
+        panic!("unknown operation must refuse");
+    };
+    assert_ne!(
+        operation_refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
+    );
+
+    let mut unknown_temporal = v2_all_families();
+    let clause = index_of(&unknown_temporal, "temporal", "temporal_clause");
+    unknown_temporal["semantic_graph"]["nodes"][clause]["body"]["operation"]["laws"][0]
+        ["definition"]["identity"] = json!("quire.fixture.temporal-profile/v1");
+    settle(&mut unknown_temporal);
+    let CheckedPackageV2ReadResult::Refused(temporal_refusal) = read(&unknown_temporal) else {
+        panic!("unknown temporal profile must refuse");
+    };
+    assert_eq!(
+        temporal_refusal.code,
+        CheckedPackageRefusalCode::UnknownProfile
+    );
+
+    for mut package in [duplicate_declaration, unknown_operation, unknown_temporal] {
+        let boolean = index_of(&package, "scalar_type", "boolean");
+        package["semantic_graph"]["nodes"][boolean]["body"]["members"] = json!([
+            {"term":"reference","target":package["semantic_graph"]["nodes"][boolean]["node_id"]}
+        ]);
+        settle(&mut package);
+        assert_derived_refusal(&package, boolean);
+    }
+}
+
 #[trace("TC-048", "FR-038-AC-185")]
 #[test]
 fn pregraph_refusal_invents_no_structural_node_locus() {
@@ -936,11 +1063,7 @@ fn list_group() -> (Value, usize, usize) {
     let mut package = local_package();
     let name = package["name"].as_str().expect("package name");
     let list_id = structural_id(name, vec![json!("List")], 4);
-    let option_id = structural_id(
-        name,
-        vec![json!("composite_type"), json!("option"), list_id.clone()],
-        9,
-    );
+    let option_id = structural_id(name, vec![json!("List")], 9);
     let mut option = package["semantic_graph"]["nodes"][0].clone();
     option["node_id"] = option_id.clone();
     option["node_tag"] = json!("composite_type");
@@ -983,11 +1106,9 @@ fn list_group() -> (Value, usize, usize) {
 #[test]
 fn declared_list_group_admits_with_independent_node_ordinals() {
     let (package, option, record) = list_group();
-    assert!(
-        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-        "declared List group: {:?}",
-        read(&package)
-    );
+    let CheckedPackageV2ReadResult::Admitted(original_read) = read(&package) else {
+        panic!("declared List group: {:?}", read(&package));
+    };
     assert_eq!(
         package["semantic_graph"]["nodes"][option]["node_id"]["ordinal"],
         9
@@ -1002,10 +1123,15 @@ fn declared_list_group_admits_with_independent_node_ordinals() {
         .as_array_mut()
         .expect("group nodes")
         .swap(option, record);
-    assert!(
-        matches!(read(&permuted), CheckedPackageV2ReadResult::Admitted(_)),
-        "consistent graph permutation retains producer-assigned node ids: {:?}",
-        read(&permuted)
+    let CheckedPackageV2ReadResult::Admitted(permuted_read) = read(&permuted) else {
+        panic!(
+            "consistent graph permutation retains producer-assigned node ids: {:?}",
+            read(&permuted)
+        );
+    };
+    assert_ne!(
+        original_read, permuted_read,
+        "graph order remains in the admitted package"
     );
     let mut missing_join = package;
     missing_join["semantic_graph"]["nodes"][record]["body"]["members"][0]["value"]["members"][0]
@@ -1019,24 +1145,128 @@ fn declared_list_group_admits_with_independent_node_ordinals() {
     );
 }
 
+#[trace("TC-226", "FR-038-AC-147", "FR-038-AC-150")]
+#[test]
+fn malformed_group_member_structural_ordinals_refuse_at_the_ordinal() {
+    let (package, option, _) = list_group();
+    for ordinal in [json!(9_007_199_254_740_992_u64), json!("9")] {
+        let mut malformed = package.clone();
+        malformed["semantic_graph"]["nodes"][option]["node_id"]["ordinal"] = ordinal;
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&malformed) else {
+            panic!(
+                "malformed group member ordinal must refuse: {:?}",
+                read(&malformed)
+            );
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(format!("/semantic_graph/nodes/{option}/node_id/ordinal")),
+            "{refusal:?}"
+        );
+    }
+}
+
+fn large_cyclic_component() -> Value {
+    const MEMBERS: usize = 512;
+    let (mut package, option, record) = list_group();
+    let name = package["name"].as_str().expect("package name").to_owned();
+    let record_id = package["semantic_graph"]["nodes"][record]["node_id"].clone();
+    let prototype = package["semantic_graph"]["nodes"][option].clone();
+    let ids = (0..MEMBERS)
+        .map(|index| {
+            structural_id(
+                &name,
+                vec![json!("List")],
+                9 + u64::try_from(index).expect("group member ordinal"),
+            )
+        })
+        .collect::<Vec<_>>();
+    for index in 0..MEMBERS {
+        let target = ids
+            .get(index + 1)
+            .cloned()
+            .unwrap_or_else(|| record_id.clone());
+        if index == 0 {
+            package["semantic_graph"]["nodes"][option]["dependencies"] = json!([target]);
+            package["semantic_graph"]["nodes"][option]["body"]["members"][0]["target"] = target;
+        } else {
+            let mut node = prototype.clone();
+            node["node_id"] = ids[index].clone();
+            node["semantic_type"] = ids[index].clone();
+            node["dependencies"] = json!([target]);
+            node["body"]["members"][0]["target"] = target;
+            append_authored(&mut package, node);
+        }
+    }
+    settle(&mut package);
+    package
+}
+
+#[trace("TC-226", "FR-038-AC-149")]
+#[test]
+fn large_cyclic_component_has_exact_first_unpaid_work() {
+    let package = large_cyclic_component();
+    let minimum = minimum_work(&package);
+    assert!(minimum > 512, "every member requires work");
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_with_work(&package, minimum - 1)
+    else {
+        panic!("one less than the admitted work must be incomplete");
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(incomplete.limit, minimum - 1);
+    assert_eq!(incomplete.consumed, minimum);
+    assert!(incomplete.path.is_some(), "first unpaid position");
+}
+
+#[trace("TC-226", "FR-038-AC-149")]
+#[test]
+fn hundred_thousand_reference_chain_has_exact_first_unpaid_work() {
+    const LENGTH: usize = 100_000;
+    let base = v2_all_families();
+    let evidence = evidence_for(&base);
+    let base_nodes = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    let one = minimum_chain_work(1, &evidence, base_nodes);
+    let two = minimum_chain_work(2, &evidence, base_nodes);
+    let three = minimum_chain_work(3, &evidence, base_nodes);
+    let thousand = minimum_chain_work(1_000, &evidence, base_nodes);
+    let per_reference = two - one;
+    assert!(per_reference > 0, "each reference requires work");
+    assert_eq!(three - two, per_reference);
+    assert_eq!(thousand - one, 999 * per_reference);
+    let minimum = one + (u64::try_from(LENGTH).expect("chain length") - 1) * per_reference;
+    let (bytes, _) = v2_reference_chain(LENGTH);
+    let nodes = u64::try_from(LENGTH + base_nodes).expect("node count");
+    assert!(matches!(
+        chain_work_result(&bytes, &evidence, nodes, minimum),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        chain_work_result(&bytes, &evidence, nodes, minimum - 1)
+    else {
+        panic!("one less than the chain work must be incomplete");
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(incomplete.limit, minimum - 1);
+    assert_eq!(incomplete.consumed, minimum);
+    assert!(
+        incomplete
+            .path
+            .as_ref()
+            .is_some_and(|path| path.to_string().starts_with("/semantic_graph/nodes/")),
+        "first unpaid chain visit: {incomplete:?}"
+    );
+}
+
 fn tree_group() -> (Value, usize, usize, usize) {
     let mut package = local_package();
     let name = package["name"].as_str().expect("package name").to_owned();
     let tree = structural_id(&name, vec![json!("Tree")], 11);
-    let sequence = structural_id(
-        &name,
-        vec![json!("composite_type"), json!("sequence"), tree.clone()],
-        14,
-    );
-    let bounds = structural_id(
-        &name,
-        vec![
-            json!("bounded_domain"),
-            json!("collection_bounds"),
-            sequence.clone(),
-        ],
-        23,
-    );
+    let sequence = structural_id(&name, vec![json!("Tree")], 14);
+    let bounds = structural_id(&name, vec![json!("Tree")], 23);
     let integer = v2_all_families()["semantic_graph"]["nodes"]
         .as_array()
         .expect("family nodes")
@@ -1156,7 +1386,7 @@ fn off_cycle_tree_group() -> (Value, usize) {
     let mut set = package["semantic_graph"]["nodes"][0].clone();
     let set_id = structural_id(
         package["name"].as_str().expect("package name"),
-        vec![json!("off-cycle"), json!("set"), range_id.clone()],
+        vec![json!("Tree")],
         31,
     );
     set["node_id"] = set_id.clone();
