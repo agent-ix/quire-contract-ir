@@ -12,14 +12,14 @@
 //! cycle's members share one `recursion_group`.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_package, pointer, reassign_node_id, refusal_at,
+    canonical, evidence_for, node_id, nominal_package, pointer, reassign_node_ids, refusal_at,
     settle, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
+    CheckedNodeId, CheckedNodePathSegment, CheckedNodeTag, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
     ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
 };
 use serde_json::{json, Value};
@@ -285,15 +285,27 @@ fn equality_package(types: Vec<Typed>, root: &str, leaves: Vec<Value>) -> (Value
         .filter(|node| node.get("recursion_group").is_some())
         .map(|node| node["node_id"].clone())
         .collect::<Vec<_>>();
-    for (position, old) in grouped.iter().enumerate() {
-        let mut fresh = old.clone();
+    let grouped_len = grouped.len();
+    let mut replacements = BTreeMap::<CheckedNodeId, CheckedNodeId>::new();
+    for (position, old) in grouped.into_iter().enumerate() {
+        let old_id: CheckedNodeId = serde_json::from_value(old).expect("grouped node id");
+        let mut fresh = old_id.clone();
         // Reverse the paths so the round trip detects a reader sorting by
         // NodeId. These producer-assigned NodeId ordinals are deliberately
         // distinct from the members' positions within the recursion group.
-        fresh["path"] = json!([format!("recursive/group/{}", grouped.len() - position)]);
-        fresh["ordinal"] = json!(position + 7);
-        reassign_node_id(&mut package, old, &fresh);
+        fresh.path = vec![CheckedNodePathSegment::Name(
+            format!("recursive/group/{}", grouped_len - position).into(),
+        )];
+        fresh.ordinal = u64::try_from(position + 7).expect("fixture ordinal fits u64");
+        assert!(replacements.insert(old_id, fresh).is_none());
     }
+    assert!(
+        replacements
+            .values()
+            .all(|fresh| !replacements.contains_key(fresh)),
+        "fixture replacements must not cascade"
+    );
+    reassign_node_ids(&mut package, &replacements);
     settle(&mut package);
     (package, id)
 }

@@ -298,6 +298,41 @@ pub fn reassign_node_id(package: &mut Value, old: &Value, fresh: &Value) {
     }
 }
 
+/// Renames a set of exact structural identities in one pass over a synthetic
+/// package. A replacement is never revisited, so mappings remain simultaneous.
+pub fn reassign_node_ids(
+    package: &mut Value,
+    replacements: &BTreeMap<CheckedNodeId, CheckedNodeId>,
+) {
+    match package {
+        Value::Object(members) => {
+            if members.len() == 3
+                && members.contains_key("package")
+                && members.contains_key("path")
+                && members.contains_key("ordinal")
+            {
+                let candidate =
+                    serde_json::from_value::<CheckedNodeId>(Value::Object(members.clone()));
+                if let Ok(id) = candidate {
+                    if let Some(fresh) = replacements.get(&id) {
+                        *package = serde_json::to_value(fresh).expect("typed node id serializes");
+                        return;
+                    }
+                }
+            }
+            for member in members.values_mut() {
+                reassign_node_ids(member, replacements);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                reassign_node_ids(item, replacements);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// The source owner attached to a declared structural fixture node.
 pub fn source_owner(source: &Value) -> Value {
     json!({
