@@ -4,11 +4,11 @@
 //! meaning, and all terminal nodes are checked before uniqueness by model.
 
 use super::frame::StepGraph;
-use super::model_members::{declaration_key, DeclarationForm};
 use super::structural::{reference_type_target, typed_parameter_binding};
 use super::{
-    CheckedNodeKind, CheckedTerm, ClaimForm, CompositeTypeForm, LiteralKind,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm, WorkMeter,
+    CheckedNodeKind, CheckedNodeOwner, CheckedTerm, ClaimForm, CompositeTypeForm, LiteralKind,
+    ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm,
+    WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -101,7 +101,7 @@ fn self_object_key(
     model: &CheckedNodeId,
     meter: &mut WorkMeter,
     position: usize,
-) -> Result<Option<String>, ValidationFailure> {
+) -> Result<Option<CheckedNodeId>, ValidationFailure> {
     let Some((model_node, _)) = graph.node(model) else {
         return Ok(None);
     };
@@ -127,13 +127,20 @@ fn self_object_key(
     if count != 1 {
         return Ok(None);
     }
-    Ok(declaration_key(
-        &owner.package.identity,
-        DeclarationForm::ObjectType,
-        object,
-        owner.package.bytes,
-    )
-    .ok())
+    let mut candidates = graph.nodes.iter().zip(graph.kinds).filter(|(node, kind)| {
+        **kind == CheckedNodeKind::Model(ModelForm::ObjectType)
+            && matches!(&node.owner,
+                    Some(CheckedNodeOwner::Model { identity, node: declaration })
+                        if identity.as_ref() == owner.package.identity.as_ref()
+                            && declaration.as_ref() == object)
+    });
+    let Some((candidate, _)) = candidates.next() else {
+        return Ok(None);
+    };
+    if candidates.next().is_some() {
+        return Ok(None);
+    }
+    Ok(Some(candidate.node_id.clone()))
 }
 
 fn self_reads(
@@ -418,7 +425,7 @@ pub(super) fn validate_terminal(
                 let expected = self_object_key(&graph, model, meter, position)?;
                 reference_target
                     .as_ref()
-                    .is_some_and(|target| expected.as_deref() == Some(target.digest.as_ref()))
+                    .is_some_and(|target| expected.as_ref() == Some(target))
             } else {
                 false
             };
