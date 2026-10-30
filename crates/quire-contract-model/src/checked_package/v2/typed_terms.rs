@@ -991,7 +991,7 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("literal")?;
                 writer.name("type")?;
-                writer.serialize(type_id)?;
+                type_id.encode_into(writer)?;
                 writer.name("value_kind")?;
                 writer.serialize(value_kind)?;
                 writer.name("value")?;
@@ -1001,7 +1001,7 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("reference")?;
                 writer.name("target")?;
-                writer.serialize(target)?;
+                target.encode_into(writer)?;
             }
             Self::Application {
                 operator,
@@ -1016,7 +1016,7 @@ impl Encode for CheckedTerm {
                 writer.name("operation")?;
                 operation.encode_into(writer)?;
                 writer.name("result_type")?;
-                writer.serialize(result_type)?;
+                result_type.encode_into(writer)?;
                 writer.name("arguments")?;
                 writer.begin_array()?;
                 for argument in arguments {
@@ -1048,7 +1048,7 @@ impl Encode for CheckedTerm {
                 writer.name("package")?;
                 writer.serialize(package)?;
                 writer.name("node")?;
-                writer.serialize(node)?;
+                node.encode_into(writer)?;
             }
             Self::Frame {
                 modifies,
@@ -1061,9 +1061,9 @@ impl Encode for CheckedTerm {
                 writer.name("modifies")?;
                 writer.serialize(modifies)?;
                 writer.name("creates")?;
-                writer.serialize(creates)?;
+                super::refinement::encode_rows(creates, writer)?;
                 writer.name("deletes")?;
-                writer.serialize(deletes)?;
+                super::refinement::encode_rows(deletes, writer)?;
                 writer.name("deletes_scoped")?;
                 writer.serialize(deletes_scoped)?;
             }
@@ -1097,11 +1097,11 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("refinement")?;
                 writer.name("abstract")?;
-                writer.serialize(abstract_key.as_ref())?;
+                abstract_key.encode_into(writer)?;
                 writer.name("profile")?;
                 writer.serialize(profile)?;
                 writer.name("populations")?;
-                writer.serialize(populations)?;
+                super::refinement::encode_rows(populations, writer)?;
                 writer.name("objects")?;
                 super::refinement::encode_rows(objects, writer)?;
                 writer.name("steps")?;
@@ -1109,12 +1109,12 @@ impl Encode for CheckedTerm {
                 writer.name("histories")?;
                 super::refinement::encode_rows(histories, writer)?;
                 writer.name("assume")?;
-                writer.serialize(assume)?;
+                super::refinement::encode_rows(assume, writer)?;
                 writer.name("ensure")?;
-                writer.serialize(ensure)?;
+                super::refinement::encode_rows(ensure, writer)?;
                 if let Some(protocol) = protocol {
                     writer.name("protocol")?;
-                    writer.serialize(protocol.as_ref())?;
+                    protocol.encode_into(writer)?;
                 }
                 if let Some(internal) = abstract_internal {
                     writer.name("abstract_internal")?;
@@ -1122,7 +1122,7 @@ impl Encode for CheckedTerm {
                 }
                 if let Some(catalog) = class_catalog {
                     writer.name("class_catalog")?;
-                    writer.serialize(catalog)?;
+                    catalog.encode_into(writer)?;
                 }
             }
             Self::ExtensionForm {
