@@ -694,8 +694,8 @@ pub(super) fn validate_locked_source(
 }
 
 /// Checks one definition reference's `authority` and `identity` are nonempty,
-/// the only check a definition reference takes: it carries no digest domain or
-/// digest. `at` names the reference; each refusal points at the empty member.
+/// the only check a definition reference takes. `at` names the reference;
+/// each refusal points at the empty member.
 pub(super) fn validate_definition_ref(
     definition: &CheckedArtifactRef,
     at: &dyn Fn() -> JsonPointer,

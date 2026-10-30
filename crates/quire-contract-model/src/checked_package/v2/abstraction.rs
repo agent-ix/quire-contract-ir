@@ -107,7 +107,7 @@ struct AbstractionBody {
 
 impl AbstractionBody {
     /// Every `type`, `population` and `context` target: the unique,
-    /// digest-ascending set a node's `dependencies` must equal.
+    /// structural-ID-ascending set a node's `dependencies` must equal.
     fn targets(&self) -> Vec<CheckedNodeId> {
         let objects = self.objects.iter().map(|entry| &entry.type_id);
         let populations = self.populations.iter().map(|entry| &entry.population);
@@ -683,7 +683,7 @@ fn check_frame(
 }
 
 /// Package-wide key uniqueness over every admitted node, in ascending
-/// node-id digest order and body order: the second entry to claim an object,
+/// structural node-id order and body order: the second entry to claim an object,
 /// population or operation key refuses `invalid_model_binding`/
 /// `conflicting-binding`.
 fn check_keys(admitted: &[(usize, AbstractionBody)]) -> Result<(), ValidationFailure> {

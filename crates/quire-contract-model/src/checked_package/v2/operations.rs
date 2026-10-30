@@ -1007,7 +1007,7 @@ fn is_clause_application(argument: &CheckedTerm, catalog: &OperationCatalog) -> 
 /// directly, or `None` when it has none of its own (a `bounded_domain` then
 /// resolves through its semantic type). Exhaustive over every form. An enum
 /// is reported as `enum` here; [`resolve_family`] refines it to
-/// `ordered_enum` from the node's nominal preimage.
+/// `ordered_enum` from the node's admitted enum body.
 fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
     use CheckedNodeKind as K;
     match kind {
@@ -1950,7 +1950,7 @@ fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<Validatio
 }
 
 /// QSpec FR-440's reader joins 1 and 2, checked at the operation step in
-/// node-id digest order: a union type holds no member name twice
+/// structural node-id order: a union type holds no member name twice
 /// (`invalid_package`/`duplicate-member`) and every payload reference names a
 /// type node (`ill_typed`/`operator-ineligible`); a union value's
 /// `semantic_type` is a structural or selected model union type node; its
@@ -9358,7 +9358,7 @@ mod tests {
 
         // Two defective roots, in both structural ID orders: the lower ID wins,
         // whichever of the two operation defects it carries.
-        let unknown_identity = |digest: char| {
+        let unknown_identity = |name: char| {
             // Under `unary`: a `case` root in an `expression`/`call` node is
             // the form contradiction, refused ahead of identities.
             let mut node = custom_application_node(
@@ -9366,16 +9366,16 @@ mod tests {
                 plain_operation("quire.op.control.not-catalogued"),
                 vec![],
             );
-            node.node_id = node_id(digest);
+            node.node_id = node_id(name);
             node
         };
-        let class_mismatch = |digest: char| {
+        let class_mismatch = |name: char| {
             let mut node = custom_application_node(
                 "unary",
                 plain_operation("quire.op.control.case"),
                 Vec::new(),
             );
-            node.node_id = node_id(digest);
+            node.node_id = node_id(name);
             node
         };
         for (low_is_unknown_identity, expected_cause) in [

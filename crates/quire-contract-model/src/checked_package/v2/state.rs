@@ -1,6 +1,6 @@
 //! The state step of the reader order (QSpec FR-341 and FR-342): after the
 //! frame step and before the operation step, the reader checks, each in
-//! ascending node-id digest order,
+//! ascending structural node-id order,
 //!
 //! 1. the placement of every `quire.op.state.clause` and
 //!    `quire.op.state.transition` application: the body root of its matching
