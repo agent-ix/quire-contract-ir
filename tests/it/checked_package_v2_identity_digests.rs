@@ -249,6 +249,26 @@ fn package_name_is_stable_while_complete_admitted_value_changes() {
         .as_array_mut()
         .expect("source map")
         .push(second_map);
+    let first_id = original["semantic_graph"]["nodes"][0]["node_id"].clone();
+    let second_id = original["semantic_graph"]["nodes"][1]["node_id"].clone();
+    let mut expression = original["semantic_graph"]["nodes"][0].clone();
+    expression["node_id"] =
+        json!({"package":"test/families","path":["selected_boolean"],"ordinal":0});
+    expression["node_tag"] = json!("expression");
+    expression["semantic_form"] = json!("reference");
+    expression["semantic_type"] = first_id.clone();
+    expression["dependencies"] = json!([first_id.clone()]);
+    expression["body"] = json!({"term":"reference","target":first_id});
+    let mut expression_map = original["source_map"][0].clone();
+    expression_map["node_id"] = expression["node_id"].clone();
+    original["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(expression);
+    original["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(expression_map);
     let first = admit(&original);
     let mut reordered = original.clone();
     reordered["semantic_graph"]["nodes"]
@@ -260,6 +280,16 @@ fn package_name_is_stable_while_complete_admitted_value_changes() {
     assert_ne!(
         first, second,
         "node order is part of the complete package value"
+    );
+
+    let mut changed_body = original.clone();
+    changed_body["semantic_graph"]["nodes"][2]["body"]["target"] = second_id.clone();
+    changed_body["semantic_graph"]["nodes"][2]["dependencies"] = json!([second_id]);
+    let fourth = admit(&changed_body);
+    assert_eq!(first.name(), fourth.name());
+    assert_ne!(
+        first, fourth,
+        "a valid body edit changes the complete package value"
     );
 
     let mut changed_source = original;
