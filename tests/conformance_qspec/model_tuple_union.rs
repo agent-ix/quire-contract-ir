@@ -109,7 +109,7 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
                 if refusal.cause.map(super::cause_word) != row["cause"].as_str() {
                     mismatches.push(format!("{id}: wrong refusal cause {refusal:?}"));
                 }
-                let actual_path = refusal.path.as_ref().map(ToString::to_string);
+                let actual_path = refusal.loci[0].path.as_ref().map(ToString::to_string);
                 if actual_path.as_deref() != row["locus"].as_str() {
                     mismatches.push(format!(
                         "{id}: expected locus {}, got {refusal:?}",
@@ -187,7 +187,11 @@ fn selected_declaration_rekey_preserves_independent_refusal_order() {
     assert_eq!(refusal.code, Code::InvalidSemanticGraph);
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/31/dependencies")
     );
 
@@ -206,7 +210,11 @@ fn selected_declaration_rekey_preserves_independent_refusal_order() {
     assert_eq!(refusal.code, Code::InvalidPackage);
     assert_eq!(refusal.cause, Some(Cause::StaleNodeKey));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/14/node_id")
     );
 }
@@ -270,7 +278,11 @@ fn rekeyed_scalar_type_precedes_its_dependent_parameter_reference() {
     assert_eq!(refusal.code, Code::InvalidPackage);
     assert_eq!(refusal.cause, Some(Cause::StaleNodeKey));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/7/node_id")
     );
 }
@@ -524,7 +536,11 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
             "{name}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(root_owner_pointer(&package).as_str()),
             "{name}"
         );
@@ -706,7 +722,11 @@ fn duration_projection_control(scenario: DurationCase) {
             assert_eq!(refusal.code, Code::MissingDeclaration);
             assert_eq!(refusal.cause, Some(Cause::MissingName));
             assert_eq!(
-                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .as_deref(),
                 Some("/semantic_graph/nodes/11")
             );
             assert_eq!(
@@ -721,7 +741,11 @@ fn duration_projection_control(scenario: DurationCase) {
             assert_eq!(refusal.code, Code::IllTyped);
             assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
             assert_eq!(
-                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .as_deref(),
                 Some("/semantic_graph/nodes/11")
             );
             assert_eq!(
@@ -871,7 +895,11 @@ fn combined_tuple_and_variant_defects_keep_published_intake_order() {
             "{first}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(root_owner_pointer(&package).as_str()),
             "{first}"
         );
@@ -982,7 +1010,11 @@ fn unsupported_selected_variant_payloads_refuse_at_document_member() {
             "{payload_type}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(root_owner_pointer(&package).as_str()),
             "{payload_type}",
         );

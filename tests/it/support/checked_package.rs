@@ -919,7 +919,7 @@ pub struct ExpectedRefusal {
 impl PartialEq<ExpectedRefusal> for CheckedPackageRefusal {
     fn eq(&self, expected: &ExpectedRefusal) -> bool {
         self.code == expected.code
-            && self.path == expected.path
+            && self.loci[0].path.as_ref() == expected.path.as_ref()
             && self.cause == expected.cause
             && self.locus == expected.locus
             && self.contract_version == expected.contract_version

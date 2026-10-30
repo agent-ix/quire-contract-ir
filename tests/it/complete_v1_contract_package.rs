@@ -582,7 +582,7 @@ fn reader_refuses_each_missing_required_top_level_member() {
         };
         assert_eq!(refusal.code, Code::InvalidPackage, "missing {member}");
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(""),
             "missing {member}"
         );
@@ -609,7 +609,7 @@ fn reader_refuses_each_leading_json_whitespace_byte() {
             Code::NoncanonicalWire,
             "leading {whitespace:?}"
         );
-        assert_eq!(refusal.path, None, "leading {whitespace:?}");
+        assert_eq!(refusal.loci[0].path.clone(), None, "leading {whitespace:?}");
         assert_eq!(refusal.cause, None, "leading {whitespace:?}");
     }
 }
@@ -628,7 +628,7 @@ fn reader_refuses_first_accounting_record_for_later_requested_items() {
         };
         assert_eq!(refusal.code, Code::InvalidPackage, "requested item {index}");
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some("/feature_accounting"),
             "requested item {index}"
         );
@@ -657,7 +657,7 @@ fn reader_refuses_first_accounting_record_for_later_requested_items() {
     };
     assert_eq!(refusal.code, Code::InvalidPackage);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some("/feature_accounting")
     );
     assert_eq!(refusal.cause, Some(Cause::InvalidValue));
@@ -676,7 +676,7 @@ fn reader_refuses_wrong_string_version_before_shape_identity_and_nodes() {
     };
     assert_eq!(refusal.code, Code::UnknownContractVersion);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some("/contract_version")
     );
     assert_eq!(refusal.contract_version.as_deref(), Some(wrong));
@@ -699,7 +699,7 @@ fn reader_refuses_wrong_string_version_before_shape_identity_and_nodes() {
         };
         assert_eq!(refusal.code, Code::UnknownContractVersion);
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some("/contract_version")
         );
         assert_eq!(refusal.contract_version.as_deref(), Some(wrong));
@@ -715,7 +715,7 @@ fn reader_refuses_wrong_string_version_before_shape_identity_and_nodes() {
     assert_eq!(refusal.code, Code::InvalidPackage);
     assert_eq!(refusal.cause, Some(Cause::WrongValueKind));
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some("/contract_version")
     );
     assert_eq!(refusal.contract_version, None);
@@ -1408,7 +1408,11 @@ fn retained_views_preserve_kind_and_tag_refusal_before_identity_and_limit() {
     };
     assert_eq!(kind_refusal.code, Code::InvalidSemanticGraph);
     assert_eq!(
-        kind_refusal.path.expect("kind path").as_str(),
+        kind_refusal.loci[0]
+            .path
+            .clone()
+            .expect("kind path")
+            .as_str(),
         "/semantic_graph/nodes/0/semantic_form"
     );
     let mut bad_tag: Value = serde_json::from_slice(original).expect("package json");
@@ -1418,7 +1422,7 @@ fn retained_views_preserve_kind_and_tag_refusal_before_identity_and_limit() {
     };
     assert_eq!(tag_refusal.code, Code::InvalidPackage);
     assert_eq!(
-        tag_refusal.path.expect("tag path").as_str(),
+        tag_refusal.loci[0].path.clone().expect("tag path").as_str(),
         "/feature_accounting/2/node_tag"
     );
     let mut limits = CheckedPackageReadLimits::bounded();
@@ -1500,7 +1504,11 @@ fn reader_refuses_malformed_outer_shape_and_identity_member() {
             (Code::InvalidPackage, Some(Cause::MissingMember)),
             "{member}"
         );
-        assert_eq!(refusal.path.expect("root pointer").as_str(), "", "{member}");
+        assert_eq!(
+            refusal.loci[0].path.clone().expect("root pointer").as_str(),
+            "",
+            "{member}"
+        );
     }
     let mut extra = wire.clone();
     extra["types"] = json!([]);
@@ -1511,7 +1519,14 @@ fn reader_refuses_malformed_outer_shape_and_identity_member() {
         (refusal.code, refusal.cause),
         (Code::InvalidPackage, Some(Cause::UnknownMember))
     );
-    assert_eq!(refusal.path.expect("object pointer").as_str(), "");
+    assert_eq!(
+        refusal.loci[0]
+            .path
+            .clone()
+            .expect("object pointer")
+            .as_str(),
+        ""
+    );
     let mut old_identity = wire;
     old_identity["identity"] = json!(null);
     let ContractPackageReadResult::Refused(refusal) = read(&canonical(&old_identity)) else {
@@ -1521,7 +1536,10 @@ fn reader_refuses_malformed_outer_shape_and_identity_member() {
         (refusal.code, refusal.cause),
         (Code::InvalidPackage, Some(Cause::UnknownMember))
     );
-    assert_eq!(refusal.path.expect("root pointer").as_str(), "");
+    assert_eq!(
+        refusal.loci[0].path.clone().expect("root pointer").as_str(),
+        ""
+    );
 }
 
 #[trace("TC-047", "FR-035-AC-9")]
@@ -1541,7 +1559,11 @@ fn reader_keeps_lowering_profile_reference_closed() {
         (Code::InvalidPackage, Some(Cause::UnknownMember))
     );
     assert_eq!(
-        refusal.path.expect("object pointer").as_str(),
+        refusal.loci[0]
+            .path
+            .clone()
+            .expect("object pointer")
+            .as_str(),
         "/package/lowering_profile"
     );
 }
@@ -1563,7 +1585,11 @@ fn reader_locates_malformed_nested_source_value() {
         (Code::InvalidPackage, Some(Cause::WrongValueKind))
     );
     assert_eq!(
-        refusal.path.expect("member pointer").as_str(),
+        refusal.loci[0]
+            .path
+            .clone()
+            .expect("member pointer")
+            .as_str(),
         "/package/source/lock/sources/0/identity"
     );
 }
@@ -1590,7 +1616,7 @@ fn reader_distinguishes_unknown_occurrence_role_from_wrong_value_kind() {
             (Code::InvalidPackage, Some(cause))
         );
         assert_eq!(
-            refusal.path.expect("role pointer").as_str(),
+            refusal.loci[0].path.clone().expect("role pointer").as_str(),
             "/source_map/nodes/0/occurrences/0/role"
         );
     }
@@ -1616,7 +1642,10 @@ fn reader_requires_total_source_correspondence_and_request_order() {
         (refusal.code, refusal.cause),
         (Code::InvalidPackage, Some(Cause::InvalidValue))
     );
-    assert_eq!(refusal.path.expect("map pointer").as_str(), "/source_map");
+    assert_eq!(
+        refusal.loci[0].path.clone().expect("map pointer").as_str(),
+        "/source_map"
+    );
 
     let mut bad_region: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
     let end = bad_region["source_map"]["nodes"][0]["occurrences"][0]["regions"][0]["end"].clone();
@@ -1629,7 +1658,11 @@ fn reader_requires_total_source_correspondence_and_request_order() {
         (Code::InvalidPackage, Some(Cause::InvalidValue))
     );
     assert_eq!(
-        refusal.path.expect("region pointer").as_str(),
+        refusal.loci[0]
+            .path
+            .clone()
+            .expect("region pointer")
+            .as_str(),
         "/source_map/nodes/0/occurrences/0/regions/0/start"
     );
 }
@@ -1686,7 +1719,7 @@ fn canonical_decimal_counters_keep_the_full_u64_range() {
             Some(CheckedPackageRefusalCause::InvalidValue)
         );
         assert_eq!(
-            refusal.path.expect("pointer").as_str(),
+            refusal.loci[0].path.clone().expect("pointer").as_str(),
             "/feature_accounting/1/limit"
         );
     }
@@ -1738,7 +1771,7 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
         Some(CheckedPackageRefusalCause::InvalidValue)
     );
     assert_eq!(
-        refusal.path.expect("kind pointer").as_str(),
+        refusal.loci[0].path.clone().expect("kind pointer").as_str(),
         "/feature_accounting/1/incomplete/limit_kind"
     );
     wire["feature_accounting"][1]["incomplete"]
@@ -1773,7 +1806,11 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
         Some(CheckedPackageRefusalCause::InvalidValue)
     );
     assert_eq!(
-        refusal.path.expect("cause pointer").as_str(),
+        refusal.loci[0]
+            .path
+            .clone()
+            .expect("cause pointer")
+            .as_str(),
         "/feature_accounting/1/refusal/cause"
     );
     let mut unknown_code = body.clone();
@@ -1786,7 +1823,7 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
         Some(CheckedPackageRefusalCause::InvalidValue)
     );
     assert_eq!(
-        refusal.path.expect("code pointer").as_str(),
+        refusal.loci[0].path.clone().expect("code pointer").as_str(),
         "/feature_accounting/1/refusal/code"
     );
     body["feature_accounting"][1]["refusal"]["path"] = Value::Null;
@@ -1829,7 +1866,11 @@ fn reader_refuses_causes_on_causeless_nested_reader_codes() {
         assert_eq!(refusal.code, Code::InvalidPackage);
         assert_eq!(refusal.cause, Some(Cause::InvalidValue));
         assert_eq!(
-            refusal.path.expect("cause pointer").as_str(),
+            refusal.loci[0]
+                .path
+                .clone()
+                .expect("cause pointer")
+                .as_str(),
             "/feature_accounting/1/refusal/cause"
         );
     }
@@ -1858,7 +1899,11 @@ fn reader_refuses_causes_on_causeless_nested_reader_codes() {
         assert_eq!(refusal.code, Code::InvalidPackage);
         assert_eq!(refusal.cause, Some(Cause::InvalidValue));
         assert_eq!(
-            refusal.path.expect("cause pointer").as_str(),
+            refusal.loci[0]
+                .path
+                .clone()
+                .expect("cause pointer")
+                .as_str(),
             "/feature_accounting/1/refusal/cause"
         );
     }
@@ -1917,7 +1962,7 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        missing.path.expect("path").as_str(),
+        missing.loci[0].path.clone().expect("path").as_str(),
         "/package/source/lock/dependency_selections/0"
     );
     supplied.insert(
@@ -2008,11 +2053,11 @@ fn contract_reader_refuses_different_ids_in_derived_dependency_diamond() {
     assert_eq!(refusal.code, Code::InvalidPackage);
     assert_eq!(refusal.cause, Some(Cause::ConflictingDefinition));
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some("/package/source/lock/dependency_selections/0/lock/dependency_selections/0")
     );
     assert_eq!(
-        refusal.related_path.as_ref().map(|path| path.as_str()),
+        refusal.loci[1].path.as_ref().map(|path| path.as_str()),
         Some("/package/source/lock/dependency_selections/1/lock/dependency_selections/0")
     );
 }
@@ -2049,7 +2094,10 @@ fn reader_refuses_stale_selected_dependency_at_selection() {
         Some(CheckedPackageRefusalCause::ContentMismatch)
     );
     assert_eq!(
-        wrong_package.path.as_ref().map(|path| path.as_str()),
+        wrong_package.loci[0]
+            .path
+            .as_ref()
+            .map(|path| path.as_str()),
         Some("/package/source/lock/dependency_selections/0")
     );
     assert_eq!(
@@ -2100,7 +2148,7 @@ fn reader_refuses_reference_type_targeting_an_existing_scalar_node() {
         (Code::InvalidPackage, Some(Cause::InvalidValue))
     );
     assert_eq!(
-        refusal.path.expect("body pointer").as_str(),
+        refusal.loci[0].path.clone().expect("body pointer").as_str(),
         format!("/semantic_graph/nodes/{position}/body")
     );
 }
