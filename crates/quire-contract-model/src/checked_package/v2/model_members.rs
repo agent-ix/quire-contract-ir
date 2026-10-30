@@ -532,7 +532,7 @@ pub(super) struct DomainModel {
 }
 
 /// A model declaration node's `(node_tag, semantic_form)`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum DeclarationForm {
     ObjectType,
     StateMachine,
@@ -1186,16 +1186,21 @@ impl DomainModel {
         &self,
         type_ref: &str,
     ) -> Option<Result<String, quire_canonical::Error>> {
+        let form = self.end_declaration_form(type_ref)?;
+        Some(declaration_key(&self.identity, form, type_ref, self.bytes))
+    }
+
+    /// The selected object or interface form of a relationship end.
+    pub(super) fn end_declaration_form(&self, type_ref: &str) -> Option<DeclarationForm> {
         if self.state_machines.contains(type_ref) || self.processes.contains(type_ref) {
             return None;
         }
         let declared = self.object_types.get(type_ref)?;
-        let form = if declared.interface {
+        Some(if declared.interface {
             DeclarationForm::SystemsInterface
         } else {
             DeclarationForm::ObjectType
-        };
-        Some(declaration_key(&self.identity, form, type_ref, self.bytes))
+        })
     }
 
     /// A field-bearing declaration, whether it is an object or a value record.
@@ -1731,6 +1736,7 @@ pub(super) struct ModelOperationClass {
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
     by_key: BTreeMap<CheckedNodeId, Owner<'m>>,
+    by_declaration: BTreeMap<(&'m str, &'m str, DeclarationForm), CheckedNodeId>,
     /// The identity of every selected domain package.
     identities: BTreeSet<&'m str>,
 }
@@ -1757,6 +1763,16 @@ impl<'m> ModelOwners<'m> {
 
     pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
         self.by_key.get(key).copied()
+    }
+
+    /// The exact admitted node for a selected model declaration.
+    pub(super) fn declaration_id(
+        &self,
+        identity: &str,
+        node: &str,
+        form: DeclarationForm,
+    ) -> Option<&CheckedNodeId> {
+        self.by_declaration.get(&(identity, node, form))
     }
 
     /// Effective operation names, declaration nodes and checked binder records
@@ -1816,6 +1832,7 @@ impl<'m> ModelOwners<'m> {
         mut charge: impl FnMut(usize) -> Result<(), ValidationFailure>,
     ) -> Result<Self, ValidationFailure> {
         let mut by_key = BTreeMap::new();
+        let mut by_declaration = BTreeMap::new();
         let mut identities = BTreeSet::new();
         let mut authored = BTreeMap::<(&str, &str), Vec<&CheckedSemanticNodeV2<Body>>>::new();
         for candidate in nodes {
@@ -1880,6 +1897,10 @@ impl<'m> ModelOwners<'m> {
                         if candidate.node_tag.as_ref() == form.tag()
                             && candidate.semantic_form.as_ref() == form.form()
                         {
+                            by_declaration.insert(
+                                (package.identity.as_ref(), node.as_ref(), form),
+                                candidate.node_id.clone(),
+                            );
                             by_key.insert(
                                 candidate.node_id.clone(),
                                 Owner {
@@ -1894,7 +1915,11 @@ impl<'m> ModelOwners<'m> {
                 }
             }
         }
-        Ok(Self { by_key, identities })
+        Ok(Self {
+            by_key,
+            by_declaration,
+            identities,
+        })
     }
 
     /// Whether `node` is a model declaration node: a `model` or `relation`
