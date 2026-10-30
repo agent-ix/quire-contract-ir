@@ -541,27 +541,11 @@ pub(super) struct RetainedModels {
 }
 
 /// The relationship record admission consults, kept for the accessor: both
-/// ends (role, type reference, multiplicity), the direction, and the derived
-/// model declaration node key of each end's type. `None` when no such
-/// declaration is selected or the key cannot be derived, which admission
-/// refuses for an end it reads.
+/// ends (role, type reference, multiplicity) and the direction. The reaches
+/// operation supplies its destination type ID separately.
 #[derive(Clone, Debug)]
 pub(super) struct RetainedRelationship {
     pub(super) declaration: RelationshipDecl,
-    pub(super) source_key: Option<Box<str>>,
-    pub(super) target_key: Option<Box<str>>,
-}
-
-impl RetainedRelationship {
-    /// The derived declaration key of the destination end of a traversal.
-    pub(super) fn destination_key(&self, forward: bool) -> Option<&str> {
-        let key = if forward {
-            &self.target_key
-        } else {
-            &self.source_key
-        };
-        key.as_deref()
-    }
 }
 
 /// The selected model signature already checked against a clause by FR-341.
@@ -667,18 +651,10 @@ impl RetainedModels {
         }
         let mut relationships = BTreeMap::new();
         for (selection, model) in models.iter().enumerate() {
-            let key = |type_ref: &str| {
-                model
-                    .end_declaration_key(type_ref)
-                    .and_then(Result::ok)
-                    .map(Box::<str>::from)
-            };
             for (node, declaration) in &model.relationships {
                 relationships.insert(
                     (selection, node.clone()),
                     RetainedRelationship {
-                        source_key: key(&declaration.source.type_ref),
-                        target_key: key(&declaration.target.type_ref),
                         declaration: declaration.clone(),
                     },
                 );
@@ -723,34 +699,6 @@ impl RetainedModels {
         };
         let mut budget = Budget::new(meter, model.root, model.bytes);
         model.effective_operation_binder_types(&declared.node, name, &mut budget)
-    }
-
-    /// A retained index of one relationship, for tests that build a package
-    /// by hand instead of admitting one.
-    #[cfg(test)]
-    pub(super) fn with_relationship(
-        digest: &str,
-        selection: usize,
-        node: &str,
-        relationship: RetainedRelationship,
-    ) -> Self {
-        let mut index = DeclarationIndex::default();
-        index.0.insert(
-            digest.to_owned(),
-            DeclaredNode {
-                form: DeclarationForm::Relationship,
-                selection,
-                node: node.into(),
-            },
-        );
-        let mut retained = Self {
-            index,
-            ..Self::default()
-        };
-        retained
-            .relationships
-            .insert((selection, node.into()), relationship);
-        retained
     }
 
     /// The retained relationship the model declaration node `node` is.
