@@ -78,6 +78,26 @@ fn append_shape(package: &mut Value, tag: &str, form: &str, mut node: Value) -> 
     position
 }
 
+fn append_authored(package: &mut Value, node: Value) -> usize {
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .len();
+    let mut source = package["source_map"][0].clone();
+    source["node_id"] = node["node_id"].clone();
+    source["role"] = node["occurrences"][0]["role"].clone();
+    source["ordinal"] = node["occurrences"][0]["ordinal"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .push(node);
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(source);
+    position
+}
+
 fn all_ten_shapes() -> (Value, Vec<(&'static str, usize)>) {
     let mut package = v2_all_families();
     let selected = package["semantic_graph"]["nodes"]
@@ -479,5 +499,265 @@ fn owner_free_self_option_group_obeys_closed_shape_checks() {
         refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}")),
         "{refusal:?}"
+    );
+}
+
+fn list_group() -> (Value, usize, usize) {
+    let mut package = local_package();
+    let name = package["name"].as_str().expect("package name");
+    let list_id = structural_id(name, vec![json!("List")], 4);
+    let option_id = structural_id(
+        name,
+        vec![json!("composite_type"), json!("option"), list_id.clone()],
+        9,
+    );
+    let mut option = package["semantic_graph"]["nodes"][0].clone();
+    option["node_id"] = option_id.clone();
+    option["node_tag"] = json!("composite_type");
+    option["semantic_form"] = json!("option");
+    option["semantic_type"] = option_id.clone();
+    option["dependencies"] = json!([list_id]);
+    option["recursion_group"] = json!("List");
+    option["body"] = json!({"term":"aggregate","members":[
+        {"term":"reference","target":list_id}
+    ]});
+    let option_position = append_authored(&mut package, option);
+
+    let source = package["lock"]["sources"][0].clone();
+    let mut record = package["semantic_graph"]["nodes"][0].clone();
+    record["node_id"] = list_id.clone();
+    record["node_tag"] = json!("composite_type");
+    record["semantic_form"] = json!("record");
+    record["semantic_type"] = list_id;
+    record["dependencies"] = json!([option_id]);
+    record["occurrences"] = json!([{"role":"declaration","ordinal":0}]);
+    record["recursion_group"] = json!("List");
+    record["declaration"] = json!({"qualified_name":["List"]});
+    record["owner"] =
+        json!({"kind":"source","authority":source["authority"],"identity":source["identity"]});
+    record["body"] = json!({"term":"aggregate","members":[
+        {"term":"binding","name":"next","value":{
+            "term":"aggregate","members":[
+                {"term":"binding","name":"optional","value":{
+                    "term":"reference","target":option_id
+                }}
+            ]
+        }}
+    ]});
+    let record_position = append_authored(&mut package, record);
+    settle(&mut package);
+    (package, option_position, record_position)
+}
+
+#[trace("TC-226", "FR-038-AC-145", "FR-038-AC-150")]
+#[test]
+fn declared_list_group_admits_with_independent_node_ordinals() {
+    let (package, option, record) = list_group();
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "declared List group: {:?}",
+        read(&package)
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][option]["node_id"]["ordinal"],
+        9
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][record]["node_id"]["ordinal"],
+        4
+    );
+
+    let mut permuted = package.clone();
+    permuted["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("group nodes")
+        .swap(option, record);
+    assert!(
+        matches!(read(&permuted), CheckedPackageV2ReadResult::Admitted(_)),
+        "consistent graph permutation retains producer-assigned node ids: {:?}",
+        read(&permuted)
+    );
+    let mut missing_join = package;
+    missing_join["semantic_graph"]["nodes"][record]["body"]["members"][0]["value"]["members"][0]
+        ["value"]["target"]["ordinal"] = json!(99);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing_join) else {
+        panic!("wrong group reference ordinal must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+}
+
+fn tree_group() -> (Value, usize, usize, usize) {
+    let mut package = local_package();
+    let name = package["name"].as_str().expect("package name").to_owned();
+    let tree = structural_id(&name, vec![json!("Tree")], 11);
+    let sequence = structural_id(
+        &name,
+        vec![json!("composite_type"), json!("sequence"), tree.clone()],
+        14,
+    );
+    let bounds = structural_id(
+        &name,
+        vec![
+            json!("bounded_domain"),
+            json!("collection_bounds"),
+            sequence.clone(),
+        ],
+        23,
+    );
+    let integer = v2_all_families()["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("family nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "integer")
+        .expect("Integer node")
+        .clone();
+    let integer_id = integer["node_id"].clone();
+    append_authored(&mut package, integer);
+
+    let source = package["lock"]["sources"][0].clone();
+    let mut record = package["semantic_graph"]["nodes"][0].clone();
+    record["node_id"] = tree.clone();
+    record["node_tag"] = json!("composite_type");
+    record["semantic_form"] = json!("record");
+    record["semantic_type"] = tree.clone();
+    record["dependencies"] = json!([bounds]);
+    record["occurrences"] = json!([{"role":"declaration","ordinal":0}]);
+    record["recursion_group"] = json!("Tree");
+    record["declaration"] = json!({"qualified_name":["Tree"]});
+    record["owner"] =
+        json!({"kind":"source","authority":source["authority"],"identity":source["identity"]});
+    record["body"] = json!({"term":"aggregate","members":[
+        {"term":"binding","name":"kids","value":{
+            "term":"reference","target":bounds
+        }}
+    ]});
+    let record_position = append_authored(&mut package, record);
+
+    let mut sequence_node = package["semantic_graph"]["nodes"][0].clone();
+    sequence_node["node_id"] = sequence.clone();
+    sequence_node["node_tag"] = json!("composite_type");
+    sequence_node["semantic_form"] = json!("sequence");
+    sequence_node["semantic_type"] = sequence.clone();
+    sequence_node["dependencies"] = json!([tree]);
+    sequence_node["recursion_group"] = json!("Tree");
+    sequence_node["body"] = json!({"term":"aggregate","members":[
+        {"term":"reference","target":tree}
+    ]});
+    let sequence_position = append_authored(&mut package, sequence_node);
+
+    let mut bounds_node = package["semantic_graph"]["nodes"][0].clone();
+    bounds_node["node_id"] = bounds.clone();
+    bounds_node["node_tag"] = json!("bounded_domain");
+    bounds_node["semantic_form"] = json!("collection_bounds");
+    bounds_node["semantic_type"] = sequence.clone();
+    bounds_node["dependencies"] = json!([sequence]);
+    bounds_node["recursion_group"] = json!("Tree");
+    bounds_node["body"] = json!({"term":"aggregate","members":[
+        {"term":"binding","name":"min","value":{
+            "term":"literal","type":integer_id,"value_kind":"integer","value":"0"
+        }},
+        {"term":"binding","name":"max","value":{
+            "term":"literal","type":integer_id,"value_kind":"integer","value":"3"
+        }}
+    ]});
+    let bounds_position = append_authored(&mut package, bounds_node);
+    settle(&mut package);
+    (package, record_position, sequence_position, bounds_position)
+}
+
+#[trace("TC-226", "FR-038-AC-145", "FR-038-AC-147")]
+#[test]
+fn declared_tree_group_checks_sequence_and_bounded_members() {
+    let (package, record, sequence, bounds) = tree_group();
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "declared Tree group: {:?}",
+        read(&package)
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][record]["node_id"]["ordinal"],
+        11
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][sequence]["node_id"]["ordinal"],
+        14
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][bounds]["node_id"]["ordinal"],
+        23
+    );
+    let mut malformed = package.clone();
+    malformed["semantic_graph"]["nodes"][bounds]["body"]["members"][1]["name"] = json!("other");
+    assert_derived_refusal(&malformed, bounds);
+    let mut unresolved = package;
+    unresolved["semantic_graph"]["nodes"][sequence]["body"]["members"][0]["target"]["ordinal"] =
+        json!(99);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&unresolved) else {
+        panic!("unresolved Tree reference must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+}
+
+#[trace("TC-226", "FR-038-AC-147", "FR-038-AC-150")]
+#[test]
+fn off_cycle_set_member_participates_in_tree_group_checks() {
+    let (mut package, _, _, _) = tree_group();
+    let mut range = v2_all_families()["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("family nodes")
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "bounded_domain" && node["semantic_form"] == "integer_range"
+        })
+        .expect("integer range")
+        .clone();
+    let range_id = structural_id(
+        package["name"].as_str().expect("package name"),
+        vec![json!("range"), json!("0"), json!("1000")],
+        5,
+    );
+    range["node_id"] = range_id.clone();
+    append_authored(&mut package, range);
+
+    let mut set = package["semantic_graph"]["nodes"][0].clone();
+    let set_id = structural_id(
+        package["name"].as_str().expect("package name"),
+        vec![json!("off-cycle"), json!("set"), range_id.clone()],
+        31,
+    );
+    set["node_id"] = set_id.clone();
+    set["node_tag"] = json!("composite_type");
+    set["semantic_form"] = json!("set");
+    set["semantic_type"] = set_id;
+    set["dependencies"] = json!([range_id]);
+    set["recursion_group"] = json!("Tree");
+    set["body"] = json!({"term":"aggregate","members":[
+        {"term":"reference","target":range_id}
+    ]});
+    let position = append_authored(&mut package, set);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "off-cycle member with Tree label: {:?}",
+        read(&package)
+    );
+    let mut malformed = package.clone();
+    malformed["semantic_graph"]["nodes"][position]["body"]["members"] = json!([]);
+    assert_derived_refusal(&malformed, position);
+    let mut missing = package;
+    missing["semantic_graph"]["nodes"][position]["body"]["members"][0]["target"]["ordinal"] =
+        json!(99);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing) else {
+        panic!("off-cycle unresolved reference must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
     );
 }
