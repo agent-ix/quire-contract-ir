@@ -6,7 +6,10 @@
 use super::{cause_word, code_word, fixtures_dir, proposal_dir_of, read_json, read_package};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageReadLimits,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2, ContractDependencies, ContractDependencyInput,
+    ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
 };
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -101,4 +104,103 @@ fn published_dependency_call_vectors_bind_every_reader_outcome_and_locus() {
             "{id}: exact published locus"
         );
     }
+}
+
+/// Trace: QSpec FR-322-AC-37 and IR FR-349-AC-1. The published importer
+/// retains a typed external callee through lowering and canonical readback.
+#[trace("TC-233", "FR-322-AC-37", "FR-349-AC-1")]
+#[test]
+fn published_dependency_call_lowers_and_reads_back_with_selected_callee() {
+    let fixtures = fixtures_dir();
+    let importer_wire =
+        read_json(&fixtures.join("positive-dependency-call.json")).expect("published importer");
+    let library_wire =
+        read_json(&fixtures.join("positive-dependency-library.json")).expect("published library");
+    let CheckedPackageV2ReadResult::Admitted(importer) =
+        read_package(&importer_wire).expect("importer production read")
+    else {
+        panic!("published importer must admit");
+    };
+    let CheckedPackageV2ReadResult::Admitted(library) =
+        read_package(&library_wire).expect("library production read")
+    else {
+        panic!("published library must admit");
+    };
+    let call = importer_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published graph")
+        .iter()
+        .find(|node| node["body"]["arguments"][0]["term"] == "dependency_reference")
+        .expect("published dependency call");
+    let request: CheckedNodeId =
+        serde_json::from_value(call["node_id"].clone()).expect("call identity");
+    let callee: CheckedNodeId =
+        serde_json::from_value(call["body"]["arguments"][0]["node"].clone())
+            .expect("selected callee identity");
+    let library_name = call["body"]["arguments"][0]["package"]
+        .as_str()
+        .expect("selected library name");
+    assert_eq!(library_name, library.name());
+    let Some(CheckedTerm::Application { arguments, .. }) = importer.term(&request) else {
+        panic!("published call must retain typed application body");
+    };
+    let [CheckedTerm::DependencyReference { package, node }, CheckedTerm::Literal { .. }] =
+        arguments.as_slice()
+    else {
+        panic!("published call must retain typed external callee and literal argument");
+    };
+    assert_eq!(package.as_ref(), library_name);
+    assert_eq!(node, &callee);
+    assert!(call["dependencies"]
+        .as_array()
+        .expect("local dependencies")
+        .iter()
+        .all(|id| *id != call["body"]["arguments"][0]["node"]));
+
+    let profile = CompleteLoweringProfileV2 {
+        reference: LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        required_source_selections: Vec::new(),
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let result = importer.lower(std::slice::from_ref(&request), &profile);
+    assert!(
+        matches!(
+            result.records.as_slice(),
+            [CompleteLoweringRecordV2::Lowered { .. }]
+        ),
+        "published call must lower: {:?}",
+        result.records
+    );
+    let bytes = result
+        .package
+        .canonical_bytes()
+        .expect("lowered canonical bytes");
+    let mut selected = ContractDependencies::new();
+    selected.insert(
+        library_name,
+        ContractDependencyInput {
+            identity: library_name,
+            package: &library,
+        },
+    );
+    let ContractPackageReadResult::Admitted(read_back) =
+        ContractPackageWireV1::read(bytes, CheckedPackageReadLimits::bounded(), &selected)
+    else {
+        panic!("published external call must read back with selected library");
+    };
+    let ContractRootViewV1::Lowered(view) = read_back
+        .reached_closure(&request)
+        .expect("admitted reached closure")
+    else {
+        panic!("published call must remain lowered after readback");
+    };
+    assert_eq!(view.selected_references.len(), 1);
+    assert_eq!(view.selected_references[0].package.as_ref(), library_name);
+    assert_eq!(view.selected_references[0].node, callee);
+    assert!(view.nodes.iter().all(|entry| entry.node.node_id != callee));
 }
