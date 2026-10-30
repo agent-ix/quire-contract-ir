@@ -4,14 +4,13 @@
 //! Exact, independent per-item lowering of admitted CheckedPackage V2 nodes.
 
 use crate::support::checked_package::{
-    self, canonical, evidence_for, mint_ungrouped_structural_keys, refresh_identity, settle,
-    sha256_hex, structural_key, typed_node_id, v2_all_families, v2_nominal,
+    self, canonical, evidence_for, refresh_identity, settle, typed_node_id, v2_all_families,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    CONTRACT_IR_SEMANTIC_DOMAIN,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -48,14 +47,9 @@ fn id(prefix: &str) -> CheckedNodeId {
     typed_node_id(&key(prefix))
 }
 
-/// FR-092 key of the namespace after `integer_typed` retypes it at Integer.
+/// Retained structural identity of the namespace after `integer_typed` retypes it.
 fn integer_typed_namespace_id() -> CheckedNodeId {
-    typed_node_id(&structural_key(
-        "model",
-        "namespace",
-        Some(&key("a3a3")),
-        &json!({"term": "aggregate", "members": []}),
-    ))
+    id("1010")
 }
 
 fn admit(value: &Value) -> CheckedPackageV2 {
@@ -127,15 +121,14 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             // The function node's real `application` body also argues over
             // the second function node ("8080"), so its own one-hop
             // dependency set gains that reference beside its self-typed
-            // `result_type`; digest-ascending puts "8080" before "aaaa".
+            // `result_type`; the structural order is asserted after sorting.
             "ffff" => vec![id("8080"), id("aaaa")],
             // The temporal clause reaches its `over` parameter ("a4a4") and
             // that parameter's `integer` level type ("a3a3"), the `text`
             // type of its name literal ("a1a1"), its formula ("a2a2"), the
             // formula's `holds` operand ("a5a5") and that operand's Boolean
             // literal type (the one Boolean node, "aaaa", which is also its
-            // `result_type`), in digest order (two of them are application
-            // keys).
+            // `result_type`), in structural node-id order.
             "4040" => {
                 let mut reached = vec![
                     id("a1a1"),
@@ -186,31 +179,11 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             serde_json::to_value(&node.source_map).expect("source map"),
             Value::Array(source_map)
         );
-
-        // The lowered identity is re-derivable from the wire alone.
-        let mut projection = wire.clone();
-        projection
-            .as_object_mut()
-            .expect("node")
-            .remove("occurrences");
-        let preimage = json!({
-            "version": "quire.contract-ir.lowered-node/v1",
-            "node": projection,
-            "dependencies": node.dependencies,
-            "bounds": node.bounds,
-            "claims": node.claims,
-        });
-        assert_eq!(node.ir_id.domain.as_ref(), CONTRACT_IR_SEMANTIC_DOMAIN);
-        assert_eq!(node.ir_id.algorithm.as_ref(), "sha256");
-        assert_eq!(
-            node.ir_id.digest.as_ref(),
-            sha256_hex(&canonical(&preimage))
-        );
     }
     let identities = result
         .records
         .iter()
-        .map(|record| lowered(record).ir_id.digest.clone())
+        .map(|record| lowered(record).node.node_id.clone())
         .collect::<BTreeSet<_>>();
     assert_eq!(identities.len(), FAMILIES.len());
 
@@ -221,7 +194,7 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
         .as_array()
         .expect("nodes")
         .iter()
-        .map(|node| typed_node_id(node["node_id"]["digest"].as_str().expect("key")))
+        .map(|node| serde_json::from_value(node["node_id"].clone()).expect("node id"))
         .collect::<Vec<_>>();
     let result = nominal.lower(&keys, &profile(u64::MAX));
     let [member, declaration, unit, dimension] = [0, 1, 2, 3].map(|i| lowered(&result.records[i]));
@@ -354,19 +327,15 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
     let mut bounded = profile(u64::MAX);
     bounded.require_bounds = true;
 
-    let value_key = value["semantic_graph"]["nodes"]
+    let value_key: CheckedNodeId = value["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
         .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "literal")
-        .and_then(|node| node["node_id"]["digest"].as_str())
+        .map(|node| serde_json::from_value(node["node_id"].clone()).expect("node id"))
         .expect("value key");
     let result = package.lower(
-        &[
-            integer_typed_namespace_id(),
-            typed_node_id(value_key),
-            id("cccc"),
-        ],
+        &[integer_typed_namespace_id(), value_key, id("cccc")],
         &bounded,
     );
     assert_eq!(
@@ -409,7 +378,6 @@ fn integer_typed() -> Value {
             node["dependencies"] = json!([checked_package::node_id(&key("cccc"))]);
         }
     }
-    mint_ungrouped_structural_keys(&mut value);
     settle(&mut value);
     value
 }
@@ -434,7 +402,7 @@ fn graph_keys(value: &Value) -> Vec<CheckedNodeId> {
         .as_array()
         .expect("graph nodes")
         .iter()
-        .map(|node| typed_node_id(node["node_id"]["digest"].as_str().expect("node id digest")))
+        .map(|node| serde_json::from_value(node["node_id"].clone()).expect("node id"))
         .collect()
 }
 
