@@ -5,7 +5,7 @@
 //! source/occurrence records that the current reader and its lowering
 //! pipeline both use unchanged.
 
-use quire_canonical::FixedShape;
+use quire_canonical::{Encode, Error as CanonicalError, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
 
 /// Caller-supplied, exact ceilings for a checked-package read.
@@ -634,7 +634,7 @@ pub struct CheckedArtifactLocator {
 }
 
 /// A semantic digest with an explicit domain and algorithm.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedSemanticId {
     /// Identity domain.
@@ -646,7 +646,7 @@ pub struct CheckedSemanticId {
 }
 
 /// One segment of a checked node's structural path.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 #[serde(untagged)]
 pub enum CheckedNodePathSegment {
     /// An authored or derived path spelling.
@@ -656,7 +656,7 @@ pub enum CheckedNodePathSegment {
 }
 
 /// A checked semantic graph node identity.
-#[derive(Clone, Debug, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Serialize)]
 #[cfg_attr(not(test), derive(Eq, PartialEq, Ord, PartialOrd))]
 #[cfg_attr(test, derive(Eq))]
 #[serde(deny_unknown_fields)]
@@ -667,6 +667,90 @@ pub struct CheckedNodeId {
     pub path: Vec<CheckedNodePathSegment>,
     /// Position among nodes sharing the package and path.
     pub ordinal: u64,
+}
+
+impl<'de> Deserialize<'de> for CheckedNodeId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        use serde_json::value::RawValue;
+
+        // RawValue captures the nested object with serde_json's iterative
+        // scanner. Decode one object at a time so input depth consumes heap
+        // frames, never the call stack.
+        let raw = Box::<RawValue>::deserialize(deserializer)?;
+        enum Task<'a> {
+            Parse(&'a RawValue),
+            Finish {
+                package: Box<str>,
+                ordinal: u64,
+                path_len: usize,
+            },
+        }
+        let mut tasks = vec![Task::Parse(&raw)];
+        let mut segments = Vec::<CheckedNodePathSegment>::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Parse(value) if value.get().starts_with('"') => {
+                    let name = serde_json::from_str(value.get()).map_err(D::Error::custom)?;
+                    segments.push(CheckedNodePathSegment::Name(name));
+                }
+                Task::Parse(value) => {
+                    let mut members: std::collections::BTreeMap<&str, &RawValue> =
+                        serde_json::from_str(value.get()).map_err(D::Error::custom)?;
+                    if members.len() != 3 {
+                        return Err(D::Error::custom("node id requires package, path, ordinal"));
+                    }
+                    let package: Box<str> = serde_json::from_str(
+                        members
+                            .remove("package")
+                            .ok_or_else(|| D::Error::custom("missing package"))?
+                            .get(),
+                    )
+                    .map_err(D::Error::custom)?;
+                    let path: Vec<&RawValue> = serde_json::from_str(
+                        members
+                            .remove("path")
+                            .ok_or_else(|| D::Error::custom("missing path"))?
+                            .get(),
+                    )
+                    .map_err(D::Error::custom)?;
+                    let ordinal: u64 = serde_json::from_str(
+                        members
+                            .remove("ordinal")
+                            .ok_or_else(|| D::Error::custom("missing ordinal"))?
+                            .get(),
+                    )
+                    .map_err(D::Error::custom)?;
+                    tasks.push(Task::Finish {
+                        package,
+                        ordinal,
+                        path_len: path.len(),
+                    });
+                    tasks.extend(path.into_iter().rev().map(Task::Parse));
+                }
+                Task::Finish {
+                    package,
+                    ordinal,
+                    path_len,
+                } => {
+                    let start = segments
+                        .len()
+                        .checked_sub(path_len)
+                        .ok_or_else(|| D::Error::custom("malformed node path"))?;
+                    let path = segments.split_off(start);
+                    segments.push(CheckedNodePathSegment::Node(Box::new(Self {
+                        package,
+                        path,
+                        ordinal,
+                    })));
+                }
+            }
+        }
+        match segments.pop() {
+            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => Ok(*node),
+            _ => Err(D::Error::custom("malformed node id")),
+        }
+    }
 }
 
 impl CheckedNodeId {
@@ -686,6 +770,55 @@ impl CheckedNodeId {
             }));
         }
         true
+    }
+}
+
+impl Drop for CheckedNodeId {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.path);
+        while let Some(segment) = pending.pop() {
+            if let CheckedNodePathSegment::Node(mut node) = segment {
+                pending.append(&mut node.path);
+            }
+        }
+    }
+}
+
+impl Encode for CheckedNodeId {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        enum Event<'a> {
+            Node(&'a CheckedNodeId),
+            Segment(&'a CheckedNodePathSegment),
+            EndNode(u64),
+        }
+        let mut pending = vec![Event::Node(self)];
+        while let Some(event) = pending.pop() {
+            match event {
+                Event::Node(node) => {
+                    writer.begin_object()?;
+                    writer.name("package")?;
+                    writer.string(&node.package)?;
+                    writer.name("path")?;
+                    writer.begin_array()?;
+                    pending.push(Event::EndNode(node.ordinal));
+                    pending.extend(node.path.iter().rev().map(Event::Segment));
+                }
+                Event::Segment(CheckedNodePathSegment::Name(name)) => writer.string(name)?,
+                Event::Segment(CheckedNodePathSegment::Node(node)) => {
+                    pending.push(Event::Node(node));
+                }
+                Event::EndNode(ordinal) => {
+                    writer.end_array()?;
+                    writer.name("ordinal")?;
+                    writer.integer(i128::from(ordinal))?;
+                    writer.end_object()?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -730,6 +863,97 @@ pub(crate) mod checked_node_comparisons {
 
     pub(crate) fn count() -> u64 {
         COUNT.with(Cell::get)
+    }
+}
+
+#[cfg(test)]
+mod structural_node_identity_tests {
+    use super::{CheckedNodeId, CheckedNodePathSegment};
+
+    /// Trace: FR-038-AC-364, FR-038-AC-365.
+    #[test]
+    fn nested_paths_compare_by_segment_kind_then_ordinal() {
+        let named = CheckedNodeId {
+            package: "example".into(),
+            path: vec![CheckedNodePathSegment::Name("A".into())],
+            ordinal: 0,
+        };
+        let longer = CheckedNodeId {
+            package: named.package.clone(),
+            path: vec![
+                CheckedNodePathSegment::Name("A".into()),
+                CheckedNodePathSegment::Name("B".into()),
+            ],
+            ordinal: named.ordinal,
+        };
+        let nested = CheckedNodeId {
+            package: named.package.clone(),
+            path: vec![CheckedNodePathSegment::Node(Box::new(named.clone()))],
+            ordinal: named.ordinal,
+        };
+        assert!(named < longer);
+        assert!(longer < nested);
+        assert!(
+            named
+                < CheckedNodeId {
+                    package: named.package.clone(),
+                    path: named.path.clone(),
+                    ordinal: 1
+                }
+        );
+        assert_eq!(
+            serde_json::to_value(&nested).expect("serialize structural id"),
+            serde_json::json!({"package":"example","path":[
+                {"package":"example","path":["A"],"ordinal":0}
+            ],"ordinal":0})
+        );
+        let canonical = quire_canonical::to_vec(&nested, quire_canonical::Limits::new(4096))
+            .expect("encode nested structural id");
+        let encoded: serde_json::Value =
+            serde_json::from_slice(&canonical).expect("decode encoded structural id");
+        assert_eq!(
+            encoded,
+            serde_json::to_value(&nested).expect("serialize id")
+        );
+    }
+
+    /// Trace: FR-038-AC-364.
+    #[test]
+    fn structural_identity_rejects_empty_or_out_of_range_components() {
+        let mut id = CheckedNodeId {
+            package: "example".into(),
+            path: vec![CheckedNodePathSegment::Name("A".into())],
+            ordinal: 0,
+        };
+        assert!(id.is_well_formed());
+        id.ordinal = 9_007_199_254_740_992;
+        assert!(!id.is_well_formed());
+        id.ordinal = 0;
+        id.path.clear();
+        assert!(!id.is_well_formed());
+        id.path.push(CheckedNodePathSegment::Name("A".into()));
+        id.package = "".into();
+        assert!(!id.is_well_formed());
+    }
+
+    /// Trace: FR-038-AC-117, FR-038-AC-364.
+    #[test]
+    fn ten_thousand_nested_node_paths_decode_encode_and_drop_iteratively() {
+        const NESTING: usize = 10_000;
+        let prefix = r#"{"package":"p","path":["#;
+        let suffix = r#"],"ordinal":0}"#;
+        let text = format!(
+            "{}\"leaf\"{}",
+            prefix.repeat(NESTING),
+            suffix.repeat(NESTING)
+        );
+        let id: CheckedNodeId = serde_json::from_str(&text).expect("decode deep structural id");
+        assert!(id.is_well_formed());
+        let canonical = quire_canonical::to_vec(&id, quire_canonical::Limits::new(1 << 20))
+            .expect("encode deep structural id");
+        assert_eq!(canonical.len(), text.len());
+        // The ordinary drop path also has to consume no native recursion.
+        drop(id);
     }
 }
 
@@ -807,7 +1031,7 @@ pub struct CheckedSourceRegion {
 }
 
 /// Exact source correspondence for one node occurrence.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedSourceMapEntry {
     /// Graph node identity.
@@ -818,6 +1042,24 @@ pub struct CheckedSourceMapEntry {
     pub ordinal: u64,
     /// One or more half-open source regions.
     pub regions: Vec<CheckedSourceRegion>,
+}
+
+impl Encode for CheckedSourceMapEntry {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        writer.name("node_id")?;
+        self.node_id.encode_into(writer)?;
+        writer.name("role")?;
+        writer.serialize(&self.role)?;
+        writer.name("ordinal")?;
+        writer.integer(i128::from(self.ordinal))?;
+        writer.name("regions")?;
+        writer.serialize(&self.regions)?;
+        writer.end_object()
+    }
 }
 
 /// Reported availability of one required capability.
