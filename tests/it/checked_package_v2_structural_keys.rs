@@ -604,6 +604,38 @@ fn source_owner_join_precedes_derived_shape_refusal() {
     );
 }
 
+#[trace("TC-226", "FR-038-AC-127")]
+#[test]
+fn derived_shape_refusal_precedes_dependent_frame_check() {
+    let mut frame_only = v2_all_families();
+    let frame = index_of(&frame_only, "state", "frame");
+    let modifies = frame_only["semantic_graph"]["nodes"][frame]["body"]["modifies"]
+        .as_array_mut()
+        .expect("frame modifications");
+    let field = modifies
+        .iter_mut()
+        .find(|entry| entry["kind"] == "field")
+        .expect("frame field modification");
+    field["name"] = json!("missing_field");
+    settle(&mut frame_only);
+    let CheckedPackageV2ReadResult::Refused(frame_refusal) = read(&frame_only) else {
+        panic!("invalid frame field must refuse");
+    };
+    assert_ne!(
+        frame_refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+        "independent frame defect: {frame_refusal:?}"
+    );
+
+    let mut both = frame_only;
+    let boolean = index_of(&both, "scalar_type", "boolean");
+    both["semantic_graph"]["nodes"][boolean]["body"]["members"] = json!([
+        {"term":"reference","target":both["semantic_graph"]["nodes"][boolean]["node_id"]}
+    ]);
+    settle(&mut both);
+    assert_derived_refusal(&both, boolean);
+}
+
 #[trace("TC-048", "FR-038-AC-185")]
 #[test]
 fn pregraph_refusal_invents_no_structural_node_locus() {
