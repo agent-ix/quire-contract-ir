@@ -166,7 +166,10 @@ fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_nested_applicati
         // The refusal is of the operator class, whatever identity it names.
         let (package, position) =
             with_second_argument(move |t| nested(operator, "quire.op.boolean.not", t));
-        assert_eq!(refused(&package).path, expected(position, "arguments/1").2);
+        assert_eq!(
+            refused(&package).loci[0].path,
+            expected(position, "arguments/1").2
+        );
     }
 }
 
