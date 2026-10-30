@@ -10,7 +10,7 @@ use super::structural::{
 use super::{
     BoundedDomainForm, CheckedCollectionKind, CheckedNodeId, CheckedNodeKind, CheckedOccurrence,
     CheckedPackageV2, CheckedScalarOperandChild, CheckedSemanticNodeV2, CheckedTerm,
-    CompositeTypeForm, LiteralKind, NominalIdentityPreimage, ScalarTypeForm, ValueForm,
+    CompositeTypeForm, LiteralKind, ScalarTypeForm, ValueForm,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;

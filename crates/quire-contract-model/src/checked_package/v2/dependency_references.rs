@@ -37,8 +37,7 @@
 
 use super::{
     CheckedDependencySelection, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedTerm,
-    NominalIdentityPreimage, NominalOwner, RawSemanticNodeV2 as CheckedSemanticNodeV2, ValueForm,
-    WorkMeter,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{count, node_pointer, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
