@@ -188,8 +188,8 @@ pub use checked_package::{
     ContractScalarOwnRangeV1, ContractSelectedReferenceV1, ContractSemanticGraphV1,
     ContractSourceHandoffError, ContractSourceMapV1, ContractSourceV1,
     ContractUnsupportedSourceKindError, CorrespondenceForm, DimensionTerm, ExpressionForm,
-    FunctionForm, HybridForm, JsonPointer, LoweringProfileRef, ModelForm, ProtocolForm,
-    RelationForm, ScalarTypeForm, StateForm, TemporalForm, TimedModelForm, ValueForm,
+    FunctionForm, HybridForm, JsonPointer, LoweringProfileRef, ModelForm, NominalBody,
+    ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, TimedModelForm, ValueForm,
     CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION, PACKAGE_DOMAIN_V2,
 };
 
