@@ -36,3 +36,9 @@ Independent spec-review/integrity review of quire-contract-ir PR #723 at dacd564
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | high | AC-145 calls the owner-free self-option case a one-declared-member group and requires its anonymous members to use a nonexistent declared path; QSpec FR-322-AC-274 instead admits a producer-chosen path when there are zero declared members. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4582 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-145 now separates the List/Tree one-declared-member path from the owner-free zero-declaration producer-chosen path; TC-226 G1 names the same producer-chosen path. |
