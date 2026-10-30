@@ -843,12 +843,16 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
     // the nominal stage admits exactly one such unit.
     let is_root_unit = graph.node(unit).is_some_and(|(node, kind)| {
         kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
-            && matches!(
-                super::identity::NominalBody::from_value(&node.body, JsonPointer::root()),
-                Ok(super::identity::NominalBody::Unit {
-                    target_unit_node_id: None,
-                    ..
-                })
+            && super::identity::NominalBody::from_value(&node.body, JsonPointer::root()).is_ok_and(
+                |body| {
+                    matches!(
+                        body.kind(),
+                        super::identity::NominalBodyKind::Unit {
+                            target_unit_node_id: None,
+                            ..
+                        }
+                    )
+                },
             )
     });
     let exponent_ok = typed_binding(exponent, "exponent")
