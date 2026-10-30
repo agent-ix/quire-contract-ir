@@ -1301,7 +1301,7 @@ fn tc_228_shipped_package_identity_members_refuse_before_owner_join() {
     }
 }
 
-#[trace("TC-228", "FR-038-AC-155")]
+#[trace("TC-228", "FR-038-AC-155", "FR-038-AC-367")]
 #[test]
 fn tc_228_source_owner_joins_selected_source_and_declaration_region() {
     let base = source_package();

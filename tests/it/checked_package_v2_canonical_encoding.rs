@@ -833,6 +833,34 @@ fn repository_file(path: &str) -> String {
     fs::read_to_string(&full).unwrap_or_else(|error| panic!("{}: {error}", full.display()))
 }
 
+/// AC-367 public API absence slice. The root export and checked-package
+/// implementation contain no retired semantic-id or candidate-key API.
+#[trace("TC-048", "FR-038-AC-367")]
+#[test]
+fn structural_v2_public_surface_has_no_stale_identity_api() {
+    let mut files = files_under(&["crates/quire-contract-model/src/checked_package"], "rs");
+    files
+        .push(Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/quire-contract-model/src/lib.rs"));
+    for path in files {
+        let source = fs::read_to_string(&path).expect("checked-package source");
+        let source = crate::checked_package_v2_identity_digests::production_source(&source);
+        for line in source.lines().map(str::trim_start) {
+            if line.starts_with("pub ")
+                || line.starts_with("pub(")
+                || line.starts_with("StaleNodeKey")
+            {
+                for retired in ["CheckedSemanticId", "candidate_key", "StaleNodeKey"] {
+                    assert!(
+                        !line.contains(retired),
+                        "{} exposes {retired}: {line}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Every file under `directories` (relative to the repository root) with the
 /// extension `extension`, found with an explicit stack.
 fn files_under(directories: &[&str], extension: &str) -> Vec<PathBuf> {
