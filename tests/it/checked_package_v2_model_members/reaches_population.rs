@@ -814,7 +814,13 @@ fn tc_048_population_maximum_is_canonical_or_explicitly_unbounded() {
         "value_kind": "integer", "value": "3"});
     let not_a_literal = json!({"term": "binding", "name": "max", "value": reference(&INTEGER)});
     for (label, members) in [
-        ("two max members", vec![max_of("3"), max_of("5")]),
+        (
+            "member beside max",
+            vec![
+                max_of("3"),
+                json!({"term": "binding", "name": "other", "value": literal(&INTEGER, "integer", "5")}),
+            ],
+        ),
         ("not a literal", vec![not_a_literal]),
         ("negative", vec![max_of("-1")]),
         ("noncanonical", vec![max_of("03")]),
