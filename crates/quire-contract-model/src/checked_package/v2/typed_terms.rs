@@ -584,6 +584,9 @@ pub enum CheckedTerm {
         /// Ordered clause bindings.
         clauses: Vec<CheckedTerm>,
     },
+    /// Closed source-authored enum, dimension, unit or equivalence body.
+    #[serde(untagged, skip_deserializing)]
+    NominalBody(Box<super::identity::NominalBody>),
     /// A dedicated operation anchor body; its bare point is not a term.
     #[serde(untagged, skip_deserializing)]
     OperationAnchorBody(Box<CheckedOperationAnchorBody>),
@@ -716,6 +719,7 @@ impl CheckedTerm {
                     member.visit_reference_targets(visitor);
                 }
             }
+            Self::NominalBody(body) => body.visit_reference_targets(visitor),
             Self::Binding { value, .. } => value.visit_reference_targets(visitor),
             Self::ExtensionForm { clauses, .. } => {
                 for clause in clauses {
@@ -776,6 +780,7 @@ impl CheckedTerm {
                     member.replace_node_id(old, new);
                 }
             }
+            Self::NominalBody(body) => body.replace_node_id(old, new),
             Self::Binding { value, .. } => value.replace_node_id(old, new),
             Self::DependencyReference { node, .. } => replace(node, old, new),
             Self::Frame {
@@ -978,6 +983,17 @@ impl CheckedTerm {
 
 impl Encode for CheckedTerm {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        fn encode_rational<S: Sink + ?Sized>(
+            value: &super::identity::CheckedRational,
+            writer: &mut Writer<'_, S>,
+        ) -> Result<(), Error> {
+            writer.begin_object()?;
+            writer.name("numerator")?;
+            writer.string(&value.numerator)?;
+            writer.name("denominator")?;
+            writer.string(&value.denominator)?;
+            writer.end_object()
+        }
         writer.begin_object()?;
         match self {
             Self::Literal {
@@ -1140,6 +1156,67 @@ impl Encode for CheckedTerm {
                 }
                 writer.end_array()?;
             }
+            Self::NominalBody(body) => match body.as_ref() {
+                super::identity::NominalBody::Enum { ordered, members } => {
+                    writer.name("term")?;
+                    writer.string("enum")?;
+                    writer.name("ordered")?;
+                    writer.serialize(ordered)?;
+                    writer.name("members")?;
+                    writer.serialize(members)?;
+                }
+                super::identity::NominalBody::Dimension { terms } => {
+                    writer.name("term")?;
+                    writer.string("dimension")?;
+                    writer.name("terms")?;
+                    writer.begin_array()?;
+                    for term in terms {
+                        writer.begin_object()?;
+                        writer.name("dimension_node_id")?;
+                        term.dimension_node_id.encode_into(writer)?;
+                        writer.name("exponent")?;
+                        writer.string(&term.exponent)?;
+                        writer.end_object()?;
+                    }
+                    writer.end_array()?;
+                }
+                super::identity::NominalBody::Unit {
+                    dimension_node_id,
+                    target_unit_node_id,
+                    scale,
+                    offset,
+                } => {
+                    writer.name("term")?;
+                    writer.string("unit")?;
+                    writer.name("dimension_node_id")?;
+                    dimension_node_id.encode_into(writer)?;
+                    writer.name("target_unit_node_id")?;
+                    if let Some(target) = target_unit_node_id {
+                        target.encode_into(writer)?;
+                    } else {
+                        writer.serialize(&Option::<u8>::None)?;
+                    }
+                    writer.name("scale")?;
+                    encode_rational(scale, writer)?;
+                    writer.name("offset")?;
+                    encode_rational(offset, writer)?;
+                }
+                super::identity::NominalBody::DimensionEquivalence {
+                    dimension_node_ids,
+                    root_scale,
+                } => {
+                    writer.name("term")?;
+                    writer.string("dimension_equivalence")?;
+                    writer.name("dimension_node_ids")?;
+                    writer.begin_array()?;
+                    for id in dimension_node_ids {
+                        id.encode_into(writer)?;
+                    }
+                    writer.end_array()?;
+                    writer.name("root_scale")?;
+                    encode_rational(root_scale, writer)?;
+                }
+            },
             Self::OperationAnchorBody(body) => {
                 writer.name("term")?;
                 writer.string("aggregate")?;
@@ -1627,6 +1704,7 @@ mod tests {
                 CheckedTerm::Refinement { .. } => "refinement",
                 CheckedTerm::ExtensionForm { .. } => "extension_form",
                 CheckedTerm::OperationAnchorBody(_) => "operation_anchor_body",
+                CheckedTerm::NominalBody(_) => "nominal_body",
             };
             assert_eq!(actual, expected);
             if let CheckedTerm::Application { arguments, .. } = &term {

@@ -182,6 +182,236 @@ pub struct CheckedRational {
     pub denominator: Box<str>,
 }
 
+/// The closed semantic body of a source-authored nominal node. The source
+/// owner and declared path are carried by the node, outside this body.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "term", rename_all = "snake_case")]
+pub enum NominalBody {
+    Enum {
+        ordered: bool,
+        members: Vec<Box<str>>,
+    },
+    Dimension {
+        terms: Vec<DimensionTerm>,
+    },
+    Unit {
+        dimension_node_id: CheckedNodeId,
+        target_unit_node_id: Option<CheckedNodeId>,
+        scale: CheckedRational,
+        offset: CheckedRational,
+    },
+    DimensionEquivalence {
+        dimension_node_ids: [CheckedNodeId; 2],
+        root_scale: CheckedRational,
+    },
+}
+
+impl NominalBody {
+    /// Decode without cloning a caller-authored nested NodeId path. The
+    /// NodeId decoder itself walks those paths on the heap.
+    pub(super) fn from_value(body: &Value, at: JsonPointer) -> Result<Self, ValidationFailure> {
+        use crate::checked_package::common::exact_members;
+        let malformed =
+            |path| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, path);
+        let object = body.as_object().ok_or_else(|| malformed(at.clone()))?;
+        let term = object
+            .get("term")
+            .and_then(Value::as_str)
+            .ok_or_else(|| malformed(at.clone().key("term")))?;
+        let node_ref = |member: &str| {
+            object
+                .get(member)
+                .and_then(CheckedNodeId::from_value)
+                .ok_or_else(|| malformed(at.clone().key(member)))
+        };
+        let rational = |member: &str, positive_numerator: bool| {
+            let path = at.clone().key(member);
+            let value = object.get(member).ok_or_else(|| malformed(path.clone()))?;
+            let fields = value.as_object().ok_or_else(|| malformed(path.clone()))?;
+            if !exact_members(fields, &["numerator", "denominator"]) {
+                return Err(malformed(path));
+            }
+            let numerator = fields
+                .get("numerator")
+                .and_then(Value::as_str)
+                .filter(|number| {
+                    if positive_numerator {
+                        positive_integer(number)
+                    } else {
+                        integer_magnitude(number).is_some()
+                    }
+                })
+                .ok_or_else(|| malformed(path.clone().key("numerator")))?;
+            let denominator = fields
+                .get("denominator")
+                .and_then(Value::as_str)
+                .filter(|number| positive_integer(number))
+                .ok_or_else(|| malformed(path.clone().key("denominator")))?;
+            Ok(CheckedRational {
+                numerator: numerator.into(),
+                denominator: denominator.into(),
+            })
+        };
+        match term {
+            "enum" if exact_members(object, &["term", "ordered", "members"]) => {
+                let ordered = object["ordered"]
+                    .as_bool()
+                    .ok_or_else(|| malformed(at.clone().key("ordered")))?;
+                let values = object["members"]
+                    .as_array()
+                    .filter(|items| !items.is_empty())
+                    .ok_or_else(|| malformed(at.clone().key("members")))?;
+                let mut unique = BTreeSet::new();
+                let mut members = Vec::with_capacity(values.len());
+                for (index, value) in values.iter().enumerate() {
+                    let member = value
+                        .as_str()
+                        .filter(|text| is_identifier(text) && unique.insert(*text))
+                        .ok_or_else(|| malformed(at.clone().key("members").index(index)))?;
+                    members.push(member.into());
+                }
+                Ok(Self::Enum { ordered, members })
+            }
+            "dimension" if exact_members(object, &["term", "terms"]) => {
+                let values = object["terms"]
+                    .as_array()
+                    .ok_or_else(|| malformed(at.clone().key("terms")))?;
+                let mut terms = Vec::with_capacity(values.len());
+                for (index, value) in values.iter().enumerate() {
+                    let path = at.clone().key("terms").index(index);
+                    let fields = value.as_object().ok_or_else(|| malformed(path.clone()))?;
+                    if !exact_members(fields, &["dimension_node_id", "exponent"]) {
+                        return Err(malformed(path));
+                    }
+                    let dimension_node_id = fields["dimension_node_id"]
+                        .as_object()
+                        .and_then(|_| CheckedNodeId::from_value(&fields["dimension_node_id"]))
+                        .ok_or_else(|| malformed(path.clone().key("dimension_node_id")))?;
+                    let exponent = fields["exponent"]
+                        .as_str()
+                        .filter(|text| integer_magnitude(text).is_some())
+                        .ok_or_else(|| malformed(path.clone().key("exponent")))?;
+                    terms.push(DimensionTerm {
+                        dimension_node_id,
+                        exponent: exponent.into(),
+                    });
+                }
+                Ok(Self::Dimension { terms })
+            }
+            "unit"
+                if exact_members(
+                    object,
+                    &[
+                        "term",
+                        "dimension_node_id",
+                        "target_unit_node_id",
+                        "scale",
+                        "offset",
+                    ],
+                ) =>
+            {
+                let target_unit_node_id = match &object["target_unit_node_id"] {
+                    Value::Null => None,
+                    value => Some(
+                        CheckedNodeId::from_value(value)
+                            .ok_or_else(|| malformed(at.clone().key("target_unit_node_id")))?,
+                    ),
+                };
+                Ok(Self::Unit {
+                    dimension_node_id: node_ref("dimension_node_id")?,
+                    target_unit_node_id,
+                    scale: rational("scale", false)?,
+                    offset: rational("offset", false)?,
+                })
+            }
+            "dimension_equivalence"
+                if exact_members(object, &["term", "dimension_node_ids", "root_scale"]) =>
+            {
+                let values = object["dimension_node_ids"]
+                    .as_array()
+                    .filter(|items| items.len() == 2)
+                    .ok_or_else(|| malformed(at.clone().key("dimension_node_ids")))?;
+                Ok(Self::DimensionEquivalence {
+                    dimension_node_ids: [
+                        CheckedNodeId::from_value(&values[0]).ok_or_else(|| {
+                            malformed(at.clone().key("dimension_node_ids").index(0))
+                        })?,
+                        CheckedNodeId::from_value(&values[1]).ok_or_else(|| {
+                            malformed(at.clone().key("dimension_node_ids").index(1))
+                        })?,
+                    ],
+                    root_scale: rational("root_scale", true)?,
+                })
+            }
+            _ => Err(malformed(at)),
+        }
+    }
+
+    pub(super) fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
+        let replace = |id: &mut CheckedNodeId| {
+            if id == old {
+                *id = new.clone();
+            }
+        };
+        match self {
+            Self::Enum { .. } => {}
+            Self::Dimension { terms } => {
+                for term in terms {
+                    replace(&mut term.dimension_node_id);
+                }
+            }
+            Self::Unit {
+                dimension_node_id,
+                target_unit_node_id,
+                ..
+            } => {
+                replace(dimension_node_id);
+                if let Some(id) = target_unit_node_id {
+                    replace(id);
+                }
+            }
+            Self::DimensionEquivalence {
+                dimension_node_ids, ..
+            } => {
+                for id in dimension_node_ids {
+                    replace(id);
+                }
+            }
+        }
+    }
+
+    pub(super) fn visit_reference_targets<'a>(
+        &'a self,
+        visitor: &mut impl FnMut(&'a CheckedNodeId),
+    ) {
+        match self {
+            Self::Enum { .. } => {}
+            Self::Dimension { terms } => {
+                for term in terms {
+                    visitor(&term.dimension_node_id);
+                }
+            }
+            Self::Unit {
+                dimension_node_id,
+                target_unit_node_id,
+                ..
+            } => {
+                visitor(dimension_node_id);
+                if let Some(id) = target_unit_node_id {
+                    visitor(id);
+                }
+            }
+            Self::DimensionEquivalence {
+                dimension_node_ids, ..
+            } => {
+                for id in dimension_node_ids {
+                    visitor(id);
+                }
+            }
+        }
+    }
+}
+
 /// Locates a decode failure the wire decoder could place no deeper than a
 /// nominal preimage: an internally tagged object whose members serde reads
 /// from a buffer it does not track. Decodes the variant the preimage's own
@@ -1582,6 +1812,66 @@ fn validate_unit_path(
 mod tests {
     use super::*;
     use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-048", "FR-038-AC-5", "FR-063-AC-3")]
+    #[test]
+    fn nominal_body_keeps_closed_structural_references() {
+        let first = json!({"package":"acme/clock","path":["Time"],"ordinal":0});
+        let second = json!({"package":"acme/flow","path":["Time"],"ordinal":0});
+        let body = json!({"term":"dimension_equivalence",
+            "dimension_node_ids":[first,second],
+            "root_scale":{"numerator":"3","denominator":"2"}});
+        let parsed = NominalBody::from_value(&body, JsonPointer::root()).expect("closed body");
+        let NominalBody::DimensionEquivalence {
+            dimension_node_ids,
+            root_scale,
+        } = parsed
+        else {
+            panic!("equivalence body");
+        };
+        assert_eq!(dimension_node_ids[0].package.as_ref(), "acme/clock");
+        assert_eq!(dimension_node_ids[1].package.as_ref(), "acme/flow");
+        assert_eq!(
+            (&*root_scale.numerator, &*root_scale.denominator),
+            ("3", "2")
+        );
+        let malformed = json!({"term":"dimension_equivalence",
+            "dimension_node_ids":[first,second],
+            "root_scale":{"numerator":"0","denominator":"1"}});
+        assert!(matches!(
+            NominalBody::from_value(&malformed, JsonPointer::root()),
+            Err(ValidationFailure::Refused(refusal))
+                if refusal.code == CheckedPackageRefusalCode::MalformedWire
+                    && refusal.loci[0].path.as_ref().is_some_and(|path| path.as_str() == "/root_scale/numerator")
+        ));
+    }
+
+    #[trace("TC-048", "FR-038-AC-117")]
+    #[test]
+    fn nominal_body_node_ref_has_no_fixed_path_depth() {
+        let mut id = json!({"package":"example","path":["base"],"ordinal":0});
+        for _ in 0..10_000 {
+            let mut wrapper = serde_json::Map::new();
+            wrapper.insert("package".into(), Value::String("example".into()));
+            wrapper.insert("path".into(), Value::Array(vec![id]));
+            wrapper.insert("ordinal".into(), Value::from(0));
+            id = Value::Object(wrapper);
+        }
+        let mut term = serde_json::Map::new();
+        term.insert("dimension_node_id".into(), id);
+        term.insert("exponent".into(), Value::String("1".into()));
+        let mut body_members = serde_json::Map::new();
+        body_members.insert("term".into(), Value::String("dimension".into()));
+        body_members.insert("terms".into(), Value::Array(vec![Value::Object(term)]));
+        let body = Value::Object(body_members);
+        let parsed = NominalBody::from_value(&body, JsonPointer::root()).expect("deep reference");
+        let term = super::super::CheckedTerm::NominalBody(Box::new(parsed));
+        let encoded = quire_canonical::to_vec(&term, quire_canonical::Limits::new(1 << 22))
+            .expect("iterative encoding");
+        assert!(encoded.len() > 100_000);
+        quire_canonical::drop_value(body);
+    }
 
     #[trace("TC-048")]
     #[test]
