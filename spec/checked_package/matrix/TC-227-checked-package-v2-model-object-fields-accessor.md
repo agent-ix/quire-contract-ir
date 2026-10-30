@@ -64,8 +64,9 @@ The fields, declaration order, declaring node ids, types and `None` entries equa
 the selected declarations and admitted graph; `zeta` precedes `alpha`, and
 Base/Mid/Leaf identities remain distinct. The absent Base and ambiguous owner
 controls return the distinct typed accessor errors with no partial field
-set; no accessor result invents a node id. Each accessor error is
-the variant AC-139 names; a valid retained model declaration body change admits and updates the selected document value, while the crate-internal post-admission
+set; no accessor result invents a node id. Unknown and wrong-kind node calls
+return the AC-139 variants, while missing and ambiguous declaring nodes return
+the distinct AC-372 variants; a valid retained model declaration body change admits and updates the selected document value, while the crate-internal post-admission
 body replacement changes nothing; a read naming the selected structural type node admits and its perturbation refuses `ill_typed`; the API
 fixtures compile or fail as stated; the chains admit under a sufficient limit
 and are `incomplete` at the selected-owner charge one below the whole-read
