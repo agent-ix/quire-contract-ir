@@ -537,7 +537,7 @@ fn sort_timed_graph_dependencies(package: &mut Value) {
         node["dependencies"]
             .as_array_mut()
             .expect("node dependencies")
-            .sort_by(|left, right| node_id_cmp(left, right));
+            .sort_by(node_id_cmp);
     }
 }
 
@@ -1406,7 +1406,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
             node["dependencies"]
                 .as_array_mut()
                 .unwrap()
-                .sort_by(|left, right| node_id_cmp(left, right));
+                .sort_by(node_id_cmp);
         }
         fixture_support::settle(&mut wire);
         if mutation == "second-place-forged-row" {
@@ -1474,7 +1474,7 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                 root["dependencies"]
                     .as_array_mut()
                     .unwrap()
-                    .sort_by(|a, b| node_id_cmp(a, b));
+                    .sort_by(node_id_cmp);
             }
             "source-unit-length" | "source-unit-derived-non-time" | "source-unit-derived-time" => {
                 let mutation = row["mutation"].as_str().unwrap();
@@ -1543,7 +1543,7 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                 let deps = source["dependencies"].as_array_mut().unwrap();
                 deps.retain(|dep| dep != &old);
                 deps.push(unit_id);
-                deps.sort_by(|a, b| node_id_cmp(a, b));
+                deps.sort_by(node_id_cmp);
             }
             other => panic!("{id}: unknown mutation {other}"),
         }
@@ -1552,7 +1552,7 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
             node["dependencies"]
                 .as_array_mut()
                 .unwrap()
-                .sort_by(|left, right| node_id_cmp(left, right));
+                .sort_by(node_id_cmp);
         }
         fixture_support::settle(&mut wire);
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
@@ -1585,7 +1585,7 @@ fn replace_dependency(node: &mut Value, old: &Value, new: &Value) {
     node["dependencies"]
         .as_array_mut()
         .unwrap()
-        .sort_by(|left, right| node_id_cmp(left, right));
+        .sort_by(node_id_cmp);
 }
 
 #[trace("TC-048")]
@@ -1713,7 +1713,7 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
             node["dependencies"]
                 .as_array_mut()
                 .unwrap()
-                .sort_by(|left, right| node_id_cmp(left, right));
+                .sort_by(node_id_cmp);
         }
         fixture_support::settle(&mut wire);
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
