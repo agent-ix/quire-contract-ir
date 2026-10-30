@@ -1090,10 +1090,9 @@ impl ContractPackageWireV1 {
         for represented in dependencies {
             nodes.insert(&represented.node.node_id);
         }
-        // FR-322 keys a recursion-group member by its ordinal in the admitted
-        // graph. Sorting those members by key would make their keys stale in
-        // the emitted graph. Group blocks sort by their least key, while each
-        // block retains the source graph's member order.
+        // Preserve each recursion group's source member order in the emitted
+        // graph. Group blocks sort by their least structural node ID; no
+        // graph-order coordinate is derived for a member's node ID.
         let nodes = canonical_node_order(
             source
                 .graph()
