@@ -1,6 +1,7 @@
 //! Structural nominal bodies (enum declaration, enum value, dimension,
 //! dimension equivalence and unit) and their semantic and cross-field rules.
 
+use super::dependency_references::SuppliedDependencies;
 use super::model_members::DomainModel;
 use super::natural::coprime;
 use super::{
@@ -839,9 +840,10 @@ pub(super) fn validate_nominal_nodes(
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
     models: &[DomainModel],
+    dependencies: &SuppliedDependencies<'_>,
     meter: &mut WorkMeter,
     bytes: u64,
-) -> Result<(), ValidationFailure> {
+) -> Result<BTreeSet<CheckedNodeId>, ValidationFailure> {
     let model_nodes = nodes
         .iter()
         .filter_map(|node| match node.owner.as_ref() {
@@ -866,12 +868,14 @@ pub(super) fn validate_nominal_nodes(
         .iter()
         .map(|model| (model.identity.as_ref(), model))
         .collect();
+    let imported = imported_nominals(dependencies, meter)?;
     let graph = NominalGraph {
         nodes,
         kinds,
         index,
         records: &records,
         selected_models,
+        imported,
     };
     let mut roots = BTreeSet::new();
     let mut equivalence_pairs = BTreeSet::new();
@@ -920,7 +924,63 @@ pub(super) fn validate_nominal_nodes(
         }
     }
     validate_equivalence_graph(&graph, &equivalences, meter)?;
-    Ok(())
+    Ok(graph.imported.into_keys().collect())
+}
+
+/// Reuses admitted dependency meanings for cross-package nominal references.
+/// Each reachable package and nominal node is visited once; the current read
+/// charges those visits before any local equivalence comparison.
+fn imported_nominals(
+    dependencies: &SuppliedDependencies<'_>,
+    meter: &mut WorkMeter,
+) -> Result<BTreeMap<CheckedNodeId, NominalRecord>, ValidationFailure> {
+    let mut pending = dependencies.packages();
+    let mut seen = BTreeSet::new();
+    let mut records = BTreeMap::new();
+    while let Some(package) = pending.pop() {
+        meter.charge(1, || JsonPointer::root().key("lock"))?;
+        if !seen.insert(package.name()) {
+            continue;
+        }
+        pending.extend(package.direct_dependencies.iter().map(AsRef::as_ref));
+        meter.charge(
+            u64::try_from(package.graph().nodes.len()).unwrap_or(u64::MAX),
+            || JsonPointer::root().key("semantic_graph").key("nodes"),
+        )?;
+        let model_nodes = package
+            .graph()
+            .nodes
+            .iter()
+            .filter_map(|node| match node.owner.as_ref() {
+                Some(super::CheckedNodeOwner::Model {
+                    identity,
+                    node: owner_node,
+                }) => Some(((identity.as_ref(), owner_node.as_ref()), &node.node_id)),
+                _ => None,
+            })
+            .collect::<BTreeMap<_, _>>();
+        for (position, (node, kind)) in package
+            .graph()
+            .nodes
+            .iter()
+            .zip(package.node_kinds())
+            .enumerate()
+        {
+            let Some(required) = NominalKind::required_by(*kind) else {
+                continue;
+            };
+            let raw = node.to_raw();
+            let record = record_from_node(
+                &raw,
+                required,
+                position,
+                package.models.selected_models(),
+                &model_nodes,
+            )?;
+            records.insert(node.node_id.clone(), record);
+        }
+    }
+    Ok(records)
 }
 
 fn validate_dimension_equivalence(
@@ -1344,7 +1404,7 @@ fn equivalence_potentials(
             .push((ids[0].clone(), ratio, *position));
     }
     let mut potentials = BTreeMap::new();
-    for id in graph.index.keys().copied() {
+    for id in graph.index.keys().copied().chain(graph.imported.keys()) {
         if !matches!(graph.nominal(id), Some(NominalRecord::Dimension(_)))
             || potentials.contains_key(id)
         {
@@ -1524,6 +1584,7 @@ struct NominalGraph<'a> {
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
     records: &'a [Option<NominalRecord>],
     selected_models: BTreeMap<&'a str, &'a DomainModel>,
+    imported: BTreeMap<CheckedNodeId, NominalRecord>,
 }
 
 impl NominalGraph<'_> {
@@ -1532,6 +1593,7 @@ impl NominalGraph<'_> {
             .get(id)
             .and_then(|position| self.records.get(*position))
             .and_then(Option::as_ref)
+            .or_else(|| self.imported.get(id))
     }
 
     fn model_variant_cases(
