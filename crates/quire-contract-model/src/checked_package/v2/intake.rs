@@ -47,8 +47,7 @@ fn key_ordinal(value: &Value) -> bool {
         && (text.len() > MAX_SAFE.len() || (text.len() == MAX_SAFE.len() && text > MAX_SAFE))
 }
 
-/// Check a present position ordinal before key derivation can mistake its
-/// malformed spelling for a changed application preimage.
+/// Check a present position ordinal before semantic graph validation.
 fn position_member_shape(body: &Value) -> bool {
     let mut pending = vec![body];
     while let Some(value) = pending.pop() {
