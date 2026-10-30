@@ -3,7 +3,10 @@
 
 //! Published single-body V2 wire packages, read from the owning QSpec checkout.
 
-use super::{fixtures_dir, read_json, read_package, POSITIVE_ALL};
+use super::{
+    fixtures_dir, positive_document, proposal_dir_of, read_json, read_package,
+    read_package_with_document, POSITIVE_ALL,
+};
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
@@ -23,12 +26,22 @@ fn admitted(package: &Value) -> Box<CheckedPackageV2> {
     }
 }
 
+fn admitted_positive(name: &str, package: &Value) -> Box<CheckedPackageV2> {
+    let document = proposal_dir_of(&fixtures_dir()).join(positive_document(name));
+    match read_package_with_document(package, name, &document)
+        .expect("published evidence can be prepared")
+    {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("{name}: single-body package must admit, got {other:?}"),
+    }
+}
+
 #[trace("TC-048", "FR-038-AC-107")]
 #[test]
 fn published_single_body_packages_round_trip_through_the_writer() {
     for name in POSITIVE_ALL {
         let package = fixture(name);
-        let read = admitted(&package);
+        let read = admitted_positive(name, &package);
         assert_eq!(
             read.name(),
             package["name"].as_str().expect("published name")
@@ -60,7 +73,7 @@ fn published_single_body_packages_round_trip_through_the_writer() {
             bytes,
             quire_canonical::to_vec(&package, Limits::new(1 << 24)).unwrap()
         );
-        assert_eq!(admitted(&encoded).name(), read.name());
+        assert_eq!(admitted_positive(name, &encoded).name(), read.name());
     }
 }
 
