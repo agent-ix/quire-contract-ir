@@ -1728,7 +1728,10 @@ fn tc_048_relationship_navigation_total_work_limit_reports_its_first_unpayable_e
             assert_eq!(incomplete.limit, admitted - 1);
             assert_eq!(
                 incomplete.path.map(|path| path.to_string()).as_deref(),
-                Some("/semantic_graph/nodes/6/body/arguments/0/target")
+                // `select_model` adds the root at node 7; node 8 is the
+                // reaches operation's `other` parameter, whose second
+                // binding is the Integer-typed level literal.
+                Some("/semantic_graph/nodes/8/body/members/1/value/type")
             );
         }
         other => panic!("expected total-work exhaustion, got {other:?}"),
