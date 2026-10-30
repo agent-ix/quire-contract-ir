@@ -145,7 +145,7 @@ fn derived_range_binding_name_is_validated_independently_of_its_id() {
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some("/semantic_graph/nodes/2".to_owned())
+        Some("/semantic_graph/nodes/2/node_id".to_owned())
     );
 }
 
