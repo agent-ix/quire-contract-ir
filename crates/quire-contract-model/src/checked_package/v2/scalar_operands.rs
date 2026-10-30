@@ -422,7 +422,7 @@ mod tests {
     use serde_json::json;
 
     fn id(digit: char) -> Value {
-        json!({"domain": "quire.checked-semantic-node/v1", "digest": digit.to_string().repeat(64)})
+        json!({"package": "test", "path": [digit.to_string()], "ordinal": 0})
     }
 
     /// The accessor reads only the semantic graph. This private fixture has
@@ -447,16 +447,9 @@ mod tests {
                 {"term": "literal", "type": id('1'), "value_kind": "integer", "value": "7"},
             ],
         });
-        let wire: CheckedPackageWireV2 = serde_json::from_value(json!({
+        let wire: CheckedPackageWireV2 = super::super::test_support::private_wire(json!({
             "contract_version": "quire.checked-package/v2",
-            "identity_preimage": {
-                "version": "quire.checked-package-id/v2",
-                "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
-                "profile_selections": [], "definition_selections": [],
-                "required_features": [], "dependency_selections": [],
-            },
-            "package_id": {"domain": "quire.package.semantic/v2", "algorithm": "sha256",
-                "digest": "a".repeat(64)},
+            "name": "test",
             "lock": {
                 "sources": [],
                 "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
@@ -474,8 +467,7 @@ mod tests {
             ]},
             "source_map": [], "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
-        }))
-        .expect("private package fixture");
+        }));
         let terms = wire
             .semantic_graph
             .nodes
@@ -517,8 +509,7 @@ mod tests {
         for offset in 0..(graph_nodes - 4) {
             let mut filler = package.wire.semantic_graph.nodes[0].clone();
             filler.node_id = serde_json::from_value(json!({
-                "domain": "quire.checked-semantic-node/v1",
-                "digest": format!("{:064x}", offset + 5),
+                "package": "test", "path": [format!("filler-{offset}")], "ordinal": 0,
             }))
             .expect("filler identity");
             package.wire.semantic_graph.nodes.push(filler);
