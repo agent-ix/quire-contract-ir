@@ -2430,6 +2430,9 @@ fn validate_graph(
                 at("node_id").key("package"),
             ));
         }
+        // Charge the graph-node visit before checking identity uniqueness so
+        // a denied visit cannot proceed to the duplicate-id refusal.
+        meter.charge(1, || at("node_id"))?;
         if index.insert(&node.node_id, position).is_some() {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
