@@ -175,7 +175,7 @@ fn empty() -> Value {
 }
 
 fn plain(
-    digest: &str,
+    path: &str,
     tag: &str,
     form: &str,
     ty: &str,
@@ -184,7 +184,7 @@ fn plain(
     body: Value,
 ) -> Value {
     json!({
-        "node_id": node_id(digest),
+        "node_id": node_id(path),
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": tag,
         "semantic_form": form,
@@ -440,7 +440,7 @@ fn relation_key(position: usize) -> String {
 }
 
 /// Every `type`, `population` and `context` target of `body`, unique and
-/// digest-ascending.
+/// structural ID order.
 fn targets(body: &Value) -> Vec<Value> {
     let mut keys = BTreeSet::new();
     for (array, member) in [
@@ -550,7 +550,7 @@ fn refused(case: &str, value: &Value) -> CheckedPackageRefusal {
     }
 }
 
-/// Asserts the refusal's code, cause, pointer and (when given) locus digest.
+/// Asserts the refusal's code, cause, pointer and (when given) locus identity.
 fn expect(
     case: &str,
     value: &Value,
@@ -589,7 +589,7 @@ fn at_node(position: usize, suffix: &str) -> String {
 /// ACs: FR-346-AC-1
 #[trace("TC-225", "FR-346-AC-1", "FR-349-AC-2")]
 #[test]
-fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
+fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_structural_id() {
     let minimal = minimal();
     let value = relations(std::slice::from_ref(&minimal));
     let package = admitted("the minimal body", &value);
@@ -1392,7 +1392,7 @@ fn tc_225_an_array_out_of_its_canonical_order_refuses_at_the_array() {
     );
     for (case, body, suffix) in [
         (
-            "objects out of type digest order",
+            "objects out of type identity order",
             two_objects,
             "/body/objects",
         ),
