@@ -7,20 +7,17 @@
 //! quire-canonical's bytes", FR-038-AC-74 through FR-038-AC-80).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, mint_ungrouped_structural_keys, node_id,
-    positive_operation_identities, refresh_identity, refusal, refusal_bytes, refusal_cause,
-    v2_all_families, v2_nominal, ExpectedRefusal,
+    canonical, evidence_for, family_key, node_id, positive_operation_identities, refusal,
+    refusal_bytes, settle, v2_all_families, v2_nominal, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCapability, CheckedCapabilityDisposition,
     CheckedDependencySelection, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeId,
-    CheckedNodeProjectionV2, CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2,
     CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedSelectionRole, CheckedSemanticGraphV2, CheckedSemanticId,
-    CheckedSemanticNodeV2, CheckedSourceMapEntry, CheckedTerm,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSelectionRole,
+    CheckedSemanticGraphV2, CheckedSemanticNodeV2, CheckedSourceMapEntry, CheckedTerm,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -130,10 +127,6 @@ fn crafted_diagnostics(package: &Value) -> CheckedDiagnosticsV2 {
     }))
 }
 
-fn preimage_of(package: &Value) -> CheckedPackageIdentityPreimageV2 {
-    typed(&package["identity_preimage"])
-}
-
 fn graph_of(package: &Value) -> CheckedSemanticGraphV2 {
     typed(&package["semantic_graph"])
 }
@@ -142,122 +135,50 @@ fn raw_graph_of(package: &Value) -> CheckedSemanticGraphV2<Value> {
     typed(&package["semantic_graph"])
 }
 
-fn hash_input(package: &Value) -> Value {
-    let mut input = package["identity_preimage"].clone();
-    input["identity_projection"] = Value::Array(
-        package["semantic_graph"]["nodes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|node| {
-                let mut node = node.clone();
-                node.as_object_mut().unwrap().remove("occurrences");
-                node
-            })
-            .collect(),
-    );
-    input
-}
-
-fn borrowed<'a>(
-    selection: &'a CheckedPackageIdentityPreimageV2,
-    graph: &'a CheckedSemanticGraphV2,
-) -> CheckedPackageIdentityPreimageRefV2<'a> {
-    CheckedPackageIdentityPreimageRefV2 {
-        version: &selection.version,
-        edition: &selection.edition,
-        profile_selections: &selection.profile_selections,
-        definition_selections: &selection.definition_selections,
-        required_features: &selection.required_features,
-        dependency_selections: &selection.dependency_selections,
-        identity_projection: &graph.nodes,
-    }
-}
-
 // ---------------------------------------------------------------------------
-// FR-038-AC-74: the identity preimage and the package id.
+// FR-038-AC-74: canonical closed envelope and forbidden old identity fields.
 // ---------------------------------------------------------------------------
 
-/// ACs: FR-038-AC-74
 #[trace("TC-048", "FR-038-AC-74")]
 #[test]
-fn tc_048_preimage_bytes_equal_serde_json_and_hash_to_the_package_id() {
+fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
     for (name, package) in fixtures() {
-        let preimage = preimage_of(&package);
-        assert_same_bytes(name, &preimage);
+        let lock: CheckedPackageLockV2 = typed(&package["lock"]);
         let graph = graph_of(&package);
-        let input = borrowed(&preimage, &graph);
-        assert_eq!(quire_bytes(&input), canonical(&hash_input(&package)));
-        let digest = quire_canonical::sha256(&input, Limits::new(FIXTURE_CEILING))
-            .expect("hashes")
-            .to_string();
-        assert_eq!(
-            Some(digest.as_str()),
-            package["package_id"]["digest"].as_str(),
-            "{name}: the package id is the SHA-256 of the canonical bytes, no domain label"
-        );
-        // The same bytes by a different route: hashing the written bytes.
-        assert_eq!(
-            digest,
-            crate::support::checked_package::sha256_hex(&quire_bytes(&input)),
-            "{name}"
-        );
-        // A domain-labelled digest is another hash: `package_id` takes none.
-        let labelled = quire_canonical::sha256_with_domain(
-            b"quire.package.semantic/v2",
-            &input,
+        let source_map: Vec<CheckedSourceMapEntry> = typed_each(&package["source_map"]);
+        let capabilities: Vec<CheckedCapability> = typed_each(&package["capability_report"]);
+        let diagnostics: CheckedDiagnosticsV2 = typed(&package["diagnostics"]);
+        let encoded = encode_checked_package_v2(
+            package["name"].as_str().expect("structural name"),
+            &lock,
+            &graph,
+            quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+                source_map: &source_map,
+                refinement_step_rows: None,
+            },
+            &capabilities,
+            &diagnostics,
             Limits::new(FIXTURE_CEILING),
         )
-        .expect("hashes")
-        .to_string();
-        assert_ne!(digest, labelled, "{name}");
-        // Crafted projection bodies.
-        let raw = raw_graph_of(&package);
-        let mut crafted = CheckedNodeProjectionV2::from(&raw.nodes[0]);
-        crafted.body = crafted_body();
-        assert_same_bytes(name, &crafted);
-    }
-}
-
-/// ACs: FR-038-AC-74
-#[trace("TC-048", "FR-038-AC-74")]
-#[test]
-fn tc_048_a_preimage_that_differs_from_the_one_the_package_id_covers_is_stale() {
-    for (name, package) in fixtures() {
-        let evidence = evidence_for(&package);
-        // One member of the preimage differs from the one `package_id` was
-        // computed over: its first projection's `dependencies` gain an entry.
-        let mut stale = package.clone();
-        let extra = stale["semantic_graph"]["nodes"][0]["node_id"].clone();
-        stale["semantic_graph"]["nodes"][0]["dependencies"]
-            .as_array_mut()
-            .expect("dependencies")
-            .push(extra);
-        match CheckedPackageV2::read(
-            &canonical(&stale),
-            CheckedPackageReadLimits::bounded(),
-            &evidence,
-        ) {
-            CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
-                refused,
-                refusal_cause(
-                    CheckedPackageRefusalCode::StaleDependency,
-                    "/package_id/digest",
-                    CheckedPackageRefusalCause::ContentMismatch,
-                ),
-                "{name}"
-            ),
-            other => panic!("{name}: expected a stale refusal, read {other:?}"),
-        }
-        // The unchanged fixture still recomputes its recorded id.
-        assert!(matches!(
-            CheckedPackageV2::read(
-                &canonical(&package),
+        .expect("closed envelope encodes");
+        assert_eq!(encoded, canonical(&package), "{name}");
+        for retired in ["identity_preimage", "identity_projection"] {
+            let mut adverse = package.clone();
+            adverse[retired] = json!({});
+            let result = CheckedPackageV2::read(
+                &canonical(&adverse),
                 CheckedPackageReadLimits::bounded(),
-                &evidence
-            ),
-            CheckedPackageV2ReadResult::Admitted(_)
-        ));
+                &evidence_for(&adverse),
+            );
+            assert_eq!(
+                result,
+                CheckedPackageV2ReadResult::Refused(refusal(
+                    CheckedPackageRefusalCode::UnknownMember,
+                    &format!("/{retired}"),
+                )),
+                "{name}: retired field {retired}"
+            );
+        }
     }
 }
 
@@ -265,7 +186,7 @@ fn tc_048_a_preimage_that_differs_from_the_one_the_package_id_covers_is_stale() 
 // FR-038-AC-75: the graph.
 // ---------------------------------------------------------------------------
 
-/// A graph holding a node of each nominal preimage version, a `declaration`, a
+/// A graph holding each nominal family, a `declaration`, a
 /// `recursion_group` and bodies of every JSON kind, with the strings and
 /// integers of FR-038-AC-75.
 fn crafted_graph() -> CheckedSemanticGraphV2<Value> {
@@ -276,17 +197,12 @@ fn crafted_graph() -> CheckedSemanticGraphV2<Value> {
         .clone();
     let versions: BTreeSet<&str> = nodes
         .iter()
-        .filter_map(|node| node["nominal_identity_preimage"]["version"].as_str())
+        .filter_map(|node| node["semantic_form"].as_str())
         .collect();
     assert_eq!(
         versions,
-        BTreeSet::from([
-            "quire.dimension-node/v1",
-            "quire.enum-declaration-node/v1",
-            "quire.enum-member-node/v1",
-            "quire.unit-node/v1",
-        ]),
-        "the nominal fixture carries a preimage of each version"
+        BTreeSet::from(["dimension", "enum", "enum_value", "unit",]),
+        "the nominal fixture carries each published family"
     );
     let mut template = nodes[0].clone();
     template["recursion_group"] = json!("group-é\u{1F600}");
@@ -335,11 +251,10 @@ fn tc_048_graph_bytes_equal_serde_json_for_every_fixture_and_crafted_graph() {
     let bytes = String::from_utf8(quire_bytes(&graph_of(&v2_all_families()))).expect("UTF-8");
     assert!(!bytes.contains("\"recursion_group\":null"));
     assert!(!bytes.contains("\"declaration\":null"));
-    assert!(!bytes.contains("\"nominal_identity_preimage\":null"));
 }
 
 // ---------------------------------------------------------------------------
-// FR-038-AC-76: the lock, source-map entry, capability, semantic id and
+// FR-038-AC-76: the lock, source-map entry, capability, structural id and
 // diagnostics.
 // ---------------------------------------------------------------------------
 
@@ -348,10 +263,8 @@ fn tc_048_graph_bytes_equal_serde_json_for_every_fixture_and_crafted_graph() {
 fn crafted_lock(package: &Value) -> CheckedPackageLockV2 {
     let mut lock = package["lock"].clone();
     lock["dependency_selections"] = json!([
-        {"identity": "a/\u{e9}", "package_id": {
-            "domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": "3".repeat(64)}},
-        {"identity": "a/\u{1F600}", "package_id": {
-            "domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": "4".repeat(64)}},
+        {"identity": "a/\u{e9}"},
+        {"identity": "a/\u{1F600}"},
     ]);
     typed(&lock)
 }
@@ -359,7 +272,7 @@ fn crafted_lock(package: &Value) -> CheckedPackageLockV2 {
 /// ACs: FR-038-AC-76
 #[trace("TC-048", "FR-038-AC-76")]
 #[test]
-fn tc_048_lock_source_map_capability_semantic_id_and_diagnostics_bytes_equal_serde_json() {
+fn tc_048_lock_source_map_capability_node_id_and_diagnostics_bytes_equal_serde_json() {
     for (name, package) in fixtures() {
         assert_same_bytes(name, &typed::<CheckedPackageLockV2>(&package["lock"]));
         for entry in typed_each::<CheckedSourceMapEntry>(&package["source_map"]) {
@@ -368,7 +281,12 @@ fn tc_048_lock_source_map_capability_semantic_id_and_diagnostics_bytes_equal_ser
         for capability in typed_each::<CheckedCapability>(&package["capability_report"]) {
             assert_same_bytes(name, &capability);
         }
-        assert_same_bytes(name, &typed::<CheckedSemanticId>(&package["package_id"]));
+        for node in package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+        {
+            assert_same_bytes(name, &typed::<CheckedNodeId>(&node["node_id"]));
+        }
         assert_same_bytes(
             name,
             &typed::<CheckedDiagnosticsV2>(&package["diagnostics"]),
@@ -387,7 +305,7 @@ fn tc_048_lock_source_map_capability_semantic_id_and_diagnostics_bytes_equal_ser
         .entries
         .iter()
         .any(|entry| entry.details.iter().any(Value::is_array)));
-    // Every capability disposition and a semantic id of any digest.
+    // Every capability disposition and a structural id with nested path.
     for disposition in CheckedCapabilityDisposition::ALL {
         assert_same_bytes(
             "capability",
@@ -397,9 +315,9 @@ fn tc_048_lock_source_map_capability_semantic_id_and_diagnostics_bytes_equal_ser
         );
     }
     assert_same_bytes(
-        "semantic id",
-        &typed::<CheckedSemanticId>(&json!({
-            "domain": "d\u{e9}", "algorithm": "sha256", "digest": "0".repeat(64)
+        "structural id",
+        &typed::<CheckedNodeId>(&json!({
+            "package": "p/\u{e9}", "path": ["type", {"package":"q", "path":["name"], "ordinal":0}], "ordinal": 1
         })),
     );
 }
@@ -433,22 +351,6 @@ impl Carrier for CheckedSemanticGraphV2<Value> {
     }
     fn take(&mut self) -> Value {
         std::mem::take(&mut self.nodes[0].body)
-    }
-    const AROUND: (&'static str, &'static str) = ("\"body\":", "");
-}
-
-impl Carrier for CheckedNodeProjectionV2<Value> {
-    fn shallow() -> Self {
-        let mut projection =
-            CheckedNodeProjectionV2::from(&raw_graph_of(&v2_all_families()).nodes[0]);
-        projection.body = Value::Null;
-        projection
-    }
-    fn place(&mut self, body: Value) {
-        self.body = body;
-    }
-    fn take(&mut self) -> Value {
-        std::mem::take(&mut self.body)
     }
     const AROUND: (&'static str, &'static str) = ("\"body\":", "");
 }
@@ -602,13 +504,6 @@ fn tc_048_a_graph_body_nested_100000_deep_encodes_on_a_256_kib_stack() {
 /// ACs: FR-038-AC-77, FR-038-AC-78
 #[trace("TC-048", "FR-038-AC-77", "FR-038-AC-78")]
 #[test]
-fn tc_048_a_preimage_projection_nested_100000_deep_encodes_on_a_256_kib_stack() {
-    deep_encodes_and_stays_under_a_byte_ceiling::<CheckedNodeProjectionV2<Value>>();
-}
-
-/// ACs: FR-038-AC-77, FR-038-AC-78
-#[trace("TC-048", "FR-038-AC-77", "FR-038-AC-78")]
-#[test]
 fn tc_048_diagnostic_details_nested_100000_deep_encode_on_a_256_kib_stack() {
     deep_encodes_and_stays_under_a_byte_ceiling::<CheckedDiagnosticsV2>();
 }
@@ -617,8 +512,7 @@ fn tc_048_diagnostic_details_nested_100000_deep_encode_on_a_256_kib_stack() {
 #[test]
 fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
     let value = v2_all_families();
-    let preimage = preimage_of(&value);
-    let package_id: CheckedSemanticId = typed(&value["package_id"]);
+    let name = value["name"].as_str().expect("name").to_owned();
     let lock: CheckedPackageLockV2 = typed(&value["lock"]);
     let graph = graph_of(&value);
     let source_map: Vec<CheckedSourceMapEntry> = typed_each(&value["source_map"]);
@@ -626,18 +520,8 @@ fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
     let mut diagnostics = CheckedDiagnosticsV2::shallow();
     diagnostics.place(nested(DEEP));
     let bytes = on_small_stack(move || {
-        let borrowed = CheckedPackageIdentityPreimageRefV2 {
-            version: &preimage.version,
-            edition: &preimage.edition,
-            profile_selections: &preimage.profile_selections,
-            definition_selections: &preimage.definition_selections,
-            required_features: &preimage.required_features,
-            dependency_selections: &preimage.dependency_selections,
-            identity_projection: &graph.nodes,
-        };
         let result = encode_checked_package_v2(
-            &borrowed,
-            &package_id,
+            &name,
             &lock,
             &graph,
             quire_contract_model::CheckedPackageSourceCorrespondenceRef {
@@ -659,70 +543,55 @@ fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
 
 #[trace("TC-451", "FR-051-AC-4")]
 #[test]
-fn tc_451_deep_borrowed_projection_matches_owned_on_a_small_stack() {
+fn tc_451_deep_closed_graph_encodes_once_with_exact_byte_limits() {
     let value = v2_all_families();
-    let preimage = preimage_of(&value);
-    let mut expected_input = hash_input(&value);
-    expected_input["identity_projection"][0]["body"] = nested(DEEP);
+    let name = value["name"].as_str().expect("name").to_owned();
+    let lock: CheckedPackageLockV2 = typed(&value["lock"]);
     let mut graph = raw_graph_of(&value);
     graph.nodes[0].body = nested(DEEP);
-    let package_id: CheckedSemanticId = typed(&value["package_id"]);
-    let lock: CheckedPackageLockV2 = typed(&value["lock"]);
     let source_map: Vec<CheckedSourceMapEntry> = typed_each(&value["source_map"]);
     let capabilities: Vec<CheckedCapability> = typed_each(&value["capability_report"]);
     let diagnostics: CheckedDiagnosticsV2 = typed(&value["diagnostics"]);
-    let (owned_bytes, borrowed_bytes, owned_id, borrowed_id, envelope) =
-        on_small_stack(move || -> Result<_, Error> {
-            let result = {
-                let borrowed = CheckedPackageIdentityPreimageRefV2 {
-                    version: &preimage.version,
-                    edition: &preimage.edition,
-                    profile_selections: &preimage.profile_selections,
-                    definition_selections: &preimage.definition_selections,
-                    required_features: &preimage.required_features,
-                    dependency_selections: &preimage.dependency_selections,
-                    identity_projection: &graph.nodes,
-                };
-                let limits = Limits::new(u64::MAX);
-                Ok((
-                    quire_canonical::to_vec(&expected_input, limits)?,
-                    quire_canonical::to_vec(&borrowed, limits)?,
-                    quire_canonical::sha256(&expected_input, limits)?,
-                    quire_canonical::sha256(&borrowed, limits)?,
-                    encode_checked_package_v2(
-                        &borrowed,
-                        &package_id,
-                        &lock,
-                        &graph,
-                        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
-                            source_map: &source_map,
-                            refinement_step_rows: None,
-                        },
-                        &capabilities,
-                        &diagnostics,
-                        limits,
-                    )?,
-                ))
-            };
-            dismantle(&mut expected_input["identity_projection"][0]["body"]);
-            dismantle(&mut graph.nodes[0].body);
-            result
-        })
-        .expect("deep borrowed preimage and envelope encode");
-    assert_eq!(borrowed_bytes, owned_bytes);
-    assert_eq!(borrowed_id, owned_id);
-    assert!(String::from_utf8(envelope)
-        .expect("canonical UTF-8")
-        .contains(&format!("\"body\":{}", nested_text(DEEP))));
+    let (encoded, short) = on_small_stack(move || {
+        let encode = |limit| {
+            encode_checked_package_v2(
+                &name,
+                &lock,
+                &graph,
+                quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+                    source_map: &source_map,
+                    refinement_step_rows: None,
+                },
+                &capabilities,
+                &diagnostics,
+                Limits::new(limit),
+            )
+        };
+        let full = encode(u64::MAX).expect("deep graph encodes");
+        assert_eq!(
+            encode(u64::try_from(full.len()).expect("length")).expect("exact byte ceiling"),
+            full
+        );
+        let short = encode(u64::try_from(full.len()).expect("length") - 1);
+        drop(encode);
+        dismantle(&mut graph.nodes[0].body);
+        (full, short)
+    });
+    let text = String::from_utf8(encoded).expect("canonical UTF-8");
+    assert_eq!(
+        text.matches(&format!("\"body\":{}", nested_text(DEEP)))
+            .count(),
+        1
+    );
+    assert!(matches!(short, Err(Error::Limit(limit)) if limit.kind == LimitKind::CanonicalBytes));
 }
 
 // ---------------------------------------------------------------------------
 // FR-038-AC-79: the reader's canonical-bytes check.
 // ---------------------------------------------------------------------------
 
-/// A fixture package whose first node and first projection hold `body`. Its
-/// `package_id` is left as recorded, so the document also earns the stale
-/// refusal, and its body is no semantic term, so it also earns a grammar one.
+/// A fixture package whose first node holds `body`. The chosen body has no
+/// semantic term, so canonical byte admission precedes its grammar refusal.
 fn package_with_body(body: Value) -> Value {
     let mut package = positive_operation_identities();
     package["semantic_graph"]["nodes"][0]["body"] = body;
@@ -744,11 +613,10 @@ fn noncanonical() -> ExpectedRefusal {
     refusal_bytes(CheckedPackageRefusalCode::NoncanonicalWire)
 }
 
-fn stale() -> ExpectedRefusal {
-    refusal_cause(
-        CheckedPackageRefusalCode::StaleDependency,
-        "/package_id/digest",
-        CheckedPackageRefusalCause::ContentMismatch,
+fn invalid_body() -> ExpectedRefusal {
+    refusal(
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "/semantic_graph/nodes/0/body",
     )
 }
 
@@ -756,7 +624,7 @@ fn stale() -> ExpectedRefusal {
 #[trace("TC-048", "FR-038-AC-79")]
 #[test]
 fn tc_048_an_integer_past_2_pow_53_a_whole_float_and_a_utf8_ordered_name_are_noncanonical() {
-    // Each document also carries a stale package id and a body that is no
+    // Each document also carries a invalid body and a body that is no
     // semantic term; the canonical-bytes refusal comes first, with no pointer.
     let past = json!({"term": "bogus", "n": 9_007_199_254_740_993_u64});
     let past_negative = json!({"term": "bogus", "n": -9_007_199_254_740_993_i64});
@@ -800,9 +668,9 @@ fn tc_048_an_integer_spelled_past_the_64_bit_range_is_noncanonical() {
         );
     }
     // A float that is not whole is canonical bytes: the document reaches the
-    // package id comparison it also fails.
+    // body validation it also fails.
     let package = package_with_body(json!({"term": "bogus", "n": 1.5}));
-    assert_eq!(read_bytes(&canonical(&package), &package), stale());
+    assert_eq!(read_bytes(&canonical(&package), &package), invalid_body());
 }
 
 /// The bytes of a package whose first node body holds the number text
@@ -820,7 +688,7 @@ fn package_bytes_with_number(spelled: &str) -> (Vec<u8>, Value) {
 #[test]
 fn tc_048_a_package_document_number_is_read_exactly_or_refused_without_a_pointer() {
     // A number whose exact value the document's bytes lose is noncanonical
-    // wire with no pointer and no cause, before the stale package id the
+    // wire with no pointer and no cause, before the invalid body the
     // document also earns.
     for spelled in ["0.1000000000000000000001", "9007199254740993.5"] {
         let (bytes, package) = package_bytes_with_number(spelled);
@@ -840,7 +708,7 @@ fn tc_048_a_package_document_number_is_read_exactly_or_refused_without_a_pointer
         "1.3567384036451073",
     ] {
         let (bytes, package) = package_bytes_with_number(spelled);
-        assert_eq!(read_bytes(&bytes, &package), stale(), "{spelled}");
+        assert_eq!(read_bytes(&bytes, &package), invalid_body(), "{spelled}");
     }
     // The crate that holds the reader declares the feature itself, so the
     // exact read does not depend on what other crates in the build turn on.
@@ -857,7 +725,7 @@ fn tc_048_a_package_document_number_is_read_exactly_or_refused_without_a_pointer
 #[test]
 fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() {
     // 9007199254740992 and `2` are canonical, so the document reaches the
-    // package id comparison it also fails.
+    // body validation it also fails.
     for (what, body) in [
         (
             "2^53",
@@ -872,7 +740,7 @@ fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() 
         let package = package_with_body(body);
         assert_eq!(
             read_bytes(&canonical(&package), &package),
-            stale(),
+            invalid_body(),
             "{what}"
         );
     }
@@ -892,8 +760,7 @@ fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() 
         package["semantic_graph"]["nodes"][3]["body"] = json!({
             "term": "literal", "type": integer_type, "value_kind": "integer", "value": literal
         });
-        mint_ungrouped_structural_keys(&mut package);
-        refresh_identity(&mut package);
+        settle(&mut package);
         assert!(
             matches!(
                 CheckedPackageV2::read(
@@ -915,15 +782,9 @@ fn tc_048_members_in_utf16_code_unit_order_pass_the_canonical_bytes_check() {
     let low = '\u{e000}';
     let high = '\u{10000}';
     let body = json!({"term": "bogus", "\u{e000}": 0, "\u{10000}": 0});
-    let mut package = package_with_body(body);
-    // The package id the reader recomputes: quire-canonical's digest of the
-    // preimage, so the document gets past the identity comparison.
-    package["package_id"]["digest"] = json!(quire_canonical::sha256(
-        &hash_input(&package),
-        Limits::new(FIXTURE_CEILING)
-    )
-    .expect("hashes")
-    .to_string());
+    let package = package_with_body(body);
+    // The closed structural name and node ids are retained; the body grammar
+    // decides this canonical document.
     let text = String::from_utf8(canonical(&package)).expect("UTF-8");
     let utf8_order = format!("\"{low}\":0,\"{high}\":0");
     let utf16_order = format!("\"{high}\":0,\"{low}\":0");
@@ -1064,12 +925,9 @@ fn implemented_encode(source: &str) -> BTreeSet<String> {
 /// The fixed-depth types FR-038 names, by role: the artifact-reference types
 /// are `CheckedArtifactRef` and `CheckedSourceRef` (FR-038-AC-46 through
 /// FR-038-AC-61).
-const FIXED_DEPTH: [&str; 24] = [
-    "CheckedSemanticId",
-    "CheckedSourceMapEntry",
+const FIXED_DEPTH: [&str; 13] = [
     "CheckedCapability",
     "CheckedPackageLockV2",
-    "CheckedNodeId",
     "CheckedOccurrenceRole",
     "CheckedSourceRegion",
     "CheckedArtifactRef",
@@ -1078,34 +936,21 @@ const FIXED_DEPTH: [&str; 24] = [
     "CheckedDependencySelection",
     "CheckedOccurrence",
     "CheckedDeclaration",
-    "NominalIdentityPreimage",
-    "EnumDeclarationPreimage",
-    "EnumMemberPreimage",
-    "DimensionPreimage",
-    "UnitPreimage",
-    "NominalOwner",
-    "DimensionTerm",
-    "CheckedRational",
     "CheckedDiagnosticStage",
     "CheckedDiagnosticCode",
     "CheckedDiagnosticCause",
 ];
 
 /// The types that hold a `Value`, directly or through another type.
-const HOLD_A_VALUE: [&str; 8] = [
-    "CheckedPackageIdentityPreimageV2",
-    "CheckedPackageIdentityPreimageRefV2",
+const HOLD_A_VALUE: [&str; 5] = [
     "CheckedSemanticGraphV2",
     "CheckedDiagnosticsV2",
-    "CheckedNodeProjectionV2",
     "CheckedSemanticNodeV2",
     "CheckedDiagnosticV2",
     "CheckedTerm",
 ];
 
-const ENCODED: [&str; 5] = [
-    "CheckedPackageIdentityPreimageV2",
-    "CheckedPackageIdentityPreimageRefV2",
+const ENCODED: [&str; 3] = [
     "CheckedSemanticGraphV2",
     "CheckedDiagnosticsV2",
     "CheckedTerm",
@@ -1215,6 +1060,15 @@ fn tc_048_fixed_depth_types_derive_and_value_holding_types_implement_encode() {
     for name in ENCODED {
         assert!(encoded.contains(name), "{name} implements Encode");
     }
+    for retired in [
+        "CheckedSemanticId",
+        "CheckedPackageIdentityPreimageV2",
+        "CheckedPackageIdentityPreimageRefV2",
+        "CheckedNodeProjectionV2",
+    ] {
+        assert!(!derived.contains(retired), "{retired} is retired");
+        assert!(!encoded.contains(retired), "{retired} is retired");
+    }
     // The closed vocabularies derive in the one macro that declares them.
     let vocabulary =
         repository_file("crates/quire-contract-model/src/checked_package/v2/vocabulary.rs");
@@ -1225,29 +1079,22 @@ fn tc_048_fixed_depth_types_derive_and_value_holding_types_implement_encode() {
 #[trace("TC-048", "FR-038-AC-80")]
 #[test]
 fn tc_048_the_wire_types_are_on_the_path_the_compiler_sees() {
-    assert_fixed_shape::<CheckedSemanticId>();
-    assert_fixed_shape::<CheckedSourceMapEntry>();
+    assert_encode::<CheckedSourceMapEntry>();
     assert_fixed_shape::<CheckedCapability>();
     assert_fixed_shape::<CheckedCapabilityDisposition>();
     assert_fixed_shape::<CheckedPackageLockV2>();
     assert_fixed_shape::<CheckedSelectionRole>();
     assert_fixed_shape::<CheckedDependencySelection>();
-    assert_fixed_shape::<CheckedNodeId>();
-    assert_encode::<CheckedPackageIdentityPreimageV2>();
-    assert_encode::<CheckedPackageIdentityPreimageRefV2<'static>>();
+    assert_encode::<CheckedNodeId>();
     assert_encode::<CheckedSemanticGraphV2>();
     assert_encode::<CheckedTerm>();
     assert_encode::<CheckedDiagnosticsV2>();
     const {
         assert!(is_fixed_shape!(CheckedPackageLockV2));
-        assert!(is_fixed_shape!(CheckedSourceMapEntry));
-        assert!(!is_fixed_shape!(CheckedPackageIdentityPreimageV2));
-        assert!(!is_fixed_shape!(
-            CheckedPackageIdentityPreimageRefV2<'static>
-        ));
+        assert!(!is_fixed_shape!(CheckedSourceMapEntry));
+        assert!(!is_fixed_shape!(CheckedNodeId));
         assert!(!is_fixed_shape!(CheckedSemanticGraphV2));
         assert!(!is_fixed_shape!(CheckedDiagnosticsV2));
-        assert!(!is_fixed_shape!(CheckedNodeProjectionV2));
         assert!(!is_fixed_shape!(CheckedSemanticNodeV2));
         assert!(!is_fixed_shape!(CheckedDiagnosticV2));
     }

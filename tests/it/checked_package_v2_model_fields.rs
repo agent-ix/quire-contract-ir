@@ -2,28 +2,24 @@
 // Copyright (C) 2026 Agent-IX
 
 //! IR-628: `CheckedPackageV2::model_object_fields` over packages the reader
-//! admits, each built here node by node with every key recomputed through
-//! `quire-canonical` from the preimages of FR-322 and QSL FR-092, and over a
-//! real Semantic IR 2.0.0 domain package document the lock selects. Nothing of
-//! the reader's own derivation is used to key a node.
+//! admits, each built here node by node with structural identities and a real
+//! Semantic IR 2.0.0 domain package document selected by the lock.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, evidence_with_document, node_id, nominal_package, rebuild_source_map,
-    refresh_identity, select_model,
+    canonical, evidence_for, evidence_with_document, node_id as fixture_node_id, nominal_package,
+    rebuild_source_map, select_model, settle, structural_id,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelFieldsError, CheckedModelObjectFields,
-    CheckedNodeId, CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageEvidence, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 const IDENTITY: &str = "acme/orders";
-const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
-const APPLICATION_NODE: &str = "quire.application-node/v1";
 const OBJECT: &str = "object_type";
 const INTERFACE: &str = "systems_interface";
 
@@ -31,11 +27,34 @@ fn orders(short: &str) -> String {
     format!("ix://acme/orders/{short}")
 }
 
-/// The SHA-256 of the canonical bytes `quire-canonical` writes for `preimage`.
-fn key_of(preimage: &Value) -> String {
-    quire_canonical::sha256(preimage, quire_canonical::Limits::new(1 << 20))
-        .expect("a preimage of this size encodes")
-        .to_string()
+fn node_id(key: &str) -> Value {
+    if let Some(model) = key.strip_prefix("model:") {
+        let mut parts = model.splitn(3, ':');
+        let tag = parts.next().expect("model tag");
+        let form = parts.next().expect("model form");
+        let declaration = parts.next().expect("model declaration");
+        return structural_id(
+            IDENTITY,
+            vec![json!(tag), json!(form), json!(declaration)],
+            0,
+        );
+    }
+    fixture_node_id(key)
+}
+
+fn path_label(id: &CheckedNodeId) -> String {
+    match id.path.as_slice() {
+        [CheckedNodePathSegment::Name(name)] => name.to_string(),
+        [CheckedNodePathSegment::Name(tag), CheckedNodePathSegment::Name(form), CheckedNodePathSegment::Name(declaration)]
+            if id.package.as_ref() == IDENTITY =>
+        {
+            format!("model:{tag}:{form}:{declaration}")
+        }
+        [CheckedNodePathSegment::Name(first), CheckedNodePathSegment::Name(second)] => {
+            format!("qualified:{first}/{second}")
+        }
+        other => panic!("unexpected fixture identity path {other:?}"),
+    }
 }
 
 fn empty() -> Value {
@@ -44,28 +63,6 @@ fn empty() -> Value {
 
 fn reference(key: &str) -> Value {
     json!({"term": "reference", "target": node_id(key)})
-}
-
-fn structural(
-    tag: &str,
-    form: &str,
-    semantic_type: Option<&str>,
-    owner: Option<Value>,
-    body: &Value,
-) -> String {
-    let mut preimage = json!({
-        "version": STRUCTURAL_NODE,
-        "node_tag": tag,
-        "semantic_form": form,
-        "semantic_type": semantic_type.map(node_id),
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    });
-    if let Some(owner) = owner {
-        preimage["owner"] = owner;
-    }
-    key_of(&preimage)
 }
 
 fn wire_node(
@@ -96,13 +93,7 @@ fn declaration_key(short: &str, form: &str) -> String {
     } else {
         "model"
     };
-    structural(
-        tag,
-        form,
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": orders(short)})),
-        &empty(),
-    )
+    format!("model:{tag}:{form}:{}", orders(short))
 }
 
 /// A member type, as a test states it: a node key is derived from it here.
@@ -167,11 +158,11 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
             upper,
             profile,
         } => Ty::TextBounds(*lower, *upper, profile.to_string()),
-        CheckedMemberType::Reference(target) => Ty::Reference(target.digest.to_string()),
-        CheckedMemberType::Record(target) => Ty::Record(target.digest.to_string()),
-        CheckedMemberType::Tuple(target) => Ty::Tuple(target.digest.to_string()),
-        CheckedMemberType::Variant(target) => Ty::Variant(target.digest.to_string()),
-        CheckedMemberType::Quantity(target) => Ty::Quantity(target.digest.to_string()),
+        CheckedMemberType::Reference(target) => Ty::Reference(path_label(target)),
+        CheckedMemberType::Record(target) => Ty::Record(path_label(target)),
+        CheckedMemberType::Tuple(target) => Ty::Tuple(path_label(target)),
+        CheckedMemberType::Variant(target) => Ty::Variant(path_label(target)),
+        CheckedMemberType::Quantity(target) => Ty::Quantity(path_label(target)),
         CheckedMemberType::Option(element) => Ty::Option(Box::new(ty_of(element))),
         CheckedMemberType::Collection {
             kind,
@@ -199,8 +190,7 @@ fn bounds_body(integer: &str, lower: &str, upper: &str) -> Value {
     json!({"term": "aggregate", "members": [binding("min", lower), binding("max", upper)]})
 }
 
-/// Adds the nodes of `ty` to `nodes`, each keyed from its own preimage, and
-/// returns the key of the type.
+/// Adds the nodes of `ty` under assigned structural paths and returns its path.
 fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
     let mut add = |key: String, node: Value| {
         nodes.entry(key.clone()).or_insert(node);
@@ -230,20 +220,14 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
                 Ty::Clock => "clock",
                 _ => unreachable!("matched scalar types"),
             };
-            let key = structural("scalar_type", form, None, None, &empty());
+            let key = format!("scalar_type/{form}");
             let node = wire_node(&key, "scalar_type", form, &key, &[], empty());
             add(key, node)
         }
         Ty::Range(lower, upper) => {
             let integer = type_nodes(&Ty::Integer, nodes);
             let body = bounds_body(&integer, &lower.to_string(), &upper.to_string());
-            let key = structural(
-                "bounded_domain",
-                "integer_range",
-                Some(&integer),
-                None,
-                &body,
-            );
+            let key = format!("bounded_domain/integer_range/{lower}/{upper}");
             let node = wire_node(
                 &key,
                 "bounded_domain",
@@ -257,7 +241,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
         }
         Ty::TextBounds(lower, upper, profile) => {
             let integer = type_nodes(&Ty::Integer, nodes);
-            let text = structural("scalar_type", "text", None, None, &empty());
+            let text = "scalar_type/text".to_owned();
             nodes
                 .entry(text.clone())
                 .or_insert_with(|| wire_node(&text, "scalar_type", "text", &text, &[], empty()));
@@ -274,7 +258,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
                 binding("max", &integer, upper.to_string(), "integer"),
                 binding("text_profile", &text, profile.clone(), "text")
             ]});
-            let key = structural("bounded_domain", "text_bounds", Some(&text), None, &body);
+            let key = format!("bounded_domain/text_bounds/{lower}/{upper}/{profile}");
             nodes.entry(key.clone()).or_insert_with(|| {
                 wire_node(&key, "bounded_domain", "text_bounds", &text, &[&text], body)
             });
@@ -282,7 +266,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
         }
         Ty::Reference(target) => {
             let body = json!({"term": "aggregate", "members": [reference(target)]});
-            let key = structural("composite_type", "reference", None, None, &body);
+            let key = format!("composite_type/reference/{target}");
             let node = wire_node(&key, "composite_type", "reference", &key, &[target], body);
             add(key, node)
         }
@@ -292,7 +276,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
         Ty::Option(element) => {
             let element = type_nodes(element, nodes);
             let body = json!({"term": "aggregate", "members": [reference(&element)]});
-            let key = structural("composite_type", "option", None, None, &body);
+            let key = format!("composite_type/option/{element}");
             let node = wire_node(&key, "composite_type", "option", &key, &[&element], body);
             nodes.entry(key.clone()).or_insert(node);
             key
@@ -300,7 +284,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
         Ty::Collection(kind, element, bounds) => {
             let element = type_nodes(element, nodes);
             let body = json!({"term": "aggregate", "members": [reference(&element)]});
-            let collection = structural("composite_type", kind.form(), None, None, &body);
+            let collection = format!("composite_type/{}/{element}", kind.form());
             let node = wire_node(
                 &collection,
                 "composite_type",
@@ -315,13 +299,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
             };
             let integer = type_nodes(&Ty::Integer, nodes);
             let body = bounds_body(&integer, &lower.to_string(), &upper.to_string());
-            let key = structural(
-                "bounded_domain",
-                "collection_bounds",
-                Some(&collection),
-                None,
-                &body,
-            );
+            let key = format!("bounded_domain/collection_bounds/{collection}/{lower}/{upper}");
             let node = wire_node(
                 &key,
                 "bounded_domain",
@@ -546,15 +524,12 @@ fn package(
             "result_type": node_id(&ty),
             "arguments": [reference(&owner)],
         });
-        let key = key_of(&json!({
-            "version": APPLICATION_NODE,
-            "node_tag": "expression",
-            "semantic_form": "query",
-            "semantic_type": node_id(&ty),
-            "declaration": null,
-            "recursion": null,
-            "body": body,
-        }));
+        let key = format!(
+            "expression/query/{}/{}/{}",
+            read.owner,
+            read.field,
+            read_nodes.len()
+        );
         read_nodes.push(wire_node(&key, "expression", "query", &ty, &[&owner], body));
     }
     let mut graph: Vec<Value> = nodes.into_values().collect();
@@ -569,9 +544,8 @@ fn package(
         .as_array_mut()
         .expect("nodes")
         .extend(graph);
-    rebuild_source_map(&mut package);
     select_model(&mut package, IDENTITY);
-    refresh_identity(&mut package);
+    settle(&mut package);
     let evidence = evidence_with_document(&package, IDENTITY, document);
     let positions = (0..reads.len())
         .map(|offset| base + first_read + offset)
@@ -628,7 +602,7 @@ pub(crate) fn record_project_control() -> (Value, CheckedPackageEvidence) {
 /// `value`/`literal` node, for refusals that need neither a model member
 /// nor a relationship.
 pub(crate) fn integer_add_control() -> CheckedPackageV2 {
-    let argument = |placeholder: char| json!({"term": "reference", "target": node_id(&placeholder.to_string().repeat(64))});
+    let argument = |placeholder: char| json!({"term": "reference", "target": node_id(&format!("placeholder/{placeholder}"))});
     scalar_operand_package(vec![argument('a'), argument('c')]).0
 }
 
@@ -643,7 +617,7 @@ fn fields_of(package: &CheckedPackageV2, short: &str) -> CheckedModelObjectField
 }
 
 /// Repeated public reads over reader-admitted packages preserve the exact
-/// field result and checked package identity as the graph grows.
+/// field result and structural package name as the graph grows.
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-144")]
 #[test]
 fn admitted_model_field_queries_preserve_results_across_graph_sizes() {
@@ -654,14 +628,14 @@ fn admitted_model_field_queries_preserve_results_across_graph_sizes() {
         let admitted = admit(&document(types), &declarations, &[]);
         let selected = names.last().expect("selected model");
         let expected = fields_of(&admitted, selected);
-        let identity = admitted.package_id().clone();
+        let identity = admitted.name().to_owned();
         let sources = admitted.source_map().to_vec();
         for requests in [2, 4, 8] {
             for _ in 0..requests {
                 assert_eq!(fields_of(&admitted, selected), expected);
             }
         }
-        assert_eq!(admitted.package_id(), &identity);
+        assert_eq!(admitted.name(), identity);
         assert_eq!(admitted.source_map(), sources);
     }
 }
@@ -727,13 +701,7 @@ fn scalar_operand_package_named(
     let integer = type_nodes(&Ty::Integer, &mut nodes);
     let bounded = if let Some((lower, upper)) = bounds {
         let body = bounds_body(&integer, lower, upper);
-        let key = structural(
-            "bounded_domain",
-            "integer_range",
-            Some(&integer),
-            None,
-            &body,
-        );
+        let key = format!("bounded_domain/integer_range/{lower}/{upper}");
         nodes.insert(
             key.clone(),
             wire_node(
@@ -749,7 +717,7 @@ fn scalar_operand_package_named(
     } else {
         integer.clone()
     };
-    let text = structural("scalar_type", "text", None, None, &empty());
+    let text = "scalar_type/text".to_owned();
     nodes.insert(
         text.clone(),
         wire_node(&text, "scalar_type", "text", &text, &[], empty()),
@@ -762,7 +730,7 @@ fn scalar_operand_package_named(
             {"term": "binding", "name": "level", "value":
                 {"term": "literal", "type": node_id(&integer), "value_kind": "integer", "value": "0"}},
         ]});
-        let key = structural("value", "parameter", Some(&bounded), None, &body);
+        let key = format!("value/parameter/{name}/{bounded}");
         let mut node = wire_node(&key, "value", "parameter", &bounded, &[], body);
         node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
         nodes.insert(key.clone(), node);
@@ -770,7 +738,7 @@ fn scalar_operand_package_named(
     }
     let literal_body = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": literal_value});
-    let literal_key = structural("value", "literal", Some(&bounded), None, &literal_body);
+    let literal_key = format!("value/literal/{literal_value}/{bounded}");
     let mut literal_node = wire_node(
         &literal_key,
         "value",
@@ -782,13 +750,13 @@ fn scalar_operand_package_named(
     literal_node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     nodes.insert(literal_key.clone(), literal_node);
     for argument in &mut arguments {
-        let Some(target) = argument.pointer_mut("/target/digest") else {
+        let Some(target) = argument.pointer_mut("/target/path/0") else {
             continue;
         };
         let replacement = match target.as_str() {
-            Some(key) if key == "a".repeat(64) => Some(&parameter_keys[0]),
-            Some(key) if key == "b".repeat(64) => Some(&parameter_keys[1]),
-            Some(key) if key == "c".repeat(64) => Some(&literal_key),
+            Some(key) if key == "placeholder/a".to_owned() => Some(&parameter_keys[0]),
+            Some(key) if key == "placeholder/b".to_owned() => Some(&parameter_keys[1]),
+            Some(key) if key == "placeholder/c".to_owned() => Some(&literal_key),
             _ => None,
         };
         if let Some(replacement) = replacement {
@@ -804,11 +772,7 @@ fn scalar_operand_package_named(
                 "mode": null, "member": null, "leaves": []},
             "result_type": node_id(&bounded), "arguments": [inline.clone(), inline],
         });
-        let nested_key = key_of(&json!({
-            "version": APPLICATION_NODE, "node_tag": "expression", "semantic_form": "binary",
-            "semantic_type": node_id(&bounded), "declaration": null, "recursion": null,
-            "body": nested_body,
-        }));
+        let nested_key = "expression/binary/nested".to_owned();
         let mut nested = wire_node(
             &nested_key,
             "expression",
@@ -827,11 +791,7 @@ fn scalar_operand_package_named(
             "member": null, "leaves": []},
         "result_type": node_id(&bounded), "arguments": arguments,
     });
-    let key = key_of(&json!({
-        "version": APPLICATION_NODE, "node_tag": "expression", "semantic_form": operator,
-        "semantic_type": node_id(&bounded), "declaration": null, "recursion": null,
-        "body": body,
-    }));
+    let key = format!("expression/{operator}/root");
     let mut application = wire_node(&key, "expression", operator, &bounded, &[], body);
     application["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     let mut package = nominal_package(&[]);
@@ -863,7 +823,6 @@ fn scalar_operand_package_named(
         .as_array_mut()
         .expect("source map")
         .push(second_source);
-    refresh_identity(&mut package);
     let application_id: CheckedNodeId = serde_json::from_value(
         package["semantic_graph"]["nodes"]
             .as_array()
@@ -892,7 +851,7 @@ fn tc_048_parameter_declarations_follow_scalar_operand_order() {
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
     };
-    let argument = |placeholder: char| json!({"term": "reference", "target": node_id(&placeholder.to_string().repeat(64))});
+    let argument = |placeholder: char| json!({"term": "reference", "target": node_id(&format!("placeholder/{placeholder}"))});
     let declared = |arguments: Vec<Value>| {
         let (package, application) = scalar_operand_package_named(
             "quire.op.integer.add",
@@ -928,7 +887,7 @@ fn tc_048_parameter_declarations_follow_scalar_operand_order() {
         "binary",
         vec![
             argument('a'),
-            json!({"term": "literal", "type": node_id(&structural("scalar_type", "integer", None, None, &empty())),
+            json!({"term": "literal", "type": node_id(&"scalar_type/integer".to_owned()),
                 "value_kind": "integer", "value": "7"}),
         ],
         Some(("0", "9")),
@@ -953,32 +912,13 @@ fn tc_048_parameter_declarations_follow_scalar_operand_order() {
     );
 }
 
-/// The child's independently built QSL key: the public accessor test does
-/// not inspect the admitted graph body to find its expected identity.
+/// The child's independently assigned structural path: the public accessor
+/// test does not inspect the admitted graph body to find its identity.
 fn scalar_fixture_child_id(form: &str, value: &str) -> Value {
-    let integer = structural("scalar_type", "integer", None, None, &empty());
-    let bounds = bounds_body(&integer, "0", "1000");
-    let bounded = structural(
-        "bounded_domain",
-        "integer_range",
-        Some(&integer),
-        None,
-        &bounds,
-    );
-    let body = if form == "parameter" {
-        let text = structural("scalar_type", "text", None, None, &empty());
-        json!({"term": "aggregate", "members": [
-            {"term": "binding", "name": "name", "value":
-                {"term": "literal", "type": node_id(&text), "value_kind": "text", "value": value}},
-            {"term": "binding", "name": "level", "value":
-                {"term": "literal", "type": node_id(&integer), "value_kind": "integer", "value": "0"}},
-        ]})
-    } else {
-        assert_eq!(form, "literal");
-        json!({"term": "literal", "type": node_id(&integer),
-            "value_kind": "integer", "value": value})
-    };
-    node_id(&structural("value", form, Some(&bounded), None, &body))
+    assert!(matches!(form, "parameter" | "literal"));
+    node_id(&format!(
+        "value/{form}/{value}/bounded_domain/integer_range/0/1000"
+    ))
 }
 
 #[trace(
@@ -1022,8 +962,8 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
             CheckedScalarOperandError::RangeOutOfI128 => "out of i128",
         }
     }
-    let first = node_id(&"a".repeat(64));
-    let integer = structural("scalar_type", "integer", None, None, &empty());
+    let first = node_id(&"placeholder/a".to_owned());
+    let integer = "scalar_type/integer".to_owned();
     let inline = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": "7"});
     let (package, application) =
@@ -1099,7 +1039,7 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
 
     let (swapped, swapped_id) = scalar_operand_package(vec![
         json!({"term": "reference", "target": second}),
-        json!({"term": "reference", "target": node_id(&"a".repeat(64))}),
+        json!({"term": "reference", "target": node_id(&"placeholder/a".to_owned())}),
     ]);
     let result = swapped
         .scalar_application_operands(&swapped_id, &occurrence)
@@ -1111,8 +1051,8 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
     );
     assert_ne!(result[0].child, result[1].child);
     let (forward, forward_id) = scalar_operand_package(vec![
-        json!({"term": "reference", "target": node_id(&"a".repeat(64))}),
-        json!({"term": "reference", "target": node_id(&"b".repeat(64))}),
+        json!({"term": "reference", "target": node_id(&"placeholder/a".to_owned())}),
+        json!({"term": "reference", "target": node_id(&"placeholder/b".to_owned())}),
     ]);
     let forward = forward
         .scalar_application_operands(&forward_id, &occurrence)
@@ -1120,10 +1060,10 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
     assert_eq!(forward[0].child, result[1].child);
     assert_eq!(forward[1].child, result[0].child);
 
-    let graph_literal = node_id(&"c".repeat(64));
+    let graph_literal = node_id(&"placeholder/c".to_owned());
     let (package, id) = scalar_operand_package(vec![
         json!({"term": "reference", "target": graph_literal.clone()}),
-        json!({"term": "reference", "target": node_id(&"a".repeat(64))}),
+        json!({"term": "reference", "target": node_id(&"placeholder/a".to_owned())}),
     ]);
     let graph_literal = scalar_fixture_child_id("literal", "7");
     let entries = package
@@ -1162,7 +1102,7 @@ fn tc_048_scalar_operands_refuse_unknown_node_nonapplication_and_missing_occurre
     use quire_contract_model::{
         CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError,
     };
-    let integer = structural("scalar_type", "integer", None, None, &empty());
+    let integer = "scalar_type/integer".to_owned();
     let inline = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": "7"});
     let (package, application) = scalar_operand_package(vec![inline.clone(), inline]);
@@ -1208,7 +1148,7 @@ fn tc_048_scalar_operand_eligibility_uses_catalogued_integer_operations() {
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
     };
-    let integer = structural("scalar_type", "integer", None, None, &empty());
+    let integer = "scalar_type/integer".to_owned();
     let literal = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": "7"});
     for (identity, operator, count) in [
@@ -1250,8 +1190,8 @@ fn tc_048_scalar_operands_refuse_unbounded_and_out_of_i128_ranges() {
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
     };
-    let first = json!({"term": "reference", "target": node_id(&"a".repeat(64))});
-    let integer = structural("scalar_type", "integer", None, None, &empty());
+    let first = json!({"term": "reference", "target": node_id(&"placeholder/a".to_owned())});
+    let integer = "scalar_type/integer".to_owned();
     let inline = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": "7"});
     let (unbounded, node) = scalar_operand_package_with_bounds(
@@ -1295,7 +1235,7 @@ fn tc_048_scalar_operands_refuse_unbounded_and_out_of_i128_ranges() {
         "quire.op.integer.add",
         "binary",
         vec![
-            json!({"term": "reference", "target": node_id(&"c".repeat(64))}),
+            json!({"term": "reference", "target": node_id(&"placeholder/c".to_owned())}),
             json!({"term": "literal", "type": node_id(&integer),
                 "value_kind": "integer", "value": "7"}),
         ],
@@ -1802,7 +1742,6 @@ fn selected_record_node_cannot_be_an_object_reference_target() {
         .expect("nodes")
         .extend(nodes.into_values());
     rebuild_source_map(&mut wire);
-    refresh_identity(&mut wire);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_with(&wire, &evidence, CheckedPackageReadLimits::bounded())
     else {
@@ -2148,11 +2087,10 @@ fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type(
         &[(ORDER, OBJECT), ("Pump", INTERFACE)],
         &[read],
     );
-    let id = |digest: &str| -> CheckedNodeId {
-        serde_json::from_value(node_id(digest)).expect("a node id")
-    };
+    let id =
+        |path: &str| -> CheckedNodeId { serde_json::from_value(node_id(path)).expect("a node id") };
     assert_eq!(
-        package.model_object_fields(&id(&"9".repeat(64))),
+        package.model_object_fields(&id(&"placeholder/9".to_owned())),
         Err(CheckedModelFieldsError::UnknownNode)
     );
     // The scalar node of the read's type.
@@ -2200,14 +2138,13 @@ fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
         .as_array_mut()
         .expect("nodes")
     {
-        if node["node_id"]["digest"] == json!(order) {
+        if node["node_id"] == node_id(&order) {
             node["body"] = json!({"term": "aggregate", "members": [
                 reference(&declaration_key("Pump", INTERFACE)),
             ]});
             node["dependencies"] = json!([node_id(&declaration_key("Pump", INTERFACE))]);
         }
     }
-    refresh_identity(&mut tampered);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_with(&tampered, &evidence, CheckedPackageReadLimits::bounded())
     else {
@@ -2216,27 +2153,34 @@ fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
         refusal.cause,
-        Some(CheckedPackageRefusalCause::StaleNodeKey)
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
     );
     let order_position = tampered["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .position(|node| node["node_id"]["digest"] == json!(order))
+        .position(|node| node["node_id"] == node_id(&order))
         .expect("Order declaration");
     assert_eq!(
         refusal.loci[0].path.as_ref().map(|path| path.as_str()),
-        Some(format!("/semantic_graph/nodes/{order_position}/node_id").as_str())
+        Some(format!("/semantic_graph/nodes/{order_position}/owner").as_str())
     );
-    assert_eq!(
-        refusal.locus.as_ref().expect("locus").digest.as_ref(),
-        order
-    );
-    assert!(refusal.expected_node_id().is_none());
+    assert_eq!(refusal.locus.as_ref(), Some(&declaration_id(ORDER)));
     // A node keyed as no selected declaration.
     let mut unselected = package;
-    let stranger = "a".repeat(64);
+    let stranger = "model:model:object_type:ix://acme/other/Stranger";
     let mut stranger_node = wire_node(&stranger, "model", OBJECT, &stranger, &[], empty());
+    let stranger_id = structural_id(
+        "acme/other",
+        vec![
+            json!("model"),
+            json!(OBJECT),
+            json!("ix://acme/other/Stranger"),
+        ],
+        0,
+    );
+    stranger_node["node_id"] = stranger_id.clone();
+    stranger_node["semantic_type"] = stranger_id;
     stranger_node["owner"] = json!({
         "kind": "model", "identity": "acme/other", "node": orders("Stranger"),
     });
@@ -2245,7 +2189,6 @@ fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
         .expect("nodes")
         .push(stranger_node);
     rebuild_source_map(&mut unselected);
-    refresh_identity(&mut unselected);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_with(&unselected, &evidence, CheckedPackageReadLimits::bounded())
     else {
@@ -2554,9 +2497,9 @@ fn tc_227_the_long_chains_are_decided_by_the_bounded_work_limit() {
     }
 }
 
-/// The package of a chain of 8 types with a read whose node key is stale: a
-/// graph-stage refusal, `invalid_package`/`stale-node-key`.
-fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence, usize) {
+/// The package of a chain of 8 types with a duplicate node id: a graph-stage
+/// `invalid_semantic_graph` refusal.
+fn duplicate_chain_package() -> (Value, Value, CheckedPackageEvidence, usize) {
     let read = || Read {
         owner: "C8",
         field: "f8",
@@ -2564,22 +2507,30 @@ fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence, usize) {
     };
     let declared = [("C8", OBJECT)];
     let (valid, _, _) = package(&chain(8), &declared, &[read()]);
-    let (mut stale, evidence, positions) = package(&chain(8), &declared, &[read()]);
+    let (mut duplicate, evidence, positions) = package(&chain(8), &declared, &[read()]);
     let at = positions.first().copied().expect("the read");
-    stale["semantic_graph"]["nodes"][at]["node_id"]["digest"] = json!("f".repeat(64));
-    rebuild_source_map(&mut stale);
-    refresh_identity(&mut stale);
-    (valid, stale, evidence, at)
+    let package_name = duplicate["name"].clone();
+    let copied = duplicate["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .take(at)
+        .find(|node| node["node_id"]["package"] == package_name && node.get("owner").is_none())
+        .expect("earlier local node")["node_id"]
+        .clone();
+    duplicate["semantic_graph"]["nodes"][at]["node_id"] = copied;
+    rebuild_source_map(&mut duplicate);
+    (valid, duplicate, evidence, at)
 }
 
 /// Tables are built after every row's step 1 and before the graph stage: a
 /// table charge that exhausts the limit together with a graph-stage refusal
-/// (a stale node key) is `incomplete`, and a step 1 refusal at row 1 together
+/// (a duplicate node id) is `incomplete`, and a step 1 refusal at row 1 together
 /// with a table charge that exhausts the limit at row 0 is the step 1 refusal.
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
-    let (valid, stale, evidence, stale_at) = stale_chain_package();
+    let (valid, duplicate, evidence, duplicate_at) = duplicate_chain_package();
     // The smallest limit under which the tables are built: one below it, the
     // build is what exhausts the limit.
     let exhausts_tables = |package: &Value, work: u64| {
@@ -2593,10 +2544,10 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
         )
     };
     let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
-    assert!(!exhausts_tables(&stale, high));
+    assert!(!exhausts_tables(&duplicate, high));
     while low < high {
         let middle = low + (high - low) / 2;
-        if exhausts_tables(&stale, middle) {
+        if exhausts_tables(&duplicate, middle) {
             low = middle + 1;
         } else {
             high = middle;
@@ -2604,35 +2555,34 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
     }
     let smallest = low;
     assert!(smallest > 43, "the tables of 8 types are charged 43");
-    // With room, the stale key is the refusal the graph stage draws.
-    match read_with(&stale, &evidence, CheckedPackageReadLimits::bounded()) {
+    // With room, the duplicate id is the refusal the graph stage draws.
+    match read_with(&duplicate, &evidence, CheckedPackageReadLimits::bounded()) {
         CheckedPackageV2ReadResult::Refused(refusal) => {
-            assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
             assert_eq!(
-                refusal.cause,
-                Some(CheckedPackageRefusalCause::StaleNodeKey)
+                refusal.code,
+                CheckedPackageRefusalCode::InvalidSemanticGraph
             );
+            assert_eq!(refusal.cause, None);
         }
-        other => panic!("expected the stale-key refusal, got {other:?}"),
+        other => panic!("expected the duplicate-id refusal, got {other:?}"),
     }
     // One under, the same package is `incomplete` at the tables' row, not the
-    // graph stage's stale key.
-    assert!(exhausts_tables(&stale, smallest - 1));
+    // graph stage's duplicate id.
+    assert!(exhausts_tables(&duplicate, smallest - 1));
 
-    // The stale read node supplies a separate structural-key boundary. The
-    // first sufficient budget reaches its stale-key refusal; one below must
-    // stop at that node's final, unpaid key charge after table construction.
-    let stale_key_path = format!("/semantic_graph/nodes/{stale_at}/node_id");
+    // The duplicate read node supplies a separate graph-charge boundary. The
+    // first sufficient budget reaches its refusal; one below stops at its id.
+    let duplicate_path = format!("/semantic_graph/nodes/{duplicate_at}/node_id");
     let graph_refuses = |work: u64| {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
         matches!(
-            read_with(&stale, &evidence, limits),
+            read_with(&duplicate, &evidence, limits),
             CheckedPackageV2ReadResult::Refused(refusal)
-                if refusal.code == CheckedPackageRefusalCode::InvalidPackage
-                    && refusal.cause == Some(CheckedPackageRefusalCause::StaleNodeKey)
+                if refusal.code == CheckedPackageRefusalCode::InvalidSemanticGraph
+                    && refusal.cause.is_none()
                     && refusal.loci[0].path.as_ref().map(ToString::to_string).as_deref()
-                        == Some(stale_key_path.as_str())
+                        == Some(duplicate_path.as_str())
         )
     };
     let (mut low, mut high) = (smallest, CheckedPackageReadLimits::bounded().work);
@@ -2647,21 +2597,20 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
     }
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = low - 1;
-    match read_with(&stale, &evidence, limits) {
+    match read_with(&duplicate, &evidence, limits) {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
             assert_eq!(
                 incomplete.path.as_ref().map(ToString::to_string).as_deref(),
-                Some(stale_key_path.as_str())
+                Some(duplicate_path.as_str())
             );
         }
-        other => panic!("expected structural-key charge denial, got {other:?}"),
+        other => panic!("expected duplicate-id graph charge denial, got {other:?}"),
     }
 
     // Root 0 is the chain, root 1 a selection no evidence supplies.
     let mut two = valid;
     select_model(&mut two, "acme/other");
-    refresh_identity(&mut two);
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = smallest - 1;
     match read_with(&two, &evidence, limits) {
