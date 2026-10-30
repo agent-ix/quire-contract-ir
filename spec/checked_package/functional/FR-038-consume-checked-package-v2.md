@@ -127,7 +127,7 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
 
 - A closed read result: admitted, refused or incomplete (limit kind, limit,
   consumed, and the location of the value whose charge failed). A refusal
-  carries a typed code and the location of the value it is about, so a caller
+  carries a typed code and an ordered, non-empty list of locations, so a caller
   distinguishes the condition and locates it without parsing prose. An
   `unknown_contract_version` refusal also carries the `contract_version`
   string the reader read. A frame-body refusal additionally carries the cause
@@ -184,7 +184,25 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
 
 ### Locating refusals and limits
 
-Every location the reader reports is an RFC 6901 JSON pointer into the
+The public `CheckedPackageRefusal` carries `loci`, an ordered, non-empty list
+of location records. Each record has `path: Option<JsonPointer>` and
+`source_region: Option<CheckedSourceRegion>`; the first record is the primary
+location. A value refusal has its RFC 6901 pointer in `path`. A refusal about
+the byte stream has one record with no pointer or source region. A location
+has a source region only when the reader can attribute that exact value to one
+admitted source region; it never guesses a region from a graph-node id. The
+separate graph-node `locus`, `document_pointer`, code and cause retain their
+existing meanings. The former single `path` and `related_path` fields are
+absent; callers receive no parallel legacy location fields.
+
+For a repeated `lock.refinement_internals` row or spelling, the reader reports
+both entries as two locations, in their declaration order, at their exact
+concrete pointers. A repeated dependency identity and a dependency diamond
+conflict likewise report both lock selections as two locations in declaration
+order. Every other refusal reports one location. The second location does not change the
+reader's code, cause, first-defect order or selected graph-node locus.
+
+Every pointer in a location the reader reports is an RFC 6901 JSON pointer into the
 document it was given. The reader builds it from its own position while it
 walks the document: each object member name is escaped (`~` as `~0`, `/` as
 `~1`) and each array element is named by its index. It is never rebuilt from
@@ -1046,7 +1064,8 @@ lanes and the pre-PR and premerge gates. No public metadata consumer or new
 API is allocated by this contract.
 
 The retention boundary is the private intake return above. The current conversion
-of that return to `ValidationFailure` carries code, path and cause only. The
+of that return to `ValidationFailure` carries code, the primary location's
+path and cause only. The
 reader SHALL NOT add declaration metadata to `CheckedPackageRefusal` or the
 IR-owned dispatch result under this contract. Existing `locus`, expected-node-key,
 `contract_version` and `document_pointer` behavior elsewhere remains unchanged. Public reader metadata observability
@@ -4371,7 +4390,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-35 | A function call with a `dependency_reference` callee to a declared function in the supplied dependency admits and carries the term verbatim without listing that remote target as a local dependency. Listing it locally refuses `invalid_semantic_graph`; changing the referenced package name or structural node id changes the referenced target and is checked by the normal dependency and declaration joins, without a rekey step. | Test (TC-048) |
 | FR-038-AC-36 | A `dependency_reference` requires a non-empty package identity and a closed structural node id `{package,path,ordinal}`; malformed members refuse at their own pointer. A well-formed term outside argument 0 of `quire.op.function.call` refuses `ill_typed`/`operator-ineligible` at the term. | Test (TC-048) |
 | FR-038-AC-37 | An unsupplied selected dependency refuses `missing_import`/`missing-selection` at the lock entry. A term whose package no entry names refuses `missing_declaration`/`missing-selection` at `package`; a node absent from that package or without a declaration refuses `missing_declaration`/`missing-name` at `node`; a declared non-function target refuses `ill_typed`/`operator-ineligible`, with the calling node as locus. | Test (TC-048) |
-| FR-038-AC-293 | Given an otherwise valid package with direct selections for two admitted dependencies whose own direct selections reach the same transitive name with unequal complete JSON package values, the V2 reader refuses `invalid_package`/`conflicting-definition` before graph-reference validation. Its `path` and typed `related_path` name the two exact importer-rooted selection paths, each following `/lock/dependency_selections/<i>` through the admitted package selected by the preceding entry; neither path is encoded in prose. The same refusal holds when the importer has one direct selection whose identity recurs in that admitted child's transitive closure with an unequal complete JSON package value. | Test (TC-048) |
+| FR-038-AC-293 | Given an otherwise valid package with direct selections for two admitted dependencies whose own direct selections reach the same transitive name with unequal complete JSON package values, the V2 reader refuses `invalid_package`/`conflicting-definition` before graph-reference validation. Its two ordered `loci` name the exact importer-rooted selection paths in declaration order, each following `/lock/dependency_selections/<i>` through the admitted package selected by the preceding entry; neither path is encoded in prose. The same refusal holds when the importer has one direct selection whose identity recurs in that admitted child's transitive closure with an unequal complete JSON package value. | Test (TC-048) |
 | FR-038-AC-38 | A dependency function whose parameter is a declared record, whose result is a declared record, whose parameter is a `Set` of one, a tuple holding one, or a `Reference` to a `model` node refuses `ill_typed`/`operator-ineligible` at the callee; the same function over a `Set` of a bounded integer admits. | Test (TC-048) |
 | FR-038-AC-39 | Under a bounds-required profile, `x + 1` over a parameter `x` typed at an `integer_range` domain over `integer` lowers although the parameter's name literal is annotated with the unbounded `text` type, and the annotation stays in the closure and in `dependencies`; a parameter typed at an unbounded `integer` or `rational` type refuses `requires_bound` naming that type. | Test (TC-050) |
 | FR-038-AC-40 | Under a bounds-required profile a `bounded_domain` over a shared unbounded type does not bound another position naming it: `{n: Integer, k: Int[0,9]}`, `Sequence<Integer>[0,3]` beside `Int[0,9]`, and `(x + 1) + n` over `x: Int[0,9]` and an `n` typed at `integer` each return `requires_bound` naming `integer`, while `Sequence<Boolean>[0,3]`, a record of bounded collections and ranged fields, and `x + 1` over `x: Int[0,9]` lower. | Test (TC-050) |
@@ -4523,7 +4542,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-190 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN, full gates pending (IR-663 same-identity type-group refinement). For every same-identity type group as defined above, including malformed-declaration and conflicting-binding refusals, the reader retains its common supplied identity and retains origin only if every candidate has a valid origin and all typed values and optional-member presence agree. Any missing, malformed or different valid candidate origin yields None. Candidate permutation cannot select a winner. This IR-local ambiguity refinement does not apply type-group consensus to a sequential relationship refusal. | Test (TC-048) |
 | FR-038-AC-191 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN, full gates pending (IR-663 refusal precedence). Retaining metadata does not change the existing first code, cause or selection-row member in node/table/member-path order. Combining declaration defects preserves that exact first refusal; distinct Limit and InexactNumber alternatives retain their current payloads and precedence. | Test (TC-048) |
 | FR-038-AC-192 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN, full gates pending (IR-663 bounded retention). Retained metadata is acquired and released within the existing bounded document/read/work accounting, without a second parse, raised ceiling or unbounded diagnostic collection. Exact sufficient work succeeds; the first unpayable charge preserves the existing incomplete result and no partial package. | Test (TC-048) |
-| FR-038-AC-193 | IMPLEMENTED; source Inspection completed (IR-663 public boundary exclusion). Inspection of the IR-owned model-intake conversion confirms that it projects code/path/cause to ValidationFailure and adds no declaration metadata field to CheckedPackageRefusal or the IR-owned dispatch result. Unrelated locus, expected-node-key, contract-version and document-pointer behavior remains intact. | Inspection (TC-048) |
+| FR-038-AC-193 | IMPLEMENTED; source Inspection completed (IR-663 public boundary exclusion). Inspection of the IR-owned model-intake conversion confirms that it projects code, primary location path and cause to ValidationFailure's code/path/cause and adds no declaration metadata field to CheckedPackageRefusal or the IR-owned dispatch result. Unrelated graph-node locus, contract-version and document-pointer behavior remains intact. | Inspection (TC-048) |
 | FR-038-AC-194 | IMPLEMENTED; source Inspection completed (IR-663 production ownership). Inspection passes only when full typed-origin equality determines production group-origin retention, metadata is owned by SelectionRefusal through SelectionFailure::Refused after admit_selection releases the document, and that owner is released by the end of the existing SelectionFailure::Refused(refused) mapping arm to ValidationFailure in checked_package/v2/mod.rs. Explicit teardown or ordinary scoped-owner destruction passes; a field read affecting neither origin retention nor ownership transfer, a read solely to silence lint, a blanket dead_code allowance or a new observer/public API fails. | Inspection (TC-048) |
 | FR-038-AC-195 | The repository lint gate runs both Clippy lanes with warnings denied: workspace all-targets and the model consumer with test-only fault injection disabled. CI invokes that same gate. A compiler failure fails the gate; a suppression or fake observer does not satisfy it. | Analysis (`make lint`) |
 | FR-038-AC-196 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN, full gates pending (IR-663 sequential relationship context). A relationship identity repeated sequentially, including under two different owners, retains the later actual offending relationship's supplied identity and its own valid origin under the existing node/member-path order. Its missing or malformed origin yields None. The earlier relationship or enclosing owner cannot substitute, and type-group origin consensus does not apply. | Test (TC-048) |
@@ -4698,6 +4717,8 @@ IR-661's planned relationship-navigation-only refusal does not reinstate AC-66.
 | FR-038-AC-365 | PLANNED/UNRUN (IR-1141). Reader first-refusal visits order node ids by UTF-8 package, then path elements with strings before nested node ids and proper prefix first, then numeric ordinal; graph array order and complete body values remain unchanged. A two-defect control reverses structural id order relative to structural order and reports the structurally first defect. Nested path operands and recursion-group members resolve by exact structural equality. | Test (TC-048) |
 | FR-038-AC-366 | PLANNED/UNRUN (IR-1141). Lock dependency selections are exactly `{identity}` in ascending UTF-8 identity order. Missing supply refuses `missing_import`/`missing-selection`; an extra `package_id` or `version` refuses `unknown_member`. The host supplies a package with matching `name`; a diamond over one identity admits equal complete JSON values and refuses unequal values `invalid_package`/`conflicting-definition` with both complete lock paths. The reader neither records a transitive closure row nor compares content-derived ids. | Test (TC-048) |
 | FR-038-AC-367 | PLANNED/UNRUN (IR-1141). A selected domain document is joined by its model-root identity and every selected source by its exact `{authority,identity}` pair. Changing a selected document's declaration or a source body's meaning is checked by the applicable model, owner, body and graph rules; there is no stale-content refusal. The reader exposes no `CheckedSemanticId`, expected/actual digest pair, candidate-key helper or stale-node-key refusal. A valid edited package retains its name and its declared structural ids where their paths are unchanged. | Test (TC-048; TC-058) |
+| FR-038-AC-368 | PLANNED/UNRUN (IR-1141). Every public V2 refusal carries a non-empty ordered `loci` list; its first entry is primary, and no public `path` or `related_path` field remains. A value refusal has one exact RFC 6901 pointer entry; a malformed JSON or non-canonical byte refusal has one entry with no pointer or source region. A graph-node `locus`, cross-document `document_pointer`, code and cause retain their separate values. A source region appears on a location only when that exact value has one admitted region. | Test (TC-048; TC-058) |
+| FR-038-AC-369 | PLANNED/UNRUN (IR-1141). A repeated `lock.refinement_internals` row, a repeated spelling and a repeated dependency identity each report both concrete entry pointers as two `loci` in declaration order, with the first primary. An unequal dependency diamond reports both conflicting lock-selection pointers in declaration order. Every other refusal has one location entry; these changes preserve each refusal's code, cause and first-defect precedence. | Test (TC-048) |
 
 ## Dependencies
 
