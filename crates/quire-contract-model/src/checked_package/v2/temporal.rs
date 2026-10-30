@@ -1104,14 +1104,13 @@ fn formula_intervals(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checked_package::common::NODE_DOMAIN;
     use crate::checked_package::shared::CheckedSelection;
     use crate::checked_package::v2::CheckedNodeTag;
     use ix_trace_rs::trace;
     use serde_json::json;
 
     fn id(fill: char) -> Value {
-        json!({ "domain": NODE_DOMAIN, "digest": fill.to_string().repeat(64) })
+        json!({ "package": "test/temporal", "path": [fill.to_string()], "ordinal": 0 })
     }
 
     #[trace("TC-048", "FR-038-AC-22")]
