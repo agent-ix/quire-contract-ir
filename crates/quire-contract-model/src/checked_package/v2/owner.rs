@@ -385,6 +385,23 @@ pub(super) fn validate_owner_joins(
                 }) {
                     return Err(missing_owner(node, at));
                 }
+                // A selected model or relation declaration has no meaning-bearing body.
+                // Check this independently of an accessor using the declaration.
+                if kinds.get(position).is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        CheckedNodeKind::Model(_) | CheckedNodeKind::Relation(_)
+                    )
+                }) && !terms.get(position).and_then(Option::as_ref).is_some_and(
+                    |term| matches!(term, CheckedTerm::Aggregate { members } if members.is_empty()),
+                ) {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::InvalidPackage,
+                        node_pointer(position).key("owner"),
+                        Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+                        node.node_id.clone(),
+                    ));
+                }
             }
             Some(CheckedNodeOwner::ModelRoot { .. }) | None => {}
         }
