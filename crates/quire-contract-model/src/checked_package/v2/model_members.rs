@@ -509,6 +509,10 @@ pub(super) struct DomainModel {
     aliases: BTreeMap<Box<str>, Box<str>>,
     /// Exact semantic cases and optional payload types of selected variants.
     pub(super) variant_types: BTreeMap<Box<str>, BTreeMap<Box<str>, Option<SelectedTypeRef>>>,
+    /// Selected FCD dimension declarations by their exact identity.
+    pub(super) dimensions: BTreeMap<Box<str>, SelectedDimension>,
+    /// Selected FCD unit declarations by their exact identity.
+    pub(super) units: BTreeMap<Box<str>, SelectedUnit>,
     /// FCD sequence (`items`) and map (`values`) type definitions.
     pub(super) collection_types: BTreeMap<Box<str>, SelectedCollectionDefinition>,
     /// Checked-package unit `typeRef` to the exact admitted unit node ID.
@@ -529,6 +533,23 @@ pub(super) struct DomainModel {
     /// The field tables of [`Self::object_types`], empty until the lock stage
     /// builds them (`build_field_tables`).
     pub(super) fields: FieldTables,
+}
+
+/// An admitted FCD dimension, retained for its structural checked-node join.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct SelectedDimension {
+    pub(super) name: Box<str>,
+    pub(super) terms: Vec<(Box<str>, Box<str>)>,
+}
+
+/// An admitted FCD unit, retained for its structural checked-node join.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct SelectedUnit {
+    pub(super) name: Box<str>,
+    pub(super) dimension: Box<str>,
+    pub(super) target: Option<Box<str>>,
+    pub(super) scale: Box<str>,
+    pub(super) offset: Box<str>,
 }
 
 /// A model declaration node's `(node_tag, semantic_form)`.
@@ -3002,6 +3023,52 @@ pub(super) fn read_semantic_ir(
         }
         _ => (2, 0),
     });
+    let mut dimensions = BTreeMap::new();
+    for dimension in list(document, "dimensions")? {
+        budget.charge(node_size(dimension))?;
+        let identity = text(dimension, "identity")?;
+        let name = text(dimension, "name")?;
+        let terms = list(dimension, "terms")?
+            .iter()
+            .map(|term| {
+                Ok((
+                    text(term, "dimension")?.into(),
+                    text(term, "exponent")?.into(),
+                ))
+            })
+            .collect::<Result<Vec<_>, ModelRefusal>>()?;
+        if dimensions
+            .insert(
+                identity.into(),
+                SelectedDimension {
+                    name: name.into(),
+                    terms,
+                },
+            )
+            .is_some()
+        {
+            return Err(ModelRefusal::malformed().into());
+        }
+    }
+    let mut units = BTreeMap::new();
+    for unit in list(document, "units")? {
+        budget.charge(node_size(unit))?;
+        let identity = text(unit, "identity")?;
+        let target = unit
+            .get("target")
+            .map(|_| text(unit, "target").map(Box::<str>::from))
+            .transpose()?;
+        let selected = SelectedUnit {
+            name: text(unit, "name")?.into(),
+            dimension: text(unit, "dimension")?.into(),
+            target,
+            scale: text(unit, "scale")?.into(),
+            offset: text(unit, "offset")?.into(),
+        };
+        if units.insert(identity.into(), selected).is_some() {
+            return Err(ModelRefusal::malformed().into());
+        }
+    }
     let mut model = DomainModel {
         identity: identity.into(),
         checked_package: checked_package.into(),
@@ -3016,6 +3083,8 @@ pub(super) fn read_semantic_ir(
         value_types: BTreeMap::new(),
         aliases,
         variant_types: BTreeMap::new(),
+        dimensions,
+        units,
         collection_types: BTreeMap::new(),
         unit_refs: unit_refs.clone(),
         own_seconds_declared: list(document, "units")?
