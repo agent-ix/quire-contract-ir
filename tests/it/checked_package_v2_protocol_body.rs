@@ -2464,7 +2464,7 @@ fn protocol_owner_retarget_to_selected_non_object_model_refuses() {
 }
 
 /// Trace: FR-064-AC-4
-#[trace("TC-048", "TC-946")]
+#[trace("TC-048", "TC-948")]
 #[test]
 fn protocol_owner_selected_state_machine_and_record_value_type_refuse_at_edge() {
     for (label, form, meaning) in [
@@ -6127,6 +6127,42 @@ fn effect_admits_a_referenced_attempt_in_the_same_control_tree() {
     assert_eq!(controls, &expected);
 }
 
+/// QSpec TC-946 K5: a declared effect keeps its structural id when `of`
+/// changes, while a non-attempt control target is refused at the exact edge.
+#[trace("TC-946", "FR-038-AC-288")]
+#[test]
+fn effect_retarget_from_attempt_to_sequence_control_refuses() {
+    let (mut package, applied, _) = package_with_admitted_effect();
+    let main = protocol_position(&package, "control");
+    let applied_id = package["semantic_graph"]["nodes"][applied]["node_id"].clone();
+    let before = package["semantic_graph"]["nodes"][applied]["body"].clone();
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "attempt/effect/sequence base: {:?}",
+        read(&package)
+    );
+    package["semantic_graph"]["nodes"][applied]["body"]["arguments"][0]["value"]["target"] =
+        package["semantic_graph"]["nodes"][main]["node_id"].clone();
+    settle(&mut package);
+    assert_ne!(package["semantic_graph"]["nodes"][applied]["body"], before);
+    assert_eq!(
+        package["semantic_graph"]["nodes"][applied]["node_id"],
+        applied_id
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("effect of sequence control must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{applied}/body/arguments/0/value/target").as_str())
+    );
+}
+
 /// Trace: FR-038-AC-288
 #[trace("TC-048")]
 #[test]
@@ -7218,7 +7254,7 @@ fn receive_requires_a_send_target_before_payload_type_checks() {
 }
 
 /// Trace: FR-038-AC-288, FR-038-AC-290
-#[trace("TC-048")]
+#[trace("TC-048", "TC-946")]
 #[test]
 fn receive_accepts_its_send_channel_and_refuses_another_channel() {
     let (mut package, root, channel) = package_with_send();
@@ -7284,12 +7320,21 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
         read(&package)
     );
 
+    // QSpec TC-948 S1: reversing a send/receive sequence changes its body,
+    // while the declared Main identity remains attached to that control.
     let mut reversed = package.clone();
+    let main_id = package["semantic_graph"]["nodes"][root]["node_id"].clone();
+    let main_body = package["semantic_graph"]["nodes"][root]["body"].clone();
     reversed["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
         .as_array_mut()
         .expect("sequence children")
         .swap(0, 1);
     settle(&mut reversed);
+    assert_ne!(reversed["semantic_graph"]["nodes"][root]["body"], main_body);
+    assert_eq!(
+        reversed["semantic_graph"]["nodes"][root]["node_id"],
+        main_id
+    );
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&reversed) else {
         panic!("receive sequenced before its send must refuse");
     };
@@ -7368,18 +7413,23 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
     wrong_binder["semantic_graph"]["nodes"][receive_position]["body"]["arguments"][2]["value"]
         ["target"] = node_id(&text_key);
     settle(&mut wrong_binder);
-    let wrong_key = wrong_binder["semantic_graph"]["nodes"][receive_position]["node_id"]["path"][0]
-        .as_str()
-        .expect("receive key");
+    let wrong_id: quire_contract_model::CheckedNodeId = serde_json::from_value(
+        wrong_binder["semantic_graph"]["nodes"][receive_position]["node_id"].clone(),
+    )
+    .expect("receive identity");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_binder) else {
+        panic!("wrong receive binder type must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
     assert_eq!(
-        read(&wrong_binder),
-        refusal_at(
-            CheckedPackageRefusalCode::IllTyped,
-            &format!("/semantic_graph/nodes/{receive_position}"),
-            Some(CheckedPackageRefusalCause::TypeMismatch),
-            wrong_key,
-        )
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::TypeMismatch)
     );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{receive_position}").as_str())
+    );
+    assert_eq!(refusal.locus, Some(wrong_id));
 
     let other = protocol_named_node(
         "channel",
@@ -7406,18 +7456,23 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
     package["semantic_graph"]["nodes"][receive_position]["body"]["arguments"][0]["value"]
         ["target"] = other_key;
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][receive_position]["node_id"]["path"][0]
-        .as_str()
-        .expect("receive key");
+    let receive_id: quire_contract_model::CheckedNodeId = serde_json::from_value(
+        package["semantic_graph"]["nodes"][receive_position]["node_id"].clone(),
+    )
+    .expect("receive identity");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("receive on unrelated channel must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
     assert_eq!(
-        read(&package),
-        refusal_at(
-            CheckedPackageRefusalCode::IllTyped,
-            &format!("/semantic_graph/nodes/{receive_position}"),
-            Some(CheckedPackageRefusalCause::OperatorIneligible),
-            key,
-        )
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
     );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{receive_position}").as_str())
+    );
+    assert_eq!(refusal.locus, Some(receive_id));
     assert_ne!(send_position, receive_position);
 }
 
