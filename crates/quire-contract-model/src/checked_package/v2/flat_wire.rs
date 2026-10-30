@@ -1060,7 +1060,9 @@ mod tests {
                 .err()
                 .map(|failure| match failure {
                     crate::checked_package::common::ValidationFailure::Refused(refusal) => refusal
+                        .loci[0]
                         .path
+                        .clone()
                         .map_or_else(|| "<none>".to_owned(), |path| path.as_str().to_owned()),
                     crate::checked_package::common::ValidationFailure::Incomplete(_) => {
                         "incomplete".to_owned()
