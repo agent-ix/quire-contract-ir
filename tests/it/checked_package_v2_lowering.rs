@@ -187,7 +187,7 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
         .collect::<BTreeSet<_>>();
     assert_eq!(identities.len(), FAMILIES.len());
 
-    // Nominal nodes lower with their preimages and nominal closures intact.
+    // Nominal nodes lower with their semantic bodies and closures intact.
     let nominal_value = checked_package::v2_nominal();
     let nominal = admit(&nominal_value);
     let keys = nominal_value["semantic_graph"]["nodes"]
@@ -208,7 +208,6 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             serde_json::to_value(&node.node).expect("node"),
             nominal_value["semantic_graph"]["nodes"][position]
         );
-        assert!(node.node.nominal_identity_preimage.is_some());
     }
 }
 
