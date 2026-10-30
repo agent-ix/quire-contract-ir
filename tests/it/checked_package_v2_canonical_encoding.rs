@@ -573,7 +573,6 @@ fn tc_451_deep_closed_graph_encodes_once_with_exact_byte_limits() {
             full
         );
         let short = encode(u64::try_from(full.len()).expect("length") - 1);
-        drop(encode);
         dismantle(&mut graph.nodes[0].body);
         (full, short)
     });
