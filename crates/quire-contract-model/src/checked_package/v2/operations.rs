@@ -1851,7 +1851,7 @@ fn union_arms_hold(
         };
         if !binders_hold
             || !conforms_to_type(
-                &result.digest,
+                result,
                 operand_type_node_typed(body, nodes, kinds, index).as_ref(),
                 graph,
                 owners,
@@ -2037,7 +2037,7 @@ fn union_defect(
         // Implements: FR-347. a payload term conforms to a record payload type.
         for (term, expected) in payload.iter().zip(&member.payload) {
             if !conforms_to_type(
-                &expected.digest,
+                expected,
                 operand_type_node_typed(term, nodes, kinds, index).as_ref(),
                 graph,
                 owners,
@@ -2059,7 +2059,7 @@ fn union_defect(
 /// charged to the selection that declares the expected record; an exact match
 /// charges nothing.
 fn conforms_to_type(
-    expected: &str,
+    expected: &CheckedNodeId,
     actual: Option<&CheckedNodeId>,
     graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
@@ -2068,7 +2068,7 @@ fn conforms_to_type(
     let Some(actual) = actual else {
         return Ok(false);
     };
-    if &*actual.digest == expected {
+    if actual == expected {
         return Ok(true);
     }
     let Some(parameter) = owners.record_by_key(expected) else {
@@ -2135,13 +2135,7 @@ fn body_root_defect(
     let Some(root_type) = root_type else {
         return Ok(None);
     };
-    if conforms_to_type(
-        &node.semantic_type.digest,
-        Some(&root_type),
-        graph,
-        owners,
-        meter,
-    )? {
+    if conforms_to_type(&node.semantic_type, Some(&root_type), graph, owners, meter)? {
         return Ok(None);
     }
     Ok(Some(ValidationFailure::refused_at(
@@ -2226,7 +2220,7 @@ fn check_function_call(
     for (offset, expected) in declared.iter().enumerate() {
         let position = offset.saturating_add(1);
         if !conforms_to_type(
-            &expected.digest,
+            expected,
             operand_type_node_typed(&arguments[position], nodes, kinds, index).as_ref(),
             graph,
             owners,
@@ -3024,7 +3018,7 @@ fn check_model_member(
     // it when that type is a record value type.
     if kind == MemberKind::Field
         && !conforms_to_type(
-            &declaring.node_id.digest,
+            &declaring.node_id,
             type_node(0).as_ref(),
             graph,
             owners,
