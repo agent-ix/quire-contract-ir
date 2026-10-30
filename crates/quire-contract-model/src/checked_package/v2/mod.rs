@@ -846,53 +846,6 @@ fn member_pointer(keys: &[&str]) -> JsonPointer {
         .fold(JsonPointer::root(), |pointer, key| pointer.key(key))
 }
 
-/// Carries a decode refusal the decoder located at a nominal preimage down to
-/// the member at fault (see [`identity::locate_preimage_failure`]).
-fn locate_in_preimage_bytes(failure: ValidationFailure, bytes: &[u8]) -> ValidationFailure {
-    locate_in_preimage_with(failure, |path| intake::source_value(bytes, path))
-}
-
-fn locate_in_preimage_with(
-    failure: ValidationFailure,
-    source: impl Fn(&JsonPointer) -> Option<Value>,
-) -> ValidationFailure {
-    let ValidationFailure::Refused(mut refusal) = failure else {
-        return failure;
-    };
-    if let Some(path) = refusal.primary_path().cloned() {
-        let located = if is_typed_preimage_position(&path) {
-            if let Some(preimage) = source(&path) {
-                // Most nominal preimage decode failures remain graph errors.
-                // The explicitly closed schema defects refuse at their node.
-                let schema_invalid = identity::schema_invalid_preimage(&preimage);
-                let (located, unknown_member) = identity::locate_preimage_failure(path, &preimage);
-                if schema_invalid {
-                    refusal.code = CheckedPackageRefusalCode::MalformedWire;
-                    let node = located
-                        .as_str()
-                        .split("/nominal_identity_preimage")
-                        .next()
-                        .and_then(JsonPointer::parse);
-                    node.unwrap_or(located)
-                } else {
-                    if unknown_member {
-                        refusal.code = CheckedPackageRefusalCode::UnknownMember;
-                    } else if refusal.code == CheckedPackageRefusalCode::MalformedWire {
-                        refusal.code = CheckedPackageRefusalCode::InvalidSemanticGraph;
-                    }
-                    located
-                }
-            } else {
-                path
-            }
-        } else {
-            path
-        };
-        refusal.set_primary_path(Some(located));
-    }
-    ValidationFailure::Refused(refusal)
-}
-
 /// Members every `dependency_selections` entry requires.
 const DEPENDENCY_SELECTION_MEMBERS: [&str; 1] = ["identity"];
 
@@ -997,21 +950,6 @@ fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
         }
     }
     ValidationFailure::Refused(refusal)
-}
-
-/// Whether `path` is a graph node's typed `nominal_identity_preimage` at
-/// `/semantic_graph/nodes/{n}/…`. A member of that name
-/// anywhere else is not a preimage (an unknown member, say) and is never
-/// re-located.
-fn is_typed_preimage_position(path: &JsonPointer) -> bool {
-    let text = path.as_str();
-    ["/semantic_graph/nodes/"].iter().any(|prefix| {
-        text.strip_prefix(prefix)
-            .and_then(|rest| rest.strip_suffix("/nominal_identity_preimage"))
-            .is_some_and(|index| {
-                !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
-            })
-    })
 }
 
 impl CheckedPackageV2 {
