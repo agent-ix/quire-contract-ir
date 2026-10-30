@@ -115,6 +115,10 @@ fn derived_range_binding_name_is_validated_independently_of_its_id() {
         refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/2/node_id".to_owned())
     );
+    assert_eq!(
+        refusal.locus,
+        Some(serde_json::from_value(retained_id).expect("authored structural node id"))
+    );
 }
 
 #[trace("TC-226", "FR-038-AC-125")]
