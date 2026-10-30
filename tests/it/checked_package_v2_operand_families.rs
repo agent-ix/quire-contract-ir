@@ -4,9 +4,9 @@
 //! Public-reader controls for declared-unit, aggregate and literal families.
 
 use crate::support::checked_package::{
-    add_family_reference_target, application_node_key, canonical, evidence_for, node_id,
-    nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, settle,
-    sha256_hex, structural_key, v2_all_families,
+    add_family_reference_target, canonical, evidence_for, node_id, nominal_fixture_members,
+    nominal_package, rebuild_source_map, refresh_identity, settle, sha256_hex, structural_key,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -40,7 +40,7 @@ fn fixture() -> (Value, String, String, String, String, String) {
         .clone();
     let mut package = nominal_package(&members);
     let empty = json!({"term": "aggregate", "members": []});
-    let scalar = |form| structural_key("scalar_type", form, None, &empty);
+    let scalar = |form: &str| format!("operand/scalar/{form}");
     let boolean = scalar("boolean");
     let integer = scalar("integer");
     let text = scalar("text");
@@ -61,8 +61,8 @@ fn fixture() -> (Value, String, String, String, String, String) {
     };
     let left_body = parameter("left");
     let right_body = parameter("right");
-    let left = structural_key("value", "parameter", Some(&unit), &left_body);
-    let right = structural_key("value", "parameter", Some(&unit), &right_body);
+    let left = "operand/parameter/left".to_owned();
+    let right = "operand/parameter/right".to_owned();
     add_node(&mut package, &left, "value", "parameter", &unit, left_body);
     add_node(
         &mut package,
@@ -95,11 +95,11 @@ fn append_application(
 ) -> usize {
     let body = json!({"term": "application", "operator": operator,
         "operation": operation, "result_type": node_id(result), "arguments": arguments});
-    let key = application_node_key("expression", form, result, &body);
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .len();
+    let key = format!("operand/application/{form}/{position}");
     add_node(package, &key, "expression", form, result, body);
     settle(package);
     position
@@ -108,11 +108,11 @@ fn append_application(
 fn append_literal(package: &mut Value, ty: &str, kind: &str, value: Value) -> usize {
     let body = json!({"term": "literal", "type": node_id(ty),
         "value_kind": kind, "value": value});
-    let key = structural_key("value", "literal", Some(ty), &body);
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .len();
+    let key = format!("operand/literal/{position}");
     add_node(package, &key, "value", "literal", ty, body);
     settle(package);
     position
@@ -305,12 +305,6 @@ fn tc_230_quantity_literal_refuses_dimension_type_without_operand_family() {
 fn change_literal_type(package: &mut Value, position: usize, ty: &str) {
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["type"] = node_id(ty);
-    let own_type = node["semantic_type"]["digest"]
-        .as_str()
-        .expect("type")
-        .to_owned();
-    let key = structural_key("value", "literal", Some(&own_type), &node["body"]);
-    node["node_id"] = node_id(&key);
     settle(package);
 }
 
@@ -353,20 +347,20 @@ fn native_fixture() -> (Value, String, [String; 3], String) {
     let (mut package, _, boolean, _, _, _) = fixture();
     let empty = json!({"term": "aggregate", "members": []});
     let native = ["string", "uuid", "timestamp"].map(|form| {
-        let key = structural_key("scalar_type", form, None, &empty);
+        let key = format!("operand/scalar/{form}");
         add_node(&mut package, &key, "scalar_type", form, &key, empty.clone());
         key
     });
-    let text = structural_key("scalar_type", "text", None, &empty);
+    let text = "operand/scalar/text".to_owned();
     settle(&mut package);
     (package, boolean, native, text)
 }
 
 fn native_literal(package: &mut Value, ty: &str, kind: &str, value: Value) -> String {
     let at = append_literal(package, ty, kind, value);
-    package["semantic_graph"]["nodes"][at]["node_id"]["digest"]
+    package["semantic_graph"]["nodes"][at]["node_id"]["path"][0]
         .as_str()
-        .expect("literal key")
+        .expect("literal path")
         .to_owned()
 }
 
