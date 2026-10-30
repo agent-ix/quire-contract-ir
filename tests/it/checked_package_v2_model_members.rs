@@ -1134,7 +1134,11 @@ fn reaches_over(
     let relation_key = format!("relationship|{RELATIONSHIP}");
     nodes[CALL]["body"]["arguments"] =
         json!([reference(&operand_keys[0]), reference(&operand_keys[1])]);
-    let mut dependencies = [&operand_keys[0], &operand_keys[1], &relation_key];
+    let mut dependencies = [
+        operand_keys[0].as_str(),
+        operand_keys[1].as_str(),
+        relation_key.as_str(),
+    ];
     dependencies.sort_unstable();
     nodes[CALL]["dependencies"] = json!(dependency_ids(&dependencies));
     nodes[CALL]["node_id"] = node_id("application/reachability");
