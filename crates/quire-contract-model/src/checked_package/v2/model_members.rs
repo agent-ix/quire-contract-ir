@@ -1745,7 +1745,6 @@ pub(super) fn check_declaration_node<Body>(
         &node.owner,
         Some(CheckedNodeOwner::Model { identity, node: declaration })
             if node.node_id.package.as_ref() == identity.as_ref()
-                && node.node_id.ordinal == 0
                 && matches!(node.node_id.path.as_slice(),
                     [CheckedNodePathSegment::Name(tag),
                      CheckedNodePathSegment::Name(semantic_form),

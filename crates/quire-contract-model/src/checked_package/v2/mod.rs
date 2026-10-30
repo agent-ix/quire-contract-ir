@@ -2319,7 +2319,6 @@ fn validate_graph(
     // Each frame node's typed body, read once here and joined by the frame step.
     let mut frames = Vec::new();
     let mut edges = 0_u64;
-    let mut group_ordinals: BTreeMap<&str, u64> = BTreeMap::new();
     for (position, node) in graph.nodes.iter().enumerate() {
         let at = |member: &str| node_pointer(position).key(member);
         validate_node_id(&node.node_id, || at("node_id"))?;
@@ -2333,21 +2332,6 @@ fn validate_graph(
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 at("node_id").key("package"),
-            ));
-        }
-        let expected_ordinal = match node.recursion_group.as_deref() {
-            Some(label) => {
-                let next = group_ordinals.entry(label).or_default();
-                let ordinal = *next;
-                *next = next.saturating_add(1);
-                ordinal
-            }
-            None => 0,
-        };
-        if node.node_id.ordinal != expected_ordinal {
-            return Err(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                at("node_id").key("ordinal"),
             ));
         }
         if index.insert(&node.node_id, position).is_some() {
@@ -2506,12 +2490,13 @@ fn validate_graph(
         }
     }
     refinement::validate_dependencies(&graph.nodes, &kinds, &terms)?;
-    validate_nominal_nodes(
+    let imported_nominals = validate_nominal_nodes(
         &graph.nodes,
         &kinds,
         &index,
         &wire.lock,
         models,
+        dependencies,
         meter,
         limits.bytes,
     )?;
@@ -2704,11 +2689,41 @@ fn validate_graph(
             successors.push((semantic_type, EdgeSite::SemanticType));
         }
         for (dependency_index, dependency) in node.dependencies.iter().enumerate() {
-            let target = resolve(dependency, &|| at("dependencies").index(dependency_index))?;
-            lowering_successors.push((target, lower::EdgeRole::Typing));
-            successors.push((target, EdgeSite::Dependency(dependency_index)));
+            if let Some(&target) = index.get(dependency) {
+                lowering_successors.push((target, lower::EdgeRole::Typing));
+                successors.push((target, EdgeSite::Dependency(dependency_index)));
+            } else if !matches!(
+                kinds[position],
+                CheckedNodeKind::ScalarType(
+                    ScalarTypeForm::Dimension
+                        | ScalarTypeForm::Unit
+                        | ScalarTypeForm::DimensionEquivalence
+                )
+            ) || !imported_nominals.contains(dependency)
+            {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at("dependencies").index(dependency_index),
+                ));
+            }
         }
         for (reference_index, (target, site)) in targets.iter().enumerate() {
+            if !index.contains_key(target)
+                && matches!(
+                    kinds[position],
+                    CheckedNodeKind::ScalarType(
+                        ScalarTypeForm::Dimension
+                            | ScalarTypeForm::Unit
+                            | ScalarTypeForm::DimensionEquivalence
+                    )
+                )
+                && imported_nominals.contains(target)
+            {
+                // A selected nominal in an admitted dependency is validated
+                // by the nominal join above. It is outside this local graph's
+                // recursion and lowering vertex set.
+                continue;
+            }
             let target = resolve(target, &|| reference_pointer(position, reference_index))?;
             let role = match site.member {
                 ReferenceMember::Type => lower::EdgeRole::Annotation,
