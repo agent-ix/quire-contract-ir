@@ -28,6 +28,7 @@ relationships:
 ---
 # TC-048: CheckedPackage V2 strict reader validates structural identities
 
+
 ## Description
 
 Verify FR-038-AC-1 through FR-038-AC-5 (QSpec FR-322-AC-4, FR-322-AC-8,
@@ -2552,3 +2553,17 @@ assert that each accessor returns typed `NotAdmitted` rather than those absent
 values. A malformed declaration, mode or law still refuses at reader admission;
 the provenance check does not change that precedence. These controls are
 PLANNED/UNRUN under IR-1087.
+
+## Public nominal body construction (FR-038-AC-374)
+
+PLANNED/UNRUN (IR-1141). In a default-feature external consumer, call each
+fallible nominal constructor with typed values and compare its serialized
+`CheckedTerm::NominalBody` against an independently authored closed V2 body.
+Read a conforming package containing that body and compare the retained typed
+term. For each malformed member named in AC-374, assert `malformed_wire` and
+the exact body-relative pointer without receiving a body. Include independent
+zero and negative `dimension_equivalence.root_scale.numerator` constructor
+requests; both must refuse at `/root_scale/numerator`. Construct a valid
+shape with an unresolved graph reference or wrong owner, then verify that the
+ordinary reader gives its existing semantic refusal, not constructor success
+as a claim of package admission.

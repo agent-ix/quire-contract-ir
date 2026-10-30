@@ -12,6 +12,7 @@ relationships:
 ---
 # TC-058: The model crate's public interface is exactly FR-019's list, re-exported by name
 
+
 ## Description
 
 Verify FR-019-AC-5: the `quire_contract_model` crate root re-exports its
@@ -100,3 +101,13 @@ Negative compile probes cannot import `derive_application_node_id`,
 The model crate's named public inventory and the absence of root-crate reexports
 remain enforced. A raw structural id does not assert admission; only the
 strict reader returns an admitted `CheckedPackageV2`.
+
+## Nominal body public boundary (FR-038-AC-374)
+
+PLANNED/UNRUN (IR-1141). The default-feature consumer imports `NominalBody`
+and its four fallible constructors from `quire_contract_model` after the
+owning code lands. Compile-fail probes reject construction of a raw nominal
+variant, mutation of an opaque body, unchecked conversion and direct
+deserialization into `NominalBody`; the root `quire_contract_ir` crate does not
+export it. Re-run FR-019-AC-5's exact named inventory with this planned entry
+included only after it is implemented.
