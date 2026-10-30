@@ -75,9 +75,7 @@ fn possible_binding_value(value: &Value) -> Option<&Value> {
 
 #[ix_trace_rs::string_edge]
 fn node_key(value: &Value) -> Option<CheckedNodeId> {
-    serde_json::from_value::<CheckedNodeId>(value.clone())
-        .ok()
-        .filter(CheckedNodeId::is_well_formed)
+    CheckedNodeId::from_value(value).filter(CheckedNodeId::is_well_formed)
 }
 
 fn reference(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
