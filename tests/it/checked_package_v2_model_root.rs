@@ -380,34 +380,30 @@ fn root_graph_shape_is_closed_before_key_checking() {
     let valid = selected_package();
     let root = root_position(&valid);
     let root_at = format!("/semantic_graph/nodes/{root}");
-    let nominal_package = v2_nominal();
-    let nominal = nominal_package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .find_map(|node| node.get("nominal_identity_preimage"))
-        .cloned()
-        .expect("valid nominal preimage");
-    for (member, value, expected_path) in [
+    for (member, value, expected_path, expected_code) in [
         (
             "recursion_group",
             json!("r"),
             format!("{root_at}/recursion_group"),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
         ),
         (
             "nominal_identity_preimage",
-            nominal,
+            json!({"version": "quire.enum-declaration-node/v1"}),
             format!("{root_at}/nominal_identity_preimage"),
+            CheckedPackageRefusalCode::UnknownMember,
         ),
         (
             "dependencies",
             json!([valid["semantic_graph"]["nodes"][0]["node_id"]]),
             format!("{root_at}/dependencies"),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
         ),
         (
             "body",
             json!({"term": "aggregate", "members": [valid["semantic_graph"]["nodes"][0]["node_id"]]}),
             format!("{root_at}/body/members/0"),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
         ),
     ] {
         let mut malformed = valid.clone();
@@ -416,11 +412,7 @@ fn root_graph_shape_is_closed_before_key_checking() {
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&malformed) else {
             panic!("{member} was admitted");
         };
-        assert_eq!(
-            refusal.code,
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "{member}"
-        );
+        assert_eq!(refusal.code, expected_code, "{member}");
         assert_eq!(refusal.cause, None);
         assert_eq!(
             refusal.loci[0]
