@@ -522,7 +522,7 @@ pub(super) struct DeclaredNode {
 /// An owned index from each selected declaration's model declaration node key
 /// to its selection row, form and node identity.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct DeclarationIndex(pub(super) BTreeMap<String, DeclaredNode>);
+pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNode>);
 
 /// What an admitted [`CheckedPackageV2`] retains of its selected documents:
 /// the declaration index, each document's field tables, the selected
@@ -579,7 +579,7 @@ impl RetainedModels {
         meter: &mut WorkMeter,
     ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
         let mut classes = Vec::new();
-        for (digest, declared) in &self.index.0 {
+        for (id, declared) in &self.index.0 {
             let Some(model) = self.models.get(declared.selection) else {
                 continue;
             };
@@ -601,10 +601,7 @@ impl RetainedModels {
                 classes.push(ModelOperationClass {
                     object: member_name(&declared.node).into(),
                     operation,
-                    node: CheckedNodeId {
-                        domain: NODE_DOMAIN.into(),
-                        digest: digest.clone().into(),
-                    },
+                    node: id.clone(),
                     binder_types,
                 });
             }
@@ -614,7 +611,7 @@ impl RetainedModels {
 
     /// The selected variant's family, for checked projections after admission.
     pub(super) fn variant_family(&self, key: &CheckedNodeId) -> Option<&'static str> {
-        let declared = self.index.0.get(key.digest.as_ref())?;
+        let declared = self.index.0.get(key)?;
         if declared.form != DeclarationForm::VariantType {
             return None;
         }
@@ -634,7 +631,7 @@ impl RetainedModels {
         &self,
         key: &CheckedNodeId,
     ) -> Option<BTreeSet<Box<str>>> {
-        let declared = self.index.0.get(key.digest.as_ref())?;
+        let declared = self.index.0.get(key)?;
         if declared.form != DeclarationForm::ObjectType {
             return None;
         }
@@ -696,7 +693,7 @@ impl RetainedModels {
     }
 
     pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<RecordBinderTypes> {
-        let declared = self.index.0.get(key.digest.as_ref())?;
+        let declared = self.index.0.get(key)?;
         if declared.form != DeclarationForm::RecordValueType {
             return None;
         }
@@ -708,7 +705,7 @@ impl RetainedModels {
     pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {
         self.index
             .0
-            .get(key.digest.as_ref())
+            .get(key)
             .is_some_and(|declared| declared.form == DeclarationForm::RecordValueType)
     }
 
@@ -718,7 +715,7 @@ impl RetainedModels {
         name: &str,
         meter: &mut WorkMeter,
     ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
-        let Some(declared) = self.index.0.get(context.digest.as_ref()) else {
+        let Some(declared) = self.index.0.get(context) else {
             return Ok(None);
         };
         let Some(model) = self.models.get(declared.selection) else {
@@ -762,7 +759,7 @@ impl RetainedModels {
         node: &super::CheckedSemanticNodeV2,
         term: &CheckedTerm,
     ) -> Option<&RetainedRelationship> {
-        let declared = self.index.0.get(node.node_id.digest.as_ref())?;
+        let declared = self.index.0.get(&node.node_id)?;
         check_declaration_node(declared.form, node, empty_declaration_term(term)).ok()?;
         // The map holds relationship identities only, so an indexed
         // declaration of another form finds nothing.
@@ -777,7 +774,7 @@ impl RetainedModels {
         term: &CheckedTerm,
         name: &str,
     ) -> Option<&OperationTypes> {
-        let declared = self.index.0.get(context.node_id.digest.as_ref())?;
+        let declared = self.index.0.get(&context.node_id)?;
         check_declaration_node(declared.form, context, empty_declaration_term(term)).ok()?;
         if !matches!(
             declared.form,
@@ -796,7 +793,7 @@ impl RetainedModels {
         node: &super::CheckedSemanticNodeV2,
         term: &CheckedTerm,
     ) -> Option<&FieldTable> {
-        let declared = self.index.0.get(node.node_id.digest.as_ref())?;
+        let declared = self.index.0.get(&node.node_id)?;
         check_declaration_node(declared.form, node, empty_declaration_term(term)).ok()?;
         if declared.form != DeclarationForm::ObjectType {
             return None;
