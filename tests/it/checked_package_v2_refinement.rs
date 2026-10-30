@@ -5,8 +5,8 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, node_id, protocol_named_node,
-    rebuild_source_map, refresh_identity, rekey_application_node, select_model, settle, sha256_hex,
-    structural_key, v2_all_families, v2_nominal,
+    rebuild_source_map, refresh_identity, select_model, settle, sha256_hex, structural_key,
+    v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -681,7 +681,6 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
         *owner_dependency = selected_owner;
         dependencies.sort_by(node_id_order);
         dependencies.dedup();
-        rekey_application_node(&mut package, clause);
         refresh_identity(&mut package);
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
             panic!("selected {form} clause edge must refuse");
@@ -1289,13 +1288,7 @@ fn two_own_operations_on_process_or_machine_share_one_frame() {
             .clone();
         let mut second = original.clone();
         second["body"]["members"][1]["value"]["value"] = json!(other_operation);
-        let context = second["semantic_type"]["digest"].as_str().expect("context");
-        second["node_id"] = node_id(&structural_key(
-            "state",
-            "operation_anchor",
-            Some(context),
-            &second["body"],
-        ));
+        second["node_id"]["ordinal"] = json!(1);
         assert_eq!(
             original["body"]["members"][2]["value"], second["body"]["members"][2]["value"],
             "the two anchors name the same frame"
@@ -5266,15 +5259,7 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
         .clone();
     let mut second_anchor = source_anchor.clone();
     second_anchor["body"]["members"][1]["value"]["value"] = json!("toggleAgain");
-    let context = second_anchor["semantic_type"]["digest"]
-        .as_str()
-        .expect("context digest");
-    second_anchor["node_id"] = node_id(&structural_key(
-        "state",
-        "operation_anchor",
-        Some(context),
-        &second_anchor["body"],
-    ));
+    second_anchor["node_id"]["ordinal"] = json!(1);
     let second_id = second_anchor["node_id"].clone();
     two["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -5551,9 +5536,18 @@ fn refinement_occurrence_entry_defects_and_missing_entry_have_exact_loci() {
 
 #[trace("TC-062", "FR-061-AC-8")]
 #[test]
-fn refinement_occurrence_defects_choose_lower_retained_digest_over_graph_order() {
+fn refinement_occurrence_defects_choose_lower_structural_id_over_graph_order() {
     let (mut package, evidence) = machine_package();
     row_empty_refinement(&mut package);
+    let empty_id = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("empty refinement")["node_id"]
+        .clone();
+    let mut higher_id = empty_id.clone();
+    higher_id["ordinal"] = json!(1);
+    crate::support::checked_package::reassign_node_id(&mut package, &empty_id, &higher_id);
     let (mut stepped, _) = machine_package();
     one_step_refinement(&mut stepped);
     let stepped_node = stepped["semantic_graph"]["nodes"]
@@ -5589,7 +5583,7 @@ fn refinement_occurrence_defects_choose_lower_retained_digest_over_graph_order()
         .map(|(position, node)| (position, node["node_id"].clone()))
         .collect();
     assert_eq!(owners.len(), 2);
-    owners.sort_by(|left, right| left.1["digest"].as_str().cmp(&right.1["digest"].as_str()));
+    owners.sort_by(|left, right| node_id_order(&left.1, &right.1));
     let (lower, higher) = (&owners[0].1, &owners[1].1);
     let first = owners[0].0;
     let second = owners[1].0;
@@ -6111,7 +6105,6 @@ fn refinement_step_defect_precedes_wrong_protocol_clause_owner() {
     dependencies.retain(|id| id != &previous_owner);
     dependencies.push(wrong_owner);
     dependencies.sort_by(node_id_order);
-    rekey_application_node(&mut package, clause);
     refresh_identity(&mut package);
     let CheckedPackageV2ReadResult::Refused(wrong_owner_refusal) = read(&package, &evidence) else {
         panic!("wrong-kind clause owner must refuse on its own");
