@@ -530,48 +530,6 @@ pub struct CheckedPackageLockV2 {
     pub refinement_internals: Option<Vec<CheckedRefinementInternal>>,
 }
 
-/// The six wire selections of the V2 package identity preimage.
-/// The graph projection is derived only when computing the package identity.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CheckedPackageIdentityPreimageV2 {
-    /// Must be `quire.checked-package-id/v2`.
-    pub version: Box<str>,
-    /// Selected edition.
-    pub edition: CheckedSelection,
-    /// Selected profiles.
-    pub profile_selections: Vec<CheckedSelection>,
-    /// Selected definitions.
-    pub definition_selections: Vec<CheckedArtifactRef>,
-    /// Required features.
-    pub required_features: Vec<Box<str>>,
-    /// Dependency selections: one per library identity, ascending.
-    pub dependency_selections: Vec<CheckedDependencySelection>,
-}
-
-/// Borrowed producer view of the V2 package identity preimage.
-///
-/// Its projection selects identity fields from graph nodes without retaining
-/// another owned copy of any node body. The reader retains the six wire
-/// selections separately; the complete graph projection appears only in hash input.
-#[derive(Clone, Copy, Debug)]
-pub struct CheckedPackageIdentityPreimageRefV2<'a, Body = CheckedTerm> {
-    /// Must be `quire.checked-package-id/v2`.
-    pub version: &'a str,
-    /// Selected edition.
-    pub edition: &'a CheckedSelection,
-    /// Selected profiles.
-    pub profile_selections: &'a [CheckedSelection],
-    /// Selected definitions.
-    pub definition_selections: &'a [CheckedArtifactRef],
-    /// Required features.
-    pub required_features: &'a [Box<str>],
-    /// Dependency selections, sorted by library identity.
-    pub dependency_selections: &'a [CheckedDependencySelection],
-    /// Ordered nodes whose identity fields form the projection.
-    pub identity_projection: &'a [CheckedSemanticNodeV2<Body>],
-}
-
 /// A checked V2 graph.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1054,21 +1012,18 @@ fn classify_dependency_entry_shape_with(
     }
     let entry = refusal.path.as_ref().and_then(|path| {
         let text = path.as_str();
-        [
-            "/lock/dependency_selections/",
-            "/identity_preimage/dependency_selections/",
-        ]
-        .iter()
-        .find_map(|prefix| text.strip_prefix(prefix))
-        .and_then(|rest| rest.split_once('/'))
-        .filter(|(index, member)| {
-            !index.is_empty()
-                && index.bytes().all(|byte| byte.is_ascii_digit())
-                && !member.is_empty()
-                && !member.contains('/')
-        })
-        .and_then(|_| text.rsplit_once('/'))
-        .map(|(entry, _)| entry.to_owned())
+        ["/lock/dependency_selections/"]
+            .iter()
+            .find_map(|prefix| text.strip_prefix(prefix))
+            .and_then(|rest| rest.split_once('/'))
+            .filter(|(index, member)| {
+                !index.is_empty()
+                    && index.bytes().all(|byte| byte.is_ascii_digit())
+                    && !member.is_empty()
+                    && !member.contains('/')
+            })
+            .and_then(|_| text.rsplit_once('/'))
+            .map(|(entry, _)| entry.to_owned())
     });
     if let Some(entry) = entry {
         let lacks_member = JsonPointer::parse(&entry)
@@ -1412,59 +1367,6 @@ fn validate(
         models: RetainedModels::new(declarations, models),
         lowering_facts,
     })
-}
-
-/// The pointer of the first lock value that differs from its mirror in the
-/// identity preimage, or `None` when every mirrored member is equal.
-fn non_graph_lock_difference(
-    preimage: &CheckedPackageIdentityPreimageV2,
-    lock: &CheckedPackageLockV2,
-) -> Option<JsonPointer> {
-    fn differing<T: PartialEq + Serialize>(
-        member: &str,
-        lock: &T,
-        preimage: &T,
-    ) -> Option<JsonPointer> {
-        if lock == preimage {
-            return None;
-        }
-        let at = member_pointer(&["lock", member]);
-        Some(
-            match (serde_json::to_value(lock), serde_json::to_value(preimage)) {
-                (Ok(lock), Ok(preimage)) => first_difference(at, &lock, &preimage),
-                _ => at,
-            },
-        )
-    }
-    differing("edition", &lock.edition, &preimage.edition)
-        .or_else(|| {
-            differing(
-                "profile_selections",
-                &lock.profile_selections,
-                &preimage.profile_selections,
-            )
-        })
-        .or_else(|| {
-            differing(
-                "definition_selections",
-                &lock.definition_selections,
-                &preimage.definition_selections,
-            )
-        })
-        .or_else(|| {
-            differing(
-                "required_features",
-                &lock.required_features,
-                &preimage.required_features,
-            )
-        })
-        .or_else(|| {
-            differing(
-                "dependency_selections",
-                &lock.dependency_selections,
-                &preimage.dependency_selections,
-            )
-        })
 }
 
 /// What the lock stage admits: each selected domain package's declarations,
@@ -3397,12 +3299,7 @@ mod tests {
             json!({"role": "edition", "definition": {"authority": "test", "identity": "edition"}});
         serde_json::from_value(json!({
             "contract_version": super::CHECKED_PACKAGE_V2,
-            "identity_preimage": {
-                "version": "quire.checked-package-id/v2", "edition": edition,
-                "profile_selections": [], "definition_selections": [],
-                "required_features": [], "dependency_selections": []
-            },
-            "package_id": {"domain": super::PACKAGE_DOMAIN_V2, "algorithm": "sha256", "digest": "a".repeat(64)},
+            "name": "test",
             "lock": {
                 "sources": [], "edition": edition, "profile_selections": [],
                 "definition_selections": [],
@@ -3419,18 +3316,8 @@ mod tests {
     #[test]
     fn tc_451_borrowed_encoder_equals_private_owned_wire_bytes() {
         let wire = tc_451_private_owned_wire();
-        let borrowed = super::CheckedPackageIdentityPreimageRefV2 {
-            version: &wire.identity_preimage.version,
-            edition: &wire.identity_preimage.edition,
-            profile_selections: &wire.identity_preimage.profile_selections,
-            definition_selections: &wire.identity_preimage.definition_selections,
-            required_features: &wire.identity_preimage.required_features,
-            dependency_selections: &wire.identity_preimage.dependency_selections,
-            identity_projection: &wire.semantic_graph.nodes,
-        };
         let bytes = super::encode_checked_package_v2(
-            &borrowed,
-            &wire.package_id,
+            &wire.name,
             &wire.lock,
             &wire.semantic_graph,
             super::CheckedPackageSourceCorrespondenceRef {
@@ -3496,18 +3383,8 @@ mod tests {
                     let ceiling = 1_000_000;
                     let limits = quire_canonical::Limits::new(ceiling);
                     let expected = quire_canonical::to_vec(&private_wire_value, limits)?;
-                    let borrowed = super::CheckedPackageIdentityPreimageRefV2 {
-                        version: &wire.identity_preimage.version,
-                        edition: &wire.identity_preimage.edition,
-                        profile_selections: &wire.identity_preimage.profile_selections,
-                        definition_selections: &wire.identity_preimage.definition_selections,
-                        required_features: &wire.identity_preimage.required_features,
-                        dependency_selections: &wire.identity_preimage.dependency_selections,
-                        identity_projection: &wire.semantic_graph.nodes,
-                    };
                     let actual = super::encode_checked_package_v2(
-                        &borrowed,
-                        &wire.package_id,
+                        &wire.name,
                         &wire.lock,
                         &wire.semantic_graph,
                         super::CheckedPackageSourceCorrespondenceRef {
@@ -3642,11 +3519,6 @@ mod tests {
     fn dependency_selection_required_members_match_the_type() {
         let entry = CheckedDependencySelection {
             identity: "a".into(),
-            package_id: CheckedSemanticId {
-                domain: "d".into(),
-                algorithm: "sha256".into(),
-                digest: "0".into(),
-            },
         };
         let value = serde_json::to_value(entry).expect("serializes");
         let mut members: Vec<&str> = value
