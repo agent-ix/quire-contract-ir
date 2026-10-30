@@ -195,6 +195,7 @@ pub enum NominalBody {
 impl NominalBody {
     /// Decode without cloning a caller-authored nested NodeId path. The
     /// NodeId decoder itself walks those paths on the heap.
+    #[ix_trace_rs::string_edge]
     pub(super) fn from_value(body: &Value, at: JsonPointer) -> Result<Self, ValidationFailure> {
         use crate::checked_package::common::exact_members;
         let malformed =
@@ -598,6 +599,7 @@ impl Site<'_> {
         node_pointer(self.position).key(member)
     }
 
+    #[ix_trace_rs::string_edge]
     fn nominal_member(&self, members: &[&str]) -> JsonPointer {
         let (base, rest) = match members.split_first() {
             Some((first, rest)) if *first == "owner" => (self.member("owner"), rest),
@@ -1290,6 +1292,7 @@ pub(super) fn duration_unit_key(
 /// Resolve a selected model's `s` after its FCD document has been admitted.
 /// The model-owned unit body is intentionally empty; conversion values come
 /// from the selected declaration and the graph supplies exact structural IDs.
+#[ix_trace_rs::string_edge]
 pub(super) fn model_duration_unit_key(
     nodes: &[CheckedSemanticNodeV2],
     model: &DomainModel,
