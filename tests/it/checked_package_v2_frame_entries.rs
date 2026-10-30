@@ -11,8 +11,9 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, family_key, family_model_document,
-    fixture_source, node_id, rebuild_source_map, refresh_identity, rename_node, select_model,
-    settle, sha256_hex, source_owner, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
+    fixture_source, node_id as fixture_node_id, reassign_node_id, rebuild_source_map,
+    refresh_identity, select_model, settle, sha256_hex, source_owner, structural_id, typed_node_id,
+    v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
@@ -31,6 +32,32 @@ use std::sync::LazyLock;
 
 use CheckedPackageRefusalCause as Cause;
 use CheckedPackageRefusalCode as Code;
+
+fn node_id(label: &str) -> Value {
+    if label == "model-scalar:integer" {
+        return structural_id(
+            "test/families",
+            vec![json!("scalar_type"), json!("integer")],
+            0,
+        );
+    }
+    if let Some(model) = label.strip_prefix("model:") {
+        let mut parts = model.splitn(3, ':');
+        let form = parts.next().expect("model form");
+        let identity = parts.next().expect("model package");
+        let declaration = parts.next().expect("model declaration");
+        return structural_id(
+            identity,
+            vec![json!("model"), json!(form), json!(declaration)],
+            0,
+        );
+    }
+    fixture_node_id(label)
+}
+
+fn rename_node(package: &mut Value, stale: &str, fresh: &str) {
+    reassign_node_id(package, &node_id(stale), &node_id(fresh));
+}
 
 fn read(value: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
@@ -127,17 +154,12 @@ fn expect(
         "{case}: {refusal:?}"
     );
     if let Some(locus) = locus {
-        let candidates = nodes(value)
-            .iter()
-            .filter(|node| node["node_id"]["path"][0] == locus)
-            .collect::<Vec<_>>();
-        assert_eq!(candidates.len(), 1, "{case}: ambiguous fixture locus");
         assert_eq!(
             refusal
                 .locus
                 .as_ref()
                 .map(|id| serde_json::to_value(id).expect("refusal locus")),
-            Some(candidates[0]["node_id"].clone()),
+            Some(node_id(locus)),
             "{case}: {refusal:?}"
         );
     }
@@ -169,6 +191,8 @@ fn select_other_protocol_owner(value: &mut Value) {
         .expect("selected Account declaration")
         .clone();
     let owner = model["node_id"].clone();
+    let source_account = structural_id("test/families", vec![json!("source"), json!("Account")], 0);
+    reassign_node_id(value, &owner, &source_account);
     value["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -453,18 +477,7 @@ fn fixture_key(tag: &str, form: &str, ty: Option<&str>, owner: Option<Value>) ->
 }
 
 fn object_key() -> &'static str {
-    static KEY: LazyLock<String> = LazyLock::new(|| {
-        fixture_key(
-            "model",
-            "object_type",
-            None,
-            Some(json!({
-                "kind": "model", "identity": "test/families",
-                "node": "ix://test/families/Account",
-            })),
-        )
-    });
-    &KEY
+    "fixture/1515"
 }
 
 fn process_key() -> &'static str {
@@ -473,39 +486,29 @@ fn process_key() -> &'static str {
 }
 
 fn relationship_key() -> &'static str {
-    static KEY: LazyLock<String> = LazyLock::new(|| {
-        fixture_key(
-            "relation",
-            "relationship",
-            None,
-            Some(json!({
-                "kind": "model", "identity": "test/families",
-                "node": "ix://test/families/relationship/Account-balance-Account",
-            })),
-        )
-    });
-    &KEY
+    "fixture/2020"
 }
 
 fn namespace_key() -> &'static str {
-    static KEY: LazyLock<String> =
-        LazyLock::new(|| fixture_key("model", "namespace", Some(BOOLEAN_KEY), None));
-    &KEY
+    "fixture/1010"
 }
 
 /// ACs: FR-040-AC-1
 #[trace("TC-056", "FR-040-AC-1")]
 #[test]
 fn tc_056_modifies_entries_admit_in_their_closed_shape_only() {
-    // The base frame holds both kinds in FR-340 declaration-digest order.
+    // The base frame holds both kinds in FR-340 structural identity order.
     let base = v2_all_families();
     let frame = position(&base, "state", "frame");
-    assert!(relationship_key() < object_key());
+    assert_eq!(
+        id_order(&node_id(object_key()), &node_id(relationship_key())),
+        std::cmp::Ordering::Less
+    );
     assert_eq!(
         nodes(&base)[frame]["body"]["modifies"],
         json!([
-            relationship(relationship_key()),
-            field(object_key(), "balance")
+            field(object_key(), "balance"),
+            relationship(relationship_key())
         ])
     );
     admits(&base);
@@ -992,6 +995,7 @@ fn clause_node(clause: &str, parameters: &[&str], anchor: &str) -> Value {
     let placeholder = match clause {
         "invariant" => "c1",
         "precondition" => "c2",
+        "constraint" => "c7",
         _ => "c3",
     };
     plain(
@@ -1172,7 +1176,7 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
 
 #[trace("TC-056", "FR-040-AC-33", "FR-040-AC-34", "FR-066-AC-4")]
 #[test]
-fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
+fn tc_056_model_clause_points_retain_name_and_structural_identity() {
     let absent = StatePackage::new();
     let initialized = pointed_invariant(json!({"kind": "initialization", "name": "startup"}));
     let handled = pointed_invariant(json!({"kind": "handler", "name": "tick"}));
@@ -1197,7 +1201,7 @@ fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
         assert_eq!(absent.value["name"], package.value["name"]);
         assert_pointed_writer_round_trip(package, &[clause]);
     }
-    assert_ne!(
+    assert_eq!(
         digest(&initialized.value, initialized.clause("invariant")),
         digest(&handled.value, handled.clause("invariant"))
     );
@@ -1654,12 +1658,13 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
     stale.value["semantic_graph"]["nodes"][anchor]["body"]["members"][3]["value"]["kind"] =
         json!("post");
     settle(&mut stale.value);
+    let clause = stale.clause("precondition");
     expect(
         "changed anchor point is judged by state agreement",
         &stale.value,
         Code::InvalidModelBinding,
         Some(Cause::MalformedDeclaration),
-        &format!("/semantic_graph/nodes/{anchor}"),
+        &format!("/semantic_graph/nodes/{clause}"),
         None,
     );
     for point in [
@@ -1969,7 +1974,7 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
     ] {
         let mut package = StatePackage::new();
         let mut second = nodes(&package.value)[anchor].clone();
-        second["node_id"] = node_id(&"b6".repeat(32));
+        second["node_id"] = node_id(&"z6".repeat(32));
         second["body"]["members"][1]["value"]["value"] = json!(operation);
         if case == "a duplicate pair" {
             let mut alternate_frame = nodes(&package.value)[frame].clone();
@@ -2675,11 +2680,7 @@ fn record_key() -> String {
 }
 
 fn record_key_for(node: &str) -> String {
-    structural(
-        "model",
-        "record_value_type",
-        Some(json!({"kind": "model", "identity": ORDERS, "node": node})),
-    )
+    format!("model:record_value_type:{ORDERS}:{node}")
 }
 
 fn record_package() -> Value {
@@ -2758,7 +2759,7 @@ fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
         .expect("modifies");
     let index = entries
         .iter()
-        .position(|entry| entry["declaration"]["path"][0] == record_key())
+        .position(|entry| entry["declaration"] == node_id(&record_key()))
         .expect("record entry");
     entries[index]["name"] = json!("ghost");
     settle(&mut ghost);
@@ -2847,7 +2848,7 @@ fn tc_056_selected_record_frame_field_keeps_inherited_ambiguity() {
     entries.sort_by(|a, b| id_order(&a["declaration"], &b["declaration"]));
     let at = entries
         .iter()
-        .position(|entry| entry["declaration"]["path"][0] == key)
+        .position(|entry| entry["declaration"] == node_id(&key))
         .expect("ambiguous record entry");
     let deps = package["semantic_graph"]["nodes"][frame]["dependencies"]
         .as_array_mut()
@@ -2905,9 +2906,16 @@ fn tc_056_selected_record_fields_obey_exact_work_limit() {
                 record.limit_kind,
                 quire_contract_model::CheckedPackageLimit::Work
             );
+            let postcondition = StatePackage {
+                value: package.clone(),
+            }
+            .clause("postcondition");
             assert_eq!(
                 record.path.as_ref().map(|path| path.as_str()),
-                Some("/semantic_graph/nodes/40/body/arguments/2/target")
+                Some(
+                    format!("/semantic_graph/nodes/{postcondition}/body/arguments/2/target")
+                        .as_str()
+                )
             );
         }
         other => panic!("one unit below exact must be incomplete: {other:?}"),
@@ -2927,7 +2935,7 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
         .expect("modifies");
     let record = entries
         .iter()
-        .position(|entry| entry["declaration"]["path"][0] == record_key())
+        .position(|entry| entry["declaration"] == node_id(&record_key()))
         .expect("record entry");
     entries[record]["name"] = json!("ghost");
     entries.reverse();
@@ -2954,7 +2962,7 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
     }
     let record_node = nodes(&package)
         .iter()
-        .position(|node| node["node_id"]["path"][0] == record_key())
+        .position(|node| node["node_id"] == node_id(&record_key()))
         .expect("selected record node");
     package["semantic_graph"]["nodes"][record_node]["owner"]["identity"] = json!(OTHER_PACKAGE);
     // Keep the old key deliberately: the owner/key join must be checked before
@@ -2981,7 +2989,7 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
         .as_array()
         .expect("modifies")
         .iter()
-        .position(|entry| entry["declaration"]["path"][0] == record_key())
+        .position(|entry| entry["declaration"] == node_id(&record_key()))
         .expect("record entry");
     stale["semantic_graph"]["nodes"][stale_frame]["body"]["modifies"][stale_entry]["name"] =
         json!("ghost");
@@ -3020,7 +3028,7 @@ fn tc_056_record_name_defects_follow_frame_node_key_order() {
             .as_array()
             .expect("modifies")
             .iter()
-            .position(|entry| entry["declaration"]["path"][0] == record_key())
+            .position(|entry| entry["declaration"] == node_id(&record_key()))
             .expect("record field entry")
     };
     let first_entry = entry(&other_frame);
@@ -3066,27 +3074,10 @@ fn tc_056_record_name_defects_follow_frame_node_key_order() {
     }
 }
 
-/// A node key: the SHA-256 of the canonical bytes of its structural preimage.
-fn structural(tag: &str, form: &str, owner: Option<Value>) -> String {
-    let mut preimage = json!({
-        "version": "quire.structural-node/v1", "node_tag": tag, "semantic_form": form,
-        "semantic_type": null, "declaration": null, "recursion": null,
-        "body": {"term": "aggregate", "members": []},
-    });
-    if let Some(owner) = owner {
-        preimage["owner"] = owner;
-    }
-    sha256_hex(&canonical(&preimage))
-}
-
 /// The model declaration node key of `node` owned by the domain package
 /// `identity`. The owner is content-only: it carries no package version.
 fn model_key_in(identity: &str, node: &str) -> String {
-    structural(
-        "model",
-        "object_type",
-        Some(json!({"kind": "model", "identity": identity, "node": node})),
-    )
+    format!("model:object_type:{identity}:{node}")
 }
 
 /// The model declaration node key of `node` owned by the selected `acme/orders`.
@@ -3176,8 +3167,7 @@ fn model_parameter(key: &str, name: &str, level: &str, ty: &str) -> Value {
 impl ModelPackage {
     fn new() -> Self {
         let order = model_key(ORDER_NODE);
-        // The fixture already holds the one anonymous `Integer` node.
-        let integer = INTEGER_KEY.to_owned();
+        // Selected model slots name the exact derived Integer identity.
         let mut state = StatePackage::new();
         let frame = state.at("state", "frame");
         let frame_key = state.digest(frame);
@@ -3191,12 +3181,26 @@ impl ModelPackage {
             node["owner"] = json!({"kind": "model", "identity": ORDERS, "node": declared});
             added.push(node);
         }
-        added.push(model_parameter(MODEL_INTEGER_PARAMETER, "n", "1", &integer));
+        added.push(plain(
+            "model-scalar:integer",
+            "scalar_type",
+            "integer",
+            "model-scalar:integer",
+            &[],
+            "type",
+            json!({"term": "aggregate", "members": []}),
+        ));
+        added.push(model_parameter(
+            MODEL_INTEGER_PARAMETER,
+            "n",
+            "1",
+            "model-scalar:integer",
+        ));
         added.push(model_parameter(
             MODEL_RESULT_PARAMETER,
             "result",
             "1",
-            &integer,
+            "model-scalar:integer",
         ));
         added.push(model_parameter(MODEL_TEXT_PARAMETER, "t", "1", text_key()));
         added.push(clause_node(
@@ -3249,7 +3253,7 @@ impl ModelPackage {
     fn position_of(&self, key: &str) -> usize {
         nodes(&self.value)
             .iter()
-            .position(|node| node["node_id"]["path"][0] == key)
+            .position(|node| node["node_id"] == node_id(key))
             .unwrap_or_else(|| panic!("node {key}"))
     }
 
@@ -3375,19 +3379,31 @@ fn tc_056_scoped_delete_parameter_scan_charges_validation_work() {
     let parameter = ModelPackage::new().edit(frame, |node| {
         node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": "n"}]);
     });
-    // The three protocol nodes, selected root, and selected Process owner join
-    // charge before this scoped scan.
-    let incomplete = match read_model_with_work(&parameter.value, 360) {
+    let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
+    while low < high {
+        let middle = low + (high - low) / 2;
+        match read_model_with_work(&parameter.value, middle) {
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle + 1,
+            CheckedPackageV2ReadResult::Refused(refusal)
+                if refusal.code == Code::MissingDeclaration
+                    && refusal.cause == Some(Cause::MissingName) =>
+            {
+                high = middle;
+            }
+            other => panic!("expected a work limit or missing name: {other:?}"),
+        }
+    }
+    let incomplete = match read_model_with_work(&parameter.value, low - 1) {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => incomplete,
         other => panic!("expected work limit at scoped parameter scan, got {other:?}"),
     };
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-    assert_eq!(incomplete.consumed, 361);
+    assert_eq!(incomplete.consumed, low);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{frame}/body").as_str())
     );
-    let refusal = match read_model_with_work(&parameter.value, 361) {
+    let refusal = match read_model_with_work(&parameter.value, low) {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected missing-name after paying for scan, got {other:?}"),
     };
@@ -3704,6 +3720,17 @@ fn tc_445_source_declared_operation_input_has_no_selected_model_range() {
     source.value["semantic_graph"]["nodes"][pre]["body"]["arguments"][2] = reference(&comparison);
     select_other_protocol_owner(&mut source.value);
     settle(&mut source.value);
+    // A replacement structural key can move an existing dependency in node-id order.
+    for node in source.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        node["dependencies"]
+            .as_array_mut()
+            .expect("dependencies")
+            .sort_by(id_order);
+    }
+    refresh_identity(&mut source.value);
     let admitted = match read(&source.value) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("source-declared input fixture must admit: {other:?}"),
@@ -4240,6 +4267,18 @@ fn settle_step_relation(package: &mut Value) {
 /// A source-declared relation over two executions of the selected Account operation.
 fn step_relation_package() -> Value {
     let mut package = with_postcondition(StatePackage::new(), None).value;
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(plain(
+            "model-scalar:integer",
+            "scalar_type",
+            "integer",
+            "model-scalar:integer",
+            &[],
+            "type",
+            json!({"term": "aggregate", "members": []}),
+        ));
     let self_position = nodes(&package)
         .iter()
         .position(|node| {
@@ -4254,7 +4293,7 @@ fn step_relation_package() -> Value {
     second_self["body"]["members"][1]["value"]["value"] = json!("2");
     let mut first_i = first_self_node.clone();
     first_i["node_id"] = node_id(&"ed".repeat(32));
-    first_i["semantic_type"] = node_id(INTEGER);
+    first_i["semantic_type"] = node_id("model-scalar:integer");
     first_i["body"]["members"][0]["value"]["value"] = json!("i");
     first_i["body"]["members"][1]["value"]["value"] = json!("1");
     let mut second_i = first_i.clone();
@@ -4366,7 +4405,7 @@ fn step_relation_package() -> Value {
             "query",
             "quire.op.record.project",
             json!({"kind": "field", "declaration": object, "name": "l"}),
-            node_id(INTEGER),
+            node_id("model-scalar:integer"),
             deref,
         ));
         nodes.push(application(
@@ -4375,7 +4414,7 @@ fn step_relation_package() -> Value {
             "pre",
             "quire.op.state.pre",
             Value::Null,
-            node_id(INTEGER),
+            node_id("model-scalar:integer"),
             field,
         ));
     }
@@ -4694,6 +4733,13 @@ fn step_relation_identity_tracks_effective_premises() {
         .expect("precondition");
     precondition["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["target"] =
         node_id(&family_key("a4a4"));
+    let original_clause = precondition["semantic_graph"]["nodes"][clause]["node_id"].clone();
+    let changed_clause = structural_id(
+        "test/families",
+        vec![json!("state"), json!("precondition"), json!("changed")],
+        0,
+    );
+    reassign_node_id(&mut precondition, &original_clause, &changed_clause);
     settle_step_relation(&mut precondition);
     changed(&precondition);
 
@@ -4776,10 +4822,10 @@ fn step_relation_source_correspondence_does_not_change_semantic_identity() {
 }
 
 fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Value {
-    fn targets(term: &Value, found: &mut std::collections::BTreeSet<String>) {
+    fn targets(term: &Value, found: &mut std::collections::BTreeSet<CheckedNodeId>) {
         if term["term"] == "reference" {
-            if let Some(digest) = term["target"]["path"][0].as_str() {
-                found.insert(digest.to_owned());
+            if let Ok(target) = serde_json::from_value(term["target"].clone()) {
+                found.insert(target);
             }
         }
         match term {
@@ -4800,10 +4846,7 @@ fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Val
     edit(&mut package["semantic_graph"]["nodes"][pos]);
     let mut refs = std::collections::BTreeSet::new();
     targets(&package["semantic_graph"]["nodes"][pos]["body"], &mut refs);
-    package["semantic_graph"]["nodes"][pos]["dependencies"] = json!(refs
-        .into_iter()
-        .map(|digest| node_id(&digest))
-        .collect::<Vec<_>>());
+    package["semantic_graph"]["nodes"][pos]["dependencies"] = json!(refs);
     settle_step_relation(&mut package);
     package
 }
