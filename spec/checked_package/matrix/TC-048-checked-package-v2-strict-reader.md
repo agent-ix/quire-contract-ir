@@ -186,6 +186,20 @@ For AC-45, read a model-owned declaration with owner `{kind: model, identity, no
 
 Read one positive V2 package with declared and derived structural ids. Independently mutate it to duplicate a node id, mismatch a declared path and qualified name, break a derived body shape, select an absent or unselected owner, leave a `reference` target dangling, give a compound unit a wrong shape, and leave a frame `semantic_type` unresolved. For each mutation, keep unrelated ids and bodies valid, read through the public reader, and compare exact code, cause and RFC 6901 pointer. Pair an owner-selection defect with a dependent dangling edge and require the owner refusal; pair a graph-shape defect with an owner or body defect and require the graph refusal. No content-key or nominal-rekey vector is used.
 
+For FR-038-AC-364, use separately authored, otherwise valid ungrouped nodes
+with a single `(package,path)` at ordinal 7 and with two nodes sharing that
+pair at ordinals 7 and 23. Update every reference to the authored ids, keep
+the complete graph canonically ordered, and require admission of both packages;
+reverse the siblings' source authoring order in a separate package while
+retaining canonical graph order and require the same admission. Duplicate an exact id and require
+`invalid_semantic_graph` at the later `node_id`; supply a negative, fractional,
+string or above-safe-integer ordinal and require `malformed_wire` at that
+ordinal. Keep recursion-group `{size,ordinal}` and its graph-order controls
+separate. Read QSpec XP-04 directly from its selected checkout: its second
+equivalence node's ordinal 1 makes a distinct structural id, while the
+repeated pair still refuses `invalid_semantic_graph` for pair meaning, not
+an ordinal-shape or duplicate-id defect. Copy no vector into this repository.
+
 ## Expected Results
 
 Valid protocol references to clause, role and control nodes admit with exact local targets and one graph collection. Extra or unequal dependencies refuse `invalid_semantic_graph` at `/dependencies`; absent local targets refuse `missing_declaration`/`missing-name` at `/body/target`, even if a dependency package has the same id. Wrong form or type refuses `ill_typed`/`operator-ineligible`. Malformed body, group, owner and occurrence controls refuse at their own earlier stages, and no failure is attributed to a removed identity check.
