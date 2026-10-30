@@ -1791,6 +1791,13 @@ fn decode_admitted_body(
                 member: "body",
                 category: serde_json::error::Category::Data,
             })
+    } else if kind == CheckedNodeKind::State(StateForm::Frame) {
+        frame::read_frame_body(body, &Trail::Base(&[]))
+            .map(|(frame, _)| frame.into_checked_term())
+            .map_err(|_| typed_terms::TermConversionCause::MalformedMember {
+                member: "body",
+                category: serde_json::error::Category::Data,
+            })
     } else if kind == CheckedNodeKind::State(StateForm::OperationAnchor) {
         execution_point::decode_anchor_body(body)
     } else {
@@ -2328,7 +2335,13 @@ fn validate_graph(
             ) => identity.as_ref(),
             _ => wire.name.as_ref(),
         };
-        if node.node_id.package.as_ref() != expected_package {
+        if node.node_id.package.as_ref() != expected_package
+            && (node.owner.is_some()
+                || node.declaration.is_some()
+                || !dependencies
+                    .selected_node(&node.node_id)
+                    .is_some_and(|selected| selected.to_raw() == *node))
+        {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 at("node_id").key("package"),
@@ -2384,6 +2397,7 @@ fn validate_graph(
             Step::Index(position),
             Step::Key("body"),
         ];
+        let mut frame_term = None;
         let work = match body_grammar(kind) {
             BodyGrammar::Extension => {
                 let body = extension::read_body(&node.body, at("body"))?;
@@ -2400,6 +2414,7 @@ fn validate_graph(
             }
             BodyGrammar::Frame => {
                 let (body, work) = frame::read_frame_body(&node.body, &Trail::Base(&body_steps))?;
+                frame_term = Some(body.clone().into_checked_term());
                 frames.push((&node.node_id, position, body));
                 work
             }
@@ -2446,7 +2461,11 @@ fn validate_graph(
         // this graph stage. Its flat scan accepts shapes that the relation
         // step deliberately reports as InvalidSemanticGraph, so a failed
         // typed decode cannot preempt that step.
-        terms.push(match decode_admitted_body(kind, &node.body) {
+        let typed_term = match frame_term {
+            Some(term) => Ok(term),
+            None => decode_admitted_body(kind, &node.body),
+        };
+        terms.push(match typed_term {
             Ok(term) => Some(term),
             Err(_) if body_grammar(kind) == BodyGrammar::AbstractionRelation => None,
             Err(_) => {
