@@ -30,7 +30,7 @@ Select documents that declare `Flow` as a process with field `n` and operation
 with field `address: Address`, and `Store` as a persistence interface. Build
 the corresponding model declaration nodes from each selected declaration's
 identity and meaning. Admit them through the public reader, encode the
-admitted package, read it again, and compare the node and package nameentities.
+admitted package, read it again, and compare the structural node ids and complete package value.
 Assert the `object` family of the process and state-machine nodes and the
 `record` family of the record node. Tag the
 public tests with their exact FR-068 criteria and QSpec FR-322-AC-63,

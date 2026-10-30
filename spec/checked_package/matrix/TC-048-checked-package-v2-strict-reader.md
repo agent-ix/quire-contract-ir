@@ -321,8 +321,7 @@ For AC-250, start from admitted `quire.op.numeric.narrow` and
 `quire.op.quantity.convert` fixtures with `member.declaration == result_type`.
 For each identity, change only `result_type` and the enclosing root
 `semantic_type` to a distinct valid type while keeping the member declaration
-and all other operation requirements valid. Re-derive affected identities and
-require `ill_typed`/`operator-ineligible` at application `result_type`, with
+and all other operation requirements valid. Retain structurally valid ids and require `ill_typed`/`operator-ineligible` at application `result_type`, with
 the application node as locus. These are two distinct non-IEEE catalogue
 entries. Exercise the existing `field` case in
 `tests/it/checked_package_v2_model_fields.rs` (`record.project`) and the
@@ -542,7 +541,7 @@ union value `ill_typed`/`type-mismatch` at the node; each misplaced application,
 node or reference refuses `ill_typed`/`operator-ineligible` as AC-100 locates it
 and each is admitted at its own place; the reader's refusal types hold neither
 word, the diagnostics entry reads, and the lowered body equals the admitted body;
-the placement defect is reported ahead of every other defect in both digest
+the placement defect is reported ahead of every other defect in both structural-id
 orders, and each later stage ahead of the next; the `over` and fairness cases
 refuse `missing_declaration`/`missing-name` or `invalid_model_binding`/
 `malformed-declaration` as AC-103 states; the bounded profile refuses a `null`
@@ -679,8 +678,7 @@ AC-83 required-mode explicit-`null` case continues to refuse
 required-member explicit-`null` case continues to refuse
 `invalid_package`/`operation-member-mismatch` at `operation.member`; omission
 shape failures precede these catalog semantic checks. Earlier package-read
-stages retain their existing precedence, and the identity refresh prevents
-an earlier stale-key failure from satisfying either omission control.
+stages retain their existing precedence, and the independent graph and body checks prevent an unrelated earlier failure from satisfying either omission control.
 
 ## Typed scalar application operands (FR-038-AC-159 through FR-038-AC-164)
 
@@ -1117,7 +1115,7 @@ with the same field and inner path.
 For the same otherwise well-formed comparison, replace the `next` value in
 fresh packages with an empty aggregate, two `optional` bindings, another
 binding name, a non-binding member, and an `optional` binding that does not
-reference an option type. Recompute the package's identity members each time.
+reference an option type. Retain the package name and valid structural ids each time.
 The flat body grammar admits each mutant. Assert that every one reaches the
 operation check and refuses `ill_typed`/`operator-ineligible` at
 `operation.leaves`, with no partial leaf derivation. An earlier grammar or graph refusal fails the test.
@@ -1330,8 +1328,8 @@ vector or schema is copied into this repository.
    `missing_declaration`/`missing-name` at the target with no relation
    (FR-038-AC-324/327; QSpec TC-946 A8/A8a/A9/A9a).
 8. Use QSpec TC-310's `CC-01`, `CC-03` to `CC-05`, `CC-08` and `CC-11`
-   catalog cases from the selected checkout, rebuilding keys, dependencies,
-   complete package value and provenance carriers as each vector requires. Admit
+   catalog cases from the selected checkout, updating references and dependencies,
+   then comparing complete package values and provenance carriers as each vector requires. Admit
    the complete catalog with separate `fork` and `join` classes on one
    parallel node, including a directly selected dependency's abstract
    protocol. Refuse a foreign or omitted class, wrong node association or
@@ -1350,8 +1348,7 @@ vector or schema is copied into this repository.
    typed read/write/read to admit with the same keys, complete package value,
    root, owner and catalog (FR-064-AC-1/AC-5, FR-038-AC-325). The vector
    SHALL fail if the reader equates R and O or reconstructs only step rows.
-10. Rebuild every affected node key, dependency and complete package value after
-    each owner mutation. First retarget C to selected B's object-type node:
+10. Update every affected reference and dependency after each owner mutation, then compare complete package values. First retarget C to selected B's object-type node:
     this is a valid reader owner edge, so require admission with a complete
     B catalog and require C's class to be absent from A's catalog. A source
     producer given C declared over A SHALL still emit O; its candidate B
@@ -1923,7 +1920,7 @@ results.
 11. Implemented with tagged TC-048 reader tests (FR-038-AC-252 through FR-038-AC-257, IR-824; QSpec FR-322-AC-57 RN-18 and RN-20 through
     RN-27, referenced by id only.) Start from item 10's homogeneous `Order`
     self-relationship and author each variant independently from this
-    repository's public vocabulary, recomputing identities after each edit.
+    repository's public vocabulary, retaining valid structural ids and updating references after each edit.
     Patch the destination end multiplicity to finite `{0,3}` unique, then
     `{0,3}` not unique, then `{2,3}`, and read `quire.op.model.reaches` over
     two `Reference<Order>` operands with the source role and then the inverse
@@ -2029,8 +2026,7 @@ No public reader/dispatch/driver metadata observation is allocated.
    require a selected document to succeed at its measured work and return the
    work-limit result at one less. For the inexact-number control, author bytes
    with an origin integer above 2^53 and a declaration defect, then supply them
-   through the actual selection-evidence path under their raw-byte digest and
-   under another document's selected digest. The original typed inexact-number
+   through the actual selection-evidence path under the selected document name and under another selected document name. The original typed inexact-number
    result must precede dependency/declaration checks; this is an adverse read,
    not evidence that inexact input admits. Removing available metadata, attaching a foreign
    declaration's metadata, normalizing members or losing owned values on document
@@ -2264,8 +2260,7 @@ through the reference path and check the changed and unchanged identities.
 
 Apply QSpec TC-966's strict-wire mutations without rekeying and assert
 `malformed_wire` at strict wire validation before body checks. For each
-semantic mutation, rebuild dependencies, node keys and package name before
-reading it. Assert the exact code, cause and RFC 6901 locus for repeated
+semantic mutation, update dependencies and references while retaining valid structural ids and package name before reading it. Assert the exact code, cause and RFC 6901 locus for repeated
 modes, wrong variable type or level, rate count and type, mode and reset
 indices, reset conflict, initial entry, foreign read, clock class, orphan
 transition, interval/profile mismatch and malformed claim read or fairness.
@@ -2283,7 +2278,7 @@ Status: PLANNED/UNRUN (IR-1083). Read QSpec's published
 `proposals/checked-package-v2/timed-slot-selector-vectors.json` from the
 selected QSpec checkout. Do not store a local copy. Apply its complete
 SL-01..SL-08, SR-01..SR-04, GD-01..GD-03 and PR-01..PR-06 cases through the
-public V2 reader, rebuilding dependent identities for a semantic mutation.
+public V2 reader, updating dependencies and references for a semantic mutation.
 Compare exact admission or each vector's expected code and cause. Compare the
 RFC 6901 locus suffix recorded by SR-01..04 and PR-04..06. For GD-02, assert `invalid_package`/`malformed-clock-place` at the twin
 place's first forged `resolved_path` row
@@ -2291,7 +2286,7 @@ place's first forged `resolved_path` row
 FR-322-AC-120, and assert aggregate order passes before the row join. For GD-03, assert `invalid_package`/`timed-node-reference` at
 `/semantic_graph/nodes/47/body` with vector suffix `body`, as fixed by QSpec
 FR-322-AC-243. This reader control remains PLANNED/UNRUN. Check the reader stage against FR-322's stated order. Keep
-strict-wire, graph-shape and stale-key checks ahead of the timed-model and
+strict-wire and graph-shape checks ahead of the timed-model and
 operation-body checks.
 
 For AC-335, inspect the admitted template path and selector node identity,
@@ -2350,8 +2345,7 @@ no conforming second node with the same model and path can reach it.
 For each remaining root branch—`resets` (binding 4), `guards` (5),
 `invariants` (6) and `constraints` (8)—build an admissible two-reference
 control with distinct member nodes and strictly increasing full order keys.
-For each, reverse the references, rebuild the root key, its source-map entry
-and the complete package value, and require `invalid_semantic_graph` with null
+For each, reverse the references, update the source-map entry and compare the complete package value, and require `invalid_semantic_graph` with null
 cause at `/semantic_graph/nodes/{i}/body/members/{b}/value/members/1`,
 using that control's actual graph index `i` and branch index `b`. Retain
 the admitted original and verify its exact dependencies, selected
@@ -2409,7 +2403,7 @@ refuses `invalid_model_binding`/`malformed-declaration` at
 place owner and selector-domain terms, binder order, frame writes, Boolean
 conditions/predicates, Clock parameter declarations, same-operation guard
 constraints and upper-only invariant bounds. For each mutated semantic case,
-rebuild dependent node and complete package values before calling the reader.
+update dependent references and compare complete package values before calling the reader.
 
 For AC-362, inspect the positive dense timed-model and timed-slot fixtures
 for the same closed clause forms with current keys, then replay every `CL-01`..`CL-54`

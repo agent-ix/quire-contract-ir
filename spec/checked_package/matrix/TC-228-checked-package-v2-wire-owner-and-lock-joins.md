@@ -68,5 +68,4 @@ conformance runs through `tests/conformance_qspec/main.rs` for QSpec's
 private `model_members` test for every published model declaration key. Both
 read the checkout named by `QUIRE_SPECIFICATION_DIR` through the explicit
 `make conformance-qspec` target. No fixture is copied into this repository.
-Complete structural-key re-derivation and retirement of the interim
-recursion-group skip belong to IR-630.
+IR-1141 replaces structural-key re-derivation with structural-id shape, uniqueness, owner and graph checks. Any interim recursion-group skip must be retired by the code leg before these cases can back the revised contract.
