@@ -188,6 +188,7 @@ impl CheckedPopulationMaximum {
         &self.0
     }
 
+    #[ix_trace_rs::string_edge]
     fn parse(text: &str) -> Option<Self> {
         let mut bytes = text.bytes();
         let canonical = text == "0"
