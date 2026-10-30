@@ -2557,7 +2557,6 @@ fn validate_graph(
         });
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
-    validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     // Graph-shape body and dependency rules precede declaration, frame, state
     // and operation checks. All of them
     // run before the dependency and body-reference edges below are resolved,
@@ -2565,6 +2564,7 @@ fn validate_graph(
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
     validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
+    validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index)?;
     validate_selected_type_bounds(models, &terms, &index)?;
     for &position in index.values() {
