@@ -612,8 +612,8 @@ fn tc_048_a_package_over_the_ceiling_fails_every_record_and_returns_no_package()
     assert!(under.package.dependencies().is_empty());
     assert_eq!(under.package.canonical_bytes(), None);
     assert_eq!(
-        under.package.source_package_id(),
-        package(u64::MAX).package_id()
+        under.package.source_package_name(),
+        package(u64::MAX).name()
     );
 }
 
