@@ -468,10 +468,14 @@ fn tc_048_a_population_that_is_not_a_population_with_a_type_occurrence_is_refuse
     let mut scenario = Scenario::standard();
     let reference = scenario.reference_of(ORDER);
     scenario.link(Some(fixture_id(&reference)), Some(&reference));
+    let refusal = refused(&scenario.package, &scenario.evidence);
+    assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "reference");
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 
     let mut scenario = Scenario::standard();
     scenario.link(Some(fixture_id(&INTEGER)), Some(&INTEGER));
+    let refusal = refused(&scenario.package, &scenario.evidence);
+    assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "scalar");
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 
     // A `collection_bounds` node over `Set<Reference<Order>>` has a readable
@@ -480,6 +484,12 @@ fn tc_048_a_population_that_is_not_a_population_with_a_type_occurrence_is_refuse
     let reference = scenario.reference_of(ORDER);
     let bounds = bounded_collection(scenario.nodes(), &reference, "set", 0, 3);
     scenario.link(Some(fixture_id(&bounds)), Some(&bounds));
+    let refusal = refused(&scenario.package, &scenario.evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        ILL_TYPED,
+        "collection bounds"
+    );
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 
     let mut scenario = Scenario::standard();
@@ -491,6 +501,12 @@ fn tc_048_a_population_that_is_not_a_population_with_a_type_occurrence_is_refuse
         .expect("the population");
     node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     scenario.link(Some(fixture_id(&population)), Some(&population));
+    let refusal = refused(&scenario.package, &scenario.evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        ILL_TYPED,
+        "missing Type occurrence"
+    );
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 }
 
@@ -620,7 +636,12 @@ fn position_of(package: &Value, operation: &str) -> usize {
 #[test]
 fn tc_048_other_operations_keep_their_present_outcome_for_a_population_key() {
     let key = json!(fixture_id(&"a".repeat(64)));
-    let (field, evidence) = crate::checked_package_v2_model_fields::record_project_control();
+    let (mut field, evidence) = crate::checked_package_v2_model_fields::record_project_control();
+    crate::support::checked_package::reassign_node_id(
+        &mut field,
+        &fixture_node_id("scalar_type/string"),
+        &json!({"package": FIXTURE_PACKAGE, "path": ["scalar_type", "string"], "ordinal": 0}),
+    );
     let at = position_of(&field, "quire.op.record.project");
     let field = with_member_population(field, at, key.clone());
     let field_result = read(&field, &evidence);
