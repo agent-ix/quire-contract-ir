@@ -3144,7 +3144,7 @@ fn validate_diagnostics(
 /// Helpers shared by the in-crate unit tests of the typed accessors.
 #[cfg(test)]
 mod test_support {
-    use super::CheckedNodeId;
+    use super::{CheckedNodeId, CheckedPackageWireV2, CheckedTerm};
     use serde_json::{json, Value};
 
     /// The JSON of a distinct structural node identity.
@@ -3155,6 +3155,29 @@ mod test_support {
     /// A typed structural node identity.
     pub(super) fn node_id(digit: char) -> CheckedNodeId {
         serde_json::from_value(id(digit)).expect("node id")
+    }
+
+    /// Construct a private post-admission test wire through the same typed
+    /// body decoder used after reader validation. Serde's untagged term
+    /// deserializer cannot decode nested structural node IDs from a buffered
+    /// JSON value.
+    pub(super) fn private_wire(mut value: Value) -> CheckedPackageWireV2 {
+        let nodes = value["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("test nodes");
+        let bodies = nodes
+            .iter_mut()
+            .map(|node| {
+                let body = std::mem::take(&mut node["body"]);
+                node["body"] = json!({"term": "aggregate", "members": []});
+                body
+            })
+            .collect::<Vec<_>>();
+        let mut wire: CheckedPackageWireV2 = serde_json::from_value(value).expect("test wire");
+        for (node, body) in wire.semantic_graph.nodes.iter_mut().zip(bodies) {
+            node.body = CheckedTerm::decode_admitted(&body).expect("test body");
+        }
+        wire
     }
 }
 
@@ -3428,7 +3451,7 @@ mod tests {
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "test", "semantic_form": "test",
             "semantic_type": node_id, "dependencies": [], "occurrences": [],
-            "body": {"term":"literal","type":node_id,"value_kind":"integer","value":null}
+            "body": {"term":"aggregate","members":[]}
         }))
         .expect("shallow graph node");
         wire.semantic_graph.nodes.push(node);
