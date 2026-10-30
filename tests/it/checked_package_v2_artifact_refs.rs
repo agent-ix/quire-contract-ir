@@ -9,7 +9,7 @@
 //! `crates/quire-contract-model/src/checked_package/v2/`.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, refresh_identity, refusal, refusal_cause, v2_all_families, v2_nominal,
+    canonical, evidence_for, refusal, refusal_cause, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -478,41 +478,37 @@ fn tc_048_definition_selection_is_the_single_authoritative_row() {
 
 #[trace("TC-048", "FR-038-AC-61")]
 #[test]
-fn tc_048_a_nominal_owner_naming_no_lock_row_is_an_invalid_semantic_graph() {
+fn tc_048_nominal_owner_requires_a_selected_source_and_closed_kind() {
     let base = v2_nominal();
-    let owner_of = |package: &Value, kind: &str| -> String {
-        package["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("nodes")
-            .iter()
-            .position(|node| node["nominal_identity_preimage"]["owner"]["kind"] == kind)
-            .map(|index| format!("/semantic_graph/nodes/{index}/nominal_identity_preimage/owner"))
-            .unwrap_or_else(|| panic!("the fixture has a {kind}-owned node"))
-    };
-
-    // A definition owner whose pair is no `definition_selections` row.
-    let mut definition = base.clone();
-    at(&mut definition, "/lock/definition_selections/0")["identity"] = json!("other-definition");
-    refresh_identity(&mut definition);
-    expect(
-        &definition,
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        &owner_of(&base, "definition"),
-        "definition owner",
+    let index = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "enum")
+        .expect("source-owned nominal declaration");
+    let mut missing_source = base.clone();
+    missing_source["semantic_graph"]["nodes"][index]["owner"]["identity"] =
+        json!("quire.fixture.source.unselected/v1");
+    let refusal = refused(&missing_source);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{index}/node_id").as_str())
     );
 
-    // A source owner whose pair is no `sources` row: the row and every region
-    // naming it move together, so only the owner join is left to fail.
-    let mut source = base.clone();
-    let old = base["lock"]["sources"][0].clone();
-    let mut new = old.clone();
-    new["identity"] = json!("quire.fixture.source.other/v1");
-    replace_everywhere(&mut source, &old, &new);
+    let mut definition_owner = base;
+    definition_owner["semantic_graph"]["nodes"][index]["owner"] = json!({
+        "kind": "definition", "authority": "agent-ix", "identity": "quire.fixture.definition/v1"
+    });
     expect(
-        &source,
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        &owner_of(&base, "source"),
-        "source owner",
+        &definition_owner,
+        CheckedPackageRefusalCode::MalformedWire,
+        &format!("/semantic_graph/nodes/{index}/owner"),
+        "retired DefinitionOwner shape",
     );
 }
 
@@ -551,21 +547,4 @@ fn tc_018_the_artifact_reference_member_sets_are_exact() {
         sorted(&SOURCE_MEMBERS)
     );
     assert_eq!((&*locator.authority, &*locator.identity), ("a", "i"));
-}
-
-/// Replaces every value equal to `from` inside `value` with `to`.
-fn replace_everywhere(value: &mut Value, from: &Value, to: &Value) {
-    if value == from {
-        *value = to.clone();
-        return;
-    }
-    match value {
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|item| replace_everywhere(item, from, to)),
-        Value::Object(members) => members
-            .values_mut()
-            .for_each(|member| replace_everywhere(member, from, to)),
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-    }
 }

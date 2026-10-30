@@ -6,9 +6,7 @@
 use crate::admitted_result_context::{
     admit, by_operation, fixture, package, package_with_profile, profile, sources_for,
 };
-use crate::support::checked_package::{
-    family_key, mint_ungrouped_structural_keys, node_id, refresh_identity, settle,
-};
+use crate::support::checked_package::{family_key, node_id, refresh_identity, settle};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     BoundedDomainForm, CheckedOccurrenceRole, CheckedScalarOperandError, ContractOccurrenceKeyV1,
@@ -19,7 +17,6 @@ use serde_json::{json, Value};
 
 fn revised(mut wire: Value, change: impl FnOnce(&mut Value)) -> Value {
     change(&mut wire);
-    mint_ungrouped_structural_keys(&mut wire);
     settle(&mut wire);
     wire
 }
