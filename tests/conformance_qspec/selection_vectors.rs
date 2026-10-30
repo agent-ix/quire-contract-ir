@@ -4,7 +4,7 @@
 //! TC-935 source-selection vectors from the authoritative QSpec checkout.
 
 use crate::fixture_support as checked_package;
-use checked_package::{canonical, evidence_for, refresh_identity, typed_node_id, v2_nominal};
+use checked_package::{canonical, evidence_for, v2_nominal};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageV2,
@@ -104,11 +104,19 @@ fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_model::Complete
 fn selected_nominal(rows: Vec<Value>) -> (Value, CheckedPackageV2, CheckedNodeId) {
     let mut value = v2_nominal();
     value["lock"]["profile_selections"] = Value::Array(rows);
-    refresh_identity(&mut value);
     let package = admit(&value);
     let request = serde_json::from_value(value["semantic_graph"]["nodes"][0]["node_id"].clone())
         .expect("typed first node key");
     (value, package, request)
+}
+
+fn missing_node_id() -> CheckedNodeId {
+    serde_json::from_value(json!({
+        "package": "test/missing",
+        "path": ["Absent"],
+        "ordinal": 0
+    }))
+    .expect("valid absent structural id")
 }
 
 fn with_requirements(rows: &[Value], work_limit: u64) -> CompleteLoweringProfileV2 {
@@ -173,7 +181,7 @@ fn tc_935_required_source_rows_match_exactly_without_changing_provenance() {
     let (t, d, u) = (row(&vectors, "T"), row(&vectors, "D"), row(&vectors, "U"));
     let mut other_authority = t.clone();
     other_authority["definition"]["authority"] = json!("other-authority");
-    let missing = typed_node_id(&"0123456789abcdef".repeat(4));
+    let missing = missing_node_id();
 
     let mut cases: Vec<(Vec<Value>, Vec<Value>, bool)> = vectors["compatibility_cases"]
         .as_array()
@@ -366,7 +374,7 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
         0,
         1,
     );
-    let absent = typed_node_id(&"0123456789abcdef".repeat(4));
+    let absent = missing_node_id();
     assert_eq!(
         empty
             .lower(
