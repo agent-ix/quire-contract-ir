@@ -498,44 +498,6 @@ pub(in crate::checked_package) fn schema_invalid_preimage(preimage: &Value) -> b
                 .is_some_and(|ids| ids.len() != 2))
 }
 
-/// The lexical and node-shape rules of nominal preimages that Serde's field
-/// types cannot express. This runs before the package identity or graph check.
-pub(in crate::checked_package) fn check_nominal_wire(
-    nodes: &[CheckedSemanticNodeV2],
-) -> Result<(), ValidationFailure> {
-    for (position, node) in nodes.iter().enumerate() {
-        let at = node_pointer(position);
-        let malformed = match &node.nominal_identity_preimage {
-            Some(NominalIdentityPreimage::Dimension(dimension)) => dimension
-                .terms
-                .iter()
-                .any(|term| integer_magnitude(&term.exponent).is_none()),
-            Some(NominalIdentityPreimage::DimensionEquivalence(equivalence)) => {
-                !positive_integer(&equivalence.root_scale.numerator)
-                    || !positive_integer(&equivalence.root_scale.denominator)
-            }
-            Some(NominalIdentityPreimage::Unit(unit)) => {
-                [&unit.scale, &unit.offset].iter().any(|ratio| {
-                    integer_magnitude(&ratio.numerator).is_none()
-                        || !positive_integer(&ratio.denominator)
-                })
-            }
-            Some(
-                NominalIdentityPreimage::EnumDeclaration(_)
-                | NominalIdentityPreimage::EnumMember(_),
-            )
-            | None => false,
-        };
-        if malformed {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                at,
-            ));
-        }
-    }
-    Ok(())
-}
-
 fn locate_source_owner_failure(at: JsonPointer, owner: &Value) -> (JsonPointer, bool) {
     let Some(object) = owner.as_object() else {
         return (at, false);
