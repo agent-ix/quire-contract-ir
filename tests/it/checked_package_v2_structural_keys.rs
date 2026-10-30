@@ -2436,7 +2436,7 @@ fn tc_048_derived_expected_keys_rekey_unreferenced_nodes_in_both_branches() {
         &evidence_for(&changed_twice),
     );
     assert_eq!(first.code, second.code);
-    assert_eq!(first.path, second.path);
+    assert_eq!(first.loci[0].path.clone(), second.loci[0].path.clone());
     assert_eq!(first.cause, second.cause);
     assert_eq!(first.locus, second.locus);
     assert_ne!(first.expected_node_id(), second.expected_node_id());
@@ -2710,7 +2710,7 @@ fn dependent_ambiguous_old_key_waits_for_digest_ordered_stale_key() {
     assert_eq!(refusal.code, Code::InvalidSemanticGraph);
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{binder_position}/body"))
     );
 }

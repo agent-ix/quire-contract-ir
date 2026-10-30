@@ -62,7 +62,11 @@ fn published_model_root_vectors_reach_the_reader_stage_and_locus() {
                     "{id}"
                 );
                 assert_eq!(
-                    refusal.path.expect("refusal locus").to_string(),
+                    refusal.loci[0]
+                        .path
+                        .clone()
+                        .expect("refusal locus")
+                        .to_string(),
                     row["locus"],
                     "{id}"
                 );

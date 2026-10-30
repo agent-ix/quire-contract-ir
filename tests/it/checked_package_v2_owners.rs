@@ -221,7 +221,11 @@ fn tc_230_selected_model_field_refuses_unknown_unit_type_ref() {
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
     assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some(root_owner(&package).as_str()),
     );
     assert!(refusal.locus.is_none());
@@ -417,7 +421,10 @@ fn tc_229_population_node_without_identity_refuses_at_selection() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
-    assert_eq!(refusal.path.expect("path").as_str(), root_owner(&package));
+    assert_eq!(
+        refusal.loci[0].path.clone().expect("path").as_str(),
+        root_owner(&package)
+    );
 }
 
 #[trace("TC-229", "FR-038-AC-304")]
@@ -435,7 +442,10 @@ fn tc_229_population_with_node_member_refuses_at_selection() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
-    assert_eq!(refusal.path.expect("path").as_str(), root_owner(&package));
+    assert_eq!(
+        refusal.loci[0].path.clone().expect("path").as_str(),
+        root_owner(&package)
+    );
 }
 
 #[trace("TC-229", "FR-038-AC-304")]
@@ -541,7 +551,7 @@ fn tc_229_population_owner_identity_is_joined_independently_of_node() {
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        refusal.path.expect("path").as_str(),
+        refusal.loci[0].path.clone().expect("path").as_str(),
         format!(
             "/semantic_graph/nodes/{}/node_id",
             foreign_owner["semantic_graph"]["nodes"]
@@ -649,7 +659,7 @@ fn tc_229_population_reference_requires_owner_and_selected_population() {
             "{name}"
         );
         assert_eq!(
-            refusal.path.expect("path").as_str(),
+            refusal.loci[0].path.clone().expect("path").as_str(),
             format!("/semantic_graph/nodes/{position}/node_id"),
             "{name}"
         );
@@ -1098,7 +1108,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                     }
                 };
                 assert_eq!(
-                    refusal.path.as_ref().map(|path| path.as_str()),
+                    refusal.loci[0].path.as_ref().map(|path| path.as_str()),
                     Some(locus.as_str()),
                     "{id}"
                 );
@@ -1174,7 +1184,10 @@ fn refused(package: &Value, code: CheckedPackageRefusalCode, path: &str) {
         panic!("owner mutation must refuse");
     };
     assert_eq!(refusal.code, code);
-    assert_eq!(refusal.path.expect("refusal path").as_str(), path);
+    assert_eq!(
+        refusal.loci[0].path.clone().expect("refusal path").as_str(),
+        path
+    );
 }
 
 #[trace("TC-228", "FR-038-AC-153")]
@@ -1330,7 +1343,7 @@ fn tc_228_source_owner_joins_selected_source_and_declaration_region() {
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        refusal.path.expect("path").as_str(),
+        refusal.loci[0].path.clone().expect("path").as_str(),
         format!("/semantic_graph/nodes/{position}/node_id")
     );
 
@@ -1351,7 +1364,7 @@ fn tc_228_source_owner_joins_selected_source_and_declaration_region() {
     );
     let source_entry = wrong_region["source_map"].as_array().expect("map").len() - 1;
     assert_eq!(
-        refusal.path.expect("path").as_str(),
+        refusal.loci[0].path.clone().expect("path").as_str(),
         format!("/source_map/{source_entry}")
     );
 }
@@ -1393,7 +1406,7 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
             "{name}"
         );
         assert_eq!(
-            refusal.path.expect("path").as_str(),
+            refusal.loci[0].path.clone().expect("path").as_str(),
             format!("/semantic_graph/nodes/{position}/node_id")
         );
     }
@@ -1431,7 +1444,7 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        refusal.path.expect("path").as_str(),
+        refusal.loci[0].path.clone().expect("path").as_str(),
         format!("/semantic_graph/nodes/{position}/node_id")
     );
 
@@ -1453,7 +1466,7 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        refusal.path.expect("path").as_str(),
+        refusal.loci[0].path.clone().expect("path").as_str(),
         format!("/semantic_graph/nodes/{position}/node_id")
     );
 
@@ -1472,7 +1485,7 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        refusal.path.expect("path").as_str(),
+        refusal.loci[0].path.clone().expect("path").as_str(),
         format!("/semantic_graph/nodes/{position}/node_id")
     );
 }
@@ -1540,7 +1553,7 @@ fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
                     "{name}"
                 );
                 assert_eq!(
-                    refusal.path.expect("path").as_str(),
+                    refusal.loci[0].path.clone().expect("path").as_str(),
                     format!("/semantic_graph/nodes/{position}/node_id"),
                     "{name}"
                 );
@@ -1586,7 +1599,7 @@ fn tc_228_owner_bearing_function_refuses_a_stale_body_key() {
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
     );
     assert_eq!(
@@ -1684,7 +1697,7 @@ fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
     assert_eq!(
-        stale_refusal.path.expect("path").as_str(),
+        stale_refusal.loci[0].path.clone().expect("path").as_str(),
         format!("/semantic_graph/nodes/{application}/node_id")
     );
 
@@ -1758,7 +1771,7 @@ fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        refusal.path.expect("path").as_str(),
+        refusal.loci[0].path.clone().expect("path").as_str(),
         format!("/semantic_graph/nodes/{first}/node_id")
     );
 }

@@ -1392,7 +1392,7 @@ fn tc_058_fixture_operation_does_not_bypass_strict_package_admission() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!(
             "/semantic_graph/nodes/{position}/body/operation"
         )))

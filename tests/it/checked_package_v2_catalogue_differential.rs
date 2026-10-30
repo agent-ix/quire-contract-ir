@@ -1026,7 +1026,7 @@ fn assert_result_refusal(package: &Value, position: usize, identity: &str) {
         (
             refusal.code,
             refusal.cause,
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             serde_json::to_value(refusal.locus).expect("locus")
         ),
         (
@@ -1069,7 +1069,7 @@ fn tc_048_member_kind_mismatch_precedes_member_result_check() {
         Some(CheckedPackageRefusalCause::OperationMemberMismatch)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{position}/body/operation/member"
         ))

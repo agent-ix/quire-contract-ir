@@ -124,7 +124,7 @@ fn expect(
     assert_eq!(refusal.code, code, "{case}: {refusal:?}");
     assert_eq!(refusal.cause, cause, "{case}: {refusal:?}");
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(path),
         "{case}: {refusal:?}"
     );
@@ -1380,7 +1380,7 @@ fn tc_056_duplicate_clause_point_precedes_version_and_identity_checks() {
     let expected_path =
         format!("/semantic_graph/nodes/{clause}/body/operation/member/execution_point");
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(expected_path.as_str())
     );
 }
@@ -2146,7 +2146,7 @@ fn tc_056_shared_frame_checks_scoped_deletes_for_each_anchor() {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|path| path.as_str())
+                refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (
                 Code::MissingDeclaration,
@@ -2817,7 +2817,7 @@ fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|p| p.as_str())
+                refusal.loci[0].path.as_ref().map(|p| p.as_str())
             ),
             (
                 Code::MissingDeclaration,
@@ -2841,7 +2841,7 @@ fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|path| path.as_str())
+                refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (
                 Code::MissingDeclaration,
@@ -2920,7 +2920,7 @@ fn tc_056_selected_record_frame_field_keeps_inherited_ambiguity() {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|path| path.as_str())
+                refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (
                 Code::AmbiguousDeclaration,
@@ -2999,7 +2999,7 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|path| path.as_str())
+                refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (
                 Code::MissingDeclaration,
@@ -3026,7 +3026,7 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
             assert_eq!(refusal.code, Code::MissingDeclaration);
             assert_eq!(refusal.cause, Some(Cause::MissingSelection));
             assert_eq!(
-                refusal.path.as_ref().map(|path| path.as_str()),
+                refusal.loci[0].path.as_ref().map(|path| path.as_str()),
                 Some(format!("/semantic_graph/nodes/{record_node}/node_id").as_str())
             );
         }
@@ -3048,7 +3048,7 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|path| path.as_str())
+                refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (
                 Code::InvalidPackage,
@@ -3107,7 +3107,7 @@ fn tc_056_record_name_defects_follow_frame_node_key_order() {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|path| path.as_str())
+                refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (
                 Code::MissingDeclaration,
@@ -3190,7 +3190,7 @@ fn model_expect(
         (
             refusal.code,
             refusal.cause,
-            refusal.path.as_ref().map(|path| path.as_str())
+            refusal.loci[0].path.as_ref().map(|path| path.as_str())
         ),
         (code, Some(cause), Some(path)),
         "{case}: {refusal:?}"
@@ -3778,7 +3778,10 @@ fn tc_445_source_declared_operation_input_has_no_selected_model_range() {
         .direct_integer_comparison(&clause, claim)
         .expect_err("no selected operation slot bound");
     assert_eq!(refusal.kind, CheckedComparisonRefusal::MissingRange);
-    assert_eq!(refusal.path, CheckedComparisonPath::Operand(0));
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        CheckedComparisonPath::Operand(0)
+    );
     assert_eq!(refusal.clause, clause);
     assert_eq!(&refusal.claim, claim);
 }
