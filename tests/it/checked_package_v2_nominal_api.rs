@@ -160,6 +160,52 @@ fn nominal_semantic_refusals_visit_structural_ids_before_graph_positions() {
     );
 }
 
+/// Trace: FR-038-AC-365, TC-048.
+#[trace("FR-038-AC-365", "TC-048")]
+#[test]
+fn nominal_record_decoding_refuses_in_structural_order() {
+    let mut members = nominal_fixture_members();
+    let mut earlier = members
+        .iter()
+        .find(|(_, key)| key == "qualified:Example/Metre")
+        .expect("root unit")
+        .0
+        .clone();
+    earlier["qualified_declaration"] = json!(["Example", "Acre"]);
+    members.push((earlier, "qualified:Example/Acre".to_owned()));
+    let mut package = nominal_package(&members);
+    let later_position = members
+        .iter()
+        .position(|(_, key)| key == "qualified:Example/Metre")
+        .expect("original unit");
+    let earlier_position = members.len() - 1;
+    for position in [later_position, earlier_position] {
+        package["semantic_graph"]["nodes"][position]["body"] =
+            json!({"term":"dimension","terms":[]});
+    }
+    assert!(later_position < earlier_position);
+    assert!(
+        node_id(&package["semantic_graph"]["nodes"][earlier_position]["node_id"])
+            < node_id(&package["semantic_graph"]["nodes"][later_position]["node_id"])
+    );
+    let result = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package),
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("two wrong nominal body kinds must refuse: {result:?}");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{earlier_position}/body"))
+    );
+}
+
 #[trace("TC-048", "TC-058", "FR-038-AC-375")]
 #[test]
 fn admitted_nominal_enum_details_borrow_authored_order_and_members() {

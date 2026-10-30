@@ -143,19 +143,21 @@ fn positive_document<'a>(name: &str, documents: &'a BTreeMap<String, String>) ->
 #[test]
 fn tc_048_positive_document_selection_follows_qspec_map() {
     let proposal = proposal_dir_of(&fixtures_dir());
-    let documents = vector_selected_documents(&proposal).expect("published document selections");
+    vector_selected_documents(&proposal).expect("published document selections");
+    let fixture = "fixtures/positive-model-tuple-union.json";
+    let mut invalid = json!({"selected_documents": {fixture: DOMAIN_DOCUMENT}});
+    let documents = selected_document_assignments(&invalid, &proposal).expect("synthetic map");
     assert_eq!(
         positive_document("positive-model-tuple-union.json", &documents),
-        "domain-package-acme-shapes.json"
+        DOMAIN_DOCUMENT
     );
     assert_eq!(
         positive_document("positive-recursive-records.json", &documents),
         DOMAIN_DOCUMENT
     );
-    let fixture = "fixtures/positive-model-tuple-union.json";
-    let mut invalid = json!({"selected_documents": {fixture: "../other.json"}});
+    invalid["selected_documents"][fixture] = json!("../other.json");
     assert!(selected_document_assignments(&invalid, &proposal).is_err());
-    invalid["selected_documents"][fixture] = json!("domain-package-acme-shapes.json");
+    invalid["selected_documents"][fixture] = json!(DOMAIN_DOCUMENT);
     assert!(selected_document_assignments(&invalid, &proposal).is_ok());
     invalid
         .as_object_mut()

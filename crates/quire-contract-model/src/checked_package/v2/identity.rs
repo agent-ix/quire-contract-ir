@@ -1061,16 +1061,18 @@ pub(super) fn validate_nominal_nodes(
             _ => None,
         })
         .collect::<BTreeMap<_, _>>();
-    let records = nodes
-        .iter()
-        .zip(kinds)
-        .enumerate()
-        .map(|(position, (node, kind))| {
-            NominalKind::required_by(*kind)
-                .map(|required| record_from_node(node, required, position, models, &model_nodes))
-                .transpose()
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut records = vec![None; nodes.len()];
+    for &position in index.values() {
+        if let Some(required) = NominalKind::required_by(kinds[position]) {
+            records[position] = Some(record_from_node(
+                &nodes[position],
+                required,
+                position,
+                models,
+                &model_nodes,
+            )?);
+        }
+    }
     let selected_models = models
         .iter()
         .map(|model| (model.identity.as_ref(), model))

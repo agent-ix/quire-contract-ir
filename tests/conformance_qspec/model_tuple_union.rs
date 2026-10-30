@@ -67,8 +67,8 @@ pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
 }
 
 /// Replay every published wire row, including rows added after this test.
-/// Trace: FR-069-AC-8, TC-048.
-#[trace("FR-069-AC-8", "TC-048")]
+/// Trace: TC-048. The full FR-069-AC-8 stage oracle remains open.
+#[trace("TC-048")]
 #[test]
 fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     let fixtures = fixtures_dir();
@@ -313,8 +313,8 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
 }
 
 /// Replay every published intake row through the selected document join.
-/// Trace: FR-069-AC-8, TC-048.
-#[trace("FR-069-AC-8", "TC-048")]
+/// Trace: TC-048. The full FR-069-AC-8 stage oracle remains open.
+#[trace("TC-048")]
 #[test]
 fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let fixtures = fixtures_dir();
