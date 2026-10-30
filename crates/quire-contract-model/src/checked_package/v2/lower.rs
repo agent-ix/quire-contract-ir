@@ -362,7 +362,7 @@ pub struct ContractPackageDependencyV2 {
 /// [`CheckedPackageV2::lower`] builds one; its bytes are fixed at construction.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompleteContractPackageV2 {
-    source_package_id: CheckedSemanticId,
+    source_package_name: Box<str>,
     lowered: Vec<CompleteContractNodeV2>,
     dependencies: Vec<ContractPackageDependencyV2>,
     /// Absent exactly when the package's canonical bytes exceed the byte
@@ -383,9 +383,9 @@ impl CompleteContractPackageV2 {
         CONTRACT_PACKAGE_VERSION
     }
 
-    /// Identity of the admitted package this was lowered from.
-    pub fn source_package_id(&self) -> &CheckedSemanticId {
-        &self.source_package_id
+    /// Name of the admitted package this was lowered from.
+    pub fn source_package_name(&self) -> &str {
+        &self.source_package_name
     }
 
     /// Every lowered node of the call, once each, ascending by key.
@@ -648,7 +648,7 @@ impl CheckedPackageV2 {
             Err(required) => CompleteLoweringResultV2 {
                 records: failed_records(requested, ceiling, required),
                 package: CompleteContractPackageV2 {
-                    source_package_id: self.package_id().clone(),
+                    source_package_name: self.name().into(),
                     lowered: Vec::new(),
                     dependencies: Vec::new(),
                     encoding: None,
@@ -711,7 +711,7 @@ impl CheckedPackageV2 {
             wire,
         };
         Ok(CompleteContractPackageV2 {
-            source_package_id: self.package_id().clone(),
+            source_package_name: self.name().into(),
             encoding: Some(encoding),
             lowered,
             dependencies,
