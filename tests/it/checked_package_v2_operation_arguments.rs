@@ -762,6 +762,8 @@ fn call_with(
         ("pad_taxed", Ty::Rec("TaxedMoney")),
         ("pad_gift", Ty::Rec("GiftTaxedMoney")),
         ("pad_d", Ty::Rec("D")),
+        ("pad_b", Ty::Rec("B")),
+        ("pad_c", Ty::Rec("C")),
         ("pad_a", Ty::Rec("A")),
     ] {
         scene.param(name, &ty);
