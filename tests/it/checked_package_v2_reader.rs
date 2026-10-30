@@ -105,12 +105,6 @@ fn generated_occurrence_ordinal_and_source_region_survive_reading() {
     );
 }
 
-/// `invalid_semantic_graph`, the code of every nominal-stage refusal, at
-/// `path`.
-fn nominal(path: &str) -> ExpectedRefusal {
-    refusal(CheckedPackageRefusalCode::InvalidSemanticGraph, path)
-}
-
 fn dispatch(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPackageDispatchResult {
     read_checked_package(bytes, CheckedPackageReadLimits::bounded(), evidence)
 }
@@ -974,25 +968,62 @@ fn tc_048_enum_member_case_must_match_its_typed_declaration() {
     );
 }
 
-/// The typed nominal package with its enum declaration owned by `owner`.
-/// Its producer-assigned structural IDs are retained across owner edits.
+/// A locally authored selected-model dimension and its model root.
 fn model_owned_package(owner: Value, models: &[&str]) -> Value {
-    let mut package = v2_nominal();
-    let member_id = package["semantic_graph"]["nodes"][0]["node_id"].clone();
-    package["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-        .remove(0);
-    package["source_map"]
-        .as_array_mut()
-        .expect("source map")
-        .retain(|row| row["node_id"] != member_id);
-    package["semantic_graph"]["nodes"][0]["owner"] = owner;
-    package["semantic_graph"]["nodes"][0]["body"] = json!({"term":"aggregate","members":[]});
+    const LENGTH: &str = "ix://test/orders/Length";
+    let nominal = v2_nominal();
+    let mut package = nominal.clone();
+    let mut dimension = nominal["semantic_graph"]["nodes"][3].clone();
+    let owner_identity = owner["identity"]
+        .as_str()
+        .filter(|part| !part.is_empty())
+        .unwrap_or("test/orders");
+    let owner_node = owner["node"]
+        .as_str()
+        .filter(|part| !part.is_empty())
+        .unwrap_or(LENGTH);
+    let id = checked_package::structural_id(
+        owner_identity,
+        vec![json!("scalar_type"), json!("dimension"), json!(owner_node)],
+        0,
+    );
+    dimension["node_id"] = id.clone();
+    dimension["semantic_type"] = id.clone();
+    dimension["owner"] = owner;
+    dimension["body"] = json!({"term":"aggregate","members":[]});
+    dimension
+        .as_object_mut()
+        .expect("node")
+        .remove("declaration");
+    dimension["occurrences"] = json!([{"role":"generated","ordinal":0}]);
+    let mut map = nominal["source_map"][3].clone();
+    map["node_id"] = id;
+    map["role"] = json!("generated");
+    package["semantic_graph"]["nodes"] = json!([dimension]);
+    package["source_map"] = json!([map]);
     for identity in models {
         select_model(&mut package, identity);
     }
     package
+}
+
+fn model_document(version: &str) -> Value {
+    let mut document = domain_package_document("test/orders", version, Vec::new());
+    document["dimensions"] = json!([{
+        "identity":"ix://test/orders/Length", "name":"Length", "terms":[]
+    }]);
+    document
+}
+
+fn model_evidence(package: &Value) -> CheckedPackageEvidence {
+    evidence_with_document(package, "test/orders", &model_document("1"))
+}
+
+fn admitted_model(package: &Value) -> Box<CheckedPackageV2> {
+    match read(package, &model_evidence(package)) {
+        CheckedPackageV2ReadResult::Admitted(value) => value,
+        other => panic!("locally authored model-owned dimension refused: {other:?}"),
+    }
 }
 
 fn model_owner(identity: &str, node: &str) -> Value {
@@ -1002,21 +1033,27 @@ fn model_owner(identity: &str, node: &str) -> Value {
 #[trace("TC-048", "FR-038-AC-45", "FR-063-AC-5")]
 #[test]
 fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_document() {
-    // A content-only package (owner `{kind, identity, node}`, no `version`)
-    // admits against the selected domain package.
-    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    // The closed model owner `{kind, identity, node}` admits against an
+    // authored selected Dimension declaration.
+    let owner = model_owner("test/orders", "ix://test/orders/Length");
     let at_one = model_owned_package(owner.clone(), &["test/orders"]);
-    admitted(&at_one);
+    let first = admitted_model(&at_one);
 
-    // The model declaration owner is the whole preimage input: a different
-    // document supplied under the identity leaves the keyed declaration
-    // nodes and the selected root unchanged.
-    let other_document = domain_package_document("test/orders", "2", Vec::new());
+    // A selected document version change leaves the authored structural
+    // declaration node and root identities unchanged.
+    let other_document = model_document("2");
     let other_evidence = evidence_with_document(&at_one, "test/orders", &other_document);
-    assert!(matches!(
-        read(&at_one, &other_evidence),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let CheckedPackageV2ReadResult::Admitted(second) = read(&at_one, &other_evidence) else {
+        panic!("the same selected Dimension declaration must admit at version 2");
+    };
+    assert_eq!(
+        first.graph().nodes[0].node_id,
+        second.graph().nodes[0].node_id
+    );
+    assert_eq!(
+        first.graph().nodes[1].node_id,
+        second.graph().nodes[1].node_id
+    );
 
     // A `version` member on a model owner violates its closed wire shape.
     let mut versioned = owner.clone();
@@ -1026,19 +1063,22 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_doc
         refused(&versioned, &evidence_for(&versioned)),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            "/semantic_graph/nodes/0"
+            "/semantic_graph/nodes/0/owner"
         )
     );
 
     // An empty identity or node is not a valid owner.
     for (name, empty) in [
-        ("identity", model_owner("", "ix://test/orders/Status")),
+        ("identity", model_owner("", "ix://test/orders/Length")),
         ("node", model_owner("test/orders", "")),
     ] {
         let package = model_owned_package(empty, &["test/orders"]);
         assert_eq!(
             refused(&package, &evidence_for(&package)),
-            nominal("/semantic_graph/nodes/0/owner"),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/semantic_graph/nodes/0/owner"
+            ),
             "empty {name}"
         );
     }
@@ -1047,34 +1087,57 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_doc
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-5", "FR-038-AC-64")]
 #[test]
 fn tc_048_model_owners_join_model_roots_by_identity() {
-    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let owner = model_owner("test/orders", "ix://test/orders/Length");
     let base = model_owned_package(owner.clone(), &["test/orders"]);
-    admitted(&base);
+    admitted_model(&base);
 
     // Owner-to-root join: by domain package identity, with a present node.
     let joins = [
         (
             "owner identity names no root",
             model_owned_package(
-                model_owner("test/other", "ix://test/orders/Status"),
+                model_owner("test/other", "ix://test/orders/Length"),
                 &["test/orders"],
             ),
+            CheckedPackageRefusalCode::MissingDeclaration,
+            Some(CheckedPackageRefusalCause::MissingSelection),
+            "/semantic_graph/nodes/0/node_id",
         ),
         (
             "no domain package selected",
             model_owned_package(owner.clone(), &[]),
+            CheckedPackageRefusalCode::MissingDeclaration,
+            Some(CheckedPackageRefusalCause::MissingSelection),
+            "/semantic_graph/nodes/0/node_id",
         ),
         (
             "empty owner node",
             model_owned_package(model_owner("test/orders", ""), &["test/orders"]),
+            CheckedPackageRefusalCode::MalformedWire,
+            None,
+            "/semantic_graph/nodes/0/owner",
         ),
     ];
-    for (name, mutated) in joins {
+    for (name, mutated, code, cause, path) in joins {
+        let refusal = refused(&mutated, &model_evidence(&mutated));
+        assert_eq!((refusal.code, refusal.cause), (code, cause), "{name}");
         assert_eq!(
-            refused(&mutated, &evidence_for(&mutated)),
-            nominal("/semantic_graph/nodes/0/owner"),
-            "{name}"
+            refusal.loci[0].path.as_ref().map(|part| part.as_str()),
+            Some(path),
+            "{name}",
         );
+        if code == CheckedPackageRefusalCode::MissingDeclaration {
+            assert_eq!(
+                refusal.locus,
+                Some(
+                    serde_json::from_value(
+                        mutated["semantic_graph"]["nodes"][0]["node_id"].clone()
+                    )
+                    .expect("authored structural ID")
+                ),
+                "{name}",
+            );
+        }
     }
 
     // An owner carrying `authority`, `revision` or `export` is an unknown member.
@@ -1083,27 +1146,26 @@ fn tc_048_model_owners_join_model_roots_by_identity() {
             "compiled-model owner with export",
             model_owned_package(
                 json!({"kind": "model", "authority": "agent-ix",
-                       "identity": "test/orders", "export": "Status"}),
+                       "identity": "test/orders", "export": "Length"}),
                 &["test/orders"],
             ),
-            // The decoder names the first unknown owner member on the graph node.
-            "/semantic_graph/nodes/0/owner/authority",
+            "/semantic_graph/nodes/0/owner",
         ),
         (
             "domain package owner with export",
             model_owned_package(
                 json!({"kind": "model", "identity": "test/orders",
-                       "node": "ix://test/orders/Status", "export": "Status"}),
+                       "node": "ix://test/orders/Length", "export": "Length"}),
                 &["test/orders"],
             ),
-            "/semantic_graph/nodes/0/owner/export",
+            "/semantic_graph/nodes/0/owner",
         ),
     ];
     let evidence = evidence_for(&base);
     for (name, mutated, path) in retired {
         assert_eq!(
             refused(&mutated, &evidence),
-            refusal(CheckedPackageRefusalCode::UnknownMember, path),
+            refusal(CheckedPackageRefusalCode::MalformedWire, path),
             "{name}"
         );
     }
@@ -1131,7 +1193,7 @@ fn tc_048_model_owners_join_model_roots_by_identity() {
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-62")]
 #[test]
 fn tc_048_a_model_root_owner_is_exactly_kind_and_identity() {
-    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let owner = model_owner("test/orders", "ix://test/orders/Length");
     let base = model_owned_package(owner, &["test/orders"]);
     let root = base["semantic_graph"]["nodes"]
         .as_array()
@@ -1165,8 +1227,8 @@ fn tc_048_a_model_root_owner_is_exactly_kind_and_identity() {
     assert_eq!(
         refused(&preimage_member, &evidence),
         refusal(
-            CheckedPackageRefusalCode::MalformedWire,
-            "/identity_preimage/model_selections"
+            CheckedPackageRefusalCode::UnknownMember,
+            "/identity_preimage"
         )
     );
 }
@@ -1174,7 +1236,7 @@ fn tc_048_a_model_root_owner_is_exactly_kind_and_identity() {
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]
 fn tc_048_domain_package_selection_with_no_supplied_document_refuses_as_missing_import() {
-    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let owner = model_owner("test/orders", "ix://test/orders/Length");
     let base = model_owned_package(owner, &["test/orders"]);
     let root = base["semantic_graph"]["nodes"]
         .as_array()
@@ -1192,7 +1254,7 @@ fn tc_048_domain_package_selection_with_no_supplied_document_refuses_as_missing_
             CheckedPackageRefusalCause::MissingSelection
         )
     );
-    admitted(&base);
+    admitted_model(&base);
 }
 
 #[trace("TC-048", "FR-038-AC-2")]
