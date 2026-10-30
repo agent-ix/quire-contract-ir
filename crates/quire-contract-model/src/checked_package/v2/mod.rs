@@ -2511,7 +2511,7 @@ fn validate_graph(
     validate_protocol_references(&graph.nodes, &kinds, &index)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
-    let owners = ModelOwners::new(models, |root| {
+    let owners = ModelOwners::new(models, &graph.nodes, |root| {
         meter.charge(1, || node_pointer(root).key("owner"))
     })?;
     extension::validate(wire, &kinds, &terms, &index, evidence, &owners, meter)?;
