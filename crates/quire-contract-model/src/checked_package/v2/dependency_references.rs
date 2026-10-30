@@ -173,7 +173,7 @@ pub(super) fn check_derived_closure<'a>(
                     CheckedPackageRefusalCause::ConflictingDefinition,
                 );
                 if let ValidationFailure::Refused(ref mut value) = refusal {
-                    value.related_path = Some(selection_pointer(&root, &paths, path));
+                    value.push_path(selection_pointer(&root, &paths, path));
                 }
                 return Err(refusal);
             }

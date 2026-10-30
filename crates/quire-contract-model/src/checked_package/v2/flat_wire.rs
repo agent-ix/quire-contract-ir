@@ -818,7 +818,7 @@ mod tests {
             panic!("a refusal, not an incomplete result");
         };
         assert_eq!(refusal.code, code);
-        assert_eq!(refusal.path, JsonPointer::parse(path));
+        assert_eq!(refusal.loci[0].path.clone(), JsonPointer::parse(path));
         assert_eq!(refusal.cause, None);
     }
 
@@ -1026,7 +1026,7 @@ mod tests {
         };
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
         let expected = format!("/creates{}", "/0".repeat(LEVELS));
-        assert_eq!(refusal.path, JsonPointer::parse(&expected));
+        assert_eq!(refusal.loci[0].path.clone(), JsonPointer::parse(&expected));
         // The frame object, its `creates` array levels and the scalar at the
         // bottom, and the `term` member: LEVELS + 3 values.
         assert_eq!(worked, Ok(u64::try_from(LEVELS + 3).expect("count")));

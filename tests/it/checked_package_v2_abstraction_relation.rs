@@ -537,7 +537,7 @@ fn expect(
     assert_eq!(refusal.code, code, "{case}: {refusal:?}");
     assert_eq!(refusal.cause, cause, "{case}: {refusal:?}");
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(path),
         "{case}: {refusal:?}"
     );
@@ -1014,7 +1014,7 @@ fn tc_225_a_deeply_nested_member_refuses_as_the_wrong_shape() {
                 CheckedPackageV2ReadResult::Refused(refusal) => {
                     assert_eq!(refusal.code, Code::InvalidSemanticGraph);
                     assert_eq!(
-                        refusal.path.as_ref().map(|path| path.as_str()),
+                        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
                         Some(at_node(n, "/body/objects/0").as_str())
                     );
                 }
@@ -1856,7 +1856,7 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
         );
         assert_eq!(refusal.cause, Some(cause), "{case}");
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(
                 format!(
                     "/semantic_graph/nodes/{}/owner",

@@ -362,7 +362,7 @@ fn expect(case: &str, package: &Value, code: Code, cause: Cause, path: &str) {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|path| path.as_str())
+                refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (code, Some(cause), Some(path)),
             "{case}"
@@ -774,7 +774,7 @@ fn tc_048_a_grouped_union_key_has_public_reader_stage_precedence() {
             (
                 expected.code,
                 expected.cause,
-                expected.path.as_ref().map(|p| p.as_str())
+                expected.loci[0].path.as_ref().map(|p| p.as_str())
             ),
             (code, cause, Some(path.as_str())),
             "{case}: control {expected:?}"
@@ -793,7 +793,7 @@ fn tc_048_a_grouped_union_key_has_public_reader_stage_precedence() {
                 (
                     actual.code,
                     actual.cause,
-                    actual.path.as_ref().map(|p| p.as_str())
+                    actual.loci[0].path.as_ref().map(|p| p.as_str())
                 ),
                 (code, cause, Some(path.as_str())),
                 "{case}: earlier refusal lost: {actual:?}"
@@ -803,7 +803,7 @@ fn tc_048_a_grouped_union_key_has_public_reader_stage_precedence() {
                 (
                     actual.code,
                     actual.cause,
-                    actual.path.as_ref().map(|p| p.as_str())
+                    actual.loci[0].path.as_ref().map(|p| p.as_str())
                 ),
                 (
                     Code::InvalidPackage,
@@ -1177,7 +1177,7 @@ fn tc_048_a_malformed_union_body_refuses_at_the_node_body() {
                 (
                     refusal.code,
                     refusal.cause,
-                    refusal.path.as_ref().map(|path| path.as_str())
+                    refusal.loci[0].path.as_ref().map(|path| path.as_str())
                 ),
                 (
                     Code::InvalidSemanticGraph,
@@ -1237,7 +1237,7 @@ fn tc_048_a_details_reference_to_a_union_node_admits_and_to_a_case_node_refuses(
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|path| path.as_str()),
+                refusal.loci[0].path.as_ref().map(|path| path.as_str()),
                 refusal.locus
             ),
             (

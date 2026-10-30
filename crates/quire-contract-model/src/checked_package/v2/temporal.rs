@@ -1274,7 +1274,7 @@ mod tests {
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
         assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
         assert_eq!(
-            refusal.path.as_ref().map(JsonPointer::as_str),
+            refusal.loci[0].path.as_ref().map(JsonPointer::as_str),
             Some("/semantic_graph/nodes/0/body/arguments/0")
         );
         // The path is on the argument and the locus is the target (a node that

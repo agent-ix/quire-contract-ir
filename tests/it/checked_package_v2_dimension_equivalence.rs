@@ -107,7 +107,7 @@ fn refused(value: &Value, path: &str) {
         CheckedPackageV2ReadResult::Refused(result) => {
             assert_eq!(result.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
             assert_eq!(result.cause, None);
-            assert_eq!(result.path, Some(pointer(path)));
+            assert_eq!(result.loci[0].path.clone(), Some(pointer(path)));
         }
         other => panic!("expected invalid semantic graph, got {other:?}"),
     }
@@ -123,7 +123,7 @@ fn malformed(value: &Value, position: usize) {
             assert_eq!(result.code, CheckedPackageRefusalCode::MalformedWire);
             assert_eq!(result.cause, None);
             assert_eq!(
-                result.path,
+                result.loci[0].path.clone(),
                 Some(pointer(&format!("/semantic_graph/nodes/{position}")))
             );
         }

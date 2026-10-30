@@ -4778,7 +4778,7 @@ mod tests {
             ValidationFailure::Refused(refusal) => (
                 refusal.code,
                 refusal.cause.expect("typed cause"),
-                refusal.path.expect("path").to_string(),
+                refusal.loci[0].path.clone().expect("path").to_string(),
             ),
             other => panic!("expected refusal, got {other:?}"),
         });
@@ -5775,7 +5775,7 @@ mod tests {
         );
         assert_eq!(refusal.expected_node_id(), None);
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer("/semantic_graph/nodes/1/node_id"))
         );
         let unpaid = validate_application_keys(
@@ -9733,7 +9733,7 @@ mod tests {
         };
         assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer("/semantic_graph/nodes/0/node_id"))
         );
         assert_eq!(
@@ -9826,7 +9826,7 @@ mod tests {
             CheckedPackageRefusalCode::InvalidSemanticGraph
         );
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer("/semantic_graph/nodes/0/node_id"))
         );
     }
