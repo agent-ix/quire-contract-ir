@@ -66,9 +66,9 @@ use super::{
 };
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, ClaimForm, CompositeTypeForm,
-    CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, NominalIdentityPreimage,
-    ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm,
-    StateForm, TemporalForm, ValueForm,
+    CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateForm,
+    TemporalForm, ValueForm,
 };
 use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
