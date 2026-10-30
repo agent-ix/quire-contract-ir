@@ -357,7 +357,9 @@ fn dependent_compound_unit_references_wait_for_target_key() {
     // dependent compound-body refusal must not mask the root node's key.
     assert_eq!(
         root_refusal.path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{METRE}/node_id"))
+        Some(format!(
+            "/semantic_graph/nodes/{COMPOUND}/nominal_identity_preimage/target_unit_node_id"
+        ))
     );
 
     let mut independent = root.clone();

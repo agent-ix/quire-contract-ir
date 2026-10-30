@@ -278,9 +278,11 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
     refresh_identity(&mut dangling_dependency);
     assert_eq!(
         refused(&dangling_dependency, &evidence_for(&dangling_dependency)),
-        refusal(
+        crate::support::checked_package::refusal_at(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             "/semantic_graph/nodes/1/dependencies/0",
+            None,
+            wire_node_id(&dangling_dependency, 1).digest.as_ref(),
         )
     );
 

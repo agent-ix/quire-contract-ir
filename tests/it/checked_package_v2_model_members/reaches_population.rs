@@ -31,6 +31,24 @@ const BAD_GRAPH: (
     CheckedPackageRefusalCode,
     Option<CheckedPackageRefusalCause>,
 ) = (CheckedPackageRefusalCode::InvalidSemanticGraph, None);
+const INVALID_DERIVED_SHAPE: (
+    CheckedPackageRefusalCode,
+    Option<CheckedPackageRefusalCause>,
+) = (
+    CheckedPackageRefusalCode::InvalidPackage,
+    Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+);
+
+fn missing_dependency_at(scenario: &Scenario, missing: &str) -> String {
+    let dependencies = scenario.package["semantic_graph"]["nodes"][CALL]["dependencies"]
+        .as_array()
+        .expect("application dependencies");
+    let position = dependencies
+        .iter()
+        .position(|dependency| dependency["digest"] == missing)
+        .expect("missing dependency is listed");
+    format!("/semantic_graph/nodes/{CALL}/dependencies/{position}")
+}
 
 /// A package whose reaches application at [`CALL`] carries (or omits) a
 /// `population` key over a graph that holds the nodes the tests add.
@@ -404,13 +422,23 @@ fn tc_048_a_population_that_is_not_a_listed_node_id_is_refused_ill_typed() {
         let mut scenario = Scenario::standard();
         scenario.link(Some(value), listed);
         let refusal = refused(&scenario.package, &scenario.evidence);
-        assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "{label}");
+        let expected = if listed.is_some() {
+            BAD_GRAPH
+        } else {
+            ILL_TYPED
+        };
+        let at = if listed.is_some() {
+            missing_dependency_at(&scenario, &absent)
+        } else {
+            POPULATION_AT.to_owned()
+        };
+        assert_eq!((refusal.code, refusal.cause), expected, "{label}");
         assert_ne!(
             refusal.code,
             CheckedPackageRefusalCode::MissingDeclaration,
             "{label}"
         );
-        scenario.assert_refused(ILL_TYPED, POPULATION_AT);
+        scenario.assert_refused(expected, &at);
     }
 }
 
@@ -549,8 +577,18 @@ fn tc_048_a_navigate_application_never_carries_a_population() {
         let key = population["digest"].as_str().expect("key").to_owned();
         let listed = navigating(population.clone(), Some(&key), extra.clone());
         let refusal = refused(&listed.package, &listed.evidence);
-        assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "{label}");
-        listed.assert_refused(ILL_TYPED, POPULATION_AT);
+        let expected = if label == "absent node" {
+            BAD_GRAPH
+        } else {
+            ILL_TYPED
+        };
+        let at = if label == "absent node" {
+            missing_dependency_at(&listed, &absent)
+        } else {
+            POPULATION_AT.to_owned()
+        };
+        assert_eq!((refusal.code, refusal.cause), expected, "{label}");
+        listed.assert_refused(expected, &at);
 
         let unlisted = navigating(population, None, extra);
         let refusal = refused(&unlisted.package, &unlisted.evidence);
@@ -797,8 +835,24 @@ fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
         let population = scenario.add_population(ORDER, members, &[0]);
         scenario.link(Some(node_id(&population)), Some(&population));
         let refusal = refused(&scenario.package, &scenario.evidence);
-        assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "{label}");
-        scenario.assert_refused(ILL_TYPED, POPULATION_AT);
+        let derived = matches!(label, "two max members" | "not a literal" | "negative");
+        let expected = if derived {
+            INVALID_DERIVED_SHAPE
+        } else {
+            ILL_TYPED
+        };
+        let at = if derived {
+            let position = scenario
+                .nodes()
+                .iter()
+                .position(|node| node["node_id"] == node_id(&population))
+                .expect("population");
+            format!("/semantic_graph/nodes/{position}/node_id")
+        } else {
+            POPULATION_AT.to_owned()
+        };
+        assert_eq!((refusal.code, refusal.cause), expected, "{label}");
+        scenario.assert_refused(expected, &at);
     }
     // A `max` member that is not a `binding` is not a valid body term at all, so
     // the graph is refused at the member before any population check runs.
@@ -839,12 +893,11 @@ fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
 #[test]
 fn tc_048_the_population_check_follows_every_earlier_check() {
     let absent = "f".repeat(64);
-    let operand_one = "/semantic_graph/nodes/6/body/arguments/1";
-    // An earlier defect in `check_relationship_member`: operand 1 does not
-    // conform to the receiver end.
+    // A missing listed dependency is checked before operation operands.
     let mut earlier = Scenario::over(authored_relationship(), ORDER, CUSTOMER);
     earlier.link(Some(node_id(&absent)), Some(&absent));
-    earlier.assert_refused(ILL_TYPED, operand_one);
+    let at = missing_dependency_at(&earlier, &absent);
+    earlier.assert_refused(BAD_GRAPH, &at);
 
     // The `result_type` check is the member check just before the population
     // check, so a result type that is not Boolean is refused at `result_type`.
@@ -852,10 +905,11 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
     result.nodes()[CALL]["body"]["result_type"] = node_id(&INTEGER);
     result.nodes()[CALL]["semantic_type"] = node_id(&INTEGER);
     result.link(Some(node_id(&absent)), Some(&absent));
-    result.assert_refused(ILL_TYPED, "/semantic_graph/nodes/6/body/result_type");
+    let at = missing_dependency_at(&result, &absent);
+    result.assert_refused(BAD_GRAPH, &at);
 
-    // The mode and the leaf are refused by the identity stage whatever the
-    // population names, when the population id is listed.
+    // A present link can reach mode and leaf checking; a missing listed node
+    // is refused at the semantic-edge stage first.
     let mode = json!({"kind": "rounding", "value": "exact"});
     let leaf = json!({"path": [], "laws": [], "mode": null});
     for (label, field, value, cause, at) in [
@@ -882,9 +936,17 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
                 population.clone(),
                 population.is_some().then_some(absent.as_str()),
             );
-            let refusal = refused(&scenario.package, &scenario.evidence);
-            assert_eq!((refusal.code, refusal.cause), expected, "{label}");
-            scenario.assert_refused(expected, at);
+            let actual = if population.is_some() {
+                BAD_GRAPH
+            } else {
+                expected
+            };
+            let pointer = if population.is_some() {
+                missing_dependency_at(&scenario, &absent)
+            } else {
+                at.to_owned()
+            };
+            scenario.assert_refused(actual, &pointer);
         }
         // Unlisted, the join refuses first.
         let mut unlisted = Scenario::standard();

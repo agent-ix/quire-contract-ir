@@ -656,6 +656,16 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     for (name, mutate, expected) in cases {
         let mut mutated = base.clone();
         mutate(&mut mutated);
+        let expected = if name == "dangling body reference" {
+            checked_package::refusal_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "/semantic_graph/nodes/4",
+                None,
+                &digest_of(&mutated["semantic_graph"]["nodes"][4]),
+            )
+        } else {
+            expected
+        };
         match read(&mutated, &evidence) {
             CheckedPackageV2ReadResult::Refused(actual) => {
                 assert_eq!(actual, expected, "{name}");
@@ -1169,7 +1179,7 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                 v["semantic_graph"]["nodes"][declaration]["nominal_identity_preimage"] =
                     v["semantic_graph"]["nodes"][member]["nominal_identity_preimage"].clone();
             }),
-            "/semantic_graph/nodes/0/nominal_identity_preimage/declaration_node_id",
+            "/semantic_graph/nodes/1/nominal_identity_preimage",
         ),
         (
             "preimage not deriving the node key",

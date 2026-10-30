@@ -1307,10 +1307,33 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
     }
     let text_bounds = f.ty("bounded_domain", "text_bounds", Some(&text), profile);
     types.insert("text_bounds".into(), text_bounds);
+    let family = crate::support::checked_package::v2_all_families();
+    let mut object = None;
+    for node in family["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("family nodes")
+    {
+        if matches!(
+            node["semantic_form"].as_str(),
+            Some("model_root" | "object_type")
+        ) {
+            let key = node["node_id"]["digest"]
+                .as_str()
+                .expect("model id")
+                .to_owned();
+            if node["semantic_form"] == "object_type" {
+                object = Some(key.clone());
+            }
+            f.nodes.insert(key, node.clone());
+        }
+    }
+    let object = object.expect("family object type");
+    let reference = f.collection("reference", &object);
+    let population_set = f.collection("set", &reference);
     let population = f.ty(
         "bounded_domain",
         "model_population",
-        Some(&integer),
+        Some(&population_set),
         aggregate(vec![]),
     );
     types.insert("model_population".into(), population);

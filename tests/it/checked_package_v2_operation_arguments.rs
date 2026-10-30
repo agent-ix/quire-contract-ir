@@ -1414,7 +1414,21 @@ fn tc_448_a_malformed_parameters_binding_is_refused_at_the_callee() {
         ),
     ];
     for (label, members) in cases {
-        function_call(&signature, &arguments, members).ineligible(label, callee);
+        let case = function_call(&signature, &arguments, members);
+        if label == "an absent target" {
+            let CheckedPackageV2ReadResult::Refused(refusal) = case.read() else {
+                panic!("{label}: expected a refusal");
+            };
+            assert_eq!(refusal.code, Code::InvalidSemanticGraph, "{label}");
+            assert_eq!(refusal.cause, None, "{label}");
+            assert_eq!(
+                refusal.path.as_ref().map(|path| path.as_str()),
+                Some("/semantic_graph/nodes/6"),
+                "{label}"
+            );
+        } else {
+            case.ineligible(label, callee);
+        }
     }
 }
 

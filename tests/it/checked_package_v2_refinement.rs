@@ -1816,20 +1816,37 @@ fn add_second_concrete_object(package: &mut Value) -> Value {
         .find(|node| node["semantic_form"] == "object_type")
         .expect("second model object")
         .clone();
-    let source = package["lock"]["sources"][0].clone();
-    package["source_map"]
-        .as_array_mut()
-        .expect("source map")
-        .push(json!({
-            "node_id":object["node_id"],
-            "role":object["occurrences"][0]["role"],
-            "ordinal":object["occurrences"][0]["ordinal"],
-            "regions":[{"source":source,"start":10,"end":11}]
-        }));
-    package["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-        .push(object.clone());
+    let selected_nodes = selected["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let dependency = selected_nodes
+        .iter()
+        .find(|node| node["node_id"] == object["dependencies"][0])
+        .expect("object type dependency");
+    for node in [dependency, &object] {
+        if package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .any(|existing| existing["node_id"] == node["node_id"])
+        {
+            continue;
+        }
+        let source = package["lock"]["sources"][0].clone();
+        package["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(json!({
+                "node_id":node["node_id"],
+                "role":node["occurrences"][0]["role"],
+                "ordinal":node["occurrences"][0]["ordinal"],
+                "regions":[{"source":source,"start":10,"end":11}]
+            }));
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node.clone());
+    }
     object["node_id"].clone()
 }
 

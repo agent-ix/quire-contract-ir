@@ -372,12 +372,6 @@ fn tc_226_each_owner_free_form_rejects_a_body_mutation_at_its_key() {
             empty.clone(),
         ),
         ("bounded_domain", "text_bounds", INTEGER_KEY, empty.clone()),
-        (
-            "bounded_domain",
-            "model_population",
-            INTEGER_KEY,
-            empty.clone(),
-        ),
         ("scalar_type", "rational", "", empty.clone()),
         ("scalar_type", "decimal", "", empty.clone()),
         ("scalar_type", "float32", "", empty.clone()),
@@ -420,6 +414,33 @@ fn tc_226_each_owner_free_form_rejects_a_body_mutation_at_its_key() {
         });
         assert_stale(&format!("{tag}/{form}"), &altered, &key);
     }
+
+    // Population shape is Set<Reference<ObjectType>>, so authenticate its
+    // body key using a valid set of the base fixture's reference type.
+    let (population_set, set_node) = collection("set", &base.reference);
+    let population_body = empty;
+    let population_key = structural_key(
+        "bounded_domain",
+        "model_population",
+        Some(&population_set),
+        &population_body,
+    );
+    let population_node = node(
+        &population_key,
+        "bounded_domain",
+        "model_population",
+        &population_set,
+        &[&population_set],
+        population_body,
+    );
+    let population_package = with_nodes(base.package, vec![set_node, population_node]);
+    admitted("bounded_domain/model_population", &population_package);
+    let altered = tampered(&population_package, &population_key, |node| {
+        node["body"] = json!({"term": "aggregate", "members": [
+            {"term": "reference", "target": node_id(INTEGER_KEY)}
+        ]});
+    });
+    assert_stale("bounded_domain/model_population", &altered, &population_key);
 }
 
 /// The forms with stricter body grammars also reach key re-derivation with

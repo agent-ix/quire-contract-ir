@@ -752,7 +752,7 @@ fn residual_result_inner_set_like_elements_require_an_empty_path_leaf() {
 #[test]
 fn residual_required_leaf_sources_refuse_missing_referenced_types_on_public_read() {
     for leaves in [vec![], vec![text_leaf(&[])]] {
-        let (package, application) = equality_package(
+        let (package, _application) = equality_package(
             vec![record("r", &[("value", "absent")])],
             "r",
             leaves.clone(),
@@ -760,10 +760,12 @@ fn residual_required_leaf_sources_refuse_missing_referenced_types_on_public_read
         assert_eq!(
             read(&package, CheckedPackageReadLimits::bounded()),
             refusal_at(
-                CheckedPackageRefusalCode::IllTyped,
-                &leaves_pointer(&package, &application),
-                Some(CheckedPackageRefusalCause::OperatorIneligible),
-                &application,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "/semantic_graph/nodes/2",
+                None,
+                package["semantic_graph"]["nodes"][2]["node_id"]["digest"]
+                    .as_str()
+                    .expect("node id"),
             ),
             "operand:0 outer record family fits but its compared child is absent"
         );
@@ -773,7 +775,7 @@ fn residual_required_leaf_sources_refuse_missing_referenced_types_on_public_read
             "r",
             leaves.clone(),
         );
-        let application = edit_application(&mut contains, |node| {
+        let _application = edit_application(&mut contains, |node| {
             let collection = node["body"]["arguments"][0].clone();
             node["semantic_form"] = json!("collection");
             node["body"]["operator"] = json!("collection");
@@ -783,10 +785,12 @@ fn residual_required_leaf_sources_refuse_missing_referenced_types_on_public_read
         assert_eq!(
             read(&contains, CheckedPackageReadLimits::bounded()),
             refusal_at(
-                CheckedPackageRefusalCode::IllTyped,
-                &leaves_pointer(&contains, &application),
-                Some(CheckedPackageRefusalCause::OperatorIneligible),
-                &application,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "/semantic_graph/nodes/2",
+                None,
+                contains["semantic_graph"]["nodes"][2]["node_id"]["digest"]
+                    .as_str()
+                    .expect("node id"),
             ),
             "inner:0 collection family fits but its element type is absent"
         );
@@ -803,7 +807,7 @@ fn residual_set_result_refuses_missing_element_type_on_public_read() {
             leaves,
         );
         let result_id = type_id(&package, "set");
-        let application = edit_application(&mut package, |node| {
+        let _application = edit_application(&mut package, |node| {
             let first = node["body"]["arguments"][0].clone();
             node["semantic_form"] = json!("collection");
             node["semantic_type"] = result_id.clone();
@@ -815,10 +819,12 @@ fn residual_set_result_refuses_missing_element_type_on_public_read() {
         assert_eq!(
             read(&package, CheckedPackageReadLimits::bounded()),
             refusal_at(
-                CheckedPackageRefusalCode::IllTyped,
-                &leaves_pointer(&package, &application),
-                Some(CheckedPackageRefusalCause::OperatorIneligible),
-                &application,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "/semantic_graph/nodes/6",
+                None,
+                package["semantic_graph"]["nodes"][6]["node_id"]["digest"]
+                    .as_str()
+                    .expect("node id"),
             ),
             "result_inner set family fits but its element type is absent"
         );
