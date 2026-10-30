@@ -543,8 +543,11 @@ fn expect(
     );
     if let Some(locus) = locus {
         assert_eq!(
-            refusal.locus.as_ref().map(|id| &*id.digest),
-            Some(locus),
+            refusal
+                .locus
+                .as_ref()
+                .map(|id| serde_json::to_value(id).expect("locus id")),
+            Some(node_id(locus)),
             "{case}: {refusal:?}"
         );
     }
@@ -1094,33 +1097,30 @@ fn tc_225_a_root_application_is_refused_by_the_step_that_places_it() {
     );
 }
 
-/// A node key outside the node-identity domain, or whose digest is not
-/// lowercase hex, is `digest_domain_mismatch` at the key, as every other node
-/// reference the reader reads; a value that is no node key is an entry of the
-/// wrong shape.
+/// Malformed structural targets refuse at the exact body member.
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
-fn tc_225_a_node_key_outside_the_node_domain_refuses_as_a_domain_mismatch() {
+fn tc_225_a_malformed_structural_target_refuses_at_the_target() {
     let rich = rich();
     let value = relations(std::slice::from_ref(&rich));
     let n = at(&value, &rich);
     let keys = [
         (
-            "another digest domain",
-            json!({"domain": "quire.other-node/v1", "digest": config_version()}),
+            "missing ordinal",
+            json!({"package": "test/families", "path": ["missing"]}),
         ),
         (
-            "a digest that is not hex",
-            json!({"domain": "quire.checked-semantic-node/v1", "digest": "z".repeat(64)}),
+            "wrong package kind",
+            json!({"package": 7, "path": ["missing"], "ordinal": 0}),
         ),
         (
-            "an uppercase digest",
-            json!({"domain": "quire.checked-semantic-node/v1", "digest": config_version().to_uppercase()}),
+            "wrong path segment",
+            json!({"package": "test/families", "path": [7], "ordinal": 0}),
         ),
         (
-            "a short digest",
-            json!({"domain": "quire.checked-semantic-node/v1", "digest": "ab"}),
+            "extra member",
+            json!({"package": "test/families", "path": ["missing"], "ordinal": 0, "digest": "extra"}),
         ),
     ];
     for (case, bad) in keys {
@@ -1137,13 +1137,11 @@ fn tc_225_a_node_key_outside_the_node_domain_refuses_as_a_domain_mismatch() {
                 node["body"]["frames"][0]["context"] = key;
             }),
         ] {
-            let case = format!("{case} at {member_at}");
-            let bad = bad.clone();
-            let value = mutated(value.clone(), n, |node| set(node, bad));
+            let value = mutated(value.clone(), n, |node| set(node, bad.clone()));
             expect(
-                &case,
+                &format!("{case} at {member_at}"),
                 &value,
-                Code::DigestDomainMismatch,
+                Code::MalformedWire,
                 None,
                 &at_node(n, member_at),
                 None,
@@ -1270,10 +1268,6 @@ fn tc_225_identity_members_that_do_not_hold_refuse_at_the_node() {
     type Edit = Box<dyn Fn(&mut Value)>;
     let cases: Vec<(&str, Edit)> = vec![
         (
-            "a stale node_id",
-            Box::new(|node| node["node_id"] = node_id(&"9".repeat(64))),
-        ),
-        (
             "a semantic_type other than the node",
             Box::new(|node| node["semantic_type"] = node_id(INTEGER)),
         ),
@@ -1285,7 +1279,10 @@ fn tc_225_identity_members_that_do_not_hold_refuse_at_the_node() {
             "dependencies holding a target the body does not",
             Box::new(|node| {
                 let mut dependencies = vec![node_id(&config_version()), node_id(INTEGER)];
-                dependencies.sort_by_key(|id| id["digest"].as_str().map(str::to_owned));
+                dependencies.sort_by_key(|id| {
+                    serde_json::from_value::<quire_contract_model::CheckedNodeId>(id.clone())
+                        .expect("structural id")
+                });
                 node["dependencies"] = Value::Array(dependencies);
             }),
         ),
@@ -1294,7 +1291,7 @@ fn tc_225_identity_members_that_do_not_hold_refuse_at_the_node() {
         let value = mutated(value.clone(), n, edit);
         // The node key may have changed; the locus is whatever the node now
         // carries.
-        let locus = nodes(&value)[n]["node_id"]["digest"]
+        let locus = nodes(&value)[n]["node_id"]["path"][0]
             .as_str()
             .expect("key")
             .to_owned();
@@ -1307,11 +1304,12 @@ fn tc_225_identity_members_that_do_not_hold_refuse_at_the_node() {
             Some(&locus),
         );
     }
-    // A stale key is the abstraction step's, never `stale-node-key`.
-    let stale = mutated(value, n, |node| node["node_id"] = node_id(&"9".repeat(64)));
-    let refusal = refused("a stale node_id", &stale);
-    assert_ne!(refusal.cause, Some(Cause::StaleNodeKey));
-    assert_ne!(own, "9".repeat(64));
+    // A valid body edit keeps the structural ID and passes the same joins.
+    let edited = mutated(value.clone(), n, |node| {
+        node["body"]["objects"][0]["fields"][0]["rust_field"] = json!("other");
+    });
+    let admitted = admitted("valid body edit with retained id", &edited);
+    assert_eq!(admitted.graph().nodes[n].node_id, typed_node_id(&own));
 }
 
 /// ACs: FR-346-AC-4
@@ -1869,7 +1867,14 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
             ),
             "{case}"
         );
-        assert_eq!(refusal.locus.as_ref().map(|id| &*id.digest), None, "{case}");
+        assert_eq!(
+            refusal
+                .locus
+                .as_ref()
+                .map(|id| serde_json::to_value(id).expect("locus id")),
+            None,
+            "{case}"
+        );
     }
 }
 
@@ -2025,7 +2030,7 @@ fn settled_value(mut value: Value) -> Value {
 
 /// The path a package is refused at.
 fn refusal_path(case: &str, value: &Value) -> String {
-    refused(case, value)
+    refused(case, value).loci[0]
         .path
         .map(|path| path.as_str().to_owned())
         .expect("a pointer")
@@ -2253,53 +2258,6 @@ fn tc_225_nodes_report_in_node_id_order_and_collisions_only_after_every_node() {
         refusal_path("a collision and a member defect", &value),
         at_node(at(&value, &defect), "/body/objects/0/fields/0"),
         "a key collision is reported after every node's own checks held"
-    );
-}
-
-// AC-10.
-
-/// ACs: FR-346-AC-10
-#[trace("TC-225", "FR-346-AC-10")]
-#[test]
-fn tc_225_a_changed_binding_changes_the_node_key_and_the_package_id() {
-    let minimal = minimal();
-    let value = relations(std::slice::from_ref(&minimal));
-    let package = admitted("the minimal body", &value);
-    // The same body gives the same node_id on every read.
-    let again = admitted("the same body again", &value);
-    let n = at(&value, &minimal);
-    assert_eq!(
-        package.graph().nodes[n].node_id,
-        again.graph().nodes[n].node_id
-    );
-    assert_eq!(package.package_id(), again.package_id());
-    // One rust_field changed and the node_id recomputed.
-    let mut changed = minimal.clone();
-    changed["objects"][0]["fields"][0]["rust_field"] = json!("other");
-    assert_ne!(digest_of(&changed), digest_of(&minimal));
-    let rekeyed = rebodied(value.clone(), n, changed.clone());
-    let other = admitted("one rust_field changed", &rekeyed);
-    let other_at = at(&rekeyed, &changed);
-    assert_eq!(
-        other.graph().nodes[other_at].node_id,
-        typed_node_id(&digest_of(&changed))
-    );
-    assert_ne!(
-        other.graph().nodes[other_at].node_id,
-        package.graph().nodes[n].node_id
-    );
-    assert_ne!(other.package_id(), package.package_id());
-    // The same change without recomputing node_id refuses as in AC-4.
-    let stale = mutated(value, n, |node| {
-        node["body"]["objects"][0]["fields"][0]["rust_field"] = json!("other");
-    });
-    expect(
-        "the change without a new node_id",
-        &stale,
-        Code::InvalidSemanticGraph,
-        None,
-        &at_node(n, ""),
-        Some(&digest_of(&minimal)),
     );
 }
 
