@@ -6,10 +6,10 @@
 
 use crate::support::checked_package::{
     self, all_families_read_work, canonical, domain_package_document, evidence_for,
-    evidence_with_document, family_key, incomplete, node_id, nominal_fixture_members,
-    nominal_package, pointer as support_pointer, positive_operation_identities, refresh_identity,
-    refusal, refusal_at, refusal_bytes, refusal_cause, rekey, select_model, sha256_hex,
-    unknown_version, v2_all_families, v2_nominal, ExpectedRefusal, COMPLETE_VALUE_FEATURE,
+    evidence_with_document, family_key, incomplete, node_id, pointer as support_pointer,
+    positive_operation_identities, refresh_identity, refusal, refusal_bytes, refusal_cause,
+    select_model, unknown_version, v2_all_families, v2_nominal, ExpectedRefusal,
+    COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1243,9 +1243,17 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
                 .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
                 .expect("model-owned object type")
                 .clone();
-            let placeholder = "ab".repeat(32);
-            interface["node_id"] = checked_package::node_id(&placeholder);
-            interface["semantic_type"] = checked_package::node_id(&placeholder);
+            let interface_id = checked_package::structural_id(
+                "test/families",
+                vec![
+                    json!("model"),
+                    json!("systems_interface"),
+                    json!("ix://test/families/Interface"),
+                ],
+                0,
+            );
+            interface["node_id"] = interface_id.clone();
+            interface["semantic_type"] = interface_id;
             interface["semantic_form"] = json!(form);
             interface["owner"] =
                 checked_package::model_owner("test/families", "ix://test/families/Interface");
@@ -1257,7 +1265,7 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         } else {
             value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
         }
-        rekey_declared_all_families(&mut value);
+        checked_package::settle(&mut value);
         admitted(&value);
     }
     // This form needs a selected model declaration and owner, unlike the
@@ -1626,22 +1634,28 @@ fn tc_048_expression_forms_bound_admission() {
     for form in ExpressionForm::ALL {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][expression]["semantic_form"] = json!(form.as_wire());
-        checked_package::mint_ungrouped_structural_keys(&mut value);
-        refresh_identity(&mut value);
+        checked_package::settle(&mut value);
         if *form == ExpressionForm::Case {
-            // An `expression`/`case` node stands only with a `case`
-            // application as its body (FR-038-AC-100), which this node's
-            // `reference` body is not: its form contradicts its root, so it is
-            // `invalid_semantic_graph` at the body. The form admits with its
-            // own body in `checked_package_v2_union.rs`.
+            // A case expression requires a case application body. The
+            // fixture still carries a reference body, so the reader refuses
+            // at that body with the expression's authored structural ID.
+            let refusal = refused(&value, &evidence_for(&value));
             assert_eq!(
-                refused(&value, &evidence_for(&value)),
-                refusal_at(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    &format!("/semantic_graph/nodes/{expression}/body"),
-                    None,
-                    &digest_of(&value["semantic_graph"]["nodes"][expression]),
-                )
+                refusal.code,
+                CheckedPackageRefusalCode::InvalidSemanticGraph
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(ToString::to_string),
+                Some(format!("/semantic_graph/nodes/{expression}/body")),
+            );
+            assert_eq!(
+                refusal.locus,
+                Some(
+                    serde_json::from_value(
+                        value["semantic_graph"]["nodes"][expression]["node_id"].clone(),
+                    )
+                    .expect("authored structural id")
+                ),
             );
             continue;
         }
@@ -1657,25 +1671,6 @@ fn tc_048_expression_forms_bound_admission() {
             &format!("/semantic_graph/nodes/{expression}/semantic_form")
         )
     );
-}
-
-fn digest_of(node: &Value) -> String {
-    node["node_id"]["digest"]
-        .as_str()
-        .expect("digest")
-        .to_owned()
-}
-
-/// The pointer of the declared name of the node keyed `digest` in `package`:
-/// a declaration-name refusal is located at that name.
-fn declared_name_at(package: &Value, digest: &str) -> String {
-    let position = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| digest_of(node) == digest)
-        .expect("node with that key");
-    format!("/semantic_graph/nodes/{position}/declaration/qualified_name")
 }
 
 #[trace("TC-048", "FR-038-AC-21")]
@@ -1694,9 +1689,7 @@ fn tc_048_declared_name_must_equal_its_structural_path() {
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some(format!(
-            "/semantic_graph/nodes/{declaration}/node_id/path"
-        )),
+        Some(format!("/semantic_graph/nodes/{declaration}/node_id/path")),
     );
     assert_eq!(
         refusal.locus,
@@ -1704,206 +1697,155 @@ fn tc_048_declared_name_must_equal_its_structural_path() {
     );
 }
 
-/// The nominal fixture with its dimension renamed to its unit's declared name,
-/// re-keyed through every dependant so every nominal join still holds: the
-/// only remaining defect is two nodes declaring one name. Returns the package
-/// and the two nodes' key digests.
-fn with_shared_name() -> (Value, [String; 2]) {
-    let version = |preimage: &Value| preimage["version"].as_str().map(str::to_owned);
-    let mut members = nominal_fixture_members();
-    // Dependency order, so one rekey pass carries the rename to every
-    // dependant: a unit names its dimension's key.
-    let order = [
-        "quire.enum-declaration-node/v1",
-        "quire.enum-member-node/v1",
-        "quire.dimension-node/v1",
-        "quire.unit-node/v1",
-    ];
-    members.sort_by_key(|(preimage, _)| {
-        order
-            .iter()
-            .position(|kind| version(preimage).as_deref() == Some(*kind))
-            .expect("known nominal kind")
-    });
-    let unit_name = members[3].0["qualified_declaration"].clone();
-    members[2].0["qualified_declaration"] = unit_name;
-    let (mut preimages, keys): (Vec<_>, Vec<_>) = members.into_iter().unzip();
-    let fresh = rekey(&mut preimages, &keys);
-    let digests = [fresh[2].clone(), fresh[3].clone()];
-    let mut value = nominal_package(&preimages.into_iter().zip(fresh).collect::<Vec<_>>());
-    refresh_identity(&mut value);
-    (value, digests)
+/// A source-declared dimension and unit sharing one qualified name. Their
+/// producer-assigned ordinals keep the structural node identities distinct.
+fn with_shared_name() -> (Value, [Value; 2]) {
+    let mut value = v2_nominal();
+    let unit = 2;
+    let dimension = 3;
+    let old_dimension = value["semantic_graph"]["nodes"][dimension]["node_id"].clone();
+    let unit_id = value["semantic_graph"]["nodes"][unit]["node_id"].clone();
+    let mut dimension_id = unit_id.clone();
+    dimension_id["ordinal"] = json!(1);
+    checked_package::reassign_node_id(&mut value, &old_dimension, &dimension_id);
+    value["semantic_graph"]["nodes"][dimension]["declaration"]["qualified_name"] =
+        value["semantic_graph"]["nodes"][unit]["declaration"]["qualified_name"].clone();
+    checked_package::settle(&mut value);
+    (value, [dimension_id, unit_id])
 }
 
 #[trace("TC-230", "FR-038-AC-301")]
 #[test]
 fn tc_230_unit_and_dimension_can_share_one_name() {
     let (value, _) = with_shared_name();
-    assert!(matches!(
-        CheckedPackageV2::read(
-            &canonical(&value),
-            CheckedPackageReadLimits::bounded(),
-            &evidence_for(&value),
-        ),
-        CheckedPackageV2ReadResult::Admitted(_),
-    ));
+    let result = read(&value, &evidence_for(&value));
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-21")]
 #[test]
-fn tc_048_a_nominal_name_mismatch_is_reported_before_an_ambiguous_name() {
-    // Both defects at once: the shared name, and the enum declaration's
-    // declared name moved off its preimage's. The nominal join runs first.
+fn tc_048_a_nominal_name_mismatch_survives_a_shared_unit_dimension_name() {
+    // The shared unit and dimension name is valid in separate namespaces.
+    // A mismatched enum declaration still refuses at its own structural path.
     let (mut value, _) = with_shared_name();
-    let declaration = value["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["semantic_form"] == json!("enum"))
-        .expect("enum declaration");
+    let declaration = 1;
+    let retained_id = value["semantic_graph"]["nodes"][declaration]["node_id"].clone();
     value["semantic_graph"]["nodes"][declaration]["declaration"]["qualified_name"] =
         json!(["Example", "Renamed"]);
-    refresh_identity(&mut value);
+    let refusal = refused(&value, &evidence_for(&value));
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
-        refused(&value, &evidence_for(&value)),
-        refusal_at(
-            CheckedPackageRefusalCode::InvalidPackage,
-            &format!("/semantic_graph/nodes/{declaration}/declaration/qualified_name"),
-            Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
-            &digest_of(&value["semantic_graph"]["nodes"][declaration]),
-        )
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{declaration}/node_id/path")),
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(serde_json::from_value(retained_id).expect("authored structural id")),
     );
 }
 
-/// Gives the node at `position` a `declaration`-role occurrence and the
-/// declared name `name`.
-fn declare(package: &mut Value, position: usize, name: &[&str]) {
+/// Gives one node a source declaration and its authored structural path.
+fn declare(package: &mut Value, position: usize, name: &[&str], ordinal: u64) {
     let source = package["lock"]["sources"][0].clone();
+    let old = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let fresh = checked_package::structural_id(
+        package["name"].as_str().expect("package name"),
+        name.iter().map(|part| json!(part)).collect(),
+        ordinal,
+    );
+    checked_package::reassign_node_id(package, &old, &fresh);
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
     node["declaration"] = json!({"qualified_name": name});
     node["owner"] = json!({
         "kind": "source", "authority": source["authority"], "identity": source["identity"],
     });
-}
-
-/// Rekey the all-family fixture after a declaration changes a structural
-/// preimage. Every rename reaches downstream type, body, frame and package
-/// references; `settle` then rekeys application nodes over those references.
-fn rekey_declared_all_families(package: &mut Value) {
-    let count = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .len();
-    for _ in 0..=count {
-        let previous: Vec<Value> = package["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("nodes")
-            .iter()
-            .map(|node| node["node_id"].clone())
-            .collect();
-        checked_package::mint_ungrouped_structural_keys(package);
-        checked_package::settle(package);
-        let current: Vec<Value> = package["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("nodes")
-            .iter()
-            .map(|node| node["node_id"].clone())
-            .collect();
-        if current == previous {
-            return;
-        }
-    }
-    panic!("declared all-family fixture did not reach stable keys");
+    checked_package::settle(package);
 }
 
 #[trace("TC-048", "TC-230", "FR-038-AC-21", "FR-038-AC-301")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
-    // Nodes: 0 root, 1 declaring namespace ("Example::Widget"), 2 literal,
-    // 3 declaring function, 4 application call.
-    let with_operation_defect = || {
-        let mut value = positive_operation_identities();
-        value["semantic_graph"]["nodes"][4]["body"]["operation"]["identity"] =
-            json!("quire.op.unknown");
-        checked_package::rekey_application_node(&mut value, 4);
-        value
-    };
-    // Control: the operation defect alone is refused at the operation stage.
-    let mut operation_only = with_operation_defect();
-    refresh_identity(&mut operation_only);
+    // Control: the unknown operation alone reaches the operation stage.
+    let mut operation_only = positive_operation_identities();
+    operation_only["semantic_graph"]["nodes"][4]["body"]["operation"]["identity"] =
+        json!("quire.op.unknown");
+    checked_package::settle(&mut operation_only);
     let control = refused(&operation_only, &evidence_for(&operation_only));
     assert_eq!(
         control.cause,
         Some(CheckedPackageRefusalCause::UnknownOperation)
     );
-    // With a second node declaring the same name, the declaration refusal wins.
-    let mut both = with_operation_defect();
-    let stale = digest_of(&both["semantic_graph"]["nodes"][3]);
-    declare(&mut both, 3, &["Example", "Widget"]);
-    let function = &both["semantic_graph"]["nodes"][3];
-    let fresh = sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1",
-        "node_tag": function["node_tag"],
-        "semantic_form": function["semantic_form"],
-        "semantic_type": function["semantic_type"],
-        "owner": function["owner"],
-        "declaration": function["declaration"],
-        "recursion": null,
-        "body": function["body"],
-    })));
-    checked_package::rename_node(&mut both, &stale, &fresh);
-    checked_package::settle(&mut both);
-    let declaring = digest_of(&both["semantic_graph"]["nodes"][1]);
-    let function = digest_of(&both["semantic_graph"]["nodes"][3]);
+
+    // The function gets the same name as the namespace declaration. Its
+    // distinct ordinal makes the graph structurally valid, so declaration
+    // ambiguity must win over the unknown operation.
+    let mut both = operation_only;
+    declare(&mut both, 3, &["Example", "Widget"], 1);
+    let expected_id = both["semantic_graph"]["nodes"][3]["node_id"].clone();
+    let refusal = refused(&both, &evidence_for(&both));
     assert_eq!(
-        refused(&both, &evidence_for(&both)),
-        refusal_at(
-            CheckedPackageRefusalCode::AmbiguousDeclaration,
-            &declared_name_at(&both, declaring.clone().max(function.clone()).as_str()),
-            Some(CheckedPackageRefusalCause::AmbiguousName),
-            declaring.max(function).as_str(),
-        )
+        refusal.code,
+        CheckedPackageRefusalCode::AmbiguousDeclaration
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::AmbiguousName)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/semantic_graph/nodes/3/declaration/qualified_name".to_owned()),
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(serde_json::from_value(expected_id).expect("authored structural id")),
     );
 }
 
 #[trace("TC-048", "TC-230", "FR-038-AC-21", "FR-038-AC-301")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
-    let with_frame_defect = || {
-        let mut value = v2_all_families();
-        let frame = value["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("nodes")
-            .iter()
-            .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "frame")
-            .expect("frame node");
-        value["semantic_graph"]["nodes"][frame]["body"]["modifies"] = json!([{
-            "kind": "relationship",
-            "declaration": checked_package::node_id(&"0123456789abcdef".repeat(4)),
-        }]);
-        checked_package::mint_ungrouped_structural_keys(&mut value);
-        value
-    };
-    // Control: the frame defect alone is refused at the frame stage.
-    let mut frame_only = with_frame_defect();
-    refresh_identity(&mut frame_only);
+    let mut frame_only = v2_all_families();
+    let frame = frame_only["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "frame")
+        .expect("frame node");
+    frame_only["semantic_graph"]["nodes"][frame]["body"]["modifies"] = json!([{
+        "kind": "relationship",
+        "declaration": node_id("missing/relationship"),
+    }]);
+    checked_package::settle(&mut frame_only);
     let control = refused(&frame_only, &evidence_for(&frame_only));
     assert_eq!(control.code, CheckedPackageRefusalCode::MissingDeclaration);
-    // Two plain nodes declaring one name: the declaration refusal wins.
-    let mut both = with_frame_defect();
-    declare(&mut both, 0, &["Example", "Dup"]);
-    declare(&mut both, 1, &["Example", "Dup"]);
-    rekey_declared_all_families(&mut both);
-    let first = digest_of(&both["semantic_graph"]["nodes"][0]);
-    let second = digest_of(&both["semantic_graph"]["nodes"][1]);
+
+    let mut both = frame_only;
+    declare(&mut both, 0, &["Example", "Dup"], 0);
+    declare(&mut both, 1, &["Example", "Dup"], 1);
+    let expected_id = both["semantic_graph"]["nodes"][1]["node_id"].clone();
+    let refusal = refused(&both, &evidence_for(&both));
     assert_eq!(
-        refused(&both, &evidence_for(&both)),
-        refusal_at(
-            CheckedPackageRefusalCode::AmbiguousDeclaration,
-            &declared_name_at(&both, first.clone().max(second.clone()).as_str()),
-            Some(CheckedPackageRefusalCause::AmbiguousName),
-            first.max(second).as_str(),
-        )
+        refusal.code,
+        CheckedPackageRefusalCode::AmbiguousDeclaration
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::AmbiguousName)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/semantic_graph/nodes/1/declaration/qualified_name".to_owned()),
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(serde_json::from_value(expected_id).expect("authored structural id")),
     );
 }
