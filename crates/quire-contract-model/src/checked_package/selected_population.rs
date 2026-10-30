@@ -5,7 +5,7 @@
 
 use super::v2::{BoundedDomainForm, CheckedNodeKind, CheckedTerm, LiteralKind};
 use super::{
-    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2, CheckedSemanticId,
+    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
     CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion,
 };
 use std::collections::BTreeMap;
@@ -95,7 +95,7 @@ fn selected_source<'a>(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedSelectedPopulationSelector {
     /// The admitted package the binding belongs to.
-    pub package_id: CheckedSemanticId,
+    pub package_name: Box<str>,
     /// The exact `bounded_domain` / `model_population` binding identity.
     pub binding: CheckedNodeId,
     /// The exact source `Type` occurrence, including its ordinal.
@@ -118,14 +118,14 @@ pub enum CheckedSelectedPopulationSource<'a> {
     /// population record; this model boundary does not depend on QSL.
     Declaration {
         /// Selected model identity.
-        selected_model: CheckedSemanticId,
+        selected_model: Box<str>,
         /// Population declaration identity.
         population: CheckedNodeId,
     },
     /// QSL reported an open population extent before V2 admission.
     UnknownClosureOpenExtent {
         /// Selected model identity.
-        selected_model: CheckedSemanticId,
+        selected_model: Box<str>,
         /// Population declaration identity.
         population: CheckedNodeId,
         /// Upstream source identity.
@@ -136,7 +136,7 @@ pub enum CheckedSelectedPopulationSource<'a> {
     /// QSL could not resolve the selected object type before V2 admission.
     UnknownClosureUnresolvedObjectType {
         /// Selected model identity.
-        selected_model: CheckedSemanticId,
+        selected_model: Box<str>,
         /// Population declaration identity.
         population: CheckedNodeId,
         /// Upstream source identity.
@@ -147,7 +147,7 @@ pub enum CheckedSelectedPopulationSource<'a> {
     /// QSL could not resolve subtype closure before V2 admission.
     UnknownClosureUnresolvedSubtypeClosure {
         /// Selected model identity.
-        selected_model: CheckedSemanticId,
+        selected_model: Box<str>,
         /// Population declaration identity.
         population: CheckedNodeId,
         /// Upstream source identity.
@@ -163,7 +163,7 @@ pub enum CheckedSelectedPopulationSource<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedSelectedPopulation {
     /// Selected admitted package identity.
-    pub package_id: CheckedSemanticId,
+    pub package_name: Box<str>,
     /// Exact population binding node identity.
     pub binding: CheckedNodeId,
     /// Exact selected source occurrence.
@@ -186,14 +186,14 @@ pub enum CheckedSelectedPopulationOutcome {
     /// A known declaration has no binding maximum.
     Unbounded {
         /// Selected model identity.
-        selected_model: CheckedSemanticId,
+        selected_model: Box<str>,
         /// Population declaration identity.
         population: CheckedNodeId,
     },
     /// The source declaration has an open extent.
     UnknownClosureOpenExtent {
         /// Selected model identity.
-        selected_model: CheckedSemanticId,
+        selected_model: Box<str>,
         /// Population declaration identity.
         population: CheckedNodeId,
         /// Upstream source identity.
@@ -204,7 +204,7 @@ pub enum CheckedSelectedPopulationOutcome {
     /// The selected object type could not be resolved upstream.
     UnknownClosureUnresolvedObjectType {
         /// Selected model identity.
-        selected_model: CheckedSemanticId,
+        selected_model: Box<str>,
         /// Population declaration identity.
         population: CheckedNodeId,
         /// Upstream source identity.
@@ -215,7 +215,7 @@ pub enum CheckedSelectedPopulationOutcome {
     /// Required subtype closure could not be resolved upstream.
     UnknownClosureUnresolvedSubtypeClosure {
         /// Selected model identity.
-        selected_model: CheckedSemanticId,
+        selected_model: Box<str>,
         /// Population declaration identity.
         population: CheckedNodeId,
         /// Upstream source identity.
@@ -293,7 +293,7 @@ fn select_admitted(
     package: &CheckedPackageV2,
     selector: CheckedSelectedPopulationSelector,
 ) -> CheckedSelectedPopulationOutcome {
-    if package.package_id() != &selector.package_id {
+    if package.name() != selector.package_name.as_ref() {
         return CheckedSelectedPopulationOutcome::ForeignPackage(selector);
     }
     let Some(node) = package.node(&selector.binding) else {
@@ -326,7 +326,7 @@ fn select_admitted(
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     };
     CheckedSelectedPopulationOutcome::Finite(CheckedSelectedPopulation {
-        package_id: package.package_id().clone(),
+        package_name: package.name().into(),
         binding: node.node_id.clone(),
         occurrence: selector.occurrence,
         object_type,
@@ -344,8 +344,9 @@ mod source_index_tests {
 
     fn id(number: usize) -> CheckedNodeId {
         serde_json::from_value(json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": format!("{number:064x}"),
+            "package": "population-test",
+            "path": [format!("node-{number}")],
+            "ordinal": 0,
         }))
         .expect("node identity")
     }
@@ -492,8 +493,11 @@ mod tests {
     fn population_classifier_accepts_only_the_same_position_retained_kind() {
         use crate::checked_package::v2::{BoundedDomainForm, CheckedNodeKind, ScalarTypeForm};
         let id = |digit: char| CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: digit.to_string().repeat(64).into(),
+            package: "population-test".into(),
+            path: vec![crate::checked_package::CheckedNodePathSegment::Name(
+                digit.to_string().into(),
+            )],
+            ordinal: 0,
         };
         let metadata = |key: CheckedNodeId| -> CheckedSemanticNodeV2 {
             serde_json::from_value(json!({
@@ -530,8 +534,11 @@ mod tests {
     #[test]
     fn admitted_population_object_type_uses_retained_reference_chain() {
         let id = |digit: char| CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: digit.to_string().repeat(64).into(),
+            package: "population-test".into(),
+            path: vec![crate::checked_package::CheckedNodePathSegment::Name(
+                digit.to_string().into(),
+            )],
+            ordinal: 0,
         };
         let set = id('1');
         let reference = id('2');
@@ -571,8 +578,11 @@ mod tests {
     #[test]
     fn admitted_maximum_reads_typed_binding_and_literal() {
         let integer = CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: "0".repeat(64).into(),
+            package: "population-test".into(),
+            path: vec![crate::checked_package::CheckedNodePathSegment::Name(
+                "integer".into(),
+            )],
+            ordinal: 0,
         };
         let maximum = CheckedTerm::Binding {
             name: "max".into(),
@@ -596,8 +606,11 @@ mod tests {
     #[test]
     fn maximum_requires_the_selected_integer_literal_binding() {
         let id = CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: "0".repeat(64).into(),
+            package: "population-test".into(),
+            path: vec![crate::checked_package::CheckedNodePathSegment::Name(
+                "integer".into(),
+            )],
+            ordinal: 0,
         };
         let literal = |kind, value| CheckedTerm::Literal {
             type_id: id.clone(),

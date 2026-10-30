@@ -136,7 +136,7 @@ fn duplicate_max_on_reader_admitted_population_is_not_population() {
     let result = select_population(Source::Admitted {
         package: &package,
         selector: Selector {
-            package_id: package.package_id().clone(),
+            package_name: package.name().into(),
             binding: node.node_id.clone(),
             occurrence,
         },
