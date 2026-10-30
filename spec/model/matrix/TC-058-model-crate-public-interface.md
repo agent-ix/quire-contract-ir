@@ -79,17 +79,17 @@ Compile-fail probes reject conversion of a fixture into an admitted
 
 ## Status
 
-Implemented: `tc_058_model_root_exports_exactly_the_fr_019_public_items`,
-`tc_058_fault_injection_adds_only_its_named_export`, and
-`tc_058_root_crate_exposes_only_its_kani_module` in
-`tests/it/public_interface.rs` check the source inventories and root boundary.
-The positive model-path and negative root-path doctests in `src/lib.rs` check
-that one table item builds only through `quire_contract_model`.
+The source-inventory and root-boundary tests exist in
+`tests/it/public_interface.rs`; the model-path and root-path doctests exist in
+`src/lib.rs`. PLANNED/UNRUN (IR-1141): the compiled negative probes and exact
+FR-019 inventory must be updated and rerun after candidate helper exports
+are removed. Existing helper-dependent tests and doctests cannot back the
+structural boundary below.
 
 ## Structural V2 identity API boundary
 
-With IR-1141, the former FR-046 and FR-048 content-derived candidate helper
-APIs are withdrawn. The external default-feature consumer compiles a
+PLANNED/UNRUN (IR-1141). The former FR-046 and FR-048 content-derived candidate
+helper APIs are withdrawn. The external default-feature consumer compiles a
 `CheckedNodeId { package, path, ordinal }` with a non-empty package and path,
 uses the typed V2 encoder and reader, and reads the same id after admission.
 Negative compile probes cannot import `derive_application_node_id`,

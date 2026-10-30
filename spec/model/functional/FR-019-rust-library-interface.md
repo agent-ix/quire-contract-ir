@@ -169,23 +169,23 @@ The first node, depth, or collection path crossing a limit returns
 validate, canonicalize, and classify calls return without panic for
 the complete negative corpus.
 
-The pre-read application identity items in
-[FR-046](./FR-046-derive-candidate-application-node-identity.md) borrow a draft
-node and its ordered graph context, and return only a candidate key. A
-provisional self selector is not a verified semantic identity. The explicit canonical byte ceiling does not bound graph-context
-validation or body-copy memory. Reader admission remains required after
-final-key/reference substitution.
+The former pre-read candidate-identity exports of
+[FR-046](./FR-046-derive-candidate-application-node-identity.md) and
+[FR-048](./FR-048-derive-structural-and-group-candidates.md) are withdrawn
+under FR-038-AC-367. The model crate exposes the structural `CheckedNodeId`
+and the public V2 encoder and reader. A producer-supplied node ID or group
+label is an identity label, not proof of admission. Only the strict reader
+returns an admitted `CheckedPackageV2` after checking graph order, body,
+owner, references and source correspondence. The former candidate helpers,
+context and result types are absent from the required Public items inventory.
+Their current exports remain an open FR-019-AC-5 discrepancy until the
+IR-1141 code removal lands.
 
-The pre-read structural identity items in
-[FR-048](./FR-048-derive-structural-and-group-candidates.md) borrow an ordered
-draft graph and return candidate structural keys and recursion-group labels
-under explicit byte and work ceilings. They do not admit the assembled wire.
-
-FR-051 specifies `CheckedPackageIdentityPreimageRefV2` and
+FR-051 specifies `CheckedPackageSourceCorrespondenceRef` and
 `encode_checked_package_v2`, which are implemented and exported by the
-default-feature model crate. FR-052 and FR-053 specify
-additional public model APIs that remain planned until they are implemented
-and exported; their owning requirements retain those API obligations.
+default-feature model crate. FR-052 and FR-053 specify additional public
+model APIs; their owning requirements retain those API obligations, including
+the planned IR-1141 structural selection controls of FR-053.
 FR-038-AC-324 specifies the planned `CheckedProtocolActivation` and
 `CheckedProtocolActivationRow` types and the associated
 `CheckedPackageV2::protocol_activation_relation` method. They SHALL enter
