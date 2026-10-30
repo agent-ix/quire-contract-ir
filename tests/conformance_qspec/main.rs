@@ -769,6 +769,69 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
     }
 }
 
+/// QSpec's nominal declarations and derived nodes have assigned identities;
+/// neither body bytes nor owner spelling participates in their construction.
+#[trace("TC-048", "TC-228", "FR-038-AC-89")]
+#[test]
+fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
+    let fixtures = fixtures_dir();
+    let name = "positive-nominal-identities.json";
+    let document = proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT);
+    let (wire, admitted) =
+        read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{why}"));
+    let declared = |path: &[&str]| json!({"package":"example", "path":path, "ordinal":0});
+    let status = declared(&["Example", "Status"]);
+    let length = declared(&["Example", "Length"]);
+    let distance = declared(&["Example", "Distance"]);
+    let expected = [
+        json!({"package":"example", "path":["value", "enum_value", status, "READY"], "ordinal":0}),
+        status,
+        declared(&["Example", "metre"]),
+        length.clone(),
+        distance.clone(),
+        json!({"package":"example", "path":["scalar_type", "dimension_equivalence", distance, length], "ordinal":0}),
+    ];
+    let published = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published nominal nodes");
+    assert_eq!(published.len(), expected.len());
+    for (position, (node, id)) in admitted.graph().nodes.iter().zip(expected).enumerate() {
+        assert_eq!(
+            published[position]["node_id"], id,
+            "{position}: assigned wire id"
+        );
+        assert_eq!(serde_json::to_value(&node.node_id).expect("node id"), id);
+        assert_eq!(
+            serde_json::to_value(&node.owner).expect("owner"),
+            published[position]["owner"],
+            "{position}: retained owner"
+        );
+        assert_eq!(
+            serde_json::to_value(&node.body).expect("body"),
+            published[position]["body"],
+            "{position}: retained complete body"
+        );
+    }
+    let encoded = quire_contract_model::encode_checked_package_v2(
+        admitted.name(),
+        admitted.lock(),
+        admitted.graph(),
+        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+            source_map: admitted.source_map(),
+            refinement_step_rows: admitted.refinement_step_rows(),
+        },
+        admitted.capability_report(),
+        admitted.diagnostics(),
+        quire_canonical::Limits::new(1 << 24),
+    )
+    .expect("published package encodes");
+    assert_eq!(
+        encoded,
+        quire_canonical::to_vec(&wire, quire_canonical::Limits::new(1 << 24))
+            .expect("published canonical bytes")
+    );
+}
+
 #[trace("TC-048", "FR-038-AC-176")]
 #[test]
 fn tc_048_qspec_positive_inputs_fail_closed() {
