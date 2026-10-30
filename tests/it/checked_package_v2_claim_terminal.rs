@@ -363,7 +363,7 @@ fn refused(package: &Value, code: Code, cause: Option<Cause>, suffix: &str) {
                 assert_eq!(value.terminal_duplicate, None);
             }
             assert!(
-                value
+                value.loci[0]
                     .path
                     .as_ref()
                     .is_some_and(|path| path.as_str().ends_with(suffix)),
@@ -580,7 +580,7 @@ fn state_graph_refuses_kind_fit_and_target_meaning() {
                 assert_eq!(value.code, code, "{case}");
                 assert_eq!(value.cause, cause, "{case}");
                 assert!(
-                    value
+                    value.loci[0]
                         .path
                         .as_ref()
                         .is_some_and(|path| path.as_str().ends_with(suffix)),
@@ -1192,7 +1192,7 @@ fn terminal_self_parameter_must_have_right_name_level_and_type() {
         CheckedPackageV2ReadResult::Refused(value) => {
             assert_eq!(value.code, Code::InvalidSemanticGraph);
             assert!(
-                value
+                value.loci[0]
                     .path
                     .as_ref()
                     .is_some_and(|path| path.as_str().ends_with("/body/members/2")),
