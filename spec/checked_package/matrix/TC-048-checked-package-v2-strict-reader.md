@@ -1150,6 +1150,14 @@ operation check and refuses `ill_typed`/`operator-ineligible` at
 
 For each positive fixture, encode the complete V2 envelope, graph, lock, source-map entries, capability report and diagnostics through `quire_canonical::to_vec`, comparing independently authored canonical JSON bytes for the same complete typed values. Include declared and derived structural ids, recursion groups, all JSON body kinds, non-ASCII strings and supported numeric bounds. A 100000-level in-memory body is encoded and disposed iteratively on a 256 KiB thread stack. At exact and one-byte-below limits, require success and typed byte refusal respectively. A package document containing noncanonical numeric spelling or out-of-order UTF-8 object members refuses `noncanonical_wire` before body and graph checks. No preimage or digest is encoded or compared.
 
+For FR-038-AC-76, compare one independent canonical-byte oracle per public
+`CheckedPackageLockV2`, `CheckedSourceMapEntry`, `CheckedCapability`,
+`CheckedNodeId` and `CheckedDiagnosticsV2` value from every in-repo positive
+fixture. The `CheckedNodeId` oracle includes a nested structural id in `path`
+and its exact producer-assigned ordinal; diagnostics include nested object
+and array `details` and non-empty `loci`. Do not construct or encode the
+removed `CheckedSemanticId` (FR-038-AC-80).
+
 ## Structural identity and canonical byte controls (FR-038-AC-89 through FR-038-AC-95)
 
 Read each current QSpec positive package directly from the checkout named by `QUIRE_SPECIFICATION_DIR`. Compare the admitted package name, structural node ids, graph order, complete bodies and owners with its published JSON. A missing checkout, selected domain document, fixture or selected identity fails the run. The reader must not derive an expected node id from a body or expose a package digest. Source-owner distinctions remain visible in their structural package/path components.
