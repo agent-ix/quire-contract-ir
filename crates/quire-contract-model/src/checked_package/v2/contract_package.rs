@@ -1315,19 +1315,14 @@ impl ContractPackageWireV1 {
         // CheckedNodeId uses RawValue for iterative nested-path decoding.
         // Deserializing it from an in-memory Value cannot provide that raw
         // token stream, so decode the already shape-checked input bytes.
+        // The strict parse above has already enforced Serde's depth limit.
         let mut decoder = serde_json::Deserializer::from_slice(bytes);
-        decoder.disable_recursion_limit();
-        let wire: Self =
-            serde_path_to_error::deserialize(serde_stacker::Deserializer::new(&mut decoder))
-                .map_err(|error| {
-                    malformed(
-                        crate::checked_package::common::decoder_pointer(
-                            JsonPointer::root(),
-                            error.path(),
-                        ),
-                        CheckedPackageRefusalCause::WrongValueKind,
-                    )
-                })?;
+        let wire: Self = serde_path_to_error::deserialize(&mut decoder).map_err(|error| {
+            malformed(
+                crate::checked_package::common::decoder_pointer(JsonPointer::root(), error.path()),
+                CheckedPackageRefusalCause::WrongValueKind,
+            )
+        })?;
         let mut work_meter = super::WorkMeter::new(limits.work);
         let (node_kinds, unsupported_tags) = wire.validate_values(limits, &mut work_meter)?;
         wire.validate_correspondence(limits)?;
