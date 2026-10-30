@@ -34,7 +34,13 @@ fn local_package() -> Value {
 fn derived_range_package() -> Value {
     let mut package = v2_all_families();
     let boolean = package["semantic_graph"]["nodes"][0].clone();
-    let integer = package["semantic_graph"]["nodes"][20].clone();
+    let integer = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "integer")
+        .expect("Integer node")
+        .clone();
     let mut range = package["semantic_graph"]["nodes"][2].clone();
     let old_range_id = range["node_id"].clone();
     range["node_id"] = json!({
