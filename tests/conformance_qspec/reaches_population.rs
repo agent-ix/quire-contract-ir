@@ -152,7 +152,12 @@ fn candidate(base: &Value, case: &Value) -> Value {
             node["dependencies"] = json!(dependencies);
         }
     }
-    fixture_support::settle(&mut package);
+    // The published source-map regions are authoritative. `settle` rebuilds
+    // every row with synthetic position regions and loses the declaration
+    // correspondence of the QSpec base (including Example.Counter). The
+    // application dependency was updated above; normalize only changed
+    // owner paths and their exact references.
+    fixture_support::refresh_identity(&mut package);
     package
 }
 
