@@ -162,7 +162,7 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
                 .expect("nominal body term");
             if ["dimension", "unit", "dimension_equivalence"].contains(&term) {
                 assert!(body.enum_details().is_none());
-                seen_other_forms.insert(term);
+                seen_other_forms.insert(term.to_owned());
             }
         }
     }
@@ -170,6 +170,7 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
         seen_other_forms,
         ["dimension", "dimension_equivalence", "unit"]
             .into_iter()
+            .map(str::to_owned)
             .collect()
     );
 }
