@@ -1633,25 +1633,31 @@ fn validate_node_id(
     Ok(())
 }
 
-/// A group keeps one structural package and declaration path, including on
-/// anonymous members. A declared or owned member supplies the independently
-/// checked path anchor; a group without one can only be checked for agreement
-/// among its members.
+/// A declared group member keeps its own independently checked path. An
+/// anonymous derived member uses that path only when the label has exactly one
+/// declared member. With zero or several declarations its path is authored;
+/// the ordinary ID shape, uniqueness and reference rules still apply.
 fn validate_recursion_group_paths(nodes: &[RawSemanticNodeV2]) -> Result<(), ValidationFailure> {
-    let mut paths = BTreeMap::<&str, &CheckedNodeId>::new();
+    let mut sole_declaration = BTreeMap::<&str, Option<&CheckedNodeId>>::new();
     for node in nodes {
-        if node.declaration.is_some() || node.owner.is_some() {
-            if let Some(label) = node.recursion_group.as_deref() {
-                paths.entry(label).or_insert(&node.node_id);
-            }
+        if let (Some(label), Some(_)) = (node.recursion_group.as_deref(), &node.declaration) {
+            sole_declaration
+                .entry(label)
+                .and_modify(|anchor| *anchor = None)
+                .or_insert(Some(&node.node_id));
         }
     }
     for (position, node) in nodes.iter().enumerate() {
         let Some(label) = node.recursion_group.as_deref() else {
             continue;
         };
-        let anchor = paths.entry(label).or_insert(&node.node_id);
-        if node.node_id.package != anchor.package || node.node_id.path != anchor.path {
+        if node.declaration.is_some() || node.owner.is_some() {
+            continue;
+        }
+        let Some(anchor) = sole_declaration.get(label).copied().flatten() else {
+            continue;
+        };
+        if node.node_id.path != anchor.path {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 node_pointer(position).key("node_id").key("path"),
@@ -3267,10 +3273,11 @@ mod test_support {
 mod tests {
     use super::{
         body_grammar, node_pointer, reference_requires_cycle_edge, validate_body,
-        validate_recursion, BodyGrammar, CheckedDependencySelection, CheckedNodeKind,
-        CheckedPackageRefusalCode, CheckedSemanticNodeV2, CorrespondenceForm, EdgeSite,
-        ExpressionForm, ReferenceMember, ReferenceSite, StateForm, Step, Trail, ValidationFailure,
-        WorkMeter, DEPENDENCY_SELECTION_MEMBERS,
+        validate_recursion, validate_recursion_group_paths, BodyGrammar,
+        CheckedDependencySelection, CheckedNodeKind, CheckedPackageRefusalCode,
+        CheckedSemanticNodeV2, CorrespondenceForm, EdgeSite, ExpressionForm, ReferenceMember,
+        ReferenceSite, StateForm, Step, Trail, ValidationFailure, WorkMeter,
+        DEPENDENCY_SELECTION_MEMBERS,
     };
     use ix_trace_rs::trace;
     use serde_json::json;
@@ -3414,6 +3421,45 @@ mod tests {
             "body": {"term": "reference", "target": super::test_support::id('e')},
         }))
         .expect("recursion-test node")
+    }
+
+    #[trace("FR-038-AC-364", "TC-048")]
+    #[test]
+    fn group_path_join_uses_only_a_sole_declaration() {
+        let member = |digit: char, path: &str, declared: bool| {
+            let mut node = recursion_test_node(digit, Some("group"));
+            node.node_id.path = vec![super::CheckedNodePathSegment::Name(path.into())];
+            if declared {
+                node.declaration = Some(super::CheckedDeclaration {
+                    qualified_name: vec![path.into()],
+                });
+            }
+            node
+        };
+
+        let declared = member('a', "A", true);
+        let anonymous = member('b', "A", false);
+        assert!(validate_recursion_group_paths(&[declared.clone(), anonymous.clone()]).is_ok());
+        assert_recursion_refusal(
+            validate_recursion_group_paths(&[declared.clone(), member('b', "other", false)]),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_pointer(1).key("node_id").key("path").to_string(),
+        );
+
+        // With no declared member the reader has no path anchor to invent.
+        assert!(validate_recursion_group_paths(&[
+            member('a', "first", false),
+            member('b', "second", false),
+        ])
+        .is_ok());
+        // Several declared nodes each retain their own path, and an anonymous
+        // member has no unique declared path to inherit.
+        assert!(validate_recursion_group_paths(&[
+            declared,
+            member('c', "C", true),
+            member('b', "chosen", false),
+        ])
+        .is_ok());
     }
 
     fn assert_recursion_refusal(
