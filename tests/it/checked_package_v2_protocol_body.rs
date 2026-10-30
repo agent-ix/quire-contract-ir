@@ -4,11 +4,10 @@
 //! Public reader checks for the first protocol validation passes.
 
 use crate::support::checked_package::{
-    admitted_protocol_families, application_node_key, canonical, evidence_for,
-    evidence_with_document, family_key, family_model_document, node_id, protocol_named_node,
-    protocol_role_node, reassign_node_id, rebuild_source_map, refresh_identity, refusal,
-    refusal_at, rename_node, select_model, selected_interface_model_node, settle, sha256_hex,
-    structural_key, v2_all_families,
+    admitted_protocol_families, canonical, evidence_for, evidence_with_document, family_key,
+    family_model_document, node_id, protocol_named_node, protocol_role_node, reassign_node_id,
+    rebuild_source_map, refresh_identity, refusal, refusal_at, rename_node, select_model,
+    selected_interface_model_node, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -238,7 +237,7 @@ fn decision_fact_fixture() -> (Value, usize, usize, usize) {
         {"term": "binding", "name": "ok", "value": {"term": "reference",
             "target": node_id(&family_key("aaaa"))}}
     ]});
-    let record_key = structural_key("composite_type", "record", None, &record_body);
+    let record_key = "fixture/protocol-body/structural_key/241".to_owned();
     let mut record = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -263,7 +262,7 @@ fn decision_fact_fixture() -> (Value, usize, usize, usize) {
         .expect("attempt binder");
     package["semantic_graph"]["nodes"][binder_position]["semantic_type"] = node_id(&record_key);
     let binder_body = package["semantic_graph"]["nodes"][binder_position]["body"].clone();
-    let binder_key = structural_key("value", "parameter", Some(&record_key), &binder_body);
+    let binder_key = "fixture/protocol-body/structural_key/266".to_owned();
     rename_node(
         &mut package,
         old_binder["path"][0].as_str().expect("old binder key"),
@@ -294,12 +293,7 @@ fn decision_fact_fixture() -> (Value, usize, usize, usize) {
     let mut field = existing;
     field["semantic_form"] = json!("query");
     field["body"] = field_body;
-    field["node_id"] = node_id(&application_node_key(
-        "expression",
-        "query",
-        &family_key("aaaa"),
-        &field["body"],
-    ));
+    field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/297".to_owned());
     let field_position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -401,11 +395,12 @@ fn decision_slot_read_at(
                 .expect("reference expression")
                 .clone();
             expression["body"] = json!({"term": "reference", "target": target});
-            expression["node_id"] = node_id(&structural_key(
-                "expression",
-                "reference",
-                Some(&family_key("aaaa")),
-                &expression["body"],
+            expression["node_id"] = node_id(&format!(
+                "fixture/protocol-body/decision-read/{}",
+                package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("nodes")
+                    .len()
             ));
             expression["dependencies"] = json!([target]);
             read_target = expression["node_id"].clone();
@@ -452,12 +447,7 @@ fn decision_conjunction(package: &mut Value, left: &Value, right: &Value) -> Val
             {"term": "reference", "target": right},
         ],
     });
-    expression["node_id"] = node_id(&application_node_key(
-        "expression",
-        "binary",
-        &family_key("aaaa"),
-        &expression["body"],
-    ));
+    expression["node_id"] = node_id(&"fixture/protocol-body/application_node_key/455".to_owned());
     let mut dependencies = vec![left.clone(), right.clone()];
     dependencies.sort_by(|a, b| a["path"][0].as_str().cmp(&b["path"][0].as_str()));
     expression["dependencies"] = json!(dependencies);
@@ -481,12 +471,7 @@ fn bare_record_expression(package: &mut Value, binder: &Value) -> Value {
         .clone();
     expression["semantic_type"] = record_type.clone();
     expression["body"] = json!({"term": "reference", "target": binder});
-    expression["node_id"] = node_id(&structural_key(
-        "expression",
-        "reference",
-        record_type["path"][0].as_str(),
-        &expression["body"],
-    ));
+    expression["node_id"] = node_id(&"fixture/protocol-body/structural_key/484".to_owned());
     expression["dependencies"] = json!([binder]);
     let key = expression["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -730,7 +715,7 @@ fn activation_record_field_fixture() -> (Value, Value, Value) {
         {"term": "binding", "name": "ready", "value": {"term": "reference",
             "target": node_id(&family_key("aaaa"))}}
     ]});
-    let record_key = structural_key("composite_type", "record", None, &record_body);
+    let record_key = "fixture/protocol-body/structural_key/733".to_owned();
     let mut record = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -757,7 +742,7 @@ fn activation_record_field_fixture() -> (Value, Value, Value) {
         .expect("trigger");
     package["semantic_graph"]["nodes"][trigger_position]["semantic_type"] = node_id(&record_key);
     let trigger_body = package["semantic_graph"]["nodes"][trigger_position]["body"].clone();
-    let trigger_key = structural_key("value", "parameter", Some(&record_key), &trigger_body);
+    let trigger_key = "fixture/protocol-body/structural_key/760".to_owned();
     package["semantic_graph"]["nodes"][trigger_position]["node_id"] = node_id(&trigger_key);
     let trigger = node_id(&trigger_key);
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
@@ -785,12 +770,7 @@ fn activation_record_field_fixture() -> (Value, Value, Value) {
         "result_type": node_id(&family_key("aaaa")),
         "arguments": [{"term": "reference", "target": trigger}],
     });
-    field["node_id"] = node_id(&application_node_key(
-        "expression",
-        "query",
-        &family_key("aaaa"),
-        &field["body"],
-    ));
+    field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/788".to_owned());
     field["dependencies"] = json!([trigger]);
     let field_key = field["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -816,7 +796,7 @@ fn record_capture_fixture() -> (Value, Value, Value) {
     let position = node_position_for_key(&package, &capture);
     package["semantic_graph"]["nodes"][position]["semantic_type"] = record.clone();
     let body = package["semantic_graph"]["nodes"][position]["body"].clone();
-    let key = structural_key("value", "parameter", record["path"][0].as_str(), &body);
+    let key = "fixture/protocol-body/structural_key/819".to_owned();
     rename_node(
         &mut package,
         capture["path"][0].as_str().expect("capture key"),
@@ -832,12 +812,7 @@ fn record_capture_fixture() -> (Value, Value, Value) {
     let mut field =
         package["semantic_graph"]["nodes"][node_position_for_key(&package, &trigger_field)].clone();
     field["body"]["arguments"][0]["target"] = capture.clone();
-    field["node_id"] = node_id(&application_node_key(
-        "expression",
-        "query",
-        &family_key("aaaa"),
-        &field["body"],
-    ));
+    field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/835".to_owned());
     field["dependencies"] = json!([capture]);
     let field_key = field["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -857,12 +832,7 @@ fn activation_with_sent_field_fixture() -> (Value, usize, Value, Value) {
     let opened_position = node_position_for_key(&package, &opened);
     package["semantic_graph"]["nodes"][opened_position]["semantic_type"] = record.clone();
     let opened_body = package["semantic_graph"]["nodes"][opened_position]["body"].clone();
-    let opened_key = structural_key(
-        "value",
-        "parameter",
-        record["path"][0].as_str(),
-        &opened_body,
-    );
+    let opened_key = "fixture/protocol-body/structural_key/860".to_owned();
     rename_node(
         &mut package,
         opened["path"][0].as_str().expect("opened key"),
@@ -896,12 +866,7 @@ fn activation_with_sent_field_fixture() -> (Value, usize, Value, Value) {
         package["semantic_graph"]["nodes"][send]["body"]["arguments"][1]["value"]["target"].clone();
     let mut sent_field = package["semantic_graph"]["nodes"][field].clone();
     sent_field["body"]["arguments"][0]["target"] = sent.clone();
-    sent_field["node_id"] = node_id(&application_node_key(
-        "expression",
-        "query",
-        &family_key("aaaa"),
-        &sent_field["body"],
-    ));
+    sent_field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/899".to_owned());
     sent_field["dependencies"] = json!([sent]);
     let sent_field_key = sent_field["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -916,12 +881,7 @@ fn rename_parameter_level(package: &mut Value, old: &Value, level: usize) {
     let position = node_position_for_key(package, old);
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["members"][1]["value"]["value"] = json!(level.to_string());
-    let key = structural_key(
-        "value",
-        "parameter",
-        node["semantic_type"]["path"][0].as_str(),
-        &node["body"],
-    );
+    let key = "fixture/protocol-body/structural_key/919".to_owned();
     rename_node(
         package,
         old["path"][0].as_str().expect("old parameter key"),
@@ -1352,12 +1312,7 @@ fn decision_fact_other_role_and_composite_entry_do_not_grant_observation() {
                 "value_kind": "boolean", "value": true}
         ]
     });
-    entry["node_id"] = node_id(&application_node_key(
-        "expression",
-        "binary",
-        &family_key("aaaa"),
-        &entry["body"],
-    ));
+    entry["node_id"] = node_id(&"fixture/protocol-body/application_node_key/1355".to_owned());
     entry["dependencies"] = json!([field_target]);
     let entry_target = entry["node_id"].clone();
     composite["semantic_graph"]["nodes"]
@@ -1396,7 +1351,7 @@ fn nested_projection_exposes_its_unlisted_inner_fact() {
     outer_record["body"] = json!({"term": "aggregate", "members": [
         {"term": "binding", "name": "inner", "value": {"term": "reference", "target": record}}
     ]});
-    let outer_key = structural_key("composite_type", "record", None, &outer_record["body"]);
+    let outer_key = "fixture/protocol-body/structural_key/1399".to_owned();
     outer_record["node_id"] = node_id(&outer_key);
     outer_record["semantic_type"] = node_id(&outer_key);
     outer_record["dependencies"] = json!([record]);
@@ -1413,7 +1368,7 @@ fn nested_projection_exposes_its_unlisted_inner_fact() {
         .expect("binder");
     package["semantic_graph"]["nodes"][binder_position]["semantic_type"] = node_id(&outer_key);
     let binder_body = package["semantic_graph"]["nodes"][binder_position]["body"].clone();
-    let binder_key = structural_key("value", "parameter", Some(&outer_key), &binder_body);
+    let binder_key = "fixture/protocol-body/structural_key/1416".to_owned();
     rename_node(
         &mut package,
         binder["path"][0].as_str().expect("binder key"),
@@ -1431,12 +1386,7 @@ fn nested_projection_exposes_its_unlisted_inner_fact() {
 
     let inner = package["semantic_graph"]["nodes"][field]["node_id"].clone();
     outer_field["body"]["arguments"][0]["target"] = inner;
-    outer_field["node_id"] = node_id(&application_node_key(
-        "expression",
-        "query",
-        &family_key("aaaa"),
-        &outer_field["body"],
-    ));
+    outer_field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/1434".to_owned());
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -1541,12 +1491,7 @@ fn event_fact_is_visible_to_its_role() {
     let old_binder = package["semantic_graph"]["nodes"][event_binder_position]["node_id"].clone();
     package["semantic_graph"]["nodes"][event_binder_position]["semantic_type"] = record.clone();
     let binder_body = package["semantic_graph"]["nodes"][event_binder_position]["body"].clone();
-    let binder_key = structural_key(
-        "value",
-        "parameter",
-        Some(record["path"][0].as_str().expect("record key")),
-        &binder_body,
-    );
+    let binder_key = "fixture/protocol-body/structural_key/1544".to_owned();
     rename_node(
         &mut package,
         old_binder["path"][0].as_str().expect("old binder key"),
@@ -1604,12 +1549,7 @@ fn commit_record_is_ineligible_at_a_decision() {
     let old_binder = package["semantic_graph"]["nodes"][commit_binder_position]["node_id"].clone();
     package["semantic_graph"]["nodes"][commit_binder_position]["semantic_type"] = record.clone();
     let binder_body = package["semantic_graph"]["nodes"][commit_binder_position]["body"].clone();
-    let binder_key = structural_key(
-        "value",
-        "parameter",
-        Some(record["path"][0].as_str().expect("record key")),
-        &binder_body,
-    );
+    let binder_key = "fixture/protocol-body/structural_key/1607".to_owned();
     rename_node(
         &mut package,
         old_binder["path"][0].as_str().expect("old binder key"),
@@ -1667,12 +1607,7 @@ fn receive_fact_fixture() -> (Value, usize, usize, Value, Value) {
     package["semantic_graph"]["nodes"][receive_binder_position]["body"]["members"][0]["value"]
         ["value"] = json!("got");
     let binder_body = package["semantic_graph"]["nodes"][receive_binder_position]["body"].clone();
-    let binder_key = structural_key(
-        "value",
-        "parameter",
-        Some(record["path"][0].as_str().expect("record key")),
-        &binder_body,
-    );
+    let binder_key = "fixture/protocol-body/structural_key/1670".to_owned();
     rename_node(
         &mut package,
         old_binder["path"][0].as_str().expect("old binder key"),
@@ -2575,17 +2510,7 @@ fn protocol_owner_selected_state_machine_and_record_value_type_refuse_at_edge() 
 
         let mut declaration = selected_interface_model_node();
         declaration["semantic_form"] = json!(form);
-        let preimage = json!({
-            "version": "quire.structural-node/v1",
-            "node_tag": "model",
-            "semantic_form": form,
-            "semantic_type": null,
-            "declaration": null,
-            "recursion": null,
-            "owner": declaration["owner"],
-            "body": declaration["body"],
-        });
-        let target = node_id(&sha256_hex(&canonical(&preimage)));
+        let target = node_id(&format!("fixture/protocol-body/non-object-owner/{form}"));
         declaration["node_id"] = target.clone();
         declaration["semantic_type"] = target.clone();
         package["semantic_graph"]["nodes"]
@@ -2823,12 +2748,7 @@ fn clause_parameter(package: &mut Value, name: &str, level: &str) -> Value {
     let mut parameter = over;
     parameter["body"]["members"][0]["value"]["value"] = json!(name);
     parameter["body"]["members"][1]["value"]["value"] = json!(level);
-    let key = structural_key(
-        "value",
-        "parameter",
-        Some(&family_key("aaaa")),
-        &parameter["body"],
-    );
+    let key = format!("fixture/protocol-body/clause-parameter/{name}/{level}");
     parameter["node_id"] = node_id(&key);
     let target = parameter["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -2852,11 +2772,10 @@ fn relevel_parameter(package: &mut Value, target: &Value, level: usize) -> Value
         .as_str()
         .expect("parameter type")
         .to_owned();
-    let key = structural_key(
-        "value",
-        "parameter",
-        Some(&semantic_type),
-        &parameter["body"],
+    let key = format!(
+        "fixture/protocol-body/relevel-parameter/{}/{}",
+        target["path"][0].as_str().expect("parameter path"),
+        level
     );
     parameter["node_id"] = node_id(&key);
     let target = parameter["node_id"].clone();
@@ -2976,12 +2895,7 @@ fn activation_relation_orders_distinct_requirements_and_ignores_other_temporal_c
     let first = temporal_clause(&package)["node_id"].clone();
     let mut second = temporal_clause(&package);
     second["body"]["arguments"][1]["value"] = json!("other-clause");
-    let second_key = application_node_key(
-        "temporal",
-        "temporal_clause",
-        &family_key("aaaa"),
-        &second["body"],
-    );
+    let second_key = "fixture/protocol-body/application_node_key/2979".to_owned();
     second["node_id"] = node_id(&second_key);
     let second_id = second["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -3190,12 +3104,7 @@ fn clause_each_trigger_admits_and_checks_parameter_level() {
         .expect("trigger binder");
     package["semantic_graph"]["nodes"][trigger_position]["body"]["members"][1]["value"]["value"] =
         json!("2");
-    let wrong_key = structural_key(
-        "value",
-        "parameter",
-        Some(&family_key("aaaa")),
-        &package["semantic_graph"]["nodes"][trigger_position]["body"],
-    );
+    let wrong_key = "fixture/protocol-body/structural_key/3193".to_owned();
     package["semantic_graph"]["nodes"][trigger_position]["node_id"] = node_id(&wrong_key);
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"][1]
         ["value"]["target"] = node_id(&wrong_key);
@@ -4127,12 +4036,7 @@ fn predicate_join_protocol_cycle(mixed_carrier_cycle: bool) -> (Value, Vec<usize
     let function_target = if mixed_carrier_cycle {
         group_positions.push(clause);
         let body = json!({"term": "reference", "target": clause_id});
-        let carrier_key = structural_key(
-            "protocol",
-            "protocol_reference",
-            Some(&family_key("aaaa")),
-            &body,
-        );
+        let carrier_key = "fixture/protocol-body/structural_key/4130".to_owned();
         let carrier_id = node_id(&carrier_key);
         let carrier = json!({
             "node_id": carrier_id,
@@ -4975,12 +4879,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         .clone();
     let mut record_type = namespace;
     record_type["semantic_form"] = json!("record_value_type");
-    let record_key = structural_key(
-        "model",
-        "record_value_type",
-        record_type["semantic_type"]["path"][0].as_str(),
-        &record_type["body"],
-    );
+    let record_key = "fixture/protocol-body/structural_key/4978".to_owned();
     record_type["node_id"] = node_id(&record_key);
     let record_target = record_type["node_id"].clone();
     let parameter = package["semantic_graph"]["nodes"]
@@ -4995,11 +4894,8 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         node["semantic_type"] = record_target.clone();
         node["body"]["members"][0]["value"]["value"] = json!(name);
         node["body"]["members"][1]["value"]["value"] = json!(level.to_string());
-        node["node_id"] = node_id(&structural_key(
-            "value",
-            "parameter",
-            Some(&record_key),
-            &node["body"],
+        node["node_id"] = node_id(&format!(
+            "fixture/protocol-body/retry-binder/{name}/{level}"
         ));
         node
     };
@@ -5011,11 +4907,8 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         let mut node = parameter.clone();
         node["body"]["members"][0]["value"]["value"] = json!(name);
         node["body"]["members"][1]["value"]["value"] = json!(level.to_string());
-        node["node_id"] = node_id(&structural_key(
-            "value",
-            "parameter",
-            Some(&family_key("aaaa")),
-            &node["body"],
+        node["node_id"] = node_id(&format!(
+            "fixture/protocol-body/capture-binder/{name}/{level}"
         ));
         node
     };
@@ -5743,7 +5636,7 @@ fn package_with_replicated_role() -> (Value, usize) {
     let reference_body = json!({"term": "aggregate", "members": [
         {"term": "reference", "target": model}
     ]});
-    let reference_type = structural_key("composite_type", "reference", None, &reference_body);
+    let reference_type = "fixture/protocol-body/structural_key/5746".to_owned();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -5763,7 +5656,7 @@ fn package_with_replicated_role() -> (Value, usize) {
         .expect("parameter")
         .clone();
     binder["semantic_type"] = node_id(&reference_type);
-    let binder_key = structural_key("value", "parameter", Some(&reference_type), &binder["body"]);
+    let binder_key = "fixture/protocol-body/structural_key/5766".to_owned();
     binder["node_id"] = node_id(&binder_key);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -6104,12 +5997,7 @@ fn attempt_admits_operation_contract_and_rejects_wrong_contract_kind_and_anchor(
     let context = withdraw["semantic_type"]["path"][0]
         .as_str()
         .expect("context key");
-    let withdraw_key = structural_key(
-        "state",
-        "operation_anchor",
-        Some(context),
-        &withdraw["body"],
-    );
+    let withdraw_key = "fixture/protocol-body/structural_key/6107".to_owned();
     withdraw["node_id"] = node_id(&withdraw_key);
     wrong_anchor["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -7460,12 +7348,7 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
         .clone();
     text_binder["semantic_type"] = node_id(&family_key("a1a1"));
     text_binder["body"]["members"][0]["value"]["value"] = json!("wrong_receive");
-    let text_key = structural_key(
-        "value",
-        "parameter",
-        Some(&family_key("a1a1")),
-        &text_binder["body"],
-    );
+    let text_key = "fixture/protocol-body/structural_key/7463".to_owned();
     text_binder["node_id"] = node_id(&text_key);
     wrong_binder["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -7663,8 +7546,7 @@ fn send_related_accepts_selected_relationship_reference_ends() {
     reference_type["body"] = json!({"term": "aggregate", "members": [
         {"term": "reference", "target": object}
     ]});
-    let reference_key =
-        structural_key("composite_type", "reference", None, &reference_type["body"]);
+    let reference_key = "fixture/protocol-body/structural_key/7667".to_owned();
     reference_type["node_id"] = node_id(&reference_key);
     reference_type["semantic_type"] = node_id(&reference_key);
     package["semantic_graph"]["nodes"]
@@ -7682,7 +7564,7 @@ fn send_related_accepts_selected_relationship_reference_ends() {
     binder["semantic_type"] = node_id(&reference_key);
     binder["body"]["members"][0]["value"]["value"] = json!("payload");
     binder["body"]["members"][1]["value"]["value"] = json!("2");
-    let binder_key = structural_key("value", "parameter", Some(&reference_key), &binder["body"]);
+    let binder_key = "fixture/protocol-body/structural_key/7685".to_owned();
     binder["node_id"] = node_id(&binder_key);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -7691,7 +7573,7 @@ fn send_related_accepts_selected_relationship_reference_ends() {
 
     binder["body"]["members"][0]["value"]["value"] = json!("peer");
     binder["body"]["members"][1]["value"]["value"] = json!("1");
-    let peer_key = structural_key("value", "parameter", Some(&reference_key), &binder["body"]);
+    let peer_key = "fixture/protocol-body/structural_key/7694".to_owned();
     binder["node_id"] = node_id(&peer_key);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -8025,7 +7907,7 @@ fn protocol_channel_fifo_refuses_float_key() {
     let (mut package, _) = package_with_member_queue();
     let channel = protocol_position(&package, "channel");
     let body = json!({"term": "aggregate", "members": []});
-    let digest = structural_key("scalar_type", "float32", None, &body);
+    let digest = "fixture/protocol-body/structural_key/8028".to_owned();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -8146,7 +8028,7 @@ fn protocol_clause_admits_two_whole_model_roles_across_over_types() {
             .expect("over parameter")
             .clone();
         over_parameter["semantic_type"] = node_id(&over);
-        let over_key = structural_key("value", "parameter", Some(&over), &over_parameter["body"]);
+        let over_key = "fixture/protocol-body/structural_key/8149".to_owned();
         over_parameter["node_id"] = node_id(&over_key);
         package["semantic_graph"]["nodes"]
             .as_array_mut()
@@ -8797,11 +8679,12 @@ fn boolean_expression(package: &mut Value, identity: &str, operands: &[Value]) -
         "result_type": node_id(&family_key("aaaa")),
         "arguments": operands.iter().map(|target| json!({"term": "reference", "target": target})).collect::<Vec<_>>()
     });
-    expression["node_id"] = node_id(&application_node_key(
-        "expression",
-        form,
-        &family_key("aaaa"),
-        &expression["body"],
+    expression["node_id"] = node_id(&format!(
+        "fixture/protocol-body/boolean-expression/{}",
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len()
     ));
     let mut dependencies = operands.to_vec();
     dependencies.sort_by(|left, right| left["path"][0].as_str().cmp(&right["path"][0].as_str()));
@@ -8832,12 +8715,7 @@ fn boolean_atoms(package: &mut Value) -> (Value, Value) {
         "term": "literal", "type": node_id(&family_key("aaaa")),
         "value_kind": "boolean", "value": false
     }]});
-    second["node_id"] = node_id(&structural_key(
-        "value",
-        "literal",
-        Some(&family_key("aaaa")),
-        &second["body"],
-    ));
+    second["node_id"] = node_id(&"fixture/protocol-body/structural_key/8835".to_owned());
     let second_target = second["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -9667,12 +9545,7 @@ fn standalone_repeat_does_not_valuate_thirty_visible_atoms() {
         "term": "literal", "type": node_id(&family_key("aaaa")),
         "value_kind": "boolean", "value": true
     });
-    literal["node_id"] = node_id(&structural_key(
-        "value",
-        "literal",
-        Some(&family_key("aaaa")),
-        &literal["body"],
-    ));
+    literal["node_id"] = node_id(&"fixture/protocol-body/structural_key/9670".to_owned());
     let true_literal = literal["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
