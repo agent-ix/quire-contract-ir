@@ -513,7 +513,7 @@ fn tc_048_nominal_owner_requires_a_selected_source_and_closed_kind() {
     expect(
         &definition_owner,
         CheckedPackageRefusalCode::MalformedWire,
-        &format!("/semantic_graph/nodes/{index}/owner"),
+        &format!("/semantic_graph/nodes/{index}/owner/kind"),
         "retired DefinitionOwner shape",
     );
 }
