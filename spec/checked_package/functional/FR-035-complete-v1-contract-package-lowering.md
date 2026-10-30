@@ -97,11 +97,13 @@ The lowerer SHALL preserve scalar and composite types, bounded domains, typed
 expressions, pure functions, model identities and relations, state frames and
 transitions, temporal formulas, protocol control/queues/obligations, claims,
 and exact source correspondence. It SHALL refuse a requested item whose
-meaning cannot be represented exactly under the selected profile. A stale or
-absent selected dependency, wrong target family, source/type/anchor/bound
-mutation, or unknown contract version SHALL never produce substitute meaning
-or a backend artifact. A refusal for one item SHALL leave independent sibling
-dispositions unchanged. If the package bytes exceed the declared ceiling,
+meaning cannot be represented exactly under the selected profile. An absent
+selected dependency, wrong selected package name, wrong target family,
+invalid source/type/anchor/bound join, or unknown contract version SHALL never
+produce substitute meaning or a backend artifact. A valid body edit in a
+selected package under the same name is checked by its independent graph,
+owner and body rules and may admit; no content-staleness refusal exists. A
+refusal for one item SHALL leave independent sibling dispositions unchanged. If the package bytes exceed the declared ceiling,
 every requested record is `failed`, because no package can carry a lowered
 node (FR-038-AC-95).
 
@@ -257,12 +259,12 @@ admit no `ContractPackageV1`.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-035-AC-1 | Each V1-BACK-001 through V1-BACK-004 and V1-BACK-014 requested item has exact represented meaning under its selected profile or one located record from the seven-member disposition vocabulary; no refusal creates substitute meaning. | Test |
-| FR-035-AC-2 | A source, type, anchor, identity, bound, dependency, or contract-version mutation that changes or invalidates meaning refuses before a backend artifact; a stale selected dependency does not resolve through an identically keyed local node. | Test |
+| FR-035-AC-2 | A mutation that makes a source selection missing, a type or anchor join invalid, a bound ill-typed, a dependency absent or wrong-named, or a contract version unsupported refuses under its applicable existing rule before a backend artifact. An identically keyed local node cannot satisfy a selected external dependency. A correctly renamed or validly edited selected package may admit under the same rules; changed meaning alone is not a content-staleness refusal. | Test |
 | FR-035-AC-3 | Mixed supported and refused requests retain one disposition each and independent sibling results, except the package byte ceiling fails every record under FR-038-AC-95. | Test |
 | FR-035-AC-4 | Every local reference resolves by typed key to a compatible local node with exact source correspondence; a dependency reference resolves only through its selected admitted dependency; explicit same-group recursion admits and an undeclared cycle refuses. | Test |
 | FR-035-AC-5 | Withdrawn by the IR-1141 no-hash decision under QSpec #517/#518: the six-member V1 package and its canonical semantic digest are removed. This id is retained and never reused. | Withdrawn |
 | FR-035-AC-6 | For an admitted lowered root, the typed view returns that exact root and each local node reached through `semantic_type`, declared `dependencies` or validated body references once in ascending typed-key order; independently walking those three edge sources yields the same key set, including a shared or cyclic reference, and every returned node retains its exact source correspondence. | Test |
-| FR-035-AC-7 | A selected dependency reference in the view retains its selected dependency identity and target key and cannot be satisfied by an identically keyed local node or an absent, stale or wrong selected package; every lowered-root view exposes both bound and claim typed-key subsets, possibly empty, exactly matching Contract IR's existing lowering classification in typed-key order. | Test |
+| FR-035-AC-7 | A selected dependency reference in the view retains its selected dependency identity and target key and cannot be satisfied by an identically keyed local node, an absent package or a differently named selected package; every lowered-root view exposes both bound and claim typed-key subsets, possibly empty, exactly matching Contract IR's existing lowering classification in typed-key order. | Test |
 | FR-035-AC-8 | Querying a non-lowered requested key returns its exact typed disposition, while an unrequested or absent key returns typed absence even when another root reaches the node. Neither fabricates a closure nor changes any of FR-330’s five wire members or canonical bytes. | Test |
 | FR-035-AC-9 | The typed profile exposes `required_source_selections: Vec<CheckedSelection>` and the IR adapter conforms to QSpec FR-330-AC-10 and TC-935: input refusals use `InvalidInput { node_id }`/`invalid_input`, work stops use existing `Failed`/`Work` with unchanged key/limit/consumed counters, and successful checks continue the existing FR-038 meter without reset. The adapter preserves exact source provenance and emits only `profile.reference`, with no duplicated requirement wire field or new refusal payload. | Test |
 | FR-035-AC-10 | Given an otherwise valid canonical `ContractPackageWireV1` whose string `contract_version` differs from `quire.contract-package/v1`, `ContractPackageWireV1::read` returns `Refused` with code `unknown_contract_version`, path `/contract_version`, and `contract_version` equal to the supplied string; it returns no admitted package. | Test |

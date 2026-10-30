@@ -97,7 +97,9 @@ derived IR lowering results, including exact membership and order. Repeat for
 roots with empty bound and claim subsets and require both empty subsets. Include a
 selected external reference and an identically keyed local node; confirm the
 view retains the selected identity and target key, and admission refuses a
-missing, stale or wrong selected package. Query refused, unrequested reached
+missing or differently named selected package. Admit a validly edited
+selected package under the same name when its independent joins still pass; there
+is no content-staleness refusal. Query refused, unrequested reached
 and absent keys, then compare all five wire properties and canonical bytes before and
 after the read-only queries.
 

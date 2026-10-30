@@ -67,9 +67,10 @@ substitution or for replacing one application occurrence with the other's
 represented occurrence over the same add key. Exercise non-lowered,
 unrequested and absent expression keys, post-admission inconsistent
 source/body edges and work-limit failures. Include a selected external
-reference, an identically keyed local node, and missing, stale and wrong
-selected dependencies; assert reader refusal before any result-context query
-for unavailable selection.
+reference, an identically keyed local node, and missing or differently named
+selected dependencies; assert the existing missing-selection refusal before any result-context query. A valid body edit in
+a selected dependency under the same name may admit when its independent
+graph and body checks pass; compare the resulting typed view directly.
 
 Before and after every query, compare the complete five-member wire and
 complete canonical value. Compare the add-only package to the contextual package
