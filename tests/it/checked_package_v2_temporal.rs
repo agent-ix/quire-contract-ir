@@ -12,9 +12,9 @@
 //! fixtures are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    canonical, evidence_with_document, family_key, fixture_source, mint_ungrouped_structural_keys,
-    model_owner, node_id, owned_structural_node, select_model, settle, sha256_hex, source_owner,
-    structural_key, typed_node_id, v2_all_families,
+    canonical, evidence_with_document, family_key, fixture_source, model_owner, node_id,
+    owned_structural_node, select_model, settle, source_owner, structural_key, typed_node_id,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -80,15 +80,9 @@ fn orders_document() -> Value {
     })
 }
 
-/// The model declaration node key of `node` owned by the domain package
-/// `identity`: the SHA-256 of its structural preimage.
+/// The authored path label for a model declaration under `identity`.
 fn model_key_in(identity: &str, node: &str) -> String {
-    sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "model",
-        "semantic_form": "object_type", "semantic_type": null, "declaration": null,
-        "recursion": null, "body": {"term": "aggregate", "members": []},
-        "owner": {"kind": "model", "identity": identity, "node": node},
-    })))
+    format!("{identity}/{node}")
 }
 
 fn model_key(node: &str) -> String {
@@ -134,7 +128,12 @@ fn refusal_of(case: &str, package: &Value) -> (Outcome, Option<String>) {
                     .clone()
                     .map(|path| path.as_str().to_owned()),
             ),
-            refusal.locus.map(|locus| locus.digest.to_string()),
+            refusal.locus.map(|locus| {
+                serde_json::to_value(locus).expect("locus")["path"][0]
+                    .as_str()
+                    .expect("locus label")
+                    .to_owned()
+            }),
         ),
         other => panic!("{case}: expected a refusal, read {other:?}"),
     }
@@ -200,7 +199,7 @@ fn find_identity(package: &Value, identity: &str) -> usize {
 }
 
 fn digest(package: &Value, position: usize) -> String {
-    nodes(package)[position]["node_id"]["digest"]
+    nodes(package)[position]["node_id"]["path"][0]
         .as_str()
         .expect("digest")
         .to_owned()
@@ -454,7 +453,7 @@ pub(crate) fn admitted_fairness_source_for_contract() -> CheckedPackageV2 {
         let earliest_formula = nodes(&package)
             .iter()
             .filter(|node| node["semantic_form"] == "formula")
-            .filter_map(|node| node["node_id"]["digest"].as_str())
+            .filter_map(|node| node["node_id"]["path"][0].as_str())
             .min()
             .expect("formula node");
         if fair_key.as_str() < earliest_formula {
@@ -938,7 +937,6 @@ fn tc_048_a_formula_fairness_or_clause_node_needs_its_own_application() {
         ] {
             let mut package = v2_all_families();
             let position = push(&mut package, node_with_key(&fresh(), tag, form, body));
-            mint_ungrouped_structural_keys(&mut package);
             settle(&mut package);
             misplaced(&format!("{form} with {case}"), &package, position);
         }
@@ -959,7 +957,6 @@ fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_sta
         &mut package,
         owned_structural_node(function, source_owner(&fixture_source())),
     );
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     misplaced("from a function body", &package, position);
 
@@ -1075,7 +1072,6 @@ fn tc_048_a_case_application_stands_only_at_the_root_of_a_case_node() {
             &mut package,
             node_with_key(&fresh(), "expression", form, body),
         );
-        mint_ungrouped_structural_keys(&mut package);
         settle(&mut package);
         let locus = digest(&package, position);
         // `invalid_semantic_graph` carries no cause.
@@ -1128,8 +1124,6 @@ fn code_word(code: Code) -> &'static str {
         Code::DuplicateMember => "duplicate_member",
         Code::UnknownMember => "unknown_member",
         Code::NoncanonicalWire => "noncanonical_wire",
-        Code::StaleDependency => "stale_dependency",
-        Code::DigestDomainMismatch => "digest_domain_mismatch",
         Code::UnknownRequiredCapability => "unknown_required_capability",
         Code::InvalidSemanticGraph => "invalid_semantic_graph",
         Code::InvalidSourceMap => "invalid_source_map",
@@ -1156,10 +1150,8 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::IncompatibleDefinition => "incompatible-definition",
         Cause::FeatureSetMismatch => "feature-set-mismatch",
         Cause::InsufficientNextCharge => "insufficient-next-charge",
-        Cause::ContentMismatch => "content-mismatch",
         Cause::MissingName => "missing-name",
         Cause::MalformedDeclaration => "malformed-declaration",
-        Cause::StaleNodeKey => "stale-node-key",
         Cause::InvalidDerivedShape => "invalid-derived-shape",
         Cause::UnknownOperation => "unknown-operation",
         Cause::OperationClassMismatch => "operation-class-mismatch",
@@ -1985,7 +1977,6 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
                 json!({"term": "aggregate", "members": []}),
             ),
         );
-        mint_ungrouped_structural_keys(&mut package);
         settle(&mut package);
         let declaration = if case == "a model/value_type declaration" {
             digest(&package, target)
@@ -2030,13 +2021,7 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
         .expect("types")
         .push(declared);
 
-    let interface_key = sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "model",
-        "semantic_form": "systems_interface", "semantic_type": null,
-        "declaration": null, "recursion": null,
-        "body": {"term": "aggregate", "members": []},
-        "owner": {"kind": "model", "identity": ORDERS, "node": INTERFACE},
-    })));
+    let interface_key = format!("{ORDERS}/{INTERFACE}");
     let (mut package, fair) =
         with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
     let mut interface_node = node_with_key(
@@ -2072,7 +2057,10 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
         at_node(fair, "/body/operation/member/declaration")
     );
     assert_eq!(
-        refusal.locus.expect("locus").digest.to_string(),
+        serde_json::to_value(refusal.locus.expect("locus")).expect("locus")["path"][0]
+            .as_str()
+            .expect("locus label")
+            .to_owned(),
         interface_key
     );
 
@@ -2124,7 +2112,12 @@ fn fairness_resolves_the_most_derived_operation_redefinition() {
                 Some(at_node(fair, "/body/operation/member/name"))
             );
             assert_eq!(
-                refusal.locus.map(|locus| locus.digest.to_string()),
+                refusal.locus.map(|locus| {
+                    serde_json::to_value(locus).expect("locus")["path"][0]
+                        .as_str()
+                        .expect("locus label")
+                        .to_owned()
+                }),
                 Some(declaration)
             );
         }
@@ -3237,48 +3230,27 @@ fn tc_048_a_member_set_defect_is_reported_after_a_profile_fit_defect_of_a_later_
     assert!(found, "a salt orders the two clauses as the case needs");
 }
 
-/// The bound pattern is strict wire validation, ahead of every identity check:
-/// in a package whose node ids and `package_id` are all stale, a bound outside
-/// its form's pattern, timed or integer, refuses `invalid-value` at the bound
-/// and not at an identity check; the same package with a good bound refuses at
-/// the identity check.
+/// The bound pattern is strict wire validation ahead of graph resolution.
+/// An independently invalid semantic type is reported only after a valid
+/// bound; an invalid bound always wins at its exact pointer.
 #[trace("TC-048", "FR-038-AC-97", "FR-038-AC-120")]
 #[test]
 fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check() {
-    let stale_with = |member: Value| {
+    let invalid_graph_with = |member: Value| {
         let (mut package, root) = with_root(INFINITE, "eventually", closed("0", "3"), None, 1);
-        // Not settled again: the application key, every dependent node id and the
-        // `package_id` no longer match the body.
         package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] = member;
+        package["semantic_graph"]["nodes"][root]["semantic_type"] =
+            node_id("absent/temporal-semantic-type");
         (package, root)
     };
-    // With a good bound the stale identities refuse at the first identity check.
-    let (good, _good_root) = stale_with(timed_closed(whole("0"), whole("3")));
-    let ((code, cause, path), _) = refusal_of("a stale package with a good bound", &good);
+    let (good, root) = invalid_graph_with(timed_closed(whole("0"), whole("3")));
+    let ((code, cause, path), _) = refusal_of("an invalid graph with a good bound", &good);
     assert_eq!(
         (code, cause, path),
         (
-            Code::StaleDependency,
-            Some(Cause::ContentMismatch),
-            Some("/package_id/digest".to_owned())
-        )
-    );
-    // The `package_id` alone stale (every node key settled) with a bad bound.
-    let stale_package_id = |member: Value| {
-        let (mut package, _) = with_root(INFINITE, "eventually", member, None, 1);
-        package["package_id"]["digest"] = json!("0".repeat(64));
-        package
-    };
-    let ((code, cause, path), _) = refusal_of(
-        "a stale package_id with a good bound",
-        &stale_package_id(timed_closed(whole("0"), whole("3"))),
-    );
-    assert_eq!(
-        (code, cause, path.as_deref()),
-        (
-            Code::StaleDependency,
-            Some(Cause::ContentMismatch),
-            Some("/package_id/digest")
+            Code::InvalidSemanticGraph,
+            None,
+            Some(at_node(root, "/semantic_type"))
         )
     );
     for (case, member, bound) in [
@@ -3295,18 +3267,9 @@ fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check()
         ("an integer bound", closed("1.5", "0"), "lower"),
         ("a negative integer bound", closed("0", "-2"), "upper"),
     ] {
-        let (package, root) = stale_with(member.clone());
+        let (package, root) = invalid_graph_with(member);
         expect(
             case,
-            &package,
-            Code::InvalidPackage,
-            Cause::InvalidValue,
-            &at_node(root, &format!("/body/operation/member/interval/{bound}")),
-        );
-        let package = stale_package_id(member);
-        let root = find_identity(&package, &temporal_identity("eventually"));
-        expect(
-            &format!("{case}, a stale package_id alone"),
             &package,
             Code::InvalidPackage,
             Cause::InvalidValue,
