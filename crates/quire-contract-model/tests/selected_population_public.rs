@@ -33,25 +33,25 @@ impl Drop for Scratch {
 #[derive(Clone, Copy)]
 struct FixtureCase {
     file: &'static str,
-    expected: &'static [u64],
+    expected: &'static [&'static str],
 }
 
 const CASES: &[FixtureCase] = &[
     FixtureCase {
         file: "population-0.json",
-        expected: &[0],
+        expected: &["0"],
     },
     FixtureCase {
         file: "population-1.json",
-        expected: &[1],
+        expected: &["1"],
     },
     FixtureCase {
         file: "population-3.json",
-        expected: &[3],
+        expected: &["3"],
     },
     FixtureCase {
         file: "population-2-5.json",
-        expected: &[2, 5],
+        expected: &["2", "5"],
     },
 ];
 
@@ -217,7 +217,10 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
             assert!(package.model_object_fields(&selected.object_type).is_ok());
             found.push(selected);
         }
-        let mut actual: Vec<_> = found.iter().map(|population| population.maximum).collect();
+        let mut actual: Vec<_> = found
+            .iter()
+            .map(|population| population.maximum.as_str())
+            .collect();
         actual.sort_unstable();
         assert_eq!(actual, case.expected, "{}", case.file);
         if case.file == "population-2-5.json" {
@@ -226,14 +229,14 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     }
 
     let mut paired = paired.expect("two-binding QSL fixture");
-    paired.sort_by_key(|population| population.maximum);
+    paired.sort_by_key(|population| population.maximum.clone());
     assert_eq!(paired.len(), 2);
     assert_eq!(
         paired
             .iter()
-            .map(|population| population.maximum)
+            .map(|population| population.maximum.as_str())
             .collect::<Vec<_>>(),
-        vec![2, 5]
+        vec!["2", "5"]
     );
     assert_ne!(paired[0].binding, paired[1].binding);
     assert_eq!(paired[0].object_type, paired[1].object_type);
@@ -433,7 +436,7 @@ fn selected_population_tracks_authoritative_variants_and_retargeted_package() {
                 }
             })
             .collect();
-        populations.sort_by_key(|population| population.maximum);
+        populations.sort_by_key(|population| population.maximum.clone());
         populations
     };
 
@@ -441,9 +444,9 @@ fn selected_population_tracks_authoritative_variants_and_retargeted_package() {
     assert_eq!(
         before
             .iter()
-            .map(|population| population.maximum)
+            .map(|population| population.maximum.as_str())
             .collect::<Vec<_>>(),
-        vec![0, 3, 5]
+        vec!["0", "3", "5"]
     );
     assert_eq!(before[0].object_type, before[2].object_type);
     assert_ne!(before[0].binding, before[2].binding);
@@ -454,9 +457,9 @@ fn selected_population_tracks_authoritative_variants_and_retargeted_package() {
     assert_eq!(
         changed
             .iter()
-            .map(|population| population.maximum)
+            .map(|population| population.maximum.as_str())
             .collect::<Vec<_>>(),
-        vec![0, 3, 6]
+        vec!["0", "3", "6"]
     );
     for (old, new) in before.iter().take(2).zip(changed.iter().take(2)) {
         assert_eq!(old.maximum, new.maximum);
@@ -469,9 +472,9 @@ fn selected_population_tracks_authoritative_variants_and_retargeted_package() {
     assert_eq!(
         retargeted_selections
             .iter()
-            .map(|population| population.maximum)
+            .map(|population| population.maximum.as_str())
             .collect::<Vec<_>>(),
-        vec![0, 3, 5]
+        vec!["0", "3", "5"]
     );
     for (original, after_retarget) in before.iter().zip(retargeted_selections.iter()) {
         assert_eq!(original.binding, after_retarget.binding);

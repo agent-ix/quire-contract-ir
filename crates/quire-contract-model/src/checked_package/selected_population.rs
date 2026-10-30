@@ -173,8 +173,59 @@ pub struct CheckedSelectedPopulation {
     /// Inclusive lower endpoint, always zero for a selected population.
     pub minimum: u64,
     /// Inclusive maximum read from the selected binding's `max` field.
-    pub maximum: u64,
+    pub maximum: CheckedPopulationMaximum,
     /// Authentic regions mapped to this exact binding/occurrence pair.
+    pub provenance: Vec<CheckedSourceRegion>,
+}
+
+/// A canonical nonnegative decimal population maximum of arbitrary size.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedPopulationMaximum(Box<str>);
+
+impl CheckedPopulationMaximum {
+    /// The exact canonical decimal spelling retained from the admitted body.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn parse(text: &str) -> Option<Self> {
+        let mut bytes = text.bytes();
+        let canonical = text == "0"
+            || bytes
+                .next()
+                .is_some_and(|first| (b'1'..=b'9').contains(&first))
+                && bytes.all(|byte| byte.is_ascii_digit());
+        canonical.then(|| Self(text.into()))
+    }
+}
+
+impl PartialOrd for CheckedPopulationMaximum {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CheckedPopulationMaximum {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0
+            .len()
+            .cmp(&other.0.len())
+            .then_with(|| self.0.cmp(&other.0))
+    }
+}
+
+/// An admitted unbounded population with its exact source occurrence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedAdmittedUnboundedPopulation {
+    /// Selected admitted package name.
+    pub package_name: Box<str>,
+    /// Exact population binding node.
+    pub binding: CheckedNodeId,
+    /// Exact selected Type occurrence.
+    pub occurrence: CheckedOccurrence,
+    /// Object type selected by the population binding.
+    pub object_type: CheckedNodeId,
+    /// Authentic regions of the selected node-occurrence pair.
     pub provenance: Vec<CheckedSourceRegion>,
 }
 
@@ -183,6 +234,8 @@ pub struct CheckedSelectedPopulation {
 pub enum CheckedSelectedPopulationOutcome {
     /// Exact selected binding and occurrence have a finite inclusive extent.
     Finite(CheckedSelectedPopulation),
+    /// Exact admitted binding with no finite maximum.
+    AdmittedUnbounded(CheckedAdmittedUnboundedPopulation),
     /// A known declaration has no binding maximum.
     Unbounded {
         /// Selected model identity.
@@ -319,21 +372,37 @@ fn select_admitted(
     {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     }
-    let Some(maximum) = package.term(&selector.binding).and_then(population_maximum) else {
+    let Some(body) = package.term(&selector.binding) else {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     };
+    let maximum = population_maximum(body);
+    let unbounded = matches!(body, CheckedTerm::Aggregate { members } if members.is_empty());
+    if maximum.is_none() && !unbounded {
+        return CheckedSelectedPopulationOutcome::NotPopulation(selector);
+    }
     let Some(object_type) = population_object_type_typed(node, |id| package.term(id)) else {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     };
-    CheckedSelectedPopulationOutcome::Finite(CheckedSelectedPopulation {
-        package_name: package.name().into(),
-        binding: node.node_id.clone(),
-        occurrence: selector.occurrence,
-        object_type,
-        minimum: 0,
-        maximum,
-        provenance: source.regions.clone(),
-    })
+    match maximum {
+        Some(maximum) => CheckedSelectedPopulationOutcome::Finite(CheckedSelectedPopulation {
+            package_name: package.name().into(),
+            binding: node.node_id.clone(),
+            occurrence: selector.occurrence,
+            object_type,
+            minimum: 0,
+            maximum,
+            provenance: source.regions.clone(),
+        }),
+        None => CheckedSelectedPopulationOutcome::AdmittedUnbounded(
+            CheckedAdmittedUnboundedPopulation {
+                package_name: package.name().into(),
+                binding: node.node_id.clone(),
+                occurrence: selector.occurrence,
+                object_type,
+                provenance: source.regions.clone(),
+            },
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -412,7 +481,7 @@ pub(super) fn least_type_occurrence<Body>(
 }
 
 /// The inclusive maximum of a population node's admitted `max` binding.
-pub(super) fn population_maximum(body: &CheckedTerm) -> Option<u64> {
+pub(super) fn population_maximum(body: &CheckedTerm) -> Option<CheckedPopulationMaximum> {
     let CheckedTerm::Aggregate { members } = body else {
         return None;
     };
@@ -434,9 +503,7 @@ pub(super) fn population_maximum(body: &CheckedTerm) -> Option<u64> {
     else {
         return None;
     };
-    value
-        .as_u64()
-        .or_else(|| value.as_str()?.parse::<u64>().ok())
+    CheckedPopulationMaximum::parse(value.as_str()?)
 }
 
 /// The object type a population node's `semantic_type` chain names, resolving
@@ -480,7 +547,10 @@ fn population_object_type_typed<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_model_population, population_maximum, population_object_type_typed};
+    use super::{
+        is_model_population, population_maximum, population_object_type_typed,
+        CheckedPopulationMaximum,
+    };
     use crate::checked_package::v2::{CheckedSemanticNodeV2, CheckedTerm, LiteralKind};
     use crate::checked_package::CheckedNodeId;
     use ix_trace_rs::trace;
@@ -595,11 +665,27 @@ mod tests {
         let aggregate = CheckedTerm::Aggregate {
             members: vec![maximum.clone()],
         };
-        assert_eq!(population_maximum(&aggregate), Some(0));
+        assert_eq!(
+            population_maximum(&aggregate)
+                .as_ref()
+                .map(CheckedPopulationMaximum::as_str),
+            Some("0")
+        );
         let duplicate = CheckedTerm::Aggregate {
             members: vec![maximum.clone(), maximum],
         };
         assert_eq!(population_maximum(&duplicate), None);
+    }
+
+    #[trace("FR-053-AC-1", "TC-453")]
+    #[test]
+    fn population_maximum_keeps_canonical_decimal_beyond_u64() {
+        let beyond_u64 = "18446744073709551616";
+        let maximum = CheckedPopulationMaximum::parse(beyond_u64).expect("canonical maximum");
+        assert_eq!(maximum.as_str(), beyond_u64);
+        assert!(maximum > CheckedPopulationMaximum::parse("999").expect("canonical maximum"));
+        assert!(CheckedPopulationMaximum::parse("01").is_none());
+        assert!(CheckedPopulationMaximum::parse("-1").is_none());
     }
 
     #[trace("FR-053-AC-3")]
@@ -627,7 +713,7 @@ mod tests {
                 "max",
                 literal(LiteralKind::Integer, json!("0"))
             )])),
-            Some(0)
+            Some(CheckedPopulationMaximum::parse("0").expect("canonical zero"))
         );
         for body in [
             aggregate(vec![]),

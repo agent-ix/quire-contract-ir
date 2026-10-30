@@ -1,4 +1,4 @@
-//! Graph-shape rules for node bodies that carry no nominal preimage: the
+//! Graph-shape rules for node bodies that carry no nominal declaration: the
 //! `value`/`parameter` body (QSpec FR-341, QSL FR-092), the
 //! `scalar_type`/`compound_unit` body QSL emits beyond QSpec FR-322's
 //! published form list, the `state`/`operation_anchor` (QSpec FR-342) and
@@ -49,13 +49,13 @@
 //!   dependencies.
 //!
 //! This stage checks declared structural identities and graph shape. No body
-//! or preimage derives a node identity.
+//! derives a node identity.
 //!
 //! Every violation refuses as `invalid_semantic_graph` with no cause, at the
 //! member it breaks (the node's `body` for a body or binding shape, the
 //! occurrence's `role` for a role), located at the offending node, at the
 //! first such node in ascending structural node-id order.
-//! These are graph-shape refusals, so they run before the stale-key stage.
+//! These graph-shape refusals run before the independent derived-shape check.
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
@@ -74,7 +74,6 @@ use crate::checked_package::common::{exact_members, node_pointer, ValidationFail
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
 };
-use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -325,7 +324,7 @@ impl StructuralForm {
 
 /// Validates every parameter and compound-unit node's body, type and
 /// dependencies, and every application node's dependency join, visiting
-/// nodes in ascending node-id digest order.
+/// nodes in ascending structural node-id order.
 pub(super) fn validate_structural_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
@@ -1065,7 +1064,7 @@ pub(super) fn typed_union_value_body(
 
 /// FR-322's dependency join for a body that contains an `application` term
 /// at any depth: `None` for a body holding none, else the unique
-/// digest-ascending reference targets and member declarations, plus the member
+/// structural-id-ascending reference targets and member declarations, plus the member
 /// `population` of a reaches or navigate application. A member `declaration` or
 /// `population` that is not a node key is skipped here: the operation stage
 /// owns that refusal and its path.
@@ -1143,10 +1142,10 @@ pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
 }
 
 /// A typed draft `reference` target before its provisional selector is replaced.
-/// The reader still requires the final digest through [`reference_target`].
+/// The reader retains the exact structural target through [`reference_target`].
 pub(super) fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
     match CheckedTerm::view(term)? {
-        CheckedTermView::Reference { target } => CheckedNodeId::deserialize(target).ok(),
+        CheckedTermView::Reference { target } => CheckedNodeId::from_value(target),
         _ => None,
     }
 }
@@ -1200,7 +1199,7 @@ mod tests {
     }
 
     fn id(fill: char) -> Value {
-        json!({"domain": "quire.checked-semantic-node/v1", "digest": fill.to_string().repeat(64)})
+        json!({"package": "structural-test", "path": [fill.to_string()], "ordinal": 0})
     }
 
     #[trace("TC-048", "FR-038-AC-22")]
@@ -1210,7 +1209,7 @@ mod tests {
         let closed = json!({"term": "reference", "target": target});
         assert_eq!(
             reference_selector(&closed),
-            serde_json::from_value(target).ok()
+            CheckedNodeId::from_value(&target)
         );
 
         let extra = json!({"term": "reference", "target": id('a'), "members": []});
@@ -1239,7 +1238,7 @@ mod tests {
         let join = application_dependencies(&term).expect("the body holds an application");
         let expected: BTreeSet<CheckedNodeId> = ['a', 'b', 'c']
             .into_iter()
-            .map(|fill| serde_json::from_value(id(fill)).expect("node id"))
+            .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
             .collect();
         assert_eq!(join, expected);
         assert_eq!(
@@ -1256,7 +1255,7 @@ mod tests {
         malformed["operation"]["member"]["declaration"] = json!("not a node key");
         let expected: BTreeSet<CheckedNodeId> = ['a', 'b']
             .into_iter()
-            .map(|fill| serde_json::from_value(id(fill)).expect("node id"))
+            .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
             .collect();
         let malformed =
             super::super::CheckedTerm::decode_admitted(&malformed).expect("closed application");
