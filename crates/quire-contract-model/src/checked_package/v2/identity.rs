@@ -743,6 +743,12 @@ fn model_record_from_node(
 ) -> Result<NominalRecord, ValidationFailure> {
     use crate::checked_package::shared::CheckedNodePathSegment as Segment;
     let at = node_pointer(position);
+    if node.declaration.is_some() || node.body != json!({"term":"aggregate","members":[]}) {
+        return Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::MalformedWire,
+            at,
+        ));
+    }
     let names = node
         .node_id
         .path
@@ -753,16 +759,14 @@ fn model_record_from_node(
         })
         .collect::<Option<Vec<_>>>();
     require(
-        node.declaration.is_none()
-            && node.body == json!({"term":"aggregate","members":[]})
-            && names.as_deref()
-                == Some(
-                    &[
-                        node.node_tag.as_ref(),
-                        node.semantic_form.as_ref(),
-                        owner_node,
-                    ][..],
-                ),
+        names.as_deref()
+            == Some(
+                &[
+                    node.node_tag.as_ref(),
+                    node.semantic_form.as_ref(),
+                    owner_node,
+                ][..],
+            ),
         || at.clone().key("node_id").key("path"),
     )?;
     let model = models
@@ -1961,6 +1965,43 @@ mod tests {
             (&*record.offset.numerator, &*record.offset.denominator),
             ("0", "1")
         );
+
+        let mut malformed = unit.clone();
+        malformed.body = json!({"term":"aggregate","members":[{"term":"literal","kind":"text","value":"extra"}]});
+        assert!(matches!(
+            record_from_node(&malformed, NominalKind::Unit, 1, &[], &model_nodes),
+            Err(ValidationFailure::Refused(refusal))
+                if refusal.code == CheckedPackageRefusalCode::MalformedWire
+                    && refusal.loci[0].path.as_ref().is_some_and(|path| path.as_str() == "/semantic_graph/nodes/1")
+        ));
+
+        let source_unit: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id":{"package":"example","path":["acme","rpc","ms"],"ordinal":0},
+            "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"scalar_type", "semantic_form":"unit",
+            "semantic_type":dimension.node_id, "dependencies":[dimension.node_id], "occurrences":[],
+            "owner":{"kind":"source","authority":"agent-ix","identity":"example"},
+            "declaration":{"qualified_name":["acme","rpc","ms"]},
+            "body":{"term":"unit","dimension_node_id":dimension.node_id,
+                "target_unit_node_id":null,"scale":{"numerator":"1","denominator":"1"},
+                "offset":{"numerator":"0","denominator":"1"}}
+        })).expect("source unit node");
+        let declarations = [dimension, unit, source_unit];
+        let kinds = [
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension),
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+        ];
+        let index = declarations
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect::<BTreeMap<_, _>>();
+        assert!(matches!(
+            super::super::validate_declaration_names(&declarations, &kinds, &index),
+            Err(ValidationFailure::Refused(refusal))
+                if refusal.code == CheckedPackageRefusalCode::AmbiguousDeclaration
+                    && refusal.cause == Some(crate::CheckedPackageRefusalCause::AmbiguousName)
+        ));
     }
 
     #[trace("TC-048", "FR-038-AC-5", "FR-063-AC-3")]
