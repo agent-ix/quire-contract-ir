@@ -1,153 +1,353 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! QSpec TC-233's published nominal preimages stay at their exact identities.
+//! QSpec XP-01..XP-10 dimension-equivalence vectors through the strict reader.
 
-use super::{fixture_support, fixtures_dir, proposal_dir_of, read_json};
+use super::{fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeOwner, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
-    NominalIdentityPreimage,
+    CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCode,
+    CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 fn vectors() -> Value {
-    let path = proposal_dir_of(&fixtures_dir()).join("node-identity-vectors.json");
-    read_json(&path).expect("QSpec node identity vectors")
+    read_json(&proposal_dir_of(&fixtures_dir()).join("dimension-equivalence-vectors.json"))
+        .expect("QSpec dimension equivalence vectors")
 }
 
-fn named_row<'a>(rows: &'a [Value], name: &str) -> &'a Value {
-    rows.iter()
-        .find(|row| row["name"] == name)
-        .unwrap_or_else(|| panic!("published case {name}"))
+fn id_for(row: &Value) -> Value {
+    json!({
+        "package": row["package"],
+        "path": row["path"],
+        "ordinal": row["ordinal"],
+    })
 }
 
-/// Trace: FR-063-AC-3
-#[trace("TC-233", "FR-063-AC-3")]
-#[test]
-fn tc_233_dimension_equivalence_vectors_have_the_published_keys_and_scales() {
-    let vectors = vectors();
-    let rows = vectors["vectors"].as_array().expect("vectors array");
-    let cases = [
-        ("dimension-equivalence-rpc-flow-time", "1", "1"),
-        ("dimension-equivalence-rpc-clock-time", "1000", "1"),
-        ("dimension-equivalence-flow-clock-time", "1000", "1"),
-    ];
-    for (name, numerator, denominator) in cases {
-        let row = named_row(rows, name);
-        let expected_key = row["sha256"].as_str().expect("published key");
-        let preimage: NominalIdentityPreimage =
-            serde_json::from_value(row["preimage"].clone()).expect("typed published preimage");
-        let NominalIdentityPreimage::DimensionEquivalence(edge) = &preimage else {
-            panic!("published equivalence variant: {name}")
-        };
-        assert_eq!(edge.root_scale.numerator.as_ref(), numerator);
-        assert_eq!(edge.root_scale.denominator.as_ref(), denominator);
-        assert_eq!(
-            preimage.digest(u64::MAX).expect("canonical key"),
-            expected_key
-        );
-    }
-    for name in [
-        "model-dimension-acme-rpc-time",
-        "model-dimension-acme-flow-time",
-        "model-dimension-acme-clock-time",
-    ] {
-        let row = named_row(rows, name);
-        let expected_key = row["sha256"].as_str().expect("published key");
-        let preimage: NominalIdentityPreimage =
-            serde_json::from_value(row["preimage"].clone()).expect("typed dimension");
-        assert_eq!(
-            preimage.digest(u64::MAX).expect("canonical key"),
-            expected_key
-        );
-    }
+fn source(identity: &str) -> Value {
+    json!({"authority":"agent-ix","identity":identity})
 }
 
-/// Trace: FR-063-AC-3
-#[trace("TC-233", "FR-063-AC-3")]
-#[test]
-fn tc_233_published_model_owned_time_graph_admits_as_one_class() {
-    let vectors = vectors();
-    let rows = vectors["vectors"].as_array().expect("vectors array");
-    let names = [
-        "model-dimension-acme-rpc-time",
-        "model-dimension-acme-flow-time",
-        "model-dimension-acme-clock-time",
-        "dimension-equivalence-rpc-flow-time",
-        "dimension-equivalence-rpc-clock-time",
-        "dimension-equivalence-flow-clock-time",
-    ];
-    let members = names.map(|name| {
-        let row = named_row(rows, name);
-        (
-            row["preimage"].clone(),
-            row["sha256"].as_str().expect("published key").to_owned(),
-        )
+fn dimension_node(name: &str, row: &Value, all: &Value) -> Value {
+    let id = id_for(row);
+    let form = row["form"].as_str().expect("published form");
+    let mut terms = row["terms"]
+        .as_array()
+        .map(|terms| {
+            terms
+                .iter()
+                .map(|term| {
+                    let named = term["node"].as_str().expect("term name");
+                    json!({
+                        "dimension_node_id": id_for(&all[named]),
+                        "exponent": term["exponent"],
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    terms.sort_by(|left, right| {
+        let left: CheckedNodeId =
+            serde_json::from_value(left["dimension_node_id"].clone()).expect("vector node id");
+        let right: CheckedNodeId =
+            serde_json::from_value(right["dimension_node_id"].clone()).expect("vector node id");
+        left.cmp(&right)
     });
-    let mut package = fixture_support::nominal_package(&members);
-    let published_package = read_json(&fixtures_dir().join("positive-nominal-identities.json"))
-        .expect("QSpec nominal package");
-    let source = published_package["lock"]["sources"][0].clone();
-    assert_eq!(source["authority"], members[3].0["owner"]["authority"]);
-    assert_eq!(source["identity"], members[3].0["owner"]["identity"]);
-    package["lock"]["sources"][0] = source.clone();
-    for entry in package["source_map"].as_array_mut().expect("source map") {
-        entry["regions"][0]["source"] = source.clone();
-    }
-    for position in 0..3 {
-        let node = &mut package["semantic_graph"]["nodes"][position];
-        node.as_object_mut().expect("node").remove("declaration");
-        node["occurrences"][0]["role"] = json!("type");
-        package["source_map"][position]["role"] = json!("type");
-    }
-    for (preimage, _) in &members[..3] {
-        let identity = preimage["owner"]["identity"]
-            .as_str()
-            .expect("model identity");
-        fixture_support::select_model(&mut package, identity);
-    }
-    fixture_support::refresh_identity(&mut package);
-
-    let admitted = match CheckedPackageV2::read(
-        &fixture_support::canonical(&package),
-        CheckedPackageReadLimits::bounded(),
-        &fixture_support::evidence_for(&package),
-    ) {
-        CheckedPackageV2ReadResult::Admitted(package) => package,
-        other => panic!("published three-package Time graph must admit: {other:?}"),
-    };
-    assert_eq!(admitted.graph().nodes.len(), names.len() + 3);
-    for (position, (preimage, published_key)) in members.iter().enumerate() {
-        let node = &admitted.graph().nodes[position];
-        assert_eq!(node.node_id.digest.as_ref(), published_key, "{position}");
-        let expected: NominalIdentityPreimage =
-            serde_json::from_value(preimage.clone()).expect("published preimage");
-        assert_eq!(node.nominal_identity_preimage.as_ref(), Some(&expected));
-    }
-    assert_eq!(
-        admitted.graph().nodes[3..names.len()]
+    let dependencies = if form == "unit" {
+        vec![id_for(&all["rpc_time"])]
+    } else {
+        terms
             .iter()
-            .map(|node| node.occurrences[0].ordinal)
-            .collect::<Vec<_>>(),
-        [0, 1, 2]
+            .map(|term| term["dimension_node_id"].clone())
+            .collect()
+    };
+    let body = if form == "unit" {
+        json!({
+            "term":"unit",
+            "dimension_node_id": id_for(&all["rpc_time"]),
+            "target_unit_node_id": null,
+            "scale":{"numerator":"1","denominator":"1"},
+            "offset":{"numerator":"0","denominator":"1"},
+        })
+    } else {
+        json!({"term":"dimension","terms":terms})
+    };
+    let semantic_type = if form == "unit" {
+        id_for(&all["rpc_time"])
+    } else {
+        id.clone()
+    };
+    json!({
+        "node_id": id,
+        "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "scalar_type",
+        "semantic_form": form,
+        "semantic_type": semantic_type,
+        "dependencies": dependencies,
+        "occurrences": [{"role":"declaration","ordinal":0}],
+        "declaration": {"qualified_name": row["path"]},
+        "owner": {"kind":"source","authority":"agent-ix","identity":name},
+        "body": body,
+    })
+}
+
+fn equivalence_node(package: &str, case: &Value, index: usize, all: &Value) -> Value {
+    let pair = case["pair"].as_array().expect("published pair");
+    let first = id_for(&all[pair[0].as_str().expect("first name")]);
+    let second = id_for(&all[pair[1].as_str().expect("second name")]);
+    let ordinal = case["ordinal"].as_u64().unwrap_or(0);
+    let id = json!({
+        "package": package,
+        "path": ["scalar_type", "dimension_equivalence", first, second],
+        "ordinal": ordinal,
+    });
+    json!({
+        "node_id": id,
+        "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "scalar_type",
+        "semantic_form": "dimension_equivalence",
+        "semantic_type": id,
+        "dependencies": [first, second],
+        "occurrences": [{"role":"anchor","ordinal":index}],
+        "owner": {"kind":"source","authority":"agent-ix","identity":package},
+        "body": {
+            "term":"dimension_equivalence",
+            "dimension_node_ids":[first,second],
+            "root_scale":case["root_scale"],
+        },
+    })
+}
+
+fn package(name: &str, nodes: &[Value], imports: &[&str]) -> Value {
+    let mut wire = read_json(&fixtures_dir().join("positive-nominal-identities.json"))
+        .expect("published nominal envelope");
+    wire["name"] = json!(name);
+    wire["semantic_graph"]["nodes"] = json!(nodes);
+    wire["lock"]["definition_selections"] = json!([]);
+    wire["lock"]["dependency_selections"] = json!(imports
+        .iter()
+        .map(|identity| json!({"identity":identity}))
+        .collect::<Vec<_>>());
+    let mut sources = BTreeMap::new();
+    sources.insert(name.to_owned(), source(name));
+    for node in nodes {
+        if let Some(identity) = node["owner"]["identity"].as_str() {
+            sources.insert(identity.to_owned(), source(identity));
+        }
+    }
+    wire["lock"]["sources"] = json!(sources.into_values().collect::<Vec<_>>());
+    wire["source_map"] = json!(nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| {
+            let owner = node["owner"]["identity"].as_str().expect("source owner");
+            json!({
+                "node_id":node["node_id"],
+                "role":node["occurrences"][0]["role"],
+                "ordinal":node["occurrences"][0]["ordinal"],
+                "regions":[{"source":source(owner),"start":position,"end":position+1}],
+            })
+        })
+        .collect::<Vec<_>>());
+    wire
+}
+
+fn read(wire: &Value, imports: &[(&str, Arc<CheckedPackageV2>)]) -> CheckedPackageV2ReadResult {
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence.support_feature("quire.value.complete/v1");
+    for (name, dependency) in imports {
+        evidence
+            .insert_dependency_package(*name, Arc::clone(dependency))
+            .expect("distinct dependency names");
+    }
+    CheckedPackageV2::read(
+        &serde_json::to_vec(wire).expect("test wire"),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    )
+}
+
+fn admitted(wire: &Value, imports: &[(&str, Arc<CheckedPackageV2>)]) -> Arc<CheckedPackageV2> {
+    match read(wire, imports) {
+        CheckedPackageV2ReadResult::Admitted(value) => Arc::from(value),
+        other => panic!("structural package must admit: {other:?}"),
+    }
+}
+
+fn base_dimensions(all: &Value) -> Vec<Value> {
+    ["clock_time", "flow_time", "rpc_time"]
+        .map(|name| {
+            let row = &all[name];
+            dimension_node(row["package"].as_str().expect("package"), row, all)
+        })
+        .into_iter()
+        .collect()
+}
+
+fn dimension_packages(all: &Value) -> Vec<(String, Arc<CheckedPackageV2>)> {
+    let named = |name: &str| {
+        let row = &all[name];
+        dimension_node(row["package"].as_str().expect("package"), row, all)
+    };
+    let rpc_name = "acme/rpc";
+    let rpc_nodes = ["rpc_time", "rpc_s", "rpc_length", "rpc_speed"].map(named);
+    let rpc = admitted(&package(rpc_name, &rpc_nodes, &[]), &[]);
+    let flow_name = "acme/flow";
+    let mut flow_nodes = vec![named("rpc_length")];
+    flow_nodes.extend(["flow_time", "flow_speed", "flow_accel"].map(named));
+    let flow = admitted(
+        &package(flow_name, &flow_nodes, &[rpc_name]),
+        &[(rpc_name, Arc::clone(&rpc))],
     );
-    let mut identities = members[..3]
+    let clock_name = "acme/clock";
+    let clock = admitted(&package(clock_name, &[named("clock_time")], &[]), &[]);
+    vec![
+        (clock_name.to_owned(), clock),
+        (flow_name.to_owned(), flow),
+        (rpc_name.to_owned(), rpc),
+    ]
+}
+
+/// Trace: FR-063-AC-3
+#[trace("TC-233", "FR-063-AC-3")]
+#[test]
+fn xp_01_three_independent_equivalences_admit_as_one_class() {
+    let vectors = vectors();
+    let all = &vectors["nodes"];
+    let xp01 = vectors["cases"]
+        .as_array()
+        .expect("cases")
         .iter()
-        .map(|(preimage, _)| preimage["owner"]["identity"].as_str().expect("identity"))
-        .collect::<Vec<_>>();
-    identities.sort_unstable();
-    identities.dedup();
-    let roots = admitted.graph().nodes[names.len()..]
+        .find(|case| case["id"] == "XP-01")
+        .expect("XP-01");
+    let dimensions = dimension_packages(all);
+    let dimension_imports = dimensions
         .iter()
-        .filter(|node| node.semantic_form.as_ref() == "model_root")
+        .map(|(name, value)| (name.as_str(), Arc::clone(value)))
         .collect::<Vec<_>>();
-    assert_eq!(roots.len(), identities.len());
-    for root in roots {
-        let Some(CheckedNodeOwner::ModelRoot { identity, .. }) = root.owner.as_ref() else {
-            panic!("selected model root owner");
-        };
-        assert!(identities.contains(&identity.as_ref()));
-        assert_eq!(root.occurrences[0].ordinal, 0);
+    let base = base_dimensions(all);
+    let equivalences = xp01["equivalences"].as_array().expect("equivalences");
+    assert_eq!(equivalences.len(), 3);
+    let mut authored = Vec::new();
+    for (index, case) in equivalences.iter().enumerate() {
+        let name = format!("equivalence/{index}");
+        let node = equivalence_node(&name, case, index, all);
+        let mut graph = base.clone();
+        graph.push(node);
+        let imports = dimensions
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>();
+        let wire = package(&name, &graph, &imports);
+        let read = admitted(&wire, &dimension_imports);
+        authored.push((name, read));
+    }
+    let mut graph = base;
+    for (index, case) in equivalences.iter().enumerate() {
+        graph.push(equivalence_node(&authored[index].0, case, index, all));
+    }
+    let imports = authored
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>();
+    let evidence = authored
+        .iter()
+        .map(|(name, value)| (name.as_str(), Arc::clone(value)))
+        .collect::<Vec<_>>();
+    let wire = package("example", &graph, &imports);
+    let read = admitted(&wire, &evidence);
+    assert_eq!(read.graph().nodes.len(), 6);
+    for (index, case) in equivalences.iter().enumerate() {
+        let retained = &read.graph().nodes[3 + index];
+        assert_eq!(
+            serde_json::to_value(&retained.node_id).expect("node id"),
+            graph[3 + index]["node_id"]
+        );
+        assert_eq!(
+            retained.body["root_scale"], case["root_scale"],
+            "XP-01 scale {index}"
+        );
+        assert_eq!(retained.occurrences[0].ordinal, index as u64);
+    }
+}
+
+/// Trace: FR-063-AC-4
+#[trace("TC-233", "FR-063-AC-4")]
+#[test]
+fn xp_adverse_pairs_refuse_at_the_published_equivalence() {
+    let vectors = vectors();
+    let all = &vectors["nodes"];
+    let dimensions = dimension_packages(all);
+    let imported = dimensions
+        .iter()
+        .map(|(name, value)| (name.as_str(), Arc::clone(value)))
+        .collect::<Vec<_>>();
+    let mut graph = base_dimensions(all);
+    // The unit and derived dimensions are present so XP-05 and XP-08..10
+    // reach equivalence validation rather than fail on absent references.
+    for name in [
+        "rpc_s",
+        "rpc_length",
+        "rpc_speed",
+        "flow_speed",
+        "flow_accel",
+    ] {
+        let row = &all[name];
+        graph.push(dimension_node(
+            row["package"].as_str().expect("package"),
+            row,
+            all,
+        ));
+    }
+    for case in vectors["cases"].as_array().expect("cases") {
+        let id = case["id"].as_str().expect("case id");
+        if id == "XP-01" {
+            continue;
+        }
+        let mut nodes = graph.clone();
+        for (index, equivalence) in case["equivalences"]
+            .as_array()
+            .expect("equivalences")
+            .iter()
+            .enumerate()
+        {
+            nodes.push(equivalence_node("example", equivalence, index, all));
+        }
+        let imports = dimensions
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>();
+        let wire = package("example", &nodes, &imports);
+        let result = read(&wire, &imported);
+        match case["expected"].as_str().expect("outcome") {
+            "admitted" => assert!(
+                matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+                "{id}: {result:?}"
+            ),
+            "invalid_semantic_graph" => {
+                let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+                    panic!("{id}: expected invalid semantic graph, got {result:?}")
+                };
+                assert_eq!(
+                    refusal.code,
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    "{id}"
+                );
+                let at = case["at"].as_u64().expect("refused equivalence") as usize;
+                let expected = format!("/semantic_graph/nodes/{}", graph.len() + at);
+                assert_eq!(
+                    refusal.loci[0]
+                        .path
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .as_deref(),
+                    Some(expected.as_str()),
+                    "{id}"
+                );
+            }
+            other => panic!("unrecognized QSpec outcome {other}"),
+        }
     }
 }
