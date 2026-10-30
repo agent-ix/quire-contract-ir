@@ -778,6 +778,63 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
 }
 
 impl CheckedNodeId {
+    /// Read a structural ID already held as JSON without recursively cloning
+    /// its nested path operands.
+    pub(crate) fn from_value(value: &serde_json::Value) -> Option<Self> {
+        enum Task<'a> {
+            Parse(&'a serde_json::Value),
+            Finish {
+                package: Box<str>,
+                ordinal: u64,
+                path_len: usize,
+            },
+        }
+        let mut tasks = vec![Task::Parse(value)];
+        let mut segments = Vec::<CheckedNodePathSegment>::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Parse(serde_json::Value::String(name)) => {
+                    segments.push(CheckedNodePathSegment::Name(name.as_str().into()));
+                }
+                Task::Parse(serde_json::Value::Object(object)) => {
+                    if object.len() != 3 {
+                        return None;
+                    }
+                    let package = object.get("package")?.as_str()?;
+                    let path = object.get("path")?.as_array()?;
+                    let ordinal = object.get("ordinal")?.as_u64()?;
+                    if package.is_empty() || path.is_empty() || ordinal > 9_007_199_254_740_991 {
+                        return None;
+                    }
+                    tasks.push(Task::Finish {
+                        package: package.into(),
+                        ordinal,
+                        path_len: path.len(),
+                    });
+                    tasks.extend(path.iter().rev().map(Task::Parse));
+                }
+                Task::Parse(_) => return None,
+                Task::Finish {
+                    package,
+                    ordinal,
+                    path_len,
+                } => {
+                    let start = segments.len().checked_sub(path_len)?;
+                    let path = segments.split_off(start);
+                    segments.push(CheckedNodePathSegment::Node(Box::new(Self {
+                        package,
+                        path,
+                        ordinal,
+                    })));
+                }
+            }
+        }
+        match segments.pop() {
+            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => Some(*node),
+            _ => None,
+        }
+    }
+
     /// Whether every segment and nested operand is within the V2 wire bounds.
     pub(crate) fn is_well_formed(&self) -> bool {
         let mut pending = vec![self];
@@ -976,6 +1033,28 @@ pub(crate) mod checked_node_comparisons {
 #[cfg(test)]
 mod structural_node_identity_tests {
     use super::{CheckedNodeId, CheckedNodePathSegment};
+
+    /// Trace: FR-038-AC-364, FR-322-AC-270, FR-322-AC-271.
+    #[test]
+    fn supplied_node_id_value_requires_the_exact_structural_shape() {
+        let valid = serde_json::json!({"package":"p","path":["owner",{
+            "package":"q","path":["type"],"ordinal":0
+        }],"ordinal":1});
+        let parsed = CheckedNodeId::from_value(&valid).expect("nested structural ID");
+        assert_eq!(serde_json::to_value(&parsed).expect("encode ID"), valid);
+        for malformed in [
+            serde_json::json!("p/owner"),
+            serde_json::json!({"package":"p","path":[],"ordinal":0}),
+            serde_json::json!({"package":"p","path":["owner"],"ordinal":"0"}),
+            serde_json::json!({"package":"p","path":["owner"],"ordinal":0,"version":1}),
+            serde_json::json!({"package":"p","path":[{"package":"q","path":[],"ordinal":0}],"ordinal":0}),
+        ] {
+            assert!(
+                CheckedNodeId::from_value(&malformed).is_none(),
+                "{malformed}"
+            );
+        }
+    }
 
     /// Trace: FR-038-AC-364, FR-038-AC-365.
     #[test]
