@@ -362,13 +362,18 @@ fn dependent_compound_unit_references_wait_for_target_key() {
         ))
     );
 
-    let mut independent = root.clone();
-    independent["semantic_graph"]["nodes"][COMPOUND]["body"]["members"][0]["members"][1]["value"]
+    let mut paired = root.clone();
+    paired["semantic_graph"]["nodes"][COMPOUND]["body"]["members"][0]["members"][1]["value"]
         ["value"] = json!("0");
-    refresh_identity(&mut independent);
+    refresh_identity(&mut paired);
+    assert_eq!(refused(&paired), root_refusal);
+
+    let independent = mutated(COMPOUND, |node| {
+        node["body"]["members"][0]["members"][1]["value"]["value"] = json!("0");
+    });
     assert_eq!(
         refused(&independent),
-        invalid_at(&independent, COMPOUND, FIRST_TERM),
+        invalid_derived_shape_at(&independent, COMPOUND),
     );
 
     let mut exponent = parameters_package();
