@@ -561,7 +561,8 @@ mod tests {
         }
 
         fn run(&self) -> (Result<(), ValidationFailure>, u64) {
-            let owners = ModelOwners::new(&[], |_| Ok(())).expect("empty selected-model owners");
+            let owners = ModelOwners::new(&[], &self.wire.semantic_graph.nodes, |_| Ok(()))
+                .expect("empty selected-model owners");
             self.run_with_owners(&owners)
         }
 
@@ -701,7 +702,7 @@ mod tests {
     #[trace("TC-459")]
     #[test]
     fn extension_join_selected_record_dispatch_preserves_owner_conformance() {
-        use crate::checked_package::v2::model_members::{declaration_key, tests as model_tests};
+        use crate::checked_package::v2::model_members::{declaration_id, tests as model_tests};
         let base = "ix://acme/orders/Base";
         let child = "ix://acme/orders/Child";
         let mut types = vec![
@@ -720,17 +721,10 @@ mod tests {
                 "construct": {"meaning": "quire.meaning.model.record-value-type/v1"}
             }));
         let model = model_tests::read(&document).expect("genuine selected record document");
-        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
         let mut join = Join::new(base, CheckedNodeKind::Model(ModelForm::RecordValueType));
-        let key = declaration_key(
-            "acme/orders",
-            DeclarationForm::RecordValueType,
-            child,
-            model_tests::BYTES,
-        )
-        .expect("child declaration key");
+        let key = declaration_id("acme/orders", DeclarationForm::RecordValueType, child);
         let ty = &mut join.wire.semantic_graph.nodes[0];
-        ty.node_id.digest = key.into();
+        ty.node_id = key;
         ty.semantic_type = ty.node_id.clone();
         ty.owner = Some(
             serde_json::from_value(json!({
@@ -739,6 +733,12 @@ mod tests {
             .expect("owner"),
         );
         join.wire.semantic_graph.nodes[1].semantic_type = ty.node_id.clone();
+        let owners = ModelOwners::new(
+            std::slice::from_ref(&model),
+            &join.wire.semantic_graph.nodes,
+            |_| Ok(()),
+        )
+        .expect("owners");
         let (baseline, baseline_work) = join.run_with_owners(&owners);
         assert!(
             baseline.is_ok(),
