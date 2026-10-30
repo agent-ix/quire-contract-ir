@@ -60,7 +60,6 @@ use crate::checked_package::common::{
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -163,9 +162,8 @@ impl Defect {
 
 /// The node key held in `object[key]` of the entry at `at`. A value that is
 /// not a node key at all is an entry of the wrong shape; a node key outside
-/// the reader's node-identity domain, or with a digest that is not lowercase
-/// hex, is `digest_domain_mismatch` at the key itself, as every other node
-/// reference the reader reads (FR-038 "Frame bodies").
+/// the reader's structural node-identity domain is refused at the key itself,
+/// as every other node reference the reader reads (FR-038 "Frame bodies").
 #[ix_trace_rs::string_edge]
 fn node_key(
     object: &Map<String, Value>,
@@ -174,7 +172,7 @@ fn node_key(
 ) -> Result<CheckedNodeId, Defect> {
     let id = object
         .get(key)
-        .and_then(|value| CheckedNodeId::deserialize(value).ok())
+        .and_then(CheckedNodeId::from_value)
         .ok_or_else(|| Defect::invalid(at))?;
     if id.is_well_formed() {
         Ok(id)
