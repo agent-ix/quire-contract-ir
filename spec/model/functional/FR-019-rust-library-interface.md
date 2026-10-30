@@ -81,8 +81,7 @@ and maximum denominator; its three numeric accessors return `i128`.
 These are source API changes: callers holding `i64` or `u64` arguments must
 convert deliberately, and callers expecting those narrower accessor results
 must widen their storage or explicitly check a narrowing conversion. The wire
-remains decimal-string based. The change neither adds an alternate constructor nor
-changes a node-key preimage counter's encoding (QSpec FR-322-AC-58).
+remains decimal-string based. The change adds no alternate constructor.
 Unvalidated JSON enters only through wire/request decoders. Validated identity,
 package, declaration, expression, canonical, and coverage types keep
 fields private and expose checked constructors plus immutable accessors. There
@@ -177,9 +176,9 @@ and the public V2 encoder and reader. A producer-supplied node ID or group
 label is an identity label, not proof of admission. Only the strict reader
 returns an admitted `CheckedPackageV2` after checking graph order, body,
 owner, references and source correspondence. The former candidate helpers,
-context and result types are absent from the required Public items inventory.
-Their current exports remain an open FR-019-AC-5 discrepancy until the
-IR-1141 code removal lands.
+context and result types, along with retired V2 identity-preimage types, are
+absent from the required Public items inventory. Their current code exports
+remain an open FR-019-AC-5 discrepancy until the IR-1141 code removal lands.
 
 FR-051 specifies `CheckedPackageSourceCorrespondenceRef` and
 `encode_checked_package_v2`, which are implemented and exported by the
@@ -227,8 +226,8 @@ operation has its own owning requirement, as listed below.
 | `checked_package` (V2 reaches population) | type `CheckedReachesPopulationError` | FR-038 |
 | `checked_package` (V2 clause comparisons) | types `CheckedClauseComparison`, `CheckedComparisonClauseKind`, `CheckedComparisonError`, `CheckedComparisonObservation`, `CheckedComparisonOperand`, `CheckedComparisonOperandIdentity`, `CheckedComparisonOperandKind`, `CheckedComparisonOperator`, `CheckedComparisonPath`, `CheckedComparisonRead`, `CheckedComparisonRefusal` | FR-038 |
 | `checked_package` (V2 composite operands) | types `CheckedAuthoredCompositeDomain`, `CheckedCanonicalIntegerBound`, `CheckedCompositeChildEdge`, `CheckedCompositeDomainKey`, `CheckedCompositeDomainPosition`, `CheckedCompositeOperand`, `CheckedCompositeOperandDomain`, `CheckedCompositeOperandError`, `CheckedCompositeOperands`, `CheckedCompositeOperator`, `CheckedCompositeShapeEntry`, `CheckedUnsupportedCompositeOperand` | FR-038 |
-| `checked_package` (V2 nominal identity) | types `CheckedRational`, `DimensionPreimage`, `DimensionTerm`, `EnumDeclarationPreimage`, `EnumMemberPreimage`, `NominalIdentityPreimage`, `NominalOwner`, `UnitPreimage` | FR-038 |
-| `checked_package` (V2 dimension equivalence) | types `DimensionEquivalencePreimage`, `SourceOwner`, `SourceOwnerKind` | FR-063 |
+| `checked_package` (V2 rational value) | type `CheckedRational` | FR-038, FR-063 |
+| `checked_package` (V2 source owner) | types `SourceOwner`, `SourceOwnerKind` | FR-063 |
 | `checked_package` (V2 vocabulary) | types `BoundedDomainForm`, `CheckedCapabilityDisposition`, `CheckedNodeKind`, `CheckedNodeTag`, `CheckedSelectionRole`, `ClaimForm`, `CompositeTypeForm`, `CorrespondenceForm`, `ExpressionForm`, `FunctionForm`, `HybridForm`, `ModelForm`, `ProtocolForm`, `RelationForm`, `ScalarTypeForm`, `StateForm`, `TemporalForm`, `TimedModelForm`, `ValueForm` | FR-038, FR-040, FR-065 |
 | `checked_package` (V2 lowering) | types `CompleteContractNodeV2`, `CompleteContractPackageV2`, `CompleteLoweringProfileV2`, `CompleteLoweringRecordV2`, `CompleteLoweringResultV2`, `ContractPackageDependencyV2`; constants `CONTRACT_IR_SEMANTIC_DOMAIN`, `CONTRACT_PACKAGE_VERSION` | FR-035, FR-038 |
 | `checked_package` (V2 refinement body) | types `RefinementAssume`, `RefinementEnsure`, `RefinementFairnessKind`, `RefinementField`, `RefinementGranularity`, `RefinementHistory`, `RefinementHistoryUpdate`, `RefinementKey`, `RefinementObject`, `RefinementOpen`, `RefinementPackageNodeKey`, `RefinementPopulation`, `RefinementStep`, `RefinementStepArgument`, `RefinementStepTarget` | FR-038 |
@@ -260,7 +259,11 @@ The planned FR-035 authenticated V2-source handoff on `ContractPackageWireV1`
 is a method on that listed type. Its admitted result is `ContractPackageV1`;
 it does not add a second package or wire type (IR-1087).
 
-The table records the compiled public surface. `SourceAuthoredCriterionId`
+The table records the required target public surface. Planned entries are
+excluded from the current compiled inventory until their owning code lands.
+The current candidate-helper and identity-preimage exports are a
+PLANNED/UNRUN IR-1141 removal; TC-058 retains the exact compiled-inventory
+check for the final code revision. `SourceAuthoredCriterionId`
 identifies a Quire-authored acceptance criterion, and
 `SourceCriterionSourceBinding` records the source author's selected Quire scope
 and IR source. The neutral input retains the binding; synthetic census tests verify typed

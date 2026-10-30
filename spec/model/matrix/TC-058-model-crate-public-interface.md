@@ -69,9 +69,11 @@ including intentional absence. Assert `is_test_fixture` remains true when
 all optional inputs are absent and false for direct-serde and actual
 reader-admitted operations. Refuse empty present identity, empty present mode
 value, a law definition with empty authority or identity, and present member
-keys with a wrong domain, wrong digest length, uppercase or nonhexadecimal
-digest with a typed error and no operation. Accept foreign and conflicting nonempty law identities
-as valid fixture shape. Serialize a fixture operation into a candidate package
+keys with an empty package, empty path, ordinal outside QSpec FR-322's range
+or a nested path node ID with an out-of-range ordinal with a typed error and
+no operation. Accept
+foreign and conflicting nonempty law identities
+as valid fixture shape. Serialize a fixture operation into complete package
 wire and confirm the ordinary strict reader still refuses a case admission
 does not permit; the fixture marker must not survive serialization and readback.
 Compile-fail probes reject conversion of a fixture into an admitted
@@ -94,7 +96,7 @@ helper APIs are withdrawn. The external default-feature consumer compiles a
 uses the typed V2 encoder and reader, and reads the same id after admission.
 Negative compile probes cannot import `derive_application_node_id`,
 `derive_structural_candidates`, the candidate result/context/error types,
-`CheckedSemanticId`, either identity-preimage type or `PACKAGE_DOMAIN_V2`.
+`CheckedSemanticId`, the retired identity-preimage types or `PACKAGE_DOMAIN_V2`.
 The model crate's named public inventory and the absence of root-crate reexports
 remain enforced. A raw structural id does not assert admission; only the
 strict reader returns an admitted `CheckedPackageV2`.
