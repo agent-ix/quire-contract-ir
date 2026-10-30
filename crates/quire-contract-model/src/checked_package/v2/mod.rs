@@ -1238,16 +1238,32 @@ fn checked_unit_refs(
         {
             continue;
         }
-        let Some(declaration) = &node.declaration else {
-            continue;
+        let name = match (&node.owner, &node.declaration) {
+            (Some(CheckedNodeOwner::Source { .. }), Some(declaration)) => {
+                let declared = declaration
+                    .qualified_name
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .collect::<Vec<&str>>()
+                    .join("/");
+                format!("ix://quire/unit/{declared}")
+            }
+            (
+                Some(CheckedNodeOwner::Model {
+                    identity,
+                    node: owner_node,
+                }),
+                None,
+            ) => {
+                let prefix = format!("ix://{identity}/unit/");
+                let Some(unit_name) = owner_node.strip_prefix(&prefix) else {
+                    continue;
+                };
+                format!("ix://quire/unit/{identity}/{unit_name}")
+            }
+            _ => continue,
         };
-        let name = declaration
-            .qualified_name
-            .iter()
-            .map(AsRef::as_ref)
-            .collect::<Vec<&str>>()
-            .join("/");
-        refs.entry(format!("ix://quire/unit/{name}").into())
+        refs.entry(name.into())
             .or_insert_with(|| node.node_id.clone());
     }
     // A Duration member can use its owner's s only when that unit has the
@@ -1310,6 +1326,23 @@ fn validate_lock<'a>(
     };
     let mut models =
         validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
+    if !models.is_empty() {
+        let mut resolved = (*unit_refs).clone();
+        for model in &models {
+            let name = format!("ix://quire/unit/{}/s", model.identity);
+            if resolved.contains_key(name.as_str()) {
+                if let Some(unit_id) =
+                    identity::model_duration_unit_key(&wire.semantic_graph.nodes, model, meter)?
+                {
+                    resolved.insert(format!("{DURATION_RESOLVED_PREFIX}{name}").into(), unit_id);
+                }
+            }
+        }
+        let resolved = std::sync::Arc::new(resolved);
+        for model in &mut models {
+            model.unit_refs = resolved.clone();
+        }
+    }
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
