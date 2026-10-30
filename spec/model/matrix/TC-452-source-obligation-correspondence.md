@@ -58,11 +58,13 @@ occurrences. For QSL, enumerate the complete selected checked
 `RequirementRecord` set and native pending-obligation set. For
 `quire-code-rs`, account for every selected production module and fully parse
 its function facts, including a module with no functions. Have each input
-project QSL checked requirement map keys as wire node bytes plus occurrence
-role and ordinal, and pending obligations as their native site and kind,
-including a predicate target. Distinguish changes to each projected field;
-collapse only identical native tuples. Exercise distinct typed QSL exhaustion
-and unfinished-disposition causes, retaining the exhaustion dimension, limit,
+project QSL checked requirement map keys as structural `CheckedNodeId`
+(`package`, complete `path` including nested operand-node segments, and node
+`ordinal`) plus occurrence role and ordinal, and pending obligations as their
+native site and kind, including a predicate target. Distinguish a changed
+package, path segment, nested operand node, node ordinal, occurrence role or
+occurrence ordinal; collapse only identical native tuples. Exercise distinct
+typed QSL exhaustion and unfinished-disposition causes, retaining the exhaustion dimension, limit,
 prior, requested charge, and site and the unfinished declaration handle. Have
 each `SourceInventoryOutcome` carry its matching owner, selected source, scope, observed count, and the
 owner-emitted completeness state. Verify that `Complete` is emitted only after
