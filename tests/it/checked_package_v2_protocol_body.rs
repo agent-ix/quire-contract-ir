@@ -2464,7 +2464,7 @@ fn protocol_owner_retarget_to_selected_non_object_model_refuses() {
 }
 
 /// Trace: FR-064-AC-4
-#[trace("TC-048", "TC-948")]
+#[trace("TC-048", "TC-946")]
 #[test]
 fn protocol_owner_selected_state_machine_and_record_value_type_refuse_at_edge() {
     for (label, form, meaning) in [
@@ -7254,7 +7254,7 @@ fn receive_requires_a_send_target_before_payload_type_checks() {
 }
 
 /// Trace: FR-038-AC-288, FR-038-AC-290
-#[trace("TC-048", "TC-946")]
+#[trace("TC-048", "TC-948")]
 #[test]
 fn receive_accepts_its_send_channel_and_refuses_another_channel() {
     let (mut package, root, channel) = package_with_send();
