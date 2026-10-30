@@ -651,7 +651,7 @@ fn check_transition(
     };
     let Some(declaring) = project
         .pointer("/member/declaration")
-        .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok())
+        .and_then(CheckedNodeId::from_value)
     else {
         return Err(malformed_subject());
     };
