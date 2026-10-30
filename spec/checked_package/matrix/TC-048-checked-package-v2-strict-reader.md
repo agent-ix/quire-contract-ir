@@ -2178,15 +2178,17 @@ the source role (forward) and one naming the target role (inverse); further
 packages with the destination end `{0,3}` unique, `{0,3}` not unique, `{0,1}`
 and `{1,1}`, one whose destination end omits its role, and one whose operand 1 is
 a subtype of the receiver endpoint type, with a variant whose graph holds no node
-with the declared end type's declaration id. Derive the expected bounds, roles,
-relationship id and destination declaration node id from the domain package
-document, the application's member and the authored structural paths, not from the
-accessor.
+with the supplied destination id. Derive the expected bounds, roles and
+relationship id from the domain package document and the application's member;
+take the expected `destination_type`
+structural id directly from the producer-authored `relationship_end` member,
+not from the accessor or a derivation from the document.
 
 Expected: `relationship_end` over each application returns the supplied id, the
 relationship id, the destination end's `lower`, `upper`, `unique`, `role` and
-`forward`, `ordered` false and `upper` `Some`, and the declared destination type
-id (also for the subtype operand and the missing-node variant); the forward and
+`forward`, `ordered` false and `upper` `Some`, and the destination type id
+exactly as supplied in the member (also for the subtype operand and the
+missing-node variant); the forward and
 inverse applications of the unequal relationship return different bounds. Supply
 an unknown id (`UnknownNode`) and a navigate application, an `integer.add`
 application, the relationship node, an object declaration node, a field-read
@@ -2202,6 +2204,19 @@ constructs the result field by field (AC-267). Assert separately (AC-268) that
 `selected_population` item is `pub use`d at the model root or re-exported from the
 `quire-contract-ir` root, and that the AC-252 through AC-257 outcomes are
 unchanged. Do not take the expected values from the accessor under test.
+
+For QSpec FR-322-AC-270/271, read
+`proposals/checked-package-v2/fixtures/positive-operation-identities.json`
+and `adverse.json` `destination_type_mutations` DT-01..DT-05 directly from
+the selected QSpec checkout, without copying either fixture. The positive
+operation fixture's destination node is absent from its graph yet the reader
+admits it and `relationship_end` returns the supplied structural id verbatim;
+the application does not list the destination id as a dependency. Apply each
+published mutation to the same fixture: DT-01 (absent member), DT-02 (string),
+DT-03 (extra member) and DT-04 (string ordinal) refuse `malformed_wire` at
+the schema step; DT-05 names a node present in the graph, admits and returns
+the supplied id verbatim. Keep the existing forward/inverse role, direction,
+multiplicity, subtype, and absent-graph controls above.
 
 ## Typed population of a reaches application (FR-038-AC-269 through FR-038-AC-280)
 

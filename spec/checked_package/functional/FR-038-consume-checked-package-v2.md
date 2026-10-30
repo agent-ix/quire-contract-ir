@@ -874,8 +874,9 @@ multiplicity refuses `invalid_model_binding`/`malformed-declaration`; a
 well-shaped multiplicity with `lower > upper` refuses
 `invalid_model_binding`/`unpreserved-model-meaning`.
 
-A V2 `relationship_end` member SHALL have the existing member shape
-`{kind: "relationship_end", declaration, name}`, with `declaration` naming
+A V2 `relationship_end` member SHALL have the closed member shape
+`{kind: "relationship_end", declaration, name, destination_type}` (and the
+separately optional `population` link for `reaches`), with `declaration` naming
 the relationship's `relation`/`relationship` graph node. Its `ModelOwner`
 selects the actual FCD relationship by selected package identity and global
 relationship identity; it does not select the source or target object node.
@@ -896,6 +897,17 @@ members. The earlier owner join remains FR-038-AC-155's: an owner's missing
 selection, undeclared node or mismatched node kind is still
 `missing_declaration`/`missing-selection` at the owner's node, independently
 of this new member check.
+
+Under QSpec FR-322 "Destination type of a relationship end" and
+FR-322-AC-270/271, `destination_type` is a required producer-supplied
+structural `NodeId` `{package, path, ordinal}`. The strict reader SHALL
+shape-check it at the V2 schema step; an absent value, a string value, an
+extra member or a string `ordinal` refuses `malformed_wire` there. The reader
+SHALL retain and return the supplied id verbatim, without deriving it from
+the relationship or selected document and without requiring it to name a
+node in the graph. It is not an application dependency, including when its
+node is present. This field does not replace the relationship owner, role,
+direction, endpoint type, multiplicity or subtype checks below.
 
 At the application's model-member check, the reader SHALL resolve the
 member's `name` against this selected relationship's declared roles, byte for
@@ -3074,26 +3086,23 @@ false and the destination is the source end (the destination rule of
 
 **Retention.** The reader shall retain, for each selected relationship
 declaration, the record admission consults: both ends' role, type reference and
-multiplicity, the direction, and the derived model declaration node id of each
-end's type (the id admission computes from the selected document's identity,
-the end type's object-type or systems-interface form and the byte limit). The
-accessor shall not recompute that id. The reader shall keep this record outside
+multiplicity, and the direction. It shall also retain the producer-supplied
+`destination_type` from each admitted application's `relationship_end` member.
+The accessor shall not derive that id from the selected document or resolve it
+against graph nodes. The reader shall keep the relationship record outside
 package equality, shall charge no work beyond what admission already charges,
-and shall not change its refusal order. The accessor shall read this record and
-add no second derivation.
+and shall not change its refusal order. The accessor shall read the record and
+the admitted member without a second derivation.
 
 **Result.** `application` is the supplied id and `relationship` is the
 `operation.member.declaration` node id the application names, so a consumer can
 name the edge. `role` is the destination end's authored role, `None` when that
 end carries none (a target role may be omitted, FR-038-AC-166); it is the role
-the data holds and is never synthesised. `destination_type` is the identity of
-the declared destination end's type, the model declaration node of the
-destination object type (or systems interface) that admission derived; it is
-the declared end type to which every operand conforms, not the type of a
-particular operand, so a subtype operand does not change it. The node need not
-be present in the graph: the reaches path computes it and does not look it up
-(the result is Boolean), so the accessor returns the derived id whether or not
-the graph holds that node. `lower`, `upper` and `unique` are the destination
+the data holds and is never synthesised. `destination_type` is exactly the
+structural `NodeId` the producer supplied in the admitted application's
+`relationship_end` member. A subtype operand does not replace that member's
+value. The named node may be absent from the graph, and the accessor neither
+looks it up nor derives another id. `lower`, `upper` and `unique` are the destination
 end's declared multiplicity and `ordered` its declared ordering, with no change
 of value or type: `upper` is `None` when the declaration is unbounded. The
 result carries no member type, charge, population, bound, evaluation or source
@@ -3104,8 +3113,8 @@ unbounded or an ordered destination end (FR-038-AC-255), a destination end of
 another type than the receiver endpoint (AC-256) and a traversal against the
 declared direction (AC-254), so no node that survives admission has such an
 end. For every admitted reaches application the accessor therefore returns
-`ordered` false, `upper` `Some` and a `destination_type` that is the receiver
-endpoint's own declared type. The accessor does not itself re-check those
+`ordered` false, `upper` `Some` and the member's producer-supplied
+`destination_type`, regardless of whether that id names a graph node. The accessor does not itself re-check those
 properties and promises nothing beyond them: it returns the declared `lower`,
 `upper` and `unique` (for example `{0,3}` unique, `{0,3}` not unique, `{2,3}`,
 `{0,1}`, `{1,1}`).
@@ -3290,9 +3299,9 @@ order:
   application shares with the receiver end, FR-038-AC-256), the reader shall
   refuse `ill_typed`/`operator-ineligible`. The reader shall derive the object
   type through FR-053's `population_object_type` itself, so that there is one
-  derivation, and shall compare it by its derived model declaration node id, the
-  id `relationship_end` reports as `destination_type`; a subtype of the declared
-  type does not conform.
+  derivation, and shall compare the semantic object types from the selected
+  document independently of the producer-supplied `destination_type` id;
+  a subtype of the declared type does not conform.
 
 For an application of any operation other than `navigate` and `reaches`,
 `check_relationship_member` does not run, and the application keeps its present
@@ -4628,8 +4637,8 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-259 | Implemented (IR-832). `parameter_declaration` over an id absent from the graph refuses `UnknownNode`; over an existing `value`/`literal`, an `application` node and a `function` node it refuses `NotParameter` for each; over a parameter node whose `body` a crate-internal post-admission mutation changed to lack the `"name"` binding, to give `"name"` a non-text value, to give `"name"` a non-identifier value, to type the name literal at a node that is not `scalar_type`/`text`, and to give `"level"` the non-canonical value `"010"`, it refuses `MalformedBody` for each. Every refusal returns only the typed error and no partial declaration. | Test (TC-048) |
 | FR-038-AC-260 | Implemented (IR-832). Two admitted parameter nodes named `x` at levels `0` and `1` have distinct ids, and `parameter_declaration` returns `level` `"0"` for one and `"1"` for the other with `name` `x` for both, so the accessor separates equal names by level and not by an enclosing function. The result type has no member naming a function, owner or declaration, which a compiled field-by-field construction of `CheckedParameterDeclaration` shows. | Test (TC-048) |
 | FR-038-AC-261 | Implemented (IR-832). For an admitted `quire.op.integer.add` application whose two operands reference parameters `a` and `b`, each typed at `Int[0, 9]` (a finite `bounded_domain`/`integer_range`, so that `scalar_application_operands` returns `Ok` and not `UnboundedRange`), calling `parameter_declaration` on each `GraphChild` id returned by `scalar_application_operands` yields `a` then `b` in operand ordinal order, and the same application with its arguments swapped in a separately admitted package yields `b` then `a`. An `InlineLiteral` operand carries no operand `CheckedNodeId`: the only id its `CheckedScalarOperandChild::InlineLiteral` holds is `application`, the containing application's, and `parameter_declaration` over that id refuses `NotParameter`. | Test (TC-048) |
-| FR-038-AC-262 | Implemented (IR-851). When `relationship_end` is called with the id of an admitted `quire.op.model.reaches` application over a bidirectional homogeneous relationship (the direction under which both a forward and an inverse application admit) whose source end is `{1,1}` and whose target end is `{2,3}` unique with role `peer`, it returns `Ok` with `application` equal to the supplied id, `relationship` equal to the relationship node the application names, `forward` true when the application names the source role, and `lower` 2, `upper` `Some(3)`, `unique` true, `ordered` false and `role` `Some("peer")`; for a second admitted application over the same relationship naming the target role it returns `forward` false and the source end's `lower` 1, `upper` `Some(1)`, `unique` false and its own `role`, so a swap of the two ends fails. `destination_type` equals the model declaration node id of the destination end's object type, derived independently of the accessor. | Test (TC-048) |
-| FR-038-AC-263 | Implemented (IR-851). For admitted reaches applications over a destination end of `{0,3}` unique, `{0,3}` not unique, `{2,3}`, `{0,1}` and `{1,1}`, `relationship_end` returns exactly that `lower`, `upper` and `unique` with `ordered` false and `upper` `Some`, and for a destination end that omits its role it returns `role` `None`; an `unbounded` or `ordered` destination end is refused at admission by FR-038-AC-255, so no application exists to be read. For an admitted application whose operand 1 is a subtype of the receiver endpoint type, `destination_type` is the declared end type's derived declaration node id and not the subtype's, including when the graph holds no node with that id, and the result is `Ok`. | Test (TC-048) |
+| FR-038-AC-262 | Implemented (IR-851); V2 wire amendment planned (IR-1141). When `relationship_end` is called with the id of an admitted `quire.op.model.reaches` application over a bidirectional homogeneous relationship (the direction under which both a forward and an inverse application admit) whose source end is `{1,1}` and whose target end is `{2,3}` unique with role `peer`, it returns `Ok` with `application` equal to the supplied id, `relationship` equal to the relationship node the application names, `forward` true when the application names the source role, and `lower` 2, `upper` `Some(3)`, `unique` true, `ordered` false and `role` `Some("peer")`; for a second admitted application over the same relationship naming the target role it returns `forward` false and the source end's `lower` 1, `upper` `Some(1)`, `unique` false and its own `role`, so a swap of the two ends fails. `destination_type` equals the producer-supplied structural `NodeId` in that admitted application's `relationship_end` member, without reader derivation or resolution; that member is required and its malformed shapes refuse `malformed_wire` under QSpec FR-322-AC-271. | Test (TC-048) |
+| FR-038-AC-263 | Implemented (IR-851); V2 wire amendment planned (IR-1141). For admitted reaches applications over a destination end of `{0,3}` unique, `{0,3}` not unique, `{2,3}`, `{0,1}` and `{1,1}`, `relationship_end` returns exactly that `lower`, `upper` and `unique` with `ordered` false and `upper` `Some`, and for a destination end that omits its role it returns `role` `None`; an `unbounded` or `ordered` destination end is refused at admission by FR-038-AC-255, so no application exists to be read. For an admitted application whose operand 1 is a subtype of the receiver endpoint type, `destination_type` remains the producer-supplied id from the member, not the subtype operand's id; the result is `Ok` even when the graph holds no node with that destination id. A present destination node is also admitted and the id returned verbatim (QSpec FR-322-AC-270). | Test (TC-048) |
 | FR-038-AC-264 | Implemented (IR-851). `relationship_end` over an id absent from the graph refuses `UnknownNode`; over an admitted `quire.op.model.navigate` application with a `relationship_end` member, an application of `quire.op.integer.add`, the relationship declaration node, an object type's declaration node, a field-read node and a `value`/`literal` node it refuses `NotReachesApplication` for each. Every refusal returns only the typed error and no partial end. | Test (TC-048) |
 | FR-038-AC-265 | Implemented (IR-851). When a crate-internal post-admission mutation of an admitted reaches application removes its `operation.member`, sets the member `kind` to a value other than `relationship_end`, sets its `declaration` to a non-node-id value, points it at a node that resolves to no retained relationship, sets its `name` to a non-text value, to a text equal to neither role or to a text equal to both roles, `relationship_end` refuses `UnresolvedEnd` for each and returns no partial end; the defects that the reader can see in a package given to it are refused at admission as before. | Test (TC-048) |
 | FR-038-AC-266 | Implemented (IR-851). When `relationship_end` is called twice on an admitted reaches application and on a clone of the admitted package, the results are equal, the package equals its pre-call self, the accessor charges no work, and every package of FR-038-AC-252 through FR-038-AC-257 yields its pre-change admission or refusal outcome at the same pointer and the same refusal order. | Test (TC-048) |
