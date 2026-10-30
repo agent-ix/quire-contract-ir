@@ -1219,7 +1219,7 @@ fn node_types() -> Vec<Typed> {
     ]
 }
 
-#[trace("FR-035-AC-4", "FR-035-AC-5", "FR-035-AC-19")]
+#[trace("FR-035-AC-4", "FR-035-AC-19")]
 #[test]
 fn recursive_group_round_trips_with_original_node_keys() {
     let [some, payload] = some_segments();
@@ -1322,13 +1322,6 @@ fn recursive_group_round_trips_with_original_node_keys() {
         .as_array_mut()
         .expect("source-map nodes")
         .swap(group_positions[0], group_positions[1]);
-    let projection = json!({
-        "contract_version": mutant["contract_version"],
-        "package": mutant["package"],
-        "semantic_graph": mutant["semantic_graph"],
-        "feature_accounting": mutant["feature_accounting"],
-    });
-    mutant["identity"]["digest"] = json!(sha256_hex(&canonical(&projection)));
     let mutant_outcome = ContractPackageWireV1::read(
         &canonical(&mutant),
         CheckedPackageReadLimits::bounded(),

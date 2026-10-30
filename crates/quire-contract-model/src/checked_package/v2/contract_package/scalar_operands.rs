@@ -7,9 +7,7 @@ use super::{
     ContractFeatureRecordV1, ContractOccurrenceKeyV1, ContractPackageV1, ContractProvenanceV1,
     ContractRootViewError, ContractRootViewV1,
 };
-use crate::checked_package::shared::{
-    CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
-};
+use crate::checked_package::shared::{CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry};
 use crate::checked_package::v2::scalar_operands::{scalar_arguments, ScalarArgumentChild};
 use crate::checked_package::v2::{CheckedScalarOperandError, CheckedScalarOperandRange};
 use num_bigint::BigInt;
@@ -77,8 +75,6 @@ pub struct ContractScalarOperandV1<'a> {
 pub struct ContractLoweredScalarOperandsV1<'a> {
     /// Exact source package and selected lowering profile.
     pub provenance: &'a ContractProvenanceV1,
-    /// Canonical identity of the admitted six-field package.
-    pub identity: &'a CheckedSemanticId,
     /// The caller's authenticated application occurrence.
     pub application: ContractOccurrenceKeyV1,
     /// Exact admitted source entry matching the supplied occurrence.
@@ -199,7 +195,6 @@ impl ContractPackageV1 {
         Ok(ContractScalarOperandViewV1::Lowered(Box::new(
             ContractLoweredScalarOperandsV1 {
                 provenance: &self.wire.package,
-                identity: &self.wire.identity,
                 application: occurrence.clone(),
                 application_source,
                 arguments,

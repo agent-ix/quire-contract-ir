@@ -8,9 +8,7 @@ use super::{
     ContractPackageV1, ContractProvenanceV1, ContractRootViewError, ContractRootViewV1,
     ContractSelectedReferenceV1, GuardContextWork,
 };
-use crate::checked_package::shared::{
-    CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
-};
+use crate::checked_package::shared::{CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry};
 use crate::checked_package::v2::{
     CheckedNodeKind, CheckedNodeTag, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm,
 };
@@ -49,8 +47,6 @@ pub struct ContractGuardReferenceV1<'a> {
 pub struct ContractLoweredGuardContextV1<'a> {
     /// Exact source package identity and selected lowering profile.
     pub provenance: &'a ContractProvenanceV1,
-    /// Canonical identity of the admitted six-field package.
-    pub identity: &'a CheckedSemanticId,
     /// The checked application occurrence supplied by the caller.
     pub application: super::ContractOccurrenceKeyV1,
     /// Guard references in the exact supplied order, including repeated keys.
@@ -371,7 +367,6 @@ impl ContractPackageV1 {
         Ok(ContractGuardContextViewV1::Lowered(Box::new(
             ContractLoweredGuardContextV1 {
                 provenance: &self.wire.package,
-                identity: &self.wire.identity,
                 application: application.clone(),
                 guards: admitted_guards,
             },

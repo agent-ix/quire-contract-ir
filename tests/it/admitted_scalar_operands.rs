@@ -40,7 +40,6 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
     let add = by_operation(&checked, "quire.op.integer.add");
     let admitted = package(&checked, std::slice::from_ref(&add.node_id));
     let before = admitted.wire().clone();
-    let identity = admitted.identity().clone();
     let reached = admitted
         .reached_closure(&add.node_id)
         .expect("reached before");
@@ -59,7 +58,6 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
         view.application_source,
         &sources_for(&admitted, &add.node_id)[0]
     );
-    assert_eq!(view.identity, admitted.identity());
     assert_eq!(view.provenance, &admitted.wire().package);
     assert_eq!(view.arguments.len(), 2);
     assert_eq!(
@@ -88,7 +86,6 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
         ContractScalarOwnRangeV1::Finite { lower: 1, upper: 1 }
     ));
     assert_eq!(admitted.wire(), &before);
-    assert_eq!(admitted.identity(), &identity);
     assert_eq!(
         admitted
             .reached_closure(&add.node_id)

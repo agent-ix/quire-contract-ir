@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-035/TC-047 and QSpec FR-330: the single six-field package value.
+//! FR-035/TC-047 and QSpec FR-330: the single five-field package value.
 
 use crate::support::checked_package::{
-    self, canonical, evidence_for, mint_ungrouped_structural_keys, settle, sha256_hex,
-    structural_key, typed_node_id, v2_all_families,
+    self, canonical, evidence_for, mint_ungrouped_structural_keys, settle, structural_key,
+    typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -15,7 +15,7 @@ use quire_contract_model::{
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
     ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1,
     ContractSourceHandoffError, ContractUnsupportedSourceKindError, TemporalForm,
-    CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
+    CONTRACT_PACKAGE_VERSION,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -134,15 +134,6 @@ fn lower(
 
 fn bytes(result: &quire_contract_model::CompleteLoweringResultV2) -> &[u8] {
     result.package.canonical_bytes().expect("package bytes")
-}
-
-fn projection(value: &Value) -> Value {
-    json!({
-        "contract_version": value["contract_version"],
-        "package": value["package"],
-        "semantic_graph": value["semantic_graph"],
-        "feature_accounting": value["feature_accounting"],
-    })
 }
 
 fn read(bytes: &[u8]) -> ContractPackageReadResult {
@@ -267,7 +258,6 @@ fn v1_operation_views_require_authenticated_source() {
         panic!("authenticated canonical V1 read");
     };
     assert_eq!(authenticated.wire(), plain.wire());
-    assert_eq!(authenticated.identity(), plain.identity());
     assert_eq!(authenticated.term(&key), Some(source_term));
     assert_eq!(
         operation(authenticated.term(&key).unwrap()).mode(),
@@ -402,7 +392,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
     let mut wrong_lock: Value = serde_json::from_slice(bytes(&lowered)).expect("wire json");
     wrong_lock["package"]["source"]["lock"] =
         serde_json::to_value(wrong_source.lock()).expect("lock wire");
-    let wrong_lock = rehashed(wrong_lock);
+    let wrong_lock = canonical(&wrong_lock);
     assert!(matches!(
         read(&wrong_lock),
         ContractPackageReadResult::Admitted(_)
@@ -422,7 +412,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         serde_json::to_value(wrong_source.package_id()).expect("source id wire");
     unrelated["package"]["source"]["lock"] =
         serde_json::to_value(wrong_source.lock()).expect("source lock wire");
-    let unrelated = rehashed(unrelated);
+    let unrelated = canonical(&unrelated);
     assert!(matches!(
         read(&unrelated),
         ContractPackageReadResult::Admitted(_)
@@ -472,7 +462,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         serde_json::to_value(original_operation.package_id()).expect("original source identity");
     changed["package"]["source"]["lock"] =
         serde_json::to_value(original_operation.lock()).expect("original source lock");
-    let changed = rehashed(changed);
+    let changed = canonical(&changed);
     assert!(matches!(
         read(&changed),
         ContractPackageReadResult::Admitted(_)
@@ -515,7 +505,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         serde_json::to_value(original_reference.package_id()).expect("original source identity");
     changed["package"]["source"]["lock"] =
         serde_json::to_value(original_reference.lock()).expect("original source lock");
-    let changed = rehashed(changed);
+    let changed = canonical(&changed);
     assert!(matches!(
         read(&changed),
         ContractPackageReadResult::Admitted(_)
@@ -528,18 +518,6 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
             &original_reference,
         ),
         Err(ContractSourceHandoffError::MissingNode(_))
-    ));
-
-    let mut stale: Value = serde_json::from_slice(bytes(&lowered)).expect("wire json");
-    stale["identity"]["digest"] = json!("0".repeat(64));
-    assert!(matches!(
-        ContractPackageWireV1::read_with_source(
-            &canonical(&stale),
-            CheckedPackageReadLimits::bounded(),
-            &ContractDependencies::new(),
-            &wrong_source,
-        ),
-        Ok(ContractPackageReadResult::Refused(_))
     ));
 }
 
@@ -596,7 +574,6 @@ fn reader_refuses_each_missing_required_top_level_member() {
         "semantic_graph",
         "source_map",
         "feature_accounting",
-        "identity",
     ] {
         let mut changed = wire.clone();
         changed.as_object_mut().expect("object").remove(member);
@@ -646,7 +623,7 @@ fn reader_refuses_first_accounting_record_for_later_requested_items() {
         let mut changed = wire.clone();
         changed["feature_accounting"][0]["node_id"] =
             wire["source_map"]["requested_items"][index]["requested_item"].clone();
-        let ContractPackageReadResult::Refused(refusal) = read(&rehashed(changed)) else {
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
             panic!("accounting record for requested item {index} must refuse");
         };
         assert_eq!(refusal.code, Code::InvalidPackage, "requested item {index}");
@@ -675,7 +652,7 @@ fn reader_refuses_first_accounting_record_for_later_requested_items() {
         .iter()
         .any(|node| node["node_id"] == other_root));
     changed["feature_accounting"][0]["node_id"] = other_root;
-    let ContractPackageReadResult::Refused(refusal) = read(&rehashed(changed)) else {
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
         panic!("first accounting record for another represented root must refuse");
     };
     assert_eq!(refusal.code, Code::InvalidPackage);
@@ -712,13 +689,13 @@ fn reader_refuses_wrong_string_version_before_shape_identity_and_nodes() {
         .as_object_mut()
         .expect("object")
         .remove("source_map");
-    let mut bad_identity = wire.clone();
-    bad_identity["identity"]["digest"] = json!("0".repeat(64));
+    let mut extra_member = wire.clone();
+    extra_member["extra"] = json!(0);
     let mut no_nodes = wire.clone();
     no_nodes["semantic_graph"]["nodes"] = json!(0);
-    for defective in [no_source_map, bad_identity, no_nodes] {
+    for defective in [no_source_map, extra_member, no_nodes] {
         let ContractPackageReadResult::Refused(refusal) = read(&canonical(&defective)) else {
-            panic!("version must win over shape, identity, and node checks");
+            panic!("version must win over shape and node checks");
         };
         assert_eq!(refusal.code, Code::UnknownContractVersion);
         assert_eq!(
@@ -964,7 +941,7 @@ fn independent_closure(
 
 #[trace("TC-047", "FR-035-AC-6", "FR-035-AC-7", "FR-035-AC-8")]
 #[test]
-fn reached_view_uses_all_three_edges_and_preserves_sources_and_identity() {
+fn reached_view_uses_all_three_edges_and_preserves_sources_and_wire() {
     let mut input = mixed_fixture();
     let expression = input["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -1045,7 +1022,6 @@ fn reached_view_uses_all_three_edges_and_preserves_sources_and_identity() {
         ContractRootViewV1::Absent
     ));
     assert_eq!(package.wire(), &before);
-    assert_eq!(package.identity(), &before.identity);
 }
 
 #[trace("TC-047", "FR-035-AC-7", "FR-035-AC-8")]
@@ -1078,9 +1054,9 @@ fn reached_view_exposes_empty_subsets_and_absent_keys() {
     ));
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-3", "FR-035-AC-4")]
 #[test]
-fn one_call_emits_one_six_field_package_with_total_accounting_and_source_map() {
+fn one_call_emits_one_five_field_package_with_total_accounting_and_source_map() {
     let input = mixed_fixture();
     let admitted = admit(&input);
     let result = admitted.lower(&request(), &profile());
@@ -1130,10 +1106,6 @@ fn one_call_emits_one_six_field_package_with_total_accounting_and_source_map() {
         panic!("emitted package must admit");
     };
     assert_eq!(read_package.wire(), package);
-    assert_eq!(
-        read_package.identity(),
-        result.package.package_id().expect("identity")
-    );
 }
 
 #[trace("TC-047", "FR-035-AC-19", "FR-035-AC-20", "FR-035-AC-21")]
@@ -1146,7 +1118,6 @@ fn retained_typed_views_match_source_and_strict_reader_without_changing_wire() {
         panic!("emitted package must admit");
     };
     assert_eq!(producer.wire(), reader.wire());
-    assert_eq!(producer.identity(), reader.identity());
     for node in &producer.wire().semantic_graph.nodes {
         let source_position = admitted
             .graph()
@@ -1298,8 +1269,6 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
     };
     assert_eq!(producer.wire(), plain.wire());
     assert_eq!(producer.wire(), authenticated.wire());
-    assert_eq!(producer.identity(), plain.identity());
-    assert_eq!(producer.identity(), authenticated.identity());
     assert_eq!(
         wire_bytes,
         canonical(&serde_json::to_value(producer.wire()).expect("wire value"))
@@ -1346,7 +1315,7 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         healthy_sources.clone();
     represented_request["source_map"]["refusals"][0]["requested_item"] = represented;
     represented_request["source_map"]["refusals"][0]["occurrences"] = healthy_sources;
-    let represented_request = rehashed(represented_request);
+    let represented_request = canonical(&represented_request);
     let ContractPackageReadResult::Admitted(represented_plain) = read(&represented_request) else {
         panic!("canonical V1 with a represented unsupported request must admit");
     };
@@ -1362,7 +1331,7 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
     missing_root["source_map"]["requested_items"][0]["occurrences"] = json!([]);
     missing_root["source_map"]["refusals"][0]["requested_item"] = absent;
     missing_root["source_map"]["refusals"][0]["occurrences"] = json!([]);
-    let missing_root = rehashed(missing_root);
+    let missing_root = canonical(&missing_root);
     let missing_root_read = read(&missing_root);
     assert!(
         matches!(missing_root_read, ContractPackageReadResult::Admitted(_)),
@@ -1395,7 +1364,7 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         .expect("temporal profile selection");
     temporal_profile["definition"]["identity"] =
         json!("quire.temporal.event-position.false-extension/v1");
-    let wrong_lock = rehashed(wrong_lock);
+    let wrong_lock = canonical(&wrong_lock);
     assert!(matches!(
         read(&wrong_lock),
         ContractPackageReadResult::Admitted(_)
@@ -1425,24 +1394,6 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
     };
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Bytes);
     assert_eq!(incomplete.limit, short_limit.bytes);
-    let mut stale: Value = serde_json::from_slice(wire_bytes).expect("wire json");
-    stale["identity"]["digest"] = json!("0".repeat(64));
-    let Ok(ContractPackageReadResult::Refused(refusal)) = ContractPackageWireV1::read_with_source(
-        &canonical(&stale),
-        CheckedPackageReadLimits::bounded(),
-        &ContractDependencies::new(),
-        &admit(&mixed_fixture()),
-    ) else {
-        panic!("V1 identity refusal must precede unsupported source handoff");
-    };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::InvalidValue))
-    );
-    assert_eq!(
-        refusal.path.expect("identity path").as_str(),
-        "/identity/digest"
-    );
 }
 
 #[trace("TC-047", "FR-035-AC-21")]
@@ -1478,9 +1429,9 @@ fn retained_views_preserve_kind_and_tag_refusal_before_identity_and_limit() {
     ));
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-3", "FR-035-AC-4")]
 #[test]
-fn identity_covers_exact_semantic_projection_and_excludes_valid_source_coordinates() {
+fn canonical_package_retains_request_order_and_source_coordinates() {
     let input = mixed_fixture();
     let first = lower(&input, &request());
     let same = lower(&input, &request());
@@ -1497,55 +1448,60 @@ fn identity_covers_exact_semantic_projection_and_excludes_valid_source_coordinat
         [
             "contract_version",
             "feature_accounting",
-            "identity",
             "package",
             "semantic_graph",
             "source_map"
         ]
     );
-    let identity = first.package.wire().expect("wire").identity();
-    assert_eq!(identity.domain.as_ref(), CONTRACT_IR_SEMANTIC_DOMAIN);
-    assert_eq!(
-        identity.digest.as_ref(),
-        sha256_hex(&canonical(&projection(&wire)))
-    );
-
     let mut reversed = request();
     reversed.reverse();
     let reordered = lower(&input, &reversed);
     assert_ne!(
-        first.package.package_id(),
-        reordered.package.package_id(),
-        "request order is included accounting"
+        bytes(&first),
+        bytes(&reordered),
+        "request order is retained in accounting"
     );
     let mut relocated = input;
     relocated["source_map"][3]["regions"][0]["end"] = json!(5);
     let changed = lower(&relocated, &request());
     assert_ne!(bytes(&first), bytes(&changed));
-    assert_eq!(first.package.package_id(), changed.package.package_id());
+    let first_wire = first.package.wire().expect("first wire").wire();
+    let changed_wire = changed.package.wire().expect("changed wire").wire();
+    assert_eq!(first_wire.semantic_graph, changed_wire.semantic_graph);
+    assert_eq!(
+        first_wire.feature_accounting,
+        changed_wire.feature_accounting
+    );
+    assert_ne!(first_wire.source_map, changed_wire.source_map);
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-12")]
 #[test]
-fn reader_refuses_malformed_outer_shape_and_identity_domain() {
+fn reader_refuses_malformed_outer_shape_and_identity_member() {
     use quire_contract_model::{
         CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
     };
     let output = lower(&mixed_fixture(), &request());
     let wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
-    let mut missing = wire.clone();
-    missing
-        .as_object_mut()
-        .expect("object")
-        .remove("source_map");
-    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&missing)) else {
-        panic!("missing outer member must refuse");
-    };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::MissingMember))
-    );
-    assert_eq!(refusal.path.expect("root pointer").as_str(), "");
+    for member in [
+        "contract_version",
+        "package",
+        "semantic_graph",
+        "source_map",
+        "feature_accounting",
+    ] {
+        let mut missing = wire.clone();
+        missing.as_object_mut().expect("object").remove(member);
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&missing)) else {
+            panic!("missing {member} must refuse");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(Cause::MissingMember)),
+            "{member}"
+        );
+        assert_eq!(refusal.path.expect("root pointer").as_str(), "", "{member}");
+    }
     let mut extra = wire.clone();
     extra["types"] = json!([]);
     let ContractPackageReadResult::Refused(refusal) = read(&canonical(&extra)) else {
@@ -1556,41 +1512,19 @@ fn reader_refuses_malformed_outer_shape_and_identity_domain() {
         (Code::InvalidPackage, Some(Cause::UnknownMember))
     );
     assert_eq!(refusal.path.expect("object pointer").as_str(), "");
-    let mut wrong_domain = wire;
-    wrong_domain["identity"]["domain"] = json!("quire.package.semantic/v2");
-    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wrong_domain)) else {
-        panic!("wrong identity domain must refuse");
+    let mut old_identity = wire;
+    old_identity["identity"] = json!(null);
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&old_identity)) else {
+        panic!("removed identity member must refuse");
     };
     assert_eq!(
         (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::InvalidValue))
+        (Code::InvalidPackage, Some(Cause::UnknownMember))
     );
-    assert_eq!(
-        refusal.path.expect("domain pointer").as_str(),
-        "/identity/domain"
-    );
+    assert_eq!(refusal.path.expect("root pointer").as_str(), "");
 }
 
-#[trace("TC-047", "FR-035-AC-2")]
-#[test]
-fn reader_refuses_stale_own_identity_at_digest() {
-    let output = lower(&mixed_fixture(), &request());
-    let mut stale: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
-    stale["identity"]["digest"] = json!("0".repeat(64));
-    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&stale)) else {
-        panic!("stale own identity must refuse");
-    };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::InvalidValue))
-    );
-    assert_eq!(
-        refusal.path.expect("digest pointer").as_str(),
-        "/identity/digest"
-    );
-}
-
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-9")]
 #[test]
 fn reader_keeps_lowering_profile_reference_closed() {
     use quire_contract_model::{
@@ -1612,7 +1546,7 @@ fn reader_keeps_lowering_profile_reference_closed() {
     );
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-2")]
 #[test]
 fn reader_locates_malformed_nested_source_value() {
     use quire_contract_model::{
@@ -1634,7 +1568,7 @@ fn reader_locates_malformed_nested_source_value() {
     );
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-4")]
 #[test]
 fn reader_distinguishes_unknown_occurrence_role_from_wrong_value_kind() {
     use quire_contract_model::{
@@ -1662,7 +1596,7 @@ fn reader_distinguishes_unknown_occurrence_role_from_wrong_value_kind() {
     }
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-4")]
 #[test]
 fn reader_requires_total_source_correspondence_and_request_order() {
     use quire_contract_model::{
@@ -1700,7 +1634,7 @@ fn reader_requires_total_source_correspondence_and_request_order() {
     );
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-3")]
 #[test]
 fn refused_request_appears_only_if_reached_by_a_lowered_root() {
     let result = lower(&mixed_fixture(), &request());
@@ -1720,12 +1654,6 @@ fn refused_request_appears_only_if_reached_by_a_lowered_root() {
     assert!(!represented.contains(&missing()));
 }
 
-fn rehashed(mut wire: Value) -> Vec<u8> {
-    let digest = sha256_hex(&canonical(&projection(&wire)));
-    wire["identity"]["digest"] = json!(digest);
-    canonical(&wire)
-}
-
 fn failed_wire(limit: &str, consumed: &str) -> Value {
     let output = lower(&mixed_fixture(), &request());
     let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
@@ -1737,13 +1665,13 @@ fn failed_wire(limit: &str, consumed: &str) -> Value {
     wire
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-11")]
 #[test]
 fn canonical_decimal_counters_keep_the_full_u64_range() {
     use quire_contract_model::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
     for counter in ["0", "18446744073709551615"] {
         assert!(matches!(
-            read(&rehashed(failed_wire(counter, counter))),
+            read(&canonical(&failed_wire(counter, counter))),
             ContractPackageReadResult::Admitted(_)
         ));
     }
@@ -1773,7 +1701,7 @@ fn canonical_decimal_counters_keep_the_full_u64_range() {
     );
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-17")]
 #[test]
 fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     use quire_contract_model::CheckedPackageRefusalCause;
@@ -1784,7 +1712,7 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     });
     wire["source_map"]["refusals"][0]["disposition"] = json!("body_incomplete");
     assert!(matches!(
-        read(&rehashed(wire.clone())),
+        read(&canonical(&wire)),
         ContractPackageReadResult::Admitted(_)
     ));
     wire["feature_accounting"][1]["incomplete"]["path"] = json!("");
@@ -1797,7 +1725,7 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     );
     wire["feature_accounting"][1]["incomplete"]["limit_kind"] = json!("work");
     assert!(matches!(
-        read(&rehashed(wire.clone())),
+        read(&canonical(&wire)),
         ContractPackageReadResult::Admitted(_)
     ));
     let mut unknown_kind = wire.clone();
@@ -1832,7 +1760,7 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     });
     body["source_map"]["refusals"][0]["disposition"] = json!("invalid_body");
     assert!(matches!(
-        read(&rehashed(body.clone())),
+        read(&canonical(&body)),
         ContractPackageReadResult::Admitted(_)
     ));
     let mut unpaired = body.clone();
@@ -1889,7 +1817,7 @@ fn reader_refuses_causes_on_causeless_nested_reader_codes() {
         });
         wire["source_map"]["refusals"][0]["disposition"] = json!("invalid_body");
         assert!(matches!(
-            read(&rehashed(wire.clone())),
+            read(&canonical(&wire)),
             ContractPackageReadResult::Admitted(_)
         ));
 
@@ -1936,11 +1864,11 @@ fn reader_refuses_causes_on_causeless_nested_reader_codes() {
     }
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-13")]
 #[test]
-fn duplicate_member_and_noncanonical_bytes_refuse_before_identity() {
+fn duplicate_member_and_noncanonical_bytes_refuse() {
     use quire_contract_model::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
-    let wire = rehashed(failed_wire("0", "0"));
+    let wire = canonical(&failed_wire("0", "0"));
     let text = std::str::from_utf8(&wire).expect("utf8");
     let duplicate = text.replacen("\"limit\":\"0\"", "\"limit\":\"0\",\"limit\":\"0\"", 1);
     let ContractPackageReadResult::Refused(refusal) = read(duplicate.as_bytes()) else {
@@ -1953,14 +1881,14 @@ fn duplicate_member_and_noncanonical_bytes_refuse_before_identity() {
     );
 }
 
-#[trace("TC-047", "FR-035-AC-5", "FR-035-AC-19")]
+#[trace("TC-047", "FR-035-AC-2", "FR-035-AC-19")]
 #[test]
 fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
     use quire_contract_model::{
         CheckedPackageRefusalCause, CheckedPackageRefusalCode, ContractDependencyInput,
     };
     let (dependency, wire) = wire_selecting_lib_a();
-    let bytes = rehashed(wire.clone());
+    let bytes = canonical(&wire);
     let mut supplied = ContractDependencies::new();
     supplied.insert(
         "lib/a",
@@ -2056,7 +1984,7 @@ fn contract_reader_refuses_different_ids_in_derived_dependency_diamond() {
         {"identity": "lib/left", "package_id": left.package_id()},
         {"identity": "lib/right", "package_id": right.package_id()}
     ]);
-    let bytes = rehashed(wire);
+    let bytes = canonical(&wire);
     let mut supplied = ContractDependencies::new();
     supplied.insert(
         "lib/left",
@@ -2106,7 +2034,7 @@ fn reader_refuses_stale_selected_dependency_at_selection() {
     );
     wire["package"]["source"]["lock"]["dependency_selections"][0]["package_id"]["digest"] =
         json!("0".repeat(64));
-    let stale = rehashed(wire);
+    let stale = canonical(&wire);
     let ContractPackageReadResult::Refused(wrong_package) =
         ContractPackageWireV1::read(&stale, CheckedPackageReadLimits::bounded(), &supplied)
     else {
@@ -2164,7 +2092,7 @@ fn reader_refuses_reference_type_targeting_an_existing_scalar_node() {
         "term": "aggregate",
         "members": [{"term": "reference", "target": scalar}],
     });
-    let ContractPackageReadResult::Refused(refusal) = read(&rehashed(wire)) else {
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
         panic!("reference type cannot target a scalar key");
     };
     assert_eq!(
