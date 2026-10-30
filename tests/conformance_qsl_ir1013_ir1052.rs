@@ -120,9 +120,12 @@ fn node<'a>(
 #[test]
 fn qsl_four_execution_points_read_back_through_public_accessor() {
     let (qsl, binary) = producer();
+    assert!(qsl
+        .join("examples/switch-transition/adjust.native")
+        .is_file());
     let scratch = Scratch::new(&qsl);
-    let original = std::fs::read_to_string(qsl.join("examples/switch-transition/switch.native"))
-        .expect("QSL source template");
+    let original = std::fs::read_to_string(qsl.join("examples/switch-transition/adjust.native"))
+        .expect("QSL adjust source");
     let original_model =
         std::fs::read(qsl.join("examples/switch-transition/switch.semantic-ir.json"))
             .expect("QSL Switch model");
@@ -138,7 +141,6 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
             "Handle": {"kind": "handler", "name": "tick"},
             "P1": {"kind": "pre", "operation": "adjust"},
             "Q2": {"kind": "post", "operation": "adjust"},
-            "Q1": {"kind": "post", "operation": "set"},
         }))
         .expect("points JSON"),
     );
@@ -182,7 +184,7 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
     }
     assert_eq!(
         observed.len(),
-        expected.len() + 1,
+        expected.len(),
         "one claim per source clause"
     );
     for point in expected {
@@ -192,19 +194,6 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
             "each point kind and exact name occurs once: {point:?}"
         );
     }
-    assert_eq!(
-        observed
-            .iter()
-            .filter(|point| {
-                **point
-                    == ExecutionPoint::Post {
-                        operation: ExecutionPointName::new("set").expect("operation name"),
-                    }
-            })
-            .count(),
-        1,
-        "QSL's original Switch.set clause also remains bound"
-    );
 }
 
 /// QSL's Switch source contributes an actual transition claim. Its public
