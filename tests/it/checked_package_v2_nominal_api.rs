@@ -246,5 +246,14 @@ fn constructed_body_does_not_bypass_package_semantic_admission() {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("unresolved nominal reference must refuse: {other:?}"),
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some("/semantic_graph/nodes/3/body/terms/0/dimension_node_id"),
+        "{refusal:?}"
+    );
 }
