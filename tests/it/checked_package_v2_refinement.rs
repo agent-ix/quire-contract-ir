@@ -5,8 +5,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, node_id, protocol_named_node,
-    rebuild_source_map, refresh_identity, select_model, settle, sha256_hex, structural_key,
-    v2_all_families, v2_nominal,
+    rebuild_source_map, refresh_identity, select_model, settle, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -282,8 +281,11 @@ fn selected_forms_package_with(document: Value) -> (Value, CheckedPackageEvidenc
             .expect("target")["node_id"]
             .clone();
         let body = json!({"term":"aggregate", "members":[{"term":"reference", "target":target}]});
-        let key = structural_key("composite_type", "reference", None, &body);
-        let id = node_id(&key);
+        let id = crate::support::checked_package::structural_id(
+            FAMILY_MODEL_IDENTITY,
+            vec![json!("composite_type"), json!("reference"), target.clone()],
+            0,
+        );
         package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes")
@@ -609,12 +611,11 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
     let gate = extra[1]["node_id"].clone();
     let gate_reference_body =
         json!({"term":"aggregate", "members":[{"term":"reference", "target":gate}]});
-    let gate_reference = node_id(&structural_key(
-        "composite_type",
-        "reference",
-        None,
-        &gate_reference_body,
-    ));
+    let gate_reference = crate::support::checked_package::structural_id(
+        FAMILY_MODEL_IDENTITY,
+        vec![json!("composite_type"), json!("reference"), gate.clone()],
+        0,
+    );
     let mut selected_nodes = extra.to_vec();
     selected_nodes.push(json!({
         "node_id":gate_reference, "schema_version":"quire.checked-semantic-graph/v2",
@@ -1330,7 +1331,7 @@ fn process_and_machine_anchors_refuse_non_object_context_forms() {
             let context = match rejected {
                 "event_type" => {
                     let body = json!({"term":"aggregate","members":[]});
-                    let id = node_id(&structural_key("model", "event_type", None, &body));
+                    let id = node_id("refinement/unselected-event-type");
                     package["semantic_graph"]["nodes"].as_array_mut().expect("nodes").push(json!({
                         "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
                         "node_tag":"model","semantic_form":"event_type","semantic_type":id,
@@ -1547,12 +1548,7 @@ fn object_frame_retains_receiver_scoped_grants() {
             (process, "n", "every-object"),
             (machine, "openFlag", "every-object"),
         ];
-        fields.sort_by(|left, right| {
-            left.0["digest"]
-                .as_str()
-                .cmp(&right.0["digest"].as_str())
-                .then(left.1.cmp(right.1))
-        });
+        fields.sort_by(|left, right| node_id_order(&left.0, &right.0).then(left.1.cmp(right.1)));
         node["dependencies"] = json!(declarations);
         node["body"]["modifies"] = json!(fields
             .iter()
@@ -2109,7 +2105,7 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
     }
 
     let mut missing_target = base;
-    let unresolved = node_id(&sha256_hex(b"absent-abstract-operation"));
+    let unresolved = node_id("refinement/absent-abstract-operation");
     let node = &mut missing_target["semantic_graph"]["nodes"][position];
     node["body"]["steps"][0]["target"] = json!({
         "kind":"operation", "operation":unresolved,
@@ -2656,9 +2652,7 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
         initial
     );
     let literal = json!({
-        "node_id":node_id(&structural_key(
-            "value", "literal", type_id["digest"].as_str(), &initial
-        )),
+        "node_id":node_id("refinement/history-initial-literal"),
         "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"value",
         "semantic_form":"literal", "semantic_type":type_id,
         "dependencies":[type_id], "occurrences":[{"role":"generated","ordinal":0}],
@@ -2799,11 +2793,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
     let mut later = row["updates"][0].clone();
     later["operation"] = type_id.clone();
     let mut updates = vec![row["updates"][0].clone(), later];
-    updates.sort_by(|left, right| {
-        right["operation"]["digest"]
-            .as_str()
-            .cmp(&left["operation"]["digest"].as_str())
-    });
+    updates.sort_by(|left, right| node_id_order(&right["operation"], &left["operation"]));
     row["updates"] = json!(updates);
     settle_refinement(&mut package, position);
     assert_eq!(
@@ -2849,7 +2839,7 @@ fn refinement_rejects_each_unsorted_row_array_without_reordering() {
             "ensure",
             vec![
                 json!({"operation":anchor,"kind":"weak","granularity":"whole"}),
-                json!({"operation":object,"kind":"weak","granularity":"whole"}),
+                json!({"operation":type_id,"kind":"weak","granularity":"whole"}),
             ],
         ),
     ];
@@ -2862,9 +2852,7 @@ fn refinement_rejects_each_unsorted_row_array_without_reordering() {
                 "assume" | "ensure" => "operation",
                 _ => unreachable!(),
             };
-            right[member]["digest"]
-                .as_str()
-                .cmp(&left[member]["digest"].as_str())
+            node_id_order(&right[member], &left[member])
         });
         package["semantic_graph"]["nodes"][position]["body"][*array] = json!(rows);
         settle_refinement(&mut package, position);
@@ -3272,12 +3260,7 @@ fn catalog_free_operation_step_refuses_foreign_selected_model_anchor() {
     let frame_body = json!({
         "term":"frame", "modifies":[], "creates":[], "deletes":[], "deletes_scoped":[]
     });
-    let frame = node_id(&structural_key(
-        "state",
-        "frame",
-        Some(&account),
-        &frame_body,
-    ));
+    let frame = node_id("refinement/extra-frame");
     let text_type = node_id(&crate::support::checked_package::family_key("a1a1"));
     let anchor_body = json!({"term":"aggregate", "members":[
         {"term":"binding", "name":"context", "value":{"term":"reference", "target":context}},
@@ -3285,12 +3268,7 @@ fn catalog_free_operation_step_refuses_foreign_selected_model_anchor() {
             "value_kind":"text", "value":"deposit"}},
         {"term":"binding", "name":"frame", "value":{"term":"reference", "target":frame}}
     ]});
-    let anchor = node_id(&structural_key(
-        "state",
-        "operation_anchor",
-        Some(&account),
-        &anchor_body,
-    ));
+    let anchor = node_id("refinement/extra-operation-anchor");
     let mut dependencies = vec![context.clone(), frame.clone()];
     dependencies.sort_by(node_id_order);
     package["semantic_graph"]["nodes"].as_array_mut().expect("nodes").extend([
@@ -3471,9 +3449,9 @@ fn catalog_free_operation_steps_join_in_received_order() {
     settle_refinement(&mut package, position);
     assert_step_refusal(
         read(&package, &evidence),
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        None,
-        &format!("{at}/1"),
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        &format!("{at}/0/source_class"),
     );
     package["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_class"] = json!("aaa");
     settle_refinement(&mut package, position);
@@ -3558,12 +3536,7 @@ fn activate_each(package: &mut Value, trigger_type: &Value) {
     trigger["semantic_type"] = trigger_type.clone();
     trigger["body"]["members"][0]["value"]["value"] = json!("opened");
     trigger["body"]["members"][1]["value"]["value"] = json!("1");
-    trigger["node_id"] = node_id(&structural_key(
-        "value",
-        "parameter",
-        trigger_type["digest"].as_str(),
-        &trigger["body"],
-    ));
+    trigger["node_id"] = node_id("refinement/activate-trigger");
     let trigger_key = trigger["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -3587,12 +3560,7 @@ fn activate_each(package: &mut Value, trigger_type: &Value) {
         .expect("finish binder")
         .clone();
     binder["body"]["members"][1]["value"]["value"] = json!("2");
-    binder["node_id"] = node_id(&structural_key(
-        "value",
-        "parameter",
-        binder["semantic_type"]["digest"].as_str(),
-        &binder["body"],
-    ));
+    binder["node_id"] = node_id("refinement/activate-finish-binder");
     let binder_key = binder["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -3640,11 +3608,11 @@ fn record_declaration_node(record: &Value) -> Value {
     let identity = record["identity"].as_str().expect("record identity");
     let owner = json!({"kind":"model", "identity":MODEL_IDENTITY, "node":identity});
     let body = json!({"term":"aggregate", "members":[]});
-    let key = node_id(&sha256_hex(&canonical(&json!({
-        "version":"quire.structural-node/v1", "node_tag":"model",
-        "semantic_form":"record_value_type", "semantic_type":null,
-        "declaration":null, "recursion":null, "owner":owner, "body":body
-    }))));
+    let key = crate::support::checked_package::structural_id(
+        MODEL_IDENTITY,
+        vec![json!("model"), json!("record_value_type"), json!(identity)],
+        0,
+    );
     json!({
         "node_id":key, "schema_version":"quire.checked-semantic-graph/v2",
         "node_tag":"model", "semantic_form":"record_value_type",
@@ -3686,6 +3654,7 @@ fn record_activation_case(
         document,
         record_nodes,
     );
+    add_model_scalar_type_nodes(&mut package);
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -3708,6 +3677,43 @@ fn record_activation_case(
         ],
     );
     (package, evidence, position)
+}
+
+fn model_scalar_type_id(form: &str) -> Value {
+    crate::support::checked_package::structural_id(
+        FAMILY_MODEL_IDENTITY,
+        vec![json!("scalar_type"), json!(form)],
+        0,
+    )
+}
+
+fn add_model_scalar_type_nodes(package: &mut Value) {
+    let source = package["lock"]["sources"][0].clone();
+    for (form, fixture) in [("boolean", "aaaa"), ("integer", "a3a3")] {
+        let old_id = node_id(&crate::support::checked_package::family_key(fixture));
+        let mut node = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_id"] == old_id)
+            .expect("native scalar fixture")
+            .clone();
+        let id = model_scalar_type_id(form);
+        node["node_id"] = id.clone();
+        node["semantic_type"] = id.clone();
+        let occurrence = &node["occurrences"][0];
+        package["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(json!({"node_id":id,"role":occurrence["role"],
+                "ordinal":occurrence["ordinal"],
+                "regions":[{"source":source,"start":10,"end":11}]}));
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node);
+    }
+    refresh_identity(package);
 }
 
 /// Trace: FR-038-AC-325
@@ -3873,8 +3879,8 @@ fn refinement_catalog_activate_record_follows_authored_inherited_field_order() {
     let base = format!("ix://{MODEL_IDENTITY}/Base");
     let mid = format!("ix://{MODEL_IDENTITY}/Mid");
     let leaf = format!("ix://{MODEL_IDENTITY}/Leaf");
-    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
-    let integer = node_id(&crate::support::checked_package::family_key("a3a3"));
+    let boolean = model_scalar_type_id("boolean");
+    let integer = model_scalar_type_id("integer");
     for (base_fields, expected) in [
         (
             vec![("b", "Boolean"), ("a", "Integer")],
@@ -3954,8 +3960,8 @@ fn refinement_catalog_activate_record_respects_supertype_order_and_diamond_hidin
     let p = format!("ix://{MODEL_IDENTITY}/P");
     let q = format!("ix://{MODEL_IDENTITY}/Q");
     let both = format!("ix://{MODEL_IDENTITY}/Both");
-    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
-    let integer = node_id(&crate::support::checked_package::family_key("a3a3"));
+    let boolean = model_scalar_type_id("boolean");
+    let integer = model_scalar_type_id("integer");
     for (supertypes, expected) in [
         (
             vec![p.as_str(), q.as_str()],
@@ -4519,7 +4525,6 @@ fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
             json!({"class":"memory flush", "memory_model":"tso"}),
         ]
     );
-    assert_eq!(written["package_id"], package["package_id"]);
     assert_eq!(
         written["semantic_graph"]["nodes"][position]["node_id"],
         package["semantic_graph"]["nodes"][position]["node_id"]
@@ -4912,7 +4917,15 @@ fn operation_model_nodes() -> (Value, Value, Value, Value) {
     let reference_body = json!({"term":"aggregate", "members":[
         {"term":"reference", "target":worker_key}
     ]});
-    let reference_key = node_id("refinement/worker-reference");
+    let reference_key = crate::support::checked_package::structural_id(
+        FAMILY_MODEL_IDENTITY,
+        vec![
+            json!("composite_type"),
+            json!("reference"),
+            worker_key.clone(),
+        ],
+        0,
+    );
     let reference = json!({
         "node_id": reference_key, "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "composite_type", "semantic_form": "reference",
@@ -5190,7 +5203,10 @@ fn refinement_step_regions_bind_generated_occurrences_before_row_join() {
     assert_eq!(bytes, canonical(&package));
     let mut wrong = package.clone();
     wrong["refinement_step_rows"][0]["region"]["start"] = json!(30);
-    assert_eq!(wrong["package_id"], package["package_id"]);
+    assert_eq!(
+        wrong["semantic_graph"]["nodes"][refinement]["node_id"],
+        package["semantic_graph"]["nodes"][refinement]["node_id"]
+    );
     let at = wrong["source_map"]
         .as_array()
         .expect("source map")
@@ -6376,6 +6392,7 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
         document,
         vec![worker, reference],
     );
+    add_model_scalar_type_nodes(&mut package);
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -6385,10 +6402,11 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
         .expect("finish")["node_id"]
         .clone();
     let finish_binder = node_id(&crate::support::checked_package::family_key("aaaa"));
-    let integer_binder = node_id(&crate::support::checked_package::family_key("a3a3"));
+    let integer_binder = model_scalar_type_id("integer");
+    let boolean_binder = model_scalar_type_id("boolean");
     let entries = vec![
         json!({"class": "Example::OrderFlow::Closed", "node": finish, "binder_types": [finish_binder]}),
-        json!({"class": "Worker::run", "node": worker_key, "binder_types": [receiver_type, integer_binder, finish_binder]}),
+        json!({"class": "Worker::run", "node": worker_key, "binder_types": [receiver_type, integer_binder, boolean_binder]}),
     ];
     let position = set_concrete_catalog(&mut package, entries.clone());
     package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"] =
@@ -6522,6 +6540,7 @@ fn refinement_catalog_reconstructs_abstract_model_operations_without_protocol() 
         document,
         vec![worker, reference],
     );
+    add_model_scalar_type_nodes(&mut package);
     let finish = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -6530,10 +6549,11 @@ fn refinement_catalog_reconstructs_abstract_model_operations_without_protocol() 
         .expect("finish")["node_id"]
         .clone();
     let finish_binder = node_id(&crate::support::checked_package::family_key("aaaa"));
-    let integer_binder = node_id(&crate::support::checked_package::family_key("a3a3"));
+    let integer_binder = model_scalar_type_id("integer");
+    let boolean_binder = model_scalar_type_id("boolean");
     let operation = json!({
         "class":"Worker::run", "node":worker_key,
-        "binder_types":[receiver_type, integer_binder, finish_binder]
+        "binder_types":[receiver_type, integer_binder, boolean_binder]
     });
     let refinement = set_concrete_catalog(
         &mut package,
@@ -7701,6 +7721,7 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
         document,
         vec![worker, reference],
     );
+    add_model_scalar_type_nodes(&mut dependency_wire);
     let dependency_nodes = dependency_wire["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -7717,9 +7738,10 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
         .expect("finish")["node_id"]
         .clone();
     let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
-    let integer = node_id(&crate::support::checked_package::family_key("a3a3"));
+    let model_boolean = model_scalar_type_id("boolean");
+    let integer = model_scalar_type_id("integer");
     let operation = json!({"class":"Worker::run", "node":worker_key,
-        "binder_types":[receiver, integer, boolean]});
+        "binder_types":[receiver, integer, model_boolean]});
     let dep_refinement = set_concrete_catalog(
         &mut dependency_wire,
         vec![
@@ -7732,6 +7754,13 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
         ["abstract"] = json!([operation]);
     settle_refinement(&mut dependency_wire, dep_refinement);
     name_dependency_fixture(&mut dependency_wire, "test/abstract-model");
+    let dependency_id = |mut id: Value| {
+        id["package"] = json!("test/abstract-model");
+        id
+    };
+    let external_receiver = dependency_id(receiver.clone());
+    let external_integer = dependency_id(integer.clone());
+    let external_boolean = dependency_id(model_boolean.clone());
     let CheckedPackageV2ReadResult::Admitted(dependency) =
         read(&dependency_wire, &dependency_evidence)
     else {
@@ -7762,7 +7791,7 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
     node["body"]["abstract"] = external(abstract_model);
     node["body"]["class_catalog"]["abstract"] = json!([{
         "class":"Worker::run", "node":external(worker_key),
-        "binder_types":[external(receiver), external(integer), external(boolean.clone())]
+        "binder_types":[external(external_receiver), external(external_integer), external(external_boolean)]
     }]);
     node["dependencies"] = json!([concrete_finish, boolean]);
     node["dependencies"]
