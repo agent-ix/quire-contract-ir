@@ -2623,15 +2623,26 @@ fn check_relationship_member(
     if !relationship.direction.admits(forward) {
         return ineligible(member_at("name"));
     }
-    let Some(destination_form) = owner.package.end_declaration_form(&destination.type_ref) else {
+    if owner
+        .package
+        .end_declaration_form(&destination.type_ref)
+        .is_none()
+    {
         return ineligible(member_at("name"));
-    };
-    let Some(destination_id) = owners.declaration_id(
-        &owner.package.identity,
-        &destination.type_ref,
-        destination_form,
-    ) else {
-        return ineligible(member_at("name"));
+    }
+    // QSpec FR-322 supplies this structural label in the member. The selected
+    // document establishes the destination kind above; its node need not be in
+    // this graph, and the reader must not derive a replacement label.
+    let Some(destination_id) = operation
+        .member
+        .as_ref()
+        .and_then(|member| member.get("destination_type"))
+        .and_then(CheckedNodeId::from_value)
+    else {
+        return Ok(Some(ValidationFailure::refused(
+            CheckedPackageRefusalCode::MalformedWire,
+            member_at("destination_type"),
+        )));
     };
     let member_type = match relationship.navigation_type(forward, destination_id.clone()) {
         Ok(member_type) => member_type,
