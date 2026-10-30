@@ -35,3 +35,9 @@ Ticket: IR-1141; PR #708 at frozen head 5afef435521b14806f3177cc33b9ee558728fd9f
 ## Coverage
 
 Code review and Rust review were folded into this artifact. The changed Rust sources remove the V1 content digest from the emitted wire, reader check, and three read-only views. Changed tests assert the five required members, canonical byte/value differences, and refusal of the removed `identity` field; existing source and dependency refusal checks remain. The untouched `tests/conformance_qsl_ir769/main.rs` target is declared in `Cargo.toml` and invoked by `make conformance-qsl-ir769`; line 197 calls a method deleted by this PR. No Cargo/build/CI gate was run because the code lead reserved the shared build lock for #704.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At #708 head 94e65cd3ee297031fbf0a2e98f9228c8c4e51b35, TC-447 encodes each admitted five-field V1 wire with `quire_canonical::to_vec` and compares complete canonical values; the removed accessor has no call left in the named target. The independent `[0, 9]` and `[0, 10]` assertions remain. |

@@ -31,3 +31,9 @@ Ticket: IR-1141; PR #708 at frozen head 5afef435521b14806f3177cc33b9ee558728fd9f
 ## Coverage
 
 The computed `quire matrix --scope . --format json` reports `FR-035-AC-5` untagged (withdrawn), live `FR-035-AC-2/3/4/12` tagged, and `FR-049-AC-6` tagged to the conformance target plus two ordinary integration tests. The named target's compile break makes its QSL-authored control hollow until the assertion compares complete canonical values instead. This is a diff-scoped assessment; pre-existing unbacked repository rows are outside this PR review. Plan completion: not assessed. Optional repository-wide semantic review: not run; the dispatch required a static PR-diff review while the shared build lock was occupied.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At #708 head 94e65cd3ee297031fbf0a2e98f9228c8c4e51b35, the tagged TC-447 target compares complete canonical V1 values through the current wire API and retains independent result/operand assertions; the removed `identity()` call is gone. |
