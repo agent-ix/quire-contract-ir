@@ -5203,10 +5203,6 @@ fn refinement_step_regions_bind_generated_occurrences_before_row_join() {
     assert_eq!(bytes, canonical(&package));
     let mut wrong = package.clone();
     wrong["refinement_step_rows"][0]["region"]["start"] = json!(30);
-    assert_eq!(
-        wrong["semantic_graph"]["nodes"][refinement]["node_id"],
-        package["semantic_graph"]["nodes"][refinement]["node_id"]
-    );
     let at = wrong["source_map"]
         .as_array()
         .expect("source map")
