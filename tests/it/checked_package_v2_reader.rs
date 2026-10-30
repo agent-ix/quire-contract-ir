@@ -834,7 +834,7 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
 
 /// A malformed nominal body refuses at the wire stage before a dangling
 /// graph dependency can be followed. The two faults are independent.
-#[trace("TC-048", "FR-038-AC-5")]
+#[trace("TC-048", "FR-038-AC-5", "FR-038-AC-375")]
 #[test]
 fn tc_048_malformed_nominal_body_precedes_dangling_dependency() {
     let mut package = v2_nominal();
@@ -957,7 +957,7 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
 }
 
 /// The enum member's case must remain one of the selected declaration's cases.
-#[trace("TC-048", "FR-038-AC-5")]
+#[trace("TC-048", "FR-038-AC-5", "FR-038-AC-375")]
 #[test]
 fn tc_048_enum_member_case_must_match_its_typed_declaration() {
     let mut package = v2_nominal();
@@ -974,7 +974,7 @@ fn tc_048_enum_member_case_must_match_its_typed_declaration() {
 }
 
 /// A locally authored selected-model dimension and its model root.
-fn model_owned_package(owner: Value, models: &[&str]) -> Value {
+pub(super) fn model_owned_package(owner: Value, models: &[&str]) -> Value {
     const LENGTH: &str = "ix://test/orders/Length";
     let nominal = v2_nominal();
     let mut package = nominal.clone();
@@ -1020,7 +1020,7 @@ fn model_document(version: &str) -> Value {
     document
 }
 
-fn model_evidence(package: &Value) -> CheckedPackageEvidence {
+pub(super) fn model_evidence(package: &Value) -> CheckedPackageEvidence {
     evidence_with_document(package, "test/orders", &model_document("1"))
 }
 

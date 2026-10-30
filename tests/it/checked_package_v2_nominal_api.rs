@@ -180,6 +180,27 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
             .map(str::to_owned)
             .collect()
     );
+
+    let model_wire = super::checked_package_v2_reader::model_owned_package(
+        json!({
+            "kind": "model",
+            "identity": "test/orders",
+            "node": "ix://test/orders/Length",
+        }),
+        &["test/orders"],
+    );
+    let model = match CheckedPackageV2::read(
+        &canonical(&model_wire),
+        CheckedPackageReadLimits::bounded(),
+        &super::checked_package_v2_reader::model_evidence(&model_wire),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("model-owned dimension must admit: {other:?}"),
+    };
+    assert!(matches!(
+        &model.graph().nodes[0].body,
+        CheckedTerm::Aggregate { members } if members.is_empty()
+    ));
 }
 
 fn assert_malformed(
