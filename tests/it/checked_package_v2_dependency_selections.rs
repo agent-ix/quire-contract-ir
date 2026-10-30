@@ -266,6 +266,39 @@ fn diamond_with_unequal_complete_leaf_packages_refuses() {
     );
 }
 
+/// AC-366 equal-value diamond and direct-lock-only projection slice. Both
+/// branches supply the same admitted leaf value under one selected name.
+#[trace("TC-048")]
+#[test]
+fn equal_complete_leaf_diamond_admits_without_a_transitive_lock_row() {
+    let leaf_wire = empty_package("test/leaf");
+    let (_, leaf) = admitted_dependency(&leaf_wire);
+    let left_wire = with_selections(empty_package("test/left"), vec![entry(leaf.name())]);
+    let right_wire = with_selections(empty_package("test/right"), vec![entry(leaf.name())]);
+    let CheckedPackageV2ReadResult::Admitted(left) =
+        read_with_dependencies(&left_wire, &[(leaf.name(), &leaf)])
+    else {
+        panic!("left branch must admit");
+    };
+    let CheckedPackageV2ReadResult::Admitted(right) =
+        read_with_dependencies(&right_wire, &[(leaf.name(), &leaf)])
+    else {
+        panic!("right branch must admit");
+    };
+    let direct = vec![entry(left.name()), entry(right.name())];
+    let root = with_selections(empty_package("test/root"), direct.clone());
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        read_with_dependencies(&root, &[(left.name(), &left), (right.name(), &right)])
+    else {
+        panic!("equal complete leaf values in a diamond must admit");
+    };
+    assert_eq!(
+        serde_json::to_value(&admitted.lock().dependency_selections).expect("direct selections"),
+        json!(direct),
+        "the root lock retains only its two direct selections"
+    );
+}
+
 /// An explicit direct claim for a name already reached transitively is valid
 /// when it supplies the identical complete admitted package value.
 #[trace("TC-048", "FR-038-AC-31", "FR-038-AC-217")]
