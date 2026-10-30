@@ -65,12 +65,10 @@ fn published_dependency_call_vectors_bind_every_reader_outcome_and_locus() {
     );
     let base = read_json(&fixtures.join("positive-dependency-call.json"))
         .expect("published positive dependency call");
+    let positive = read_package(&base).expect("published dependency evidence");
     assert!(
-        matches!(
-            read_package(&base),
-            Ok(CheckedPackageV2ReadResult::Admitted(_))
-        ),
-        "published dependency call must admit"
+        matches!(positive, CheckedPackageV2ReadResult::Admitted(_)),
+        "published dependency call must admit: {positive:?}"
     );
     let rows = vectors["mutations"]
         .as_array()
