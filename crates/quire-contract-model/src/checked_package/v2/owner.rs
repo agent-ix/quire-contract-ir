@@ -213,6 +213,12 @@ fn model_kind_matches(
     operations: &BTreeSet<&str>,
 ) -> bool {
     match kind {
+        CheckedNodeKind::ScalarType(super::ScalarTypeForm::Dimension) => {
+            model.dimensions.contains_key(declared)
+        }
+        CheckedNodeKind::ScalarType(super::ScalarTypeForm::Unit) => {
+            model.units.contains_key(declared)
+        }
         CheckedNodeKind::Model(super::ModelForm::ObjectType) => {
             model.object_types.get(declared).is_some_and(|object| {
                 !object.interface
