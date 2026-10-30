@@ -12,17 +12,15 @@
 //!
 //! [`validate_abstraction`] is the abstraction step: after the frame, state
 //! and temporal steps and before the operation step, over every abstraction
-//! relation node in ascending node-id digest order. For one node the checks
+//! relation node in ascending structural node-id order. For one node the checks
 //! run in this order and the first failing check is its defect:
 //!
 //! 0. **Shape.** The body root is not an application (`ill_typed`/
 //!    `operator-ineligible` at the node, from the first step that reaches it)
 //!    and the body is the closed shape; else `invalid_semantic_graph` at the
 //!    offending array element, or at the body.
-//! 1. **Identity.** `node_id` is the digest of `{version, body}` through
-//!    `quire-canonical`, `semantic_type` is the node itself and `dependencies`
-//!    are exactly the body's targets; else `invalid_semantic_graph` at the
-//!    node.
+//! 1. **Identity.** `semantic_type` is the node itself and `dependencies`
+//!    are exactly the body's targets; else `invalid_semantic_graph` at the node.
 //! 2. **Order.** The canonical order of every array; else
 //!    `invalid_semantic_graph` at the array.
 //! 3. **Targets,** in body order: the join to a declared dependency of the
@@ -32,7 +30,7 @@
 //!    parameters, and the Rust spellings.
 //!
 //! Once every node's own checks hold, key uniqueness is checked over all
-//! nodes, in ascending node-id digest order and body order.
+//! nodes, in ascending structural node-id order and body order.
 //!
 //! Every refusal of steps 3 and 4 and of the uniqueness check carries the
 //! entry's path and, as its locus, the node key of the entry's `type`,
@@ -45,7 +43,6 @@
 //! the resolution; a target that carries its own `declaration` is declared by
 //! this package's source and is joined by kind alone.
 
-use super::encode::AbstractionNodePreimage;
 use super::flat_wire::scan_members;
 use super::frame::{join, StepGraph};
 use super::identity::is_identifier;
@@ -57,8 +54,8 @@ use super::{
     RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, WorkMeter,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, is_digest, node_pointer, validate_term, ReferenceVisitor,
-    TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
+    body_term, exact_members, node_pointer, validate_term, ReferenceVisitor, TermGrammar, Trail,
+    ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -179,11 +176,11 @@ fn node_key(
         .get(key)
         .and_then(|value| CheckedNodeId::deserialize(value).ok())
         .ok_or_else(|| Defect::invalid(at))?;
-    if id.domain.as_ref() == NODE_DOMAIN && is_digest(&id.digest) {
+    if id.is_well_formed() {
         Ok(id)
     } else {
         Err(Defect {
-            code: CheckedPackageRefusalCode::DigestDomainMismatch,
+            code: CheckedPackageRefusalCode::MalformedWire,
             path: at.clone().key(key),
         })
     }
@@ -378,7 +375,6 @@ pub(super) fn validate_abstraction(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
-    bytes: u64,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = StepGraph {
@@ -392,7 +388,7 @@ pub(super) fn validate_abstraction(
         CorrespondenceForm::AbstractionRelation,
     )) {
         let site = Site { node, position };
-        let body = check_node(&site, &graph, bytes, meter)?;
+        let body = check_node(&site, &graph, meter)?;
         admitted.push((position, body));
     }
     check_keys(&admitted)
@@ -402,7 +398,6 @@ pub(super) fn validate_abstraction(
 fn check_node(
     site: &Site<'_>,
     graph: &StepGraph<'_, '_>,
-    bytes: u64,
     meter: &mut WorkMeter,
 ) -> Result<AbstractionBody, ValidationFailure> {
     let node = site.node;
@@ -420,30 +415,18 @@ fn check_node(
     let body = read_body(&node.body, &site.body_at()).map_err(|defect| {
         ValidationFailure::refused_at(defect.code, defect.path, None, node.node_id.clone())
     })?;
-    check_identity(site, &body, bytes)?;
+    check_identity(site, &body)?;
     check_order(site, &body)?;
     check_targets(site, &body, graph)?;
     check_members(site, &body, graph, meter)?;
     Ok(body)
 }
 
-/// Step 1: the node key is the digest of the preimage, the node is its own
-/// semantic type, and its dependencies are the body's targets.
-fn check_identity(
-    site: &Site<'_>,
-    body: &AbstractionBody,
-    bytes: u64,
-) -> Result<(), ValidationFailure> {
+/// Step 1: the node is its own semantic type and its dependencies are the
+/// body's targets.
+fn check_identity(site: &Site<'_>, body: &AbstractionBody) -> Result<(), ValidationFailure> {
     let node = site.node;
-    let computed = quire_canonical::sha256(
-        &AbstractionNodePreimage { body: &node.body },
-        quire_canonical::Limits::new(bytes),
-    )
-    .map_err(|_| site.invalid(site.node_at()))?;
-    if computed.to_string() == node.node_id.digest.as_ref()
-        && node.semantic_type == node.node_id
-        && node.dependencies == body.targets()
-    {
+    if node.semantic_type == node.node_id && node.dependencies == body.targets() {
         Ok(())
     } else {
         Err(site.invalid(site.node_at()))
@@ -462,7 +445,7 @@ fn check_order(site: &Site<'_>, body: &AbstractionBody) -> Result<(), Validation
     let body_at = site.body_at();
     let out_of_order = |array_at: JsonPointer| Err(site.invalid(array_at));
     let objects_at = body_at.clone().key("objects");
-    if !ascending(body.objects.iter().map(|entry| &entry.type_id.digest)) {
+    if !ascending(body.objects.iter().map(|entry| &entry.type_id)) {
         return out_of_order(objects_at);
     }
     for (index, entry) in body.objects.iter().enumerate() {
@@ -470,15 +453,11 @@ fn check_order(site: &Site<'_>, body: &AbstractionBody) -> Result<(), Validation
             return out_of_order(objects_at.clone().index(index).key("fields"));
         }
     }
-    if !ascending(
-        body.populations
-            .iter()
-            .map(|entry| &entry.population.digest),
-    ) {
+    if !ascending(body.populations.iter().map(|entry| &entry.population)) {
         return out_of_order(body_at.key("populations"));
     }
     let frames_at = body_at.key("frames");
-    let frame_key = |entry: &FrameEntry| (entry.context.digest.clone(), entry.operation.clone());
+    let frame_key = |entry: &FrameEntry| (&entry.context, entry.operation.as_ref());
     if !ascending(body.frames.iter().map(frame_key)) {
         return out_of_order(frames_at);
     }

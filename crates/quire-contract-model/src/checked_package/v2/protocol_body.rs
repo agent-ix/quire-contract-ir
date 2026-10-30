@@ -83,11 +83,9 @@ impl CheckedPackageV2 {
             }
         }
         rows.sort_unstable_by(|left, right| {
-            left.clause.digest.cmp(&right.clause.digest).then_with(|| {
-                left.required_temporal
-                    .digest
-                    .cmp(&right.required_temporal.digest)
-            })
+            left.clause
+                .cmp(&right.clause)
+                .then_with(|| left.required_temporal.cmp(&right.required_temporal))
         });
         rows
     }
@@ -473,7 +471,7 @@ fn reference_set_is_ordered(term: &CheckedTerm) -> bool {
     members(term).is_some_and(|items| {
         items.windows(2).all(|pair| match pair {
             [CheckedTerm::Reference { target: left }, CheckedTerm::Reference { target: right }] => {
-                left.digest.as_bytes() < right.digest.as_bytes()
+                left < right
             }
             _ => false,
         })
@@ -484,7 +482,7 @@ fn related_records_are_ordered(term: &CheckedTerm, bytes: u64) -> bool {
     let Some(records) = members(term) else {
         return false;
     };
-    let mut previous: Option<(String, Vec<u8>, Vec<u8>)> = None;
+    let mut previous: Option<(CheckedNodeId, Vec<u8>, Vec<u8>)> = None;
     for record in records {
         let Some([relationship, from, to]) = named_fields(record, &["relationship", "from", "to"])
             .and_then(|fields| <[_; 3]>::try_from(fields).ok())
@@ -500,7 +498,7 @@ fn related_records_are_ordered(term: &CheckedTerm, bytes: u64) -> bool {
         let Ok(to) = quire_canonical::to_vec(to, quire_canonical::Limits::new(bytes)) else {
             return false;
         };
-        let key = (relationship.digest.to_string(), from, to);
+        let key = (relationship.clone(), from, to);
         if previous.as_ref().is_some_and(|previous| previous >= &key) {
             return false;
         }
