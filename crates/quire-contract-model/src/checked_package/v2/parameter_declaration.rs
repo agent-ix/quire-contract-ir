@@ -108,33 +108,27 @@ mod tests {
             })
         };
         let empty = || json!({"term": "aggregate", "members": []});
-        let wire: CheckedPackageWireV2 = serde_json::from_value(json!({
-            "contract_version": "quire.checked-package/v2",
-            "identity_preimage": {
-                "version": "quire.checked-package-id/v2",
-                "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
-                "profile_selections": [], "definition_selections": [],
-                "required_features": [], "dependency_selections": [],
-            },
-            "package_id": {"domain": "quire.package.semantic/v2", "algorithm": "sha256",
-                "digest": "a".repeat(64)},
-            "lock": {
-                "sources": [],
-                "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
-                "profile_selections": [], "definition_selections": [],
-                "required_features": [], "dependency_selections": [],
-            },
-            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": [
-                node('1', "scalar_type", "text", '1', empty()),
-                node('2', "scalar_type", "integer", '2', empty()),
-                node('3', "value", "parameter", '2', parameter_body(
-                    literal('1', "text", "a"), literal('2', "integer", "10"))),
-                node('4', "value", "literal", '2', literal('2', "integer", "7")),
-            ]},
-            "source_map": [], "capability_report": [],
-            "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
-        }))
-        .expect("private package fixture");
+        let wire: CheckedPackageWireV2 = crate::checked_package::v2::test_support::private_wire(
+            json!({
+                "contract_version": "quire.checked-package/v2",
+                "name": "test",
+                "lock": {
+                    "sources": [],
+                    "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
+                    "profile_selections": [], "definition_selections": [],
+                    "required_features": [], "dependency_selections": [],
+                },
+                "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": [
+                    node('1', "scalar_type", "text", '1', empty()),
+                    node('2', "scalar_type", "integer", '2', empty()),
+                    node('3', "value", "parameter", '2', parameter_body(
+                        literal('1', "text", "a"), literal('2', "integer", "10"))),
+                    node('4', "value", "literal", '2', literal('2', "integer", "7")),
+                ]},
+                "source_map": [], "capability_report": [],
+                "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
+            }),
+        );
         let kinds = wire
             .semantic_graph
             .nodes
