@@ -6,12 +6,14 @@
 //! The published multi-package and graph-order vectors run in conformance_qspec.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, settle, structural_id, v2_all_families, v2_nominal, v2_reference_chain,
+    canonical, evidence_for, evidence_with_document, family_model_document, reassign_node_id,
+    settle, structural_id, v2_all_families, v2_nominal, v2_reference_chain,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedMemberType, CheckedNodeId, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -451,6 +453,132 @@ fn declared_record_field_joins_the_exact_integer_range_members() {
         assert_eq!(
             retained_record["members"][0]["value"]["target"],
             package["semantic_graph"]["nodes"][range]["node_id"]
+        );
+    }
+}
+
+#[trace("TC-226", "FR-038-AC-128")]
+#[test]
+fn selected_model_field_range_joins_exact_body_members() {
+    let (mut package, _) = all_ten_shapes();
+    let range = index_of(&package, "bounded_domain", "integer_range");
+    let object = index_of(&package, "model", "object_type");
+    let range_id = package["semantic_graph"]["nodes"][range]["node_id"].clone();
+    let object_id = package["semantic_graph"]["nodes"][object]["node_id"].clone();
+    let typed_object: CheckedNodeId =
+        serde_json::from_value(object_id.clone()).expect("Account id");
+    let mut document = family_model_document();
+    let identity = "test/families";
+    let count = "ix://test/families/Count";
+    document["constructs"]
+        .as_array_mut()
+        .expect("model constructs")
+        .push(json!({
+            "kind":{"module":identity,"name":"count"},
+            "construct":{"meaning":"quire.meaning.model.value-type/v1"}
+        }));
+    document["types"][0]["fields"]
+        .as_array_mut()
+        .expect("Account fields")
+        .push(json!({
+            "identity":"ix://test/families/Account/count", "name":"count", "typeRef":count,
+            "presence":"required", "nullable":false, "defaultKind":"none",
+            "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+        }));
+    document["types"]
+        .as_array_mut()
+        .expect("model types")
+        .push(json!({
+            "identity":count,"displayName":"Count",
+            "kind":{"module":identity,"name":"count"},
+            "roles":[],"extensions":[],"unknownPolicy":"reject","scalar":"integer",
+            "constraints":[
+                {"keyword":"min","operands":{"value":"0"}},
+                {"keyword":"max","operands":{"value":"0"}}
+            ]
+        }));
+
+    let mut query = package["semantic_graph"]["nodes"][0].clone();
+    query["node_id"] = structural_id(identity, vec![json!("expression"), json!("count-query")], 0);
+    query["node_tag"] = json!("expression");
+    query["semantic_form"] = json!("query");
+    query["semantic_type"] = range_id.clone();
+    query["dependencies"] = json!([object_id]);
+    query["body"] = json!({
+        "term":"application", "operator":"query",
+        "operation":{"identity":"quire.op.record.project","laws":[],"mode":null,
+            "member":{"kind":"field","declaration":object_id,"name":"count"},
+            "leaves":[]},
+        "result_type":range_id,"arguments":[{"term":"reference","target":object_id}]
+    });
+    append_authored(&mut package, query);
+    let integer = index_of(&package, "scalar_type", "integer");
+    let original_integer = package["semantic_graph"]["nodes"][integer]["node_id"].clone();
+    let integer_id = structural_id(identity, vec![json!("scalar_type"), json!("integer")], 0);
+    reassign_node_id(&mut package, &original_integer, &integer_id);
+    settle(&mut package);
+
+    for (min, max) in [
+        ("0", "0"),
+        (
+            "-170141183460469231731687303715884105728",
+            "170141183460469231731687303715884105727",
+        ),
+    ] {
+        let original_range = package["semantic_graph"]["nodes"][range]["node_id"].clone();
+        let declared_range = structural_id(
+            identity,
+            vec![
+                json!("bounded_domain"),
+                json!("integer_range"),
+                json!("min"),
+                integer_id.clone(),
+                json!(min),
+                json!("max"),
+                json!(max),
+            ],
+            0,
+        );
+        reassign_node_id(&mut package, &original_range, &declared_range);
+        document["types"][3]["constraints"][0]["operands"]["value"] = json!(min);
+        document["types"][3]["constraints"][1]["operands"]["value"] = json!(max);
+        package["semantic_graph"]["nodes"][range]["body"]["members"][0]["value"]["value"] =
+            json!(min);
+        package["semantic_graph"]["nodes"][range]["body"]["members"][1]["value"]["value"] =
+            json!(max);
+        let evidence = evidence_with_document(&package, identity, &document);
+        let result = CheckedPackageV2::read(
+            &canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        );
+        let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+            panic!("selected field {min}..{max} must admit: {result:?}");
+        };
+        let selected = admitted
+            .model_object_fields(&typed_object)
+            .expect("Account fields");
+        assert_eq!(
+            selected
+                .field("count")
+                .and_then(|field| field.member_type()),
+            Some(&CheckedMemberType::IntRange {
+                lower: min.parse().expect("i128 min"),
+                upper: max.parse().expect("i128 max"),
+            }),
+        );
+
+        let mut altered = package.clone();
+        altered["semantic_graph"]["nodes"][range]["body"]["members"][1]["value"]["value"] =
+            json!("1");
+        let refusal = CheckedPackageV2::read(
+            &canonical(&altered),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_with_document(&altered, identity, &document),
+        );
+        assert!(
+            matches!(refusal, CheckedPackageV2ReadResult::Refused(_)),
+            "altered body bound must not satisfy selected field {min}..{max}"
         );
     }
 }
