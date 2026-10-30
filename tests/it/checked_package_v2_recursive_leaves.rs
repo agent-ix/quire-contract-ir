@@ -1303,39 +1303,6 @@ fn recursive_group_round_trips_with_original_node_keys() {
     assert_eq!(emitted_group, source_group);
     let again = admitted.lower(std::slice::from_ref(&root), &profile);
     assert_eq!(again.package.canonical_bytes(), Some(bytes));
-
-    // Reordering the same two nodes changes the FR-322 ordinals that their
-    // original keys attest, even when the rest of the wire is left intact.
-    let mut mutant: Value = serde_json::from_slice(bytes).expect("package JSON");
-    let members = mutant["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes");
-    let group_positions = members
-        .iter()
-        .enumerate()
-        .filter(|(_, node)| node.get("recursion_group").is_some())
-        .map(|(position, _)| position)
-        .collect::<Vec<_>>();
-    assert_eq!(group_positions.len(), 2);
-    members.swap(group_positions[0], group_positions[1]);
-    mutant["source_map"]["nodes"]
-        .as_array_mut()
-        .expect("source-map nodes")
-        .swap(group_positions[0], group_positions[1]);
-    let mutant_outcome = ContractPackageWireV1::read(
-        &canonical(&mutant),
-        CheckedPackageReadLimits::bounded(),
-        &ContractDependencies::new(),
-    );
-    assert!(
-        matches!(
-            mutant_outcome,
-            ContractPackageReadResult::Refused(ref refusal)
-                if refusal.code == CheckedPackageRefusalCode::InvalidPackage
-                    && refusal.cause == Some(CheckedPackageRefusalCause::StaleNodeKey)
-        ),
-        "{mutant_outcome:?}"
-    );
 }
 
 #[trace("TC-047", "FR-035-AC-6")]

@@ -925,17 +925,20 @@ fn tc_048_a_syntax_or_duplicate_defect_is_refused_before_the_parse_limit() {
             other => panic!("expected a refusal, read {other:?}"),
         };
         assert_eq!(
-            (refusal(&deep).code, refusal(&deep).loci[0].path),
+            (refusal(&deep).code, refusal(&deep).loci[0].path.clone()),
             (Code::MalformedWire, None)
         );
         let broken = format!("{}x{}", "[".repeat(200), "]".repeat(200));
         assert_eq!(
-            (refusal(&broken).code, refusal(&broken).loci[0].path),
+            (refusal(&broken).code, refusal(&broken).loci[0].path.clone()),
             (Code::MalformedWire, None)
         );
         let duplicate = format!("{{\"a\":{deep},\"a\":1}}");
         assert_eq!(
-            (refusal(&duplicate).code, refusal(&duplicate).loci[0].path),
+            (
+                refusal(&duplicate).code,
+                refusal(&duplicate).loci[0].path.clone()
+            ),
             (Code::DuplicateMember, Some(pointer("/a")))
         );
     });
