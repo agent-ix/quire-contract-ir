@@ -4505,6 +4505,13 @@ mod tests {
         use crate::checked_package::v2::model_members::{
             declaration_id, tests as model_tests, DeclarationForm, MemberType,
         };
+        let destination_name = if relation["targetEnd"]["role"].as_str() == Some(role) {
+            relation["sourceEnd"]["type"].as_str()
+        } else {
+            relation["targetEnd"]["type"].as_str()
+        }
+        .expect("selected relationship destination type")
+        .to_owned();
         let model = model_tests::read(&model_tests::relationship_document(vec![relation]))
             .expect("selected document admits");
         let mut meter = WorkMeter::new(100_000);
@@ -4521,6 +4528,8 @@ mod tests {
             declaration_id(identity, form, name)
         });
         let [widget_key, gadget_key, relationship_key] = &keys;
+        let destination_key =
+            declaration_id(identity, DeclarationForm::ObjectType, &destination_name);
         let receiver_key = if receiver_type == widget {
             widget_key
         } else {
@@ -4533,6 +4542,7 @@ mod tests {
         let mut operation = plain_operation(operation_identity);
         operation["member"] = json!({
             "kind": "relationship_end", "declaration": id(relationship_key), "name": role,
+            "destination_type": id(&destination_key),
         });
         let operator = if operation_identity == "quire.op.model.reaches" {
             "reaches"
