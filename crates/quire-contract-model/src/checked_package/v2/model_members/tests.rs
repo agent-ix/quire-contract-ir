@@ -140,6 +140,7 @@ fn record_wrong_kind_type_refs_retain_field_identity_and_type_ref_path() {
         let mut meter = WorkMeter::new(u64::MAX);
         let Err(SelectionFailure::Refused(refusal)) = read_semantic_ir(
             &selected,
+            "checked",
             &mut Budget::new(&mut meter, 0, BYTES),
             &Arc::new(BTreeMap::new()),
         ) else {
@@ -163,182 +164,62 @@ fn record_wrong_kind_type_refs_retain_field_identity_and_type_ref_path() {
     }
 }
 
-/// Compare every QSpec model-declaration golden with the exact key function
-/// used when the production reader admits selected domain declarations.
-/// Ordinary workspace tests have no QSpec checkout; the explicit conformance
-/// target supplies one and runs this test alongside the public reader test.
+/// Selected model declarations use the full authored path and package.
 #[trace("TC-048", "TC-229", "FR-038-AC-176", "FR-038-AC-303", "FR-038-AC-307")]
 #[test]
-fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
-    let root = match std::env::var("QUIRE_SPECIFICATION_DIR") {
-        Ok(root) if !root.is_empty() => root,
-        _ if std::env::var_os("QSPEC_CONFORMANCE").is_none() => return,
-        _ => panic!("QUIRE_SPECIFICATION_DIR is required for QSpec conformance"),
-    };
-    let path = std::path::Path::new(&root)
-        .join("proposals/checked-package-v2/model-member-type-vectors.json");
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display()));
-    let vectors: serde_json::Value = serde_json::from_slice(&bytes)
-        .unwrap_or_else(|error| panic!("{} is not JSON: {error}", path.display()));
-    let rows = vectors["model_declaration_nodes"]
-        .as_array()
-        .expect("QSpec model_declaration_nodes must be an array");
-    assert!(!rows.is_empty(), "QSpec must publish declaration vectors");
-    for row in rows {
-        let name = row["name"].as_str().expect("vector name");
-        let preimage = &row["preimage"];
-        assert_eq!(preimage["version"], "quire.structural-node/v1", "{name}");
-        assert_eq!(preimage["owner"]["kind"], "model", "{name}");
-        assert_eq!(preimage["body"]["term"], "aggregate", "{name}");
-        assert_eq!(preimage["body"]["members"], serde_json::json!([]), "{name}");
-        assert!(preimage["declaration"].is_null(), "{name}");
-        assert!(preimage["recursion"].is_null(), "{name}");
-        assert!(preimage["semantic_type"].is_null(), "{name}");
-        let form = match (
-            preimage["node_tag"].as_str(),
-            preimage["semantic_form"].as_str(),
-        ) {
-            (Some("model"), Some("object_type")) => DeclarationForm::ObjectType,
-            (Some("model"), Some("record_value_type")) => DeclarationForm::RecordValueType,
-            (Some("model"), Some("systems_interface")) => DeclarationForm::SystemsInterface,
-            (Some("relation"), Some("relationship")) => DeclarationForm::Relationship,
-            other => panic!("{name}: unknown declaration form {other:?}"),
-        };
-        let identity = preimage["owner"]["identity"]
-            .as_str()
-            .expect("model identity");
-        let node = preimage["owner"]["node"].as_str().expect("model node");
-        let expected = row["sha256"].as_str().expect("published SHA-256");
-        assert_eq!(
-            declaration_key(identity, form, node, BYTES).expect("production declaration key"),
-            expected,
-            "{name}: production key must equal QSpec's recorded digest"
-        );
-    }
-    let population_path = std::path::Path::new(&root)
-        .join("proposals/checked-package-v2/model-owner-form-vectors.json");
-    let population_bytes = std::fs::read(&population_path)
-        .unwrap_or_else(|error| panic!("{} cannot be read: {error}", population_path.display()));
-    let population_vectors: serde_json::Value = serde_json::from_slice(&population_bytes)
-        .unwrap_or_else(|error| panic!("{} is not JSON: {error}", population_path.display()));
-    let owner_rows = population_vectors["model_declaration_nodes"]
-        .as_array()
-        .expect("QSpec model declaration vectors");
-    assert!(owner_rows.len() >= 8, "QSpec P1-P8 owner vectors");
-    for row in owner_rows {
-        let name = row["name"].as_str().expect("owner vector name");
-        let preimage = &row["preimage"];
-        assert_eq!(preimage["semantic_type"], serde_json::Value::Null, "{name}");
-        assert_eq!(preimage["declaration"], serde_json::Value::Null, "{name}");
-        assert_eq!(preimage["recursion"], serde_json::Value::Null, "{name}");
-        assert_eq!(
-            preimage["body"],
-            serde_json::json!({"term": "aggregate", "members": []}),
-            "{name}"
-        );
-        assert_eq!(
-            declaration_key(
-                preimage["owner"]["identity"].as_str().expect("identity"),
-                match (
-                    preimage["node_tag"].as_str(),
-                    preimage["semantic_form"].as_str()
-                ) {
-                    (Some("model"), Some("object_type")) => DeclarationForm::ObjectType,
-                    (Some("model"), Some("process")) => DeclarationForm::Process,
-                    (Some("model"), Some("state_machine")) => DeclarationForm::StateMachine,
-                    (Some("model"), Some("persistence_interface")) =>
-                        DeclarationForm::PersistenceInterface,
-                    (Some("model"), Some("systems_interface")) => DeclarationForm::SystemsInterface,
-                    (Some("relation"), Some("population")) => DeclarationForm::Population,
-                    other => panic!("{name}: unknown declaration form {other:?}"),
-                },
-                preimage["owner"]["node"].as_str().expect("population node"),
-                BYTES,
-            )
-            .expect("production declaration key"),
-            row["sha256"].as_str().expect("published SHA-256"),
-            "{name}"
-        );
-    }
+fn tc_048_model_declaration_ids_preserve_source_identity() {
+    let first = declaration_id("acme/orders", DeclarationForm::ObjectType, WIDGET);
+    let second = declaration_id("acme/orders", DeclarationForm::ObjectType, GADGET);
+    assert_eq!(first.package.as_ref(), "acme/orders");
+    assert_eq!(first.ordinal, 0);
+    assert_eq!(first.path.len(), 3);
+    assert_eq!(first.path[0], CheckedNodePathSegment::Name("model".into()));
+    assert_eq!(
+        first.path[1],
+        CheckedNodePathSegment::Name("object_type".into())
+    );
+    assert_eq!(first.path[2], CheckedNodePathSegment::Name(WIDGET.into()));
+    assert_ne!(
+        first, second,
+        "distinct selected declarations keep distinct paths"
+    );
 }
 
 /// The byte limit these tests read under: far above any document here.
 pub(in crate::checked_package::v2) const BYTES: u64 = 1 << 20;
 
-/// The lowercase SHA-256 of `text`, the digest of expected canonical bytes
-/// written out in a test.
-fn sha256_of(text: &str) -> String {
-    use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(text.as_bytes()))
-}
-
-/// A structural node key is the SHA-256 of the canonical bytes of its
-/// preimage, written out here from the preimage's JSON text with members in
-/// RFC 8785 order, not produced by the code under test.
+/// Builtin and declared member types retain their exact structural IDs.
 #[trace("TC-048", "FR-038-AC-89")]
 #[test]
-fn tc_048_structural_node_keys_hash_the_expected_canonical_bytes() {
-    let anonymous = concat!(
-        r#"{"body":{"members":[],"term":"aggregate"},"declaration":null,"#,
-        r#""node_tag":"scalar_type","recursion":null,"semantic_form":"boolean","#,
-        r#""semantic_type":null,"version":"quire.structural-node/v1"}"#,
+fn tc_048_member_type_ids_use_structural_paths() {
+    let boolean = MemberType::Boolean.node_id("checked").expect("builtin ID");
+    let integer = MemberType::Integer.node_id("checked").expect("builtin ID");
+    assert_eq!(boolean.package.as_ref(), "checked");
+    assert_eq!(
+        boolean.path[0],
+        CheckedNodePathSegment::Name("scalar_type".into())
     );
     assert_eq!(
-        MemberType::Boolean.node_key(BYTES).as_deref().ok(),
-        Some(sha256_of(anonymous).as_str())
+        boolean.path[1],
+        CheckedNodePathSegment::Name("boolean".into())
     );
-    let declaration = concat!(
-        r#"{"body":{"members":[],"term":"aggregate"},"declaration":null,"#,
-        r#""node_tag":"model","owner":{"identity":"acme/orders","kind":"model","#,
-        r#""node":"ix://acme/orders/Order"},"recursion":null,"#,
-        r#""semantic_form":"object_type","semantic_type":null,"#,
-        r#""version":"quire.structural-node/v1"}"#,
+    assert_ne!(boolean, integer);
+    let selected = declaration_id("acme/orders", DeclarationForm::ObjectType, WIDGET);
+    let reference = MemberType::Reference(selected.clone())
+        .node_id("checked")
+        .expect("reference ID");
+    assert_eq!(
+        reference.path[0],
+        CheckedNodePathSegment::Name("composite_type".into())
     );
     assert_eq!(
-        declaration_key(
-            "acme/orders",
-            DeclarationForm::ObjectType,
-            "ix://acme/orders/Order",
-            BYTES
-        )
-        .as_deref()
-        .ok(),
-        Some(sha256_of(declaration).as_str())
+        reference.path[1],
+        CheckedNodePathSegment::Name("reference".into())
     );
-    // The byte ceiling is the encoder's: one byte under the preimage refuses.
-    let length = u64::try_from(anonymous.len()).expect("length");
-    assert!(MemberType::Boolean.node_key(length).is_ok());
-    assert!(MemberType::Boolean.node_key(length - 1).is_err());
-}
-
-/// A declaration key the encoder refuses (its preimage is over the byte limit)
-/// refuses the read as `invalid_semantic_graph` at the declaring selection's
-/// row, and is not skipped as though the declaration had no owner. This backs
-/// the refusal-location rule of FR-038 "Every identity digest is computed
-/// through quire-canonical", which no numbered criterion states, so it carries
-/// no criterion tag.
-#[trace("TC-048")]
-#[test]
-fn tc_048_a_declaration_key_over_the_byte_limit_refuses_at_its_selection_row() {
-    let mut model = read(&document(vec![object_type(WIDGET, &[], vec![])])).expect("reads");
-    let mut charged = |_: usize| Ok(());
-    assert!(ModelOwners::new(std::slice::from_ref(&model), &mut charged).is_ok());
-    model.bytes = 10;
-    match ModelOwners::new(std::slice::from_ref(&model), &mut charged) {
-        Err(ValidationFailure::Refused(refusal)) => {
-            assert_eq!(refusal.code, Code::InvalidSemanticGraph);
-            assert_eq!(
-                refusal.loci[0]
-                    .path
-                    .clone()
-                    .map(|path| path.to_string())
-                    .as_deref(),
-                Some("/semantic_graph/nodes/0/owner")
-            );
-        }
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+    assert_eq!(
+        reference.path[2],
+        CheckedNodePathSegment::Node(Box::new(selected))
+    );
 }
 
 /// A record owner adds one selected-row indexing charge, and the next lower
@@ -360,7 +241,11 @@ fn tc_056_record_owner_index_uses_selected_row_work_budget() {
     let row = || crate::checked_package::common::node_pointer(0).key("owner");
     let index = |limit| {
         let mut meter = WorkMeter::new(limit);
-        ModelOwners::new(std::slice::from_ref(&model), |_| meter.charge(1, row))
+        ModelOwners::new(
+            std::slice::from_ref(&model),
+            &[] as &[CheckedSemanticNodeV2<Value>],
+            |_| meter.charge(1, row),
+        )
     };
     assert!(index(2).is_ok(), "the two owner keys use exactly two units");
     match index(1) {
@@ -387,7 +272,12 @@ pub(in crate::checked_package::v2) fn read_with_unit_refs(
     unit_refs: &UnitRefs,
 ) -> Result<DomainModel, ModelRefusal> {
     let mut meter = WorkMeter::new(u64::MAX);
-    match read_semantic_ir(document, &mut Budget::new(&mut meter, 0, BYTES), unit_refs) {
+    match read_semantic_ir(
+        document,
+        "checked",
+        &mut Budget::new(&mut meter, 0, BYTES),
+        unit_refs,
+    ) {
         Ok(model) => {
             let mut models = [model];
             build_field_tables(&mut models, &mut meter).expect("no limit is reached");
@@ -586,19 +476,23 @@ fn inherited_operation_binders_use_named_receiver_and_retained_result() {
         .effective_operation_binder_types(GADGET, "act", &mut Budget::new(&mut meter, 0, BYTES))
         .expect("bounded resolution")
         .expect("inherited operation");
-    let receiver = MemberType::Reference(
-        declaration_key(&model.identity, DeclarationForm::ObjectType, GADGET, BYTES)
-            .expect("object key")
-            .into(),
-    );
+    let receiver = MemberType::Reference(declaration_id(
+        &model.identity,
+        DeclarationForm::ObjectType,
+        GADGET,
+    ));
     assert_eq!(signature.len(), 3);
     assert_eq!(
-        signature[0].digest.as_ref(),
-        receiver.node_key(BYTES).expect("receiver key")
+        signature[0],
+        receiver
+            .node_id(&model.checked_package)
+            .expect("receiver ID")
     );
-    let integer = MemberType::Integer.node_key(BYTES).expect("integer key");
-    assert_eq!(signature[1].digest.as_ref(), integer);
-    assert_eq!(signature[2].digest.as_ref(), integer);
+    let integer = MemberType::Integer
+        .node_id(&model.checked_package)
+        .expect("integer ID");
+    assert_eq!(signature[1], integer);
+    assert_eq!(signature[2], integer);
 }
 
 /// Provenance: IR-874 effective record binder order.
@@ -629,11 +523,15 @@ fn record_binders_keep_field_declaration_order() {
     else {
         panic!("unambiguous record has a binder signature");
     };
-    let integer = MemberType::Integer.node_key(BYTES).expect("integer key");
-    let boolean = MemberType::Boolean.node_key(BYTES).expect("boolean key");
+    let integer = MemberType::Integer
+        .node_id(&model.checked_package)
+        .expect("integer ID");
+    let boolean = MemberType::Boolean
+        .node_id(&model.checked_package)
+        .expect("boolean ID");
     assert_eq!(binders.len(), 2);
-    assert_eq!(binders[0].digest.as_ref(), integer);
-    assert_eq!(binders[1].digest.as_ref(), boolean);
+    assert_eq!(binders[0], integer);
+    assert_eq!(binders[1], boolean);
 }
 
 #[trace("TC-048", "FR-038-AC-28")]
@@ -706,6 +604,7 @@ fn operation_parameter_names_are_validated_at_selection() {
     let mut meter = WorkMeter::new(u64::MAX);
     let Err(SelectionFailure::Refused(refusal)) = read_semantic_ir(
         &repeated,
+        "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
         &Arc::new(BTreeMap::new()),
     ) else {
@@ -748,6 +647,7 @@ fn operation_parameter_name_refusal_retains_the_operation_origin() {
     let mut meter = WorkMeter::new(u64::MAX);
     let selection = read_semantic_ir(
         &document(vec![object]),
+        "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
         &Arc::new(BTreeMap::new()),
     );
@@ -1027,10 +927,9 @@ fn tc_048_relationship_destination_bounds_derive_the_canonical_navigation_type()
         });
         let model = read(&relationship_document(vec![relation.clone()])).expect("admitted");
         let declaration = model.relationships.get(LINK).expect("relationship");
-        let type_key = declaration_key("acme/orders", DeclarationForm::ObjectType, GADGET, BYTES)
-            .expect("destination key");
+        let type_key = declaration_id("acme/orders", DeclarationForm::ObjectType, GADGET);
         let result = declaration
-            .navigation_type(true, type_key.into())
+            .navigation_type(true, type_key)
             .expect("navigation type");
         match (expected, result) {
             ("option", MemberType::Option(_))
@@ -1058,7 +957,10 @@ fn tc_048_relationship_destination_bounds_derive_the_canonical_navigation_type()
     let model = read(&relationship_document(vec![relation])).expect("admitted");
     let declaration = model.relationships.get(LINK).expect("relationship");
     assert_eq!(
-        declaration.navigation_type(true, "destination-key".into()),
+        declaration.navigation_type(
+            true,
+            declaration_id("acme/orders", DeclarationForm::ObjectType, GADGET)
+        ),
         Err(ModelRefusal::new(
             Code::UnsupportedConstruct,
             Cause::ExpressionForm
@@ -1074,6 +976,7 @@ fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
         let mut meter = WorkMeter::new(work);
         read_semantic_ir(
             &document,
+            "checked",
             &mut Budget::new(&mut meter, 0, BYTES),
             &Arc::new(BTreeMap::new()),
         )
@@ -1285,6 +1188,7 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
         let mut meter = WorkMeter::new(u64::MAX);
         admit_selection(
             identity,
+            "checked",
             evidence,
             &mut Budget::new(&mut meter, 0, BYTES),
             &Arc::new(BTreeMap::new()),
@@ -1490,6 +1394,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let mut unlimited = WorkMeter::new(u64::MAX);
     read_semantic_ir(
         &document,
+        "checked",
         &mut Budget::new(&mut unlimited, 2, BYTES),
         &Arc::new(BTreeMap::new()),
     )
@@ -1499,6 +1404,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let mut exact = WorkMeter::new(used);
     read_semantic_ir(
         &document,
+        "checked",
         &mut Budget::new(&mut exact, 2, BYTES),
         &Arc::new(BTreeMap::new()),
     )
@@ -1506,6 +1412,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let mut tight = WorkMeter::new(used - 1);
     let Err(SelectionFailure::Limit(failure)) = read_semantic_ir(
         &document,
+        "checked",
         &mut Budget::new(&mut tight, 2, BYTES),
         &Arc::new(BTreeMap::new()),
     ) else {
