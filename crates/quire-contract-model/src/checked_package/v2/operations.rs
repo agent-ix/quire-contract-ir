@@ -2405,7 +2405,7 @@ fn check_reference_edge(
 
 /// The `operation.member.declaration` an application names.
 fn member_declaration(operation: &OperationWire) -> Option<CheckedNodeId> {
-    serde_json::from_value(operation.member.as_ref()?.get("declaration")?.clone()).ok()
+    CheckedNodeId::from_value(operation.member.as_ref()?.get("declaration")?)
 }
 
 /// A selected tuple's positions live in its document, not in the declaration
@@ -3123,8 +3123,7 @@ fn check_field_member(
     graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
     let member = operation.member.as_ref()?;
-    let declaration: CheckedNodeId =
-        serde_json::from_value(member.get("declaration")?.clone()).ok()?;
+    let declaration = CheckedNodeId::from_value(member.get("declaration")?)?;
     let name = member.get("name")?.as_str()?;
     let Some(&position) = graph.index.get(&declaration) else {
         return Some(application.refuse(
