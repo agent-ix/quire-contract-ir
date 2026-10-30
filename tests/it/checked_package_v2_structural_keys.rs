@@ -955,7 +955,7 @@ fn derived_shape_refusal_precedes_declaration_state_temporal_abstraction_and_ope
     }
 }
 
-#[trace("TC-048", "FR-038-AC-185")]
+#[trace("TC-048", "FR-038-AC-185", "FR-038-AC-367")]
 #[test]
 fn pregraph_refusal_invents_no_structural_node_locus() {
     let mut package = local_package();
@@ -975,7 +975,7 @@ fn pregraph_refusal_invents_no_structural_node_locus() {
     assert!(serialized.get("expected_node_id").is_none());
 }
 
-#[trace("TC-048", "FR-038-AC-185")]
+#[trace("TC-048", "FR-038-AC-185", "FR-038-AC-367")]
 #[test]
 fn public_refusal_projection_retains_typed_fields_and_authentic_locus() {
     let (mut package, _) = all_ten_shapes();
