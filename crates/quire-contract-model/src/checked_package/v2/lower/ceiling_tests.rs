@@ -516,7 +516,10 @@ fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged(
     // refused write of `x` is still a run of characters past the limit, not
     // one token byte, so `required` is not `limit + 1`.
     assert!(siblings_length < 10_000);
-    let ceiling = (10_000..)
+    let node_length = quire_canonical::to_vec(node, Limits::new(u64::MAX))
+        .expect("complete node encodes")
+        .len() as u64;
+    let ceiling = (10_000..node_length)
         .find(|ceiling| measure_node(node, *ceiling).is_err_and(|required| required >= ceiling + 2))
         .expect("a ceiling inside a string value");
     let result = package(ceiling).lower(&[x.clone(), y.clone(), z.clone()], &profile());
