@@ -2109,7 +2109,17 @@ a skipped union constraint, or an unchecked leaf. Bind each eventual test to
 
 PLANNED/UNRUN (IR-1141). Construct a typed `CheckedNodeId { package, path, ordinal }` before read using the public model API; the package name and declared qualified name or derived path are authored by the producer. Encode a complete graph and require the production reader to retain the same id only after strict admission. A body edit with a retained id is judged by the independent body and graph rules; no expected key is computed. AC-2/6 of FR-046 are withdrawn.
 
-For FR-048, assemble owner-free derived nodes, a source-owned declaration, a model-owned declaration and a mixed recursion group. Verify exact package/path/ordinal members, graph-order group ordinals, self and internal reference resolution, outside/dependency references, and typed refusals for duplicate id, missing target, malformed ordinal and body mismatch. Exercise the exact canonical byte ceiling and one byte below, and iterative construction and disposal on a 256 KiB stack with deep in-memory bodies. No hash, digest, preimage, compatibility helper or QSpec copy is permitted. The compiled public inventory is tested by TC-058.
+For FR-048, assemble owner-free derived nodes, a source-owned declaration, a
+model-owned declaration and a mixed recursion group. Verify exact
+package/path/ordinal members, graph-order group ordinals, self and internal
+reference resolution, outside/dependency references, and typed refusals for
+duplicate ID, missing target, malformed ordinal and an independently invalid
+body shape or join. A valid body edit under the same structural ID may admit.
+Exercise the public encoder's exact canonical byte ceiling and one below,
+the reader's exact work limit and one below, and iterative encoding and reader
+traversal on a 256 KiB stack with deep in-memory bodies. No candidate helper,
+preimage or copied QSpec file is permitted. The compiled public inventory is
+tested by TC-058.
 
 ## Typed parameter declaration (FR-038-AC-258 through FR-038-AC-261)
 

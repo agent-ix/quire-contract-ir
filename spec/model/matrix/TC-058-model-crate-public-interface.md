@@ -69,9 +69,11 @@ including intentional absence. Assert `is_test_fixture` remains true when
 all optional inputs are absent and false for direct-serde and actual
 reader-admitted operations. Refuse empty present identity, empty present mode
 value, a law definition with empty authority or identity, and present member
-keys with a wrong domain, wrong digest length, uppercase or nonhexadecimal
-digest with a typed error and no operation. Accept foreign and conflicting nonempty law identities
-as valid fixture shape. Serialize a fixture operation into a candidate package
+keys with an empty package, empty path, ordinal outside QSpec FR-322's range
+or a nested path node ID with an out-of-range ordinal with a typed error and
+no operation. Accept
+foreign and conflicting nonempty law identities
+as valid fixture shape. Serialize a fixture operation into complete package
 wire and confirm the ordinary strict reader still refuses a case admission
 does not permit; the fixture marker must not survive serialization and readback.
 Compile-fail probes reject conversion of a fixture into an admitted
@@ -79,22 +81,22 @@ Compile-fail probes reject conversion of a fixture into an admitted
 
 ## Status
 
-Implemented: `tc_058_model_root_exports_exactly_the_fr_019_public_items`,
-`tc_058_fault_injection_adds_only_its_named_export`, and
-`tc_058_root_crate_exposes_only_its_kani_module` in
-`tests/it/public_interface.rs` check the source inventories and root boundary.
-The positive model-path and negative root-path doctests in `src/lib.rs` check
-that one table item builds only through `quire_contract_model`.
+The source-inventory and root-boundary tests exist in
+`tests/it/public_interface.rs`; the model-path and root-path doctests exist in
+`src/lib.rs`. PLANNED/UNRUN (IR-1141): the compiled negative probes and exact
+FR-019 inventory must be updated and rerun after candidate helper exports
+are removed. Existing helper-dependent tests and doctests cannot back the
+structural boundary below.
 
 ## Structural V2 identity API boundary
 
-With IR-1141, the former FR-046 and FR-048 content-derived candidate helper
-APIs are withdrawn. The external default-feature consumer compiles a
+PLANNED/UNRUN (IR-1141). The former FR-046 and FR-048 content-derived candidate
+helper APIs are withdrawn. The external default-feature consumer compiles a
 `CheckedNodeId { package, path, ordinal }` with a non-empty package and path,
 uses the typed V2 encoder and reader, and reads the same id after admission.
 Negative compile probes cannot import `derive_application_node_id`,
 `derive_structural_candidates`, the candidate result/context/error types,
-`CheckedSemanticId`, either identity-preimage type or `PACKAGE_DOMAIN_V2`.
+`CheckedSemanticId`, the retired identity-preimage types or `PACKAGE_DOMAIN_V2`.
 The model crate's named public inventory and the absence of root-crate reexports
 remain enforced. A raw structural id does not assert admission; only the
 strict reader returns an admitted `CheckedPackageV2`.
