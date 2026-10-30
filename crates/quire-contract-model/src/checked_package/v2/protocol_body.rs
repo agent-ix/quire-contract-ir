@@ -47,7 +47,7 @@ pub struct CheckedProtocolActivationRow {
 impl CheckedPackageV2 {
     /// Derives every local clause's activation requirements from the admitted graph.
     ///
-    /// The rows are ordered by clause and then required temporal node digest.
+    /// The rows are ordered by clause and then required temporal node identity.
     /// This read-only view does not charge reader work or change package identity.
     pub fn protocol_activation_relation(&self) -> Vec<CheckedProtocolActivationRow> {
         let mut rows = Vec::new();
@@ -5153,11 +5153,15 @@ mod tests {
 
     type QSpecFrame = (ProtocolForm, &'static str, &'static [(&'static str, Shape)]);
 
+    fn id(name: char) -> Value {
+        json!({"package": "test/protocol", "path": [name.to_string()], "ordinal": 0})
+    }
+
     fn example(shape: Shape) -> Value {
-        let type_id = json!({"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)});
+        let type_id = id('b');
         match shape {
             Shape::Reference | Shape::ReferenceOrText | Shape::Term => {
-                json!({"term": "reference", "target": {"domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)}})
+                json!({"term": "reference", "target": id('a')})
             }
             Shape::Text => {
                 json!({"term": "literal", "value_kind": "text", "value": "name", "type": type_id})
@@ -5198,7 +5202,7 @@ mod tests {
                 "member": {"kind": "profile_operator", "operator": operator},
                 "leaves": []
             },
-            "result_type": {"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)},
+            "result_type": id('b'),
             "arguments": arguments
         })
     }
@@ -5210,7 +5214,7 @@ mod tests {
     fn text(value: &str) -> Value {
         json!({
             "term": "literal", "value_kind": "text", "value": value,
-            "type": {"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)}
+            "type": id('b')
         })
     }
 
@@ -5317,7 +5321,7 @@ mod tests {
     }
 
     fn boolean() -> Value {
-        json!({"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)})
+        id('b')
     }
 
     /// QSpec TC-946 covers the twenty names and seven forms in FR-464.
@@ -5714,7 +5718,7 @@ mod tests {
             validate_protocol_body(
                 ProtocolForm::Control,
                 &wrong_type,
-                &json!({"domain": "quire.checked-semantic-node/v1", "digest": "c".repeat(64)}),
+                &id('c'),
                 Some(&selected())
             ),
             Err(ProtocolBodyDefect::OperatorIneligible)
@@ -5783,8 +5787,8 @@ mod tests {
         clause["arguments"][10]["value"]["members"] = json!([]);
         let mut first = example(Shape::Reference);
         let mut second = example(Shape::Reference);
-        first["target"]["digest"] = json!("a".repeat(64));
-        second["target"]["digest"] = json!("b".repeat(64));
+        first["target"] = id('a');
+        second["target"] = id('b');
         clause["arguments"][3]["value"]["members"] = json!([first, second]);
         assert_eq!(check(&clause), Ok(()));
         clause["arguments"][3]["value"]["members"]
