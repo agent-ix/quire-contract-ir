@@ -656,9 +656,7 @@ pub enum CheckedNodePathSegment {
 }
 
 /// A checked semantic graph node identity.
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(not(test), derive(Eq, PartialEq, Ord, PartialOrd))]
-#[cfg_attr(test, derive(Eq))]
+#[derive(Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedNodeId {
     /// The name of the owning package.
@@ -784,6 +782,112 @@ impl Drop for CheckedNodeId {
     }
 }
 
+impl Clone for CheckedNodeId {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Segment(&'a CheckedNodePathSegment),
+            Finish(&'a CheckedNodeId),
+        }
+        let mut tasks = vec![Task::Finish(self)];
+        tasks.extend(self.path.iter().rev().map(Task::Segment));
+        let mut segments = Vec::<CheckedNodePathSegment>::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Segment(CheckedNodePathSegment::Name(name)) => {
+                    segments.push(CheckedNodePathSegment::Name(name.clone()));
+                }
+                Task::Segment(CheckedNodePathSegment::Node(node)) => {
+                    tasks.push(Task::Finish(node));
+                    tasks.extend(node.path.iter().rev().map(Task::Segment));
+                }
+                Task::Finish(node) => {
+                    let path = segments.split_off(segments.len() - node.path.len());
+                    segments.push(CheckedNodePathSegment::Node(Box::new(Self {
+                        package: node.package.clone(),
+                        path,
+                        ordinal: node.ordinal,
+                    })));
+                }
+            }
+        }
+        let Some(CheckedNodePathSegment::Node(root)) = segments.pop() else {
+            unreachable!("root clone is a node")
+        };
+        *root
+    }
+}
+
+impl PartialEq for CheckedNodeId {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for CheckedNodeId {}
+
+impl PartialOrd for CheckedNodeId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CheckedNodeId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        enum Task<'a> {
+            Node(&'a CheckedNodeId, &'a CheckedNodeId),
+            Path(&'a [CheckedNodePathSegment], &'a [CheckedNodePathSegment]),
+            Ordinal(u64, u64),
+        }
+        let mut tasks = vec![Task::Node(self, other)];
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Node(left, right) => {
+                    #[cfg(test)]
+                    checked_node_comparisons::visited();
+                    match left.package.cmp(&right.package) {
+                        Ordering::Equal => {
+                            tasks.push(Task::Ordinal(left.ordinal, right.ordinal));
+                            tasks.push(Task::Path(&left.path, &right.path));
+                        }
+                        order => return order,
+                    }
+                }
+                Task::Path(left, right) => match (left.split_first(), right.split_first()) {
+                    (None, None) => {}
+                    (None, Some(_)) => return Ordering::Less,
+                    (Some(_), None) => return Ordering::Greater,
+                    (Some((head_left, rest_left)), Some((head_right, rest_right))) => {
+                        tasks.push(Task::Path(rest_left, rest_right));
+                        match (head_left, head_right) {
+                            (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => {
+                                match a.cmp(b) {
+                                    Ordering::Equal => {}
+                                    order => return order,
+                                }
+                            }
+                            (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Node(_)) => {
+                                return Ordering::Less
+                            }
+                            (CheckedNodePathSegment::Node(_), CheckedNodePathSegment::Name(_)) => {
+                                return Ordering::Greater
+                            }
+                            (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
+                                tasks.push(Task::Node(a, b));
+                            }
+                        }
+                    }
+                },
+                Task::Ordinal(left, right) => match left.cmp(&right) {
+                    Ordering::Equal => {}
+                    order => return order,
+                },
+            }
+        }
+        Ordering::Equal
+    }
+}
+
 impl Encode for CheckedNodeId {
     fn encode_into<S: Sink + ?Sized>(
         &self,
@@ -819,29 +923,6 @@ impl Encode for CheckedNodeId {
             }
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-impl PartialEq for CheckedNodeId {
-    fn eq(&self, other: &Self) -> bool {
-        checked_node_comparisons::visited();
-        self.package == other.package && self.path == other.path && self.ordinal == other.ordinal
-    }
-}
-
-#[cfg(test)]
-impl PartialOrd for CheckedNodeId {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-#[cfg(test)]
-impl Ord for CheckedNodeId {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        checked_node_comparisons::visited();
-        (&self.package, &self.path, self.ordinal).cmp(&(&other.package, &other.path, other.ordinal))
     }
 }
 
@@ -949,11 +1030,14 @@ mod structural_node_identity_tests {
         );
         let id: CheckedNodeId = serde_json::from_str(&text).expect("decode deep structural id");
         assert!(id.is_well_formed());
+        let copy = id.clone();
+        assert_eq!(id.cmp(&copy), std::cmp::Ordering::Equal);
         let canonical = quire_canonical::to_vec(&id, quire_canonical::Limits::new(1 << 20))
             .expect("encode deep structural id");
         assert_eq!(canonical.len(), text.len());
         // The ordinary drop path also has to consume no native recursion.
         drop(id);
+        drop(copy);
     }
 }
 
