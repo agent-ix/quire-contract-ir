@@ -7,11 +7,10 @@
 //! AC-107: the positive fixtures admit end to end. AC-112: every mutation of
 //! `adverse.json` refuses as recorded, with no identity refreshed, bar the
 //! listed expected failures, and each body-grammar `flattened` form is not
-//! refused `malformed_wire`. AC-113: the version-free dependency selections of
-//! `dependency-selection-vectors.json` derive the recorded `package_id`
-//! through the reader's own derivation. AC-310: shipped identity projections
-//! and other extra selection members refuse `malformed_wire` at their exact
-//! pointers, while the single-body positives retain their recorded identity.
+//! refused `malformed_wire`. AC-113: dependency selections name exact
+//! structural package supplies. AC-310: retired package identity members
+//! refuse at their exact pointers, while the single-body positives retain
+//! their structural names and node ids.
 //!
 //! The fixtures are QSpec's and are read from a `quire-specification` checkout
 //! named by `QUIRE_SPECIFICATION_DIR`; nothing of them is copied into this
@@ -25,15 +24,13 @@
 //! recorded one.
 
 use ix_trace_rs::trace;
-use quire_canonical::Limits;
 use quire_contract_model::{
     CheckedArtifactRef, CheckedExtensionClauseSchema, CheckedExtensionDefinition,
     CheckedExtensionGrammarSchema, CheckedExtensionNodeSchema, CheckedExtensionProduction,
-    CheckedExtensionTypedNodeSchema, CheckedPackageEvidence, CheckedPackageEvidenceInsertionError,
-    CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
-    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedSemanticGraphV2,
+    CheckedExtensionTypedNodeSchema, CheckedNodeId, CheckedPackageEvidence,
+    CheckedPackageEvidenceInsertionError, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -57,21 +54,24 @@ const SPECIFICATION_DIR: &str = "QUIRE_SPECIFICATION_DIR";
 /// Where QSpec publishes the CheckedPackage V2 fixtures, from its root.
 const FIXTURES: &str = "proposals/checked-package-v2/fixtures";
 
-/// The three positive fixtures FR-038-AC-107 reads.
-const POSITIVE: [&str; 3] = [
-    "positive-all-families.json",
-    "positive-clause-operations.json",
-    "positive-union-nodes.json",
-];
-
-/// The complete published positive set required by FR-038-AC-176.
-const POSITIVE_ALL: [&str; 9] = [
+/// The complete published positive set required by FR-038-AC-107 and AC-176.
+const POSITIVE_ALL: [&str; 19] = [
     "positive-all-families.json",
     "positive-clause-operations.json",
     "positive-control-operations.json",
+    "positive-dependency-call.json",
+    "positive-dependency-library.json",
+    "positive-extension-nodes.json",
+    "positive-integer-literal-references.json",
+    "positive-model-tuple-union.json",
     "positive-nominal-identities.json",
     "positive-operation-identities.json",
     "positive-recursive-records.json",
+    "positive-state-transition.json",
+    "positive-tick-timed-model-nodes.json",
+    "positive-timed-clause-nodes.json",
+    "positive-timed-model-nodes.json",
+    "positive-timed-slot-nodes.json",
     "positive-two-owners-a.json",
     "positive-two-owners-b.json",
     "positive-union-nodes.json",
@@ -88,11 +88,6 @@ const ADVERSE: &str = "adverse.json";
 
 /// The package FR-038-AC-112 mutates, under `fixtures/`.
 const MUTATED_BASE: &str = "positive-all-families.json";
-
-/// The dependency-selection vectors FR-038-AC-113 reads, under the proposal.
-
-/// The byte ceiling of the package-id derivation: far above any fixture.
-const DERIVATION_CEILING: u64 = 1 << 24;
 
 /// The fixtures directory of the checkout `raw` names, or why it names none:
 /// `raw` unset or empty, or a path holding no fixtures directory.
@@ -303,6 +298,20 @@ fn read_package_with_document_and_extensions_at_limit(
                 .ok_or("a required feature is not a string")?,
         );
     }
+    if package["lock"]["dependency_selections"]
+        .as_array()
+        .is_some_and(|rows| rows.iter().any(|row| row["identity"] == "test/predicates"))
+    {
+        let dependency = read_json(&fixtures_dir().join("positive-dependency-library.json"))?;
+        let CheckedPackageV2ReadResult::Admitted(dependency) =
+            read_package_with_document(&dependency, "published dependency", domain_document)?
+        else {
+            return Err("published dependency library did not admit".into());
+        };
+        evidence
+            .insert_dependency_package("test/predicates", dependency)
+            .map_err(|error| format!("dependency evidence insertion failed: {error}"))?;
+    }
     // Supply the one domain document this harness owns. Leave malformed or
     // unselected root owners to the reader's own refusal path.
     let roots = package["semantic_graph"]["nodes"]
@@ -314,13 +323,18 @@ fn read_package_with_document_and_extensions_at_limit(
         let Some(identity) = root["owner"]["identity"].as_str() else {
             continue;
         };
-        if identity != "acme/orders" {
+        if identity != "acme/orders" && identity != "acme/shapes" {
             continue;
         }
-        let document = std::fs::read(domain_document)
-            .map_err(|error| format!("{} cannot be read: {error}", domain_document.display()))?;
+        let selected_document = if identity == "acme/shapes" {
+            proposal_dir_of(&fixtures_dir()).join("domain-package-acme-shapes.json")
+        } else {
+            domain_document.to_path_buf()
+        };
+        let document = std::fs::read(&selected_document)
+            .map_err(|error| format!("{} cannot be read: {error}", selected_document.display()))?;
         serde_json::from_slice::<Value>(&document)
-            .map_err(|error| format!("{} is not JSON: {error}", domain_document.display()))?;
+            .map_err(|error| format!("{} is not JSON: {error}", selected_document.display()))?;
         evidence
             .insert_domain_package_document(identity, document)
             .map_err(|error| format!("{name}: evidence insertion failed: {error}"))?;
@@ -351,7 +365,6 @@ fn code_word(code: Code) -> &'static str {
         Code::UnknownMember => "unknown_member",
         Code::NoncanonicalWire => "noncanonical_wire",
         Code::StaleDependency => "stale_dependency",
-        Code::DigestDomainMismatch => "digest_domain_mismatch",
         Code::UnknownRequiredCapability => "unknown_required_capability",
         Code::InvalidSemanticGraph => "invalid_semantic_graph",
         Code::InvalidSourceMap => "invalid_source_map",
@@ -382,7 +395,6 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::ContentMismatch => "content-mismatch",
         Cause::MissingName => "missing-name",
         Cause::MalformedDeclaration => "malformed-declaration",
-        Cause::StaleNodeKey => "stale-node-key",
         Cause::UnknownOperation => "unknown-operation",
         Cause::OperationClassMismatch => "operation-class-mismatch",
         Cause::OperationLawMissing => "operation-law-missing",
@@ -460,6 +472,15 @@ fn replace_at(package: &mut Value, pointer: &str, replacement: &Value) -> Result
         .ok_or_else(|| format!("pointer {pointer} resolves to nothing in the package"))?;
     *slot = replacement.clone();
     Ok(())
+}
+
+/// Sort fixture-authored structural ids by their typed wire order.
+fn typed_node_id(value: &Value) -> CheckedNodeId {
+    serde_json::from_value(value.clone()).expect("structural node id")
+}
+
+fn sort_node_ids(ids: &mut [Value]) {
+    ids.sort_by(|left, right| typed_node_id(left).cmp(&typed_node_id(right)));
 }
 
 /// The mutation list `name` of `adverse`, non-empty, or why it is not.
@@ -547,86 +568,15 @@ fn adverse_problems(base: &Value, adverse: &Value, expected: &[ExpectedFailure])
     problems
 }
 
-/// The `package_id` the reader's own derivation gives `package` with
-/// `selections` as the `dependency_selections` of its lock and identity
-/// preimage, as the hex digest.
-fn derived_with(package: &Value, selections: Option<&Value>) -> Result<String, String> {
-    let mut package = package.clone();
-    if let Some(selections) = selections {
-        replace_at(&mut package, "/lock/dependency_selections", selections)?;
-        replace_at(
-            &mut package,
-            "/identity_preimage/dependency_selections",
-            selections,
-        )?;
-    }
-    let lock: CheckedPackageLockV2 = serde_json::from_value(package["lock"].clone())
-        .map_err(|error| format!("the lock is not a V2 lock: {error}"))?;
-    let preimage: CheckedPackageIdentityPreimageV2 =
-        serde_json::from_value(package["identity_preimage"].clone())
-            .map_err(|error| format!("the identity preimage is not a V2 preimage: {error}"))?;
-    if lock.dependency_selections != preimage.dependency_selections {
-        return Err("the lock and the preimage hold different dependency_selections".into());
-    }
-    let graph: CheckedSemanticGraphV2 =
-        serde_json::from_value(package["semantic_graph"].clone())
-            .map_err(|error| format!("the graph is not a V2 graph: {error}"))?;
-    let input = CheckedPackageIdentityPreimageRefV2 {
-        version: &preimage.version,
-        edition: &preimage.edition,
-        profile_selections: &preimage.profile_selections,
-        definition_selections: &preimage.definition_selections,
-        required_features: &preimage.required_features,
-        dependency_selections: &preimage.dependency_selections,
-        identity_projection: &graph.nodes,
-    };
-    quire_canonical::sha256(&input, Limits::new(DERIVATION_CEILING))
-        .map(|digest| digest.to_string())
-        .map_err(|error| format!("the preimage does not encode: {error:?}"))
-}
-
 #[trace("TC-048", "FR-038-AC-107")]
 #[test]
 fn tc_048_qspec_positive_fixtures_admit() {
     let dir = fixtures_dir();
     let document = proposal_dir_of(&dir).join(DOMAIN_DOCUMENT);
-    for name in POSITIVE {
+    for name in POSITIVE_ALL {
         let (package, admitted) =
             read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
         let _ = (&package, &admitted);
-    }
-}
-
-fn union_value_preimage(node: &Value) -> Value {
-    json!({
-        "version": "quire.application-node/v1",
-        "node_tag": node["node_tag"],
-        "semantic_form": node["semantic_form"],
-        "semantic_type": node["semantic_type"],
-        "declaration": node.get("declaration"),
-        "recursion": null,
-        "body": node["body"],
-    })
-}
-
-fn canonical_digest(value: &Value) -> String {
-    quire_canonical::sha256(value, Limits::new(DERIVATION_CEILING))
-        .expect("test-authored preimage encodes")
-        .to_string()
-}
-
-/// Replaces one selected digest in a published, shallow JSON package. The
-/// fixture is read from QSpec; the test retains no copy of its bytes.
-fn rewrite_digest(value: &mut Value, old: &str, new: &str) {
-    match value {
-        Value::String(text) if text == old => *text = new.to_owned(),
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|item| rewrite_digest(item, old, new)),
-        Value::Object(members) => members
-            .values_mut()
-            .for_each(|member| rewrite_digest(member, old, new)),
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
     }
 }
 
@@ -673,7 +623,7 @@ fn tc_048_qspec_union_values_admit_under_their_application_keys() {
 
 #[trace("TC-048", "FR-038-AC-226")]
 #[test]
-fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() {
+fn tc_048_qspec_union_values_refuse_duplicate_ids_and_invalid_bodies() {
     let fixtures = fixtures_dir();
     let base = read_json(&fixtures.join("positive-union-nodes.json")).expect("QSpec fixture");
     assert!(matches!(
@@ -681,88 +631,65 @@ fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() 
         Ok(CheckedPackageV2ReadResult::Admitted(_))
     ));
     for position in [10, 11] {
-        let mut stale = base.clone();
-        let node = &stale["semantic_graph"]["nodes"][position];
-        let fresh = node["node_id"]["digest"]
-            .as_str()
-            .expect("fresh key")
-            .to_owned();
-        let old_preimage = json!({
-            "version": "quire.structural-node/v1",
-            "node_tag": node["node_tag"],
-            "semantic_form": node["semantic_form"],
-            "semantic_type": node["semantic_type"],
-            "declaration": null,
-            "recursion": null,
-            "body": node["body"],
-        });
-        let old = canonical_digest(&old_preimage);
-        assert_ne!(old, fresh);
-        rewrite_digest(&mut stale, &fresh, &old);
-        stale["package_id"]["digest"] = json!(derived_with(&stale, None).expect("package id"));
+        let mut duplicate = base.clone();
+        let node = duplicate["semantic_graph"]["nodes"][position].clone();
+        let later = duplicate["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len();
+        duplicate["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node);
         let CheckedPackageV2ReadResult::Refused(refusal) =
-            read_package(&stale).expect("reader result")
+            read_package(&duplicate).expect("reader result")
         else {
-            panic!("retained structural key of node {position} admitted");
+            panic!("duplicate structural id of node {position} admitted");
         };
+        assert_eq!(refusal.code, Code::InvalidSemanticGraph);
         assert_eq!(
-            (refusal.code, refusal.cause),
-            (Code::InvalidPackage, Some(Cause::StaleNodeKey))
-        );
-        assert_eq!(
-            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
-            Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
-        );
-        assert_eq!(
-            refusal.locus.as_ref().map(|id| id.digest.as_ref()),
-            Some(old.as_str())
-        );
-        assert_eq!(
-            refusal.expected_node_id().map(|id| id.digest.as_ref()),
-            Some(fresh.as_str())
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(format!("/semantic_graph/nodes/{later}/node_id"))
         );
     }
     for position in [10, 11] {
         let mut changed = base.clone();
-        if position == 10 {
-            changed["semantic_graph"]["nodes"][position]["body"]["members"][0]["value"]["members"]
-                .as_array_mut()
-                .expect("Rect payload")
-                .swap(0, 1);
-        } else {
-            changed["semantic_graph"]["nodes"][position]["body"]["members"][0]["name"] =
-                json!("Rect");
-        }
-        changed["package_id"]["digest"] = json!(derived_with(&changed, None).expect("package id"));
-        let expected = canonical_digest(&union_value_preimage(
-            &changed["semantic_graph"]["nodes"][position],
-        ));
-        let retained = base["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-            .as_str()
-            .expect("retained key");
-        assert_ne!(expected, retained);
+        changed["semantic_graph"]["nodes"][position]["body"]["members"][0]["name"] =
+            json!("NoSuchCase");
         let CheckedPackageV2ReadResult::Refused(refusal) =
             read_package(&changed).expect("reader result")
         else {
-            panic!("body mutation of node {position} with a retained key admitted");
+            panic!("invalid union case at node {position} admitted");
         };
-        assert_eq!(
-            (refusal.code, refusal.cause),
-            (Code::InvalidPackage, Some(Cause::StaleNodeKey))
-        );
-        assert_eq!(
-            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
-            Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
-        );
-        assert_eq!(
-            refusal.locus.as_ref().map(|id| id.digest.as_ref()),
-            Some(retained)
-        );
-        assert_eq!(
-            refusal.expected_node_id().map(|id| id.digest.as_ref()),
-            Some(expected.as_str())
+        assert_eq!(refusal.code, Code::InvalidPackage);
+        assert!(
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .expect("body refusal path")
+                .to_string()
+                .starts_with(&format!("/semantic_graph/nodes/{position}/body")),
+            "{refusal:?}"
         );
     }
+    let mut missing = base;
+    missing["semantic_graph"]["nodes"][10]["body"]["members"][0]["value"]["members"][0]["target"] =
+        json!({"package":"example","path":["Missing"],"ordinal":0});
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&missing).expect("reader result")
+    else {
+        panic!("unresolved union payload reference admitted");
+    };
+    assert_eq!(refusal.code, Code::MissingDeclaration);
+    assert!(
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .expect("reference refusal path")
+            .to_string()
+            .starts_with("/semantic_graph/nodes/10/body"),
+        "{refusal:?}"
+    );
 }
 
 /// Read one QSpec positive package with the selected domain document, if any.
@@ -806,10 +733,20 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
             nodes.len(),
             "{name}: graph length"
         );
+        assert_eq!(
+            admitted.name(),
+            wire["name"].as_str().expect("package name")
+        );
         for (node, published) in admitted.graph().nodes.iter().zip(nodes) {
             let id = serde_json::to_value(&node.node_id).expect("typed node id");
             let owner = serde_json::to_value(&node.owner).expect("typed owner");
+            assert_eq!(id, published["node_id"], "{name}: structural node id");
             assert_eq!(owner, published["owner"], "{name}: graph owner");
+            assert_eq!(
+                serde_json::to_value(&node.body).expect("retained body"),
+                published["body"],
+                "{name}: complete body"
+            );
             if name.starts_with("positive-two-owners-") {
                 for declaration in ["Point", "List"] {
                     if published["declaration"]["qualified_name"] == json!([declaration]) {
@@ -872,12 +809,56 @@ fn tc_048_qspec_positive_inputs_fail_closed() {
     let refused = read_positive_package(unknown, base, &document)
         .expect_err("unknown selected model must fail");
     assert!(refused.contains("acme/unknown"), "{refused}");
-    let mut changed_package_id = package;
-    changed_package_id["package_id"]["digest"] = json!("0".repeat(64));
-    let refused = read_positive_package(changed_package_id, base, &document)
-        .expect_err("non-admitted positive package must fail");
-    assert!(refused.contains(base), "{refused}");
-    assert!(refused.contains("did not admit"), "{refused}");
+    for retired in ["package_id", "identity_preimage", "identity_projection"] {
+        let mut changed = package.clone();
+        changed[retired] = json!({});
+        let refused = read_positive_package(changed, base, &document)
+            .expect_err("retired identity member must fail");
+        assert!(refused.contains(base), "{refused}");
+        assert!(refused.contains("UnknownMember"), "{refused}");
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-310", "FR-038-AC-363")]
+#[test]
+fn tc_048_package_name_is_required_and_retired_identity_members_refuse() {
+    let mut package = read_json(&fixtures_dir().join(MUTATED_BASE)).expect("QSpec fixture");
+    let admitted = read_package(&package).expect("production read");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = admitted else {
+        panic!("published package must admit: {admitted:?}");
+    };
+    assert_eq!(admitted.name(), package["name"].as_str().expect("name"));
+
+    for retired in ["package_id", "identity_preimage", "identity_projection"] {
+        package[retired] = json!({});
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package(&package).expect("production read")
+        else {
+            panic!("retired top-level {retired} admitted");
+        };
+        assert_eq!(refusal.code, Code::UnknownMember, "{retired}");
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(format!("/{retired}"))
+        );
+        package.as_object_mut().expect("package").remove(retired);
+        assert!(matches!(
+            read_package(&package).expect("production read"),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+    }
+
+    package.as_object_mut().expect("package").remove("name");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&package).expect("production read")
+    else {
+        panic!("missing package name admitted");
+    };
+    assert_eq!(refusal.code, Code::MalformedWire);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/name".to_owned())
+    );
 }
 
 #[trace("FR-038-AC-145")]
@@ -889,8 +870,8 @@ fn tc_226_qspec_recursive_records_admit() {
 }
 
 /// Apply a QSpec derived-shape mutation to every matching node in its positive package,
-/// preserving the node key while refreshing both identity mirrors and the
-/// package id. The fixture and mutation are always read from the QSpec checkout.
+/// preserving the structural node id. The fixture and mutation are always
+/// read from the QSpec checkout.
 fn derived_shape_mutations(dir: &Path, row: &Value) -> Result<Vec<(usize, Value)>, String> {
     let base = text_of(row, "base")?;
     let original = read_json(&dir.join(format!("{base}.json")))?;
@@ -931,8 +912,6 @@ fn derived_shape_mutations(dir: &Path, row: &Value) -> Result<Vec<(usize, Value)
                     replacement,
                 )?;
             }
-            let package_id = derived_with(&package, None)?;
-            replace_at(&mut package, "/package_id/digest", &json!(package_id))?;
             Ok((position, package))
         })
         .collect()
