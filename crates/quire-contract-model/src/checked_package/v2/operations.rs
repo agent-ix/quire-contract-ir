@@ -4394,8 +4394,8 @@ mod tests {
         is_type_shaped, operand_family, operation_catalog, operation_defect, Application,
         ApplicationOperator, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2,
         CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticNodeV2,
-        DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners, ProtocolForm,
-        StructuralTypes, SuppliedDependencies, TemporalForm, ValidationFailure, WorkMeter,
+        DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners, StructuralTypes,
+        SuppliedDependencies, TemporalForm, ValidationFailure, WorkMeter,
     };
     use crate::checked_package::common::NODE_DOMAIN;
     use crate::checked_package::shared::{
@@ -5262,14 +5262,6 @@ mod tests {
 
     fn node_ref(fill: u8) -> serde_json::Value {
         json!({ "domain": "quire.checked-semantic-node/v1", "digest": key(fill) })
-    }
-
-    fn typed(digest: &str) -> CheckedNodeId {
-        serde_json::from_value(json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": digest
-        }))
-        .expect("node id")
     }
 
     /// The family of a type reached through a chain of `bounded_domain` nodes
