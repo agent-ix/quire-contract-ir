@@ -230,7 +230,10 @@ pub(super) enum NominalBodyKind {
 
 impl NominalBody {
     /// Construct a source enum body, retaining declared case order.
-    pub fn try_enum(ordered: bool, members: Vec<Box<str>>) -> Result<Self, CheckedPackageRefusal> {
+    pub fn try_enum(
+        ordered: bool,
+        members: Vec<Box<str>>,
+    ) -> Result<Self, Box<CheckedPackageRefusal>> {
         Self::try_kind(
             NominalBodyKind::Enum { ordered, members },
             JsonPointer::root(),
@@ -238,7 +241,7 @@ impl NominalBody {
     }
 
     /// Construct a base or derived dimension body.
-    pub fn try_dimension(terms: Vec<DimensionTerm>) -> Result<Self, CheckedPackageRefusal> {
+    pub fn try_dimension(terms: Vec<DimensionTerm>) -> Result<Self, Box<CheckedPackageRefusal>> {
         Self::try_kind(NominalBodyKind::Dimension { terms }, JsonPointer::root())
     }
 
@@ -248,7 +251,7 @@ impl NominalBody {
         target_unit_node_id: Option<CheckedNodeId>,
         scale: CheckedRational,
         offset: CheckedRational,
-    ) -> Result<Self, CheckedPackageRefusal> {
+    ) -> Result<Self, Box<CheckedPackageRefusal>> {
         Self::try_kind(
             NominalBodyKind::Unit {
                 dimension_node_id,
@@ -264,7 +267,7 @@ impl NominalBody {
     pub fn try_dimension_equivalence(
         dimension_node_ids: [CheckedNodeId; 2],
         root_scale: CheckedRational,
-    ) -> Result<Self, CheckedPackageRefusal> {
+    ) -> Result<Self, Box<CheckedPackageRefusal>> {
         Self::try_kind(
             NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids,
@@ -274,16 +277,19 @@ impl NominalBody {
         )
     }
 
-    fn try_kind(kind: NominalBodyKind, at: JsonPointer) -> Result<Self, CheckedPackageRefusal> {
+    fn try_kind(
+        kind: NominalBodyKind,
+        at: JsonPointer,
+    ) -> Result<Self, Box<CheckedPackageRefusal>> {
         let malformed = |path| {
-            CheckedPackageRefusal::new(RefusalFields {
+            Box::new(CheckedPackageRefusal::new(RefusalFields {
                 code: CheckedPackageRefusalCode::MalformedWire,
                 path: Some(path),
                 cause: None,
                 locus: None,
                 contract_version: None,
                 document_pointer: None,
-            })
+            }))
         };
         let valid_id = |id: &CheckedNodeId, path: JsonPointer| {
             id.is_well_formed()
@@ -501,7 +507,7 @@ impl NominalBody {
             }
             _ => Err(malformed(at.clone())),
         }?;
-        Self::try_kind(kind, at).map_err(|refusal| ValidationFailure::Refused(Box::new(refusal)))
+        Self::try_kind(kind, at).map_err(ValidationFailure::Refused)
     }
 
     pub(super) fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
