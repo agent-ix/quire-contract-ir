@@ -290,9 +290,8 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
             ContractFeatureRecordV1::Lowered { .. }
         ]
     ));
-    assert_ne!(plain.identity(), contextual.identity());
+    assert_ne!(plain.wire(), contextual.wire());
     let before = contextual.wire().clone();
-    let before_identity = contextual.identity().clone();
     let ContractResultViewV1::Lowered(plain_view) = plain
         .result_context(
             &add.node_id,
@@ -330,7 +329,6 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
     assert_eq!(conversion.node_id, narrow.node_id);
     assert_eq!(view.provenance, &contextual.wire().package);
     assert_eq!(view.provenance.lowering_profile, profile().reference);
-    assert_eq!(view.identity, contextual.identity());
     assert_eq!(view.application, add);
     assert_eq!(view.conversion, Some(narrow.clone()));
     assert_eq!(
@@ -377,7 +375,6 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
         }
     }
     assert_eq!(contextual.wire(), &before);
-    assert_eq!(contextual.identity(), &before_identity);
 }
 
 #[trace("TC-447", "FR-049-AC-2", "FR-049-AC-3", "FR-049-AC-4")]
@@ -996,7 +993,6 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
         };
         assert_eq!(view.provenance, &combined.wire().package);
         assert_eq!(view.provenance.lowering_profile, profile().reference);
-        assert_eq!(view.identity, combined.identity());
         assert_eq!(view.application, *application);
         assert_eq!(view.conversion.as_ref(), Some(conversion));
         assert_eq!(view.reached.root.node_id, add.node_id);
@@ -1127,7 +1123,6 @@ fn scalar_and_result_views_and_work_boundaries_hold_on_the_admitted_fixture() {
     };
     assert_eq!(view.application, add);
     assert_eq!(view.conversion, Some(narrow.clone()));
-    assert_eq!(view.identity, contract.identity());
     assert_eq!(view.provenance, &contract.wire().package);
     let ContractResultContextV1::Narrowed {
         conversion,
@@ -1160,7 +1155,6 @@ fn scalar_and_result_views_and_work_boundaries_hold_on_the_admitted_fixture() {
         ContractResultContextV1::IncompleteContext
     );
     let contract_bytes = canonical(&serde_json::to_value(contract.wire()).expect("wire"));
-    assert_eq!(contract.identity(), &contract.wire().identity);
     let mut low = 0;
     let mut high = CheckedPackageReadLimits::bounded().work;
     while low + 1 < high {
