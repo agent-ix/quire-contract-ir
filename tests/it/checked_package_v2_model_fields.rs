@@ -2238,7 +2238,7 @@ fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
         .expect("Order declaration");
     assert_eq!(
         refusal.loci[0].path.as_ref().map(|path| path.as_str()),
-        Some(format!("/semantic_graph/nodes/{order_position}/owner").as_str())
+        Some(format!("/semantic_graph/nodes/{order_position}/node_id").as_str())
     );
     assert_eq!(refusal.locus.as_ref(), Some(&declaration_id(ORDER)));
     // A node keyed as no selected declaration.
