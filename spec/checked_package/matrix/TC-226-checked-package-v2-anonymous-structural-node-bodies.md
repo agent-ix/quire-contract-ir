@@ -18,8 +18,8 @@ Verify FR-038's independent closed body, owner, graph, dependency and recursion-
 2. Mutate one body member, bound, semantic type, owner or reference at a time. A malformed body refuses `invalid_package`/`invalid-derived-shape`; a wrong semantic type, missing selected owner, omitted dependency, unresolved target and wrong referenced form refuse by their respective independent rules. A valid body edit under the same structural id admits if every graph and semantic rule still holds.
 3. Build `List`, `Tree` and owner-free G1 groups with shared non-empty
    string labels and producer-assigned structural `node_id.ordinal` values.
-   Give G1 a shared authored path and no declared member or owner; require
-   admission without deriving or demanding a declaration path. Separately add
+   Give G1 a producer-chosen authored path and no declared member or owner;
+   require admission without deriving or demanding a declaration path. Separately add
    one non-empty label to an otherwise valid acyclic protocol node whose
    closed shape permits it and require admission without inventing a cycle
    refusal (QSpec TC-946 K10).
