@@ -188,17 +188,22 @@ Read one positive V2 package with declared and derived structural ids. Independe
 
 For FR-038-AC-364, use separately authored, otherwise valid ungrouped nodes
 with a single `(package,path)` at ordinal 7 and with two nodes sharing that
-pair at ordinals 7 and 23. Update every reference to the authored ids, keep
-the complete graph canonically ordered, and require admission of both packages;
-reverse the siblings' source authoring order in a separate package while
-retaining canonical graph order and require the same admission. Duplicate an exact id and require
-`invalid_semantic_graph` at the later `node_id`; supply a negative, fractional,
-string or above-safe-integer ordinal and require `malformed_wire` at that
-ordinal. Keep recursion-group `{size,ordinal}` and its graph-order controls
-separate. Read QSpec XP-04 directly from its selected checkout: its second
-equivalence node's ordinal 1 makes a distinct structural id, while the
-repeated pair still refuses `invalid_semantic_graph` for pair meaning, not
-an ordinal-shape or duplicate-id defect. Copy no vector into this repository.
+pair at ordinals 7 and 23. Update every reference to the authored ids and
+require admission without a zero, contiguity or sibling-order check. Read
+QSpec `proposals/checked-package-v2/node-ordinal-vectors.json`
+`uniqueness_cases` NO-05..NO-08 directly from its selected checkout: NO-05
+admits the original ordinal 0 and a sibling at 7; NO-06 admits siblings at
+3 then 2 before the original at 0, in neither ordinal nor graph order;
+NO-07 duplicates the original's ordinal 0 and NO-08 repeats ordinal 4,
+each refusing `invalid_semantic_graph` at the recorded later `node_id`.
+Apply the vector's declared placement and compare exact code and locus.
+Also supply a negative, fractional, string or above-safe-integer ordinal
+and require `malformed_wire` at that ordinal. Keep recursion-group
+`{size,ordinal}` and its graph-order controls separate. Read QSpec XP-04
+directly from its selected checkout: its second equivalence node's ordinal
+1 makes a distinct structural id, while the repeated pair still refuses
+`invalid_semantic_graph` for pair meaning, not an ordinal-shape or
+duplicate-id defect. Copy no vector into this repository.
 
 ## Expected Results
 
@@ -631,6 +636,14 @@ the pointer of the `incomplete` outcome resolves in the lock.
 Construct definition and source references as exact `{authority, identity}` pairs at every lock, diagnostic, source-map and operation-law site. A valid pair admits; missing, empty or wrong-kind members refuse at the exact member. An extra revision, digest, domain or export member refuses `unknown_member`. The reader retains one authoritative lock row and does not compare a second identity-preimage mirror. Two dependency selections sort by UTF-8 identity text, admit with matching supplied package names and refuse duplication or wrong order under the published lock rule. A foreign or absent selected source refuses at the owner join, without inferred replacement.
 
 Supply equal complete packages through two dependency branches and require admission. Change one node body or ordered array in one branch under the same name and require `invalid_package`/`conflicting-definition` with both importer-rooted paths. A selected name with no package refuses `missing_import`/`missing-selection`; no content mismatch or stale-dependency code exists.
+
+For FR-038-AC-61, start from one otherwise admitting source-owned node,
+change only its `{authority,identity}` pair to one absent from `lock.sources`,
+and require `missing_declaration`/`missing-selection` at that node's
+`node_id` after wire validation. In a separate otherwise valid node, replace
+its `owner` with a `DefinitionOwner` shape and require `malformed_wire` at
+`owner` before the owner join. Neither case supplies a definition-owner
+selection path or treats a wire-shape refusal as owner-join evidence.
 
 ## Operation identity, laws, mode, member and operands (FR-038-AC-81 through FR-038-AC-88)
 
