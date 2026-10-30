@@ -167,24 +167,20 @@ fn nominal_record_decoding_refuses_in_structural_order() {
     let mut members = nominal_fixture_members();
     let mut earlier = members
         .iter()
-        .find(|(_, key)| key == "qualified:Example/Metre")
-        .expect("root unit")
+        .find(|(_, key)| key == "value/enum_value/ACTIVE")
+        .expect("enum member")
         .0
         .clone();
-    earlier["qualified_declaration"] = json!(["Example", "Acre"]);
-    members.push((earlier, "qualified:Example/Acre".to_owned()));
+    earlier["case"] = json!("AAA");
+    members.push((earlier, "value/enum_value/AAA".to_owned()));
     let mut package = nominal_package(&members);
     let later_position = members
         .iter()
-        .position(|(_, key)| key == "qualified:Example/Metre")
-        .expect("original unit");
+        .position(|(_, key)| key == "value/enum_value/ACTIVE")
+        .expect("original enum member");
     let earlier_position = members.len() - 1;
     for position in [later_position, earlier_position] {
-        let node = package["semantic_graph"]["nodes"][position]
-            .as_object_mut()
-            .expect("nominal node");
-        node.remove("declaration");
-        node.remove("owner");
+        package["semantic_graph"]["nodes"][position]["body"]["value"] = json!(1);
     }
     assert!(later_position < earlier_position);
     assert!(
@@ -197,7 +193,7 @@ fn nominal_record_decoding_refuses_in_structural_order() {
         &evidence_for(&package),
     );
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
-        panic!("two ownerless nominal nodes must refuse: {result:?}");
+        panic!("two non-string enum cases must refuse: {result:?}");
     };
     assert_eq!(
         refusal.code,
@@ -205,7 +201,9 @@ fn nominal_record_decoding_refuses_in_structural_order() {
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{earlier_position}/owner"))
+        Some(format!(
+            "/semantic_graph/nodes/{earlier_position}/body/value"
+        ))
     );
 }
 
