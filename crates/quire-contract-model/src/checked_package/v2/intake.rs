@@ -157,10 +157,8 @@ pub(super) fn decode_borrowed_wire(
         if let ValidationFailure::Refused(ref mut refusal) = failure {
             if refusal.code == CheckedPackageRefusalCode::MalformedWire {
                 if let Some(at) = refusal.primary_path().cloned() {
-                    if at.as_str().ends_with("/node_id") {
-                        if let Some(ordinal) = invalid_node_id_ordinal(bytes, &at) {
-                            refusal.set_primary_path(Some(ordinal));
-                        }
+                    if let Some(ordinal) = invalid_node_id_ordinal(bytes, &at) {
+                        refusal.set_primary_path(Some(ordinal));
                     }
                 }
             }
@@ -284,6 +282,13 @@ mod ordinal_locus_tests {
         assert_eq!(
             invalid_node_id_ordinal(nested, &node),
             Some(node.key("path").index(0).key("ordinal"))
+        );
+
+        let dependency = br#"{"semantic_graph":{"nodes":[{"dependencies":[{"package":"p","path":["x"],"ordinal":"one"}]}]}}"#;
+        let reference = JsonPointer::parse("/semantic_graph/nodes/0/dependencies/0").unwrap();
+        assert_eq!(
+            invalid_node_id_ordinal(dependency, &reference),
+            Some(reference.key("ordinal"))
         );
     }
 }
