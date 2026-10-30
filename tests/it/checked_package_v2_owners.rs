@@ -4,9 +4,9 @@
 //! Owner-wire admission and refusal cases built from this crate's public wire vocabulary.
 
 use crate::support::checked_package::{
-    application_node_key, bounds_body, canonical, evidence_for, evidence_with_document,
-    integer_key, node_id, refresh_identity, refresh_identity_projection, select_model, settle,
-    structural_key, v2_all_families, v2_nominal,
+    bounds_body, canonical, evidence_for, evidence_with_document, integer_key, node_id,
+    refresh_identity, refresh_identity_projection, select_model, settle, v2_all_families,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -679,7 +679,7 @@ fn tc_229_declared_population_is_query_operand() {
             .clone();
         let reference_body = json!({"term":"aggregate","members":[
         {"term":"reference","target":point.clone()}]});
-        let reference = structural_key("composite_type", "reference", None, &reference_body);
+        let reference = "query/type/reference".to_owned();
         package["semantic_graph"]["nodes"]
             .as_array_mut()
             .unwrap()
@@ -691,7 +691,7 @@ fn tc_229_declared_population_is_query_operand() {
             }));
         let set_body = json!({"term":"aggregate","members":[
         {"term":"reference","target":node_id(&reference)}]});
-        let set = structural_key("composite_type", "set", None, &set_body);
+        let set = "query/type/set".to_owned();
         package["semantic_graph"]["nodes"]
             .as_array_mut()
             .unwrap()
@@ -704,7 +704,7 @@ fn tc_229_declared_population_is_query_operand() {
         let (result, mode, arguments) = if lookup {
             let option_body = json!({"term":"aggregate","members":[
             {"term":"reference","target":node_id(&reference)}]});
-            let option = structural_key("composite_type", "option", None, &option_body);
+            let option = "query/type/option".to_owned();
             package["semantic_graph"]["nodes"]
                 .as_array_mut()
                 .unwrap()
@@ -715,8 +715,7 @@ fn tc_229_declared_population_is_query_operand() {
                     "occurrences":[{"role":"type","ordinal":0}], "body":option_body
                 }));
             let identity_body = json!({"term":"reference","target":point.clone()});
-            let identity =
-                structural_key("expression", "reference", Some(&reference), &identity_body);
+            let identity = "query/expression/object".to_owned();
             package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
             "node_id":node_id(&identity), "schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"expression", "semantic_form":"reference",
@@ -747,8 +746,7 @@ fn tc_229_declared_population_is_query_operand() {
                         }));
                 }
                 let body = bounds_body("0", "2");
-                let bounded_key =
-                    structural_key("bounded_domain", "collection_bounds", Some(&set), &body);
+                let bounded_key = "query/bounds/collection".to_owned();
                 package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
                         "node_id":node_id(&bounded_key), "schema_version":"quire.checked-semantic-graph/v2",
                         "node_tag":"bounded_domain", "semantic_form":"collection_bounds",
@@ -770,7 +768,13 @@ fn tc_229_declared_population_is_query_operand() {
             "laws":[],"mode":mode,
             "member":{"kind":"type_argument","declaration":point},"leaves":[]},
         "result_type":node_id(&result),"arguments":arguments});
-        let application = application_node_key("expression", "query", &result, &body);
+        let application = if lookup {
+            "query/application/lookup"
+        } else if bounded {
+            "query/application/all_instances/bounded"
+        } else {
+            "query/application/all_instances"
+        };
         package["semantic_graph"]["nodes"]
             .as_array_mut()
             .unwrap()
@@ -1211,9 +1215,9 @@ fn tc_228_anonymous_locus_nominal_and_application_nodes_are_owner_free() {
         .expect("nominal nodes");
     let nominal = nominal_nodes
         .iter()
-        .position(|node| node.get("nominal_identity_preimage").is_some())
-        .expect("nominal node");
-    assert!(nominal_nodes[nominal].get("owner").is_none());
+        .position(|node| node["semantic_form"] == "enum")
+        .expect("source-declared nominal node");
+    assert_eq!(nominal_nodes[nominal]["owner"]["kind"], "source");
     let application = nodes
         .iter()
         .position(|node| node["body"]["term"] == "application")
