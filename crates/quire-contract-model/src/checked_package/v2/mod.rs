@@ -102,7 +102,7 @@ use dependency_references::{admit_dependencies, check_derived_closure, SuppliedD
 use ix_trace_rs::string_edge;
 use operations::validate_operations;
 use owner::{validate_owner_joins, validate_owner_schema};
-use structural::validate_structural_nodes;
+use structural::{validate_derived_type_shapes, validate_structural_nodes};
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
@@ -2493,6 +2493,7 @@ fn validate_graph(
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
     validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
+    validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index)?;
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
