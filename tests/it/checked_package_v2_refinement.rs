@@ -23,6 +23,39 @@ const MODEL_IDENTITY: &str = "test/refinement";
 const MODEL_NODE: &str = "ix://test/refinement/Machine";
 const FAMILY_MODEL_IDENTITY: &str = "test/families";
 
+fn node_id_order(left: &Value, right: &Value) -> std::cmp::Ordering {
+    let left: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(left.clone()).expect("left fixture node ID");
+    let right: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(right.clone()).expect("right fixture node ID");
+    left.cmp(&right)
+}
+
+fn name_dependency_fixture(package: &mut Value, name: &str) {
+    let source_ids = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter(|node| node["owner"]["kind"] != "model" && node["owner"]["kind"] != "model_root")
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+    for old in source_ids {
+        let mut fresh = old.clone();
+        fresh["package"] = json!(name);
+        crate::support::checked_package::reassign_node_id(package, &old, &fresh);
+    }
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        node["dependencies"]
+            .as_array_mut()
+            .expect("dependencies")
+            .sort_by(node_id_order);
+    }
+    package["name"] = json!(name);
+}
+
 fn protocol_class_path(node: &Value) -> String {
     let path = node["declaration"]["qualified_name"]
         .as_array()
@@ -646,7 +679,7 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
             .find(|dependency| **dependency == prior_owner)
             .expect("prior clause owner dependency");
         *owner_dependency = selected_owner;
-        dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        dependencies.sort_by(node_id_order);
         dependencies.dedup();
         rekey_application_node(&mut package, clause);
         refresh_identity(&mut package);
@@ -1129,8 +1162,7 @@ fn catalog_free_operation_package_config(
         let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
         if !dependencies.contains(&child) {
             dependencies.push(child);
-            dependencies
-                .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+            dependencies.sort_by(node_id_order);
         }
         settle_refinement(&mut package, position);
         let node = &mut package["semantic_graph"]["nodes"][position];
@@ -1529,7 +1561,7 @@ fn object_frame_retains_receiver_scoped_grants() {
     let machine = declaring("state_machine");
     edit_catalog_free_frame(&mut package, refinement, |node| {
         let mut declarations = vec![object.clone(), process.clone(), machine.clone()];
-        declarations.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        declarations.sort_by(node_id_order);
         let mut fields = [
             (object, "address", "receiver"),
             (process, "n", "every-object"),
@@ -1647,7 +1679,7 @@ fn set_catalog_free_source(package: &mut Value, position: usize, source: Option<
     if let Some(source) = source {
         dependencies.push(source);
     }
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     node["dependencies"] = json!(dependencies);
     settle_refinement(package, position);
@@ -1898,8 +1930,7 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
         &anchor_body,
     ));
     let mut anchor_dependencies = vec![machine.clone(), frame.clone()];
-    anchor_dependencies
-        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    anchor_dependencies.sort_by(node_id_order);
     let source = package["lock"]["sources"][0].clone();
     for node in [
         json!({"node_id":text_type, "schema_version":"quire.checked-semantic-graph/v2",
@@ -1951,7 +1982,7 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     }]);
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.extend([population, object, text_type]);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut package, position);
     keep_refinement_declaration_occurrence(&mut package, position);
@@ -2059,8 +2090,7 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
         if name == "operation" {
             let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
             dependencies.push(receiver.clone());
-            dependencies
-                .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+            dependencies.sort_by(node_id_order);
             dependencies.dedup();
         }
         settle_refinement(&mut package, position);
@@ -2110,7 +2140,7 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
     });
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.extend([unresolved, receiver]);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut missing_target, position);
     assert_step_refusal(
@@ -2124,7 +2154,9 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
 #[trace("TC-062", "FR-061-AC-4")]
 #[test]
 fn directly_selected_abstract_operation_target_uses_declaring_owner() {
-    let (dependency_wire, dependency_evidence, _) = catalog_free_operation_package("object_type");
+    let (mut dependency_wire, dependency_evidence, _) =
+        catalog_free_operation_package("object_type");
+    name_dependency_fixture(&mut dependency_wire, "test/abstract-operations");
     let dependency_nodes = dependency_wire["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -2152,11 +2184,10 @@ fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     else {
         panic!("abstract dependency fixture refused");
     };
-    let dependency_id = dependency_wire["package_id"].clone();
-    let external = |node: Value| json!({"package":dependency_id,"node":node});
+    let external = |node: Value| json!({"package":"test/abstract-operations","node":node});
     let (mut package, mut evidence, position) = catalog_free_operation_package("object_type");
     package["lock"]["dependency_selections"] = json!([{
-        "identity":"test/abstract-operations", "package_id":dependency_id
+        "identity":"test/abstract-operations"
     }]);
     evidence
         .insert_dependency_package("test/abstract-operations", *dependency)
@@ -2166,7 +2197,7 @@ fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     node["body"]["abstract"] = external(abstract_root);
     node["body"]["steps"][0]["target"] = json!({
         "kind":"operation", "operation":external(abstract_anchor.clone()),
-        "receiver":{"term":"dependency_reference", "package":dependency_id,
+        "receiver":{"term":"dependency_reference", "package":"test/abstract-operations",
             "node":abstract_type}, "arguments":[]
     });
     node["body"]["ensure"] = json!([{
@@ -2238,7 +2269,7 @@ fn declared_protocol_target_package() -> (Value, CheckedPackageEvidence, usize, 
     });
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.push(clause);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut package, position);
     (package, evidence, position, finish)
@@ -2362,7 +2393,7 @@ fn swapped_concrete_root_refuses_foreign_population_first() {
     node["body"]["populations"] = json!([{"abstract":population,"concrete":population}]);
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.push(population);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut package, position);
     assert!(
@@ -2396,7 +2427,7 @@ fn swapped_concrete_root_refuses_foreign_population_first() {
     });
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.extend([object, machine]);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut package, position);
     keep_refinement_declaration_occurrence(&mut package, position);
@@ -2462,7 +2493,7 @@ fn swapped_concrete_root_refuses_first_foreign_object_before_step() {
     }]);
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.push(object);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut package, position);
     keep_refinement_declaration_occurrence(&mut package, position);
@@ -2562,7 +2593,7 @@ fn history_and_assume_operation_package() -> (Value, CheckedPackageEvidence, usi
     }]);
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.extend([object, text_type]);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut package, position);
     keep_refinement_declaration_occurrence(&mut package, position);
@@ -2662,7 +2693,7 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
     node["body"]["histories"][0]["initial"] = json!({"term":"reference","target":literal_id});
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.push(literal_id.clone());
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     settle_refinement(&mut package, position);
     let CheckedPackageV2ReadResult::Admitted(first) = read(&package, &evidence) else {
         panic!(
@@ -2885,11 +2916,15 @@ fn refinement_rejects_each_unsorted_row_array_without_reordering() {
 #[trace("TC-062", "FR-061-AC-5")]
 #[test]
 fn history_initial_rejects_selected_dependency_literal_reference() {
-    let dependency_wire = v2_all_families();
+    let mut dependency_wire = v2_all_families();
+    name_dependency_fixture(&mut dependency_wire, "test/history-literal");
     let CheckedPackageV2ReadResult::Admitted(dependency) =
         read(&dependency_wire, &evidence_for(&dependency_wire))
     else {
-        panic!("dependency fixture refused");
+        panic!(
+            "dependency fixture refused: {:?}",
+            read(&dependency_wire, &evidence_for(&dependency_wire))
+        );
     };
     let literal = dependency_wire["semantic_graph"]["nodes"]
         .as_array()
@@ -2900,12 +2935,12 @@ fn history_initial_rejects_selected_dependency_literal_reference() {
         .clone();
     let (mut package, mut evidence, position, _, _, _) = ac5_history_package();
     package["lock"]["dependency_selections"] = json!([{
-        "identity":"test/history-literal", "package_id":dependency_wire["package_id"]
+        "identity":"test/history-literal"
     }]);
     evidence
         .insert_dependency_package("test/history-literal", *dependency)
         .expect("selected dependency");
-    package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["initial"] = json!({"term":"dependency_reference","package":dependency_wire["package_id"],
+    package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["initial"] = json!({"term":"dependency_reference","package":"test/history-literal",
             "node":literal});
     settle_refinement(&mut package, position);
     ac5_refusal_preserved_by_writer(
@@ -2960,7 +2995,7 @@ fn history_update_and_assume_accept_declaring_type_anchor_and_refuse_foreign_roo
         .expect("dependencies");
     dependencies.retain(|dependency| *dependency != old_object);
     dependencies.push(other_object);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut package, position);
     assert_concrete_row_binding(
@@ -2975,7 +3010,7 @@ fn history_update_and_assume_accept_declaring_type_anchor_and_refuse_foreign_roo
     let anchor =
         package["semantic_graph"]["nodes"][position]["body"]["assume"][0]["operation"].clone();
     let mut dependencies = vec![abstract_root, anchor];
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     package["semantic_graph"]["nodes"][position]["dependencies"] = json!(dependencies);
     settle_refinement(&mut package, position);
@@ -3043,7 +3078,7 @@ fn protocol_catalog_presence_precedes_foreign_concrete_step() {
     node["body"]["protocol"] = clause.clone();
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.push(clause);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut package, position);
     assert_step_refusal(
@@ -3089,7 +3124,7 @@ fn protocol_catalog_compares_new_concrete_identity_in_key_order() {
     node["body"]["class_catalog"]["abstract"] = json!(entries);
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.push(clause);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut package, position);
     assert!(
@@ -3155,7 +3190,7 @@ fn row_empty_protocol_subject_admits_two_equal_empty_concrete_class_sets() {
     node["body"]["class_catalog"]["abstract"] = json!(abstract_entries);
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.extend([finish, clause, boolean]);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     let first_root = add_empty_selected_model_root(&mut package, &mut evidence, "test/empty/a");
     let second_root = add_empty_selected_model_root(&mut package, &mut evidence, "test/empty/b");
@@ -3287,7 +3322,7 @@ fn catalog_free_operation_step_refuses_foreign_selected_model_anchor() {
         &anchor_body,
     ));
     let mut dependencies = vec![context.clone(), frame.clone()];
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     package["semantic_graph"]["nodes"].as_array_mut().expect("nodes").extend([
         json!({"node_id":frame, "schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"state", "semantic_form":"frame", "semantic_type":context,
@@ -4392,7 +4427,7 @@ fn tied_protocol_and_memory_step_rows_keep_declaration_order_and_node_presence()
     });
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.push(clause);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut memory_target, position);
     let memory_key: quire_contract_model::CheckedNodeId = serde_json::from_value(
@@ -4567,7 +4602,7 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
         {"class":"memory drain", "memory_model":"sc", "drain":"store-buffer-flush"},
     ]);
     let mut dependencies = vec![abstract_key, clause.clone(), finish, parallel, binder];
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     let refinement = &mut package["semantic_graph"]["nodes"][position];
     refinement["body"]["protocol"] = clause;
@@ -5269,7 +5304,7 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
     node["body"]["steps"][1]["source_node"] = second_id.clone();
     let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
     dependencies.push(second_id);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     node["body"]["steps"]
         .as_array_mut()
         .expect("steps")
@@ -5446,7 +5481,7 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
     }]);
     let dependencies = owner["dependencies"].as_array_mut().expect("dependencies");
     dependencies.extend([object, text_type]);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut history, position);
     let id = history["semantic_graph"]["nodes"][position]["node_id"].clone();
@@ -5792,7 +5827,8 @@ fn refinement_headers_require_selected_roots_not_state_machine_declarations() {
 #[trace("TC-233", "FR-065-AC-6")]
 #[test]
 fn refinement_external_abstract_resolves_only_the_directly_selected_package_root() {
-    let (dependency_wire, dependency_evidence) = machine_package();
+    let (mut dependency_wire, dependency_evidence) = machine_package();
+    name_dependency_fixture(&mut dependency_wire, "test/abstract");
     let dependency = match read(&dependency_wire, &dependency_evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => *package,
         other => panic!("dependency package refused: {other:?}"),
@@ -5814,7 +5850,6 @@ fn refinement_external_abstract_resolves_only_the_directly_selected_package_root
     let (mut package, mut evidence) = machine_package();
     package["lock"]["dependency_selections"] = json!([{
         "identity": "test/abstract",
-        "package_id": dependency_wire["package_id"],
     }]);
     evidence
         .insert_dependency_package("test/abstract", dependency)
@@ -5822,7 +5857,7 @@ fn refinement_external_abstract_resolves_only_the_directly_selected_package_root
     row_empty_refinement(&mut package);
     let position = package["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
     let external = json!({
-        "package": dependency_wire["package_id"], "node": dependency_root,
+        "package": "test/abstract", "node": dependency_root,
     });
     package["semantic_graph"]["nodes"][position]["body"]["abstract"] = external.clone();
     package["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
@@ -6086,7 +6121,7 @@ fn refinement_step_defect_precedes_wrong_protocol_clause_owner() {
         .expect("dependencies");
     dependencies.retain(|id| id != &previous_owner);
     dependencies.push(wrong_owner);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     rekey_application_node(&mut package, clause);
     refresh_identity(&mut package);
     let CheckedPackageV2ReadResult::Refused(wrong_owner_refusal) = read(&package, &evidence) else {
@@ -6334,7 +6369,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     wrong_node["semantic_graph"]["nodes"][position]["dependencies"]
         .as_array_mut()
         .expect("dependencies")
-        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        .sort_by(node_id_order);
     settle_refinement(&mut wrong_node, position);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_node, &evidence) else {
         panic!("wrong declaration association admitted");
@@ -6435,7 +6470,7 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
         .as_array_mut()
         .expect("dependencies");
     dependencies.push(clause);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     settle_refinement(&mut abstract_protocol, position);
     let admitted = read(&abstract_protocol, &evidence);
@@ -6773,7 +6808,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
     owner["dependencies"]
         .as_array_mut()
         .expect("dependencies")
-        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        .sort_by(node_id_order);
     settle_refinement(&mut abstract_package, refinement);
     let admitted = read(&abstract_package, &evidence);
     assert!(
@@ -7080,7 +7115,7 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
     node["dependencies"]
         .as_array_mut()
         .expect("dependencies")
-        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        .sort_by(node_id_order);
     settle_refinement(&mut abstract_package, position);
     let admitted = read(&abstract_package, &evidence);
     assert!(
@@ -7582,7 +7617,7 @@ fn refinement_catalog_joins_selected_abstract_clause_and_binder() {
         .expect("dependencies")
         .clone();
     dependencies.push(clause);
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     node["dependencies"] = json!(dependencies);
     settle_refinement(&mut package, position);
@@ -7611,6 +7646,7 @@ fn refinement_catalog_joins_selected_abstract_clause_and_binder() {
 fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     let (mut dependency_wire, dependency_evidence) =
         concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    name_dependency_fixture(&mut dependency_wire, "test/abstract-protocol");
     let dependency_nodes = dependency_wire["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -7644,8 +7680,7 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     else {
         panic!("direct dependency fixture must admit");
     };
-    let dependency_id = dependency_wire["package_id"].clone();
-    let external = |node: Value| json!({"package":dependency_id, "node":node});
+    let external = |node: Value| json!({"package":"test/abstract-protocol", "node":node});
 
     let (mut package, mut evidence) =
         concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
@@ -7674,10 +7709,10 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     node["dependencies"]
         .as_array_mut()
         .expect("dependencies")
-        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        .sort_by(node_id_order);
     settle_refinement(&mut package, position);
     package["lock"]["dependency_selections"] = json!([{
-        "identity":"test/abstract-protocol", "package_id":dependency_id
+        "identity":"test/abstract-protocol"
     }]);
     refresh_identity(&mut package);
     evidence
@@ -7746,13 +7781,13 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
     dependency_wire["semantic_graph"]["nodes"][dep_refinement]["body"]["class_catalog"]
         ["abstract"] = json!([operation]);
     settle_refinement(&mut dependency_wire, dep_refinement);
+    name_dependency_fixture(&mut dependency_wire, "test/abstract-model");
     let CheckedPackageV2ReadResult::Admitted(dependency) =
         read(&dependency_wire, &dependency_evidence)
     else {
         panic!("selected dependency must admit");
     };
-    let dependency_id = dependency_wire["package_id"].clone();
-    let external = |node: Value| json!({"package":dependency_id, "node":node});
+    let external = |node: Value| json!({"package":"test/abstract-model", "node":node});
 
     let (mut package, mut evidence) =
         concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
@@ -7780,10 +7815,10 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
     node["dependencies"]
         .as_array_mut()
         .expect("dependencies")
-        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        .sort_by(node_id_order);
     settle_refinement(&mut package, position);
     package["lock"]["dependency_selections"] = json!([{
-        "identity":"test/abstract-model", "package_id":dependency_id
+        "identity":"test/abstract-model"
     }]);
     refresh_identity(&mut package);
     evidence
@@ -8022,7 +8057,7 @@ fn process_and_machine_clause_signatures_use_declared_context() {
                 .map(|key| node_id(key))
                 .chain([anchor_id, condition.clone()])
                 .collect();
-            deps.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+            deps.sort_by(node_id_order);
             deps.dedup();
             let position = package["semantic_graph"]["nodes"]
                 .as_array()
