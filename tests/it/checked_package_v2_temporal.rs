@@ -13,8 +13,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_with_document, family_key, fixture_source, model_owner, node_id,
-    owned_structural_node, select_model, settle, source_owner, structural_key, typed_node_id,
-    v2_all_families,
+    owned_structural_node, select_model, settle, source_owner, typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1340,7 +1339,7 @@ static MISPLACED_FORMULAS: LazyLock<(Value, Value)> = LazyLock::new(|| {
                 "value": {"term": "literal", "type": node_id(&aaaa()),
                     "value_kind": "boolean", "value": true},
             }]});
-            let key = structural_key("temporal", "formula", Some(&aaaa()), &body);
+            let key = format!("fixture/temporal/misplaced-formula/{salt:03}");
             (
                 key.clone(),
                 node_with_key(&key, "temporal", "formula", body),
