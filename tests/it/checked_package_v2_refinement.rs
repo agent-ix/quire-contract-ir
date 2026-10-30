@@ -5218,9 +5218,12 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
         .find(|node| node["semantic_form"] == "operation_anchor")
         .expect("first anchor")
         .clone();
+    let first_id = source_anchor["node_id"].clone();
+    let mut first_reassigned = first_id.clone();
+    first_reassigned["ordinal"] = json!(1);
+    crate::support::checked_package::reassign_node_id(&mut two, &first_id, &first_reassigned);
     let mut second_anchor = source_anchor.clone();
     second_anchor["body"]["members"][1]["value"]["value"] = json!("toggleAgain");
-    second_anchor["node_id"]["ordinal"] = json!(1);
     let second_id = second_anchor["node_id"].clone();
     two["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -5273,8 +5276,9 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
     ] {
         let CheckedPackageV2ReadResult::Admitted(admitted) = read(package, evidence) else {
             panic!(
-                "proof-eligible refinement refused: {:?}",
-                read(package, evidence)
+                "proof-eligible refinement refused: {:?}; steps={}",
+                read(package, evidence),
+                package["semantic_graph"]["nodes"][position]["body"]["steps"]
             );
         };
         let owner = &admitted.graph().nodes[position];
@@ -7609,17 +7613,22 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
         .expect("finish")["node_id"]
         .clone();
     let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let mut abstract_binder = binder.clone();
+    abstract_binder["package"] = json!("test/abstract-protocol");
     set_concrete_catalog(
         &mut dependency_wire,
         vec![
             json!({"class":"Example::OrderFlow::Closed", "node":abstract_finish,
-            "binder_types":[binder]}),
+            "binder_types":[abstract_binder]}),
         ],
     );
     let CheckedPackageV2ReadResult::Admitted(dependency) =
         read(&dependency_wire, &dependency_evidence)
     else {
-        panic!("direct dependency fixture must admit");
+        panic!(
+            "direct dependency fixture must admit: {:?}",
+            read(&dependency_wire, &dependency_evidence)
+        );
     };
     let external = |node: Value| json!({"package":"test/abstract-protocol", "node":node});
 
@@ -7644,7 +7653,7 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     node["body"]["protocol"] = external(abstract_clause);
     node["body"]["class_catalog"]["abstract"] = json!([{
         "class":"Example::OrderFlow::Closed", "node":external(abstract_finish),
-        "binder_types":[external(binder.clone())]
+        "binder_types":[external(abstract_binder)]
     }]);
     node["dependencies"] = json!([concrete_finish, binder]);
     node["dependencies"]
@@ -7726,7 +7735,10 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
     let CheckedPackageV2ReadResult::Admitted(dependency) =
         read(&dependency_wire, &dependency_evidence)
     else {
-        panic!("selected dependency must admit");
+        panic!(
+            "selected dependency must admit: {:?}",
+            read(&dependency_wire, &dependency_evidence)
+        );
     };
     let external = |node: Value| json!({"package":"test/abstract-model", "node":node});
 
