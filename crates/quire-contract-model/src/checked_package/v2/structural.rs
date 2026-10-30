@@ -65,7 +65,6 @@
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
-use super::derived_keys::DeferredKeyTargets;
 use super::identity::is_identifier;
 use super::{
     ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
@@ -77,7 +76,7 @@ use super::{
     ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm,
     StateForm, TemporalForm, ValueForm,
 };
-use crate::checked_package::common::{exact_members, is_digest, node_pointer, ValidationFailure};
+use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -129,12 +128,11 @@ struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
-    deferred: &'a DeferredKeyTargets,
 }
 
 impl Graph<'_> {
     fn node(&self, id: &CheckedNodeId) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
-        let position = self.deferred.position(id, self.index)?;
+        let position = *self.index.get(id)?;
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
     }
 
@@ -142,12 +140,8 @@ impl Graph<'_> {
         self.node(id).map(|(_, kind)| kind)
     }
 
-    fn dependent_target(&self, id: &CheckedNodeId) -> bool {
-        self.deferred.ambiguous(id, self.index)
-    }
-
-    fn type_matches_or_deferred(&self, id: &CheckedNodeId, form: ScalarTypeForm) -> bool {
-        self.kind(id) == Some(CheckedNodeKind::ScalarType(form)) || self.dependent_target(id)
+    fn type_matches(&self, id: &CheckedNodeId, form: ScalarTypeForm) -> bool {
+        self.kind(id) == Some(CheckedNodeKind::ScalarType(form))
     }
 }
 
@@ -348,13 +342,11 @@ pub(super) fn validate_structural_nodes(
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
-    deferred: &DeferredKeyTargets,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
         kinds,
         index,
-        deferred,
     };
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
@@ -522,7 +514,7 @@ fn protocol_reference_defect(
     let Some(super::CheckedTerm::Reference { target }) = term else {
         return Some(Defect::Body);
     };
-    if !super::is_node_domain(&target.domain) || !is_digest(&target.digest) {
+    if !target.is_well_formed() {
         return Some(Defect::Body);
     }
     if node.dependencies.as_slice() != std::slice::from_ref(target) {
@@ -539,32 +531,31 @@ fn parameter_defect(
     graph: &Graph<'_>,
 ) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
-        && (graph.dependent_target(&node.semantic_type)
-            || graph
-                .node(&node.semantic_type)
-                .is_some_and(|(type_node, kind)| {
-                    // A binder may also be typed at a selected model value declaration.
-                    kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
-                        || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
-                        || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
-                        || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
-                            && matches!(
-                                type_node.owner.as_ref(),
-                                Some(super::CheckedNodeOwner::Model { .. })
-                            ))
-                        || matches!(
-                            kind.tag(),
-                            CheckedNodeTag::ScalarType
-                                | CheckedNodeTag::CompositeType
-                                | CheckedNodeTag::BoundedDomain
-                        )
-                }));
+        && graph
+            .node(&node.semantic_type)
+            .is_some_and(|(type_node, kind)| {
+                // A binder may also be typed at a selected model value declaration.
+                kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                    || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
+                    || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
+                    || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
+                        && matches!(
+                            type_node.owner.as_ref(),
+                            Some(super::CheckedNodeOwner::Model { .. })
+                        ))
+                    || matches!(
+                        kind.tag(),
+                        CheckedNodeTag::ScalarType
+                            | CheckedNodeTag::CompositeType
+                            | CheckedNodeTag::BoundedDomain
+                    )
+            });
     if !is_binder_type {
         return Some(Defect::SemanticType);
     }
     if term
         .and_then(|term| {
-            typed_parameter_binding_with(term, &|id, form| graph.type_matches_or_deferred(id, form))
+            typed_parameter_binding_with(term, &|id, form| graph.type_matches(id, form))
         })
         .is_none()
     {
@@ -595,11 +586,7 @@ pub(super) fn typed_binding<'a>(
 
 pub(super) fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
     match term {
-        super::CheckedTerm::Reference { target }
-            if super::is_node_domain(&target.domain) && is_digest(&target.digest) =>
-        {
-            Some(target)
-        }
+        super::CheckedTerm::Reference { target } if target.is_well_formed() => Some(target),
         _ => None,
     }
 }
@@ -708,7 +695,7 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
                 value,
                 LiteralKind::Integer,
                 ScalarTypeForm::Integer,
-                &|id, form| graph.type_matches_or_deferred(id, form),
+                &|id, form| graph.type_matches(id, form),
             )
         })
         .and_then(Value::as_str)
@@ -1058,7 +1045,7 @@ pub(super) fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
 /// A `reference` term's target.
 pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
     let target = reference_selector(term)?;
-    (super::is_node_domain(&target.domain) && is_digest(&target.digest)).then_some(target)
+    target.is_well_formed().then_some(target)
 }
 
 /// A typed draft `reference` target before its provisional selector is replaced.
