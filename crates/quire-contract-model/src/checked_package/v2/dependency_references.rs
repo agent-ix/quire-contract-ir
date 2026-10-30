@@ -471,10 +471,8 @@ fn carries_declaration_or_owner<Body>(
     node.declaration.is_some()
         || matches!(kind.tag(), CheckedNodeTag::Model | CheckedNodeTag::Relation)
         || matches!(
-            node.nominal_identity_preimage
-                .as_ref()
-                .and_then(NominalIdentityPreimage::owner),
-            Some(NominalOwner::Model { .. })
+            node.owner.as_ref(),
+            Some(super::CheckedNodeOwner::Model { .. })
         )
 }
 
