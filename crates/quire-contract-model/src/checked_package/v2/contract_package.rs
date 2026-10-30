@@ -1669,8 +1669,8 @@ fn validate_body_refusal(value: &Value, at: JsonPointer) -> Result<(), Validatio
     if let Some(locus) = object.get("locus") {
         let locus_at = at.clone().key("locus");
         id_shape(locus, locus_at.clone())?;
-        let id: CheckedNodeId = serde_json::from_value(locus.clone())
-            .map_err(|_| malformed(locus_at.clone(), CheckedPackageRefusalCause::WrongValueKind))?;
+        let id = CheckedNodeId::from_value(locus)
+            .ok_or_else(|| malformed(locus_at.clone(), CheckedPackageRefusalCause::WrongValueKind))?;
         if !valid_node_id(&id) {
             return Err(malformed(
                 locus_at,
