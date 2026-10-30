@@ -12,9 +12,8 @@
 //! fixture.
 
 use crate::support::checked_package::{
-    admitted_dependency, canonical, family_key, node_id, over_body, pointer,
-    read_with_dependencies, reassign_node_id, rebuild_source_map, refresh_identity, settle,
-    v2_all_families, v2_nominal,
+    admitted_dependency, family_key, node_id, over_body, pointer, read_with_dependencies,
+    reassign_node_id, rebuild_source_map, refresh_identity, settle, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
