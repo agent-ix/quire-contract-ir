@@ -1768,10 +1768,9 @@ fn tc_048_relationship_navigation_total_work_limit_reports_its_first_unpayable_e
             assert_eq!(incomplete.limit, admitted - 1);
             assert_eq!(
                 incomplete.path.map(|path| path.to_string()).as_deref(),
-                // `select_model` adds the root at node 7; node 8 is the
-                // reaches operation's `other` parameter, whose second
-                // binding is the Integer-typed level literal.
-                Some("/semantic_graph/nodes/8/body/members/1/value/type")
+                // Operation validation charges its first argument target
+                // before the later graph-body reference edges.
+                Some("/semantic_graph/nodes/6/body/arguments/0/target")
             );
         }
         other => panic!("expected total-work exhaustion, got {other:?}"),
@@ -3421,6 +3420,37 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     let second = admitted(&package, &evidence);
     let application = application_of(&first, "quire.op.model.reaches");
     let clone = first.clone();
+    let bytes = canonical(&package);
+    let read_at = |work| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    };
+    let work_boundary = || {
+        let (mut insufficient, mut sufficient) = (0, CheckedPackageReadLimits::bounded().work);
+        while insufficient + 1 < sufficient {
+            let middle = insufficient + (sufficient - insufficient) / 2;
+            match read_at(middle) {
+                CheckedPackageV2ReadResult::Admitted(_) => sufficient = middle,
+                CheckedPackageV2ReadResult::Incomplete(_) => insufficient = middle,
+                other => panic!("expected work boundary, got {other:?}"),
+            }
+        }
+        assert!(matches!(
+            read_at(sufficient),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+        match read_at(sufficient - 1) {
+            CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+                assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+                assert_eq!(incomplete.limit, sufficient - 1);
+                assert_eq!(incomplete.consumed, sufficient);
+                (sufficient, incomplete.path.expect("first unpaid work site"))
+            }
+            other => panic!("expected first unpaid work visit, got {other:?}"),
+        }
+    };
+    let before_work = work_boundary();
     let result = first.relationship_end(&application);
     assert!(result.is_ok());
     assert_eq!(first.relationship_end(&application), result);
@@ -3428,9 +3458,7 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     assert_eq!(second.relationship_end(&application), result);
     assert_eq!(first, clone);
     assert_eq!(first, second);
-    // `package_id()` reads the wire and the reader checks it before retention is
-    // built, so no retention change can alter it: it is not asserted here. Equal
-    // admissions carry equal retention, so the equality above cannot catch
+    // Equal admissions carry equal retention, so the equality above cannot catch
     // retention leaking into equality; the in-crate test
     // `tc_048_admitted_retention_is_read_and_outside_package_equality` does, by
     // comparing an admitted package with one whose retention is cleared. The
@@ -3438,37 +3466,7 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
 
     // The accessor leaves the authored package and its exact admission work
     // boundary intact. The independent per-visit tally is TC-226/AC-149.
-    let bytes = canonical(&package);
-    let read_at = |work| {
-        let mut limits = CheckedPackageReadLimits::bounded();
-        limits.work = work;
-        CheckedPackageV2::read(&bytes, limits, &evidence)
-    };
-    let (mut insufficient, mut sufficient) = (0, CheckedPackageReadLimits::bounded().work);
-    while insufficient + 1 < sufficient {
-        let middle = insufficient + (sufficient - insufficient) / 2;
-        match read_at(middle) {
-            CheckedPackageV2ReadResult::Admitted(_) => sufficient = middle,
-            CheckedPackageV2ReadResult::Incomplete(_) => insufficient = middle,
-            other => panic!("expected work boundary, got {other:?}"),
-        }
-    }
-    assert!(matches!(
-        read_at(sufficient),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
-    match read_at(sufficient - 1) {
-        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
-            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-            assert_eq!(incomplete.limit, sufficient - 1);
-            assert_eq!(incomplete.consumed, sufficient);
-            assert_eq!(
-                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
-                Some("/semantic_graph/nodes/6/body/arguments/0/target")
-            );
-        }
-        other => panic!("expected first unpaid work visit, got {other:?}"),
-    }
+    assert_eq!(work_boundary(), before_work);
 }
 
 #[trace("TC-048", "FR-038-AC-267")]
