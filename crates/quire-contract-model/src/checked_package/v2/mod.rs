@@ -1863,11 +1863,37 @@ fn decode_admitted_body(
     kind: CheckedNodeKind,
     body: &Value,
 ) -> Result<CheckedTerm, typed_terms::TermConversionCause> {
-    if kind == CheckedNodeKind::State(StateForm::OperationAnchor) {
+    if source_nominal_body(kind, body) {
+        identity::NominalBody::from_value(body, JsonPointer::root())
+            .map(|body| CheckedTerm::NominalBody(Box::new(body)))
+            .map_err(|_| typed_terms::TermConversionCause::MalformedMember {
+                member: "body",
+                category: serde_json::error::Category::Data,
+            })
+    } else if kind == CheckedNodeKind::State(StateForm::OperationAnchor) {
         execution_point::decode_anchor_body(body)
     } else {
         CheckedTerm::decode_admitted(body)
     }
+}
+
+fn source_nominal_body(kind: CheckedNodeKind, body: &Value) -> bool {
+    matches!(
+        (kind, body.get("term").and_then(Value::as_str)),
+        (
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Enum),
+            Some("enum")
+        ) | (
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension),
+            Some("dimension")
+        ) | (
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+            Some("unit")
+        ) | (
+            CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence),
+            Some("dimension_equivalence")
+        )
+    )
 }
 
 /// Minimal structural admission for one node body. Most nodes use the closed
@@ -1890,6 +1916,48 @@ fn validate_body(
 ) -> Result<u64, ValidationFailure> {
     #[cfg(test)]
     lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
+    if source_nominal_body(kind, body) {
+        let nominal = identity::NominalBody::from_value(body, at.pointer())?;
+        let site = ReferenceSite {
+            member: ReferenceMember::Target,
+            is_body_root: false,
+        };
+        match &nominal {
+            identity::NominalBody::Enum { .. } => {}
+            identity::NominalBody::Dimension { terms } => {
+                for (index, term) in terms.iter().enumerate() {
+                    visit(
+                        &term.dimension_node_id,
+                        site,
+                        &at.key("terms").index(index).key("dimension_node_id"),
+                    );
+                }
+            }
+            identity::NominalBody::Unit {
+                dimension_node_id,
+                target_unit_node_id,
+                ..
+            } => {
+                visit(dimension_node_id, site, &at.key("dimension_node_id"));
+                if let Some(target) = target_unit_node_id {
+                    visit(target, site, &at.key("target_unit_node_id"));
+                }
+            }
+            identity::NominalBody::DimensionEquivalence {
+                dimension_node_ids, ..
+            } => {
+                for (index, id) in dimension_node_ids.iter().enumerate() {
+                    visit(id, site, &at.key("dimension_node_ids").index(index));
+                }
+            }
+        }
+        return Ok(1 + match nominal {
+            identity::NominalBody::Dimension { terms } => terms.len() as u64,
+            identity::NominalBody::DimensionEquivalence { .. } => 2,
+            identity::NominalBody::Unit { .. } => 2,
+            identity::NominalBody::Enum { members, .. } => members.len() as u64,
+        });
+    }
     if kind == CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)
         && !body.as_object().is_some_and(|object| {
             super::common::exact_members(object, &["term", "target"])

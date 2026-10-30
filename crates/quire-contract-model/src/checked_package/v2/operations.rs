@@ -362,7 +362,8 @@ fn literal_defect(
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
             | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. } => {}
+            | CheckedTerm::ExtensionForm { .. }
+            | CheckedTerm::NominalBody(_) => {}
         }
     }
     for (valid, path) in native {
@@ -984,7 +985,8 @@ fn argument_family(
         | CheckedTerm::Frame { .. }
         | CheckedTerm::AbstractionRelation { .. }
         | CheckedTerm::Refinement { .. }
-        | CheckedTerm::ExtensionForm { .. } => None,
+        | CheckedTerm::ExtensionForm { .. }
+        | CheckedTerm::NominalBody(_) => None,
     }
 }
 
