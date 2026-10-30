@@ -3,9 +3,8 @@
 //!
 //! Implements the I04 contract described by AD-006. The wire shape this
 //! module admits is stated here, in the types and checks below, rather than
-//! by pointing at a revision of another repository. Model selections are
-//! `sha256-jcs` domain packages, typed separately from the raw source and
-//! definition byte artifacts.
+//! by pointing at a revision of another repository. Model, source, and
+//! definition selections retain the owning names and exact structure.
 
 mod abstraction;
 mod application_identity;
@@ -154,17 +153,13 @@ where
 pub const CHECKED_PACKAGE_V2: &str = "quire.checked-package/v2";
 /// The V2 semantic package identity domain.
 pub const PACKAGE_DOMAIN_V2: &str = "quire.package.semantic/v2";
-const IDENTITY_PREIMAGE_V2: &str = "quire.checked-package-id/v2";
 const GRAPH_V2: &str = "quire.checked-semantic-graph/v2";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum PackageWireTag {
     ContractVersion,
-    PackageDomain,
-    IdentityVersion,
     GraphVersion,
     NodeDomain,
-    Sha256,
 }
 
 impl PackageWireTag {
@@ -172,11 +167,8 @@ impl PackageWireTag {
     fn from_wire(text: &str) -> Option<Self> {
         match text {
             CHECKED_PACKAGE_V2 => Some(Self::ContractVersion),
-            PACKAGE_DOMAIN_V2 => Some(Self::PackageDomain),
-            IDENTITY_PREIMAGE_V2 => Some(Self::IdentityVersion),
             GRAPH_V2 => Some(Self::GraphVersion),
             NODE_DOMAIN => Some(Self::NodeDomain),
-            "sha256" => Some(Self::Sha256),
             _ => None,
         }
     }
@@ -385,19 +377,6 @@ impl CheckedSemanticNodeV2 {
                 *id = new.clone();
             }
         }
-        fn replace_owner(
-            owner: &mut identity::NominalOwner,
-            old: &CheckedNodeId,
-            new: &CheckedNodeId,
-        ) {
-            if let identity::NominalOwner::Model { node, .. } = owner {
-                if PackageWireTag::from_wire(&old.domain) == Some(PackageWireTag::NodeDomain)
-                    && node.as_ref() == old.digest.as_ref()
-                {
-                    *node = new.digest.clone();
-                }
-            }
-        }
         replace(&mut self.node_id, old, new);
         replace(&mut self.semantic_type, old, new);
         for id in &mut self.dependencies {
@@ -406,23 +385,13 @@ impl CheckedSemanticNodeV2 {
         if let Some(owner_model) = &mut self.owner_model {
             replace(owner_model, old, new);
         }
-        if let Some(CheckedNodeOwner::Model { node, .. }) = &mut self.owner {
-            if PackageWireTag::from_wire(&old.domain) == Some(PackageWireTag::NodeDomain)
-                && node.as_ref() == old.digest.as_ref()
-            {
-                *node = new.digest.clone();
-            }
-        }
         if let Some(preimage) = &mut self.nominal_identity_preimage {
             match preimage {
-                NominalIdentityPreimage::EnumDeclaration(value) => {
-                    replace_owner(&mut value.owner, old, new)
-                }
+                NominalIdentityPreimage::EnumDeclaration(_) => {}
                 NominalIdentityPreimage::EnumMember(value) => {
                     replace(&mut value.declaration_node_id, old, new);
                 }
                 NominalIdentityPreimage::Dimension(value) => {
-                    replace_owner(&mut value.owner, old, new);
                     for term in &mut value.terms {
                         replace(&mut term.dimension_node_id, old, new);
                     }
@@ -433,7 +402,6 @@ impl CheckedSemanticNodeV2 {
                     }
                 }
                 NominalIdentityPreimage::Unit(value) => {
-                    replace_owner(&mut value.owner, old, new);
                     replace(&mut value.dimension_node_id, old, new);
                     if let Some(target) = &mut value.target_unit_node_id {
                         replace(target, old, new);
