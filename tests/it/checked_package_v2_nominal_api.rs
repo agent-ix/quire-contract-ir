@@ -114,14 +114,9 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
     for ordered in [false, true] {
         let mut members = nominal_fixture_members();
         members[1].0["ordered"] = json!(ordered);
-        let expected_members = if ordered {
-            members[0].0["case"] = json!("DONE");
-            members[0].1 = "value/enum_value/DONE".to_owned();
-            members[1].0["members"] = json!(["DONE", "ACTIVE"]);
-            ["DONE", "ACTIVE"]
-        } else {
-            ["ACTIVE", "DONE"]
-        };
+        members[0].0["case"] = json!("DONE");
+        members[0].1 = "value/enum_value/DONE".to_owned();
+        members[1].0["members"] = json!(["DONE", "ACTIVE"]);
         let wire = nominal_package(&members);
         let admitted = match CheckedPackageV2::read(
             &canonical(&wire),
@@ -138,7 +133,7 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
         assert_eq!(actual_ordered, ordered);
         assert_eq!(
             names.iter().map(Box::as_ref).collect::<Vec<_>>(),
-            expected_members
+            ["DONE", "ACTIVE"]
         );
     }
 

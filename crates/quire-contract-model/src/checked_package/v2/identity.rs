@@ -178,6 +178,19 @@ pub struct CheckedRational {
 /// let mut body = NominalBody::try_enum(false, vec!["Ready".into()]).unwrap();
 /// body.kind = body.kind.clone();
 /// ```
+/// The borrowed enum details cannot mutate or construct a body unchecked.
+/// ```compile_fail
+/// use quire_contract_model::NominalBody;
+/// let body = NominalBody::try_enum(false, vec!["Ready".into()]).unwrap();
+/// let (_, members) = body.enum_details().unwrap();
+/// members[0] = "Other".into();
+/// ```
+/// ```compile_fail
+/// use quire_contract_model::NominalBody;
+/// let body = NominalBody::try_enum(false, vec!["Ready".into()]).unwrap();
+/// let details = body.enum_details().unwrap();
+/// let _: NominalBody = details.into();
+/// ```
 /// Unchecked conversion and direct deserialization are also unavailable.
 /// ```compile_fail
 /// use quire_contract_model::NominalBody;
