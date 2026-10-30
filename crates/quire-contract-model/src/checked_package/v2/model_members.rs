@@ -1473,12 +1473,15 @@ pub(super) struct ModelOperationClass {
     pub(super) binder_types: Option<Vec<CheckedNodeId>>,
 }
 
+/// Selected package, declaration, and form to the authored structural node.
+type DeclarationOwners =
+    BTreeMap<Box<str>, BTreeMap<Box<str>, BTreeMap<DeclarationForm, CheckedNodeId>>>;
+
 /// Every selected declaration's model declaration node key.
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
     by_key: BTreeMap<CheckedNodeId, Owner<'m>>,
-    by_declaration:
-        BTreeMap<Box<str>, BTreeMap<Box<str>, BTreeMap<DeclarationForm, CheckedNodeId>>>,
+    by_declaration: DeclarationOwners,
     /// The identity of every selected domain package.
     identities: BTreeSet<&'m str>,
 }
@@ -1574,10 +1577,7 @@ impl<'m> ModelOwners<'m> {
         mut charge: impl FnMut(usize) -> Result<(), ValidationFailure>,
     ) -> Result<Self, ValidationFailure> {
         let mut by_key = BTreeMap::new();
-        let mut by_declaration = BTreeMap::<
-            Box<str>,
-            BTreeMap<Box<str>, BTreeMap<DeclarationForm, CheckedNodeId>>,
-        >::new();
+        let mut by_declaration = DeclarationOwners::new();
         let mut identities = BTreeSet::new();
         let mut authored = BTreeMap::<(&str, &str), Vec<&CheckedSemanticNodeV2<Body>>>::new();
         for candidate in nodes {

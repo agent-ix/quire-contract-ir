@@ -80,8 +80,7 @@ impl ClosureIndex {
                     .lock()
                     .dependency_selections
                     .iter()
-                    .zip(&package.direct_dependencies)
-                    .map(|(entry, child)| (entry, child)),
+                    .zip(&package.direct_dependencies),
             );
         }
         index
