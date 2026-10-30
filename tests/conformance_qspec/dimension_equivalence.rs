@@ -221,7 +221,8 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
     let mut authored = Vec::new();
     for (index, case) in equivalences.iter().enumerate() {
         let name = format!("equivalence/{index}");
-        let node = equivalence_node(&name, case, index, all);
+        // Each authored package has one anchor occurrence, starting at zero.
+        let node = equivalence_node(&name, case, 0, all);
         let graph = vec![node];
         let imports = dimensions
             .iter()
