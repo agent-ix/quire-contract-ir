@@ -398,6 +398,63 @@ fn integer_range_extreme_bound_text_is_retained_without_rounding() {
     }
 }
 
+#[trace("TC-226", "FR-038-AC-128")]
+#[test]
+fn declared_record_field_joins_the_exact_integer_range_members() {
+    let (mut package, _) = all_ten_shapes();
+    let range = index_of(&package, "bounded_domain", "integer_range");
+    let range_id = package["semantic_graph"]["nodes"][range]["node_id"].clone();
+    let source = package["lock"]["sources"][0].clone();
+    let name = package["name"].as_str().expect("package name").to_owned();
+    let record_id = structural_id(&name, vec![json!("CountRecord")], 0);
+    let mut record = package["semantic_graph"]["nodes"][0].clone();
+    record["node_id"] = record_id.clone();
+    record["node_tag"] = json!("composite_type");
+    record["semantic_form"] = json!("record");
+    record["semantic_type"] = record_id;
+    record["dependencies"] = json!([range_id]);
+    record["occurrences"] = json!([{"role":"declaration","ordinal":0}]);
+    record["declaration"] = json!({"qualified_name":["CountRecord"]});
+    record["owner"] =
+        json!({"kind":"source","authority":source["authority"],"identity":source["identity"]});
+    record["body"] = json!({"term":"aggregate","members":[
+        {"term":"binding","name":"count","value":{"term":"reference","target":range_id}}
+    ]});
+    let record_position = append_authored(&mut package, record);
+    for (min, max) in [
+        ("0", "0"),
+        (
+            "-170141183460469231731687303715884105728",
+            "170141183460469231731687303715884105727",
+        ),
+        (
+            "-170141183460469231731687303715884105729",
+            "170141183460469231731687303715884105728",
+        ),
+    ] {
+        package["semantic_graph"]["nodes"][range]["body"]["members"][0]["value"]["value"] =
+            json!(min);
+        package["semantic_graph"]["nodes"][range]["body"]["members"][1]["value"]["value"] =
+            json!(max);
+        let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+            panic!(
+                "declared count field at {min}..{max} must admit: {:?}",
+                read(&package)
+            );
+        };
+        let retained_range =
+            serde_json::to_value(&admitted.graph().nodes[range].body).expect("range body");
+        assert_eq!(retained_range["members"][0]["value"]["value"], min);
+        assert_eq!(retained_range["members"][1]["value"]["value"], max);
+        let retained_record = serde_json::to_value(&admitted.graph().nodes[record_position].body)
+            .expect("record body");
+        assert_eq!(
+            retained_record["members"][0]["value"]["target"],
+            package["semantic_graph"]["nodes"][range]["node_id"]
+        );
+    }
+}
+
 #[trace("TC-048")]
 #[test]
 fn structural_identity_is_retained_without_body_derivation() {
