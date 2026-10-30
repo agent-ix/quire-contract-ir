@@ -254,13 +254,20 @@ const FORMS: [Operands; 2] = [Operands::Members, Operands::Parameters];
 #[trace("FR-038-AC-238")]
 #[test]
 fn ordinary_scalar_enum_still_refuses_nonidentifier_cases() {
-    let declaration = declaration_with("Status", false, ["Gold Plus", "READY"]);
-    let package = package(
+    let declaration = declaration("Status", false);
+    let mut package = package(
         "quire.op.enum.eq",
         &declaration,
         &declaration,
         Operands::Members,
     );
+    let member = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["semantic_form"] == "enum_value" && node["body"]["value"] == "READY")
+        .expect("enum member");
+    member["body"]["value"] = json!("Gold Plus");
     let refusal = refused(&package);
     assert_eq!(
         refusal.code,
