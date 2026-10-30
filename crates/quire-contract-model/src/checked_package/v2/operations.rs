@@ -4974,11 +4974,11 @@ mod tests {
             .map(|argument| admitted_fixture_term(argument, &fixture_type))
             .collect();
         let value = json!({
-            "node_id": { "domain": NODE_DOMAIN, "digest": dummy_digest('1') },
+            "node_id": node_id('1'),
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "expression",
             "semantic_form": "call",
-            "semantic_type": { "domain": NODE_DOMAIN, "digest": dummy_digest('2') },
+            "semantic_type": node_id('2'),
             "dependencies": [],
             "occurrences": [],
             "body": {
