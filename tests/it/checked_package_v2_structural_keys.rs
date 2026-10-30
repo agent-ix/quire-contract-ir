@@ -710,9 +710,7 @@ fn declared_tree_group_checks_sequence_and_bounded_members() {
     );
 }
 
-#[trace("TC-226", "FR-038-AC-147", "FR-038-AC-150")]
-#[test]
-fn off_cycle_set_member_participates_in_tree_group_checks() {
+fn off_cycle_tree_group() -> (Value, usize) {
     let (mut package, _, _, _) = tree_group();
     let mut range = v2_all_families()["semantic_graph"]["nodes"]
         .as_array()
@@ -748,6 +746,13 @@ fn off_cycle_set_member_participates_in_tree_group_checks() {
     ]});
     let position = append_authored(&mut package, set);
     settle(&mut package);
+    (package, position)
+}
+
+#[trace("TC-226", "FR-038-AC-147", "FR-038-AC-150")]
+#[test]
+fn off_cycle_set_member_participates_in_tree_group_checks() {
+    let (package, position) = off_cycle_tree_group();
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "off-cycle member with Tree label: {:?}",
@@ -771,7 +776,11 @@ fn off_cycle_set_member_participates_in_tree_group_checks() {
 #[trace("TC-226", "FR-038-AC-149")]
 #[test]
 fn recursive_group_reader_has_an_exact_work_boundary() {
-    for (name, package) in [("List", list_group().0), ("Tree", tree_group().0)] {
+    for (name, package) in [
+        ("List", list_group().0),
+        ("Tree", tree_group().0),
+        ("Tree with off-cycle Set", off_cycle_tree_group().0),
+    ] {
         let mut low = 0_u64;
         let mut high = CheckedPackageReadLimits::bounded().work;
         assert!(matches!(
