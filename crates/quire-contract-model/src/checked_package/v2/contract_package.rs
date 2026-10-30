@@ -75,7 +75,7 @@ pub struct ContractSemanticGraphV1 {
 }
 
 /// One represented graph node's exact source occurrences.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractNodeSourcesV1 {
     /// Represented semantic node key.
@@ -85,7 +85,7 @@ pub struct ContractNodeSourcesV1 {
 }
 
 /// One requested item's source occurrences, including an absent request.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractRequestSourcesV1 {
     /// Exact requested key.
@@ -122,7 +122,7 @@ impl ContractDispositionV1 {
 }
 
 /// A refused request's exact available sources.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractRefusalSourcesV1 {
     /// Exact requested key.
@@ -134,7 +134,7 @@ pub struct ContractRefusalSourcesV1 {
 }
 
 /// Total source correspondence for graph nodes and requests.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractSourceMapV1 {
     /// One entry per represented node, in semantic-graph order.
@@ -146,7 +146,7 @@ pub struct ContractSourceMapV1 {
 }
 
 /// Closed projection of a defensive FR-322 refusal.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractBodyRefusalV1 {
     /// FR-322 refusal code.
@@ -208,7 +208,7 @@ impl From<&CheckedPackageIncomplete> for ContractBodyIncompleteV1 {
 }
 
 /// One exact terminal outcome, serialized as the closed FR-330 tagged record.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "disposition", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ContractFeatureRecordV1 {
     /// Exact represented root.
@@ -812,6 +812,134 @@ impl Encode for ContractSemanticGraphV1 {
     }
 }
 
+impl Encode for ContractNodeSourcesV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        encoded(writer, "node_id", &self.node_id)?;
+        elements(writer, "occurrences", &self.occurrences)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractRequestSourcesV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        encoded(writer, "requested_item", &self.requested_item)?;
+        elements(writer, "occurrences", &self.occurrences)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractRefusalSourcesV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        encoded(writer, "requested_item", &self.requested_item)?;
+        encode_member(writer, "disposition", &self.disposition)?;
+        elements(writer, "occurrences", &self.occurrences)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractSourceMapV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        elements(writer, "nodes", &self.nodes)?;
+        elements(writer, "requested_items", &self.requested_items)?;
+        elements(writer, "refusals", &self.refusals)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractBodyRefusalV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        encode_member(writer, "code", &self.code)?;
+        if let Some(path) = &self.path {
+            encode_member(writer, "path", path)?;
+        }
+        if let Some(cause) = &self.cause {
+            encode_member(writer, "cause", cause)?;
+        }
+        if let Some(locus) = &self.locus {
+            encoded(writer, "locus", locus)?;
+        }
+        if let Some(version) = &self.contract_version {
+            encode_member(writer, "contract_version", version)?;
+        }
+        if let Some(pointer) = &self.document_pointer {
+            encode_member(writer, "document_pointer", pointer)?;
+        }
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractFeatureRecordV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        encode_member(writer, "disposition", &self.disposition())?;
+        encoded(writer, "node_id", self.node_id())?;
+        match self {
+            Self::Lowered { .. } | Self::InvalidInput { .. } => {}
+            Self::Unsupported {
+                unsupported_node_id,
+                node_tag,
+                ..
+            } => {
+                encoded(writer, "unsupported_node_id", unsupported_node_id)?;
+                encode_member(writer, "node_tag", node_tag)?;
+            }
+            Self::RequiresBound { unbounded_type, .. } => {
+                encoded(writer, "unbounded_type", unbounded_type)?;
+            }
+            Self::Failed {
+                limit_kind,
+                limit,
+                consumed,
+                ..
+            } => {
+                encode_member(writer, "limit_kind", limit_kind)?;
+                encode_member(writer, "limit", limit)?;
+                encode_member(writer, "consumed", consumed)?;
+            }
+            Self::InvalidBody {
+                body_node_id,
+                refusal,
+                ..
+            } => {
+                encoded(writer, "body_node_id", body_node_id)?;
+                encoded(writer, "refusal", refusal)?;
+            }
+            Self::BodyIncomplete {
+                body_node_id,
+                incomplete,
+                ..
+            } => {
+                encoded(writer, "body_node_id", body_node_id)?;
+                encode_member(writer, "incomplete", incomplete)?;
+            }
+        }
+        writer.end_object()
+    }
+}
+
 impl Encode for ContractPackageWireV1 {
     fn encode_into<S: Sink + ?Sized>(
         &self,
@@ -821,8 +949,8 @@ impl Encode for ContractPackageWireV1 {
         encode_member(writer, "contract_version", &self.contract_version)?;
         encode_member(writer, "package", &self.package)?;
         encoded(writer, "semantic_graph", &self.semantic_graph)?;
-        encode_member(writer, "source_map", &self.source_map)?;
-        encode_member(writer, "feature_accounting", &self.feature_accounting)?;
+        encoded(writer, "source_map", &self.source_map)?;
+        elements(writer, "feature_accounting", &self.feature_accounting)?;
         writer.end_object()
     }
 }
