@@ -128,7 +128,13 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
             }
         }
     }
-    assert!(!seen.is_empty(), "published wire cases must not be empty");
+    for ordinal in (0..=26).filter(|ordinal| *ordinal != 5) {
+        let id = format!("TW-{ordinal:02}");
+        assert!(
+            seen.contains(id.as_str()),
+            "missing published wire case {id}"
+        );
+    }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
@@ -409,7 +415,13 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
             "{name}"
         );
     }
-    assert!(!seen.is_empty(), "published intake cases must not be empty");
+    for ordinal in 1..=35 {
+        let id = format!("TK-{ordinal:02}");
+        assert!(
+            seen.contains(id.as_str()),
+            "missing published intake case {id}"
+        );
+    }
 }
 
 /// An admitted Duration position is usable as the
