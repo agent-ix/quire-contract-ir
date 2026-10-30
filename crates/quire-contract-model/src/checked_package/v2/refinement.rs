@@ -1337,7 +1337,6 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
     let CheckedTerm::Refinement {
         populations,
         objects,
-        steps,
         histories,
         assume,
         ensure,
