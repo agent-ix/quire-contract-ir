@@ -437,7 +437,7 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
                 CheckedTerm::Reference { target } => Some(target),
                 _ => None,
             })
-            .and_then(&node_of) else {
+            .and_then(node_of) else {
                 return Closure {
                     independent: false,
                     work,
