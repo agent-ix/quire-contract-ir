@@ -16,8 +16,8 @@
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
     CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner, CheckedPackageEnvelope,
-    CheckedPackageLockV2, NominalIdentityPreimage, RawCheckedPackageWireV2, RawSemanticGraphV2,
-    RawSemanticNodeV2, ValidationFailure,
+    CheckedPackageLockV2, RawCheckedPackageWireV2, RawSemanticGraphV2, RawSemanticNodeV2,
+    ValidationFailure,
 };
 use crate::checked_package::common::{decode_closed_bytes, node_pointer, strict_parse};
 use crate::checked_package::shared::{
