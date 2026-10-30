@@ -42,6 +42,9 @@ static INTEGER: LazyLock<String> = LazyLock::new(|| "scalar/integer".to_owned())
 static TEXT: LazyLock<String> = LazyLock::new(|| "scalar/text".to_owned());
 
 fn node_id(path: &str) -> Value {
+    if let Some(form) = path.strip_prefix("scalar/") {
+        return json!({"package": FIXTURE_PACKAGE, "path": ["scalar_type", form], "ordinal": 0});
+    }
     if let Some(rest) = path.strip_prefix("model|") {
         let mut parts = rest.splitn(3, '|');
         let form = parts.next().expect("model form");
