@@ -4,8 +4,9 @@
 //! Authored operand projection through the production admitted-package API.
 
 use crate::support::checked_package::{
-    bounds_body, canonical, evidence_for, fixture_source, node_id, nominal_fixture_members,
-    nominal_package, over_body, rebuild_source_map, refresh_identity, source_owner, typed_node_id,
+    add_family_reference_target, canonical, evidence_for, family_key, fixture_source, node_id,
+    nominal_fixture_members, nominal_package, over_body, rebuild_source_map, refresh_identity,
+    source_owner, typed_node_id,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -43,6 +44,21 @@ fn binding(name: &str, value: Value) -> Value {
     json!({"term":"binding", "name":name, "value":value})
 }
 
+fn bounds_body(integer: &str, min: &str, max: &str) -> Value {
+    aggregate(vec![
+        binding(
+            "min",
+            json!({"term":"literal", "type":node_id(integer),
+            "value_kind":"integer", "value":min}),
+        ),
+        binding(
+            "max",
+            json!({"term":"literal", "type":node_id(integer),
+            "value_kind":"integer", "value":max}),
+        ),
+    ])
+}
+
 fn occurrence(ordinal: u64) -> CheckedOccurrence {
     CheckedOccurrence {
         role: CheckedOccurrenceRole::Expression,
@@ -58,6 +74,7 @@ struct Fixture {
     integer: String,
     text: String,
     definitions: Vec<Value>,
+    include_model_target: bool,
 }
 
 impl Fixture {
@@ -72,6 +89,7 @@ impl Fixture {
             integer: String::new(),
             text: String::new(),
             definitions: Vec::new(),
+            include_model_target: false,
         };
         fixture.boolean = fixture.ty("scalar_type", "boolean", None, aggregate(vec![]));
         fixture.integer = fixture.ty("scalar_type", "integer", None, aggregate(vec![]));
@@ -88,10 +106,18 @@ impl Fixture {
         body: Value,
         dependencies: Vec<String>,
     ) -> String {
+        let mut dependencies = dependencies
+            .iter()
+            .map(|id| node_id(id))
+            .collect::<Vec<_>>();
+        dependencies.sort_by_key(|id| {
+            serde_json::from_value::<CheckedNodeId>(id.clone()).expect("dependency node ID")
+        });
+        dependencies.dedup();
         self.nodes.insert(id.clone(), json!({
             "node_id":node_id(&id), "schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":tag, "semantic_form":form, "semantic_type":node_id(ty),
-            "dependencies":dependencies.iter().map(|id| node_id(id)).collect::<Vec<_>>(),
+            "dependencies":dependencies,
             "occurrences":[{"role":if matches!(tag,"value"|"expression") {"expression"} else {"type"},"ordinal":0}],
             "body":body,
         }));
@@ -116,6 +142,20 @@ impl Fixture {
 
     fn collection(&mut self, form: &str, inner: &str) -> String {
         self.ty("composite_type", form, None, over_body(inner))
+    }
+
+    fn model_reference(&mut self) -> String {
+        self.include_model_target = true;
+        let target = family_key("1515");
+        let id = self.next_key("composite_type", "reference");
+        self.node(
+            id.clone(),
+            "composite_type",
+            "reference",
+            &id,
+            over_body(&target),
+            vec![target],
+        )
     }
 
     fn record(&mut self, fields: &[(&str, &str)]) -> String {
@@ -177,6 +217,9 @@ impl Fixture {
     fn wire(&self) -> Value {
         let mut wire = nominal_package(&[]);
         wire["semantic_graph"]["nodes"] = Value::Array(self.nodes.values().cloned().collect());
+        if self.include_model_target {
+            add_family_reference_target(&mut wire);
+        }
         wire["lock"]["definition_selections"]
             .as_array_mut()
             .expect("definitions")
@@ -538,14 +581,14 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
         "bounded_domain",
         "integer_range",
         Some(&integer),
-        bounds_body(low, high),
+        bounds_body(&integer, low, high),
     );
     let sequence = f.collection("sequence", &range);
     let bounded = f.ty(
         "bounded_domain",
         "collection_bounds",
         Some(&sequence),
-        bounds_body("2", maximum),
+        bounds_body(&integer, "2", maximum),
     );
     let record = f.record(&[("items", &bounded)]);
     let p = f.parameter("p", &record);
@@ -670,14 +713,14 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
         "bounded_domain",
         "integer_range",
         Some(&integer),
-        bounds_body(changed_lower, high),
+        bounds_body(&integer, changed_lower, high),
     );
     let changed_sequence = f.collection("sequence", &changed_range);
     let changed_bounded = f.ty(
         "bounded_domain",
         "collection_bounds",
         Some(&changed_sequence),
-        bounds_body("2", maximum),
+        bounds_body(&integer, "2", maximum),
     );
     let changed_record = f.record(&[("items", &changed_bounded)]);
     let changed_parameter = f.parameter("p", &changed_record);
@@ -1264,7 +1307,7 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
         "bounded_domain",
         "integer_range",
         Some(&integer),
-        bounds_body("-2", "3"),
+        bounds_body(&integer, "-2", "3"),
     );
     types.insert("integer_range".into(), range);
     let sequence = f.collection("sequence", &integer);
@@ -1272,7 +1315,7 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
         "bounded_domain",
         "collection_bounds",
         Some(&sequence),
-        bounds_body("1", "4"),
+        bounds_body(&integer, "1", "4"),
     );
     types.insert("collection_bounds".into(), bounded);
     for (form, base) in [("rational_range", "rational"), ("decimal_range", "decimal")] {
@@ -1282,10 +1325,12 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
     }
     let text_bounds = f.ty("bounded_domain", "text_bounds", Some(&text), profile);
     types.insert("text_bounds".into(), text_bounds);
+    let model_reference = f.model_reference();
+    let model_set = f.collection("set", &model_reference);
     let population = f.ty(
         "bounded_domain",
         "model_population",
-        Some(&integer),
+        Some(&model_set),
         aggregate(vec![]),
     );
     types.insert("model_population".into(), population);
