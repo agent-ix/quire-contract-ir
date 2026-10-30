@@ -172,10 +172,10 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
             );
             assert_eq!(
                 result,
-                CheckedPackageV2ReadResult::Refused(refusal(
+                refusal(
                     CheckedPackageRefusalCode::UnknownMember,
                     &format!("/{retired}"),
-                )),
+                ),
                 "{name}: retired field {retired}"
             );
         }
