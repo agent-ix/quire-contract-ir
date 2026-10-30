@@ -10,32 +10,28 @@
 //! (they are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    application_key_in_group, canonical, evidence_for, family_key, fixture_source,
-    mint_grouped_structural_keys, mint_ungrouped_structural_keys, node_id, nominal_package,
-    over_body, owned_structural_node, rebuild_source_map, refresh_identity, rekey_application_node,
-    rename_node, settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families,
-    BOOLEAN_KEY, INTEGER_KEY,
+    canonical, evidence_for, family_key, fixture_source, node_id, nominal_package,
+    owned_structural_node, reassign_node_id, rebuild_source_map, refresh_identity, settle,
+    source_owner, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CompleteLoweringProfileV2, CompleteLoweringRecordV2, CONTRACT_IR_SEMANTIC_DOMAIN,
+    CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 /// The key of the node called `name`: the derived key (FR-038-AC-134) for
 /// the anonymous `integer` and `boolean` nodes and the `Option<Chain>` node,
-/// the digest of the name otherwise.
+/// the authored name otherwise.
 fn key(name: &str) -> String {
     match name {
         "integer" => INTEGER_KEY.to_owned(),
         "boolean" => BOOLEAN_KEY.to_owned(),
-        "chain_option" => {
-            structural_key("composite_type", "option", None, &over_body(&key("chain")))
-        }
-        _ => sha256_hex(name.as_bytes()),
+        "chain_option" => "chain_option".to_owned(),
+        _ => name.to_owned(),
     }
 }
 
@@ -54,7 +50,7 @@ fn node(
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": tag, "semantic_form": form,
         "semantic_type": node_id(&key(semantic_type)),
-        "dependencies": dependencies.iter().map(|digest| node_id(digest)).collect::<Vec<_>>(),
+        "dependencies": dependencies.iter().map(|label| node_id(label)).collect::<Vec<_>>(),
         "occurrences": [{"role": role, "ordinal": 0}],
         "body": body,
     })
@@ -257,9 +253,24 @@ fn shape() -> Value {
 fn package_of(nodes: Vec<Value>) -> Value {
     let mut package = nominal_package(&[]);
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
-    mint_ungrouped_structural_keys(&mut package);
-    mint_grouped_structural_keys(&mut package);
-    mint_ungrouped_structural_keys(&mut package);
+    let mut group_ordinals = std::collections::BTreeMap::<String, u64>::new();
+    let count = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    for position in 0..count {
+        let label = package["semantic_graph"]["nodes"][position]["recursion_group"]
+            .as_str()
+            .map(str::to_owned);
+        if let Some(label) = label {
+            let ordinal = group_ordinals.entry(label).or_default();
+            let old = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+            let mut fresh = old.clone();
+            fresh["ordinal"] = json!(*ordinal);
+            reassign_node_id(&mut package, &old, &fresh);
+            *ordinal += 1;
+        }
+    }
     settle(&mut package);
     package
 }
@@ -300,14 +311,14 @@ fn without(nodes: &mut Vec<Value>, names: &[&str]) {
     nodes.retain(|node| {
         !names
             .iter()
-            .any(|name| node["node_id"]["digest"] == key(name).as_str())
+            .any(|name| node["node_id"]["path"][0] == key(name).as_str())
     });
 }
 
 fn replace(nodes: &mut [Value], name: &str, with: Value) {
     let position = nodes
         .iter()
-        .position(|node| node["node_id"]["digest"] == key(name).as_str())
+        .position(|node| node["node_id"]["path"][0] == key(name).as_str())
         .unwrap_or_else(|| panic!("node {name}"));
     nodes[position] = with;
 }
@@ -352,7 +363,7 @@ fn position_of(package: &Value, name: &str) -> usize {
         .as_array()
         .expect("nodes")
         .iter()
-        .position(|node| node["node_id"]["digest"] == key(name).as_str())
+        .position(|node| node["node_id"]["path"][0] == key(name).as_str())
         .unwrap_or_else(|| panic!("node {name}"))
 }
 
@@ -558,7 +569,7 @@ fn tc_048_a_union_value_must_construct_a_member_of_its_union() {
 
 #[trace("TC-048", "FR-038-AC-227")]
 #[test]
-fn tc_048_a_grouped_union_value_uses_graph_ordinals_and_refuses_a_stale_key() {
+fn tc_048_a_grouped_union_value_uses_graph_ordinals_and_refuses_bad_ordinal() {
     let package = grouped_union_value_package();
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
@@ -577,34 +588,43 @@ fn tc_048_a_grouped_union_value_uses_graph_ordinals_and_refuses_a_stale_key() {
         .expect("group parameter r");
     assert_eq!(group[0], parameter["node_id"]);
     assert_eq!(group[1], node["node_id"]);
-    assert_eq!(
-        node["node_id"]["digest"],
-        application_key_in_group(node, &group)
-    );
+    assert_eq!(group[0]["ordinal"], 0);
+    assert_eq!(group[1]["ordinal"], 1);
     admitted("grouped union value", &package);
-    let mut stale = package.clone();
-    let current = node["node_id"]["digest"]
-        .as_str()
-        .expect("current key")
-        .to_owned();
-    let old = sha256_hex(b"retained grouped union key");
-    rename_node(&mut stale, &current, &old);
-    rebuild_source_map(&mut stale);
-    refresh_identity(&mut stale);
-    let CheckedPackageV2ReadResult::Refused(refusal) = read(&stale) else {
-        panic!("stale grouped union key admitted");
+    let mut invalid = package.clone();
+    invalid["semantic_graph"]["nodes"][position]["node_id"]["ordinal"] = json!(3);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&invalid) else {
+        panic!("invalid grouped ordinal admitted");
     };
     assert_eq!(
         (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::StaleNodeKey))
+        (Code::InvalidSemanticGraph, None)
     );
     assert_eq!(
-        refusal.locus.as_ref().map(|id| id.digest.as_ref()),
-        Some(old.as_str())
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/node_id/ordinal").as_str())
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-227")]
+#[test]
+fn tc_048_grouped_union_duplicate_structural_id_refuses_before_body_join() {
+    let mut package = grouped_union_value_package();
+    let value = position_of(&package, "shape_rect");
+    let parameter = position_of(&package, "r");
+    let duplicate = package["semantic_graph"]["nodes"][parameter]["node_id"].clone();
+    package["semantic_graph"]["nodes"][value]["recursion_group"] = json!("other-group");
+    package["semantic_graph"]["nodes"][value]["node_id"] = duplicate;
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("duplicate grouped structural id admitted");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None)
     );
     assert_eq!(
-        refusal.expected_node_id().map(|id| id.digest.as_ref()),
-        Some(current.as_str())
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{value}/node_id").as_str())
     );
 }
 
@@ -621,208 +641,131 @@ fn grouped_union_value_package() -> Value {
 
 #[trace("TC-048", "FR-038-AC-227")]
 #[test]
-fn tc_048_a_grouped_union_key_has_public_reader_stage_precedence() {
+fn tc_048_a_grouped_union_has_public_reader_stage_controls() {
     let base = grouped_union_value_package();
     admitted("grouped precedence baseline", &base);
     let union = position_of(&base, "shape_rect");
-    let current = base["semantic_graph"]["nodes"][union]["node_id"]["digest"]
-        .as_str()
-        .expect("union key")
-        .to_owned();
-    let stale_key = sha256_hex(b"grouped union precedence stale key");
-    let stale_path = format!("/semantic_graph/nodes/{union}/node_id");
     for case in [
         "wire",
-        "package",
         "owner",
         "graph",
-        "derived",
         "declaration",
         "frame",
         "operation",
         "edge",
+        "ordinal",
     ] {
         let mut control = base.clone();
-        let mut refresh = true;
-        match case {
+        let (code, cause, path) = match case {
             "wire" => {
                 control["semantic_graph"]["nodes"][union]["unexpected"] = json!(true);
-                refresh = false;
-            }
-            "package" => {
-                control["package_id"]["digest"] = json!("0".repeat(64));
-                refresh = false;
+                (
+                    Code::UnknownMember,
+                    None,
+                    format!("/semantic_graph/nodes/{union}/unexpected"),
+                )
             }
             "owner" => {
                 let at = position_of(&control, "shape");
-                control["semantic_graph"]["nodes"][at]["owner"]["identity"] = json!("f".repeat(64));
+                control["semantic_graph"]["nodes"][at]["owner"]["identity"] =
+                    json!("unselected/shape");
+                (
+                    Code::MissingDeclaration,
+                    Some(Cause::MissingSelection),
+                    format!("/semantic_graph/nodes/{at}/node_id"),
+                )
             }
             "graph" => {
                 control["semantic_graph"]["nodes"][union]["body"]["members"]
                     .as_array_mut()
                     .expect("members")
                     .push(binding("Empty", aggregate(vec![])));
-            }
-            "derived" => {
-                let at = position_of_form(&control, "value", "literal");
-                control["semantic_graph"]["nodes"][at]["body"]["value"] = json!("7");
+                (
+                    Code::InvalidSemanticGraph,
+                    None,
+                    format!("/semantic_graph/nodes/{union}/body"),
+                )
             }
             "declaration" => {
                 let mut duplicate = union_type("other", &[("Other", &[])]);
                 duplicate["declaration"]["qualified_name"] = json!(["shape"]);
+                let later = control["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("nodes")
+                    .len();
                 control["semantic_graph"]["nodes"]
                     .as_array_mut()
                     .expect("nodes")
                     .push(duplicate);
-                mint_ungrouped_structural_keys(&mut control);
+                (
+                    Code::AmbiguousDeclaration,
+                    Some(Cause::AmbiguousName),
+                    format!("/semantic_graph/nodes/{later}/declaration/qualified_name"),
+                )
             }
             "frame" => {
-                control["semantic_graph"]["nodes"]
-                    .as_array_mut()
+                let later = control["semantic_graph"]["nodes"]
+                    .as_array()
                     .expect("nodes")
-                    .push(node(
-                        "bad_frame",
-                        "state",
-                        "frame",
-                        "integer",
-                        &[],
-                        "generated",
-                        json!({"term":"frame","modifies":[],"creates":[],"deletes":[],"deletes_scoped":[]}),
-                    ));
-                mint_ungrouped_structural_keys(&mut control);
+                    .len();
+                control["semantic_graph"]["nodes"].as_array_mut().expect("nodes").push(node(
+                    "bad_frame", "state", "frame", "integer", &[], "generated",
+                    json!({"term":"frame","modifies":[],"creates":[],"deletes":[],"deletes_scoped":[]}),
+                ));
+                (
+                    Code::InvalidModelBinding,
+                    Some(Cause::MalformedDeclaration),
+                    format!("/semantic_graph/nodes/{later}/semantic_type"),
+                )
             }
             "operation" => {
                 let at = position_of_form(&control, "expression", "case");
                 control["semantic_graph"]["nodes"][at]["body"]["operation"]["identity"] =
                     json!("quire.op.unknown");
-                rekey_application_node(&mut control, at);
+                (
+                    Code::InvalidPackage,
+                    Some(Cause::UnknownOperation),
+                    format!("/semantic_graph/nodes/{at}/body/operation/identity"),
+                )
             }
             "edge" => {
                 let at = position_of_form(&control, "value", "literal");
                 control["semantic_graph"]["nodes"][at]["dependencies"]
                     .as_array_mut()
                     .expect("dependencies")
-                    .push(node_id(&"f".repeat(64)));
+                    .push(node_id("absent/union-edge"));
+                (
+                    Code::InvalidSemanticGraph,
+                    None,
+                    format!("/semantic_graph/nodes/{at}/dependencies/1"),
+                )
+            }
+            "ordinal" => {
+                control["semantic_graph"]["nodes"][union]["node_id"]["ordinal"] = json!(7);
+                (
+                    Code::InvalidSemanticGraph,
+                    None,
+                    format!("/semantic_graph/nodes/{union}/node_id/ordinal"),
+                )
             }
             _ => unreachable!(),
-        }
-        if refresh {
+        };
+        if case != "wire" {
             rebuild_source_map(&mut control);
             refresh_identity(&mut control);
         }
-        let CheckedPackageV2ReadResult::Refused(expected) = read(&control) else {
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&control) else {
             panic!("{case}: control admitted");
-        };
-        let (code, cause, path, earlier) = match case {
-            "wire" => (
-                Code::UnknownMember,
-                None,
-                format!("/semantic_graph/nodes/{union}/unexpected"),
-                true,
-            ),
-            "package" => (
-                Code::StaleDependency,
-                Some(Cause::ContentMismatch),
-                "/package_id/digest".to_owned(),
-                true,
-            ),
-            "owner" => (
-                Code::MissingDeclaration,
-                Some(Cause::MissingSelection),
-                "/semantic_graph/nodes/12/node_id".to_owned(),
-                true,
-            ),
-            "graph" => (
-                Code::InvalidSemanticGraph,
-                None,
-                format!("/semantic_graph/nodes/{union}/body"),
-                true,
-            ),
-            "derived" => (
-                Code::InvalidPackage,
-                Some(Cause::StaleNodeKey),
-                "/semantic_graph/nodes/4/node_id".to_owned(),
-                false,
-            ),
-            "declaration" => (
-                Code::AmbiguousDeclaration,
-                Some(Cause::AmbiguousName),
-                "/semantic_graph/nodes/15/declaration/qualified_name".to_owned(),
-                false,
-            ),
-            "frame" => (
-                Code::InvalidModelBinding,
-                Some(Cause::MalformedDeclaration),
-                "/semantic_graph/nodes/15/semantic_type".to_owned(),
-                false,
-            ),
-            "operation" => (
-                Code::InvalidPackage,
-                Some(Cause::UnknownOperation),
-                "/semantic_graph/nodes/14/body/operation/identity".to_owned(),
-                false,
-            ),
-            "edge" => (
-                Code::InvalidSemanticGraph,
-                None,
-                "/semantic_graph/nodes/4/dependencies/1".to_owned(),
-                false,
-            ),
-            _ => unreachable!(),
         };
         assert_eq!(
             (
-                expected.code,
-                expected.cause,
-                expected.loci[0].path.as_ref().map(|p| p.as_str())
+                refusal.code,
+                refusal.cause,
+                refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (code, cause, Some(path.as_str())),
-            "{case}: control {expected:?}"
+            "{case}: {refusal:?}"
         );
-        let mut paired = control;
-        rename_node(&mut paired, &current, &stale_key);
-        rebuild_source_map(&mut paired);
-        if case != "package" && case != "wire" {
-            refresh_identity(&mut paired);
-        }
-        let CheckedPackageV2ReadResult::Refused(actual) = read(&paired) else {
-            panic!("{case}: paired stale key admitted");
-        };
-        if earlier {
-            assert_eq!(
-                (
-                    actual.code,
-                    actual.cause,
-                    actual.loci[0].path.as_ref().map(|p| p.as_str())
-                ),
-                (code, cause, Some(path.as_str())),
-                "{case}: earlier refusal lost: {actual:?}"
-            );
-        } else {
-            assert_eq!(
-                (
-                    actual.code,
-                    actual.cause,
-                    actual.loci[0].path.as_ref().map(|p| p.as_str())
-                ),
-                (
-                    Code::InvalidPackage,
-                    Some(Cause::StaleNodeKey),
-                    Some(stale_path.as_str())
-                ),
-                "{case}: union key did not win: {actual:?}"
-            );
-            assert_eq!(
-                actual.locus.as_ref().map(|id| id.digest.as_ref()),
-                Some(stale_key.as_str()),
-                "{case}"
-            );
-            assert_eq!(
-                actual.expected_node_id().map(|id| id.digest.as_ref()),
-                Some(current.as_str()),
-                "{case}"
-            );
-        }
     }
 }
 
@@ -886,9 +829,6 @@ fn label_package(leaves: Vec<Value>) -> Value {
         .as_array_mut()
         .expect("definition selections")
         .push(text_law());
-    mint_ungrouped_structural_keys(&mut package);
-    mint_grouped_structural_keys(&mut package);
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     package
 }
@@ -1006,9 +946,6 @@ fn list_package(name: &str, payload: &str, leaves: Vec<Value>) -> Value {
         .as_array_mut()
         .expect("definition selections")
         .push(text_law());
-    mint_ungrouped_structural_keys(&mut package);
-    mint_grouped_structural_keys(&mut package);
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     package
 }
@@ -1093,9 +1030,6 @@ fn option_chain_package(leaves: Vec<Value>) -> Value {
         .as_array_mut()
         .expect("definition selections")
         .push(text_law());
-    mint_ungrouped_structural_keys(&mut package);
-    mint_grouped_structural_keys(&mut package);
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     package
 }
@@ -1209,7 +1143,7 @@ fn with_details(mut package: Value, term: Value) -> Value {
 fn tc_048_a_details_reference_to_a_union_node_admits_and_to_a_case_node_refuses() {
     let package = shape_package();
     let union_key = package["semantic_graph"]["nodes"][position_of(&package, "shape")]["node_id"]
-        ["digest"]
+        ["path"][0]
         .as_str()
         .expect("union key")
         .to_owned();
@@ -1218,7 +1152,7 @@ fn tc_048_a_details_reference_to_a_union_node_admits_and_to_a_case_node_refuses(
         &with_details(package.clone(), reference_to_key(&union_key)),
     );
     let union_value_key = package["semantic_graph"]["nodes"][position_of(&package, "shape_rect")]
-        ["node_id"]["digest"]
+        ["node_id"]["path"][0]
         .as_str()
         .expect("union value key")
         .to_owned();
@@ -1227,7 +1161,7 @@ fn tc_048_a_details_reference_to_a_union_node_admits_and_to_a_case_node_refuses(
         &with_details(package.clone(), reference_to_key(&union_value_key)),
     );
     let case = position_of_form(&package, "expression", "case");
-    let case_key = package["semantic_graph"]["nodes"][case]["node_id"]["digest"]
+    let case_key = package["semantic_graph"]["nodes"][case]["node_id"]["path"][0]
         .as_str()
         .expect("digest")
         .to_owned();
@@ -1251,36 +1185,16 @@ fn tc_048_a_details_reference_to_a_union_node_admits_and_to_a_case_node_refuses(
     }
 }
 
-fn reference_to_key(digest: &str) -> Value {
-    json!({"term": "reference", "target": node_id(digest)})
+fn reference_to_key(label: &str) -> Value {
+    json!({"term": "reference", "target": node_id(label)})
 }
 
 // ---------------------------------------------------------------------------
 // AC-101
 // ---------------------------------------------------------------------------
 
-/// The identity the lowerer derives for `node`, from the admitted wire alone
-/// (as for every node).
-fn derived_identity(
-    wire: &Value,
-    lowered: &quire_contract_model::CompleteContractNodeV2,
-) -> String {
-    let mut projection = wire.clone();
-    projection
-        .as_object_mut()
-        .expect("node")
-        .remove("occurrences");
-    sha256_hex(&canonical(&json!({
-        "version": "quire.contract-ir.lowered-node/v1",
-        "node": projection,
-        "dependencies": lowered.dependencies,
-        "bounds": lowered.bounds,
-        "claims": lowered.claims,
-    })))
-}
-
 /// An admitted node lowers, under a profile that supports its tag, as data: its
-/// lowered body is the admitted body and its identity is derived from it; a
+/// lowered body and structural identity are the admitted ones; a
 /// profile lacking the tag returns `unsupported` naming it.
 fn lowers_as_data(case: &str, package: &Value, node: &str, tag: CheckedNodeTag) {
     let reader = admitted(case, package);
@@ -1288,7 +1202,7 @@ fn lowers_as_data(case: &str, package: &Value, node: &str, tag: CheckedNodeTag) 
         .as_array()
         .expect("nodes")
         .iter()
-        .find(|candidate| candidate["node_id"]["digest"] == node)
+        .find(|candidate| candidate["node_id"]["path"][0] == node)
         .expect("the node")
         .clone();
     let requested = [typed_node_id(node)];
@@ -1327,10 +1241,9 @@ fn lowers_as_data(case: &str, package: &Value, node: &str, tag: CheckedNodeTag) 
         wire["body"],
         "{case}"
     );
-    assert_eq!(lowered.ir_id.domain.as_ref(), CONTRACT_IR_SEMANTIC_DOMAIN);
     assert_eq!(
-        lowered.ir_id.digest.as_ref(),
-        derived_identity(&wire, lowered),
+        serde_json::to_value(&lowered.node.node_id).expect("lowered structural id"),
+        wire["node_id"],
         "{case}"
     );
 
@@ -1352,7 +1265,7 @@ fn lowers_as_data(case: &str, package: &Value, node: &str, tag: CheckedNodeTag) 
 fn tc_048_an_admitted_case_node_lowers_as_data() {
     let package = shape_package();
     let case = position_of_form(&package, "expression", "case");
-    let digest = package["semantic_graph"]["nodes"][case]["node_id"]["digest"]
+    let digest = package["semantic_graph"]["nodes"][case]["node_id"]["path"][0]
         .as_str()
         .expect("digest")
         .to_owned();
@@ -1364,7 +1277,7 @@ fn tc_048_an_admitted_case_node_lowers_as_data() {
     );
     // The union value is data too.
     let union_value_key = package["semantic_graph"]["nodes"][position_of(&package, "shape_rect")]
-        ["node_id"]["digest"]
+        ["node_id"]["path"][0]
         .as_str()
         .expect("union value key")
         .to_owned();
