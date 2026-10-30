@@ -231,6 +231,46 @@ fn structural_id_and_complete_body_survive_reading() {
     assert_eq!(retained["owner"], nodes[0]["owner"]);
 }
 
+#[trace("TC-048", "FR-038-AC-4")]
+#[test]
+fn package_name_is_stable_while_complete_admitted_value_changes() {
+    let mut original = local_package();
+    let mut second_node = original["semantic_graph"]["nodes"][0].clone();
+    second_node["node_id"] =
+        json!({"package":"test/families","path":["boolean_second"],"ordinal":0});
+    second_node["semantic_type"] = second_node["node_id"].clone();
+    let mut second_map = original["source_map"][0].clone();
+    second_map["node_id"] = second_node["node_id"].clone();
+    original["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_node);
+    original["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(second_map);
+    let first = admit(&original);
+    let mut reordered = original.clone();
+    reordered["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .swap(0, 1);
+    let second = admit(&reordered);
+    assert_eq!(first.name(), second.name());
+    assert_ne!(
+        first, second,
+        "node order is part of the complete package value"
+    );
+
+    let mut changed_source = original;
+    changed_source["source_map"][0]["regions"][0]["end"] = json!(42);
+    let third = admit(&changed_source);
+    assert_eq!(first.name(), third.name());
+    assert_ne!(
+        first, third,
+        "source correspondence is part of the package value"
+    );
+}
 /// Canonical envelope bytes are checked through the public writer against
 /// an independently constructed JSON value from the local fixture.
 #[trace("TC-048", "FR-038-AC-91")]
