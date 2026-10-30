@@ -84,6 +84,44 @@ const POSITIVE_ALL: [&str; 19] = [
 /// The selected domain document in the proposal.
 const DOMAIN_DOCUMENT: &str = "domain-package-acme-orders.json";
 
+/// QSpec's vector files select these different documents for their positive fixtures.
+fn positive_document(name: &str) -> &'static str {
+    match name {
+        "positive-model-tuple-union.json" => "domain-package-acme-shapes.json",
+        "positive-timed-clause-nodes.json" => "domain-package-acme-timed-clauses.json",
+        "positive-tick-timed-model-nodes.json"
+        | "positive-timed-model-nodes.json"
+        | "positive-timed-slot-nodes.json" => "domain-package-acme-timed-slots.json",
+        _ => DOMAIN_DOCUMENT,
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-107")]
+#[test]
+fn tc_048_positive_document_selection_follows_qspec_vectors() {
+    let proposal = proposal_dir_of(&fixtures_dir());
+    for (vector, fixture_member) in [
+        ("model-tuple-union-vectors.json", "base"),
+        ("timed-clause-node-vectors.json", "fixture"),
+        ("timed-slot-selector-vectors.json", "fixture"),
+        ("timed-slot-selector-vectors.json", "selected_package"),
+    ] {
+        let published = read_json(&proposal.join(vector)).expect("published vector");
+        let fixture = published[fixture_member]
+            .as_str()
+            .expect("published fixture")
+            .strip_prefix("fixtures/")
+            .expect("fixture path");
+        assert_eq!(
+            positive_document(fixture),
+            published["selected_document"]
+                .as_str()
+                .expect("selected document"),
+            "{vector}: {fixture}",
+        );
+    }
+}
+
 /// QSpec's recursive records, including the owner-free derived nodes in each group.
 const RECURSIVE: &str = "positive-recursive-records.json";
 
@@ -574,8 +612,8 @@ fn adverse_problems(base: &Value, adverse: &Value, expected: &[ExpectedFailure])
 #[test]
 fn tc_048_qspec_positive_fixtures_admit() {
     let dir = fixtures_dir();
-    let document = proposal_dir_of(&dir).join(DOMAIN_DOCUMENT);
     for name in POSITIVE_ALL {
+        let document = proposal_dir_of(&dir).join(positive_document(name));
         let (package, admitted) =
             read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
         let _ = (&package, &admitted);
@@ -720,9 +758,9 @@ fn read_positive_package(
 #[test]
 fn tc_048_qspec_all_positive_packages_and_owner_identities() {
     let fixtures = fixtures_dir();
-    let document = proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT);
     let mut owners = std::collections::BTreeMap::new();
     for name in POSITIVE_ALL {
+        let document = proposal_dir_of(&fixtures).join(positive_document(name));
         let (wire, admitted) =
             read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{why}"));
         let nodes = wire["semantic_graph"]["nodes"]
