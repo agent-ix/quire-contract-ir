@@ -4469,12 +4469,19 @@ fn tied_protocol_and_memory_step_rows_keep_declaration_order_and_node_presence()
 #[test]
 fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
     let (package, evidence, position) = memory_catalog_package();
-    let typed: CheckedSemanticGraphV2<CheckedTerm> =
-        serde_json::from_value(package["semantic_graph"].clone()).expect("typed graph");
+    let refinement_id: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+            .expect("refinement id");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!(
+            "source-default catalog refused: {:?}",
+            read(&package, &evidence)
+        );
+    };
     let CheckedTerm::Refinement {
         class_catalog: Some(catalog),
         ..
-    } = &typed.nodes[position].body
+    } = admitted.term(&refinement_id).expect("admitted refinement")
     else {
         panic!("typed refinement catalog missing");
     };
@@ -4491,9 +4498,6 @@ fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
             memory_model: RefinementTsoModel::Tso,
         })
     ));
-    let refinement_id: quire_contract_model::CheckedNodeId =
-        serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
-            .expect("refinement id");
     let assert_typed_drain = |admitted: &CheckedPackageV2| {
         let Some(CheckedTerm::Refinement {
             class_catalog: Some(class_catalog),
@@ -4503,9 +4507,6 @@ fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
             panic!("admitted typed catalog missing");
         };
         assert_eq!(catalog, class_catalog);
-    };
-    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
-        panic!("source-default catalog refused");
     };
     assert_typed_drain(&admitted);
     let encoded = writer_bytes(&package);
@@ -4919,28 +4920,12 @@ fn operation_model_nodes() -> (Value, Value, Value, Value) {
                 ]
             }]
         }));
-    let body = json!({"term": "aggregate", "members": []});
-    let owner = json!({"kind": "model", "identity": MODEL_IDENTITY, "node": worker_identity});
-    let worker_key = node_id(&sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "model",
-        "semantic_form": "object_type", "semantic_type": null,
-        "declaration": null, "recursion": null, "owner": owner, "body": body
-    }))));
-    let worker = json!({
-        "node_id": worker_key, "schema_version": "quire.checked-semantic-graph/v2",
-        "node_tag": "model", "semantic_form": "object_type",
-        "semantic_type": worker_key, "dependencies": [],
-        "occurrences": [{"role": "type", "ordinal": 0}],
-        "owner": owner, "body": body
-    });
+    let worker = selected_form_node_owned("object_type", MODEL_IDENTITY, worker_identity);
+    let worker_key = worker["node_id"].clone();
     let reference_body = json!({"term":"aggregate", "members":[
         {"term":"reference", "target":worker_key}
     ]});
-    let reference_key = node_id(&sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "composite_type",
-        "semantic_form": "reference", "semantic_type": null,
-        "declaration": null, "recursion": null, "body": reference_body
-    }))));
+    let reference_key = node_id("refinement/worker-reference");
     let reference = json!({
         "node_id": reference_key, "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "composite_type", "semantic_form": "reference",
@@ -5080,19 +5065,8 @@ fn make_step_owner_proof_ineligible(package: &mut Value) {
         .as_array_mut()
         .expect("occurrences")
         .retain(|entry| entry["role"] == "declaration");
-    let new_id = node_id(&sha256_hex(&canonical(&json!({
-        "version": "quire.refinement-node/v1",
-        "semantic_type": node["semantic_type"], "body": node["body"]
-    }))));
-    node["node_id"] = new_id.clone();
     let source_map = package["source_map"].as_array_mut().expect("source map");
     source_map.retain(|entry| entry["node_id"] != old_id || entry["role"] == "declaration");
-    for entry in source_map {
-        if entry["node_id"] == old_id {
-            entry["node_id"] = new_id.clone();
-        }
-    }
-    package["refinement_step_rows"][0]["node_id"] = new_id;
     refresh_identity(package);
 }
 
@@ -6259,7 +6233,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     let binder_type = nodes
         .iter()
         .find(|node| {
-            node["node_id"]["digest"] == json!(crate::support::checked_package::family_key("aaaa"))
+            node["node_id"] == node_id(&crate::support::checked_package::family_key("aaaa"))
         })
         .expect("binder type")["node_id"]
         .clone();
@@ -6289,8 +6263,8 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         panic!("typed writer output must read back: {written_read:?}");
     };
     assert_eq!(
-        serde_json::to_value(round_trip.graph()).expect("package id"),
-        package["package_id"]
+        serde_json::to_value(round_trip.graph()).expect("round-trip graph"),
+        package["semantic_graph"]
     );
     let round_trip_clause = round_trip
         .graph()
@@ -7883,19 +7857,20 @@ fn process_and_machine_clause_signatures_use_declared_context() {
             .expect("account")["node_id"]
             .clone();
         let text_type = node_id(&crate::support::checked_package::family_key("a1a1"));
-        let mk_ref_type = |target: &Value| {
+        let mk_ref_type = |target: &Value, label: String| {
             let body = json!({"term":"aggregate","members":[{"term":"reference","target":target}]});
-            let key = structural_key("composite_type", "reference", None, &body);
-            (key, body)
+            (label, body)
         };
-        let (self_type, self_body) = mk_ref_type(&context);
-        let (argument_type, argument_body) = mk_ref_type(&account);
-        let mk_parameter = |name: &str, ty: &str, level: &str| {
+        let (self_type, self_body) =
+            mk_ref_type(&context, format!("refinement/{form}/self-reference"));
+        let (argument_type, argument_body) =
+            mk_ref_type(&account, format!("refinement/{form}/argument-reference"));
+        let mk_parameter = |name: &str, _ty: &str, level: &str| {
             let body = json!({"term":"aggregate","members":[
                 {"term":"binding","name":"name","value":{"term":"literal","type":text_type,"value_kind":"text","value":name}},
                 {"term":"binding","name":"level","value":{"term":"literal","type":node_id(INTEGER_KEY),"value_kind":"integer","value":level}}
             ]});
-            let key = structural_key("value", "parameter", Some(ty), &body);
+            let key = format!("refinement/{form}/parameter/{name}");
             (key, body)
         };
         let (self_key, self_parameter) = mk_parameter("self", &self_type, "0");
@@ -8044,7 +8019,7 @@ fn process_and_machine_clause_signatures_use_declared_context() {
                 .expect("nodes")
                 .len();
             positions.push(position);
-            let key = format!("{:02x}", 0xe0 + index).repeat(32);
+            let key = format!("refinement/{form}/state-clause/{clause}/{index}");
             package["semantic_graph"]["nodes"]
                 .as_array_mut()
                 .expect("nodes")
@@ -8058,7 +8033,6 @@ fn process_and_machine_clause_signatures_use_declared_context() {
                     body,
                 ));
         }
-        crate::support::checked_package::mint_ungrouped_structural_keys(&mut package);
         settle_refinement(&mut package, refinement);
         settle(&mut package);
         let source = package["lock"]["sources"][0].clone();
