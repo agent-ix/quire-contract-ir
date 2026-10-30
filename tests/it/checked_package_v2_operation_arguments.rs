@@ -7,15 +7,12 @@
 //! or expression body root and a `function.call` argument, and every other
 //! type stays exact.
 //!
-//! Every package is built here, node by node, with every key computed through
-//! `quire-canonical` from the preimages of FR-322 and QSL FR-092 and over a
-//! real Semantic IR 2.0.0 domain package document the lock selects. Nothing of
-//! the reader's own derivation keys a node.
+//! Every package is built here, node by node, with structural node paths and
+//! a real Semantic IR 2.0.0 domain package document selected by the lock.
 
 use crate::support::checked_package::{
-    application_node_key, canonical, fixture_source, node_id, nominal_package, pointer,
-    rebuild_source_map, refresh_identity, rekey_application_node, select_model,
-    selected_model_identities, sha256_hex, source_owner, COMPLETE_VALUE_FEATURE,
+    canonical, fixture_source, node_id as fixture_node_id, nominal_package, pointer, select_model,
+    selected_model_identities, settle, source_owner, structural_id, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -28,11 +25,37 @@ use std::collections::BTreeSet;
 
 const LEDGER: &str = "acme/ledger";
 const VENDOR: &str = "acme/vendor";
-const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
 const NATIVE: &str = "ix://quire/native/";
 
 fn iri(identity: &str, short: &str) -> String {
     format!("ix://{identity}/{short}")
+}
+
+fn node_id(key: &str) -> Value {
+    if let Some(model) = key.strip_prefix("model:") {
+        let mut parts = model.splitn(3, ':');
+        let identity = parts.next().expect("model package");
+        let form = parts.next().expect("model form");
+        let declaration = parts.next().expect("model declaration");
+        return structural_id(
+            identity,
+            vec![json!("model"), json!(form), json!(declaration)],
+            0,
+        );
+    }
+    fixture_node_id(key)
+}
+
+fn label_of(id: &Value) -> String {
+    if id["path"].as_array().is_some_and(|path| path.len() == 3) && id["path"][0] == "model" {
+        return format!(
+            "model:{}:{}:{}",
+            id["package"].as_str().expect("model package"),
+            id["path"][1].as_str().expect("model form"),
+            id["path"][2].as_str().expect("model declaration")
+        );
+    }
+    id["path"][0].as_str().expect("structural path").to_owned()
 }
 
 fn empty() -> Value {
@@ -53,30 +76,6 @@ fn reference(key: &str) -> Value {
 
 fn literal(ty: &str, value_kind: &str, value: &str) -> Value {
     json!({"term": "literal", "type": node_id(ty), "value_kind": value_kind, "value": value})
-}
-
-/// A node's key under QSL's `quire.structural-node/v1` preimage (FR-092).
-fn structural(
-    tag: &str,
-    form: &str,
-    semantic_type: Option<&str>,
-    declaration: Option<&[&str]>,
-    owner: Option<&Value>,
-    body: &Value,
-) -> String {
-    let mut preimage = json!({
-        "version": STRUCTURAL_NODE,
-        "node_tag": tag,
-        "semantic_form": form,
-        "semantic_type": semantic_type.map(node_id),
-        "declaration": declaration.map(|name| json!({"qualified_name": name})),
-        "recursion": null,
-        "body": body,
-    });
-    if let Some(owner) = owner {
-        preimage["owner"] = owner.clone();
-    }
-    sha256_hex(&canonical(&preimage))
 }
 
 fn wire_node(
@@ -104,17 +103,14 @@ fn wire_node(
 fn targets(term: &Value, out: &mut BTreeSet<String>) {
     match term["term"].as_str() {
         Some("reference") => {
-            out.insert(
-                term["target"]["digest"]
-                    .as_str()
-                    .expect("digest")
-                    .to_owned(),
-            );
+            out.insert(label_of(&term["target"]));
         }
         Some("application") => {
-            if let Some(declaration) = term["operation"]["member"]["declaration"]["digest"].as_str()
+            if let Some(declaration) = term["operation"]["member"]
+                .get("declaration")
+                .filter(|value| !value.is_null())
             {
-                out.insert(declaration.to_owned());
+                out.insert(label_of(declaration));
             }
             for argument in term["arguments"].as_array().into_iter().flatten() {
                 targets(argument, out);
@@ -331,11 +327,8 @@ struct Scene {
     seen: BTreeSet<String>,
 }
 
-fn digest_of(node: &Value) -> String {
-    node["node_id"]["digest"]
-        .as_str()
-        .expect("digest")
-        .to_owned()
+fn path_of(node: &Value) -> String {
+    label_of(&node["node_id"])
 }
 
 fn bounds_body(integer: &str, lower: &str, upper: &str) -> Value {
@@ -353,7 +346,7 @@ impl Scene {
     }
 
     fn add(&mut self, node: Value) -> String {
-        let key = digest_of(&node);
+        let key = path_of(&node);
         if self.seen.insert(key.clone()) {
             self.nodes.push(node);
         }
@@ -361,7 +354,7 @@ impl Scene {
     }
 
     fn scalar(&mut self, form: &str) -> String {
-        let key = structural("scalar_type", form, None, None, None, &empty());
+        let key = format!("scalar_type/{form}");
         self.add(wire_node(
             &key,
             "scalar_type",
@@ -376,7 +369,7 @@ impl Scene {
     /// The model declaration node of `short` in the document `identity`.
     fn model(&mut self, identity: &str, short: &str, form: &str) -> String {
         let owner = json!({"kind": "model", "identity": identity, "node": iri(identity, short)});
-        let key = structural("model", form, None, None, Some(&owner), &empty());
+        let key = format!("model:{identity}:{form}:{}", iri(identity, short));
         let mut node = wire_node(&key, "model", form, &key, &[], "type", empty());
         node["owner"] = owner;
         self.add(node)
@@ -389,14 +382,7 @@ impl Scene {
             Ty::Range(lower, upper) => {
                 let integer = self.scalar("integer");
                 let body = bounds_body(&integer, &lower.to_string(), &upper.to_string());
-                let key = structural(
-                    "bounded_domain",
-                    "integer_range",
-                    Some(&integer),
-                    None,
-                    None,
-                    &body,
-                );
+                let key = format!("bounded_domain/integer_range/{lower}/{upper}");
                 self.add(wire_node(
                     &key,
                     "bounded_domain",
@@ -423,14 +409,7 @@ impl Scene {
                 let collection = self.composite("set", &element);
                 let integer = self.scalar("integer");
                 let body = bounds_body(&integer, &lower.to_string(), &upper.to_string());
-                let key = structural(
-                    "bounded_domain",
-                    "collection_bounds",
-                    Some(&collection),
-                    None,
-                    None,
-                    &body,
-                );
+                let key = format!("bounded_domain/collection_bounds/{collection}/{lower}/{upper}");
                 self.add(wire_node(
                     &key,
                     "bounded_domain",
@@ -445,14 +424,7 @@ impl Scene {
                 let integer = self.scalar("integer");
                 let body = aggregate(vec![binding("amount", reference(&integer))]);
                 let owner = source_owner(&fixture_source());
-                let key = structural(
-                    "composite_type",
-                    "record",
-                    None,
-                    Some(&[name]),
-                    Some(&owner),
-                    &body,
-                );
+                let key = format!("qualified:{name}");
                 let mut node = wire_node(
                     &key,
                     "composite_type",
@@ -472,7 +444,7 @@ impl Scene {
 
     fn composite(&mut self, form: &str, element: &str) -> String {
         let body = aggregate(vec![reference(element)]);
-        let key = structural("composite_type", form, None, None, None, &body);
+        let key = format!("composite_type/{form}/{element}");
         self.add(wire_node(
             &key,
             "composite_type",
@@ -493,7 +465,7 @@ impl Scene {
             binding("name", literal(&text, "text", name)),
             binding("level", literal(&integer, "integer", "0")),
         ]);
-        let key = structural("value", "parameter", Some(&ty), None, None, &body);
+        let key = format!("value/parameter/{name}/{ty}");
         self.add(wire_node(
             &key,
             "value",
@@ -518,7 +490,7 @@ impl Scene {
             "result_type": node_id(app.result),
             "arguments": app.arguments,
         });
-        let key = application_node_key(app.tag, app.form, app.semantic, &body);
+        let key = format!("application/{}/{}/{}", app.tag, app.form, self.nodes.len());
         let dependencies = dependencies_of(&body);
         let dependencies: Vec<&str> = dependencies.iter().map(String::as_str).collect();
         self.add(wire_node(
@@ -552,14 +524,7 @@ impl Scene {
     fn function(&mut self, name: &str, semantic: &str, members: Vec<Value>) -> String {
         let body = aggregate(members);
         let owner = source_owner(&fixture_source());
-        let key = structural(
-            "function",
-            "pure_function",
-            Some(semantic),
-            Some(&[name]),
-            Some(&owner),
-            &body,
-        );
+        let key = format!("qualified:{name}");
         let dependencies: Vec<String> = dependencies_of(&body)
             .into_iter()
             .filter(|key| self.seen.contains(key))
@@ -593,14 +558,7 @@ impl Scene {
                 .collect(),
         );
         let owner = source_owner(&fixture_source());
-        let key = structural(
-            "composite_type",
-            "union",
-            None,
-            Some(&[name]),
-            Some(&owner),
-            &body,
-        );
+        let key = format!("qualified:{name}");
         let mut payload: Vec<&str> = members
             .iter()
             .flat_map(|(_, payload)| payload.iter().map(String::as_str))
@@ -627,7 +585,10 @@ impl Scene {
             member,
             aggregate(payload.iter().map(|key| reference(key)).collect()),
         )]);
-        let key = application_node_key("value", "union_value", ty, &body);
+        let key = format!(
+            "application/value/union_value/{member}/{}",
+            self.nodes.len()
+        );
         let dependencies = dependencies_of(&body);
         let dependencies: Vec<&str> = dependencies.iter().map(String::as_str).collect();
         self.add(wire_node(
@@ -660,8 +621,7 @@ impl Scene {
             .as_array_mut()
             .expect("nodes")
             .extend(self.nodes);
-        rebuild_source_map(&mut package);
-        refresh_identity(&mut package);
+        settle(&mut package);
         let mut evidence = CheckedPackageEvidence::new();
         evidence.support_feature(COMPLETE_VALUE_FEATURE);
         for document in &documents {
@@ -705,7 +665,7 @@ impl Case {
             .as_array()
             .expect("nodes")
             .iter()
-            .position(|node| node["node_id"]["digest"] == key)
+            .position(|node| node["node_id"] == node_id(key))
             .expect("the node under test is in the graph");
         self
     }
@@ -1395,7 +1355,7 @@ fn tc_448_a_malformed_parameters_binding_is_refused_at_the_callee() {
         (
             "an absent target",
             Box::new(|_, declared| {
-                let absent = sha256_hex(b"absent");
+                let absent = "absent".to_owned();
                 vec![
                     parameters_binding(vec![reference(&absent), reference(&declared[1])]),
                     binding("body", reference(&declared[1])),
@@ -1489,14 +1449,8 @@ fn operation_mode_and_member_are_required_even_when_null_is_admitted() {
             .as_object_mut()
             .expect("operation object");
         assert_eq!(operation.remove(field), Some(Value::Null));
-        rekey_application_node(&mut case.package, case.node);
-        rebuild_source_map(&mut case.package);
-        refresh_identity(&mut case.package);
-        assert_ne!(case.package["package_id"], base.package["package_id"]);
-        assert_ne!(
-            case.package["semantic_graph"]["nodes"][case.node]["node_id"],
-            base.package["semantic_graph"]["nodes"][base.node]["node_id"],
-        );
+        settle(&mut case.package);
+        assert_ne!(case.package, base.package);
         let CheckedPackageV2ReadResult::Refused(refusal) = case.read() else {
             panic!("omitting {field} must refuse");
         };
@@ -1518,9 +1472,7 @@ fn operation_mode_and_member_are_required_even_when_null_is_admitted() {
         // A catalog error cannot displace the containing object's shape error.
         case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"]["identity"] =
             json!("quire.op.unknown");
-        rekey_application_node(&mut case.package, case.node);
-        rebuild_source_map(&mut case.package);
-        refresh_identity(&mut case.package);
+        settle(&mut case.package);
         let CheckedPackageV2ReadResult::Refused(before_catalog) = case.read() else {
             panic!("omitting {field} with an unknown identity must refuse");
         };
@@ -1535,9 +1487,7 @@ fn operation_mode_and_member_are_required_even_when_null_is_admitted() {
             json!("quire.op.integer.add");
         case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"][field] =
             Value::Null;
-        rekey_application_node(&mut case.package, case.node);
-        rebuild_source_map(&mut case.package);
-        refresh_identity(&mut case.package);
+        settle(&mut case.package);
         assert_eq!(
             case.package, base.package,
             "restoring {field} restores the original package"
