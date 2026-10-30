@@ -2191,7 +2191,15 @@ PLANNED/UNRUN (IR-1141). Construct a typed `CheckedNodeId { package, path, ordin
 
 For FR-048, assemble owner-free derived nodes, a source-owned declaration, a
 model-owned declaration and a mixed recursion group. Verify exact
-package/path/producer-assigned structural ordinals, shared group labels, self and internal
+package/path/producer-assigned structural ordinals, shared group labels, each
+declared member's own path, the sole declared member's path for an anonymous
+derived member, and producer-chosen paths for anonymous derived members of
+zero- or multiple-declared-member groups. Read QSpec TC-946 K14 directly:
+the three declared members `Flow`, `joinPred` and `Holder` keep distinct
+declaration paths under one label; a path substitution with a distinct valid
+ordinal refuses `invalid_package`/`declaration-nominal-mismatch` at that
+declared node id, while a mismatched cyclic label and missing exact target
+refuse under their independent rules (TC-226), while the unmodified package admits. Verify self and internal
 reference resolution, outside/dependency references, and typed refusals for
 duplicate ID, missing target, malformed ordinal and an independently invalid
 body shape or join. A valid body edit under the same structural ID may admit.
