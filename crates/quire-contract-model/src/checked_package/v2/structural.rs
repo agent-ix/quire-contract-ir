@@ -514,9 +514,22 @@ pub(super) fn validate_derived_type_shapes(
                 node.semantic_type == node.node_id
                     && term.and_then(typed_aggregate).is_some_and(<[_]>::is_empty)
             }
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
+                node.semantic_type == node.node_id
+                    && term.and_then(typed_aggregate).is_some_and(|members| {
+                        matches!(members, [CheckedTerm::Reference { target }]
+                            if matches!(graph.kind(target),
+                                Some(CheckedNodeKind::Model(
+                                    ModelForm::ObjectType
+                                    | ModelForm::Process
+                                    | ModelForm::StateMachine
+                                    | ModelForm::SystemsInterface
+                                ) | CheckedNodeKind::Relation(RelationForm::Relationship)))
+                        )
+                    })
+            }
             CheckedNodeKind::CompositeType(
-                CompositeTypeForm::Reference
-                | CompositeTypeForm::Option
+                CompositeTypeForm::Option
                 | CompositeTypeForm::Set
                 | CompositeTypeForm::Bag
                 | CompositeTypeForm::Sequence
