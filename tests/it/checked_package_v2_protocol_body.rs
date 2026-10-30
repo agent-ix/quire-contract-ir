@@ -6,8 +6,8 @@
 use crate::support::checked_package::{
     admitted_protocol_families, canonical, evidence_for, evidence_with_document, family_key,
     family_model_document, node_id, protocol_named_node, protocol_role_node, reassign_node_id,
-    rebuild_source_map, refresh_identity, refusal, refusal_at, rename_node, select_model,
-    selected_interface_model_node, settle, v2_all_families,
+    rebuild_source_map, refresh_identity, refusal, refusal_at, refusal_at_id, rename_node,
+    select_model, selected_interface_model_node, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -4971,6 +4971,11 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         let original_target = package["semantic_graph"]["nodes"][root]["node_id"].clone();
         package["semantic_graph"]["nodes"][root]["declaration"]["qualified_name"] =
             json!(["Example", "OrderFlow", "run", "Main", "Event"]);
+        let event_target = node_id("qualified:Example/OrderFlow/run/Main/Event");
+        // Assign the moved control its declared structural path before adding
+        // the replacement sequence at Main. Retarget existing references to
+        // the moved event while Main remains available for the sequence.
+        reassign_node_id(package, &original_target, &event_target);
         let mut sequence_body = package["semantic_graph"]["nodes"][root]["body"].clone();
         sequence_body["operation"]["member"]["operator"] = json!("sequence");
         sequence_body["arguments"] = json!([binding(
@@ -4978,7 +4983,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
             json!({"term": "aggregate", "members": [
                 reference(&attempt_target),
                 reference(&effect_target),
-                reference(&original_target)
+                reference(&event_target)
             ]})
         )]);
         let sequence = protocol_named_node(
@@ -5804,7 +5809,32 @@ fn package_with_step_control(operator: &str) -> (Value, usize) {
     package_with_step_control_on(v2_all_families(), operator)
 }
 
-fn package_with_step_control_on(package: Value, operator: &str) -> (Value, usize) {
+fn package_with_step_control_on(mut package: Value, operator: &str) -> (Value, usize) {
+    // StatePackage's reference type is built from its historical object key.
+    // The composed package uses the source-owned object's structural ID.
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let object = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+        .expect("selected object type")["node_id"]
+        .clone();
+    if let Some(stale) = nodes
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "composite_type"
+                && node["semantic_form"] == "reference"
+                && node["node_id"]["path"][0]
+                    .as_str()
+                    .is_some_and(|part| part.starts_with("fixture/frame/reference/"))
+        })
+        .map(|node| node["body"]["members"][0]["target"].clone())
+    {
+        if stale != object {
+            reassign_node_id(&mut package, &stale, &object);
+        }
+    }
     let (mut package, _) = package_with_member_role_on(package);
     let root = protocol_position(&package, "control");
     let role =
@@ -6126,16 +6156,14 @@ fn event_compensation_requires_a_template_target() {
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][1]["value"]["members"] =
         json!([{"term": "reference", "target": role}]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("event key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{root}/body/arguments/1/value/members/0/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key
+            &key
         )
     );
 }
@@ -6187,16 +6215,14 @@ fn event_admits_its_clause_template_and_refuses_a_foreign_template() {
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][1]["value"]["members"][0]
         ["target"] = foreign_key;
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("event key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{root}/body/arguments/1/value/members/0/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key
+            &key
         )
     );
 }
