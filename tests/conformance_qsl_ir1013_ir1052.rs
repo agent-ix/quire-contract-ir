@@ -106,7 +106,7 @@ fn rename_operation(value: &mut Value) {
     }
 }
 
-fn adjusted_switch_model(source: &str, model_bytes: &[u8]) -> (String, Vec<u8>) {
+fn adjusted_switch_model(model_bytes: &[u8]) -> Vec<u8> {
     let mut model: Value = serde_json::from_slice(model_bytes).expect("QSL Switch model");
     let switch = model["types"]
         .as_array_mut()
@@ -121,19 +121,7 @@ fn adjusted_switch_model(source: &str, model_bytes: &[u8]) -> (String, Vec<u8>) 
         .find(|operation| operation["name"] == "set")
         .expect("Switch.set");
     rename_operation(operation);
-    let digest = quire_canonical::sha256(&model, Limits::new(1 << 24))
-        .expect("adjusted model canonical digest");
-    let old_digest = source
-        .split_once("digest \"sha256-jcs:")
-        .and_then(|(_, suffix)| suffix.split_once('"'))
-        .map(|(digest, _)| digest)
-        .expect("QSL model selection digest");
-    let source = source
-        .replacen(old_digest, &digest.to_string(), 1)
-        .replace("::set", "::adjust");
-    let model_bytes = quire_canonical::to_vec(&model, Limits::new(1 << 24))
-        .expect("adjusted model canonical bytes");
-    (source, model_bytes)
+    quire_canonical::to_vec(&model, Limits::new(1 << 24)).expect("adjusted model canonical bytes")
 }
 
 fn target(term: &CheckedTerm) -> &CheckedNodeId {
@@ -167,7 +155,8 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
     let original_model =
         std::fs::read(qsl.join("examples/switch-transition/switch.semantic-ir.json"))
             .expect("QSL Switch model");
-    let (adjusted, model_bytes) = adjusted_switch_model(&original, &original_model);
+    let model_bytes = adjusted_switch_model(&original_model);
+    let adjusted = original.replace("::set", "::adjust");
     let source = format!(
         "{adjusted}\ninvariant Init using v on M::Switch at current {{ true }}\n\
          constraint Handle using v on M::Switch at current {{ true }}\n\
