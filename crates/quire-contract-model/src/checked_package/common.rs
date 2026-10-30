@@ -1888,10 +1888,9 @@ mod tests {
         let outcome = std::thread::Builder::new()
             .stack_size(256 * 1024)
             .spawn(|| {
-                let digest = "a".repeat(64);
                 let mut term = json!({
                     "term": "literal",
-                    "type": {"domain": NODE_DOMAIN, "digest": digest},
+                    "type": {"package":"test", "path":["integer"], "ordinal":0},
                     "value_kind": "integer",
                     "value": 1,
                 });
@@ -1910,7 +1909,7 @@ mod tests {
                     true,
                     &Trail::Base(&[]),
                     &mut |target, site, _| {
-                        reported.push((target.digest.to_string(), site.is_body_root));
+                        reported.push((target.path.len(), site.is_body_root));
                     },
                 );
                 quire_canonical::drop_value(term);
@@ -1921,7 +1920,7 @@ mod tests {
             .expect("the walk ran to completion");
         assert_eq!(
             outcome,
-            (Ok(200_001), vec![("a".repeat(64), false)]),
+            (Ok(200_001), vec![(1, false)]),
             "the literal is nested, so it is no body root"
         );
     }

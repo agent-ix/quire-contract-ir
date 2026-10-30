@@ -3122,9 +3122,9 @@ mod tests {
     use super::{
         body_grammar, node_pointer, reference_requires_cycle_edge, validate_body,
         validate_recursion, BodyGrammar, CheckedDependencySelection, CheckedNodeId,
-        CheckedNodeKind, CheckedPackageRefusalCode, CheckedSemanticId, CheckedSemanticNodeV2,
-        CorrespondenceForm, EdgeSite, ExpressionForm, ReferenceMember, ReferenceSite, StateForm,
-        Step, Trail, ValidationFailure, WorkMeter, DEPENDENCY_SELECTION_MEMBERS,
+        CheckedNodeKind, CheckedPackageRefusalCode, CheckedSemanticNodeV2, CorrespondenceForm,
+        EdgeSite, ExpressionForm, ReferenceMember, ReferenceSite, StateForm, Step, Trail,
+        ValidationFailure, WorkMeter, DEPENDENCY_SELECTION_MEMBERS,
     };
     use ix_trace_rs::trace;
     use serde_json::json;
@@ -3454,10 +3454,7 @@ mod tests {
     #[trace("TC-048", "FR-038-AC-18")]
     #[test]
     fn tc_048_only_a_self_typed_body_root_literal_omits_its_cycle_edge() {
-        let id = CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: "a".repeat(64).into(),
-        };
+        let id = super::test_support::node_id('a');
         let typed = serde_json::to_value(&id).expect("node id");
         let bodies = [
             (
