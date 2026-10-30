@@ -1,4 +1,4 @@
-//! Graph-shape rules for node bodies that carry no nominal preimage: the
+//! Graph-shape rules for node bodies that carry no nominal declaration: the
 //! `value`/`parameter` body (QSpec FR-341, QSL FR-092), the
 //! `scalar_type`/`compound_unit` body QSL emits beyond QSpec FR-322's
 //! published form list, the `state`/`operation_anchor` (QSpec FR-342) and
@@ -42,46 +42,39 @@
 //!   (the `quire.value.compound-unit/v1` term order); `dependencies` is
 //!   exactly those unit keys in that order. The empty body is the
 //!   dimensionless unit.
-//! - **Application-node dependency join** (FR-322
-//!   `application_node_preimage`): a node whose body contains an
+//! - **Application-node dependency join** (FR-322): a node whose body contains an
 //!   `application` term anywhere has `dependencies` exactly the unique,
-//!   digest-ascending reference targets and operation member declarations
+//!   node-id-ascending reference targets and operation member declarations
 //!   of its body. `result_type` and literal `type` annotations are not
 //!   dependencies.
 //!
-//! This shape stage does not re-derive keys. A missing target that equals a
-//! rekeyed node's canonical key resolves to that node for shape checks; its
-//! dependent absence waits for the later key stage. Independent malformed
-//! shape still refuses here. `derived_keys` checks owner-free,
-//! ungrouped structural nodes against QSL's `quire.structural-node/v1`
-//! preimage after application keys and before nominal keys; IR-630 owns the
-//! owner-bearing and grouped follow-up (FR-038-AC-123).
+//! This stage checks declared structural identities and graph shape. No body
+//! derives a node identity.
 //!
 //! Every violation refuses as `invalid_semantic_graph` with no cause, at the
 //! member it breaks (the node's `body` for a body or binding shape, the
 //! occurrence's `role` for a role), located at the offending node, at the
-//! first such node in ascending node-id digest order.
-//! These are graph-shape refusals, so they run before the stale-key stage.
+//! first such node in ascending structural node-id order.
+//! These graph-shape refusals run before the independent derived-shape check.
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
-use super::derived_keys::DeferredKeyTargets;
 use super::identity::is_identifier;
+use super::model_members::{DomainModel, MemberType, ValueBounds};
 use super::{
     ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
     OperationMemberKind, StateClauseKind,
 };
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, ClaimForm, CompositeTypeForm,
-    CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, NominalIdentityPreimage,
-    ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm,
-    StateForm, TemporalForm, ValueForm,
+    CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateForm,
+    TemporalForm, ValueForm,
 };
-use crate::checked_package::common::{exact_members, is_digest, node_pointer, ValidationFailure};
+use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
 };
-use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -91,14 +84,11 @@ enum Defect {
     SemanticType,
     Dependencies,
     RecursionGroup,
-    NominalIdentityPreimage,
     Occurrences,
     /// The node body itself.
     Body,
     /// A malformed state-clause execution point.
     ClausePoint,
-    /// One member of the node body's `aggregate`.
-    BodyMember(usize),
     /// The role of the occurrence at this index.
     Role(usize),
 }
@@ -110,7 +100,6 @@ impl Defect {
             Self::SemanticType => node.key("semantic_type"),
             Self::Dependencies => node.key("dependencies"),
             Self::RecursionGroup => node.key("recursion_group"),
-            Self::NominalIdentityPreimage => node.key("nominal_identity_preimage"),
             Self::Occurrences => node.key("occurrences"),
             Self::Body => node.key("body"),
             Self::ClausePoint => node
@@ -118,7 +107,6 @@ impl Defect {
                 .key("operation")
                 .key("member")
                 .key("execution_point"),
-            Self::BodyMember(member) => node.key("body").key("members").index(member),
             Self::Role(occurrence) => node.key("occurrences").index(occurrence).key("role"),
         }
     }
@@ -129,12 +117,11 @@ struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
-    deferred: &'a DeferredKeyTargets,
 }
 
 impl Graph<'_> {
     fn node(&self, id: &CheckedNodeId) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
-        let position = self.deferred.position(id, self.index)?;
+        let position = *self.index.get(id)?;
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
     }
 
@@ -142,12 +129,8 @@ impl Graph<'_> {
         self.node(id).map(|(_, kind)| kind)
     }
 
-    fn dependent_target(&self, id: &CheckedNodeId) -> bool {
-        self.deferred.ambiguous(id, self.index)
-    }
-
-    fn type_matches_or_deferred(&self, id: &CheckedNodeId, form: ScalarTypeForm) -> bool {
-        self.kind(id) == Some(CheckedNodeKind::ScalarType(form)) || self.dependent_target(id)
+    fn type_matches(&self, id: &CheckedNodeId, form: ScalarTypeForm) -> bool {
+        self.kind(id) == Some(CheckedNodeKind::ScalarType(form))
     }
 }
 
@@ -342,19 +325,17 @@ impl StructuralForm {
 
 /// Validates every parameter and compound-unit node's body, type and
 /// dependencies, and every application node's dependency join, visiting
-/// nodes in ascending node-id digest order.
+/// nodes in ascending structural node-id order.
 pub(super) fn validate_structural_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
-    deferred: &DeferredKeyTargets,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
         kinds,
         index,
-        deferred,
     };
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
@@ -401,8 +382,6 @@ pub(super) fn validate_structural_nodes(
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if node.nominal_identity_preimage.is_some() {
-                    Some(Defect::NominalIdentityPreimage)
                 } else if !node.dependencies.iter().eq(expected) {
                     Some(Defect::Dependencies)
                 } else {
@@ -433,8 +412,6 @@ pub(super) fn validate_structural_nodes(
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if node.nominal_identity_preimage.is_some() {
-                    Some(Defect::NominalIdentityPreimage)
                 } else if !node.dependencies.iter().eq(targets) {
                     Some(Defect::Dependencies)
                 } else {
@@ -442,7 +419,9 @@ pub(super) fn validate_structural_nodes(
                 }
             }
             Some(StructuralForm::Parameter) => parameter_defect(node, term, &graph),
-            Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, term, &graph),
+            Some(StructuralForm::CompoundUnit) => {
+                compound_unit_dependencies_defect(node, term, &graph)
+            }
             Some(StructuralForm::OperationAnchor) => term
                 .and_then(typed_anchor_body)
                 .is_none()
@@ -511,6 +490,192 @@ pub(super) fn validate_structural_nodes(
     Ok(())
 }
 
+/// FR-038-AC-124/125: validate the closed bodies of the ten derived type
+/// forms independently of their producer-assigned structural node IDs.
+pub(super) fn validate_derived_type_shapes(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    let graph = Graph {
+        nodes,
+        kinds,
+        index,
+    };
+    for (&node_id, &position) in index {
+        let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
+            continue;
+        };
+        let term = terms.get(position).and_then(Option::as_ref);
+        let valid = match kind {
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean | ScalarTypeForm::Integer) => {
+                node.semantic_type == node.node_id
+                    && term.and_then(typed_aggregate).is_some_and(<[_]>::is_empty)
+            }
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
+                node.semantic_type == node.node_id
+                    && term.and_then(typed_aggregate).is_some_and(|members| {
+                        matches!(members, [CheckedTerm::Reference { target }]
+                            if matches!(graph.kind(target),
+                                Some(CheckedNodeKind::Model(
+                                    ModelForm::ObjectType
+                                    | ModelForm::Process
+                                    | ModelForm::StateMachine
+                                    | ModelForm::SystemsInterface
+                                ) | CheckedNodeKind::Relation(RelationForm::Relationship)))
+                        )
+                    })
+            }
+            CheckedNodeKind::CompositeType(
+                CompositeTypeForm::Option
+                | CompositeTypeForm::Set
+                | CompositeTypeForm::Bag
+                | CompositeTypeForm::Sequence
+                | CompositeTypeForm::OrderedSet,
+            ) => {
+                node.semantic_type == node.node_id
+                    && term
+                        .and_then(typed_aggregate)
+                        .is_some_and(|members| matches!(members, [CheckedTerm::Reference { target }] if target.is_well_formed()))
+            }
+            CheckedNodeKind::BoundedDomain(
+                BoundedDomainForm::IntegerRange | BoundedDomainForm::CollectionBounds,
+            ) => {
+                let base_valid = match kind {
+                    CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => {
+                        graph.type_matches(&node.semantic_type, ScalarTypeForm::Integer)
+                    }
+                    _ => matches!(graph.kind(&node.semantic_type),
+                        Some(CheckedNodeKind::CompositeType(
+                            CompositeTypeForm::Set | CompositeTypeForm::Bag
+                            | CompositeTypeForm::Sequence | CompositeTypeForm::OrderedSet))),
+                };
+                let natural = kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds);
+                base_valid && term.and_then(typed_aggregate).is_some_and(|members| {
+                    let [min, max] = members else { return false; };
+                    [(min, "min"), (max, "max")].into_iter().all(|(member, name)| {
+                        let Some(CheckedTerm::Literal { type_id, value_kind: LiteralKind::Integer, value }) =
+                            typed_binding(member, name) else { return false; };
+                        let Some(text) = value.as_str() else { return false; };
+                        graph.type_matches(type_id, ScalarTypeForm::Integer)
+                            && (if natural { is_non_negative_integer(text) } else { is_integer_bound(text) })
+                    })
+                })
+            }
+            CheckedNodeKind::BoundedDomain(BoundedDomainForm::ModelPopulation) => {
+                let set_of_reference = graph.kind(&node.semantic_type)
+                    == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Set))
+                    && index
+                    .get(&node.semantic_type)
+                    .and_then(|&position| terms.get(position).and_then(Option::as_ref))
+                    .and_then(typed_aggregate)
+                    .is_some_and(|members| {
+                        matches!(members, [CheckedTerm::Reference { target }]
+                            if graph.kind(target) == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)))
+                    });
+                set_of_reference && term.and_then(typed_aggregate).is_some_and(|members| {
+                    match members {
+                        [] => true,
+                        [member] => {
+                            let Some(CheckedTerm::Literal { type_id, value_kind: LiteralKind::Integer, value }) =
+                                typed_binding(member, "max") else { return false; };
+                            value.as_str().is_some_and(is_non_negative_integer)
+                                && graph.type_matches(type_id, ScalarTypeForm::Integer)
+                        }
+                        _ => false,
+                    }
+                })
+            }
+            CheckedNodeKind::Relation(RelationForm::Population) => {
+                node.semantic_type == node.node_id
+                    && node.dependencies.is_empty()
+                    && node.declaration.is_none()
+                    && node.recursion_group.is_none()
+                    && term.and_then(typed_aggregate).is_some_and(<[_]>::is_empty)
+            }
+            CheckedNodeKind::ScalarType(ScalarTypeForm::CompoundUnit) => {
+                node.semantic_type == node.node_id
+                    && node.recursion_group.is_none()
+                    && term.and_then(typed_aggregate).is_some_and(|members| {
+                        let mut previous: Option<CheckedNodeId> = None;
+                        for member in members {
+                            let Some(unit) = typed_compound_unit_term(member, &graph) else {
+                                return false;
+                            };
+                            if previous.as_ref().is_some_and(|last| last >= &unit) {
+                                return false;
+                            }
+                            previous = Some(unit);
+                        }
+                        true
+                    })
+            }
+            _ => continue,
+        };
+        if !valid {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                node_pointer(position).key("node_id"),
+                Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
+                node_id.clone(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Join an admitted bounded type's actual members to the selected Semantic IR
+/// declaration. A structural node ID names the type but does not attest to
+/// its body: keeping the ID while changing a bound must not change the type
+/// selected by a model field.
+pub(super) fn validate_selected_type_bounds(
+    models: &[DomainModel],
+    terms: &[Option<CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    for model in models {
+        for bounds in model.value_types.values().flatten() {
+            let ValueBounds::Integer(expected) = bounds else {
+                continue;
+            };
+            let Some(id) = (MemberType::IntRange(*expected)).node_id(&model.checked_package) else {
+                continue;
+            };
+            let Some(&position) = index.get(&id) else {
+                continue;
+            };
+            let actual = terms
+                .get(position)
+                .and_then(Option::as_ref)
+                .and_then(typed_aggregate)
+                .and_then(|members| {
+                    let [minimum, maximum] = members else {
+                        return None;
+                    };
+                    let bound = |term, name| match typed_binding(term, name)? {
+                        CheckedTerm::Literal {
+                            value_kind: LiteralKind::Integer,
+                            value,
+                            ..
+                        } => value.as_str()?.parse::<i128>().ok(),
+                        _ => None,
+                    };
+                    Some((bound(minimum, "min")?, bound(maximum, "max")?))
+                });
+            if actual != Some((expected.lower, expected.upper)) {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    node_pointer(position).key("node_id"),
+                    Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
+                    id,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Carrier-only members and the local edge shape, checked before keys or target resolution.
 fn protocol_reference_defect(
     node: &CheckedSemanticNodeV2,
@@ -522,7 +687,7 @@ fn protocol_reference_defect(
     let Some(super::CheckedTerm::Reference { target }) = term else {
         return Some(Defect::Body);
     };
-    if !super::is_node_domain(&target.domain) || !is_digest(&target.digest) {
+    if !target.is_well_formed() {
         return Some(Defect::Body);
     }
     if node.dependencies.as_slice() != std::slice::from_ref(target) {
@@ -539,32 +704,31 @@ fn parameter_defect(
     graph: &Graph<'_>,
 ) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
-        && (graph.dependent_target(&node.semantic_type)
-            || graph
-                .node(&node.semantic_type)
-                .is_some_and(|(type_node, kind)| {
-                    // A binder may also be typed at a selected model value declaration.
-                    kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
-                        || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
-                        || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
-                        || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
-                            && matches!(
-                                type_node.owner.as_ref(),
-                                Some(super::CheckedNodeOwner::Model { .. })
-                            ))
-                        || matches!(
-                            kind.tag(),
-                            CheckedNodeTag::ScalarType
-                                | CheckedNodeTag::CompositeType
-                                | CheckedNodeTag::BoundedDomain
-                        )
-                }));
+        && graph
+            .node(&node.semantic_type)
+            .is_some_and(|(type_node, kind)| {
+                // A binder may also be typed at a selected model value declaration.
+                kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                    || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
+                    || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
+                    || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
+                        && matches!(
+                            type_node.owner.as_ref(),
+                            Some(super::CheckedNodeOwner::Model { .. })
+                        ))
+                    || matches!(
+                        kind.tag(),
+                        CheckedNodeTag::ScalarType
+                            | CheckedNodeTag::CompositeType
+                            | CheckedNodeTag::BoundedDomain
+                    )
+            });
     if !is_binder_type {
         return Some(Defect::SemanticType);
     }
     if term
         .and_then(|term| {
-            typed_parameter_binding_with(term, &|id, form| graph.type_matches_or_deferred(id, form))
+            typed_parameter_binding_with(term, &|id, form| graph.type_matches(id, form))
         })
         .is_none()
     {
@@ -595,11 +759,7 @@ pub(super) fn typed_binding<'a>(
 
 pub(super) fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
     match term {
-        super::CheckedTerm::Reference { target }
-            if super::is_node_domain(&target.domain) && is_digest(&target.digest) =>
-        {
-            Some(target)
-        }
+        super::CheckedTerm::Reference { target } if target.is_well_formed() => Some(target),
         _ => None,
     }
 }
@@ -656,29 +816,17 @@ fn typed_parameter_binding_with<'a>(
     Some((name, level))
 }
 
-/// The first rule a `scalar_type`/`compound_unit` node breaks, as the member
-/// it breaks it at.
-fn compound_unit_defect(
+/// Graph-shape dependency control for compound units. Their semantic body
+/// shape is checked at the later derived-shape stage.
+fn compound_unit_dependencies_defect(
     node: &CheckedSemanticNodeV2,
     term: Option<&super::CheckedTerm>,
     graph: &Graph<'_>,
 ) -> Option<Defect> {
-    if node.semantic_type != node.node_id {
-        return Some(Defect::SemanticType);
-    }
-    let Some(terms) = term.and_then(typed_aggregate) else {
-        return Some(Defect::Body);
-    };
+    let terms = term.and_then(typed_aggregate)?;
     let mut units: Vec<CheckedNodeId> = Vec::with_capacity(terms.len());
-    for (index, term) in terms.iter().enumerate() {
-        let Some(unit) = typed_compound_unit_term(term, graph) else {
-            return Some(Defect::BodyMember(index));
-        };
-        // Strictly ascending: canonical order and no repeated unit.
-        if units.last().is_some_and(|previous| *previous >= unit) {
-            return Some(Defect::BodyMember(index));
-        }
-        units.push(unit);
+    for term in terms {
+        units.push(typed_compound_unit_term(term, graph)?);
     }
     if node.dependencies != units {
         return Some(Defect::Dependencies);
@@ -691,24 +839,29 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
         return None;
     };
     let unit = typed_binding(unit, "unit").and_then(typed_reference)?;
-    // A dimension's canonical root unit has no target unit in its nominal
-    // preimage; the nominal stage admits exactly one such unit.
-    let is_root_unit = graph.dependent_target(unit)
-        || graph.node(unit).is_some_and(|(node, kind)| {
-            kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
-                && matches!(
-                    &node.nominal_identity_preimage,
-                    Some(NominalIdentityPreimage::Unit(preimage))
-                        if preimage.target_unit_node_id.is_none()
-                )
-        });
+    // A dimension's canonical root unit has no target unit in its body;
+    // the nominal stage admits exactly one such unit.
+    let is_root_unit = graph.node(unit).is_some_and(|(node, kind)| {
+        kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
+            && super::identity::NominalBody::from_value(&node.body, JsonPointer::root()).is_ok_and(
+                |body| {
+                    matches!(
+                        body.kind(),
+                        super::identity::NominalBodyKind::Unit {
+                            target_unit_node_id: None,
+                            ..
+                        }
+                    )
+                },
+            )
+    });
     let exponent_ok = typed_binding(exponent, "exponent")
         .and_then(|value| {
             typed_literal(
                 value,
                 LiteralKind::Integer,
                 ScalarTypeForm::Integer,
-                &|id, form| graph.type_matches_or_deferred(id, form),
+                &|id, form| graph.type_matches(id, form),
             )
         })
         .and_then(Value::as_str)
@@ -974,7 +1127,7 @@ pub(super) fn typed_union_value_body(
 
 /// FR-322's dependency join for a body that contains an `application` term
 /// at any depth: `None` for a body holding none, else the unique
-/// digest-ascending reference targets and member declarations, plus the member
+/// structural-id-ascending reference targets and member declarations, plus the member
 /// `population` of a reaches or navigate application. A member `declaration` or
 /// `population` that is not a node key is skipped here: the operation stage
 /// owns that refusal and its path.
@@ -999,9 +1152,9 @@ pub(super) fn application_dependencies(
                 pending.extend(arguments);
                 let member = operation.get("member");
                 let member_id = |key: &str| {
-                    member.and_then(|member| member.get(key)).and_then(|value| {
-                        serde_json::from_value::<CheckedNodeId>(value.clone()).ok()
-                    })
+                    member
+                        .and_then(|member| member.get(key))
+                        .and_then(CheckedNodeId::from_value)
                 };
                 join.extend(member_id("declaration"));
                 // Only a relationship application names a population.
@@ -1030,7 +1183,8 @@ pub(super) fn application_dependencies(
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
             | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. } => {}
+            | CheckedTerm::ExtensionForm { .. }
+            | CheckedTerm::NominalBody(_) => {}
         }
     }
     contains_application.then_some(join)
@@ -1044,28 +1198,17 @@ pub(super) fn aggregate_members(term: &Value) -> Option<&[Value]> {
     }
 }
 
-/// A `binding` term's value, when the binding is named `name`.
-pub(super) fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
-    match CheckedTerm::view(term)? {
-        CheckedTermView::Binding {
-            name: actual,
-            value,
-        } if actual == name => Some(value),
-        _ => None,
-    }
-}
-
 /// A `reference` term's target.
 pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
     let target = reference_selector(term)?;
-    (super::is_node_domain(&target.domain) && is_digest(&target.digest)).then_some(target)
+    target.is_well_formed().then_some(target)
 }
 
 /// A typed draft `reference` target before its provisional selector is replaced.
-/// The reader still requires the final digest through [`reference_target`].
+/// The reader retains the exact structural target through [`reference_target`].
 pub(super) fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
     match CheckedTerm::view(term)? {
-        CheckedTermView::Reference { target } => CheckedNodeId::deserialize(target).ok(),
+        CheckedTermView::Reference { target } => CheckedNodeId::from_value(target),
         _ => None,
     }
 }
@@ -1119,7 +1262,7 @@ mod tests {
     }
 
     fn id(fill: char) -> Value {
-        json!({"domain": "quire.checked-semantic-node/v1", "digest": fill.to_string().repeat(64)})
+        json!({"package": "structural-test", "path": [fill.to_string()], "ordinal": 0})
     }
 
     #[trace("TC-048", "FR-038-AC-22")]
@@ -1129,7 +1272,7 @@ mod tests {
         let closed = json!({"term": "reference", "target": target});
         assert_eq!(
             reference_selector(&closed),
-            serde_json::from_value(target).ok()
+            CheckedNodeId::from_value(&target)
         );
 
         let extra = json!({"term": "reference", "target": id('a'), "members": []});
@@ -1158,7 +1301,7 @@ mod tests {
         let join = application_dependencies(&term).expect("the body holds an application");
         let expected: BTreeSet<CheckedNodeId> = ['a', 'b', 'c']
             .into_iter()
-            .map(|fill| serde_json::from_value(id(fill)).expect("node id"))
+            .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
             .collect();
         assert_eq!(join, expected);
         assert_eq!(
@@ -1175,7 +1318,7 @@ mod tests {
         malformed["operation"]["member"]["declaration"] = json!("not a node key");
         let expected: BTreeSet<CheckedNodeId> = ['a', 'b']
             .into_iter()
-            .map(|fill| serde_json::from_value(id(fill)).expect("node id"))
+            .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
             .collect();
         let malformed =
             super::super::CheckedTerm::decode_admitted(&malformed).expect("closed application");

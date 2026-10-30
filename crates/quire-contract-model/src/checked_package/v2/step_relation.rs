@@ -641,9 +641,9 @@ pub(super) fn validate_step_relations(
                         .chain(&operation.parameters)
                         .nth(j - 1)
                         .and_then(|slot| owner.package.slot_type(slot))
-                        .and_then(|kind| kind.node_key(owner.package.bytes).ok())
-                        .as_deref()
-                        == Some(parameter.semantic_type.digest.as_ref())
+                        .and_then(|kind| kind.node_id(&parameter.node_id.package))
+                        .as_ref()
+                        == Some(&parameter.semantic_type)
                 };
                 if kind != CheckedNodeKind::Value(ValueForm::Parameter)
                     || !type_ok

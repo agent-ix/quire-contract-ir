@@ -3,12 +3,11 @@
 
 //! Reader-boundary witnesses for IEEE literal/type agreement and cross-width
 //! conversion results (FR-038-AC-222/223). Every package carries freshly
-//! derived node and package IDs.
+//! assigned structural node IDs.
 
 use crate::support::checked_package::{
-    application_node_key, boolean_key, canonical, evidence_for, node_id, pointer,
-    rebuild_source_map, refresh_identity, rekey_application_node, rename_node, settle,
-    structural_key, v2_all_families,
+    boolean_key, canonical, evidence_for, node_id, pointer, refresh_identity, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -25,16 +24,20 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
     )
 }
 
+fn ieee_type_id(family: &str) -> Value {
+    node_id(&format!("scalar_type/{family}"))
+}
+
 fn with_ieee_literal(kind: &str, declared_family: &str) -> (Value, usize) {
     let mut package = v2_all_families();
     let empty = json!({"term": "aggregate", "members": []});
     let type_node = |family: &str| {
-        let digest = structural_key("scalar_type", family, None, &empty);
+        let id = ieee_type_id(family);
         json!({
-            "node_id": node_id(&digest),
+            "node_id": id,
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "scalar_type", "semantic_form": family,
-            "semantic_type": node_id(&digest), "dependencies": [],
+            "semantic_type": id, "dependencies": [],
             "occurrences": [{"role": "generated", "ordinal": 0}],
             "body": empty,
         })
@@ -57,14 +60,8 @@ fn with_ieee_literal(kind: &str, declared_family: &str) -> (Value, usize) {
         "term": "literal", "type": declared.clone(), "value_kind": kind,
         "value": if kind == "float32_bits" { "3f800000" } else { "3ff0000000000000" },
     });
-    let literal_digest = structural_key(
-        "value",
-        "literal",
-        Some(semantic_type["digest"].as_str().expect("type digest")),
-        &body,
-    );
     let literal = json!({
-        "node_id": node_id(&literal_digest),
+        "node_id": node_id("ieee/literal"),
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "value", "semantic_form": "literal",
         "semantic_type": semantic_type,
@@ -79,8 +76,7 @@ fn with_ieee_literal(kind: &str, declared_family: &str) -> (Value, usize) {
     nodes.push(float64);
     let position = nodes.len();
     nodes.push(literal);
-    rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
+    settle(&mut package);
     (package, position)
 }
 
@@ -106,7 +102,7 @@ fn tc_048_ieee_bits_literal_requires_its_own_declared_family() {
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&format!(
                 "/semantic_graph/nodes/{position}/body/type"
             )))
@@ -124,12 +120,7 @@ fn with_ieee_float_operands(
     declared_family: &str,
 ) -> (Value, usize) {
     let (mut package, _) = with_ieee_literal("float32_bits", "float32");
-    let declared = node_id(&structural_key(
-        "scalar_type",
-        declared_family,
-        None,
-        &json!({"term": "aggregate", "members": []}),
-    ));
+    let declared = ieee_type_id(declared_family);
     let law = json!({
         "authority": "agent-ix", "identity": "quire.value.ieee754-2019-default/v1",
     });
@@ -151,9 +142,8 @@ fn with_ieee_float_operands(
         "result_type": node_id(&boolean_key()),
         "arguments": [literal(first_kind), literal(second_kind)],
     });
-    let digest = application_node_key("expression", "call", &boolean_key(), &body);
     let application = json!({
-        "node_id": node_id(&digest),
+        "node_id": node_id("ieee/numeric_equal"),
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "expression", "semantic_form": "call",
         "semantic_type": node_id(&boolean_key()), "dependencies": [],
@@ -165,8 +155,7 @@ fn with_ieee_float_operands(
         .expect("nodes");
     let position = nodes.len();
     nodes.push(application);
-    rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
+    settle(&mut package);
     (package, position)
 }
 
@@ -199,7 +188,7 @@ fn assert_literal_type_refusal(package: &Value, position: usize, suffix: &str) {
         Some(CheckedPackageRefusalCause::OperatorIneligible)
     );
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!(
             "/semantic_graph/nodes/{position}/body{suffix}/type"
         )))
@@ -236,43 +225,21 @@ fn tc_048_ieee_bits_reject_every_familyless_declared_type() {
         for (tag, form) in shapes {
             let (mut standalone, position) = with_ieee_literal(kind, own_family);
             let declared = familyless_type(&standalone, tag, form);
-            let stale = standalone["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-                .as_str()
-                .expect("literal digest")
-                .to_owned();
             standalone["semantic_graph"]["nodes"][position]["body"]["type"] = declared.clone();
             standalone["semantic_graph"]["nodes"][position]["dependencies"] =
                 json!([declared.clone()]);
-            let body = &standalone["semantic_graph"]["nodes"][position]["body"];
-            let fresh = structural_key("value", "literal", Some(&ieee_type_digest(kind)), body);
-            rename_node(&mut standalone, &stale, &fresh);
-            rebuild_source_map(&mut standalone);
-            refresh_identity(&mut standalone);
+            settle(&mut standalone);
             assert_literal_type_refusal(&standalone, position, "");
 
             for operand in [0, 1] {
                 let (mut nested, position) = with_ieee_float_operand(kind, own_family);
                 nested["semantic_graph"]["nodes"][position]["body"]["arguments"][operand]["type"] =
                     declared.clone();
-                rekey_application_node(&mut nested, position);
-                refresh_identity(&mut nested);
+                settle(&mut nested);
                 assert_literal_type_refusal(&nested, position, &format!("/arguments/{operand}"));
             }
         }
     }
-}
-
-fn ieee_type_digest(kind: &str) -> String {
-    structural_key(
-        "scalar_type",
-        if kind == "float32_bits" {
-            "float32"
-        } else {
-            "float64"
-        },
-        None,
-        &json!({"term": "aggregate", "members": []}),
-    )
 }
 
 /// operand family, so only the literal's own width rule separates the pair.
@@ -298,7 +265,7 @@ fn tc_048_ieee_literal_width_refuses_before_an_accepting_operand_family() {
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&format!(
                 "/semantic_graph/nodes/{position}/body/arguments/0/type"
             )))
@@ -345,14 +312,7 @@ pub(crate) fn with_ieee_conversion_source(
     result_family: &str,
 ) -> (Value, usize) {
     let (mut package, _) = with_ieee_literal("float32_bits", "float32");
-    let type_id = |family: &str| {
-        node_id(&structural_key(
-            "scalar_type",
-            family,
-            None,
-            &json!({"term": "aggregate", "members": []}),
-        ))
-    };
+    let type_id = ieee_type_id;
     let float32 = type_id("float32");
     let float64 = type_id("float64");
     let source = if source_family == "float64" {
@@ -361,15 +321,9 @@ pub(crate) fn with_ieee_conversion_source(
         float32
     };
     if member_family == "rational" || result_family == "rational" {
-        let digest = structural_key(
-            "scalar_type",
-            "rational",
-            None,
-            &json!({"term": "aggregate", "members": []}),
-        );
         package["semantic_graph"]["nodes"].as_array_mut().expect("nodes").push(json!({
-            "node_id": node_id(&digest), "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "scalar_type", "semantic_form": "rational", "semantic_type": node_id(&digest),
+            "node_id": ieee_type_id("rational"), "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "scalar_type", "semantic_form": "rational", "semantic_type": ieee_type_id("rational"),
             "dependencies": [], "occurrences": [{"role": "generated", "ordinal": 0}],
             "body": {"term": "aggregate", "members": []}
         }));
@@ -400,14 +354,8 @@ pub(crate) fn with_ieee_conversion_source(
             "value": if source_family == "float64" {"3ff0000000000000"} else {"3f800000"},
         }],
     });
-    let digest = application_node_key(
-        "expression",
-        "call",
-        result["digest"].as_str().expect("result digest"),
-        &body,
-    );
     let application = json!({
-        "node_id": node_id(&digest),
+        "node_id": node_id("ieee/conversion"),
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "expression", "semantic_form": "call",
         "semantic_type": result,
@@ -420,8 +368,7 @@ pub(crate) fn with_ieee_conversion_source(
         .expect("nodes");
     let position = nodes.len();
     nodes.push(application);
-    rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
+    settle(&mut package);
     (package, position)
 }
 
@@ -448,7 +395,7 @@ fn tc_048_cross_width_ieee_result_is_the_type_argument_of_the_catalogued_family(
                 Some(CheckedPackageRefusalCause::OperatorIneligible)
             );
             assert_eq!(
-                refusal.path,
+                refusal.loci[0].path.clone(),
                 Some(pointer(&format!(
                     "/semantic_graph/nodes/{position}/body/result_type"
                 )))
@@ -459,19 +406,13 @@ fn tc_048_cross_width_ieee_result_is_the_type_argument_of_the_catalogued_family(
             );
         }
         let (mut same_width, position) = with_ieee_conversion(identity, destination, destination);
-        let width = node_id(&structural_key(
-            "scalar_type",
-            destination,
-            None,
-            &json!({"term": "aggregate", "members": []}),
-        ));
+        let width = ieee_type_id(destination);
         same_width["semantic_graph"]["nodes"][position]["body"]["arguments"][0] = json!({
             "term": "literal", "type": width,
             "value_kind": if destination == "float32" {"float32_bits"} else {"float64_bits"},
             "value": if destination == "float32" {"3f800000"} else {"3ff0000000000000"},
         });
-        rekey_application_node(&mut same_width, position);
-        refresh_identity(&mut same_width);
+        settle(&mut same_width);
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&same_width) else {
             panic!("{identity} must not admit a same-width operand");
         };
@@ -481,7 +422,7 @@ fn tc_048_cross_width_ieee_result_is_the_type_argument_of_the_catalogued_family(
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&format!(
                 "/semantic_graph/nodes/{position}/body/arguments/0"
             )))
@@ -506,7 +447,7 @@ fn assert_member_result_refusal(
     assert_eq!(refusal.code, code, "{refusal:?}");
     assert_eq!(refusal.cause, Some(cause));
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!(
             "/semantic_graph/nodes/{position}/body/{suffix}"
         )))
@@ -556,8 +497,16 @@ fn tc_048_type_argument_member_requires_closed_declaration() {
         json!({"kind": "type_argument", "type_argument": valid["semantic_graph"]["nodes"][position]["body"]["result_type"]}),
     ] {
         let mut adverse = valid.clone();
+        let dependency = member
+            .get("declaration")
+            .filter(|value| value.is_object())
+            .cloned();
         adverse["semantic_graph"]["nodes"][position]["body"]["operation"]["member"] = member;
-        settle(&mut adverse);
+        // The malformed member has no structural declaration target. Keep
+        // graph dependencies aligned so the operation member is first to fail.
+        adverse["semantic_graph"]["nodes"][position]["dependencies"] =
+            Value::Array(dependency.into_iter().collect());
+        refresh_identity(&mut adverse);
         assert_member_result_refusal(
             &adverse,
             position,

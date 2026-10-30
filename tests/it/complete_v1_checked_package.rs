@@ -10,16 +10,15 @@
 //! only the current `CheckedPackageV2` reader and lowerer.
 
 use crate::support::checked_package::{
-    all_families_read_work, canonical, evidence_for, incomplete, mint_ungrouped_structural_keys,
-    refresh_identity, refusal, refusal_bytes, refusal_cause, typed_node_id, unknown_version,
-    v2_all_families, NODE_DOMAIN,
+    all_families_read_work, canonical, evidence_for, incomplete, node_id, refresh_identity,
+    refusal, refusal_bytes, typed_node_id, unknown_version, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CompleteContractNodeV2, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CompleteContractNodeV2, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -235,16 +234,12 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         unknown_version("quire.checked-package/v1")
     );
 
-    // identity: a tampered package digest refuses without admitting any node.
+    // A shipped package identity is an unknown envelope member.
     let mut stale_identity = base.clone();
-    stale_identity["package_id"]["digest"] = json!("0".repeat(64));
+    stale_identity["package_id"] = json!({"legacy": true});
     assert_eq!(
         refused(&stale_identity, &evidence),
-        refusal_cause(
-            CheckedPackageRefusalCode::StaleDependency,
-            "/package_id/digest",
-            CheckedPackageRefusalCause::ContentMismatch,
-        )
+        refusal(CheckedPackageRefusalCode::UnknownMember, "/package_id")
     );
 
     // source: an incomplete source map refuses instead of admitting a node
@@ -274,7 +269,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
     // refuses rather than resolving to a substitute.
     let mut dangling_dependency = base.clone();
     dangling_dependency["semantic_graph"]["nodes"][1]["dependencies"] =
-        json!([{"domain": NODE_DOMAIN, "digest": "0123456789abcdef".repeat(4)}]);
+        json!([node_id("missing/dependency")]);
     refresh_identity(&mut dangling_dependency);
     assert_eq!(
         refused(&dangling_dependency, &evidence_for(&dangling_dependency)),
@@ -293,9 +288,8 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         .iter()
         .position(|node| node["node_tag"] == json!("expression"))
         .expect("all-families fixture carries an expression node");
-    dangling_target["semantic_graph"]["nodes"][expression]["body"]["target"]["digest"] =
-        json!("0123456789abcdef".repeat(4));
-    mint_ungrouped_structural_keys(&mut dangling_target);
+    dangling_target["semantic_graph"]["nodes"][expression]["body"]["target"] =
+        node_id("missing/target");
     refresh_identity(&mut dangling_target);
     assert_eq!(
         refused(&dangling_target, &evidence_for(&dangling_target)),

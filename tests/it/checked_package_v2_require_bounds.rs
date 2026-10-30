@@ -6,9 +6,8 @@
 //! one on every literal, including the name literal of every parameter).
 
 use crate::support::checked_package::{
-    bounds_body, canonical, evidence_for, integer_range_key, mint_grouped_structural_keys,
-    mint_ungrouped_structural_keys, node_id, nominal_fixture_members, nominal_package, over_body,
-    settle, sha256_hex, structural_key, typed_node_id, BOOLEAN_KEY, INTEGER_KEY,
+    bounds_body, canonical, evidence_for, node_id, nominal_fixture_members, nominal_package,
+    over_body, settle, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -37,15 +36,14 @@ impl Deref for Fixture {
 /// `metre`; its node comes from [`quantity_package`], not from [`node`].
 static METRE: LazyLock<String> = LazyLock::new(|| nominal_fixture_members()[2].1.clone());
 
-/// The key of the node called `name`: the derived key (FR-038-AC-134) for
-/// each anonymous node of the ten derived shapes this file builds, the key
-/// of the nominal unit for `metre`, and the digest of the name otherwise.
+/// Stable structural fixture path for a named node, with the nominal unit's
+/// declaration path retained from the shared fixture.
 fn key(name: &str) -> String {
     match name {
         "metre" => METRE.clone(),
         "integer" => INTEGER_KEY.to_owned(),
         "boolean" => BOOLEAN_KEY.to_owned(),
-        "int09" => integer_range_key("0", "9"),
+        "int09" => "bounded/integer/0-9".to_owned(),
         "bools" => collection_key("sequence", "boolean"),
         "ints" => collection_key("sequence", "int09"),
         "plain_ints" => collection_key("sequence", "integer"),
@@ -55,23 +53,18 @@ fn key(name: &str) -> String {
         "ints03" => bounded_key("ints"),
         "plain_ints03" => bounded_key("plain_ints"),
         "seq03" => bounded_key("seq"),
-        _ => sha256_hex(name.as_bytes()),
+        _ => format!("fixture/{name}"),
     }
 }
 
-/// The derived key of the self-typed `form` node over the node `element`.
+/// Structural path of a self-typed composite fixture node.
 fn collection_key(form: &str, element: &str) -> String {
-    structural_key("composite_type", form, None, &over_body(&key(element)))
+    format!("composite/{form}/{element}")
 }
 
-/// The derived key of the `collection_bounds` `[0, 3]` over the node `over`.
+/// Structural path of a `collection_bounds` fixture node.
 fn bounded_key(over: &str) -> String {
-    structural_key(
-        "bounded_domain",
-        "collection_bounds",
-        Some(&key(over)),
-        &bounds_body("0", "3"),
-    )
+    format!("bounded/collection/{over}/0-3")
 }
 
 fn node(
@@ -84,7 +77,13 @@ fn node(
     body: Value,
 ) -> (String, Value) {
     let id = key(name);
-    let mut dependencies = dependencies.iter().map(|k| key(k)).collect::<Vec<_>>();
+    let mut dependencies = dependencies
+        .iter()
+        .map(|name| {
+            serde_json::from_value::<CheckedNodeId>(node_id(&key(name)))
+                .expect("dependency identity")
+        })
+        .collect::<Vec<_>>();
     dependencies.sort_unstable();
     let node = json!({
         "node_id": node_id(&id),
@@ -92,7 +91,7 @@ fn node(
         "node_tag": tag,
         "semantic_form": form,
         "semantic_type": node_id(&key(semantic_type)),
-        "dependencies": dependencies.iter().map(|k| node_id(k)).collect::<Vec<_>>(),
+        "dependencies": dependencies,
         "occurrences": [{"role": role, "ordinal": 0}],
         "body": body,
     });
@@ -148,17 +147,8 @@ fn application(
         "result_type": node_id(&key(result)),
         "arguments": arguments,
     });
-    // FR-322 application key: the key is re-derived by the reader.
-    let id = sha256_hex(&canonical(&json!({
-        "version": "quire.application-node/v1",
-        "node_tag": "expression",
-        "semantic_form": "binary",
-        "semantic_type": node_id(&key(result)),
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    })));
-    let (_, mut expression) = node(
+    let id = key(name);
+    let (_, expression) = node(
         name,
         "expression",
         "binary",
@@ -167,7 +157,6 @@ fn application(
         "expression",
         body,
     );
-    expression["node_id"] = node_id(&id);
     (id, expression)
 }
 
@@ -184,18 +173,15 @@ fn add_one(name: &str, x: &str) -> (String, Value) {
     )
 }
 
-/// Rekey nodes without losing each builder name's final identity. The map is
-/// test-local metadata, never an extra member of the package wire.
+/// Assemble nodes and retain each builder name's structural identity. The map
+/// is test-local metadata, never an extra member of the package wire.
 fn finish(mut package: Value, mut nodes: Vec<(String, Value)>) -> Fixture {
     nodes.sort_by(|left, right| left.0.cmp(&right.0));
-    let old_keys = nodes.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
+    let keys = nodes.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
     package["semantic_graph"]["nodes"] =
         Value::Array(nodes.into_iter().map(|(_, node)| node).collect());
-    mint_ungrouped_structural_keys(&mut package);
-    mint_grouped_structural_keys(&mut package);
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
-    let ids = old_keys
+    let ids = keys
         .into_iter()
         .zip(
             package["semantic_graph"]["nodes"]
@@ -205,7 +191,7 @@ fn finish(mut package: Value, mut nodes: Vec<(String, Value)>) -> Fixture {
         .map(|(old, node)| {
             (
                 old,
-                typed_node_id(node["node_id"]["digest"].as_str().expect("key")),
+                serde_json::from_value(node["node_id"].clone()).expect("structural node id"),
             )
         })
         .collect();
@@ -262,19 +248,13 @@ fn int_0_9() -> (String, Value) {
 
 fn bounded_x_plus_one() -> Fixture {
     let (x, x_node) = parameter("x", "int09");
-    let (_, expression) = add_one("x_plus_1", "x");
+    let (expression_key, expression) = add_one("x_plus_1", "x");
     package(vec![
         scalar("integer", "integer"),
         scalar("text", "text"),
         int_0_9(),
         (x, x_node),
-        (
-            expression["node_id"]["digest"]
-                .as_str()
-                .expect("key")
-                .to_owned(),
-            expression,
-        ),
+        (expression_key, expression),
     ])
 }
 
@@ -342,9 +322,8 @@ fn tc_050_a_literal_type_annotation_is_in_the_closure_but_never_refuses() {
         (z, z_node),
     ]);
     // `z` is typed at unbounded `rational`: refused for that. The `text` and
-    // `integer` annotations (keys 982d.. and 2dba..) sort before `rational`
-    // (fda5..), so a check that also tested annotations would name one of them
-    // first; this half is what catches an always-true `typed` check.
+    // `integer` annotations are also reachable but must never decide the
+    // bound result; this catches an always-true `typed` check.
     assert_eq!(
         only_record(&bare, &id_of(&bare, "z")),
         CompleteLoweringRecordV2::RequiresBound {
@@ -510,8 +489,7 @@ fn tc_050_a_collection_of_unranged_integers_requires_a_bound() {
 fn tc_050_a_recursive_record_requires_a_bound() {
     // `{kids: Sequence<Tree>[0,3], k: Int[0,9]}` where `Tree` is the record:
     // the cycle shares one `recursion_group`, and depth has no domain. The
-    // sequence and its bounds sit in the group, where the derived-key stage
-    // skips them (FR-038, IR-627-Q4).
+    // sequence and its bounds sit in the same recursion group.
     let value = package(vec![
         scalar("integer", "integer"),
         scalar("text", "text"),
@@ -559,11 +537,11 @@ fn tc_050_a_bound_over_one_parameter_does_not_cover_another_of_the_same_type() {
             reference("n"),
         ],
     );
-    // The outer application depends on the inner one by its re-derived key.
+    // The outer application depends on the inner one's structural identity.
     let mut outer_node = outer_node;
     let mut targets = [inner.clone(), key("n")];
     targets.sort_unstable();
-    outer_node["dependencies"] = json!(targets.map(|digest| node_id(&digest)));
+    outer_node["dependencies"] = json!(targets.map(|key| node_id(&key)));
     let value = package(vec![
         scalar("integer", "integer"),
         scalar("text", "text"),
@@ -661,8 +639,22 @@ fn quantity_package() -> Fixture {
             .expect("nodes")
             .iter()
             .map(|node| {
-                let digest = node["node_id"]["digest"].as_str().expect("key");
-                (digest.to_owned(), node.clone())
+                let id = &node["node_id"];
+                let label = if id["path"] == json!(["Example", "Metre"]) {
+                    METRE.clone()
+                } else {
+                    format!(
+                        "nominal/{}",
+                        id["path"]
+                            .as_array()
+                            .expect("nominal path")
+                            .iter()
+                            .map(|part| part.as_str().expect("path segment"))
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    )
+                };
+                (label, node.clone())
             }),
     );
     finish(package, nodes)
@@ -771,16 +763,17 @@ fn tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached() {
         other => panic!("expected lowered, got {other:?}"),
     }
     // An application's `result_type` is not a position.
-    let application = value["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .find(|node| node["semantic_form"] == "binary")
-        .expect("application")["node_id"]["digest"]
-        .as_str()
-        .expect("key")
-        .to_owned();
-    let result = admit(&value).lower(&[typed_node_id(&application)], &bounded_profile());
+    let application: CheckedNodeId = serde_json::from_value(
+        value["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["semantic_form"] == "binary")
+            .expect("application")["node_id"]
+            .clone(),
+    )
+    .expect("application id");
+    let result = admit(&value).lower(&[application], &bounded_profile());
     match &result.records[0] {
         CompleteLoweringRecordV2::Lowered { node } => {
             assert!(node.dependencies.contains(&id_of(&value, "metre")));

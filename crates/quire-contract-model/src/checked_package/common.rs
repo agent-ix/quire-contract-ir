@@ -11,11 +11,11 @@ use super::shared::{push_index, push_key};
 use super::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRef, JsonPointer, RefusalFields,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry, CheckedSourceRef,
+    JsonPointer, RefusalFields,
 };
 use super::terms::{subterms_of, At, Cursor};
-use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
+use super::v2::{ApplicationOperator, BodyTerm, LiteralKind};
 use closed_members::ClosedMemberProvenance;
 use quire_walk::{walk, Children, Walk};
 use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
@@ -25,9 +25,6 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::ControlFlow;
-
-/// Identity domain shared by every checked semantic node key.
-pub(super) const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 
 /// A terminal front-end or validation outcome, before it is wrapped in a
 /// version-specific read result. It carries the public refusal or incomplete
@@ -84,6 +81,21 @@ impl ValidationFailure {
             contract_version: None,
             document_pointer: None,
         })))
+    }
+
+    /// A repeated identity whose first and second concrete entries are both
+    /// part of the refusal, in declaration order.
+    pub(super) fn refused_because_at_two_paths(
+        code: CheckedPackageRefusalCode,
+        first: JsonPointer,
+        second: JsonPointer,
+        cause: CheckedPackageRefusalCause,
+    ) -> Self {
+        let mut failure = Self::refused_because(code, first, cause);
+        if let Self::Refused(ref mut refusal) = failure {
+            refusal.push_path(second);
+        }
+        failure
     }
 
     /// A model-selection refusal whose selected-document member is also
@@ -147,19 +159,6 @@ impl ValidationFailure {
             contract_version: None,
             document_pointer: Some(pointer),
         })))
-    }
-
-    /// A stale node key with the different key already derived by this stage.
-    pub(super) fn refused_stale_node_key(
-        path: JsonPointer,
-        locus: CheckedNodeId,
-        expected_node_id: CheckedNodeId,
-    ) -> Self {
-        Self::Refused(Box::new(CheckedPackageRefusal::stale_node_key(
-            path,
-            locus,
-            expected_node_id,
-        )))
     }
 
     /// `unknown_contract_version` for the version string actually read at
@@ -597,18 +596,6 @@ fn classify_closed_error<E>(
     ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
 }
 
-/// Re-run a closed value's failed decode to locate the error and distinguish a
-/// rejected member from another field error. This is also used after the
-/// internally tagged nominal preimage has been unwrapped into its variant.
-pub(super) fn locate_closed_value_failure<T: serde::de::DeserializeOwned>(
-    value: &Value,
-) -> Option<(serde_path_to_error::Path, bool)> {
-    let provenance = ClosedMemberProvenance::new();
-    serde_path_to_error::deserialize::<_, T>(provenance.trace(value))
-        .err()
-        .map(|error| (error.path().clone(), provenance.unknown_member()))
-}
-
 /// The decoder's position below `base` (the value it decoded) as a pointer.
 /// A position the decoder reached only through buffered content (an
 /// internally tagged enum's members) is not tracked below that enum, so the
@@ -630,6 +617,7 @@ pub(super) fn decoder_pointer(base: JsonPointer, path: &serde_path_to_error::Pat
 /// differs from `original`, where `original` sits at `base`: the member or
 /// element whose value differs or is missing from `other`, or the container
 /// whose shape differs. Descends iteratively, one differing child at a time.
+#[cfg(test)]
 pub(super) fn first_difference(base: JsonPointer, original: &Value, other: &Value) -> JsonPointer {
     let mut steps = Vec::new();
     let (mut left, mut right) = (original, other);
@@ -689,13 +677,6 @@ pub(super) fn is_nonempty(value: &str) -> bool {
     !value.is_empty()
 }
 
-pub(super) fn is_digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
 /// Checks one locked source row's nonempty authority and identity.
 pub(super) fn validate_locked_source(
     artifact: &CheckedSourceRef,
@@ -713,8 +694,8 @@ pub(super) fn validate_locked_source(
 }
 
 /// Checks one definition reference's `authority` and `identity` are nonempty,
-/// the only check a definition reference takes: it carries no digest domain or
-/// digest. `at` names the reference; each refusal points at the empty member.
+/// the only check a definition reference takes. `at` names the reference;
+/// each refusal points at the empty member.
 pub(super) fn validate_definition_ref(
     definition: &CheckedArtifactRef,
     at: &dyn Fn() -> JsonPointer,
@@ -1210,26 +1191,19 @@ pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
     WireTerm::decode(value).kind()
 }
 
-/// A `dependency_reference` term's `package`: a `quire.package.semantic/v2`
-/// SHA-256 [`CheckedSemanticId`]; `None` for any other shape, a bare digest
-/// or another digest domain included.
-// Intake check of a dependency reference's package domain and algorithm.
+/// A `dependency_reference` term's selected package name.
 #[ix_trace_rs::string_edge]
-pub(super) fn dependency_reference_package(term: WireTerm<'_>) -> Option<CheckedSemanticId> {
-    let package = CheckedSemanticId::deserialize(term.field(TermField::Package)?).ok()?;
-    (package.domain.as_ref() == PACKAGE_DOMAIN_V2
-        && package.algorithm.as_ref() == "sha256"
-        && is_digest(&package.digest))
-    .then_some(package)
+pub(super) fn dependency_reference_package(term: WireTerm<'_>) -> Option<Box<str>> {
+    let package = term.field(TermField::Package)?.as_str()?;
+    (!package.is_empty()).then(|| package.into())
 }
 
-/// A `dependency_reference` term's `node`: a node key in the node domain;
+/// A `dependency_reference` term's `node`: a structural node identity;
 /// `None` for any other shape.
-// Intake check of a dependency reference's node domain.
 #[ix_trace_rs::string_edge]
 pub(super) fn dependency_reference_node(term: WireTerm<'_>) -> Option<CheckedNodeId> {
     let node = CheckedNodeId::deserialize(term.field(TermField::Node)?).ok()?;
-    (node.domain.as_ref() == NODE_DOMAIN && is_digest(&node.digest)).then_some(node)
+    node.is_well_formed().then_some(node)
 }
 
 /// An `application` term's decoded `operator` class.
@@ -1260,7 +1234,7 @@ fn visit_member(
 /// [`ReferenceSite`] naming `member` and `is_body_root` to `visit`, and
 /// charges one unit of work. Shared by `reference.target`, `literal.type`,
 /// `application.result_type`, and the V2 `frame` body's reference arrays.
-// Intake check of a node reference's domain and digest text.
+// Intake check of a structural node reference.
 #[ix_trace_rs::string_edge]
 pub(super) fn visit_reference(
     value: &Value,
@@ -1275,7 +1249,7 @@ pub(super) fn visit_reference(
             at.pointer(),
         )
     })?;
-    if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) {
+    if target.is_well_formed() {
         visit(
             &target,
             ReferenceSite {
@@ -1287,7 +1261,7 @@ pub(super) fn visit_reference(
         Ok(1)
     } else {
         Err(ValidationFailure::refused(
-            CheckedPackageRefusalCode::DigestDomainMismatch,
+            CheckedPackageRefusalCode::MalformedWire,
             at.pointer(),
         ))
     }
@@ -1756,7 +1730,7 @@ impl<'de> Visitor<'de> for StrictSeed<'_> {
 mod tests {
     use super::{
         canonical_value, first_difference, is_literal_value, validate_term, Step, TermGrammar,
-        Trail, ValidationFailure, NODE_DOMAIN,
+        Trail, ValidationFailure,
     };
     use crate::checked_package::shared::{
         CheckedPackageReadLimits, CheckedPackageRefusalCode, JsonPointer,
@@ -1880,10 +1854,9 @@ mod tests {
         let outcome = std::thread::Builder::new()
             .stack_size(256 * 1024)
             .spawn(|| {
-                let digest = "a".repeat(64);
                 let mut term = json!({
                     "term": "literal",
-                    "type": {"domain": NODE_DOMAIN, "digest": digest},
+                    "type": {"package":"test", "path":["integer"], "ordinal":0},
                     "value_kind": "integer",
                     "value": 1,
                 });
@@ -1902,7 +1875,7 @@ mod tests {
                     true,
                     &Trail::Base(&[]),
                     &mut |target, site, _| {
-                        reported.push((target.digest.to_string(), site.is_body_root));
+                        reported.push((target.path.len(), site.is_body_root));
                     },
                 );
                 quire_canonical::drop_value(term);
@@ -1913,7 +1886,7 @@ mod tests {
             .expect("the walk ran to completion");
         assert_eq!(
             outcome,
-            (Ok(200_001), vec![("a".repeat(64), false)]),
+            (Ok(200_001), vec![(1, false)]),
             "the literal is nested, so it is no body root"
         );
     }

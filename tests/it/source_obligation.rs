@@ -18,8 +18,9 @@ use quire_contract_model::source_obligation::{
     SourceTypeWorkDimension, SourceUnitHandle,
 };
 use quire_contract_model::{
-    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete,
-    CheckedPackageLimit, SourceDocumentId, SourceIdentity, SourceRevision,
+    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedPackageIncomplete, CheckedPackageLimit, SourceDocumentId, SourceIdentity,
+    SourceRevision,
 };
 
 fn source() -> SourceIdentity {
@@ -63,8 +64,12 @@ fn binding(selected: SourceIdentity) -> SourceCriterionSourceBinding {
 fn occurrence() -> SourceSemanticOccurrenceId {
     SourceSemanticOccurrenceId::new(
         CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: "a".repeat(64).into(),
+            package: "obligations".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("source".into()),
+                CheckedNodePathSegment::Name("occurrence".into()),
+            ],
+            ordinal: 0,
         },
         CheckedOccurrence {
             role: CheckedOccurrenceRole::Expression,
@@ -162,7 +167,7 @@ fn quire_outcome_rejects_other_owner_scope_and_rows() {
     let qsl_row = SourceInventoryRow::new(
         selected,
         SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
-            node: [1; 32],
+            node: requirement_node("claim-a"),
             role: "expression".into(),
             ordinal: 0,
         }),
@@ -181,12 +186,12 @@ fn quire_outcome_rejects_other_owner_scope_and_rows() {
 fn native_qsl_identity_fields_and_stop_causes_remain_distinct() {
     let selected = source();
     let base = SourceRequirementOccurrenceId {
-        node: [1; 32],
+        node: requirement_node("claim-a"),
         role: "expression".into(),
         ordinal: 0,
     };
     let mut different_node = base.clone();
-    different_node.node = [2; 32];
+    different_node.node = requirement_node("claim-b");
     let mut different_role = base.clone();
     different_role.role = "claim".into();
     let mut different_ordinal = base.clone();
@@ -508,8 +513,20 @@ fn census_outcome(
 
 fn semantic_type(id: char) -> CheckedNodeId {
     CheckedNodeId {
-        domain: "quire.checked-semantic-node/v1".into(),
-        digest: id.to_string().repeat(64).into(),
+        package: "obligations".into(),
+        path: vec![CheckedNodePathSegment::Name(id.to_string().into())],
+        ordinal: 0,
+    }
+}
+
+fn requirement_node(name: &str) -> CheckedNodeId {
+    CheckedNodeId {
+        package: "obligations".into(),
+        path: vec![
+            CheckedNodePathSegment::Name("requirement".into()),
+            CheckedNodePathSegment::Name(name.into()),
+        ],
+        ordinal: 0,
     }
 }
 
@@ -569,7 +586,7 @@ fn census_input(assertions: Vec<SourceCorrespondenceAssertion>) -> SourceObligat
                 SourceInventoryRow::new(
                     selected.clone(),
                     SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
-                        node: [1; 32],
+                        node: requirement_node("claim-a"),
                         role: "expression".into(),
                         ordinal: 0,
                     }),
@@ -707,7 +724,7 @@ fn synthetic_census_has_hand_written_rows_and_dispositions() {
             ),
             (
                 SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
-                    node: [1; 32],
+                    node: requirement_node("claim-a"),
                     role: "expression".into(),
                     ordinal: 0
                 }),
@@ -1060,7 +1077,7 @@ fn synthetic_many_to_many_and_unmapped_inventory_survive_permutation_and_row_rem
             SourceInventoryIdentity::SemanticOccurrence(occurrence_at(1)),
             SourceInventoryIdentity::SemanticOccurrence(occurrence_at(2)),
             SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
-                node: [1; 32],
+                node: requirement_node("claim-a"),
                 role: "expression".into(),
                 ordinal: 0
             }),

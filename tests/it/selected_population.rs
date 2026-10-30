@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-use crate::support::checked_package::{mint_ungrouped_structural_keys, refresh_identity};
+use crate::support::checked_package::refresh_identity;
 use ix_trace_rs::trace;
 use quire_contract_model::{
     selected_population::{
@@ -115,7 +115,6 @@ fn duplicate_max_on_reader_admitted_population_is_not_population() {
         .expect("population members")
         .push(maximum);
 
-    mint_ungrouped_structural_keys(&mut package);
     refresh_identity(&mut package);
     let package = admitted(&package, &domain);
     let node = package
@@ -136,7 +135,7 @@ fn duplicate_max_on_reader_admitted_population_is_not_population() {
     let result = select_population(Source::Admitted {
         package: &package,
         selector: Selector {
-            package_id: package.package_id().clone(),
+            package_name: package.name().into(),
             binding: node.node_id.clone(),
             occurrence,
         },

@@ -13,9 +13,7 @@
 //! of nodes and references and the rest of the temporal step are
 //! `checked_package_v2_temporal.rs`.
 
-use crate::support::checked_package::{
-    canonical, evidence_for, pointer, refresh_identity, rekey_application_node, v2_all_families,
-};
+use crate::support::checked_package::{canonical, evidence_for, pointer, settle, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
@@ -72,8 +70,7 @@ fn with_second_argument(second: impl Fn(&Value) -> Value) -> (Value, usize) {
         .as_array_mut()
         .expect("arguments")
         .push(second(&result_type));
-    rekey_application_node(&mut package, position);
-    refresh_identity(&mut package);
+    settle(&mut package);
     (package, position)
 }
 
@@ -153,7 +150,7 @@ fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_nested_applicati
             let (package, position) = with_second_argument(build);
             let refusal = refused(&package);
             assert_eq!(
-                (refusal.code, refusal.cause, refusal.path),
+                (refusal.code, refusal.cause, refusal.loci[0].path.clone()),
                 expected(position, below),
                 "{operator} {name}"
             );
@@ -166,7 +163,10 @@ fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_nested_applicati
         // The refusal is of the operator class, whatever identity it names.
         let (package, position) =
             with_second_argument(move |t| nested(operator, "quire.op.boolean.not", t));
-        assert_eq!(refused(&package).path, expected(position, "arguments/1").2);
+        assert_eq!(
+            refused(&package).loci[0].path,
+            expected(position, "arguments/1").2
+        );
     }
 }
 
@@ -182,11 +182,10 @@ fn tc_048_a_root_application_of_a_placed_class_in_another_form_refuses_in_a_pack
         call["body"]["arguments"] = json!([]);
         // No reference remains, so the application join leaves no dependency.
         call["dependencies"] = json!([]);
-        rekey_application_node(&mut package, position);
-        refresh_identity(&mut package);
+        settle(&mut package);
         let refusal = refused(&package);
         assert_eq!(
-            (refusal.code, refusal.cause, refusal.path),
+            (refusal.code, refusal.cause, refusal.loci[0].path.clone()),
             ineligible(&format!("/semantic_graph/nodes/{position}")),
             "{operator}"
         );
@@ -229,7 +228,7 @@ fn tc_048_a_diagnostic_detail_of_a_placed_class_refuses_at_its_operator() {
             }]);
             let refusal = refused(&package);
             assert_eq!(
-                (refusal.code, refusal.cause, refusal.path),
+                (refusal.code, refusal.cause, refusal.loci[0].path.clone()),
                 ineligible(&format!("/diagnostics/entries/0/details/0/{tail}")),
                 "{operator} {name}"
             );
@@ -243,15 +242,14 @@ fn tc_048_an_operator_outside_the_closed_vocabulary_refuses_at_the_term() {
     let mut package = v2_all_families();
     let position = call_position(&package);
     package["semantic_graph"]["nodes"][position]["body"]["operator"] = json!("bogus");
-    rekey_application_node(&mut package, position);
-    refresh_identity(&mut package);
+    settle(&mut package);
     let refusal = refused(&package);
     assert_eq!(
         refusal.code,
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!("/semantic_graph/nodes/{position}/body")))
     );
 }
@@ -266,7 +264,7 @@ fn tc_048_a_nested_application_with_an_unknown_operator_is_outside_the_grammar()
     let refusal = refused(&package);
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!(
             "/semantic_graph/nodes/{position}/body/arguments/1"
         )))

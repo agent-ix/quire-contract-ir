@@ -105,7 +105,7 @@ The model crate's named public inventory and the absence of root-crate reexports
 remain enforced. A raw structural id does not assert admission; only the
 strict reader returns an admitted `CheckedPackageV2`.
 
-## Nominal body public boundary (FR-038-AC-374)
+## Nominal body public boundary (FR-038-AC-374, FR-038-AC-375)
 
 PLANNED/UNRUN (IR-1141). The default-feature consumer imports `NominalBody`
 and its four fallible constructors from `quire_contract_model`. Compile-fail
@@ -114,3 +114,9 @@ variant, mutation of an opaque body, unchecked conversion and direct
 deserialization into `NominalBody`; the root `quire_contract_ir` crate does not
 export it. Re-run FR-019-AC-5's exact named inventory with this implemented
 entry included; a missing export fails.
+In a default-feature external compile probe, read enum details from a borrowed
+`NominalBody` and require the ordered flag and borrowed member slice without
+copying or sorting it. Compile-fail probes reject mutating the returned members
+or constructing an unchecked enum body through the accessor. The accessor
+introduces no separately exported root item and does not alter the exact
+inventory or the root-crate boundary.

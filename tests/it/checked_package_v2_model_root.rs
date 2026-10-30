@@ -4,16 +4,14 @@
 //! Public model-root writer, reader and refusal controls.
 
 use crate::support::checked_package::{
-    canonical, domain_package_document, evidence_for, evidence_with_document,
-    family_model_document, refresh_identity, refresh_identity_projection, select_model,
-    v2_all_families, v2_nominal,
+    canonical, evidence_for, evidence_with_document, family_model_document, refresh_identity,
+    refresh_identity_projection, select_model, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedNodeOwner, CheckedNodeProjectionV2,
-    CheckedPackageIdentityPreimageRefV2, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, ModelForm,
+    encode_checked_package_v2, CheckedNodeOwner, CheckedNodeProjectionV2, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
+    CheckedPackageV2, CheckedPackageV2ReadResult, ModelForm,
 };
 use serde_json::{json, Value};
 
@@ -72,7 +70,11 @@ fn refused(
             assert_eq!(refusal.code, code);
             assert_eq!(refusal.cause, cause);
             assert_eq!(
-                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .as_deref(),
                 Some(path)
             );
         }
@@ -115,20 +117,9 @@ fn selected_root_roundtrips_through_public_typed_writer_and_reader() {
     let projection = CheckedNodeProjectionV2::from(node);
     assert_eq!(projection.owner, node.owner);
 
-    let selections = first.identity_preimage();
     let graph = first.graph();
-    let borrowed = CheckedPackageIdentityPreimageRefV2 {
-        version: &selections.version,
-        edition: &selections.edition,
-        profile_selections: &selections.profile_selections,
-        definition_selections: &selections.definition_selections,
-        required_features: &selections.required_features,
-        dependency_selections: &selections.dependency_selections,
-        identity_projection: &graph.nodes,
-    };
     let bytes = encode_checked_package_v2(
-        &borrowed,
-        first.package_id(),
+        first.name(),
         first.lock(),
         graph,
         CheckedPackageSourceCorrespondenceRef {
@@ -149,7 +140,7 @@ fn selected_root_roundtrips_through_public_typed_writer_and_reader() {
         other => panic!("typed roundtrip refused: {other:?}"),
     };
     assert_eq!(second.graph().nodes[root], *node);
-    assert_eq!(second.package_id(), first.package_id());
+    assert_eq!(second.name(), first.name());
     assert_eq!(
         second.source_map()[root_source_position(&package)],
         first.source_map()[root_source_position(&package)]
@@ -259,29 +250,6 @@ fn repeated_roots_of_one_identity_refuse_before_graph_shape() {
         None,
         &format!("/semantic_graph/nodes/{second}/owner"),
     );
-
-    let mut distinct_key = valid;
-    let mut clone = distinct_key["semantic_graph"]["nodes"][root].clone();
-    let other = json!({"domain": "quire.checked-semantic-node/v1", "digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"});
-    clone["node_id"] = other.clone();
-    clone["semantic_type"] = other.clone();
-    distinct_key["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .unwrap()
-        .push(clone);
-    let mut entry = distinct_key["source_map"][root_source_position(&distinct_key)].clone();
-    entry["node_id"] = other;
-    distinct_key["source_map"]
-        .as_array_mut()
-        .unwrap()
-        .push(entry);
-    refresh_identity_projection(&mut distinct_key);
-    refused(
-        &distinct_key,
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        None,
-        &format!("/semantic_graph/nodes/{second}/owner"),
-    );
 }
 
 /// Trace: FR-065-AC-2, FR-065-AC-5
@@ -335,7 +303,7 @@ fn root_owner_and_generated_source_occurrence_are_closed() {
         };
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
         assert!(
-            refusal
+            refusal.loci[0]
                 .path
                 .as_ref()
                 .is_some_and(|path| path.as_str().starts_with(&format!("{root_at}/owner"))),
@@ -412,34 +380,30 @@ fn root_graph_shape_is_closed_before_key_checking() {
     let valid = selected_package();
     let root = root_position(&valid);
     let root_at = format!("/semantic_graph/nodes/{root}");
-    let nominal_package = v2_nominal();
-    let nominal = nominal_package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .find_map(|node| node.get("nominal_identity_preimage"))
-        .cloned()
-        .expect("valid nominal preimage");
-    for (member, value, expected_path) in [
+    for (member, value, expected_path, expected_code) in [
         (
             "recursion_group",
             json!("r"),
             format!("{root_at}/recursion_group"),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
         ),
         (
             "nominal_identity_preimage",
-            nominal,
+            json!({"version": "quire.enum-declaration-node/v1"}),
             format!("{root_at}/nominal_identity_preimage"),
+            CheckedPackageRefusalCode::UnknownMember,
         ),
         (
             "dependencies",
             json!([valid["semantic_graph"]["nodes"][0]["node_id"]]),
             format!("{root_at}/dependencies"),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
         ),
         (
             "body",
             json!({"term": "aggregate", "members": [valid["semantic_graph"]["nodes"][0]["node_id"]]}),
             format!("{root_at}/body/members/0"),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
         ),
     ] {
         let mut malformed = valid.clone();
@@ -448,14 +412,14 @@ fn root_graph_shape_is_closed_before_key_checking() {
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&malformed) else {
             panic!("{member} was admitted");
         };
-        assert_eq!(
-            refusal.code,
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "{member}"
-        );
+        assert_eq!(refusal.code, expected_code, "{member}");
         assert_eq!(refusal.cause, None);
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(expected_path.as_str())
         );
     }
@@ -471,65 +435,8 @@ fn root_graph_shape_is_closed_before_key_checking() {
     );
 }
 
-/// Trace: FR-065-AC-3
-#[trace("TC-233", "FR-065-AC-3")]
-#[test]
-fn model_root_identity_depends_on_selection_not_source_region() {
-    let original = selected_package();
-    let root = root_position(&original);
-    let first = admitted(&original);
-    let mut moved_source = original.clone();
-    let source_entry = root_source_position(&moved_source);
-    moved_source["source_map"][source_entry]["regions"][0]["start"] = json!(420);
-    moved_source["source_map"][source_entry]["regions"][0]["end"] = json!(421);
-    let moved = admitted(&moved_source);
-    assert_eq!(
-        moved.graph().nodes[root].node_id,
-        first.graph().nodes[root].node_id
-    );
-    assert_eq!(moved.package_id(), first.package_id());
-
-    let mut other = v2_all_families();
-    select_model(&mut other, "zz/other-model");
-    refresh_identity(&mut other);
-    let changed = admitted(&other);
-    let other_root = other["semantic_graph"]["nodes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .position(|node| node["owner"]["identity"] == "zz/other-model")
-        .expect("other root");
-    assert_ne!(
-        changed.graph().nodes[other_root].node_id,
-        first.graph().nodes[root].node_id
-    );
-    assert_ne!(changed.package_id(), first.package_id());
-
-    // The content of the selected document does not enter the root key: the
-    // same identity supplied with different document content leaves the root
-    // node id and the package id unchanged.
-    let mut changed_content = v2_all_families();
-    select_model(&mut changed_content, "zz/model-root");
-    refresh_identity(&mut changed_content);
-    let document = domain_package_document("zz/model-root", "2", Vec::new());
-    let evidence = evidence_with_document(&changed_content, "zz/model-root", &document);
-    let rebuilt = match CheckedPackageV2::read(
-        &canonical(&changed_content),
-        CheckedPackageReadLimits::bounded(),
-        &evidence,
-    ) {
-        CheckedPackageV2ReadResult::Admitted(package) => package,
-        other => panic!("changed selected content refused: {other:?}"),
-    };
-    assert_eq!(
-        rebuilt.graph().nodes[root].node_id,
-        first.graph().nodes[root].node_id
-    );
-    assert_eq!(rebuilt.package_id(), first.package_id());
-}
-
-/// Trace: FR-065-AC-3, FR-065-AC-4
-#[trace("TC-233", "FR-065-AC-3", "FR-065-AC-4")]
+/// Trace: FR-065-AC-4
+#[trace("TC-233", "FR-065-AC-4")]
 #[test]
 fn root_only_package_keeps_the_root_key_when_its_source_alias_changes() {
     let mut package = v2_nominal();
@@ -550,5 +457,5 @@ fn root_only_package_keeps_the_root_key_when_its_source_alias_changes() {
         second.graph().nodes[0].node_id,
         first.graph().nodes[0].node_id
     );
-    assert_eq!(second.package_id(), first.package_id());
+    assert_eq!(second.name(), first.name());
 }

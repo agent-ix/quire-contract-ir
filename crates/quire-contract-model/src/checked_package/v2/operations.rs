@@ -4,59 +4,14 @@
 //! against the upstream `quire.checked-operation-catalog/v1`
 //! ([`operation_catalog`]) and the package's own lock selections.
 //!
-//! Two stages, run in the upstream contract's normative order (its
-//! "Operation identity rules" and reader-boundary sections). The copy of
-//! that description this tree used to carry was removed with the rest of the
-//! private-sourced fixture tree; see agent-ix/quire-contract-ir#166:
-//!
-//! 1. [`validate_application_keys`]: every node whose body is an
-//!    `application` term re-derives its own `node_id` from
-//!    `{version: "quire.application-node/v1", node_tag, semantic_form,
-//!    semantic_type, declaration, recursion, body}`; a retained stale key is
-//!    `invalid_package`/`stale-node-key`. This runs before declaration
-//!    (`validate_nominal_nodes`) and frame (`validate_frame_semantics`)
-//!    checks, exactly like those two stages' own key/identity work.
-//! 2. [`validate_operations`]: once declaration and frame checks pass, each
-//!    application node's `operation` is checked against its catalogued
-//!    entry, in ascending node-id digest order, reporting the first node
-//!    that fails.
-//!
-//! A node's `recursion` preimage member is FR-322's `{size, ordinal}` of the
-//! node within its `recursion_group` in graph order (`null` outside a group),
-//! and each body `reference` to a member of that group is keyed as
-//! `{term: "group_reference", ordinal}` (see the shared application preimage construction).
-//!
-//! Scope this reader does not cover, narrower than the upstream contract
-//! description's full generality and not exercised by an admitted fixture or
-//! upstream vector. Each item is a silent no-op (never a false refusal), not
-//! a silent admission of something the upstream corpus requires rejected: an
-//! `operation.member` of kind `position`, `element`, `relationship_end`,
-//! `operation` is checked for presence and kind only, not
-//! that its `declaration` resolves to a real, eligible node (`field` is the
-//! one kind an upstream mutation exercises, so it alone is checked in full,
-//! including that the named field is actually declared; the `temporal_interval`
-//! and `fairness` members are checked for their closed shape here and by
-//! [`super::temporal`] for their meaning); a `constraints`
-//! entry other than `same_family`/`same_type`/`conforming_reference`/
-//! `reference_edge`/`union_arms` and type-argument member-result
-//! `member_family` is not enforced; leaf-path
-//! resolution covers exactly one shape, `["field:<name>"]` against the first
-//! operand's record type, the one the upstream vectors exercise;
-//! [`validate_application_keys`] re-derives a key for a node whose own
-//! `body` is an application term at its root. An application stands nowhere
-//! else: the flat wire refuses one nested in another term, ahead of every
-//! identity check (`flat_wire`), so every application's key and its own
-//! `operation` are checked here; `operation.mode` is checked for kind and
-//! type pins, but its value is not checked against the catalog's closed
-//! `modes` vocabulary. The catalog's `member` result form is checked for
-//! type-argument and selected-model tuple-position members; other result
-//! forms remain unenforced.
+//! Application bodies are checked against the selected operation catalog after graph
+//! shape, owner, and reference validation. Node IDs are structural labels; this
+//! module does not derive an identity from an application body.
 
-use super::application_identity::{application_digest_admitted, ApplicationGroup};
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::model_members::{
-    declaration_key, units, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind,
-    MemberType, ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
+    units, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind, MemberType,
+    ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
 };
 use super::operation_catalog::{
     operation_catalog, CatalogLeafSource, CatalogResult, FamilyClass, OperationCatalog,
@@ -66,17 +21,17 @@ use super::structural::{typed_union_type_body, typed_union_value_body, UnionMemb
 use super::temporal::member_is_well_formed;
 use super::typed_terms::CheckedOperationViews;
 use super::{
-    ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
-    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm,
-    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind,
-    ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
-    OperationModeKind, ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm,
-    ScalarTypeForm, StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
+    ApplicationOperator, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
+    CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm, CompositeTypeForm,
+    CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind, ModelForm,
+    OperationConstraintKind, OperationMemberKind, OperationModeKind, ProtocolForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateClauseKind,
+    StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
-use crate::checked_package::common::{body_term, decoder_pointer, node_pointer, NODE_DOMAIN};
+use crate::checked_package::common::{decoder_pointer, node_pointer};
 use crate::checked_package::selected_population::{
-    is_model_population, least_type_occurrence, population_maximum, population_object_type,
+    is_model_population, least_type_occurrence, population_maximum, population_object_type_typed,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -117,106 +72,6 @@ impl Application<'_> {
     ) -> ValidationFailure {
         ValidationFailure::refused_at(code, path, Some(cause), self.node.node_id.clone())
     }
-}
-
-fn is_application(body: &Value) -> bool {
-    body_term(body) == Some(BodyTerm::Application)
-}
-
-/// QSpec keys an aggregate-bodied union construction with the same preimage
-/// as a root application; other application-free values remain structural.
-pub(super) fn has_application_key(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> bool {
-    is_application(&node.body) || kind == CheckedNodeKind::Value(super::ValueForm::UnionValue)
-}
-
-/// Reader selection uses the already-decoded term; the raw-body predicate
-/// above remains for the independent pre-read candidate API.
-pub(super) fn has_application_key_admitted(
-    term: Option<&CheckedTerm>,
-    kind: CheckedNodeKind,
-) -> bool {
-    matches!(term, Some(CheckedTerm::Application { .. }))
-        || kind == CheckedNodeKind::Value(super::ValueForm::UnionValue)
-}
-
-/// Every application-keyed node's `node_id` re-derived from its own visible
-/// members, in ascending digest order, reporting the first stale one.
-///
-/// Each key is hashed through `quire-canonical` under `bytes`, the reader's
-/// byte limit; a preimage whose canonical bytes exceed it refuses
-/// `invalid_semantic_graph` at the node's `node_id`.
-pub(super) fn validate_application_keys(
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-    meter: &mut WorkMeter,
-    bytes: u64,
-) -> Result<(), ValidationFailure> {
-    // Each recursion group's members, in graph order.
-    let mut groups: BTreeMap<&str, BTreeMap<&CheckedNodeId, usize>> = BTreeMap::new();
-    for node in nodes {
-        if let Some(label) = node.recursion_group.as_deref() {
-            let group = groups.entry(label).or_default();
-            let ordinal = group.len();
-            group.insert(&node.node_id, ordinal);
-        }
-    }
-    for (&node_id, &position) in index {
-        let node = &nodes[position];
-        let Some(term) = terms.get(position).and_then(Option::as_ref) else {
-            continue;
-        };
-        let keyed = kinds
-            .get(position)
-            .is_some_and(|&kind| has_application_key_admitted(Some(term), kind));
-        if !keyed {
-            continue;
-        }
-        let application = Application { node, position };
-        meter.charge(1, || application.node_id())?;
-        let group = node
-            .recursion_group
-            .as_deref()
-            .and_then(|label| groups.get(label));
-        let group = group.map_or(ApplicationGroup::Keys(&[]), ApplicationGroup::Indexed);
-        let computed_digest =
-            application_digest_admitted(node, term, group, bytes).map_err(|_| {
-                ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    application.node_id(),
-                )
-            })?;
-        if computed_digest != node_id.digest.as_ref() {
-            return Err(ValidationFailure::refused_stale_node_key(
-                application.node_id(),
-                node_id.clone(),
-                CheckedNodeId {
-                    domain: NODE_DOMAIN.into(),
-                    digest: computed_digest.into(),
-                },
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// The application preimage, including a union value's aggregate body,
-/// contributes unchanged to a group digest.
-pub(super) fn application_local_digest(
-    node: &CheckedSemanticNodeV2,
-    term: &CheckedTerm,
-    position: usize,
-    group: &[&CheckedNodeId],
-    bytes: u64,
-) -> Result<String, ValidationFailure> {
-    let application = Application { node, position };
-    application_digest_admitted(node, term, ApplicationGroup::Keys(group), bytes).map_err(|_| {
-        ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.node_id(),
-        )
-    })
 }
 
 #[derive(Deserialize)]
@@ -309,7 +164,7 @@ struct OperationLeafWire {
     mode: Option<OperationModeWire>,
 }
 
-/// Every application node's `operation`, in ascending node-id digest order,
+/// Every application node's `operation`, in ascending structural node-id order,
 /// checked against [`operation_catalog`] and `lock`. Reports the first node
 /// that fails, at the first check it fails, in this order: `unknown-operation`,
 /// `operation-class-mismatch`, `operation-law-missing`,
@@ -507,7 +362,8 @@ fn literal_defect(
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
             | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. } => {}
+            | CheckedTerm::ExtensionForm { .. }
+            | CheckedTerm::NominalBody(_) => {}
         }
     }
     for (valid, path) in native {
@@ -1129,7 +985,8 @@ fn argument_family(
         | CheckedTerm::Frame { .. }
         | CheckedTerm::AbstractionRelation { .. }
         | CheckedTerm::Refinement { .. }
-        | CheckedTerm::ExtensionForm { .. } => None,
+        | CheckedTerm::ExtensionForm { .. }
+        | CheckedTerm::NominalBody(_) => None,
     }
 }
 
@@ -1150,7 +1007,7 @@ fn is_clause_application(argument: &CheckedTerm, catalog: &OperationCatalog) -> 
 /// directly, or `None` when it has none of its own (a `bounded_domain` then
 /// resolves through its semantic type). Exhaustive over every form. An enum
 /// is reported as `enum` here; [`resolve_family`] refines it to
-/// `ordered_enum` from the node's nominal preimage.
+/// `ordered_enum` from the node's admitted enum body.
 fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
     use CheckedNodeKind as K;
     match kind {
@@ -1531,7 +1388,33 @@ pub(super) enum FamilyResolution {
     Malformed(CheckedNodeId),
 }
 
-pub(super) fn resolve_family_with<'a, E, Body: 'a>(
+pub(super) trait NominalEnumOrder {
+    fn enum_ordered(&self) -> Option<bool>;
+}
+
+impl NominalEnumOrder for serde_json::Value {
+    fn enum_ordered(&self) -> Option<bool> {
+        let body = super::identity::NominalBody::from_value(self, JsonPointer::root()).ok()?;
+        match body.kind() {
+            super::identity::NominalBodyKind::Enum { ordered, .. } => Some(*ordered),
+            _ => None,
+        }
+    }
+}
+
+impl NominalEnumOrder for CheckedTerm {
+    fn enum_ordered(&self) -> Option<bool> {
+        match self {
+            CheckedTerm::NominalBody(body) => match body.kind() {
+                super::identity::NominalBodyKind::Enum { ordered, .. } => Some(*ordered),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+pub(super) fn resolve_family_with<'a, E, Body: NominalEnumOrder + 'a>(
     type_id: &CheckedNodeId,
     visit: impl FnMut(
         FamilyVisit<'_>,
@@ -1541,7 +1424,7 @@ pub(super) fn resolve_family_with<'a, E, Body: 'a>(
     resolve_family_with_selected(type_id, visit, |_| None)
 }
 
-pub(super) fn resolve_family_with_selected<'a, E, Body: 'a>(
+pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
     type_id: &CheckedNodeId,
     mut visit: impl FnMut(
         FamilyVisit<'_>,
@@ -1572,10 +1455,7 @@ pub(super) fn resolve_family_with_selected<'a, E, Body: 'a>(
             return Ok(FamilyResolution::Family("enum"));
         }
         if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) {
-            let ordered = matches!(
-                &node.nominal_identity_preimage,
-                Some(NominalIdentityPreimage::EnumDeclaration(declaration)) if declaration.ordered
-            );
+            let ordered = node.body.enum_ordered().unwrap_or(false);
             return Ok(FamilyResolution::Family(if ordered {
                 "ordered_enum"
             } else {
@@ -1887,16 +1767,15 @@ fn selected_union_members<'m>(
             let Some(member_type) = owner.package.element_type(payload_type) else {
                 return Ok(None);
             };
-            let digest = member_type.node_key(owner.package.bytes).map_err(|_| {
-                ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    budget.row(),
-                )
-            })?;
-            vec![CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: digest.into(),
-            }]
+            let id = member_type
+                .node_id(&owner.package.checked_package)
+                .ok_or_else(|| {
+                    ValidationFailure::refused(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        budget.row(),
+                    )
+                })?;
+            vec![id]
         } else {
             Vec::new()
         };
@@ -1996,7 +1875,7 @@ fn union_arms_hold(
         };
         if !binders_hold
             || !conforms_to_type(
-                &result.digest,
+                result,
                 operand_type_node_typed(body, nodes, kinds, index).as_ref(),
                 graph,
                 owners,
@@ -2072,7 +1951,7 @@ fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<Validatio
 }
 
 /// QSpec FR-440's reader joins 1 and 2, checked at the operation step in
-/// node-id digest order: a union type holds no member name twice
+/// structural node-id order: a union type holds no member name twice
 /// (`invalid_package`/`duplicate-member`) and every payload reference names a
 /// type node (`ill_typed`/`operator-ineligible`); a union value's
 /// `semantic_type` is a structural or selected model union type node; its
@@ -2181,8 +2060,13 @@ fn union_defect(
         }
         // Implements: FR-347. a payload term conforms to a record payload type.
         for (term, expected) in payload.iter().zip(&member.payload) {
+            // Leave an unresolved body reference to the graph reference join,
+            // which reports the missing target at that reference's path.
+            if matches!(term, CheckedTerm::Reference { target } if !index.contains_key(target)) {
+                return Ok(None);
+            }
             if !conforms_to_type(
-                &expected.digest,
+                expected,
                 operand_type_node_typed(term, nodes, kinds, index).as_ref(),
                 graph,
                 owners,
@@ -2204,7 +2088,7 @@ fn union_defect(
 /// charged to the selection that declares the expected record; an exact match
 /// charges nothing.
 fn conforms_to_type(
-    expected: &str,
+    expected: &CheckedNodeId,
     actual: Option<&CheckedNodeId>,
     graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
@@ -2213,7 +2097,7 @@ fn conforms_to_type(
     let Some(actual) = actual else {
         return Ok(false);
     };
-    if &*actual.digest == expected {
+    if actual == expected {
         return Ok(true);
     }
     let Some(parameter) = owners.record_by_key(expected) else {
@@ -2280,13 +2164,7 @@ fn body_root_defect(
     let Some(root_type) = root_type else {
         return Ok(None);
     };
-    if conforms_to_type(
-        &node.semantic_type.digest,
-        Some(&root_type),
-        graph,
-        owners,
-        meter,
-    )? {
+    if conforms_to_type(&node.semantic_type, Some(&root_type), graph, owners, meter)? {
         return Ok(None);
     }
     Ok(Some(ValidationFailure::refused_at(
@@ -2371,7 +2249,7 @@ fn check_function_call(
     for (offset, expected) in declared.iter().enumerate() {
         let position = offset.saturating_add(1);
         if !conforms_to_type(
-            &expected.digest,
+            expected,
             operand_type_node_typed(&arguments[position], nodes, kinds, index).as_ref(),
             graph,
             owners,
@@ -2476,22 +2354,14 @@ fn check_reference_edge(
     else {
         return ineligible(member_at("name"));
     };
-    // `ModelOwners::new` derived this key (or a longer one for an interface)
-    // under the same limit, so the encoder cannot refuse it here; were it to,
-    // the refusal is `invalid_semantic_graph` at the node, as a refused node
-    // key is.
-    let Ok(edge_key) = declaration_key(
-        &owner.package.identity,
-        DeclarationForm::ObjectType,
-        edge_owner,
-        owner.package.bytes,
-    ) else {
-        return Ok(Some(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.node_id(),
-        )));
+    let Some(edge_form) = owner.package.end_declaration_form(edge_owner) else {
+        return ineligible(member_at("name"));
     };
-    let edge = MemberType::Reference(edge_key.into());
+    let Some(edge_id) = owners.declaration_id(&owner.package.identity, edge_owner, edge_form)
+    else {
+        return ineligible(member_at("name"));
+    };
+    let edge = MemberType::Reference(edge_id.clone());
     let is_edge = match owner.package.field_type(field) {
         Some(MemberType::Option(inner)) => *inner == edge,
         Some(MemberType::Collection {
@@ -2541,7 +2411,7 @@ fn check_reference_edge(
 
 /// The `operation.member.declaration` an application names.
 fn member_declaration(operation: &OperationWire) -> Option<CheckedNodeId> {
-    serde_json::from_value(operation.member.as_ref()?.get("declaration")?.clone()).ok()
+    CheckedNodeId::from_value(operation.member.as_ref()?.get("declaration")?)
 }
 
 /// A selected tuple's positions live in its document, not in the declaration
@@ -2624,7 +2494,7 @@ fn check_tuple_position(
     }
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(1)?;
-    let Ok(expected_type) = position_type.node_key(owner.package.bytes) else {
+    let Some(expected_type) = position_type.node_id(&application.node.node_id.package) else {
         return Ok(Some(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             application.node_id(),
@@ -2635,10 +2505,10 @@ fn check_tuple_position(
         .get(application.position)
         .and_then(Option::as_ref)
         .and_then(|term| match term {
-            CheckedTerm::Application { result_type, .. } => Some(result_type.digest.as_ref()),
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result_type != Some(expected_type.as_str()) {
+    if result_type != Some(&expected_type) {
         return ineligible();
     }
     Ok(None)
@@ -2658,12 +2528,6 @@ fn check_relationship_member(
         Ok(Some(model_refusal(application, path, refusal)))
     };
     let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
-    let key_refused = || {
-        Ok(Some(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.node_id(),
-        )))
-    };
     let Some(declaring) =
         member_declaration(operation).and_then(|id| graph.index.get(&id).copied())
     else {
@@ -2760,13 +2624,28 @@ fn check_relationship_member(
     if !relationship.direction.admits(forward) {
         return ineligible(member_at("name"));
     }
-    let destination_key = match owner.package.end_declaration_key(&destination.type_ref) {
-        None => return ineligible(member_at("name")),
-        Some(Ok(key)) => key,
-        Some(Err(_)) => return key_refused(),
+    if owner
+        .package
+        .end_declaration_form(&destination.type_ref)
+        .is_none()
+    {
+        return ineligible(member_at("name"));
+    }
+    // QSpec FR-322 supplies this structural label in the member. The selected
+    // document establishes the destination kind above; its node need not be in
+    // this graph, and the reader must not derive a replacement label.
+    let Some(destination_id) = operation
+        .member
+        .as_ref()
+        .and_then(|member| member.get("destination_type"))
+        .and_then(CheckedNodeId::from_value)
+    else {
+        return Ok(Some(ValidationFailure::refused(
+            CheckedPackageRefusalCode::MalformedWire,
+            member_at("destination_type"),
+        )));
     };
-    let receiver_type_key = destination_key.clone();
-    let member_type = match relationship.navigation_type(forward, destination_key.into()) {
+    let member_type = match relationship.navigation_type(forward, destination_id.clone()) {
         Ok(member_type) => member_type,
         Err(refusal) => return refuse(member_at("name"), refusal),
     };
@@ -2778,18 +2657,18 @@ fn check_relationship_member(
     } else {
         member_type
     };
-    let Ok(expected_key) = expected.node_key(owner.package.bytes) else {
-        return key_refused();
+    let Some(expected_id) = expected.node_id(&application.node.node_id.package) else {
+        return ineligible(application.body(&["result_type"]));
     };
     let result = graph
         .terms
         .get(application.position)
         .and_then(Option::as_ref)
         .and_then(|term| match term {
-            CheckedTerm::Application { result_type, .. } => Some(result_type.digest.as_ref()),
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result != Some(expected_key.as_str()) {
+    if result != Some(&expected_id) {
         return ineligible(application.body(&["result_type"]));
     }
     // The population link is the last check of the member: every earlier defect
@@ -2804,30 +2683,30 @@ fn check_relationship_member(
     if !reaches {
         return ineligible(member_at("population"));
     }
-    let node_of = |id: &CheckedNodeId| graph.index.get(id).map(|&at| &graph.nodes[at]);
-    let linked = serde_json::from_value::<CheckedNodeId>(named.clone())
-        .ok()
+    let term_of = |id: &CheckedNodeId| {
+        graph
+            .index
+            .get(id)
+            .and_then(|&at| graph.terms.get(at))
+            .and_then(Option::as_ref)
+    };
+    let linked = CheckedNodeId::from_value(named)
         .and_then(|id| graph.index.get(&id).copied())
         .and_then(|position| Some((graph.nodes.get(position)?, graph.kinds.get(position)?)))
         .filter(|(node, kind)| {
             is_model_population(**kind)
                 && least_type_occurrence(node).is_some()
-                && CheckedTerm::decode_admitted(&node.body)
-                    .ok()
-                    .as_ref()
-                    .and_then(population_maximum)
-                    .is_some()
+                && term_of(&node.node_id).is_some_and(|term| {
+                    population_maximum(term).is_some()
+                        || matches!(term, CheckedTerm::Aggregate { members } if members.is_empty())
+                })
         })
         .map(|(node, _)| node);
     let Some(population) = linked else {
         return ineligible(member_at("population"));
     };
     // A reaches application's ends share one declared type (checked above).
-    let receiver_type = CheckedNodeId {
-        domain: NODE_DOMAIN.into(),
-        digest: receiver_type_key.into(),
-    };
-    if population_object_type(population, node_of) != Some(receiver_type) {
+    if population_object_type_typed(population, term_of) != Some(destination_id.clone()) {
         return ineligible(member_at("population"));
     }
     Ok(None)
@@ -3145,14 +3024,6 @@ fn check_model_member(
         Ok(Some(model_refusal(application, path, refusal)))
     };
     let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
-    // A type key the encoder refuses (a preimage past the byte limit) is
-    // `invalid_semantic_graph` at the node, as a refused node key is.
-    let key_refused = || {
-        Ok(Some(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.node_id(),
-        )))
-    };
     let Some(arguments) = admitted_arguments(application, graph) else {
         return Ok(None);
     };
@@ -3169,7 +3040,7 @@ fn check_model_member(
     // it when that type is a record value type.
     if kind == MemberKind::Field
         && !conforms_to_type(
-            &declaring.node_id.digest,
+            &declaring.node_id,
             type_node(0).as_ref(),
             graph,
             owners,
@@ -3204,11 +3075,11 @@ fn check_model_member(
             if object.interface {
                 return ineligible(member_at("name"));
             }
-            let receiver = MemberType::Reference(declaring.node_id.digest.clone());
-            let Ok(receiver_key) = receiver.node_key(owner.package.bytes) else {
-                return key_refused();
+            let receiver = MemberType::Reference(declaring.node_id.clone());
+            let Some(receiver_id) = receiver.node_id(&application.node.node_id.package) else {
+                return ineligible(argument_at(0));
             };
-            if type_node(0).map(|id| id.digest).as_deref() != Some(receiver_key.as_str()) {
+            if type_node(0).as_ref() != Some(&receiver_id) {
                 return ineligible(argument_at(0));
             }
             if arguments.len().saturating_sub(1) != resolved.parameters.len() {
@@ -3219,11 +3090,11 @@ fn check_model_member(
                 let Some(expected) = owner.package.slot_type(parameter) else {
                     return ineligible(member_at("name"));
                 };
-                let Ok(expected_key) = expected.node_key(owner.package.bytes) else {
-                    return key_refused();
+                let Some(expected_id) = expected.node_id(&application.node.node_id.package) else {
+                    return ineligible(argument_at(position));
                 };
                 if !conforms_to_type(
-                    &expected_key,
+                    &expected_id,
                     type_node(position).as_ref(),
                     graph,
                     owners,
@@ -3246,13 +3117,13 @@ fn check_model_member(
         .get(application.position)
         .and_then(Option::as_ref)
         .and_then(|term| match term {
-            CheckedTerm::Application { result_type, .. } => Some(result_type.digest.as_ref()),
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    let Ok(member_key) = member_type.node_key(owner.package.bytes) else {
-        return key_refused();
+    let Some(member_id) = member_type.node_id(&application.node.node_id.package) else {
+        return ineligible(application.body(&["result_type"]));
     };
-    if result_type != Some(member_key.as_str()) {
+    if result_type != Some(&member_id) {
         return ineligible(application.body(&["result_type"]));
     }
     Ok(None)
@@ -3269,8 +3140,7 @@ fn check_field_member(
     graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
     let member = operation.member.as_ref()?;
-    let declaration: CheckedNodeId =
-        serde_json::from_value(member.get("declaration")?.clone()).ok()?;
+    let declaration = CheckedNodeId::from_value(member.get("declaration")?)?;
     let name = member.get("name")?.as_str()?;
     let Some(&position) = graph.index.get(&declaration) else {
         return Some(application.refuse(
@@ -4539,24 +4409,17 @@ fn check_leaf_count(
 
 #[cfg(test)]
 mod tests {
-    use super::super::application_identity::{
-        application_digest, application_preimage, ApplicationGroup,
-    };
-    use super::super::encode::GroupPlace;
     use super::super::CheckedSelectionRole;
     use super::{
-        is_type_shaped, operand_family, operation_catalog, operation_defect,
-        validate_application_keys, Application, ApplicationOperator, CheckedNodeId,
-        CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageRefusalCause,
-        CheckedPackageRefusalCode, CheckedSemanticNodeV2, DependencyReferences, ExpressionForm,
-        Graph, LawRole, ModelOwners, ProtocolForm, StructuralTypes, SuppliedDependencies,
-        TemporalForm, ValidationFailure, WorkMeter,
+        is_type_shaped, operand_family, operation_catalog, operation_defect, Application,
+        ApplicationOperator, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2,
+        CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticNodeV2,
+        DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners, StructuralTypes,
+        SuppliedDependencies, TemporalForm, ValidationFailure, WorkMeter,
     };
-    use crate::checked_package::common::NODE_DOMAIN;
     use crate::checked_package::shared::{
         CheckedArtifactRef, CheckedPackageLimit, CheckedSelection, JsonPointer,
     };
-    use crate::checked_package::v2::encode::APPLICATION_NODE_VERSION;
     use ix_trace_rs::trace;
 
     fn decoded_terms(nodes: &[CheckedSemanticNodeV2]) -> Vec<Option<super::CheckedTerm>> {
@@ -4607,7 +4470,7 @@ mod tests {
         role: &str,
         receiver_type: &str,
         operation_identity: &str,
-        result_key: &str,
+        result_key: &CheckedNodeId,
     ) -> Option<(
         CheckedPackageRefusalCode,
         CheckedPackageRefusalCause,
@@ -4629,7 +4492,7 @@ mod tests {
         role: &str,
         receiver_type: &str,
         operation_identity: &str,
-        result_key: &str,
+        result_key: &CheckedNodeId,
         configure: impl FnOnce(&mut Vec<CheckedSemanticNodeV2>, &mut Vec<CheckedNodeKind>, &mut Value),
     ) -> (
         Option<(
@@ -4640,12 +4503,18 @@ mod tests {
         u64,
     ) {
         use crate::checked_package::v2::model_members::{
-            declaration_key, tests as model_tests, DeclarationForm, MemberType,
+            declaration_id, tests as model_tests, DeclarationForm, MemberType,
         };
+        let destination_name = if relation["targetEnd"]["role"].as_str() == Some(role) {
+            relation["sourceEnd"]["type"].as_str()
+        } else {
+            relation["targetEnd"]["type"].as_str()
+        }
+        .expect("selected relationship destination type")
+        .to_owned();
         let model = model_tests::read(&model_tests::relationship_document(vec![relation]))
             .expect("selected document admits");
         let mut meter = WorkMeter::new(100_000);
-        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
         let identity = "acme/orders";
         let widget = "ix://acme/orders/Widget";
         let gadget = "ix://acme/orders/Gadget";
@@ -4656,21 +4525,24 @@ mod tests {
             } else {
                 DeclarationForm::ObjectType
             };
-            declaration_key(identity, form, name, model_tests::BYTES).expect("declaration key")
+            declaration_id(identity, form, name)
         });
         let [widget_key, gadget_key, relationship_key] = &keys;
+        let destination_key =
+            declaration_id(identity, DeclarationForm::ObjectType, &destination_name);
         let receiver_key = if receiver_type == widget {
             widget_key
         } else {
             gadget_key
         };
-        let reference_key = MemberType::Reference(receiver_key.as_str().into())
-            .node_key(model_tests::BYTES)
-            .expect("reference key");
-        let id = |digest: &str| json!({"domain": NODE_DOMAIN, "digest": digest});
+        let reference_key = MemberType::Reference(receiver_key.clone())
+            .node_id("checked")
+            .expect("reference ID");
+        let id = |node: &CheckedNodeId| json!(node);
         let mut operation = plain_operation(operation_identity);
         operation["member"] = json!({
             "kind": "relationship_end", "declaration": id(relationship_key), "name": role,
+            "destination_type": id(&destination_key),
         });
         let operator = if operation_identity == "quire.op.model.reaches" {
             "reaches"
@@ -4680,16 +4552,16 @@ mod tests {
         let mut application = custom_application_node(
             operator,
             operation.clone(),
-            vec![json!({"term": "reference", "target": id(&dummy_digest('r'))})],
+            vec![json!({"term": "reference", "target": id(&node_id('r'))})],
         );
         if operation_identity == "quire.op.model.reaches" {
             application.body["arguments"]
                 .as_array_mut()
                 .expect("arguments")
-                .push(json!({"term": "reference", "target": id(&dummy_digest('r'))}));
+                .push(json!({"term": "reference", "target": id(&node_id('r'))}));
         }
         application.body["result_type"] = id(result_key);
-        let object = |key: &str, name: &str| {
+        let object = |key: &CheckedNodeId, name: &str| {
             let mut node = graph_node(
                 'o',
                 "model",
@@ -4697,7 +4569,7 @@ mod tests {
                 &node_id('o'),
                 json!({"term": "aggregate", "members": []}),
             );
-            node.node_id.digest = key.into();
+            node.node_id = key.clone();
             node.semantic_type = node.node_id.clone();
             node.owner = Some(
                 serde_json::from_value(json!({
@@ -4714,7 +4586,7 @@ mod tests {
             &node_id('l'),
             json!({"term": "aggregate", "members": []}),
         );
-        relation_node.node_id.digest = relationship_key.as_str().into();
+        relation_node.node_id = relationship_key.clone();
         relation_node.semantic_type = relation_node.node_id.clone();
         relation_node.owner = Some(
             serde_json::from_value(json!({
@@ -4729,7 +4601,7 @@ mod tests {
             &node_id('e'),
             json!({"term": "aggregate", "members": [{"term": "reference", "target": id(receiver_key)}]}),
         );
-        reference_node.node_id.digest = reference_key.into();
+        reference_node.node_id = reference_key;
         reference_node.semantic_type = reference_node.node_id.clone();
         let mut parameter = graph_node(
             'r',
@@ -4738,7 +4610,7 @@ mod tests {
             &reference_node.node_id,
             json!({"term": "aggregate", "members": []}),
         );
-        parameter.node_id.digest = dummy_digest('r').into();
+        parameter.node_id = node_id('r');
         let mut nodes = vec![
             application,
             object(widget_key, widget),
@@ -4755,6 +4627,8 @@ mod tests {
             .enumerate()
             .map(|(at, node)| (&node.node_id, at))
             .collect();
+        let owners =
+            ModelOwners::new(std::slice::from_ref(&model), &nodes, |_| Ok(())).expect("owners");
         let terms = decoded_terms(&nodes);
         let graph = Graph {
             nodes: &nodes,
@@ -4778,7 +4652,7 @@ mod tests {
             ValidationFailure::Refused(refusal) => (
                 refusal.code,
                 refusal.cause.expect("typed cause"),
-                refusal.path.expect("path").to_string(),
+                refusal.loci[0].path.clone().expect("path").to_string(),
             ),
             other => panic!("expected refusal, got {other:?}"),
         });
@@ -4795,9 +4669,7 @@ mod tests {
         use crate::checked_package::v2::{BoundedDomainForm, CompositeTypeForm};
         let mut relation = model_tests::relationship();
         relation["targetEnd"]["type"] = json!("ix://acme/orders/Widget");
-        let boolean = MemberType::Boolean
-            .node_key(model_tests::BYTES)
-            .expect("boolean key");
+        let boolean = MemberType::Boolean.node_id("checked").expect("boolean key");
         let run = |raw_population: bool, typed_population: bool| {
             relationship_member_outcome_with_graph(
                 relation.clone(),
@@ -4880,29 +4752,25 @@ mod tests {
     #[test]
     fn tc_048_relationship_end_binding_resolves_roles_before_navigation_and_reachability() {
         use crate::checked_package::v2::model_members::{
-            declaration_key, tests::relationship, DeclarationForm, MemberType,
+            declaration_id, tests::relationship, DeclarationForm, MemberType,
         };
-        let widget = declaration_key(
+        let widget = declaration_id(
             "acme/orders",
             DeclarationForm::ObjectType,
             "ix://acme/orders/Widget",
-            1 << 20,
-        )
-        .expect("widget key");
-        let gadget = declaration_key(
+        );
+        let gadget = declaration_id(
             "acme/orders",
             DeclarationForm::ObjectType,
             "ix://acme/orders/Gadget",
-            1 << 20,
-        )
-        .expect("gadget key");
-        let reference = MemberType::Reference(gadget.into())
-            .node_key(1 << 20)
+        );
+        let reference = MemberType::Reference(gadget)
+            .node_id("checked")
             .expect("reference");
-        let option = MemberType::Option(Box::new(MemberType::Reference(widget.clone().into())))
-            .node_key(1 << 20)
+        let option = MemberType::Option(Box::new(MemberType::Reference(widget.clone())))
+            .node_id("checked")
             .expect("option");
-        let boolean = MemberType::Boolean.node_key(1 << 20).expect("boolean");
+        let boolean = MemberType::Boolean.node_id("checked").expect("boolean");
         let navigate = "quire.op.model.navigate";
         assert_eq!(
             relationship_member_outcome(
@@ -4930,7 +4798,7 @@ mod tests {
                 "absent",
                 "ix://acme/orders/Gadget",
                 navigate,
-                "wrong"
+                &node_id('w')
             ),
             Some((
                 CheckedPackageRefusalCode::MissingDeclaration,
@@ -4958,7 +4826,7 @@ mod tests {
                 "links",
                 "ix://acme/orders/Widget",
                 navigate,
-                "wrong"
+                &node_id('w')
             ),
             Some((
                 CheckedPackageRefusalCode::IllTyped,
@@ -5021,7 +4889,7 @@ mod tests {
                 "links",
                 "ix://acme/orders/Widget",
                 "quire.op.model.reaches",
-                "wrong"
+                &node_id('w')
             ),
             Some((
                 CheckedPackageRefusalCode::IllTyped,
@@ -5070,14 +4938,13 @@ mod tests {
     /// no member.
     const STRUCTURAL_EQ_IDENTITY: &str = "quire.op.structural.eq";
 
-    fn dummy_digest(byte: char) -> String {
-        std::iter::repeat_n(byte, 64).collect()
-    }
-
     fn node_id(byte: char) -> CheckedNodeId {
         CheckedNodeId {
-            domain: Box::from(NODE_DOMAIN),
-            digest: Box::from(dummy_digest(byte).as_str()),
+            package: "checked".into(),
+            path: vec![super::super::CheckedNodePathSegment::Name(
+                byte.to_string().into(),
+            )],
+            ordinal: 0,
         }
     }
 
@@ -5144,9 +5011,7 @@ mod tests {
 
     /// A single-node `application` term with a caller-supplied `operator`,
     /// `operation` wire value and `arguments`. `node_id`/`semantic_type` are
-    /// placeholders `operation_defect` never inspects for its own checks
-    /// (only `validate_application_keys`'s own tests care whether a node's
-    /// key is genuine).
+    /// placeholders `operation_defect` never inspects for its own checks.
     fn custom_application_node(
         operator: &str,
         operation: Value,
@@ -5158,11 +5023,11 @@ mod tests {
             .map(|argument| admitted_fixture_term(argument, &fixture_type))
             .collect();
         let value = json!({
-            "node_id": { "domain": NODE_DOMAIN, "digest": dummy_digest('1') },
+            "node_id": node_id('1'),
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "expression",
             "semantic_form": "call",
-            "semantic_type": { "domain": NODE_DOMAIN, "digest": dummy_digest('2') },
+            "semantic_type": node_id('2'),
             "dependencies": [],
             "occurrences": [],
             "body": {
@@ -5194,30 +5059,6 @@ mod tests {
         )
     }
 
-    /// `application_node`'s `node_id.digest` replaced by the genuine JCS
-    /// SHA-256 of its own preimage — the same formula
-    /// `validate_application_keys` re-derives — so the node passes that
-    /// check rather than tripping the `stale-node-key` refusal every other
-    /// fixture in this module deliberately does not care about.
-    fn correctly_keyed(mut node: CheckedSemanticNodeV2) -> CheckedSemanticNodeV2 {
-        let semantic_type =
-            serde_json::to_value(&node.semantic_type).expect("semantic_type serializes");
-        let preimage = json!({
-            "version": APPLICATION_NODE_VERSION,
-            "node_tag": node.node_tag.as_ref(),
-            "semantic_form": node.semantic_form.as_ref(),
-            "semantic_type": semantic_type,
-            "declaration": Value::Null,
-            "recursion": node.recursion_group.as_deref(),
-            "body": node.body.clone(),
-        });
-        let digest = quire_canonical::sha256(&preimage, quire_canonical::Limits::new(1 << 20))
-            .expect("preimage digests")
-            .to_string();
-        node.node_id.digest = Box::from(digest.as_str());
-        node
-    }
-
     /// A bare graph node with caller-supplied tag/form/semantic-type/body,
     /// keyed on `id_byte`. Used to build the second and third nodes
     /// `check_field_member`, `check_mode_type` and `check_leaves` resolve an
@@ -5231,14 +5072,11 @@ mod tests {
     ) -> CheckedSemanticNodeV2 {
         let body = admitted_fixture_term(body, semantic_type);
         let value = json!({
-            "node_id": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
+            "node_id": node_id(id_byte),
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": node_tag,
             "semantic_form": semantic_form,
-            "semantic_type": {
-                "domain": semantic_type.domain.as_ref(),
-                "digest": semantic_type.digest.as_ref(),
-            },
+            "semantic_type": semantic_type,
             "dependencies": [],
             "occurrences": [],
             "body": body,
@@ -5289,6 +5127,7 @@ mod tests {
             definition_selections: Vec::new(),
             required_features: Vec::new(),
             dependency_selections: Vec::new(),
+            refinement_internals: None,
         }
     }
 
@@ -5442,370 +5281,8 @@ mod tests {
         (result, meter.consumed())
     }
 
-    fn key(fill: u8) -> String {
-        format!("{fill:02x}").repeat(32)
-    }
-
     fn node_ref(fill: u8) -> serde_json::Value {
-        json!({ "domain": "quire.checked-semantic-node/v1", "digest": key(fill) })
-    }
-
-    fn reference(fill: u8) -> serde_json::Value {
-        json!({ "term": "reference", "target": node_ref(fill) })
-    }
-
-    fn add(arguments: Vec<serde_json::Value>) -> serde_json::Value {
-        json!({
-            "term": "application",
-            "operator": "binary",
-            "operation": {
-                "identity": "quire.op.integer.add",
-                "laws": [], "mode": null, "member": null, "leaves": []
-            },
-            "result_type": node_ref(3),
-            "arguments": arguments,
-        })
-    }
-
-    fn grouped_node(id: u8, body: serde_json::Value) -> CheckedSemanticNodeV2 {
-        serde_json::from_value(json!({
-            "node_id": node_ref(id),
-            "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "function",
-            "semantic_form": "function",
-            "semantic_type": node_ref(3),
-            "dependencies": [],
-            "occurrences": [],
-            "recursion_group": "g",
-            "declaration": { "qualified_name": ["pkg", "total"] },
-            "body": body,
-        }))
-        .expect("node")
-    }
-
-    /// QSpec FR-322's application preimage for a recursion-group member,
-    /// byte for byte the vector quire-spec-language's `application_key`
-    /// pins (`preimage_bytes_are_pinned`): the node is member 1 of a group
-    /// of 2, its reference to member 0 becomes a `group_reference`, and its
-    /// reference outside the group stays a reference.
-    #[trace("TC-048", "FR-038-AC-88")]
-    #[test]
-    fn tc_048_application_preimage_matches_the_qsl_pinned_group_vector() {
-        let node = grouped_node(2, add(vec![reference(1), reference(9)]));
-        let one = typed(&key(1));
-        let group = [&one, &node.node_id];
-        let preimage =
-            application_preimage(&node, ApplicationGroup::Keys(&group)).expect("preimage");
-        // Spelled literally, as quire-spec-language's own vector does, rather
-        // than produced by the serializer under test.
-        let literal_ref = |fill: u8| {
-            format!(
-                r#"{{"digest":"{}","domain":"quire.checked-semantic-node/v1"}}"#,
-                key(fill)
-            )
-        };
-        let three = literal_ref(3);
-        let nine = literal_ref(9);
-        let expected = format!(
-            concat!(
-                r#"{{"body":{{"arguments":[{{"ordinal":0,"term":"group_reference"}},"#,
-                r#"{{"target":{nine},"term":"reference"}}],"#,
-                r#""operation":{{"identity":"quire.op.integer.add","laws":[],"leaves":[],"member":null,"mode":null}},"#,
-                r#""operator":"binary","result_type":{three},"term":"application"}},"#,
-                r#""declaration":{{"qualified_name":["pkg","total"]}},"#,
-                r#""node_tag":"function","recursion":{{"ordinal":1,"size":2}},"#,
-                r#""semantic_form":"function","semantic_type":{three},"#,
-                r#""version":"quire.application-node/v1"}}"#,
-            ),
-            nine = nine,
-            three = three,
-        );
-        let bytes = quire_canonical::to_vec(&preimage, quire_canonical::Limits::new(1 << 20))
-            .expect("encodes");
-        assert_eq!(String::from_utf8(bytes).expect("utf-8"), expected);
-        let term = super::CheckedTerm::decode_admitted(&node.body).expect("admitted term");
-        let admitted = super::application_digest_admitted(
-            &node,
-            &term,
-            ApplicationGroup::Keys(&group),
-            1 << 20,
-        )
-        .expect("admitted digest");
-        let pinned = quire_canonical::sha256(&preimage, quire_canonical::Limits::new(1 << 20))
-            .expect("pinned digest")
-            .to_string();
-        assert_eq!(admitted, pinned);
-    }
-
-    /// Group references are rewritten in every nested term position, as in
-    /// quire-spec-language's `group_references_are_rewritten_in_every_nested_term`.
-    #[trace("TC-048", "FR-038-AC-88")]
-    #[test]
-    fn tc_048_group_references_are_rewritten_in_every_nested_term() {
-        let body = json!({
-            "term": "aggregate",
-            "members": [
-                { "term": "binding", "name": "x", "value": reference(2) },
-                add(vec![reference(1), add(vec![reference(2), reference(9)])]),
-            ],
-        });
-        let node = grouped_node(1, body);
-        let two = typed(&key(2));
-        let group = [&node.node_id, &two];
-        let preimage =
-            application_preimage(&node, ApplicationGroup::Keys(&group)).expect("preimage");
-        let group_reference =
-            |ordinal: usize| json!({ "term": "group_reference", "ordinal": ordinal });
-        let members = &preimage.body["members"];
-        assert_eq!(members[0]["value"], group_reference(1));
-        assert_eq!(members[1]["arguments"][0], group_reference(0));
-        assert_eq!(
-            members[1]["arguments"][1]["arguments"][0],
-            group_reference(1)
-        );
-        assert_eq!(members[1]["arguments"][1]["arguments"][1], reference(9));
-        assert_eq!(
-            preimage.recursion,
-            Some(GroupPlace {
-                size: 2,
-                ordinal: 0
-            })
-        );
-    }
-
-    /// A caller-funded cyclic protocol group keeps graph-order ordinals when
-    /// its key order runs backward, and every application key re-derives.
-    #[trace("TC-048", "FR-038-AC-88")]
-    #[test]
-    fn tc_048_protocol_sized_group_uses_indexed_application_ordinals() {
-        const MEMBERS: usize = 100_000;
-        let provisional = (0..MEMBERS)
-            .map(|position| CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: format!("{:064x}", MEMBERS - position).into(),
-            })
-            .collect::<Vec<_>>();
-        let mut nodes = (0..MEMBERS)
-            .map(|position| {
-                let mut node = grouped_node(
-                    2,
-                    json!({
-                        "term": "application",
-                        "operator": "protocol_control",
-                        "operation": {
-                            "identity": "quire.op.protocol.control",
-                            "laws": [], "mode": null, "member": null, "leaves": []
-                        },
-                        "result_type": node_ref(3),
-                        "arguments": [{
-                            "term": "reference",
-                            "target": provisional[(position + 1) % MEMBERS]
-                        }]
-                    }),
-                );
-                node.node_tag = "protocol".into();
-                node.semantic_form = "control".into();
-                node.node_id = provisional[position].clone();
-                node
-            })
-            .collect::<Vec<_>>();
-        let ordinals = provisional
-            .iter()
-            .enumerate()
-            .map(|(ordinal, id)| (id, ordinal))
-            .collect::<BTreeMap<_, _>>();
-        let digests = nodes
-            .iter()
-            .map(|node| {
-                application_digest(node, ApplicationGroup::Indexed(&ordinals), 1 << 20)
-                    .expect("provisional cyclic application key")
-            })
-            .collect::<Vec<_>>();
-        for (position, node) in nodes.iter_mut().enumerate() {
-            node.node_id.digest = digests[position].clone().into();
-            node.body["arguments"][0]["target"]["digest"] =
-                json!(digests[(position + 1) % MEMBERS]);
-        }
-        let indexed = nodes
-            .iter()
-            .enumerate()
-            .map(|(ordinal, node)| (&node.node_id, ordinal))
-            .collect::<BTreeMap<_, _>>();
-        let last = &nodes[MEMBERS - 1];
-        let preimage = application_preimage(last, ApplicationGroup::Indexed(&indexed))
-            .expect("indexed protocol application preimage");
-        let group_size = u64::try_from(MEMBERS).expect("group size fits u64");
-        assert_eq!(
-            preimage.recursion,
-            Some(GroupPlace {
-                size: group_size,
-                ordinal: group_size - 1,
-            })
-        );
-        assert_eq!(
-            preimage.body["arguments"][0],
-            json!({"term": "group_reference", "ordinal": 0})
-        );
-        let kinds = vec![CheckedNodeKind::Protocol(ProtocolForm::Control); MEMBERS];
-        let terms = decoded_terms(&nodes);
-        assert!(terms.iter().all(Option::is_some), "all bodies decode");
-        let index = nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect::<BTreeMap<_, _>>();
-        assert_eq!(
-            validate_application_keys(
-                &nodes,
-                &kinds,
-                &terms,
-                &index,
-                &mut WorkMeter::new(group_size),
-                1 << 20,
-            ),
-            Ok(())
-        );
-    }
-
-    #[trace("TC-048", "FR-038-AC-227")]
-    #[test]
-    fn tc_048_grouped_union_value_key_respects_references_bytes_and_work() {
-        let parameter: CheckedSemanticNodeV2 = serde_json::from_value(json!({
-            "node_id": node_ref(1),
-            "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "value",
-            "semantic_form": "parameter",
-            "semantic_type": node_ref(3),
-            "dependencies": [],
-            "occurrences": [{"role": "expression", "ordinal": 0}],
-            "recursion_group": "g",
-            "body": {"term": "aggregate", "members": []},
-        }))
-        .expect("parameter");
-        let mut union: CheckedSemanticNodeV2 = serde_json::from_value(json!({
-            "node_id": node_ref(2),
-            "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "value",
-            "semantic_form": "union_value",
-            "semantic_type": node_ref(4),
-            "dependencies": [node_ref(1), node_ref(9)],
-            "occurrences": [{"role": "expression", "ordinal": 0}],
-            "recursion_group": "g",
-            "body": {"term": "aggregate", "members": [{
-                "term": "binding", "name": "Rect", "value": {
-                    "term": "aggregate", "members": [reference(1), reference(9)]
-                }
-            }]},
-        }))
-        .expect("union value");
-        let provisional = [&parameter.node_id, &union.node_id];
-        let preimage = application_preimage(&union, ApplicationGroup::Keys(&provisional))
-            .expect("group preimage");
-        let expected_body = json!({"term": "aggregate", "members": [{
-            "term": "binding", "name": "Rect", "value": {
-                "term": "aggregate", "members": [
-                    {"term": "group_reference", "ordinal": 0}, reference(9)
-                ]
-            }
-        }]});
-        assert_eq!(preimage.body.as_ref(), &expected_body);
-        assert_eq!(
-            preimage.recursion,
-            Some(GroupPlace {
-                size: 2,
-                ordinal: 1
-            })
-        );
-        let independent = json!({
-            "version": "quire.application-node/v1",
-            "node_tag": "value",
-            "semantic_form": "union_value",
-            "semantic_type": node_ref(4),
-            "declaration": null,
-            "recursion": {"size": 2, "ordinal": 1},
-            "body": expected_body,
-        });
-        let canonical =
-            quire_canonical::to_vec(&independent, quire_canonical::Limits::new(1 << 20))
-                .expect("independent preimage bytes");
-        let exact = u64::try_from(canonical.len()).expect("byte length fits");
-        let expected = quire_canonical::sha256(&independent, quire_canonical::Limits::new(exact))
-            .expect("independent key")
-            .to_string();
-        assert_eq!(
-            quire_canonical::to_vec(&preimage, quire_canonical::Limits::new(exact))
-                .expect("production preimage at exact ceiling"),
-            canonical
-        );
-        drop(preimage);
-        union.node_id.digest = expected.clone().into();
-        let nodes = [parameter, union];
-        let kinds = [
-            CheckedNodeKind::Value(super::super::ValueForm::Parameter),
-            CheckedNodeKind::Value(super::super::ValueForm::UnionValue),
-        ];
-        let index = BTreeMap::from([(&nodes[0].node_id, 0), (&nodes[1].node_id, 1)]);
-        let terms = decoded_terms(&nodes);
-        assert_eq!(
-            validate_application_keys(
-                &nodes,
-                &kinds,
-                &terms,
-                &index,
-                &mut WorkMeter::new(1),
-                exact
-            ),
-            Ok(())
-        );
-        let too_short = validate_application_keys(
-            &nodes,
-            &kinds,
-            &terms,
-            &index,
-            &mut WorkMeter::new(1),
-            exact - 1,
-        );
-        let Err(ValidationFailure::Refused(refusal)) = too_short else {
-            panic!("one byte below the preimage must refuse: {too_short:?}");
-        };
-        assert_eq!(
-            refusal.code,
-            CheckedPackageRefusalCode::InvalidSemanticGraph
-        );
-        assert_eq!(refusal.expected_node_id(), None);
-        assert_eq!(
-            refusal.path,
-            Some(pointer("/semantic_graph/nodes/1/node_id"))
-        );
-        let unpaid = validate_application_keys(
-            &nodes,
-            &kinds,
-            &terms,
-            &index,
-            &mut WorkMeter::new(0),
-            exact - 1,
-        );
-        let Err(ValidationFailure::Incomplete(incomplete)) = unpaid else {
-            panic!("work must refuse before hashing: {unpaid:?}");
-        };
-        assert_eq!(
-            incomplete.limit_kind,
-            crate::checked_package::shared::CheckedPackageLimit::Work
-        );
-        assert_eq!(incomplete.limit, 0);
-        assert_eq!(incomplete.consumed, 1);
-        assert_eq!(
-            incomplete.path,
-            Some(pointer("/semantic_graph/nodes/1/node_id"))
-        );
-    }
-
-    fn typed(digest: &str) -> CheckedNodeId {
-        serde_json::from_value(json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": digest
-        }))
-        .expect("node id")
+        json!({ "package": "checked", "path": [format!("{fill:02x}")], "ordinal": 0 })
     }
 
     /// The family of a type reached through a chain of `bounded_domain` nodes
@@ -5817,8 +5294,7 @@ mod tests {
     #[test]
     fn tc_048_a_bounded_domain_chain_resolves_whatever_its_length() {
         const CHAIN: usize = 300;
-        let digest = |position: usize| format!("{position:064x}");
-        let id = |position: usize| json!({"domain": NODE_DOMAIN, "digest": digest(position)});
+        let id = |position: usize| json!({"package":"checked", "path":[position.to_string()], "ordinal":0});
         let node = |position: usize,
                     tag: &str,
                     form: &str,
@@ -5971,12 +5447,12 @@ mod tests {
     #[test]
     fn selected_model_union_float_payloads_have_scalar_node_keys() {
         use crate::checked_package::v2::model_members::{
-            declaration_key, tests as model_tests, DeclarationForm, MemberType,
+            declaration_id, tests as model_tests, DeclarationForm, MemberType,
         };
         use std::sync::Arc;
         const VARIANT: &str = "ix://acme/orders/Measurements";
         const UNIT: &str = "ix://quire/unit/acme/orders/ms";
-        let unit_key = "ab".repeat(32);
+        let unit_key = node_id('u');
         let variant = json!({
             "identity": VARIANT,
             "kind": {"module": "acme/orders", "name": "variant"},
@@ -5995,21 +5471,30 @@ mod tests {
             .expect("constructs")
             .push(json!({"kind":{"module":"acme/orders","name":"variant"},
                 "construct":{"meaning":"quire.meaning.model.variant-type/v1"}}));
-        let unit_refs = Arc::new(BTreeMap::from([(UNIT.into(), unit_key.clone().into())]));
+        let unit_refs = Arc::new(BTreeMap::from([(UNIT.into(), unit_key.clone())]));
         let model = model_tests::read_with_unit_refs(&selected, &unit_refs)
             .expect("float and resolved unit payloads admit at model intake");
-        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
-        let key = declaration_key(
-            "acme/orders",
-            DeclarationForm::VariantType,
-            VARIANT,
-            model_tests::BYTES,
+        let type_id = declaration_id("acme/orders", DeclarationForm::VariantType, VARIANT);
+        let mut variant_node = graph_node(
+            'v',
+            "model",
+            "variant_type",
+            &type_id,
+            json!({"term":"aggregate","members":[]}),
+        );
+        variant_node.node_id = type_id.clone();
+        variant_node.owner = Some(
+            serde_json::from_value(json!({
+                "kind":"model","identity":"acme/orders","node":VARIANT,
+            }))
+            .expect("model owner"),
+        );
+        let owners = ModelOwners::new(
+            std::slice::from_ref(&model),
+            std::slice::from_ref(&variant_node),
+            |_| Ok(()),
         )
-        .expect("variant key");
-        let type_id = CheckedNodeId {
-            domain: NODE_DOMAIN.into(),
-            digest: key.into(),
-        };
+        .expect("owners");
         let members =
             super::selected_union_members(&type_id, &owners, &mut WorkMeter::new(100_000))
                 .expect("bounded member resolution")
@@ -6017,15 +5502,15 @@ mod tests {
         assert_eq!(members.len(), 3);
         for (member, name, member_type) in [
             (&members[0], "A64", MemberType::Float64),
-            (&members[1], "MUnit", MemberType::Quantity(unit_key.into())),
+            (&members[1], "MUnit", MemberType::Quantity(unit_key.clone())),
             (&members[2], "Z32", MemberType::Float32),
         ] {
             assert_eq!(member.name, name);
             assert_eq!(member.payload.len(), 1);
             let expected = member_type
-                .node_key(model_tests::BYTES)
-                .expect("native scalar key");
-            assert_eq!(member.payload[0].digest.as_ref(), expected.as_str());
+                .node_id("checked")
+                .expect("structural payload ID");
+            assert_eq!(member.payload[0], expected);
         }
     }
 
@@ -6536,7 +6021,7 @@ mod tests {
                         "name": "other_field",
                         "value": {
                             "term": "reference",
-                            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('9') },
+                            "target": node_ref_of('9'),
                         },
                     },
                 ],
@@ -6546,10 +6031,7 @@ mod tests {
         let mut operation = plain_operation(RECORD_PROJECT_IDENTITY);
         operation["member"] = json!({
             "kind": "field",
-            "declaration": {
-                "domain": record_type.domain.as_ref(),
-                "digest": record_type.digest.as_ref(),
-            },
+            "declaration": record_type,
             "name": "missing_field",
         });
         let root = custom_application_node(
@@ -6607,7 +6089,7 @@ mod tests {
             vec![
                 json!({
                     "term": "reference",
-                    "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('4') },
+                    "target": node_ref_of('4'),
                 }),
                 json!({ "term": "literal", "value": 0 }),
             ],
@@ -6652,7 +6134,7 @@ mod tests {
                         "name": "name",
                         "value": {
                             "term": "reference",
-                            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('f') },
+                            "target": node_ref_of('f'),
                         },
                     },
                 ],
@@ -6689,7 +6171,7 @@ mod tests {
             vec![
                 json!({
                     "term": "reference",
-                    "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('r') },
+                    "target": node_ref_of('r'),
                 }),
                 reference_to('p'),
             ],
@@ -6757,7 +6239,7 @@ mod tests {
     fn reference_to(id_byte: char) -> Value {
         json!({
             "term": "reference",
-            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
+            "target": node_ref_of(id_byte),
         })
     }
 
@@ -6876,10 +6358,7 @@ mod tests {
             operands.into_iter().map(reference_to).collect(),
         );
         if let Some(result) = result {
-            root.body["result_type"] = json!({
-                "domain": NODE_DOMAIN,
-                "digest": dummy_digest(result),
-            });
+            root.body["result_type"] = json!(node_ref_of(result));
         }
         let locus = root.node_id.clone();
         let mut graph = vec![root];
@@ -9460,7 +8939,7 @@ mod tests {
                         "name": field,
                         "value": {
                             "term": "reference",
-                            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('i') },
+                            "target": node_ref_of('i'),
                         },
                     }],
                 }),
@@ -9478,7 +8957,7 @@ mod tests {
         let operand = |id_byte: char| {
             json!({
                 "term": "reference",
-                "target": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
+                "target": node_ref_of(id_byte),
             })
         };
         let operation = plain_operation(STRUCTURAL_EQ_IDENTITY);
@@ -9533,7 +9012,7 @@ mod tests {
         let literal = |type_byte: char| {
             json!({
                 "term": "literal",
-                "type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
+                "type": node_ref_of(type_byte),
                 "value_kind": "none",
                 "value": null,
             })
@@ -9543,7 +9022,7 @@ mod tests {
                 "term": "application",
                 "operator": "binary",
                 "operation": plain_operation(CATALOGUED_IDENTITY),
-                "result_type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
+                "result_type": node_ref_of(type_byte),
                 "arguments": [],
             })
         };
@@ -9601,7 +9080,7 @@ mod tests {
             };
             json!({
                 "term": "literal",
-                "type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
+                "type": node_ref_of(type_byte),
                 "value_kind": kind,
                 "value": value,
             })
@@ -9686,7 +9165,7 @@ mod tests {
             "term": "application",
             "operator": "state_clause",
             "operation": plain_operation("quire.op.state.clause"),
-            "result_type": { "domain": NODE_DOMAIN, "digest": dummy_digest('b') },
+            "result_type": node_ref_of('b'),
             "arguments": [],
         });
         let root = custom_application_node(
@@ -9704,129 +9183,6 @@ mod tests {
                 locus,
             ))),
             "a clause application at a boolean position"
-        );
-    }
-
-    /// `stale-node-key`: agent-ix/quire-contract-ir#171. `application_node`'s
-    /// `node_id.digest` is a placeholder, never the JCS SHA-256 of its own
-    /// preimage — exactly the condition [`validate_application_keys`] exists
-    /// to catch. Unlike every other test in this module, this one calls
-    /// `validate_application_keys` directly rather than `operation_defect`:
-    /// the two are separate stages (see the module doc), and nothing above
-    /// reaches this one.
-    #[trace("TC-048", "FR-038-AC-88", "FR-038-AC-184")]
-    #[test]
-    fn tc_048_validate_application_keys_refuses_a_stale_node_key() {
-        let node = application_node(CATALOGUED_IDENTITY, "binary");
-        let nodes = std::slice::from_ref(&node);
-        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
-        index.insert(&node.node_id, 0);
-        let mut meter = WorkMeter::new(1_000);
-
-        let kinds = [CheckedNodeKind::Expression(ExpressionForm::Call)];
-        let terms = decoded_terms(nodes);
-        let result = validate_application_keys(nodes, &kinds, &terms, &index, &mut meter, 1 << 20);
-
-        let Err(ValidationFailure::Refused(refusal)) = result else {
-            panic!("a placeholder node key must refuse: {result:?}");
-        };
-        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
-        assert_eq!(
-            refusal.path,
-            Some(pointer("/semantic_graph/nodes/0/node_id"))
-        );
-        assert_eq!(
-            refusal.cause,
-            Some(CheckedPackageRefusalCause::StaleNodeKey)
-        );
-        assert_eq!(refusal.locus, Some(node.node_id.clone()));
-        assert_eq!(refusal.contract_version, None);
-        assert_eq!(refusal.document_pointer, None);
-        let expected = refusal.expected_node_id().cloned().expect("computed key");
-        assert_eq!(expected.domain.as_ref(), NODE_DOMAIN);
-        assert_ne!(expected, node.node_id);
-
-        // The returned key is checked by the same production stage. The
-        // fixture does not recompute an expected digest in test code.
-        let mut rekeyed = node;
-        rekeyed.node_id = expected;
-        let mut index = BTreeMap::new();
-        index.insert(&rekeyed.node_id, 0);
-        let mut meter = WorkMeter::new(1_000);
-        assert_eq!(
-            validate_application_keys(
-                std::slice::from_ref(&rekeyed),
-                &kinds,
-                &terms,
-                &index,
-                &mut meter,
-                1 << 20,
-            ),
-            Ok(())
-        );
-    }
-
-    /// Control for the test above: a node whose `node_id.digest` genuinely
-    /// is its own preimage's digest ([`correctly_keyed`]) is admitted, not
-    /// refused. Without this control, a `validate_application_keys` that
-    /// refused every node would satisfy the assertion above just as well as
-    /// the real re-derivation does.
-    #[trace("TC-048", "FR-038-AC-88")]
-    #[test]
-    fn tc_048_validate_application_keys_admits_a_correctly_keyed_node() {
-        let node = correctly_keyed(application_node(CATALOGUED_IDENTITY, "binary"));
-        let nodes = std::slice::from_ref(&node);
-        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
-        index.insert(&node.node_id, 0);
-        let mut meter = WorkMeter::new(1_000);
-
-        let kinds = [CheckedNodeKind::Expression(ExpressionForm::Call)];
-        let terms = decoded_terms(nodes);
-        let result = validate_application_keys(nodes, &kinds, &terms, &index, &mut meter, 1 << 20);
-
-        assert_eq!(
-            result,
-            Ok(()),
-            "a node_id that genuinely is the JCS SHA-256 of the node's own preimage must be \
-             admitted, got {result:?}"
-        );
-    }
-
-    #[trace("FR-046-AC-6")]
-    #[test]
-    fn application_identity_work_refusal_precedes_a_canonical_hash_refusal() {
-        let node = application_node(CATALOGUED_IDENTITY, "binary");
-        let nodes = std::slice::from_ref(&node);
-        let index = BTreeMap::from([(&node.node_id, 0)]);
-        let kinds = [CheckedNodeKind::Expression(ExpressionForm::Call)];
-        let terms = decoded_terms(nodes);
-        let result =
-            validate_application_keys(nodes, &kinds, &terms, &index, &mut WorkMeter::new(0), 0);
-        let Err(ValidationFailure::Incomplete(incomplete)) = result else {
-            panic!("the unpaid work charge must precede the zero-byte hash refusal: {result:?}");
-        };
-        assert_eq!(
-            incomplete.limit_kind,
-            crate::checked_package::shared::CheckedPackageLimit::Work
-        );
-        assert_eq!(incomplete.limit, 0);
-        assert_eq!(incomplete.consumed, 1);
-        assert_eq!(
-            incomplete.path,
-            Some(pointer("/semantic_graph/nodes/0/node_id"))
-        );
-        let paid =
-            validate_application_keys(nodes, &kinds, &terms, &index, &mut WorkMeter::new(1), 0);
-        let Err(ValidationFailure::Refused(refusal)) = paid else {
-            panic!("the paid application reaches canonical encoding: {paid:?}");
-        };
-        assert_eq!(
-            refusal.code,
-            CheckedPackageRefusalCode::InvalidSemanticGraph
-        );
-        assert_eq!(
-            refusal.path,
-            Some(pointer("/semantic_graph/nodes/0/node_id"))
         );
     }
 
@@ -9894,7 +9250,7 @@ mod tests {
                 "kind": "fairness",
                 "fairness_kind": "weak",
                 "granularity": "whole",
-                "declaration": { "domain": NODE_DOMAIN, "digest": dummy_digest('f') },
+                "declaration": node_ref_of('f'),
                 "name": "Step",
             }),
         }
@@ -9994,7 +9350,7 @@ mod tests {
 
     /// FR-038-AC-67: an unknown identity and a class mismatch refuse ahead of
     /// every other check of the entry, and of two defective root nodes the
-    /// lower `node_id` digest is reported.
+    /// lower structural `node_id` is reported.
     #[trace("TC-048", "FR-038-AC-67")]
     #[test]
     fn tc_048_identity_and_class_refuse_first_and_the_lowest_node_is_reported() {
@@ -10027,9 +9383,9 @@ mod tests {
             )))
         );
 
-        // Two defective roots, in both digest orders: the lower digest wins,
+        // Two defective roots, in both structural ID orders: the lower ID wins,
         // whichever of the two operation defects it carries.
-        let unknown_identity = |digest: char| {
+        let unknown_identity = |name: char| {
             // Under `unary`: a `case` root in an `expression`/`call` node is
             // the form contradiction, refused ahead of identities.
             let mut node = custom_application_node(
@@ -10037,16 +9393,16 @@ mod tests {
                 plain_operation("quire.op.control.not-catalogued"),
                 vec![],
             );
-            node.node_id = node_id(digest);
+            node.node_id = node_id(name);
             node
         };
-        let class_mismatch = |digest: char| {
+        let class_mismatch = |name: char| {
             let mut node = custom_application_node(
                 "unary",
                 plain_operation("quire.op.control.case"),
                 Vec::new(),
             );
-            node.node_id = node_id(digest);
+            node.node_id = node_id(name);
             node
         };
         for (low_is_unknown_identity, expected_cause) in [
@@ -10133,8 +9489,8 @@ mod tests {
         ]
     }
 
-    fn node_ref_of(digest: char) -> Value {
-        json!({ "domain": NODE_DOMAIN, "digest": dummy_digest(digest) })
+    fn node_ref_of(name: char) -> Value {
+        json!({ "package": "checked", "path": [name.to_string()], "ordinal": 0 })
     }
 
     fn clause_arguments(first: Value, sixth: Value) -> Vec<Value> {
@@ -10262,14 +9618,8 @@ mod tests {
         let presence = &vectors["presence"];
         let model =
             presence["places"]["v"]["node"]["body"]["members"][0]["value"]["target"].clone();
-        let integer = json!({
-            "domain": NODE_DOMAIN,
-            "digest": vectors["type_nodes"]["integer"],
-        });
-        let reference_type = json!({
-            "domain": NODE_DOMAIN,
-            "digest": vectors["type_nodes"]["owner_reference_type"],
-        });
+        let integer = vectors["type_nodes"]["integer"].clone();
+        let reference_type = vectors["type_nodes"]["owner_reference_type"].clone();
         let boolean = presence["cases"][0]["node"]["semantic_type"].clone();
         let support = |id: Value, tag: &str, form: &str, ty: Value, body: Value| {
             serde_json::from_value::<CheckedSemanticNodeV2>(json!({
@@ -10388,8 +9738,9 @@ mod tests {
                 };
                 assert_eq!(refusal.cause, Some(cause), "{id}");
                 assert!(
-                    refusal
+                    refusal.loci[0]
                         .path
+                        .clone()
                         .expect("refusal locus")
                         .to_string()
                         .ends_with(case["locus_suffix"].as_str().expect("published locus")),

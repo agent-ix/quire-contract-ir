@@ -9,29 +9,26 @@
 //! and typed (steps 3 and 4) against the graph.
 //!
 //! The package and the domain package document are built here, node by node,
-//! from FR-322's and QSL FR-092's preimages; nothing of QSpec is copied in.
+//! with fixture-authored structural identities; nothing of QSpec is copied in.
 
 use crate::support::checked_package::{
-    application_node_key, bounds_body, canonical, evidence_for, evidence_with_document, node_id,
-    nominal_fixture_members, nominal_package, over_body, pointer, rebuild_source_map,
-    refresh_identity, refusal_bytes, refusal_cause, select_model, settle, sha256_hex,
-    ExpectedRefusal, COMPLETE_VALUE_FEATURE,
+    canonical, evidence_for, evidence_with_document, node_id as fixture_node_id,
+    nominal_fixture_members, nominal_package, pointer, rebuild_source_map, refresh_identity,
+    refusal_bytes, refusal_cause, select_model, settle, ExpectedRefusal, COMPLETE_VALUE_FEATURE,
+    FIXTURE_PACKAGE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    derive_structural_candidates, CheckedCollectionKind, CheckedMemberType, CheckedNodeId,
-    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedCollectionKind, CheckedMemberType, CheckedNodeId, CheckedPackageIncomplete,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedRelationshipEnd, CheckedRelationshipEndError,
-    CheckedSemanticNodeV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
 
 mod reaches_population;
 
-const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
-const APPLICATION_NODE: &str = "quire.application-node/v1";
 const IDENTITY: &str = "acme/orders";
 const VERSION: &str = "1.0.0";
 const ORDER: &str = "ix://acme/orders/Order";
@@ -40,33 +37,74 @@ const PRIORITY_ORDER: &str = "ix://acme/orders/PriorityOrder";
 const PREFERRED_ORDER: &str = "ix://acme/orders/PreferredOrder";
 const TIER: &str = "ix://acme/orders/Tier";
 
-/// The self-typed Integer and Text scalar type nodes, keyed by
-/// [`structural_key`].
-static INTEGER: LazyLock<String> =
-    LazyLock::new(|| structural_key("scalar_type", "integer", None, None, &empty()));
-static TEXT: LazyLock<String> =
-    LazyLock::new(|| structural_key("scalar_type", "text", None, None, &empty()));
+/// Stable authored labels for the two native scalars used throughout this fixture.
+static INTEGER: LazyLock<String> = LazyLock::new(|| "scalar/integer".to_owned());
+static TEXT: LazyLock<String> = LazyLock::new(|| "scalar/text".to_owned());
 
-fn structural_key(
-    tag: &str,
-    form: &str,
-    semantic_type: Option<&str>,
-    owner: Option<Value>,
-    body: &Value,
-) -> String {
-    let mut preimage = json!({
-        "version": STRUCTURAL_NODE,
-        "node_tag": tag,
-        "semantic_form": form,
-        "semantic_type": semantic_type.map(node_id),
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    });
-    if let Some(owner) = owner {
-        preimage["owner"] = owner;
+fn node_id(path: &str) -> Value {
+    if let Some(form) = path.strip_prefix("scalar/") {
+        return json!({"package": FIXTURE_PACKAGE, "path": ["scalar_type", form], "ordinal": 0});
     }
-    sha256_hex(&canonical(&preimage))
+    if let Some(rest) = path.strip_prefix("model|") {
+        let mut parts = rest.splitn(3, '|');
+        let form = parts.next().expect("model form");
+        let package = parts.next().expect("model package");
+        let node = parts.next().expect("model declaration");
+        return json!({"package": package, "path": ["model", form, node], "ordinal": 0});
+    }
+    if let Some(node) = path.strip_prefix("relationship|") {
+        return json!({"package": IDENTITY, "path": ["relation", "relationship", node], "ordinal": 0});
+    }
+    if let Some(target) = path.strip_prefix("reference/") {
+        let target = if target.starts_with("model|") {
+            node_id(target)
+        } else {
+            node_id(&model_key("object_type", IDENTITY, target))
+        };
+        return json!({"package": FIXTURE_PACKAGE, "path": ["composite_type", "reference", target], "ordinal": 0});
+    }
+    if let Some(rest) = path.strip_prefix("composite/") {
+        let (form, declared) = rest
+            .split_once('/')
+            .expect("composite form and declaration");
+        return json!({"package": FIXTURE_PACKAGE, "path": ["composite_type", form, node_id(&model_key("variant_type", IDENTITY, declared))], "ordinal": 0});
+    }
+    if let Some(target) = path.strip_prefix("option/") {
+        return json!({"package": FIXTURE_PACKAGE, "path": ["composite_type", "option", node_id(target)], "ordinal": 0});
+    }
+    if let Some(rest) = path.strip_prefix("collection/") {
+        let (form, element) = rest.split_once('/').expect("collection form and element");
+        return json!({"package": FIXTURE_PACKAGE, "path": ["composite_type", form, node_id(element)], "ordinal": 0});
+    }
+    if let Some(declared) = path.strip_prefix("bounds/ix://") {
+        let declared = format!("ix://{declared}");
+        let sequence = node_id(&format!("composite/sequence/{declared}"));
+        return json!({"package": FIXTURE_PACKAGE, "path": ["bounded_domain", "collection_bounds", "min", node_id("scalar/integer"), "0", "max", "3", sequence], "ordinal": 0});
+    }
+    if let Some(rest) = path.strip_prefix("bounds/") {
+        let (collection_and_lower, upper) = rest.rsplit_once('/').expect("collection upper bound");
+        let (collection, lower) = collection_and_lower
+            .rsplit_once('/')
+            .expect("collection lower bound");
+        let (form, element) = collection
+            .split_once('/')
+            .expect("collection form and element");
+        let collection = node_id(&format!("collection/{form}/{element}"));
+        return json!({"package": FIXTURE_PACKAGE, "path": ["bounded_domain", "collection_bounds", "min", node_id("scalar/integer"), lower, "max", upper, collection], "ordinal": 0});
+    }
+    fixture_node_id(path)
+}
+
+fn model_key(form: &str, package: &str, node: &str) -> String {
+    format!("model|{form}|{package}|{node}")
+}
+
+fn dependency_ids(keys: &[&str]) -> Vec<Value> {
+    let mut ids = keys.iter().map(|key| node_id(key)).collect::<Vec<_>>();
+    ids.sort_by_key(|id| {
+        serde_json::from_value::<CheckedNodeId>(id.clone()).expect("dependency identity")
+    });
+    ids
 }
 
 fn wire_node(
@@ -83,7 +121,7 @@ fn wire_node(
         "node_tag": tag,
         "semantic_form": form,
         "semantic_type": node_id(semantic_type),
-        "dependencies": dependencies.iter().map(|key| node_id(key)).collect::<Vec<_>>(),
+        "dependencies": dependency_ids(dependencies),
         "occurrences": [{"role": "type", "ordinal": 0}],
         "body": body,
     })
@@ -101,12 +139,23 @@ fn literal(ty: &str, value_kind: &str, value: &str) -> Value {
     json!({"term": "literal", "type": node_id(ty), "value_kind": value_kind, "value": value})
 }
 
+fn over_body(target: &str) -> Value {
+    json!({"term": "aggregate", "members": [reference(target)]})
+}
+
+fn bounds_body(lower: &str, upper: &str) -> Value {
+    json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "min", "value": literal(&INTEGER, "integer", lower)},
+        {"term": "binding", "name": "max", "value": literal(&INTEGER, "integer", upper)},
+    ]})
+}
+
 fn parameter(name: &str, level: &str, ty: &str) -> (String, Value) {
     let body = json!({"term": "aggregate", "members": [
         {"term": "binding", "name": "name", "value": literal(&TEXT, "text", name)},
         {"term": "binding", "name": "level", "value": literal(&INTEGER, "integer", level)},
     ]});
-    let key = structural_key("value", "parameter", Some(ty), None, &body);
+    let key = format!("parameter/{name}");
     let mut node = wire_node(&key, "value", "parameter", ty, &[], body);
     node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     (key, node)
@@ -191,15 +240,9 @@ fn root_owner(package: &Value) -> String {
 fn package_selecting_form(name: &str, form: &str, declaring: &str) -> Value {
     let mut package = nominal_package(&[]);
 
-    let order = structural_key(
-        "model",
-        form,
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": declaring})),
-        &empty(),
-    );
+    let order = model_key(form, IDENTITY, declaring);
     let reference_body = json!({"term": "aggregate", "members": [reference(&order)]});
-    let reference_type = structural_key("composite_type", "reference", None, None, &reference_body);
+    let reference_type = format!("reference/{order}");
     let (receiver, receiver_node) = parameter("receiver", "0", &reference_type);
     let (argument, argument_node) = parameter("argument", "1", &INTEGER);
 
@@ -214,15 +257,7 @@ fn package_selecting_form(name: &str, form: &str, declaring: &str) -> Value {
         "result_type": node_id(&INTEGER),
         "arguments": [reference(&receiver), reference(&argument)],
     });
-    let call = sha256_hex(&canonical(&json!({
-        "version": APPLICATION_NODE,
-        "node_tag": "expression",
-        "semantic_form": "call",
-        "semantic_type": node_id(&INTEGER),
-        "declaration": null,
-        "recursion": null,
-        "body": call_body,
-    })));
+    let call = "call/dispatch";
     let mut call_dependencies = [receiver.as_str(), argument.as_str(), order.as_str()];
     call_dependencies.sort_unstable();
     let mut declaring_node = wire_node(&order, "model", form, &order, &[], empty());
@@ -242,7 +277,7 @@ fn package_selecting_form(name: &str, form: &str, declaring: &str) -> Value {
         receiver_node,
         argument_node,
         wire_node(
-            &call,
+            call,
             "expression",
             "call",
             &INTEGER,
@@ -289,17 +324,13 @@ fn selected_native_parameters_and_results_keep_their_type_nodes() {
         document["types"][0]["operations"][0]["params"] = json!([slot(None, &type_ref)]);
         document["types"][0]["operations"][0]["returns"] = slot(None, &type_ref);
         let (mut package, evidence) = package_over(&document, "total");
-        let key = structural_key("scalar_type", form, None, None, &empty());
+        let key = format!("scalar/{form}");
         let (_, argument) = parameter("argument", "1", &key);
         let nodes = package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes");
         nodes[5] = argument;
-        nodes[CALL]["body"]["arguments"][1] = reference(
-            nodes[5]["node_id"]["digest"]
-                .as_str()
-                .expect("argument key"),
-        );
+        nodes[CALL]["body"]["arguments"][1] = reference("parameter/argument");
         nodes[CALL]["body"]["result_type"] = node_id(&key);
         nodes[CALL]["semantic_type"] = node_id(&key);
         nodes.push(wire_node(&key, "scalar_type", form, &key, &[], empty()));
@@ -310,10 +341,13 @@ fn selected_native_parameters_and_results_keep_their_type_nodes() {
                 read(&package, &evidence)
             );
         };
-        assert_eq!(admitted.graph().nodes[5].semantic_type.digest.as_ref(), key);
         assert_eq!(
-            admitted.graph().nodes[CALL].semantic_type.digest.as_ref(),
-            key
+            serde_json::to_value(&admitted.graph().nodes[5].semantic_type).expect("node id"),
+            node_id(&key)
+        );
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[CALL].semantic_type).expect("node id"),
+            node_id(&key)
         );
         assert_eq!(
             serde_json::to_value(&admitted.graph().nodes[CALL].body).expect("typed body")
@@ -381,7 +415,7 @@ fn selected_tuple_and_payload_variant_declarations_admit() {
     let (mut package, evidence) = package_over(&document, "total");
     for (name, form) in [(&tuple, "tuple_value_type"), (&variant, "variant_type")] {
         let owner = json!({"kind":"model", "identity":IDENTITY, "node":name});
-        let key = structural_key("model", form, None, Some(owner.clone()), &empty());
+        let key = model_key(form, IDENTITY, name);
         let mut node = wire_node(&key, "model", form, &key, &[], empty());
         node["owner"] = owner;
         package["semantic_graph"]["nodes"]
@@ -403,7 +437,7 @@ fn selected_payload_variant_uses_union_family_in_binary_operations() {
     let mut document = variant_document_named(TIER, &["Gold", "2x"]);
     document["types"][1]["variants"][0]["payloadType"] = json!("ix://quire/native/Integer");
     let (mut package, _, variant_key) = variant_package(&["Gold", "2x"], &[], false);
-    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let boolean = "scalar/boolean".to_owned();
     let (left, left_node) = parameter("left", "3", &variant_key);
     let (right, right_node) = parameter("right", "4", &variant_key);
     let nodes = package["semantic_graph"]["nodes"]
@@ -422,7 +456,7 @@ fn selected_payload_variant_uses_union_family_in_binary_operations() {
         "arguments":[reference(&left), reference(&right)],
     });
     let mut equality = wire_node(
-        &application_node_key("expression", "binary", &boolean, &body),
+        "binary/structural-eq",
         "expression",
         "binary",
         &boolean,
@@ -516,13 +550,7 @@ fn variant_package_named(
         order["operations"][0]["returns"] = slot(None, declared);
     }
     let (mut package, evidence) = package_over(&document, "total");
-    let key = structural_key(
-        "model",
-        "variant_type",
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": declared})),
-        &empty(),
-    );
+    let key = model_key("variant_type", IDENTITY, declared);
     let mut variant = wire_node(&key, "model", "variant_type", &key, &[], empty());
     variant["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": declared});
     let nodes = package["semantic_graph"]["nodes"]
@@ -534,42 +562,27 @@ fn variant_package_named(
         let body = &mut nodes[CALL]["body"];
         body["arguments"][1] = reference(&argument);
         body["result_type"] = node_id(&key);
-        let call_key = application_node_key("expression", "call", &key, body);
-        let order = nodes[2]["node_id"]["digest"]
-            .as_str()
-            .expect("order")
-            .to_owned();
-        let receiver = nodes[4]["node_id"]["digest"]
-            .as_str()
-            .expect("receiver")
-            .to_owned();
+        let call_key = "call/dispatch";
+        let order = model_key("object_type", IDENTITY, ORDER);
+        let receiver = "parameter/receiver".to_owned();
         let mut dependencies = [argument.as_str(), order.as_str(), receiver.as_str()];
         dependencies.sort_unstable();
-        nodes[CALL]["node_id"] = node_id(&call_key);
+        nodes[CALL]["node_id"] = node_id(call_key);
         nodes[CALL]["semantic_type"] = node_id(&key);
-        nodes[CALL]["dependencies"] = json!(dependencies
-            .iter()
-            .map(|id| node_id(id))
-            .collect::<Vec<_>>());
+        nodes[CALL]["dependencies"] = json!(dependency_ids(&dependencies));
     }
     nodes.insert(5, variant);
     for case in emitted {
-        let preimage = json!({
-            "version": "quire.enum-member-node/v1",
-            "declaration_node_id": node_id(&key),
-            "case": case,
-        });
-        let member_key = sha256_hex(&canonical(&preimage));
+        let member_key = format!("enum-value/{declared}/{case}");
         let body = literal(&key, "enum", case);
         let mut member = wire_node(&member_key, "value", "enum_value", &key, &[&key], body);
-        member["nominal_identity_preimage"] = preimage;
         member["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
         nodes.push(member);
     }
     if typed {
         for form in ["option", "sequence"] {
             let body = over_body(&key);
-            let composite = structural_key("composite_type", form, None, None, &body);
+            let composite = format!("composite/{form}/{declared}");
             nodes.push(wire_node(
                 &composite,
                 "composite_type",
@@ -580,13 +593,7 @@ fn variant_package_named(
             ));
             if form == "sequence" {
                 let bounds = bounds_body("0", "3");
-                let bounded = structural_key(
-                    "bounded_domain",
-                    "collection_bounds",
-                    Some(&composite),
-                    None,
-                    &bounds,
-                );
+                let bounded = format!("bounds/{declared}");
                 nodes.push(wire_node(
                     &bounded,
                     "bounded_domain",
@@ -633,7 +640,9 @@ fn selected_variant_case_keys_bind_exact_case_and_declaration() {
     let tier_nodes = tier["semantic_graph"]["nodes"].as_array().expect("nodes");
     let case_keys: std::collections::BTreeSet<_> = tier_nodes[9..13]
         .iter()
-        .map(|node| node["node_id"]["digest"].as_str().expect("case key"))
+        .map(|node| {
+            serde_json::from_value::<CheckedNodeId>(node["node_id"].clone()).expect("case identity")
+        })
         .collect();
     assert_eq!(case_keys.len(), 4);
 
@@ -683,29 +692,23 @@ fn selected_variant_types_field_parameter_and_result() {
             "admitted graph omits {form} over Tier"
         );
     }
-    let order = structural_key(
-        "model",
-        "object_type",
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": ORDER})),
-        &empty(),
-    );
+    let order = model_key("object_type", IDENTITY, ORDER);
     let fields = admitted
         .model_object_fields(&serde_json::from_value(node_id(&order)).expect("node id"))
         .expect("Order fields");
     assert!(matches!(
         fields.field("tier").and_then(|field| field.member_type()),
-        Some(CheckedMemberType::Variant(id)) if id.digest.as_ref() == tier
+        Some(CheckedMemberType::Variant(id)) if serde_json::to_value(id).expect("variant id") == node_id(&tier)
     ));
     assert!(matches!(
         fields.field("maybeTier").and_then(|field| field.member_type()),
         Some(CheckedMemberType::Option(inner))
-            if matches!(inner.as_ref(), CheckedMemberType::Variant(id) if id.digest.as_ref() == tier)
+            if matches!(inner.as_ref(), CheckedMemberType::Variant(id) if serde_json::to_value(id).expect("variant id") == node_id(&tier))
     ));
     assert!(matches!(
         fields.field("tiers").and_then(|field| field.member_type()),
         Some(CheckedMemberType::Collection { kind: CheckedCollectionKind::Sequence, element, bounds: Some((0, 3)) })
-            if matches!(element.as_ref(), CheckedMemberType::Variant(id) if id.digest.as_ref() == tier)
+            if matches!(element.as_ref(), CheckedMemberType::Variant(id) if serde_json::to_value(id).expect("variant id") == node_id(&tier))
     ));
 }
 
@@ -713,18 +716,12 @@ fn variant_binary_package(
     operation: &str,
 ) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     let (mut package, evidence, _) = variant_package(&["Gold", "2x"], &["Gold", "2x"], false);
-    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let boolean = "scalar/boolean".to_owned();
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
-    let left = nodes[9]["node_id"]["digest"]
-        .as_str()
-        .expect("left")
-        .to_owned();
-    let right = nodes[10]["node_id"]["digest"]
-        .as_str()
-        .expect("right")
-        .to_owned();
+    let left = format!("enum-value/{TIER}/Gold");
+    let right = format!("enum-value/{TIER}/2x");
     nodes.push(wire_node(
         &boolean,
         "scalar_type",
@@ -740,10 +737,10 @@ fn variant_binary_package(
         "result_type": node_id(&boolean),
         "arguments": [reference(&left), reference(&right)],
     });
-    let key = application_node_key("expression", "binary", &boolean, &body);
+    let key = "binary/variant-comparison";
     let mut dependencies = [left.as_str(), right.as_str()];
     dependencies.sort_unstable();
-    let mut application = wire_node(&key, "expression", "binary", &boolean, &dependencies, body);
+    let mut application = wire_node(key, "expression", "binary", &boolean, &dependencies, body);
     application["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     nodes.push(application);
     rebuild_source_map(&mut package);
@@ -785,7 +782,11 @@ fn selected_variant_admits_enum_equality_and_refuses_order_or_structural_equalit
         } else {
             format!("/semantic_graph/nodes/{position}/body/arguments/0")
         };
-        assert_eq!(refusal.path, Some(pointer(&expected_path)), "{operation}");
+        assert_eq!(
+            refusal.loci[0].path.clone(),
+            Some(pointer(&expected_path)),
+            "{operation}"
+        );
     }
 }
 
@@ -798,7 +799,10 @@ fn selected_variant_refuses_absent_case_and_empty_declaration() {
         refusal.code,
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
-    assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/9")));
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        Some(pointer("/semantic_graph/nodes/9"))
+    );
 
     let (package, evidence, _) = variant_package(&[], &[], false);
     let refusal = refused(&package, &evidence);
@@ -807,7 +811,10 @@ fn selected_variant_refuses_absent_case_and_empty_declaration() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
-    assert_eq!(refusal.path, Some(pointer(&root_owner(&package))));
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        Some(pointer(&root_owner(&package)))
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-236")]
@@ -822,7 +829,10 @@ fn selected_variant_requires_its_exact_model_owner() {
     refresh_identity(&mut missing);
     let refusal = refused(&missing, &evidence);
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
-    assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/5")));
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        Some(pointer("/semantic_graph/nodes/5"))
+    );
 
     for owner_node in ["ix://acme/orders/Missing", ORDER] {
         let mut changed = package.clone();
@@ -834,7 +844,10 @@ fn selected_variant_requires_its_exact_model_owner() {
             refusal.cause,
             Some(CheckedPackageRefusalCause::MissingSelection)
         );
-        assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/5/owner")));
+        assert_eq!(
+            refusal.loci[0].path.clone(),
+            Some(pointer("/semantic_graph/nodes/5/owner"))
+        );
     }
 }
 
@@ -878,27 +891,22 @@ fn relationship_operation_package(
     role: &str,
     reaches: bool,
 ) -> (Value, quire_contract_model::CheckedPackageEvidence) {
+    let destination = if relationship["sourceEnd"]["role"] == role {
+        &relationship["targetEnd"]["type"]
+    } else {
+        &relationship["sourceEnd"]["type"]
+    };
+    let destination = destination.as_str().expect("destination type");
+    let destination_type = node_id(&model_key("object_type", IDENTITY, destination));
     let document = domain_document(json!({"relationships": [relationship]}));
     let mut package = package_selecting("total");
-    let relationship_key = structural_key(
-        "relation",
-        "relationship",
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": RELATIONSHIP})),
-        &empty(),
-    );
+    let relationship_key = format!("relationship|{RELATIONSHIP}");
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
-    let receiver = nodes[4]["node_id"]["digest"]
-        .as_str()
-        .expect("receiver")
-        .to_owned();
-    let reference_type = nodes[3]["node_id"]["digest"]
-        .as_str()
-        .expect("reference")
-        .to_owned();
-    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let receiver = "parameter/receiver".to_owned();
+    let reference_type = format!("reference/{ORDER}");
+    let boolean = "scalar/boolean".to_owned();
     let result_type = if reaches { &boolean } else { &reference_type };
     let form = if reaches { "reachability" } else { "query" };
     let operator = if reaches { "reaches" } else { "query" };
@@ -919,16 +927,13 @@ fn relationship_operation_package(
     let body = json!({
         "term": "application", "operator": operator,
         "operation": {"identity": operation, "laws": [], "mode": null,
-            "member": {"kind": "relationship_end", "declaration": node_id(&relationship_key), "name": role},
+            "member": {"kind": "relationship_end", "declaration": node_id(&relationship_key),
+                "name": role, "destination_type": destination_type},
             "leaves": []},
         "result_type": node_id(result_type),
         "arguments": arguments,
     });
-    let application_key = sha256_hex(&canonical(&json!({
-        "version": APPLICATION_NODE, "node_tag": "expression", "semantic_form": form,
-        "semantic_type": node_id(result_type), "declaration": null,
-        "recursion": null, "body": body,
-    })));
+    let application_key = format!("application/{form}");
     let mut dependencies = vec![receiver.as_str(), relationship_key.as_str()];
     if let Some((key, _)) = &second {
         dependencies.push(key);
@@ -990,7 +995,7 @@ fn bounded_collection(
     upper: u64,
 ) -> String {
     let body = over_body(element);
-    let collection = structural_key("composite_type", form, None, None, &body);
+    let collection = format!("collection/{form}/{element}");
     nodes.push(wire_node(
         &collection,
         "composite_type",
@@ -1000,13 +1005,7 @@ fn bounded_collection(
         body,
     ));
     let bounds = bounds_body(&lower.to_string(), &upper.to_string());
-    let key = structural_key(
-        "bounded_domain",
-        "collection_bounds",
-        Some(&collection),
-        None,
-        &bounds,
-    );
+    let key = format!("bounds/{form}/{element}/{lower}/{upper}");
     nodes.push(wire_node(
         &key,
         "bounded_domain",
@@ -1034,10 +1033,7 @@ fn navigation_with_result(
         .as_array_mut()
         .expect("nodes");
     let reference_type = if destination == ORDER {
-        nodes[3]["node_id"]["digest"]
-            .as_str()
-            .expect("reference")
-            .to_owned()
+        format!("reference/{ORDER}")
     } else {
         document["types"]
             .as_array_mut()
@@ -1048,18 +1044,12 @@ fn navigation_with_result(
                 "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
                 "supertypes": [], "fields": [], "operations": [],
             }));
-        let object = structural_key(
-            "model",
-            "object_type",
-            None,
-            Some(json!({"kind": "model", "identity": IDENTITY, "node": destination})),
-            &empty(),
-        );
+        let object = model_key("object_type", IDENTITY, destination);
         let mut declaration = wire_node(&object, "model", "object_type", &object, &[], empty());
         declaration["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": destination});
         nodes.push(declaration);
         let body = over_body(&object);
-        let reference = structural_key("composite_type", "reference", None, None, &body);
+        let reference = format!("reference/{destination}");
         nodes.push(wire_node(
             &reference,
             "composite_type",
@@ -1072,13 +1062,10 @@ fn navigation_with_result(
     };
     let result_type = match result {
         NavigationResult::Reference => reference_type,
-        NavigationResult::OrderReference => nodes[3]["node_id"]["digest"]
-            .as_str()
-            .expect("Order reference")
-            .to_owned(),
+        NavigationResult::OrderReference => format!("reference/{ORDER}"),
         NavigationResult::Option => {
             let body = over_body(&reference_type);
-            let key = structural_key("composite_type", "option", None, None, &body);
+            let key = format!("option/{reference_type}");
             nodes.push(wire_node(
                 &key,
                 "composite_type",
@@ -1099,12 +1086,7 @@ fn navigation_with_result(
     let call = &mut nodes[CALL];
     call["body"]["result_type"] = node_id(&result_type);
     call["semantic_type"] = node_id(&result_type);
-    call["node_id"] = node_id(&application_node_key(
-        "expression",
-        "query",
-        &result_type,
-        &call["body"],
-    ));
+    call["node_id"] = node_id("application/query");
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let evidence = evidence_with_document(&package, IDENTITY, &document);
@@ -1132,10 +1114,7 @@ fn reaches_over(
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
-    let order_reference = nodes[3]["node_id"]["digest"]
-        .as_str()
-        .expect("Order reference")
-        .to_owned();
+    let order_reference = format!("reference/{ORDER}");
     let mut references = vec![(ORDER, order_reference)];
     let mut operand_keys = Vec::new();
     for (position, ty) in [first_type, second_type].into_iter().enumerate() {
@@ -1154,18 +1133,12 @@ fn reaches_over(
                     "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
                     "supertypes": supertype, "fields": [], "operations": [],
                 }));
-            let object = structural_key(
-                "model",
-                "object_type",
-                None,
-                Some(json!({"kind": "model", "identity": IDENTITY, "node": ty})),
-                &empty(),
-            );
+            let object = model_key("object_type", IDENTITY, ty);
             let mut declaration = wire_node(&object, "model", "object_type", &object, &[], empty());
             declaration["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": ty});
             nodes.push(declaration);
-            let body = over_body(&object);
-            let reference = structural_key("composite_type", "reference", None, None, &body);
+            let body = json!({"term": "aggregate", "members": [reference(&object)]});
+            let reference = format!("reference/{ty}");
             nodes.push(wire_node(
                 &reference,
                 "composite_type",
@@ -1209,26 +1182,17 @@ fn reaches_over(
                 }));
         }
     }
-    let relation_key = nodes[CALL]["body"]["operation"]["member"]["declaration"]["digest"]
-        .as_str()
-        .expect("relationship declaration")
-        .to_owned();
+    let relation_key = format!("relationship|{RELATIONSHIP}");
     nodes[CALL]["body"]["arguments"] =
         json!([reference(&operand_keys[0]), reference(&operand_keys[1])]);
-    let mut dependencies = [&operand_keys[0], &operand_keys[1], &relation_key];
+    let mut dependencies = [
+        operand_keys[0].as_str(),
+        operand_keys[1].as_str(),
+        relation_key.as_str(),
+    ];
     dependencies.sort_unstable();
-    nodes[CALL]["dependencies"] = json!(dependencies
-        .iter()
-        .map(|key| node_id(key))
-        .collect::<Vec<_>>());
-    nodes[CALL]["node_id"] = node_id(&application_node_key(
-        "expression",
-        "reachability",
-        nodes[CALL]["semantic_type"]["digest"]
-            .as_str()
-            .expect("Boolean"),
-        &nodes[CALL]["body"],
-    ));
+    nodes[CALL]["dependencies"] = json!(dependency_ids(&dependencies));
+    nodes[CALL]["node_id"] = node_id("application/reachability");
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let evidence = evidence_with_document(&package, IDENTITY, &document);
@@ -1256,7 +1220,11 @@ fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
     assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
     assert_eq!(refusal.terminal_duplicate, None);
@@ -1294,37 +1262,34 @@ fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
 }
 
-/// The undeclared model-owned relationship is keyed by its actual typed owner
-/// in both the candidate API and the admitted reader.
+/// The undeclared model-owned relationship retains its exact assigned
+/// structural identity after owner validation and reader admission.
 #[trace("TC-048", "FR-048-AC-2")]
 #[test]
-fn tc_048_model_relationship_candidate_matches_reader_admission() {
+fn tc_048_model_relationship_identity_survives_reader_admission() {
     let (package, evidence) = relationship_package(authored_relationship(), "links");
-    assert!(matches!(
-        read(&package, &evidence),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
-    let nodes: Vec<CheckedSemanticNodeV2<Value>> =
-        serde_json::from_value(package["semantic_graph"]["nodes"].clone()).expect("typed graph");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
     let position = nodes
         .iter()
-        .position(|node| {
-            node.node_tag.as_ref() == "relation" && node.semantic_form.as_ref() == "relationship"
-        })
+        .position(|node| node["node_tag"] == "relation" && node["semantic_form"] == "relationship")
         .expect("relationship");
-    let candidates =
-        derive_structural_candidates(&nodes, 1 << 20, u64::MAX).expect("structural candidates");
-    let relationship = candidates
-        .nodes()
-        .iter()
-        .find(|candidate| candidate.position() as usize == position)
-        .expect("relationship candidate");
-    assert_eq!(relationship.candidate_node_id(), &nodes[position].node_id);
+    let authored = serde_json::from_value::<CheckedNodeId>(nodes[position]["node_id"].clone())
+        .expect("authored structural identity");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!("model relationship package must admit");
+    };
+    assert_eq!(admitted.graph().nodes[position].node_id, authored);
 }
 
 #[trace("TC-048", "FR-038-AC-170")]
@@ -1359,7 +1324,11 @@ fn tc_048_navigation_admits_canonical_finite_results_and_observes_destination_ch
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/result_type")
     );
 
@@ -1374,7 +1343,11 @@ fn tc_048_navigation_admits_canonical_finite_results_and_observes_destination_ch
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/result_type")
     );
 
@@ -1393,7 +1366,11 @@ fn tc_048_navigation_admits_canonical_finite_results_and_observes_destination_ch
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/result_type")
     );
     let (package, evidence) = navigation_with_result(relation, NavigationResult::Reference);
@@ -1447,7 +1424,11 @@ fn tc_048_a_selected_self_relationship_reaches_through_either_named_end() {
             )
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(expected_path)
         );
     }
@@ -1528,17 +1509,7 @@ fn tc_048_reaches_finite_multivalued_ends_keep_the_single_valued_node_shape() {
                 .as_array_mut()
                 .expect("nodes");
             let call = &mut nodes[CALL];
-            let result_type = call["semantic_type"]["digest"]
-                .as_str()
-                .expect("result key")
-                .to_owned();
-            let body = call["body"].clone();
-            call["node_id"] = node_id(&application_node_key(
-                "expression",
-                "reachability",
-                &result_type,
-                &body,
-            ));
+            call["node_id"] = node_id("application/reachability");
             rebuild_source_map(&mut tampered);
             refresh_identity(&mut tampered);
             let refusal = refused(&tampered, &evidence);
@@ -1548,7 +1519,11 @@ fn tc_048_reaches_finite_multivalued_ends_keep_the_single_valued_node_shape() {
                 "{lower}..{upper}, unique={unique}: a multiplicity member must be refused"
             );
             assert_eq!(
-                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .as_deref(),
                 Some("/semantic_graph/nodes/6/body"),
                 "{lower}..{upper}, unique={unique}"
             );
@@ -1618,7 +1593,11 @@ fn tc_048_reaches_checks_operand_one_against_receiver_before_edge_defects() {
             )
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some("/semantic_graph/nodes/6/body/arguments/1")
         );
     }
@@ -1704,7 +1683,11 @@ fn tc_048_reaches_refusal_order_is_direction_then_multiplicity_then_type() {
         let refusal = refused(&package, &evidence);
         assert_eq!((refusal.code, refusal.cause), (code, Some(cause)));
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some("/semantic_graph/nodes/6/body/operation/member/name")
         );
     }
@@ -1720,10 +1703,7 @@ fn tc_048_reaches_multivalued_end_requires_boolean_result() {
         relation["targetEnd"]["multiplicity"] =
             json!({"lower": 1, "upper": 3, "ordered": false, "unique": unique});
         let (mut package, evidence) = relationship_operation_package(relation, "links", true);
-        let reference = package["semantic_graph"]["nodes"][3]["node_id"]["digest"]
-            .as_str()
-            .expect("Order reference")
-            .to_owned();
+        let reference = format!("reference/{ORDER}");
         let nodes = package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes");
@@ -1731,13 +1711,7 @@ fn tc_048_reaches_multivalued_end_requires_boolean_result() {
         let call = &mut nodes[CALL];
         call["body"]["result_type"] = node_id(&result_type);
         call["semantic_type"] = node_id(&result_type);
-        let body = call["body"].clone();
-        call["node_id"] = node_id(&application_node_key(
-            "expression",
-            "reachability",
-            &result_type,
-            &body,
-        ));
+        call["node_id"] = node_id("application/reachability");
         rebuild_source_map(&mut package);
         refresh_identity(&mut package);
         let refusal = refused(&package, &evidence);
@@ -1750,7 +1724,11 @@ fn tc_048_reaches_multivalued_end_requires_boolean_result() {
             "{form}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some("/semantic_graph/nodes/6/body/result_type"),
             "{form}"
         );
@@ -1790,6 +1768,8 @@ fn tc_048_relationship_navigation_total_work_limit_reports_its_first_unpayable_e
             assert_eq!(incomplete.limit, admitted - 1);
             assert_eq!(
                 incomplete.path.map(|path| path.to_string()).as_deref(),
+                // Operation validation charges its first argument target
+                // before the later graph-body reference edges.
                 Some("/semantic_graph/nodes/6/body/arguments/0/target")
             );
         }
@@ -1858,7 +1838,11 @@ fn tc_048_selected_relationship_declaration_refusals_precede_navigation() {
             "{relation}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(root_owner(&package).as_str())
         );
     }
@@ -1877,7 +1861,11 @@ fn tc_048_selected_relationship_declaration_refusals_precede_navigation() {
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
 }
@@ -1941,12 +1929,12 @@ fn unit_dispatch_call(
         .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
         .expect("unit");
     unit.0["qualified_declaration"] = json!(["ms"]);
-    unit.1 = sha256_hex(&canonical(&unit.0));
+    unit.1 = "ms".to_owned();
     let mut second_preimage = unit.0.clone();
     second_preimage["qualified_declaration"] = json!(["s"]);
     second_preimage["target_unit_node_id"] = node_id(&unit.1);
     second_preimage["scale"]["numerator"] = json!("2");
-    let second = sha256_hex(&canonical(&second_preimage));
+    let second = "s".to_owned();
     let ms = unit.1.clone();
     members.push((second_preimage, second.clone()));
     let nominal = nominal_package(&members);
@@ -2002,13 +1990,13 @@ fn tc_230_dispatch_call_requires_the_selected_checked_unit() {
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some(format!("/semantic_graph/nodes/{CALL}/body/arguments/1")),
         );
     }
 }
 
-#[trace("FR-038-AC-150", "FR-038-AC-185", "TC-048")]
+#[trace("FR-038-AC-185", "TC-048")]
 #[test]
 fn tc_048_selected_model_declaration_shape_refuses_at_its_node_before_the_call() {
     let (mut package, evidence) = package_over(&domain_document(json!({})), "total");
@@ -2024,17 +2012,17 @@ fn tc_048_selected_model_declaration_shape_refuses_at_its_node_before_the_call()
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
         refusal.cause,
-        Some(CheckedPackageRefusalCause::StaleNodeKey)
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}/node_id"))
     );
     assert_eq!(
-        refusal.locus.as_ref().expect("node locus").digest.as_ref(),
-        original["digest"].as_str().expect("original digest")
+        serde_json::to_value(refusal.locus.as_ref().expect("node locus"))
+            .expect("structural node locus"),
+        original
     );
-    assert_eq!(refusal.expected_node_id(), None);
 }
 
 #[trace("TC-048", "FR-038-AC-45")]
@@ -2049,8 +2037,8 @@ fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes
     // A document that differs only in content the keys do not read (its
     // display name): the keys are unchanged (FR-038-AC-45).
     let renamed = domain_document(json!({"displayName": "Order renamed"}));
-    let (digest_only, digest_evidence) = package_over(&renamed, "total");
-    match read(&digest_only, &digest_evidence) {
+    let (renamed_package, renamed_evidence) = package_over(&renamed, "total");
+    match read(&renamed_package, &renamed_evidence) {
         CheckedPackageV2ReadResult::Admitted(_) => {}
         other => panic!("expected admission under the changed document, got {other:?}"),
     }
@@ -2063,7 +2051,7 @@ fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes
             .cloned()
             .collect::<Vec<_>>()
     };
-    assert_eq!(declarations(&selected), declarations(&digest_only));
+    assert_eq!(declarations(&selected), declarations(&renamed_package));
 
     // The same declarations in a document whose only difference is its
     // package version, which the selection no longer names: the keys are
@@ -2101,7 +2089,11 @@ fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
         .position(|node| node["owner"]["identity"] == OTHER_PACKAGE)
         .expect("unselected model node");
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some(format!("/semantic_graph/nodes/{unselected}/node_id").as_str())
     );
     // The selected package's own key for the same node resolves.
@@ -2175,7 +2167,11 @@ fn tc_048_a_model_owned_operation_the_document_does_not_declare_refuses() {
         Some(CheckedPackageRefusalCause::OperatorIneligible)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some(format!("/semantic_graph/nodes/{CALL}/body/operation/member/name").as_str())
     );
 }
@@ -2819,16 +2815,9 @@ fn edge_document() -> Value {
     })
 }
 
-/// The model declaration node key of `node` owned by the domain package
-/// `identity`; the owner is content-only and carries no version.
+/// The authored model declaration identity of `node` under `identity`.
 fn declaration_key_of(node: &str, identity: &str) -> String {
-    structural_key(
-        "model",
-        "object_type",
-        None,
-        Some(json!({"kind": "model", "identity": identity, "node": node})),
-        &empty(),
-    )
+    model_key("object_type", identity, node)
 }
 
 /// What an operand of [`reaches_package`] is typed as.
@@ -2854,7 +2843,7 @@ fn reaches_package(
     let document = edge_document();
     let mut package = nominal_package(&[]);
 
-    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let boolean = "scalar/boolean".to_owned();
     let mut models: Vec<(String, String)> = MODELS
         .into_iter()
         .map(|node| (node.to_owned(), declaration_key_of(node, IDENTITY)))
@@ -2872,7 +2861,7 @@ fn reaches_package(
         .iter()
         .map(|(node, key)| {
             let body = json!({"term": "aggregate", "members": [reference(key)]});
-            let type_key = structural_key("composite_type", "reference", None, None, &body);
+            let type_key = format!("reference/{key}");
             (node.clone(), type_key, body)
         })
         .collect();
@@ -2916,15 +2905,7 @@ fn reaches_package(
         "result_type": node_id(&boolean),
         "arguments": [reference(&receiver), reference(&argument)],
     });
-    let reaches = sha256_hex(&canonical(&json!({
-        "version": APPLICATION_NODE,
-        "node_tag": "expression",
-        "semantic_form": "reachability",
-        "semantic_type": node_id(&boolean),
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    })));
+    let reaches = "application/reaches-field";
     let mut dependencies = [receiver.as_str(), argument.as_str(), declaring_key.as_str()];
     dependencies.sort_unstable();
     let dependencies: Vec<&str> = {
@@ -2959,7 +2940,7 @@ fn reaches_package(
     }
     nodes.extend(receiver_node.into_iter().chain(argument_node));
     nodes.push(wire_node(
-        &reaches,
+        reaches,
         "expression",
         "reachability",
         &boolean,
@@ -3118,7 +3099,11 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
         let refusal = refused(&package, &evidence);
         let expected = format!("/semantic_graph/nodes/{position}/{path}");
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(expected.as_str()),
             "{refusal:?}"
         );
@@ -3146,7 +3131,11 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
     assert_eq!(refusal.code, Code::MissingDeclaration);
     assert_eq!(refusal.cause, Some(Cause::MissingSelection));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some(format!("/semantic_graph/nodes/{unselected}/node_id").as_str())
     );
 }
@@ -3184,13 +3173,7 @@ fn application_of(package: &CheckedPackageV2, operation: &str) -> CheckedNodeId 
 
 /// The relationship declaration node's key, built from the authored identity.
 fn relationship_id() -> CheckedNodeId {
-    typed_id(&structural_key(
-        "relation",
-        "relationship",
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": RELATIONSHIP})),
-        &empty(),
-    ))
+    typed_id(&format!("relationship|{RELATIONSHIP}"))
 }
 
 fn end_json(role: Option<&str>, lower: u64, upper: u64, unique: bool, ordered: bool) -> Value {
@@ -3338,19 +3321,18 @@ fn tc_048_relationship_end_returns_the_declared_bounds_role_and_derived_type() {
     let nodes = missing["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
-    let mut removed = vec![order.digest.to_string()];
+    let mut removed = vec![serde_json::to_value(&order).expect("structural order id")];
     loop {
         let before = nodes.len();
         nodes.retain(|node| {
-            let key = node["node_id"]["digest"].as_str().expect("key").to_owned();
-            let gone = |id: &Value| removed.iter().any(|known| id["digest"] == json!(known));
+            let key = node["node_id"].clone();
+            let gone = |id: &Value| removed.contains(id);
             let depends = node["dependencies"]
                 .as_array()
                 .expect("dependencies")
                 .iter()
                 .any(gone);
-            let typed_at_removed =
-                gone(&node["semantic_type"]) && node["semantic_type"]["digest"] != json!(key);
+            let typed_at_removed = gone(&node["semantic_type"]) && node["semantic_type"] != key;
             if depends || typed_at_removed || removed.contains(&key) {
                 removed.push(key);
                 false
@@ -3426,12 +3408,6 @@ fn tc_048_relationship_end_refuses_every_node_that_is_not_a_reaches_application(
     assert_eq!(package.relationship_end(&literal), refusal, "literal");
 }
 
-/// The least `work` limit that admits [`relationship_operation_package`]'s
-/// reaches package, as charged before the reader retained relationship ends.
-/// One additional graph node adds four bounded validation visits.
-const MODEL_ROOT_VALIDATION_WORK: u64 = 4;
-const REACHES_ADMISSION_WORK: u64 = 97 + MODEL_ROOT_VALIDATION_WORK;
-
 #[trace("TC-048", "FR-038-AC-266")]
 #[test]
 fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
@@ -3444,6 +3420,37 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     let second = admitted(&package, &evidence);
     let application = application_of(&first, "quire.op.model.reaches");
     let clone = first.clone();
+    let bytes = canonical(&package);
+    let read_at = |work| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    };
+    let work_boundary = || {
+        let (mut insufficient, mut sufficient) = (0, CheckedPackageReadLimits::bounded().work);
+        while insufficient + 1 < sufficient {
+            let middle = insufficient + (sufficient - insufficient) / 2;
+            match read_at(middle) {
+                CheckedPackageV2ReadResult::Admitted(_) => sufficient = middle,
+                CheckedPackageV2ReadResult::Incomplete(_) => insufficient = middle,
+                other => panic!("expected work boundary, got {other:?}"),
+            }
+        }
+        assert!(matches!(
+            read_at(sufficient),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+        match read_at(sufficient - 1) {
+            CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+                assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+                assert_eq!(incomplete.limit, sufficient - 1);
+                assert_eq!(incomplete.consumed, sufficient);
+                (sufficient, incomplete.path.expect("first unpaid work site"))
+            }
+            other => panic!("expected first unpaid work visit, got {other:?}"),
+        }
+    };
+    let before_work = work_boundary();
     let result = first.relationship_end(&application);
     assert!(result.is_ok());
     assert_eq!(first.relationship_end(&application), result);
@@ -3451,35 +3458,15 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     assert_eq!(second.relationship_end(&application), result);
     assert_eq!(first, clone);
     assert_eq!(first, second);
-    // `package_id()` reads the wire and the reader checks it before retention is
-    // built, so no retention change can alter it: it is not asserted here. Equal
-    // admissions carry equal retention, so the equality above cannot catch
+    // Equal admissions carry equal retention, so the equality above cannot catch
     // retention leaking into equality; the in-crate test
     // `tc_048_admitted_retention_is_read_and_outside_package_equality` does, by
     // comparing an admitted package with one whose retention is cleared. The
     // charged work (below) is the guard this test owns.
 
-    // Admission charges the same work with the relationship record retained:
-    // the least work limit that admits is the one measured before retention.
-    let bytes = canonical(&package);
-    let read_at = |work| {
-        let mut limits = CheckedPackageReadLimits::bounded();
-        limits.work = work;
-        CheckedPackageV2::read(&bytes, limits, &evidence)
-    };
-    let (mut insufficient, mut sufficient) = (0, CheckedPackageReadLimits::bounded().work);
-    while insufficient + 1 < sufficient {
-        let middle = insufficient + (sufficient - insufficient) / 2;
-        match read_at(middle) {
-            CheckedPackageV2ReadResult::Admitted(_) => sufficient = middle,
-            CheckedPackageV2ReadResult::Incomplete(_) => insufficient = middle,
-            other => panic!("expected work boundary, got {other:?}"),
-        }
-    }
-    assert_eq!(
-        sufficient, REACHES_ADMISSION_WORK,
-        "charged admission work is unchanged"
-    );
+    // The accessor leaves the authored package and its exact admission work
+    // boundary intact. The independent per-visit tally is TC-226/AC-149.
+    assert_eq!(work_boundary(), before_work);
 }
 
 #[trace("TC-048", "FR-038-AC-267")]

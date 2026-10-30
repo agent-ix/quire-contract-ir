@@ -10,7 +10,7 @@ use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
     RefinementPopulation, RefinementStep,
 };
-use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
+use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment};
 use crate::identity::ExecutionPoint;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::ser::{SerializeMap, SerializeSeq};
@@ -75,12 +75,10 @@ pub enum CheckedApplicationOperationFixtureError {
     /// A law definition had an empty identity.
     #[error("law definition identity is empty")]
     EmptyLawIdentity,
-    /// The member declaration key had an invalid domain.
-    #[error("member declaration domain is invalid")]
-    InvalidMemberDomain,
-    /// The member declaration key had an invalid digest.
-    #[error("member declaration digest is invalid")]
-    InvalidMemberDigest,
+    /// The member declaration has an empty package or path, or an ordinal
+    /// outside the exact JSON integer range.
+    #[error("member declaration node id is invalid")]
+    InvalidMemberNodeId,
 }
 
 /// The admitted kind and value of an operation's mode.
@@ -160,13 +158,12 @@ impl CheckedApplicationOperation {
                 return Err(FixtureError::EmptyLawIdentity);
             }
         }
-        if let Some(key) = &fixture.member_declaration {
-            if key.domain.as_ref() != super::NODE_DOMAIN {
-                return Err(FixtureError::InvalidMemberDomain);
-            }
-            if !super::is_digest(&key.digest) {
-                return Err(FixtureError::InvalidMemberDigest);
-            }
+        if fixture
+            .member_declaration
+            .as_ref()
+            .is_some_and(|key| !key.is_well_formed())
+        {
+            return Err(FixtureError::InvalidMemberNodeId);
         }
 
         let mut record = serde_json::Map::new();
@@ -525,7 +522,7 @@ pub enum CheckedTerm {
     /// A reference to a selected dependency package node.
     DependencyReference {
         /// Dependency package identity.
-        package: CheckedSemanticId,
+        package: Box<str>,
         /// The dependency's node key.
         node: CheckedNodeId,
     },
@@ -587,6 +584,9 @@ pub enum CheckedTerm {
         /// Ordered clause bindings.
         clauses: Vec<CheckedTerm>,
     },
+    /// Closed source-authored enum, dimension, unit or equivalence body.
+    #[serde(untagged, skip_deserializing)]
+    NominalBody(Box<super::identity::NominalBody>),
     /// A dedicated operation anchor body; its bare point is not a term.
     #[serde(untagged, skip_deserializing)]
     OperationAnchorBody(Box<CheckedOperationAnchorBody>),
@@ -719,6 +719,7 @@ impl CheckedTerm {
                     member.visit_reference_targets(visitor);
                 }
             }
+            Self::NominalBody(body) => body.visit_reference_targets(visitor),
             Self::Binding { value, .. } => value.visit_reference_targets(visitor),
             Self::ExtensionForm { clauses, .. } => {
                 for clause in clauses {
@@ -779,6 +780,7 @@ impl CheckedTerm {
                     member.replace_node_id(old, new);
                 }
             }
+            Self::NominalBody(body) => body.replace_node_id(old, new),
             Self::Binding { value, .. } => value.replace_node_id(old, new),
             Self::DependencyReference { node, .. } => replace(node, old, new),
             Self::Frame {
@@ -882,11 +884,13 @@ impl CheckedTerm {
     /// already accepted. Public serde decoding does not provide that bound.
     pub(super) fn decode_admitted(value: &Value) -> Result<Self, TermConversionCause> {
         if value.get("term").and_then(Value::as_str) == Some("refinement") {
-            return serde_json::from_value(value.clone()).map_err(|error| {
-                TermConversionCause::MalformedMember {
-                    member: "refinement",
-                    category: error.classify(),
-                }
+            return super::refinement::decode_body(
+                value,
+                &crate::checked_package::common::Trail::Base(&[]),
+            )
+            .map_err(|_| TermConversionCause::MalformedMember {
+                member: "refinement",
+                category: Category::Data,
             });
         }
         fn field<T: DeserializeOwned>(
@@ -981,6 +985,17 @@ impl CheckedTerm {
 
 impl Encode for CheckedTerm {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        fn encode_rational<S: Sink + ?Sized>(
+            value: &super::identity::CheckedRational,
+            writer: &mut Writer<'_, S>,
+        ) -> Result<(), Error> {
+            writer.begin_object()?;
+            writer.name("numerator")?;
+            writer.string(&value.numerator)?;
+            writer.name("denominator")?;
+            writer.string(&value.denominator)?;
+            writer.end_object()
+        }
         writer.begin_object()?;
         match self {
             Self::Literal {
@@ -991,7 +1006,7 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("literal")?;
                 writer.name("type")?;
-                writer.serialize(type_id)?;
+                type_id.encode_into(writer)?;
                 writer.name("value_kind")?;
                 writer.serialize(value_kind)?;
                 writer.name("value")?;
@@ -1001,7 +1016,7 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("reference")?;
                 writer.name("target")?;
-                writer.serialize(target)?;
+                target.encode_into(writer)?;
             }
             Self::Application {
                 operator,
@@ -1016,7 +1031,7 @@ impl Encode for CheckedTerm {
                 writer.name("operation")?;
                 operation.encode_into(writer)?;
                 writer.name("result_type")?;
-                writer.serialize(result_type)?;
+                result_type.encode_into(writer)?;
                 writer.name("arguments")?;
                 writer.begin_array()?;
                 for argument in arguments {
@@ -1048,7 +1063,7 @@ impl Encode for CheckedTerm {
                 writer.name("package")?;
                 writer.serialize(package)?;
                 writer.name("node")?;
-                writer.serialize(node)?;
+                node.encode_into(writer)?;
             }
             Self::Frame {
                 modifies,
@@ -1059,11 +1074,11 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("frame")?;
                 writer.name("modifies")?;
-                writer.serialize(modifies)?;
+                super::refinement::encode_rows(modifies, writer)?;
                 writer.name("creates")?;
-                writer.serialize(creates)?;
+                super::refinement::encode_rows(creates, writer)?;
                 writer.name("deletes")?;
-                writer.serialize(deletes)?;
+                super::refinement::encode_rows(deletes, writer)?;
                 writer.name("deletes_scoped")?;
                 writer.serialize(deletes_scoped)?;
             }
@@ -1075,11 +1090,11 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("abstraction_relation")?;
                 writer.name("objects")?;
-                writer.serialize(objects)?;
+                super::refinement::encode_rows(objects, writer)?;
                 writer.name("populations")?;
-                writer.serialize(populations)?;
+                super::refinement::encode_rows(populations, writer)?;
                 writer.name("frames")?;
-                writer.serialize(frames)?;
+                super::refinement::encode_rows(frames, writer)?;
             }
             Self::Refinement {
                 abstract_key,
@@ -1097,11 +1112,11 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("refinement")?;
                 writer.name("abstract")?;
-                writer.serialize(abstract_key.as_ref())?;
+                abstract_key.encode_into(writer)?;
                 writer.name("profile")?;
                 writer.serialize(profile)?;
                 writer.name("populations")?;
-                writer.serialize(populations)?;
+                super::refinement::encode_rows(populations, writer)?;
                 writer.name("objects")?;
                 super::refinement::encode_rows(objects, writer)?;
                 writer.name("steps")?;
@@ -1109,12 +1124,12 @@ impl Encode for CheckedTerm {
                 writer.name("histories")?;
                 super::refinement::encode_rows(histories, writer)?;
                 writer.name("assume")?;
-                writer.serialize(assume)?;
+                super::refinement::encode_rows(assume, writer)?;
                 writer.name("ensure")?;
-                writer.serialize(ensure)?;
+                super::refinement::encode_rows(ensure, writer)?;
                 if let Some(protocol) = protocol {
                     writer.name("protocol")?;
-                    writer.serialize(protocol.as_ref())?;
+                    protocol.encode_into(writer)?;
                 }
                 if let Some(internal) = abstract_internal {
                     writer.name("abstract_internal")?;
@@ -1122,7 +1137,7 @@ impl Encode for CheckedTerm {
                 }
                 if let Some(catalog) = class_catalog {
                     writer.name("class_catalog")?;
-                    writer.serialize(catalog)?;
+                    catalog.encode_into(writer)?;
                 }
             }
             Self::ExtensionForm {
@@ -1143,6 +1158,67 @@ impl Encode for CheckedTerm {
                 }
                 writer.end_array()?;
             }
+            Self::NominalBody(body) => match body.kind() {
+                super::identity::NominalBodyKind::Enum { ordered, members } => {
+                    writer.name("term")?;
+                    writer.string("enum")?;
+                    writer.name("ordered")?;
+                    writer.serialize(ordered)?;
+                    writer.name("members")?;
+                    writer.serialize(members)?;
+                }
+                super::identity::NominalBodyKind::Dimension { terms } => {
+                    writer.name("term")?;
+                    writer.string("dimension")?;
+                    writer.name("terms")?;
+                    writer.begin_array()?;
+                    for term in terms {
+                        writer.begin_object()?;
+                        writer.name("dimension_node_id")?;
+                        term.dimension_node_id.encode_into(writer)?;
+                        writer.name("exponent")?;
+                        writer.string(&term.exponent)?;
+                        writer.end_object()?;
+                    }
+                    writer.end_array()?;
+                }
+                super::identity::NominalBodyKind::Unit {
+                    dimension_node_id,
+                    target_unit_node_id,
+                    scale,
+                    offset,
+                } => {
+                    writer.name("term")?;
+                    writer.string("unit")?;
+                    writer.name("dimension_node_id")?;
+                    dimension_node_id.encode_into(writer)?;
+                    writer.name("target_unit_node_id")?;
+                    if let Some(target) = target_unit_node_id {
+                        target.encode_into(writer)?;
+                    } else {
+                        writer.serialize(&Option::<u8>::None)?;
+                    }
+                    writer.name("scale")?;
+                    encode_rational(scale, writer)?;
+                    writer.name("offset")?;
+                    encode_rational(offset, writer)?;
+                }
+                super::identity::NominalBodyKind::DimensionEquivalence {
+                    dimension_node_ids,
+                    root_scale,
+                } => {
+                    writer.name("term")?;
+                    writer.string("dimension_equivalence")?;
+                    writer.name("dimension_node_ids")?;
+                    writer.begin_array()?;
+                    for id in dimension_node_ids {
+                        id.encode_into(writer)?;
+                    }
+                    writer.end_array()?;
+                    writer.name("root_scale")?;
+                    encode_rational(root_scale, writer)?;
+                }
+            },
             Self::OperationAnchorBody(body) => {
                 writer.name("term")?;
                 writer.string("aggregate")?;
@@ -1169,31 +1245,84 @@ impl Encode for CheckedTerm {
 }
 
 fn replace_node_ids_in_value(value: &mut Value, old: &CheckedNodeId, new: &CheckedNodeId) {
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                replace_node_ids_in_value(item, old, new);
-            }
+    let mut pending = vec![value];
+    while let Some(current) = pending.pop() {
+        if value_is_node_id(current, old) {
+            *current = node_id_value(new);
+            continue;
         }
-        Value::Object(object) => {
-            if object.len() == 2
-                && object.get("domain").and_then(Value::as_str) == Some(old.domain.as_ref())
-                && object.get("digest").and_then(Value::as_str) == Some(old.digest.as_ref())
-            {
-                object.insert("domain".into(), Value::String(new.domain.to_string()));
-                object.insert("digest".into(), Value::String(new.digest.to_string()));
-            } else {
-                for member in object.values_mut() {
-                    replace_node_ids_in_value(member, old, new);
-                }
-            }
+        match current {
+            Value::Array(items) => pending.extend(items.iter_mut()),
+            Value::Object(object) => pending.extend(object.values_mut()),
+            _ => {}
         }
-        _ => {}
     }
 }
 
+fn value_is_node_id(value: &Value, id: &CheckedNodeId) -> bool {
+    let mut pending = vec![(value, id)];
+    while let Some((value, id)) = pending.pop() {
+        let Some(object) = value.as_object() else {
+            return false;
+        };
+        if object.len() != 3
+            || object.get("package").and_then(Value::as_str) != Some(id.package.as_ref())
+            || object.get("ordinal").and_then(Value::as_u64) != Some(id.ordinal)
+        {
+            return false;
+        }
+        let Some(path) = object.get("path").and_then(Value::as_array) else {
+            return false;
+        };
+        if path.len() != id.path.len() {
+            return false;
+        }
+        for (segment, expected) in path.iter().zip(&id.path) {
+            match expected {
+                CheckedNodePathSegment::Name(name) if segment.as_str() == Some(name.as_ref()) => {}
+                CheckedNodePathSegment::Node(node) => pending.push((segment, node)),
+                _ => return false,
+            }
+        }
+    }
+    true
+}
+
+fn node_id_value(id: &CheckedNodeId) -> Value {
+    enum Task<'a> {
+        Node(&'a CheckedNodeId),
+        Name(&'a str),
+        Finish(&'a CheckedNodeId),
+    }
+    let mut pending = vec![Task::Node(id)];
+    let mut values = Vec::new();
+    while let Some(task) = pending.pop() {
+        match task {
+            Task::Node(node) => {
+                pending.push(Task::Finish(node));
+                for segment in node.path.iter().rev() {
+                    pending.push(match segment {
+                        CheckedNodePathSegment::Name(name) => Task::Name(name),
+                        CheckedNodePathSegment::Node(child) => Task::Node(child),
+                    });
+                }
+            }
+            Task::Name(name) => values.push(Value::String(name.to_owned())),
+            Task::Finish(node) => {
+                let path = values.split_off(values.len() - node.path.len());
+                let mut object = serde_json::Map::new();
+                object.insert("package".into(), Value::String(node.package.to_string()));
+                object.insert("path".into(), Value::Array(path));
+                object.insert("ordinal".into(), Value::Number(node.ordinal.into()));
+                values.push(Value::Object(object));
+            }
+        }
+    }
+    values.pop().expect("one constructed node id")
+}
+
 /// One frame write grant.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedFrameModification {
     /// A relationship declaration.
@@ -1236,7 +1365,7 @@ pub enum CheckedScopedDeletion {
 }
 
 /// One abstraction object mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionObject {
     /// Model type node.
@@ -1261,7 +1390,7 @@ pub struct CheckedAbstractionField {
 }
 
 /// One abstraction population mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionPopulation {
     /// Population node.
@@ -1271,7 +1400,7 @@ pub struct CheckedAbstractionPopulation {
 }
 
 /// One abstraction frame mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionFrame {
     /// Context node.
@@ -1295,6 +1424,76 @@ pub struct CheckedAbstractionParameter {
     /// Rust parameter.
     #[serde(rename = "rust_parameter")]
     pub parameter_ident: Box<str>,
+}
+
+impl Encode for CheckedFrameModification {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        match self {
+            Self::Relationship { declaration } => {
+                writer.name("kind")?;
+                writer.string("relationship")?;
+                writer.name("declaration")?;
+                declaration.encode_into(writer)?;
+            }
+            Self::Field {
+                declaration,
+                name,
+                scope,
+            } => {
+                writer.name("kind")?;
+                writer.string("field")?;
+                writer.name("declaration")?;
+                declaration.encode_into(writer)?;
+                writer.name("name")?;
+                writer.serialize(name)?;
+                writer.name("scope")?;
+                writer.serialize(scope)?;
+            }
+        }
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedAbstractionObject {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("type")?;
+        self.type_id.encode_into(writer)?;
+        writer.name("rust_type")?;
+        writer.serialize(&self.type_path)?;
+        writer.name("fields")?;
+        writer.serialize(&self.fields)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedAbstractionPopulation {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("population")?;
+        self.population.encode_into(writer)?;
+        writer.name("collection")?;
+        writer.serialize(&self.collection)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedAbstractionFrame {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("context")?;
+        self.context.encode_into(writer)?;
+        writer.name("operation")?;
+        writer.serialize(&self.operation)?;
+        writer.name("function")?;
+        writer.serialize(&self.function)?;
+        writer.name("receiver")?;
+        writer.serialize(&self.receiver)?;
+        writer.name("parameters")?;
+        writer.serialize(&self.parameters)?;
+        writer.end_object()
+    }
 }
 
 #[cfg(test)]
@@ -1432,14 +1631,9 @@ mod tests {
     #[test]
     fn checked_term_variants_round_trip_the_closed_wire_arms() {
         let node = json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": "a".repeat(64)
+            "package": "test-package", "path": ["node-a"], "ordinal": 0
         });
-        let package = json!({
-            "domain": "quire.package.semantic/v2",
-            "algorithm": "sha256",
-            "digest": "b".repeat(64)
-        });
+        let package = "dependency-package";
         let literal = json!({"term":"literal","type":node,"value_kind":"integer","value":"1"});
         let reference = json!({"term":"reference","target":node});
         let dependency = json!({"term":"dependency_reference","package":package,"node":node});
@@ -1512,6 +1706,7 @@ mod tests {
                 CheckedTerm::Refinement { .. } => "refinement",
                 CheckedTerm::ExtensionForm { .. } => "extension_form",
                 CheckedTerm::OperationAnchorBody(_) => "operation_anchor_body",
+                CheckedTerm::NominalBody(_) => "nominal_body",
             };
             assert_eq!(actual, expected);
             if let CheckedTerm::Application { arguments, .. } = &term {
@@ -1534,7 +1729,7 @@ mod tests {
         }
         assert!(
             CheckedTerm::decode_admitted(&json!({"term":"group_reference","ordinal":0})).is_err(),
-            "a preimage-only group reference cannot become a wire term"
+            "an internal group reference cannot become a wire term"
         );
     }
 
@@ -1542,12 +1737,12 @@ mod tests {
     #[test]
     fn public_producer_helpers_build_typed_terms_and_visit_reference_targets() {
         let node = serde_json::from_value(json!({
-            "domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)
+            "package": "test-package", "path": ["node-a"], "ordinal": 0
         }))
         .expect("node identity");
         let replacement: crate::checked_package::shared::CheckedNodeId =
             serde_json::from_value(json!({
-                "domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)
+                "package": "test-package", "path": ["node-b"], "ordinal": 0
             }))
             .expect("replacement identity");
         let mut body = CheckedTerm::aggregate(vec![
@@ -1561,12 +1756,12 @@ mod tests {
         assert_eq!(body.reference_targets(), [&replacement]);
         let wire = serde_json::to_value(&body).expect("producer term serializes");
         assert_eq!(
-            wire["members"][0]["value"]["target"]["digest"],
-            "b".repeat(64)
+            wire["members"][0]["value"]["target"]["path"],
+            json!(["node-b"])
         );
         assert_eq!(wire["members"][1]["value"], "plain text");
 
-        let mut refinement: CheckedTerm = serde_json::from_value(json!({
+        let refinement_wire = json!({
             "term":"refinement", "abstract":old,
             "profile":{"authority":"test","identity":"trace"},
             "populations":[],"objects":[],
@@ -1575,8 +1770,9 @@ mod tests {
             "histories":[],"assume":[],"ensure":[],
             "class_catalog":{"concrete":[{"class":"finish","node":old,
                 "binder_types":[old]}],"abstract":[]}
-        }))
-        .expect("typed refinement");
+        });
+        let mut refinement = CheckedTerm::decode_admitted(&refinement_wire)
+            .expect("typed refinement through the admitted decoder");
         refinement.replace_node_id(&old, &replacement);
         let wire = serde_json::to_value(&refinement).expect("refinement serializes");
         let replacement_wire = serde_json::to_value(&replacement).expect("node serializes");

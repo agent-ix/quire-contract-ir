@@ -1,26 +1,25 @@
 //! Closed FR-375 refinement body vocabulary and reader checks.
 
-use super::encode::RefinementNodePreimage;
 use super::CheckedTerm;
 use crate::checked_package::common::{
-    decoder_pointer, locate_closed_value_failure, validate_term, ReferenceVisitor, TermGrammar,
-    Trail, ValidationFailure,
+    validate_term, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
-    CheckedSourceRef, CheckedSourceRegion,
+    CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry, CheckedSourceRef,
+    CheckedSourceRegion,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 /// Source region of one canonical refinement step row, outside package identity.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedRefinementStepRowRegion {
     /// Retained refinement relation node.
@@ -31,43 +30,22 @@ pub struct CheckedRefinementStepRowRegion {
     pub region: CheckedSourceRegion,
 }
 
+impl Encode for CheckedRefinementStepRowRegion {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::encoded(writer, "node_id", &self.node_id)?;
+        super::encode::member(writer, "ordinal", &self.ordinal)?;
+        super::encode::member(writer, "region", &self.region)?;
+        writer.end_object()
+    }
+}
+
 fn node_at(position: usize) -> crate::checked_package::shared::JsonPointer {
     crate::checked_package::common::node_pointer(position)
 }
 
-pub(super) fn stale_refinement_key(
-    node: &super::RawSemanticNodeV2,
-    position: usize,
-    bytes: u64,
-) -> Result<(), ValidationFailure> {
-    let computed = quire_canonical::sha256(
-        &RefinementNodePreimage {
-            semantic_type: &node.semantic_type,
-            body: &node.body,
-        },
-        quire_canonical::Limits::new(bytes),
-    )
-    .map_err(|_| {
-        ValidationFailure::refused(
-            CheckedPackageRefusalCode::MalformedWire,
-            node_at(position).key("body"),
-        )
-    })?;
-    if computed.to_string() == node.node_id.digest.as_ref() {
-        return Ok(());
-    }
-    Err(ValidationFailure::refused_stale_node_key(
-        node_at(position).key("node_id"),
-        node.node_id.clone(),
-        CheckedNodeId {
-            domain: node.node_id.domain.clone(),
-            digest: computed.to_string().into(),
-        },
-    ))
-}
-
 /// A refinement target is either a local node or a node in a directly selected package.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RefinementKey {
     /// A declaration in this graph.
@@ -77,17 +55,17 @@ pub enum RefinementKey {
 }
 
 /// A node of a directly selected dependency package.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementPackageNodeKey {
     /// The selected package identity.
-    pub package: CheckedSemanticId,
+    pub package: Box<str>,
     /// The target node identity in that package.
     pub node: CheckedNodeId,
 }
 
 /// One abstract and concrete population pair.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementPopulation {
     /// Abstract population.
@@ -186,7 +164,7 @@ pub struct RefinementStep {
 }
 
 /// Checked classes of the selected concrete and abstract subjects.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementClassCatalog {
     /// Concrete operation, protocol and memory classes.
@@ -196,7 +174,7 @@ pub struct RefinementClassCatalog {
 }
 
 /// A concrete class with a declaration or a source-default memory step.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum RefinementConcreteClass {
     /// A class backed by a local declaration node.
@@ -213,7 +191,7 @@ pub enum RefinementConcreteClass {
 }
 
 /// An abstract class with a declaration or a source-default memory step.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum RefinementAbstractClass {
     /// A class backed by a selected declaration node.
@@ -389,7 +367,7 @@ pub enum RefinementGranularity {
 }
 
 /// One concrete fairness assumption.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementAssume {
     /// Concrete operation.
@@ -401,7 +379,7 @@ pub struct RefinementAssume {
 }
 
 /// One abstract fairness guarantee.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementEnsure {
     /// Abstract operation.
@@ -425,6 +403,100 @@ pub(super) fn encode_rows<T: Encode, S: Sink + ?Sized>(
     writer.end_array()
 }
 
+impl Encode for RefinementKey {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        match self {
+            Self::Local(node) => node.encode_into(writer),
+            Self::External(external) => external.encode_into(writer),
+        }
+    }
+}
+
+impl Encode for RefinementPackageNodeKey {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::member(writer, "package", &self.package)?;
+        super::encode::encoded(writer, "node", &self.node)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementPopulation {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::encoded(writer, "abstract", &self.r#abstract)?;
+        super::encode::encoded(writer, "concrete", &self.concrete)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementConcreteClass {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        match self {
+            Self::Memory(memory) => writer.serialize(memory),
+            Self::Declared {
+                class,
+                node,
+                binder_types,
+            } => {
+                writer.begin_object()?;
+                super::encode::member(writer, "class", class)?;
+                super::encode::encoded(writer, "node", node)?;
+                super::encode::elements(writer, "binder_types", binder_types)?;
+                writer.end_object()
+            }
+        }
+    }
+}
+
+impl Encode for RefinementAbstractClass {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        match self {
+            Self::Memory(memory) => writer.serialize(memory),
+            Self::Declared {
+                class,
+                node,
+                binder_types,
+            } => {
+                writer.begin_object()?;
+                super::encode::member(writer, "class", class)?;
+                super::encode::encoded(writer, "node", node)?;
+                super::encode::elements(writer, "binder_types", binder_types)?;
+                writer.end_object()
+            }
+        }
+    }
+}
+
+impl Encode for RefinementClassCatalog {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::elements(writer, "concrete", &self.concrete)?;
+        super::encode::elements(writer, "abstract", &self.r#abstract)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementAssume {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::encoded(writer, "operation", &self.operation)?;
+        super::encode::member(writer, "kind", &self.kind)?;
+        super::encode::member(writer, "granularity", &self.granularity)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementEnsure {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::encoded(writer, "operation", &self.operation)?;
+        super::encode::member(writer, "kind", &self.kind)?;
+        super::encode::member(writer, "granularity", &self.granularity)?;
+        writer.end_object()
+    }
+}
+
 impl Encode for RefinementField {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
@@ -440,9 +512,9 @@ impl Encode for RefinementObject {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         writer.name("abstract_type")?;
-        writer.serialize(&self.abstract_type)?;
+        self.abstract_type.encode_into(writer)?;
         writer.name("concrete_type")?;
-        writer.serialize(&self.concrete_type)?;
+        self.concrete_type.encode_into(writer)?;
         writer.name("fields")?;
         encode_rows(&self.fields, writer)?;
         writer.end_object()
@@ -470,7 +542,7 @@ impl Encode for RefinementStepTarget {
             } => {
                 writer.string("operation")?;
                 writer.name("operation")?;
-                writer.serialize(operation)?;
+                operation.encode_into(writer)?;
                 writer.name("receiver")?;
                 receiver.encode_into(writer)?;
                 writer.name("arguments")?;
@@ -486,7 +558,7 @@ impl Encode for RefinementStepTarget {
                 writer.string(class)?;
                 if let Some(node) = node {
                     writer.name("node")?;
-                    writer.serialize(node)?;
+                    node.encode_into(writer)?;
                 }
                 writer.name("arguments")?;
                 encode_rows(arguments, writer)?;
@@ -505,7 +577,7 @@ impl Encode for RefinementStep {
         writer.string(&self.source_class)?;
         if let Some(node) = &self.source_node {
             writer.name("source_node")?;
-            writer.serialize(node)?;
+            node.encode_into(writer)?;
         }
         writer.name("target")?;
         self.target.encode_into(writer)?;
@@ -517,7 +589,7 @@ impl Encode for RefinementHistoryUpdate {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         writer.name("operation")?;
-        writer.serialize(&self.operation)?;
+        self.operation.encode_into(writer)?;
         writer.name("expression")?;
         self.expression.encode_into(writer)?;
         writer.end_object()
@@ -528,11 +600,11 @@ impl Encode for RefinementHistory {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         writer.name("concrete_type")?;
-        writer.serialize(&self.concrete_type)?;
+        self.concrete_type.encode_into(writer)?;
         writer.name("name")?;
         writer.string(&self.name)?;
         writer.name("type")?;
-        writer.serialize(&self.type_id)?;
+        self.type_id.encode_into(writer)?;
         writer.name("initial")?;
         self.initial.encode_into(writer)?;
         writer.name("updates")?;
@@ -717,6 +789,275 @@ fn array<'a>(
         .ok_or_else(|| invalid(&at.key(name)))
 }
 
+fn typed<T: DeserializeOwned>(value: &Value, at: &Trail<'_>) -> Result<T, ValidationFailure> {
+    serde_json::from_value(value.clone()).map_err(|_| invalid(at))
+}
+
+fn shape(
+    value: &Value,
+    required: &[&str],
+    optional: &[&str],
+    at: &Trail<'_>,
+) -> Result<(), ValidationFailure> {
+    let object = value.as_object().ok_or_else(|| invalid(at))?;
+    for name in required {
+        if !object.contains_key(*name) {
+            return Err(invalid(&at.key(name)));
+        }
+    }
+    if let Some(extra) = object
+        .keys()
+        .find(|name| !required.contains(&name.as_str()) && !optional.contains(&name.as_str()))
+    {
+        return Err(invalid(&at.key(extra)));
+    }
+    Ok(())
+}
+
+fn text(value: &Value, at: &Trail<'_>) -> Result<Box<str>, ValidationFailure> {
+    value.as_str().map(Into::into).ok_or_else(|| invalid(at))
+}
+
+fn node(value: &Value, at: &Trail<'_>) -> Result<CheckedNodeId, ValidationFailure> {
+    CheckedNodeId::from_value(value).ok_or_else(|| invalid(at))
+}
+
+fn key(value: &Value, at: &Trail<'_>) -> Result<RefinementKey, ValidationFailure> {
+    if value.get("node").is_some() {
+        shape(value, &["package", "node"], &[], at)?;
+        let package = text(member(value, "package", at)?, &at.key("package"))?;
+        let target = node(member(value, "node", at)?, &at.key("node"))?;
+        Ok(RefinementKey::External(RefinementPackageNodeKey {
+            package,
+            node: target,
+        }))
+    } else {
+        node(value, at).map(RefinementKey::Local)
+    }
+}
+
+fn term(value: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure> {
+    super::flat_wire::check_refinement_term(value, at)?;
+    CheckedTerm::decode_admitted(value).map_err(|_| invalid(at))
+}
+
+fn rows<T>(
+    value: &Value,
+    name: &str,
+    at: &Trail<'_>,
+    mut parse: impl FnMut(&Value, &Trail<'_>) -> Result<T, ValidationFailure>,
+) -> Result<Vec<T>, ValidationFailure> {
+    array(value, name, at)?
+        .iter()
+        .enumerate()
+        .map(|(index, row)| parse(row, &at.key(name).index(index)))
+        .collect()
+}
+
+fn parse_argument(
+    value: &Value,
+    at: &Trail<'_>,
+) -> Result<RefinementStepArgument, ValidationFailure> {
+    if value.get("term").and_then(Value::as_str) == Some("open") {
+        shape(value, &["term"], &[], at)?;
+        Ok(RefinementStepArgument::Open(RefinementOpen {
+            term: "open".into(),
+        }))
+    } else {
+        Ok(RefinementStepArgument::Term(Box::new(term(value, at)?)))
+    }
+}
+
+#[ix_trace_rs::string_edge]
+fn parse_target(value: &Value, at: &Trail<'_>) -> Result<RefinementStepTarget, ValidationFailure> {
+    let kind = member(value, "kind", at)?
+        .as_str()
+        .ok_or_else(|| invalid(&at.key("kind")))?;
+    match kind {
+        "operation" => {
+            shape(
+                value,
+                &["kind", "operation", "receiver", "arguments"],
+                &[],
+                at,
+            )?;
+            Ok(RefinementStepTarget::Operation {
+                operation: key(member(value, "operation", at)?, &at.key("operation"))?,
+                receiver: Box::new(term(member(value, "receiver", at)?, &at.key("receiver"))?),
+                arguments: rows(value, "arguments", at, parse_argument)?,
+            })
+        }
+        "protocol_step" => {
+            shape(value, &["kind", "class", "arguments"], &["node"], at)?;
+            Ok(RefinementStepTarget::ProtocolStep {
+                class: text(member(value, "class", at)?, &at.key("class"))?,
+                node: value
+                    .get("node")
+                    .map(|v| key(v, &at.key("node")))
+                    .transpose()?,
+                arguments: rows(value, "arguments", at, parse_argument)?,
+            })
+        }
+        "stutter" => {
+            shape(value, &["kind"], &[], at)?;
+            Ok(RefinementStepTarget::Stutter)
+        }
+        "any" => {
+            shape(value, &["kind"], &[], at)?;
+            Ok(RefinementStepTarget::Any)
+        }
+        _ => Err(invalid(&at.key("kind"))),
+    }
+}
+
+fn parse_concrete_class(
+    value: &Value,
+    at: &Trail<'_>,
+) -> Result<RefinementConcreteClass, ValidationFailure> {
+    if value.get("node").is_none() {
+        return typed(value, at).map(RefinementConcreteClass::Memory);
+    }
+    shape(value, &["class", "node", "binder_types"], &[], at)?;
+    Ok(RefinementConcreteClass::Declared {
+        class: text(member(value, "class", at)?, &at.key("class"))?,
+        node: node(member(value, "node", at)?, &at.key("node"))?,
+        binder_types: rows(value, "binder_types", at, node)?,
+    })
+}
+
+fn parse_abstract_class(
+    value: &Value,
+    at: &Trail<'_>,
+) -> Result<RefinementAbstractClass, ValidationFailure> {
+    if value.get("node").is_none() {
+        return typed(value, at).map(RefinementAbstractClass::Memory);
+    }
+    shape(value, &["class", "node", "binder_types"], &[], at)?;
+    Ok(RefinementAbstractClass::Declared {
+        class: text(member(value, "class", at)?, &at.key("class"))?,
+        node: key(member(value, "node", at)?, &at.key("node"))?,
+        binder_types: rows(value, "binder_types", at, key)?,
+    })
+}
+
+/// Decode a refinement after the closed wire checks, without passing a
+/// structural node path through serde's recursive Value deserializer.
+pub(super) fn decode_body(body: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure> {
+    check_body_header(body, at)?;
+    let populations = rows(body, "populations", at, |value, at| {
+        shape(value, &["abstract", "concrete"], &[], at)?;
+        Ok(RefinementPopulation {
+            r#abstract: key(member(value, "abstract", at)?, &at.key("abstract"))?,
+            concrete: node(member(value, "concrete", at)?, &at.key("concrete"))?,
+        })
+    })?;
+    let objects = rows(body, "objects", at, |value, at| {
+        shape(
+            value,
+            &["abstract_type", "concrete_type", "fields"],
+            &[],
+            at,
+        )?;
+        Ok(RefinementObject {
+            abstract_type: key(
+                member(value, "abstract_type", at)?,
+                &at.key("abstract_type"),
+            )?,
+            concrete_type: node(
+                member(value, "concrete_type", at)?,
+                &at.key("concrete_type"),
+            )?,
+            fields: rows(value, "fields", at, |value, at| {
+                shape(value, &["name", "expression"], &[], at)?;
+                Ok(RefinementField {
+                    name: text(member(value, "name", at)?, &at.key("name"))?,
+                    expression: term(member(value, "expression", at)?, &at.key("expression"))?,
+                })
+            })?,
+        })
+    })?;
+    let steps = rows(body, "steps", at, |value, at| {
+        shape(value, &["source_class", "target"], &["source_node"], at)?;
+        Ok(RefinementStep {
+            source_class: text(member(value, "source_class", at)?, &at.key("source_class"))?,
+            source_node: value
+                .get("source_node")
+                .map(|v| node(v, &at.key("source_node")))
+                .transpose()?,
+            target: parse_target(member(value, "target", at)?, &at.key("target"))?,
+        })
+    })?;
+    let histories = rows(body, "histories", at, |value, at| {
+        shape(
+            value,
+            &["concrete_type", "name", "type", "initial", "updates"],
+            &[],
+            at,
+        )?;
+        Ok(RefinementHistory {
+            concrete_type: node(
+                member(value, "concrete_type", at)?,
+                &at.key("concrete_type"),
+            )?,
+            name: text(member(value, "name", at)?, &at.key("name"))?,
+            type_id: node(member(value, "type", at)?, &at.key("type"))?,
+            initial: term(member(value, "initial", at)?, &at.key("initial"))?,
+            updates: rows(value, "updates", at, |value, at| {
+                shape(value, &["operation", "expression"], &[], at)?;
+                Ok(RefinementHistoryUpdate {
+                    operation: node(member(value, "operation", at)?, &at.key("operation"))?,
+                    expression: term(member(value, "expression", at)?, &at.key("expression"))?,
+                })
+            })?,
+        })
+    })?;
+    let assume = rows(body, "assume", at, |value, at| {
+        shape(value, &["operation", "kind", "granularity"], &[], at)?;
+        Ok(RefinementAssume {
+            operation: node(member(value, "operation", at)?, &at.key("operation"))?,
+            kind: typed(member(value, "kind", at)?, &at.key("kind"))?,
+            granularity: typed(member(value, "granularity", at)?, &at.key("granularity"))?,
+        })
+    })?;
+    let ensure = rows(body, "ensure", at, |value, at| {
+        shape(value, &["operation", "kind", "granularity"], &[], at)?;
+        Ok(RefinementEnsure {
+            operation: key(member(value, "operation", at)?, &at.key("operation"))?,
+            kind: typed(member(value, "kind", at)?, &at.key("kind"))?,
+            granularity: typed(member(value, "granularity", at)?, &at.key("granularity"))?,
+        })
+    })?;
+    let class_catalog = body
+        .get("class_catalog")
+        .map(|value| {
+            let at = at.key("class_catalog");
+            Ok(RefinementClassCatalog {
+                concrete: rows(value, "concrete", &at, parse_concrete_class)?,
+                r#abstract: rows(value, "abstract", &at, parse_abstract_class)?,
+            })
+        })
+        .transpose()?;
+    Ok(CheckedTerm::Refinement {
+        abstract_key: Box::new(key(member(body, "abstract", at)?, &at.key("abstract"))?),
+        profile: typed(member(body, "profile", at)?, &at.key("profile"))?,
+        populations,
+        objects,
+        steps,
+        histories,
+        assume,
+        ensure,
+        protocol: body
+            .get("protocol")
+            .map(|v| key(v, &at.key("protocol")).map(Box::new))
+            .transpose()?,
+        abstract_internal: body
+            .get("abstract_internal")
+            .map(|_| rows(body, "abstract_internal", at, text))
+            .transpose()?,
+        class_catalog,
+    })
+}
+
 /// Walk each actual semantic term in FR-375 row order. The special `open`
 /// argument is not a semantic term and is excluded here.
 fn row_terms(
@@ -777,19 +1118,14 @@ fn row_terms(
     Ok(())
 }
 
-/// Check the complete closed body before hashing the package, including the
+/// Check the complete closed body before graph admission, including the
 /// nested flat-term rule that applies to each row expression independently.
 pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
     check_body_header(body, at)?;
     if let Some(catalog) = body.get("class_catalog") {
         check_catalog_wire(catalog, &at.key("class_catalog"))?;
     }
-    let typed = serde_json::from_value::<CheckedTerm>(body.clone()).map_err(|_| {
-        let path = locate_closed_value_failure::<CheckedTerm>(body)
-            .map(|(path, _)| decoder_pointer(at.pointer(), &path))
-            .unwrap_or_else(|| at.pointer());
-        ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, path)
-    })?;
+    let typed = decode_body(body, at)?;
     let CheckedTerm::Refinement {
         steps,
         histories,
@@ -975,10 +1311,10 @@ pub(super) fn validate_body(
 }
 
 impl RefinementKey {
-    fn digest(&self) -> &str {
+    fn node_id(&self) -> &CheckedNodeId {
         match self {
-            Self::Local(node) => &node.digest,
-            Self::External(key) => &key.node.digest,
+            Self::Local(node) => node,
+            Self::External(key) => &key.node,
         }
     }
 
@@ -1016,7 +1352,7 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
         ));
     };
     for (index, pair) in populations.windows(2).enumerate() {
-        if pair[0].r#abstract.digest() >= pair[1].r#abstract.digest() {
+        if pair[0].r#abstract.node_id() >= pair[1].r#abstract.node_id() {
             return Err(order_defect(position, "populations", index + 1));
         }
     }
@@ -1036,13 +1372,13 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
         }
     }
     for (index, pair) in objects.windows(2).enumerate() {
-        if pair[0].abstract_type.digest() >= pair[1].abstract_type.digest() {
+        if pair[0].abstract_type.node_id() >= pair[1].abstract_type.node_id() {
             return Err(order_defect(position, "objects", index + 1));
         }
     }
     for (index, history) in histories.iter().enumerate() {
         for (update_index, pair) in history.updates.windows(2).enumerate() {
-            if pair[0].operation.digest >= pair[1].operation.digest {
+            if pair[0].operation >= pair[1].operation {
                 return Err(ValidationFailure::refused(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     node_at(position)
@@ -1056,8 +1392,8 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
         }
     }
     for (index, pair) in histories.windows(2).enumerate() {
-        if (pair[0].concrete_type.digest.as_ref(), pair[0].name.as_ref())
-            >= (pair[1].concrete_type.digest.as_ref(), pair[1].name.as_ref())
+        if (&pair[0].concrete_type, pair[0].name.as_ref())
+            >= (&pair[1].concrete_type, pair[1].name.as_ref())
         {
             return Err(order_defect(position, "histories", index + 1));
         }
@@ -1075,12 +1411,8 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
                 RefinementGranularity::Whole => "whole",
             }
         }
-        fn key(row: &RefinementAssume) -> (&str, &str, &str) {
-            (
-                &row.operation.digest,
-                kind(row.kind),
-                granularity(row.granularity),
-            )
+        fn key(row: &RefinementAssume) -> (&CheckedNodeId, &str, &str) {
+            (&row.operation, kind(row.kind), granularity(row.granularity))
         }
         if key(&pair[0]) >= key(&pair[1]) {
             return Err(order_defect(position, "assume", index + 1));
@@ -1099,9 +1431,9 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
                 RefinementGranularity::Whole => "whole",
             }
         }
-        fn key(row: &RefinementEnsure) -> (&str, &str, &str) {
+        fn key(row: &RefinementEnsure) -> (&CheckedNodeId, &str, &str) {
             (
-                row.operation.digest(),
+                row.operation.node_id(),
                 kind(row.kind),
                 granularity(row.granularity),
             )
@@ -1152,7 +1484,7 @@ pub(super) struct RefinementGraph<'a, 'e> {
     terms: &'a [Option<CheckedTerm>],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
     dependencies: &'a super::SuppliedDependencies<'e>,
-    package_id: &'a CheckedSemanticId,
+    package_name: &'a str,
 }
 
 impl<'a, 'e> RefinementGraph<'a, 'e> {
@@ -1162,7 +1494,7 @@ impl<'a, 'e> RefinementGraph<'a, 'e> {
         terms: &'a [Option<CheckedTerm>],
         index: &'a BTreeMap<&'a CheckedNodeId, usize>,
         dependencies: &'a super::SuppliedDependencies<'e>,
-        package_id: &'a CheckedSemanticId,
+        package_name: &'a str,
     ) -> Self {
         Self {
             nodes,
@@ -1170,7 +1502,7 @@ impl<'a, 'e> RefinementGraph<'a, 'e> {
             terms,
             index,
             dependencies,
-            package_id,
+            package_name,
         }
     }
 }
@@ -1244,7 +1576,7 @@ impl RefinementGraph<'_, '_> {
         match key {
             RefinementKey::Local(id) => self.local_kind(id, at, locus),
             RefinementKey::External(key) => {
-                if &key.package == self.package_id {
+                if key.package.as_ref() == self.package_name {
                     return Err(ValidationFailure::refused_at(
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
                         at.key("package"),
@@ -2103,9 +2435,8 @@ pub(super) fn validate_step_rows(
         let in_range = expected
             .get(&row.node_id)
             .is_some_and(|len| usize::try_from(row.ordinal).is_ok_and(|ordinal| ordinal < *len));
-        let ordered = previous.is_none_or(|(node, ordinal)| {
-            (node.digest.as_ref(), ordinal) < (row.node_id.digest.as_ref(), row.ordinal)
-        });
+        let ordered =
+            previous.is_none_or(|(node, ordinal)| (node, ordinal) < (&row.node_id, row.ordinal));
         if !in_range || !ordered {
             return Err(invalid_step_rows(Some(index)));
         }
@@ -2180,9 +2511,8 @@ pub(super) fn validate_occurrences(
                 .then_some(position)
         })
         .collect();
-    refinement_positions.sort_unstable_by(|&left, &right| {
-        nodes[left].node_id.digest.cmp(&nodes[right].node_id.digest)
-    });
+    refinement_positions
+        .sort_unstable_by(|&left, &right| nodes[left].node_id.cmp(&nodes[right].node_id));
     for position in refinement_positions {
         let node = &nodes[position];
         let Some(body) = terms[position].as_ref() else {
@@ -2251,7 +2581,6 @@ pub(super) fn validate_refinements(
     graph: RefinementGraph<'_, '_>,
     lock: &super::CheckedPackageLockV2,
     owners: &super::model_members::ModelOwners<'_>,
-    bytes: u64,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for &position in graph.index.values() {
@@ -2274,7 +2603,6 @@ pub(super) fn validate_refinements(
                 )
             })?;
         meter.charge(1, || node_at(position))?;
-        stale_refinement_key(node, position, bytes)?;
         canonical_order(body, position)?;
         check_headers(node, body, position, &graph, lock)?;
         validate_catalog(
@@ -2534,7 +2862,7 @@ impl CatalogSignatures<'_, '_> {
     ) -> Option<super::model_fields::RecordBinderTypes> {
         match self {
             Self::Local(owners) => {
-                let owner = owners.record_by_key(&key.digest)?;
+                let owner = owners.record_by_key(key)?;
                 owner.package.record_binder_types(owner.node)
             }
             Self::External(models) => models.record_binder_types(key),
@@ -2543,7 +2871,7 @@ impl CatalogSignatures<'_, '_> {
 
     fn is_record(&self, key: &CheckedNodeId) -> bool {
         match self {
-            Self::Local(owners) => owners.record_by_key(&key.digest).is_some(),
+            Self::Local(owners) => owners.record_by_key(key).is_some(),
             Self::External(models) => models.is_record_type(key),
         }
     }
@@ -2635,7 +2963,7 @@ fn protocol_classes(
     nodes: &[ProtocolCatalogNode<'_>],
     model: &CheckedNodeId,
     selected_clause: Option<&CheckedNodeId>,
-    package: Option<&CheckedSemanticId>,
+    package: Option<&str>,
     signatures: CatalogSignatures<'_, '_>,
     at: &JsonPointer,
     meter: &mut super::WorkMeter,
@@ -2650,7 +2978,7 @@ fn protocol_classes(
     });
     let key = |id: &CheckedNodeId| match package {
         Some(package) => RefinementKey::External(RefinementPackageNodeKey {
-            package: package.clone(),
+            package: package.into(),
             node: id.clone(),
         }),
         None => RefinementKey::Local(id.clone()),
@@ -3530,33 +3858,5 @@ pub(super) fn visit_reference_targets<'a>(
         for update in &history.updates {
             update.expression.visit_reference_targets(visitor);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn refinement_preimage_matches_jcs_value() {
-        let semantic_type = CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: "a".repeat(64).into(),
-        };
-        let body = json!({"term":"refinement","abstract":semantic_type,"profile":{"authority":"test","identity":"quire.temporal.infinite-trace/v1"},"populations":[],"objects":[],"steps":[],"histories":[],"assume":[],"ensure":[]});
-        let value =
-            json!({"version":"quire.refinement-node/v1","semantic_type":semantic_type,"body":body});
-        let limits = quire_canonical::Limits::new(u64::MAX);
-        let expected = quire_canonical::to_vec(&value, limits).expect("value");
-        let actual = quire_canonical::to_vec(
-            &RefinementNodePreimage {
-                semantic_type: &semantic_type,
-                body: &body,
-            },
-            limits,
-        )
-        .expect("preimage");
-        assert_eq!(actual, expected);
     }
 }

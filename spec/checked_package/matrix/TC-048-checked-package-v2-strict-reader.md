@@ -2567,3 +2567,15 @@ requests; both must refuse at `/root_scale/numerator`. Construct a valid
 shape with an unresolved graph reference or wrong owner, then verify that the
 ordinary reader gives its existing semantic refusal, not constructor success
 as a claim of package admission.
+
+## Admitted enum body view (FR-038-AC-375)
+
+PLANNED/UNRUN (IR-1141). Read an admitted source enum node through the public
+V2 package node lookup and typed `CheckedTerm::NominalBody`. Assert its borrowed
+enum view returns the exact ordered flag and member names in authored order,
+including a pair whose alphabetical order differs. Repeat for an unordered
+enum and assert `false` with its own authored order. Read admitted dimension,
+unit and dimension-equivalence bodies and assert each yields no enum details;
+an admitted model-owned empty aggregate has no nominal enum body. Keep the
+existing malformed-body and wrong-owner reader refusals as adverse controls:
+neither exposes an admitted node from which to read enum details.

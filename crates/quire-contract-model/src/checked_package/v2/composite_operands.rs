@@ -10,10 +10,8 @@ use super::structural::{
 use super::{
     BoundedDomainForm, CheckedCollectionKind, CheckedNodeId, CheckedNodeKind, CheckedOccurrence,
     CheckedPackageV2, CheckedScalarOperandChild, CheckedSemanticNodeV2, CheckedTerm,
-    CompositeTypeForm, LiteralKind, NominalIdentityPreimage, ScalarTypeForm, ValueForm,
+    CompositeTypeForm, LiteralKind, ScalarTypeForm, ValueForm,
 };
-#[cfg(test)]
-use crate::checked_package::common::NODE_DOMAIN;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -168,9 +166,9 @@ pub enum CheckedAuthoredCompositeDomain {
     },
     /// Original nominal enum order and identifiers.
     Enum {
-        /// Whether preimage order is semantically ordered.
+        /// Whether authored member order is semantically ordered.
         ordered: bool,
-        /// Admitted preimage order, byte-ascending when unordered.
+        /// Admitted member order, byte-ascending when unordered.
         members: Vec<Box<str>>,
     },
     /// Recursion at a record/tuple's first-entry path.
@@ -749,19 +747,23 @@ fn descriptor(
             if inherited != Suppression::None {
                 return Err(malformed());
             }
-            let Some(NominalIdentityPreimage::EnumDeclaration(preimage)) =
-                &node.nominal_identity_preimage
+            let CheckedTerm::NominalBody(body) = &node.body else {
+                return Err(malformed());
+            };
+            let super::identity::NominalBodyKind::Enum {
+                ordered,
+                members: names,
+            } = body.kind()
             else {
                 return Err(malformed());
             };
-            let members = preimage
-                .members
+            let members = names
                 .iter()
                 .map(|member| meter.text(member))
                 .collect::<Result<Vec<_>>>()?;
             (
                 Some(D::Enum {
-                    ordered: preimage.ordered,
+                    ordered: *ordered,
                     members,
                 }),
                 Suppression::None,
@@ -1214,8 +1216,11 @@ mod tests {
 
     fn raw_id(digit: char) -> CheckedNodeId {
         CheckedNodeId {
-            domain: NODE_DOMAIN.into(),
-            digest: digit.to_string().repeat(64).into(),
+            package: "placeholder".into(),
+            path: vec![super::super::CheckedNodePathSegment::Name(
+                digit.to_string().into(),
+            )],
+            ordinal: 0,
         }
     }
 
@@ -1233,10 +1238,7 @@ mod tests {
             let empty = json!({"term":"aggregate","members":[]});
             let mut wire = json!({
             "contract_version":"quire.checked-package/v2",
-            "identity_preimage":{"version":"quire.checked-package-id/v2",
-                "edition":{"role":"edition","definition":{"authority":"test","identity":"edition"}},
-                "profile_selections":[],"definition_selections":[],"required_features":[],"dependency_selections":[]},
-            "package_id":{"domain":"quire.package.semantic/v2","algorithm":"sha256","digest":"a".repeat(64)},
+            "name":"composite",
             "lock":{"sources":[],"edition":{"role":"edition","definition":{"authority":"test","identity":"edition"}},
                 "profile_selections":[],"definition_selections":[],"required_features":[],"dependency_selections":[]},
             "semantic_graph":{"graph_version":"quire.checked-semantic-graph/v2","nodes":[
@@ -1258,13 +1260,13 @@ mod tests {
             // Author canonical node identities in dependency order. This is a
             // test producer; public assertions use independently named paths.
             let mut ids = BTreeMap::new();
-            for (position, digit) in [(0,'1'),(1,'2'),(2,'3'),(3,'4'),(4,'5'),(6,'7'),(7,'8'),(8,'a'),(5,'6')] {
-                let node = &wire["semantic_graph"]["nodes"][position];
-                let ty = if node["node_id"] == node["semantic_type"] { Value::Null } else { node["semantic_type"].clone() };
-                let preimage = json!({"version":if digit=='6' {"quire.application-node/v1"} else {"quire.structural-node/v1"},
-                    "node_tag":node["node_tag"],"semantic_form":node["semantic_form"],"semantic_type":ty,
-                    "declaration":null,"recursion":null,"body":node["body"]});
-                let fresh = CheckedNodeId { domain:NODE_DOMAIN.into(), digest:quire_canonical::sha256(&preimage,quire_canonical::Limits::new(1<<20)).expect("fixture key").to_string().into() };
+            for (_, digit) in [(0,'1'),(1,'2'),(2,'3'),(3,'4'),(4,'5'),(6,'7'),(7,'8'),(8,'a'),(5,'6')] {
+                let fresh = match digit {
+                    '1' => CheckedNodeId { package:"composite".into(), path:vec![super::super::CheckedNodePathSegment::Name("scalar_type".into()),super::super::CheckedNodePathSegment::Name("boolean".into())],ordinal:0 },
+                    '2' => CheckedNodeId { package:"composite".into(), path:vec![super::super::CheckedNodePathSegment::Name("scalar_type".into()),super::super::CheckedNodePathSegment::Name("integer".into())],ordinal:0 },
+                    '3' => CheckedNodeId { package:"composite".into(), path:vec![super::super::CheckedNodePathSegment::Name("scalar_type".into()),super::super::CheckedNodePathSegment::Name("text".into())],ordinal:0 },
+                    _ => CheckedNodeId { package:"composite".into(), path:vec![super::super::CheckedNodePathSegment::Name("fixture".into()),super::super::CheckedNodePathSegment::Name(digit.to_string().into())],ordinal:0 },
+                };
                 replace_id(&mut wire, &raw_id(digit), &fresh);
                 ids.insert(digit,fresh);
             }
@@ -1279,11 +1281,6 @@ mod tests {
             wire["source_map"] = json!(nodes.iter().enumerate().map(|(position,node)| json!({
                 "node_id":node["node_id"],"role":node["occurrences"][0]["role"],"ordinal":0,
                 "regions":[{"source":source,"start":position,"end":position+1}]})).collect::<Vec<_>>());
-            let mut projection = wire["semantic_graph"]["nodes"].as_array().expect("nodes").clone();
-            for node in &mut projection { node.as_object_mut().expect("node").remove("occurrences"); }
-            let mut hash_input = wire["identity_preimage"].clone();
-            hash_input["identity_projection"] = json!(projection);
-            wire["package_id"]["digest"] = json!(quire_canonical::sha256(&hash_input,quire_canonical::Limits::new(1<<20)).expect("package key").to_string());
             (wire,ids)
         })
     }
@@ -1418,18 +1415,13 @@ mod tests {
                           form: &str,
                           semantic_type: Option<&CheckedNodeId>,
                           kind: CheckedNodeKind| {
-            let body = json!({"term":"aggregate","members":[]});
-            let preimage = json!({
-                "version":"quire.structural-node/v1", "node_tag":tag,
-                "semantic_form":form, "semantic_type":semantic_type,
-                "declaration":null, "recursion":null, "body":body,
-            });
             let id = CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: quire_canonical::sha256(&preimage, quire_canonical::Limits::new(1 << 20))
-                    .expect("authored type key")
-                    .to_string()
-                    .into(),
+                package: "composite".into(),
+                path: vec![
+                    super::super::CheckedNodePathSegment::Name(tag.into()),
+                    super::super::CheckedNodePathSegment::Name(form.into()),
+                ],
+                ordinal: nodes.len() as u64,
             };
             let mut node = template.clone();
             node.node_id = id.clone();
