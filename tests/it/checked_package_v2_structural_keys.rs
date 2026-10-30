@@ -916,7 +916,7 @@ fn derived_shape_refusal_precedes_declaration_state_temporal_abstraction_and_ope
     relation["dependencies"] = json!([]);
     relation["occurrences"] = json!([{"role":"declaration","ordinal":0}]);
     relation["body"] = json!({"term":"aggregate","members":[]});
-    append_authored(&mut invalid_abstraction, relation);
+    let relation_position = append_authored(&mut invalid_abstraction, relation);
     settle(&mut invalid_abstraction);
     let CheckedPackageV2ReadResult::Refused(abstraction_refusal) = read(&invalid_abstraction)
     else {
@@ -925,6 +925,18 @@ fn derived_shape_refusal_precedes_declaration_state_temporal_abstraction_and_ope
     assert_ne!(
         abstraction_refusal.cause,
         Some(CheckedPackageRefusalCause::InvalidDerivedShape)
+    );
+    assert_eq!(
+        abstraction_refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        abstraction_refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{relation_position}/body")),
+        "{abstraction_refusal:?}"
     );
 
     for mut package in [
