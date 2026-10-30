@@ -1,9 +1,5 @@
-//! Closed nominal node identity preimages (enum declaration, enum member,
-//! dimension, dimension equivalence, declared unit) and their semantic and cross-field rules.
-//!
-//! The node key of a nominal form is SHA-256 of the RFC 8785 canonical bytes
-//! of its preimage, computed by `quire-canonical`. Closed wire defects refuse
-//! before the remaining nominal graph checks.
+//! Structural nominal bodies (enum declaration, enum value, dimension,
+//! dimension equivalence and unit) and their semantic and cross-field rules.
 
 use super::model_members::DomainModel;
 use super::natural::coprime;
@@ -14,9 +10,7 @@ use super::{
     TemporalForm, ValueForm, WorkMeter,
 };
 use super::{CheckedPackageLockV2, RawCheckedPackageWireV2};
-use crate::checked_package::common::{
-    decoder_pointer, locate_closed_value_failure, node_pointer, ValidationFailure,
-};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
 use num_bigint::{BigInt, BigUint};
 use num_integer::Integer;
@@ -25,43 +19,29 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-/// The closed nominal identity preimage carried by a V2 node.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "version", deny_unknown_fields)]
-pub enum NominalIdentityPreimage {
-    /// `quire.enum-declaration-node/v1`.
-    #[serde(rename = "quire.enum-declaration-node/v1")]
-    EnumDeclaration(EnumDeclarationPreimage),
-    /// `quire.enum-member-node/v1`.
-    #[serde(rename = "quire.enum-member-node/v1")]
-    EnumMember(EnumMemberPreimage),
-    /// `quire.dimension-node/v1`.
-    #[serde(rename = "quire.dimension-node/v1")]
-    Dimension(DimensionPreimage),
-    /// `quire.dimension-equivalence-node/v1`.
-    #[serde(rename = "quire.dimension-equivalence-node/v1")]
-    DimensionEquivalence(DimensionEquivalencePreimage),
-    /// `quire.unit-node/v1`.
-    #[serde(rename = "quire.unit-node/v1")]
-    Unit(UnitPreimage),
+/// Reader-owned view assembled from a node's body, owner and declaration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum NominalRecord {
+    /// Enum declaration.
+    EnumDeclaration(EnumDeclarationRecord),
+    /// Enum value.
+    EnumMember(EnumMemberRecord),
+    /// Dimension.
+    Dimension(DimensionRecord),
+    /// Dimension equivalence.
+    DimensionEquivalence(DimensionEquivalenceRecord),
+    /// Unit.
+    Unit(UnitRecord),
 }
 
 /// Owner subject of a nominal declaration; joins an exact lock selection.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum NominalOwner {
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum NominalOwner {
     /// A locked raw source, joined by authority and identity.
     Source {
         /// Source authority.
         authority: Box<str>,
         /// Source identity.
-        identity: Box<str>,
-    },
-    /// A selected definition, joined by authority and identity.
-    Definition {
-        /// Definition authority.
-        authority: Box<str>,
-        /// Definition identity.
         identity: Box<str>,
     },
     /// A declaration in a selected domain package (QSpec `ModelOwner`),
@@ -75,10 +55,9 @@ pub enum NominalOwner {
     },
 }
 
-/// Enum declaration identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EnumDeclarationPreimage {
+/// Enum declaration semantic view.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct EnumDeclarationRecord {
     /// Declaring owner.
     pub owner: NominalOwner,
     /// ASCII identifier segments.
@@ -89,20 +68,18 @@ pub struct EnumDeclarationPreimage {
     pub members: Vec<Box<str>>,
 }
 
-/// Enum member identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EnumMemberPreimage {
+/// Enum member semantic view.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct EnumMemberRecord {
     /// Declaring enum node key.
     pub declaration_node_id: CheckedNodeId,
     /// Exact semantic case name; model variants also admit nonidentifier UTF-8.
     pub case: Box<str>,
 }
 
-/// Dimension identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DimensionPreimage {
+/// Dimension semantic view.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DimensionRecord {
     /// Declaring owner.
     pub owner: NominalOwner,
     /// ASCII identifier segments.
@@ -121,22 +98,20 @@ pub struct DimensionTerm {
     pub exponent: Box<str>,
 }
 
-/// Exact equivalence between a digest-ordered pair of dimensions.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DimensionEquivalencePreimage {
+/// Exact equivalence between a structurally ordered pair of dimensions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DimensionEquivalenceRecord {
     /// Source containing the equivalence declaration.
     pub owner: SourceOwner,
-    /// Exactly two distinct dimension keys, in ascending digest order.
+    /// Exactly two distinct dimension IDs, in structural order.
     pub dimension_node_ids: [CheckedNodeId; 2],
     /// Positive reduced ratio from the first canonical root to the second.
     pub root_scale: CheckedRational,
 }
 
 /// Source owner of a dimension equivalence.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SourceOwner {
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SourceOwner {
     /// The only admitted owner kind.
     pub kind: SourceOwnerKind,
     /// Source authority selected by the lock.
@@ -146,17 +121,15 @@ pub struct SourceOwner {
 }
 
 /// Closed source-owner discriminant.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SourceOwnerKind {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SourceOwnerKind {
     /// A locked source.
     Source,
 }
 
-/// Declared unit identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct UnitPreimage {
+/// Declared unit semantic view.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct UnitRecord {
     /// Declaring owner.
     pub owner: NominalOwner,
     /// ASCII identifier segments.
@@ -164,7 +137,6 @@ pub struct UnitPreimage {
     /// Dimension node key.
     pub dimension_node_id: CheckedNodeId,
     /// Target unit key; `None` (wire `null`, required member) for the root.
-    #[serde(deserialize_with = "super::required_nullable")]
     pub target_unit_node_id: Option<CheckedNodeId>,
     /// Exact reduced scale to the target.
     pub scale: CheckedRational,
@@ -187,21 +159,34 @@ pub struct CheckedRational {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "term", rename_all = "snake_case")]
 pub enum NominalBody {
+    /// Source enum declaration, preserving authored member order.
     Enum {
+        /// Whether the enum is ordered.
         ordered: bool,
+        /// Declared case names.
         members: Vec<Box<str>>,
     },
+    /// Dimension terms over structural dimension IDs.
     Dimension {
+        /// Authored base-dimension terms.
         terms: Vec<DimensionTerm>,
     },
+    /// Unit conversion to its target in the named dimension.
     Unit {
+        /// Structural dimension ID.
         dimension_node_id: CheckedNodeId,
+        /// Target unit, or null for the root unit.
         target_unit_node_id: Option<CheckedNodeId>,
+        /// Exact scale to the target.
         scale: CheckedRational,
+        /// Exact offset to the target.
         offset: CheckedRational,
     },
+    /// Exact ratio between two structurally ordered dimensions.
     DimensionEquivalence {
+        /// The ordered pair of dimension IDs.
         dimension_node_ids: [CheckedNodeId; 2],
+        /// Exact positive ratio of their canonical roots.
         root_scale: CheckedRational,
     },
 }
@@ -412,144 +397,7 @@ impl NominalBody {
     }
 }
 
-/// Locates a decode failure the wire decoder could place no deeper than a
-/// nominal preimage: an internally tagged object whose members serde reads
-/// from a buffer it does not track. Decodes the variant the preimage's own
-/// `version` selects, with the tag removed, and then the internally tagged
-/// `owner` the same way, so the pointer names the member at fault. `at` is
-/// the preimage's pointer and `preimage` its value. The boolean records a
-/// rejected unknown member rather than interpreting Serde's error text.
-pub(in crate::checked_package) fn locate_preimage_failure(
-    at: JsonPointer,
-    preimage: &Value,
-) -> (JsonPointer, bool) {
-    let Some(object) = preimage.as_object() else {
-        return (at, false);
-    };
-    let version = match object.get("version") {
-        Some(Value::String(version)) => version.as_str(),
-        Some(_) => return (at.key("version"), false),
-        None => return (at, false),
-    };
-    let mut members = object.clone();
-    members.remove("version");
-    let members = Value::Object(members);
-    let kind = NominalKind::from_version(version);
-    let failure = match kind {
-        Some(NominalKind::EnumDeclaration) => {
-            locate_closed_value_failure::<EnumDeclarationPreimage>(&members)
-        }
-        Some(NominalKind::EnumMember) => {
-            locate_closed_value_failure::<EnumMemberPreimage>(&members)
-        }
-        Some(NominalKind::Dimension) => locate_closed_value_failure::<DimensionPreimage>(&members),
-        Some(NominalKind::DimensionEquivalence) => {
-            locate_closed_value_failure::<DimensionEquivalencePreimage>(&members)
-        }
-        Some(NominalKind::Unit) => locate_closed_value_failure::<UnitPreimage>(&members),
-        None => return (at.key("version"), false),
-    };
-    let Some((path, unknown_member)) = failure else {
-        return (at, false);
-    };
-    let located = decoder_pointer(at.clone(), &path);
-    if located == at.clone().key("owner") {
-        if let Some(owner) = object.get("owner") {
-            if kind == Some(NominalKind::DimensionEquivalence) {
-                return locate_source_owner_failure(located, owner);
-            }
-            return locate_owner_failure(located, owner);
-        }
-    }
-    (located, unknown_member)
-}
-
-/// Whether a failed nominal decode is one of the closed-schema defects that
-/// belongs to the wire stage rather than nominal graph validation.
-pub(in crate::checked_package) fn schema_invalid_preimage(preimage: &Value) -> bool {
-    let Some(object) = preimage.as_object() else {
-        return false;
-    };
-    if object
-        .get("version")
-        .and_then(Value::as_str)
-        .and_then(NominalKind::from_version)
-        .is_some_and(|kind| {
-            matches!(
-                kind,
-                NominalKind::EnumDeclaration | NominalKind::Dimension | NominalKind::Unit
-            )
-        })
-        && object
-            .get("owner")
-            .and_then(Value::as_object)
-            .is_some_and(|owner| {
-                owner.get("kind").and_then(Value::as_str) == Some("model")
-                    && owner.contains_key("version")
-            })
-    {
-        return true;
-    }
-    object.get("version").and_then(Value::as_str) == Some("quire.dimension-equivalence-node/v1")
-        && (object.get("root_scale").is_none()
-            || object
-                .get("dimension_node_ids")
-                .and_then(Value::as_array)
-                .is_some_and(|ids| ids.len() != 2))
-}
-
-fn locate_source_owner_failure(at: JsonPointer, owner: &Value) -> (JsonPointer, bool) {
-    let Some(object) = owner.as_object() else {
-        return (at, false);
-    };
-    match object.get("kind") {
-        Some(Value::String(kind))
-            if matches!(
-                NominalOwnerKind::from_wire(kind),
-                Some(NominalOwnerKind::Source)
-            ) => {}
-        Some(_) => return (at.key("kind"), false),
-        None => return (at, false),
-    }
-    let members = ["kind", "authority", "identity"];
-    match object
-        .iter()
-        .find(|(key, value)| !members.contains(&key.as_str()) || !value.is_string())
-    {
-        Some((key, _)) => (at.key(key), !members.contains(&key.as_str())),
-        None => (at, false),
-    }
-}
-
-/// Locates a decode failure inside an internally tagged [`NominalOwner`] at
-/// `at`, checking members in the order the decoder reads them: the first
-/// member outside the `kind`'s closed set or not a string, else the owner
-/// itself for a missing member.
-fn locate_owner_failure(at: JsonPointer, owner: &Value) -> (JsonPointer, bool) {
-    let Some(object) = owner.as_object() else {
-        return (at, false);
-    };
-    let members: &[&str] = match object.get("kind") {
-        Some(Value::String(kind)) => match NominalOwnerKind::from_wire(kind) {
-            Some(NominalOwnerKind::Source | NominalOwnerKind::Definition) => {
-                &["kind", "authority", "identity"]
-            }
-            Some(NominalOwnerKind::Model) => &["kind", "identity", "node"],
-            None => return (at.key("kind"), false),
-        },
-        Some(_) => return (at.key("kind"), false),
-        None => return (at, false),
-    };
-    match object
-        .iter()
-        .find(|(key, value)| !members.contains(&key.as_str()) || !value.is_string())
-    {
-        Some((key, _)) => (at.key(key), !members.contains(&key.as_str())),
-        None => (at, false),
-    }
-}
-
-/// Which nominal preimage a `(node_tag, semantic_form)` pair requires.
+/// Which nominal semantic view a `(node_tag, semantic_form)` pair requires.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NominalKind {
     EnumDeclaration,
@@ -560,40 +408,8 @@ enum NominalKind {
 }
 
 impl NominalKind {
-    #[ix_trace_rs::string_edge]
-    fn from_version(version: &str) -> Option<Self> {
-        match version {
-            "quire.enum-declaration-node/v1" => Some(Self::EnumDeclaration),
-            "quire.enum-member-node/v1" => Some(Self::EnumMember),
-            "quire.dimension-node/v1" => Some(Self::Dimension),
-            "quire.dimension-equivalence-node/v1" => Some(Self::DimensionEquivalence),
-            "quire.unit-node/v1" => Some(Self::Unit),
-            _ => None,
-        }
-    }
-}
-
-enum NominalOwnerKind {
-    Source,
-    Definition,
-    Model,
-}
-
-impl NominalOwnerKind {
-    #[ix_trace_rs::string_edge]
-    fn from_wire(kind: &str) -> Option<Self> {
-        match kind {
-            "source" => Some(Self::Source),
-            "definition" => Some(Self::Definition),
-            "model" => Some(Self::Model),
-            _ => None,
-        }
-    }
-}
-
-impl NominalKind {
-    /// The nominal identity a node of this kind must carry, if any. Only the
-    /// five nominal forms carry one; every other form is decided here too, so
+    /// The nominal semantic view a node of this kind requires, if any. Only the
+    /// five nominal forms need one; every other form is decided here too, so
     /// a new form is a compile error until it is.
     fn required_by(kind: CheckedNodeKind) -> Option<Self> {
         use CheckedNodeKind as K;
@@ -741,40 +557,13 @@ impl NominalKind {
         }
     }
 
-    fn of(preimage: &NominalIdentityPreimage) -> Self {
-        match preimage {
-            NominalIdentityPreimage::EnumDeclaration(_) => Self::EnumDeclaration,
-            NominalIdentityPreimage::EnumMember(_) => Self::EnumMember,
-            NominalIdentityPreimage::Dimension(_) => Self::Dimension,
-            NominalIdentityPreimage::DimensionEquivalence(_) => Self::DimensionEquivalence,
-            NominalIdentityPreimage::Unit(_) => Self::Unit,
-        }
-    }
-}
-
-impl NominalIdentityPreimage {
-    /// The declaring owner for forms that use `NominalOwner`; an enum member
-    /// is owned through its declaration and an equivalence uses `SourceOwner`.
-    pub(crate) fn owner(&self) -> Option<&NominalOwner> {
-        match self {
-            Self::EnumDeclaration(declaration) => Some(&declaration.owner),
-            Self::Dimension(dimension) => Some(&dimension.owner),
-            Self::DimensionEquivalence(_) => None,
-            Self::Unit(unit) => Some(&unit.owner),
-            Self::EnumMember(_) => None,
-        }
-    }
-
-    /// The declared name this preimage fixes, for the forms that carry one:
-    /// an enum declaration, a dimension or a declared unit. An enum member
-    /// is named through its declaration, not by a name of its own.
-    pub(crate) fn qualified_declaration(&self) -> Option<&[Box<str>]> {
-        match self {
-            Self::EnumDeclaration(declaration) => Some(&declaration.qualified_declaration),
-            Self::Dimension(dimension) => Some(&dimension.qualified_declaration),
-            Self::DimensionEquivalence(_) => None,
-            Self::Unit(unit) => Some(&unit.qualified_declaration),
-            Self::EnumMember(_) => None,
+    fn of(record: &NominalRecord) -> Self {
+        match record {
+            NominalRecord::EnumDeclaration(_) => Self::EnumDeclaration,
+            NominalRecord::EnumMember(_) => Self::EnumMember,
+            NominalRecord::Dimension(_) => Self::Dimension,
+            NominalRecord::DimensionEquivalence(_) => Self::DimensionEquivalence,
+            NominalRecord::Unit(_) => Self::Unit,
         }
     }
 }
@@ -793,7 +582,7 @@ fn require(condition: bool, at: impl FnOnce() -> JsonPointer) -> Result<(), Vali
 }
 
 /// One node under validation: the node, its graph position and pointers to
-/// its members and to members of its nominal preimage.
+/// the members of its body, owner and declaration.
 struct Site<'a> {
     node: &'a CheckedSemanticNodeV2,
     position: usize,
@@ -808,7 +597,7 @@ impl Site<'_> {
         node_pointer(self.position).key(member)
     }
 
-    fn preimage(&self, members: &[&str]) -> JsonPointer {
+    fn nominal_member(&self, members: &[&str]) -> JsonPointer {
         let (base, rest) = match members.split_first() {
             Some((first, rest)) if *first == "owner" => (self.member("owner"), rest),
             Some((first, rest)) if *first == "qualified_declaration" => {
@@ -829,7 +618,7 @@ fn record_from_node(
     node: &CheckedSemanticNodeV2,
     kind: NominalKind,
     position: usize,
-) -> Result<NominalIdentityPreimage, ValidationFailure> {
+) -> Result<NominalRecord, ValidationFailure> {
     let at = node_pointer(position);
     if kind == NominalKind::EnumMember {
         let case = node
@@ -838,7 +627,7 @@ fn record_from_node(
             .and_then(|body| body.get("value"))
             .and_then(Value::as_str)
             .ok_or_else(|| invalid(at.clone().key("body").key("value")))?;
-        return Ok(NominalIdentityPreimage::EnumMember(EnumMemberPreimage {
+        return Ok(NominalRecord::EnumMember(EnumMemberRecord {
             declaration_node_id: node.semantic_type.clone(),
             case: case.into(),
         }));
@@ -865,16 +654,16 @@ fn record_from_node(
     };
     let body = || NominalBody::from_value(&node.body, at.clone().key("body"));
     match (kind, body()?) {
-        (NominalKind::EnumDeclaration, NominalBody::Enum { ordered, members }) => Ok(
-            NominalIdentityPreimage::EnumDeclaration(EnumDeclarationPreimage {
+        (NominalKind::EnumDeclaration, NominalBody::Enum { ordered, members }) => {
+            Ok(NominalRecord::EnumDeclaration(EnumDeclarationRecord {
                 owner: source_owner,
                 qualified_declaration: declared()?,
                 ordered,
                 members,
-            }),
-        ),
+            }))
+        }
         (NominalKind::Dimension, NominalBody::Dimension { terms }) => {
-            Ok(NominalIdentityPreimage::Dimension(DimensionPreimage {
+            Ok(NominalRecord::Dimension(DimensionRecord {
                 owner: source_owner,
                 qualified_declaration: declared()?,
                 terms,
@@ -888,7 +677,7 @@ fn record_from_node(
                 scale,
                 offset,
             },
-        ) => Ok(NominalIdentityPreimage::Unit(UnitPreimage {
+        ) => Ok(NominalRecord::Unit(UnitRecord {
             owner: source_owner,
             qualified_declaration: declared()?,
             dimension_node_id,
@@ -910,8 +699,8 @@ fn record_from_node(
             else {
                 return Err(invalid(at.key("owner")));
             };
-            Ok(NominalIdentityPreimage::DimensionEquivalence(
-                DimensionEquivalencePreimage {
+            Ok(NominalRecord::DimensionEquivalence(
+                DimensionEquivalenceRecord {
                     owner: SourceOwner {
                         kind: SourceOwnerKind::Source,
                         authority,
@@ -926,13 +715,9 @@ fn record_from_node(
     }
 }
 
-/// Validates every node's nominal binding, key re-derivation, owner join,
-/// semantic rules and cross-field joins. `kinds` holds each node's decoded
-/// kind. Equivalence refusals point at their node; other nominal refusals
-/// point at the member at fault. Every digest and term order is computed under
-/// `bytes`, the reader's byte limit; an encoder refusal is classified as
-/// `invalid_semantic_graph` at the same location as that nominal form's key
-/// or term-order check.
+/// Validates every node's nominal owner join, semantic rules and cross-field
+/// joins. `kinds` holds each node's decoded kind. Equivalence refusals point
+/// at their node; other nominal refusals point at the member at fault.
 pub(super) fn validate_nominal_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
@@ -969,28 +754,28 @@ pub(super) fn validate_nominal_nodes(
     for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
         let site = Site { node, position };
         let required = NominalKind::required_by(*kind);
-        let preimage = match (required, records[position].as_ref()) {
+        let record = match (required, records[position].as_ref()) {
             (None, None) => continue,
-            (Some(kind), Some(preimage)) if NominalKind::of(preimage) == kind => preimage,
+            (Some(kind), Some(record)) if NominalKind::of(record) == kind => record,
             // Required and absent: the node lacks the member.
             (Some(_), None) => return Err(invalid(node_pointer(position))),
             (Some(NominalKind::DimensionEquivalence), Some(_)) => {
                 return Err(invalid(site.pointer()))
             }
-            _ => return Err(invalid(site.preimage(&[]))),
+            _ => return Err(invalid(site.nominal_member(&[]))),
         };
-        meter.charge(1, || site.preimage(&[]))?;
-        match preimage {
-            NominalIdentityPreimage::EnumDeclaration(declaration) => {
+        meter.charge(1, || site.nominal_member(&[]))?;
+        match record {
+            NominalRecord::EnumDeclaration(declaration) => {
                 validate_enum_declaration(declaration, &site, &graph, lock, meter)?;
             }
-            NominalIdentityPreimage::EnumMember(member) => {
+            NominalRecord::EnumMember(member) => {
                 validate_enum_member(&site, member, &graph)?;
             }
-            NominalIdentityPreimage::Dimension(dimension) => {
+            NominalRecord::Dimension(dimension) => {
                 validate_dimension(&site, dimension, &graph, lock, meter, bytes)?;
             }
-            NominalIdentityPreimage::DimensionEquivalence(equivalence) => {
+            NominalRecord::DimensionEquivalence(equivalence) => {
                 validate_dimension_equivalence(&site, equivalence, &graph, lock, meter)?;
                 require(
                     equivalence_pairs.insert(&equivalence.dimension_node_ids),
@@ -998,12 +783,12 @@ pub(super) fn validate_nominal_nodes(
                 )?;
                 equivalences.push((position, equivalence));
             }
-            NominalIdentityPreimage::Unit(unit) => {
+            NominalRecord::Unit(unit) => {
                 validate_unit(&site, unit, &graph, lock, meter)?;
                 if unit.target_unit_node_id.is_none() {
                     // A dimension has exactly one targetless root unit.
                     require(roots.insert(unit.dimension_node_id.clone()), || {
-                        site.preimage(&["target_unit_node_id"])
+                        site.nominal_member(&["target_unit_node_id"])
                     })?;
                 }
             }
@@ -1015,7 +800,7 @@ pub(super) fn validate_nominal_nodes(
 
 fn validate_dimension_equivalence(
     site: &Site<'_>,
-    equivalence: &DimensionEquivalencePreimage,
+    equivalence: &DimensionEquivalenceRecord,
     graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
@@ -1023,18 +808,17 @@ fn validate_dimension_equivalence(
     let ids = &equivalence.dimension_node_ids;
     require(ids[0] < ids[1], || site.pointer())?;
     for (position, id) in ids.iter().enumerate() {
-        meter.charge(1, || site.preimage(&["dimension_node_ids"]).index(position))?;
+        meter.charge(1, || {
+            site.nominal_member(&["dimension_node_ids"]).index(position)
+        })?;
         require(
-            matches!(
-                graph.preimage(id),
-                Some(NominalIdentityPreimage::Dimension(_))
-            ),
+            matches!(graph.nominal(id), Some(NominalRecord::Dimension(_))),
             || site.pointer(),
         )?;
     }
     meter.charge(
         u64::try_from(lock.sources.len()).unwrap_or(u64::MAX),
-        || site.preimage(&["owner"]),
+        || site.nominal_member(&["owner"]),
     )?;
     require(
         lock.sources.iter().any(|source| {
@@ -1322,11 +1106,11 @@ pub(super) fn duration_unit_key(
 type BasePotential = (CheckedNodeId, ExactRatio);
 
 /// Derives one potential per connected component and checks each edge against
-/// the first path already established to its target. The first key in digest
-/// order starts each component with ratio one, so the result is deterministic.
+/// the first path already established to its target. The first structural ID
+/// in order starts each component with ratio one, so the result is deterministic.
 fn equivalence_potentials(
     graph: &NominalGraph<'_>,
-    edges: &[(usize, &DimensionEquivalencePreimage)],
+    edges: &[(usize, &DimensionEquivalenceRecord)],
     base_only: bool,
     meter: &mut WorkMeter,
 ) -> Result<BTreeMap<CheckedNodeId, BasePotential>, ValidationFailure> {
@@ -1337,7 +1121,7 @@ fn equivalence_potentials(
         BTreeMap::new();
     for (position, edge) in edges {
         let ids = &edge.dimension_node_ids;
-        let is_base = |id: &CheckedNodeId| matches!(graph.preimage(id), Some(NominalIdentityPreimage::Dimension(dim)) if dim.terms.is_empty());
+        let is_base = |id: &CheckedNodeId| matches!(graph.nominal(id), Some(NominalRecord::Dimension(dim)) if dim.terms.is_empty());
         if base_only && !(is_base(&ids[0]) && is_base(&ids[1])) {
             continue;
         }
@@ -1355,10 +1139,8 @@ fn equivalence_potentials(
     }
     let mut potentials = BTreeMap::new();
     for id in graph.index.keys().copied() {
-        if !matches!(
-            graph.preimage(id),
-            Some(NominalIdentityPreimage::Dimension(_))
-        ) || potentials.contains_key(id)
+        if !matches!(graph.nominal(id), Some(NominalRecord::Dimension(_)))
+            || potentials.contains_key(id)
         {
             continue;
         }
@@ -1396,7 +1178,7 @@ fn normalized_dimension(
     meter: &mut WorkMeter,
     at: &dyn Fn() -> JsonPointer,
 ) -> Result<(BTreeMap<CheckedNodeId, BigInt>, ExactRatio), ValidationFailure> {
-    let Some(NominalIdentityPreimage::Dimension(dimension)) = graph.preimage(id) else {
+    let Some(NominalRecord::Dimension(dimension)) = graph.nominal(id) else {
         return Err(invalid(at()));
     };
     if dimension.terms.is_empty() {
@@ -1425,7 +1207,7 @@ fn normalized_dimension(
 
 fn validate_equivalence_graph(
     graph: &NominalGraph<'_>,
-    edges: &[(usize, &DimensionEquivalencePreimage)],
+    edges: &[(usize, &DimensionEquivalenceRecord)],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     if edges.is_empty() {
@@ -1435,7 +1217,7 @@ fn validate_equivalence_graph(
     for (position, edge) in edges {
         let ids = &edge.dimension_node_ids;
         let both_base = ids.iter().all(|id| {
-            matches!(graph.preimage(id), Some(NominalIdentityPreimage::Dimension(dim)) if dim.terms.is_empty())
+            matches!(graph.nominal(id), Some(NominalRecord::Dimension(dim)) if dim.terms.is_empty())
         });
         if both_base {
             continue;
@@ -1534,12 +1316,12 @@ struct NominalGraph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
-    records: &'a [Option<NominalIdentityPreimage>],
+    records: &'a [Option<NominalRecord>],
     selected_models: BTreeMap<&'a str, &'a DomainModel>,
 }
 
 impl NominalGraph<'_> {
-    fn preimage(&self, id: &CheckedNodeId) -> Option<&NominalIdentityPreimage> {
+    fn nominal(&self, id: &CheckedNodeId) -> Option<&NominalRecord> {
         self.index
             .get(id)
             .and_then(|position| self.records.get(*position))
@@ -1596,12 +1378,6 @@ fn validate_owner(
             .sources
             .iter()
             .any(|source| source.authority == *authority && source.identity == *identity),
-        NominalOwner::Definition {
-            authority,
-            identity,
-        } => lock.definition_selections.iter().any(|definition| {
-            definition.authority == *authority && definition.identity == *identity
-        }),
         // A selected domain package is named by its `model_root` owner; the
         // node is not a lock member, so the join is by package identity, and
         // the owner's identity and node must each be nonempty (FR-038-AC-45).
@@ -1627,7 +1403,7 @@ pub(super) fn is_identifier(value: &str) -> bool {
 }
 
 /// A nonempty qualified name whose every segment is an ASCII identifier.
-/// Shared by the three nominal preimage kinds that carry one and by
+/// Shared by the three declared nominal kinds and by
 /// `super::validate_declaration`'s `Declaration.qualified_name` check, so the
 /// grammar is checked in exactly one place regardless of which member holds
 /// the name. `at` names the array; an empty name refuses there and a bad
@@ -1693,22 +1469,22 @@ fn validate_rational(
 }
 
 fn validate_enum_declaration(
-    declaration: &EnumDeclarationPreimage,
+    declaration: &EnumDeclarationRecord,
     site: &Site<'_>,
     graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     validate_owner(&declaration.owner, lock, graph, || {
-        site.preimage(&["owner"])
+        site.nominal_member(&["owner"])
     })?;
     validate_qualified_name(&declaration.qualified_declaration, &|| {
-        site.preimage(&["qualified_declaration"])
+        site.nominal_member(&["qualified_declaration"])
     })?;
     require(!declaration.members.is_empty(), || {
-        site.preimage(&["members"])
+        site.nominal_member(&["members"])
     })?;
-    let member_at = |index: usize| site.preimage(&["members"]).index(index);
+    let member_at = |index: usize| site.nominal_member(&["members"]).index(index);
     let mut seen = BTreeSet::new();
     for (index, member) in declaration.members.iter().enumerate() {
         meter.charge(1, || member_at(index))?;
@@ -1733,7 +1509,7 @@ fn validate_enum_declaration(
 
 fn validate_enum_member(
     site: &Site<'_>,
-    member: &EnumMemberPreimage,
+    member: &EnumMemberRecord,
     graph: &NominalGraph<'_>,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
@@ -1744,14 +1520,16 @@ fn validate_enum_member(
             require(cases.contains_key(&member.case), || site.pointer())?;
         }
     } else {
-        require(is_identifier(&member.case), || site.preimage(&["case"]))?;
-        let Some(NominalIdentityPreimage::EnumDeclaration(declaration)) =
-            graph.preimage(&member.declaration_node_id)
+        require(is_identifier(&member.case), || {
+            site.nominal_member(&["case"])
+        })?;
+        let Some(NominalRecord::EnumDeclaration(declaration)) =
+            graph.nominal(&member.declaration_node_id)
         else {
-            return Err(invalid(site.preimage(&["declaration_node_id"])));
+            return Err(invalid(site.nominal_member(&["declaration_node_id"])));
         };
         require(declaration.members.contains(&member.case), || {
-            site.preimage(&["case"])
+            site.nominal_member(&["case"])
         })?;
     }
     require(node.semantic_type == member.declaration_node_id, || {
@@ -1762,7 +1540,7 @@ fn validate_enum_member(
         || site.member("dependencies"),
     )?;
     let declared_type = serde_json::to_value(&member.declaration_node_id)
-        .map_err(|_| invalid(site.preimage(&["declaration_node_id"])))?;
+        .map_err(|_| invalid(site.nominal_member(&["declaration_node_id"])))?;
     require(
         node.body
             == json!({
@@ -1777,21 +1555,23 @@ fn validate_enum_member(
 
 fn validate_dimension(
     site: &Site<'_>,
-    dimension: &DimensionPreimage,
+    dimension: &DimensionRecord,
     graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
     _bytes: u64,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
-    validate_owner(&dimension.owner, lock, graph, || site.preimage(&["owner"]))?;
+    validate_owner(&dimension.owner, lock, graph, || {
+        site.nominal_member(&["owner"])
+    })?;
     validate_qualified_name(&dimension.qualified_declaration, &|| {
-        site.preimage(&["qualified_declaration"])
+        site.nominal_member(&["qualified_declaration"])
     })?;
     require(node.semantic_type == node.node_id, || {
         site.member("semantic_type")
     })?;
-    let term_at = |index: usize| site.preimage(&["terms"]).index(index);
+    let term_at = |index: usize| site.nominal_member(&["terms"]).index(index);
     let mut bases = BTreeSet::new();
     for (index, term) in dimension.terms.iter().enumerate() {
         meter.charge(1, || term_at(index))?;
@@ -1800,9 +1580,7 @@ fn validate_dimension(
         require(!magnitude.zero, exponent_at)?;
         let base_at = || term_at(index).key("dimension_node_id");
         require(bases.insert(&term.dimension_node_id), base_at)?;
-        let Some(NominalIdentityPreimage::Dimension(base)) =
-            graph.preimage(&term.dimension_node_id)
-        else {
+        let Some(NominalRecord::Dimension(base)) = graph.nominal(&term.dimension_node_id) else {
             return Err(invalid(base_at()));
         };
         require(base.terms.is_empty(), base_at)?;
@@ -1826,25 +1604,25 @@ fn validate_dimension(
 
 fn validate_unit(
     site: &Site<'_>,
-    unit: &UnitPreimage,
+    unit: &UnitRecord,
     graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
-    validate_owner(&unit.owner, lock, graph, || site.preimage(&["owner"]))?;
+    validate_owner(&unit.owner, lock, graph, || site.nominal_member(&["owner"]))?;
     validate_qualified_name(&unit.qualified_declaration, &|| {
-        site.preimage(&["qualified_declaration"])
+        site.nominal_member(&["qualified_declaration"])
     })?;
     require(
         matches!(
-            graph.preimage(&unit.dimension_node_id),
-            Some(NominalIdentityPreimage::Dimension(_))
+            graph.nominal(&unit.dimension_node_id),
+            Some(NominalRecord::Dimension(_))
         ),
-        || site.preimage(&["dimension_node_id"]),
+        || site.nominal_member(&["dimension_node_id"]),
     )?;
-    validate_rational(&unit.scale, meter, &|| site.preimage(&["scale"]))?;
-    validate_rational(&unit.offset, meter, &|| site.preimage(&["offset"]))?;
+    validate_rational(&unit.scale, meter, &|| site.nominal_member(&["scale"]))?;
+    validate_rational(&unit.offset, meter, &|| site.nominal_member(&["offset"]))?;
     require(node.semantic_type == unit.dimension_node_id, || {
         site.member("semantic_type")
     })?;
@@ -1852,16 +1630,16 @@ fn validate_unit(
     match &unit.target_unit_node_id {
         None => {
             require(is_rational(&unit.scale, "1", "1"), || {
-                site.preimage(&["scale"])
+                site.nominal_member(&["scale"])
             })?;
             require(is_rational(&unit.offset, "0", "1"), || {
-                site.preimage(&["offset"])
+                site.nominal_member(&["offset"])
             })?;
         }
         Some(target) => {
             require(
                 integer_magnitude(&unit.scale.numerator).is_none_or(|m| !m.zero),
-                || site.preimage(&["scale", "numerator"]),
+                || site.nominal_member(&["scale", "numerator"]),
             )?;
             expected.push(target);
             validate_unit_path(site, unit, graph, meter)?;
@@ -1882,13 +1660,13 @@ fn is_rational(rational: &CheckedRational, numerator: &str, denominator: &str) -
 /// it — this node's own for the first hop, the previous unit's after that.
 fn validate_unit_path(
     site: &Site<'_>,
-    unit: &UnitPreimage,
+    unit: &UnitRecord,
     graph: &NominalGraph<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let link_at = |position: usize| {
         node_pointer(position)
-            .key("nominal_identity_preimage")
+            .key("body")
             .key("target_unit_node_id")
     };
     let mut visited = BTreeSet::from([&site.node.node_id]);
@@ -1897,14 +1675,14 @@ fn validate_unit_path(
     while let Some(target) = next {
         meter.charge(1, || link_at(from))?;
         require(visited.insert(target), || link_at(from))?;
-        let Some(NominalIdentityPreimage::Unit(target_unit)) = graph.preimage(target) else {
+        let Some(NominalRecord::Unit(target_unit)) = graph.nominal(target) else {
             return Err(invalid(link_at(from)));
         };
         require(
             target_unit.dimension_node_id == unit.dimension_node_id,
             || link_at(from),
         )?;
-        // `graph.preimage` resolved `target`, so it is indexed.
+        // `graph.nominal` resolved `target`, so it is indexed.
         from = graph.index.get(target).copied().unwrap_or(from);
         next = target_unit.target_unit_node_id.as_ref();
     }
