@@ -81,7 +81,7 @@ pub enum RefinementKey {
 #[serde(deny_unknown_fields)]
 pub struct RefinementPackageNodeKey {
     /// The selected package identity.
-    pub package: CheckedSemanticId,
+    pub package: Box<str>,
     /// The target node identity in that package.
     pub node: CheckedNodeId,
 }
@@ -975,10 +975,10 @@ pub(super) fn validate_body(
 }
 
 impl RefinementKey {
-    fn digest(&self) -> &str {
+    fn node_id(&self) -> &CheckedNodeId {
         match self {
-            Self::Local(node) => &node.digest,
-            Self::External(key) => &key.node.digest,
+            Self::Local(node) => node,
+            Self::External(key) => &key.node,
         }
     }
 
@@ -1017,7 +1017,7 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
         ));
     };
     for (index, pair) in populations.windows(2).enumerate() {
-        if pair[0].r#abstract.digest() >= pair[1].r#abstract.digest() {
+        if pair[0].r#abstract.node_id() >= pair[1].r#abstract.node_id() {
             return Err(order_defect(position, "populations", index + 1));
         }
     }
@@ -1037,18 +1037,15 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
         }
     }
     for (index, pair) in objects.windows(2).enumerate() {
-        if pair[0].abstract_type.digest() >= pair[1].abstract_type.digest() {
+        if pair[0].abstract_type.node_id() >= pair[1].abstract_type.node_id() {
             return Err(order_defect(position, "objects", index + 1));
         }
     }
     for (index, pair) in steps.windows(2).enumerate() {
-        fn key(step: &RefinementStep) -> (bool, &str, &str) {
+        fn key(step: &RefinementStep) -> (bool, Option<&CheckedNodeId>, &str) {
             (
                 step.source_node.is_none(),
-                step.source_node
-                    .as_ref()
-                    .map(|node| node.digest.as_ref())
-                    .unwrap_or(""),
+                step.source_node.as_ref(),
                 step.source_class.as_ref(),
             )
         }
@@ -1058,7 +1055,7 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
     }
     for (index, history) in histories.iter().enumerate() {
         for (update_index, pair) in history.updates.windows(2).enumerate() {
-            if pair[0].operation.digest >= pair[1].operation.digest {
+            if pair[0].operation >= pair[1].operation {
                 return Err(ValidationFailure::refused(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     node_at(position)
@@ -1116,11 +1113,7 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
             }
         }
         fn key(row: &RefinementEnsure) -> (&str, &str, &str) {
-            (
-                row.operation.digest(),
-                kind(row.kind),
-                granularity(row.granularity),
-            )
+            (&row.operation, kind(row.kind), granularity(row.granularity))
         }
         if key(&pair[0]) >= key(&pair[1]) {
             return Err(order_defect(position, "ensure", index + 1));
@@ -1168,7 +1161,7 @@ pub(super) struct RefinementGraph<'a, 'e> {
     terms: &'a [Option<CheckedTerm>],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
     dependencies: &'a super::SuppliedDependencies<'e>,
-    package_id: &'a CheckedSemanticId,
+    package_name: &'a str,
 }
 
 impl<'a, 'e> RefinementGraph<'a, 'e> {
@@ -1178,7 +1171,7 @@ impl<'a, 'e> RefinementGraph<'a, 'e> {
         terms: &'a [Option<CheckedTerm>],
         index: &'a BTreeMap<&'a CheckedNodeId, usize>,
         dependencies: &'a super::SuppliedDependencies<'e>,
-        package_id: &'a CheckedSemanticId,
+        package_name: &'a str,
     ) -> Self {
         Self {
             nodes,
@@ -1186,7 +1179,7 @@ impl<'a, 'e> RefinementGraph<'a, 'e> {
             terms,
             index,
             dependencies,
-            package_id,
+            package_name,
         }
     }
 }
@@ -1260,7 +1253,7 @@ impl RefinementGraph<'_, '_> {
         match key {
             RefinementKey::Local(id) => self.local_kind(id, at, locus),
             RefinementKey::External(key) => {
-                if &key.package == self.package_id {
+                if key.package.as_ref() == self.package_name {
                     return Err(ValidationFailure::refused_at(
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
                         at.key("package"),
@@ -2119,9 +2112,8 @@ pub(super) fn validate_step_rows(
         let in_range = expected
             .get(&row.node_id)
             .is_some_and(|len| usize::try_from(row.ordinal).is_ok_and(|ordinal| ordinal < *len));
-        let ordered = previous.is_none_or(|(node, ordinal)| {
-            (node.digest.as_ref(), ordinal) < (row.node_id.digest.as_ref(), row.ordinal)
-        });
+        let ordered =
+            previous.is_none_or(|(node, ordinal)| (node, ordinal) < (&row.node_id, row.ordinal));
         if !in_range || !ordered {
             return Err(invalid_step_rows(Some(index)));
         }
@@ -2196,9 +2188,8 @@ pub(super) fn validate_occurrences(
                 .then_some(position)
         })
         .collect();
-    refinement_positions.sort_unstable_by(|&left, &right| {
-        nodes[left].node_id.digest.cmp(&nodes[right].node_id.digest)
-    });
+    refinement_positions
+        .sort_unstable_by(|&left, &right| nodes[left].node_id.cmp(&nodes[right].node_id));
     for position in refinement_positions {
         let node = &nodes[position];
         let Some(body) = terms[position].as_ref() else {
