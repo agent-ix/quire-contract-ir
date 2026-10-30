@@ -50,8 +50,8 @@ use super::{
 use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageLimit, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, JsonPointer,
 };
 use ix_trace_rs::string_edge;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
@@ -574,6 +574,23 @@ impl DeclarationForm {
             Self::Relationship => "relationship",
             Self::Population => "population",
         }
+    }
+}
+
+/// The assigned structural identity of one selected model declaration.
+pub(super) fn declaration_node_id(
+    identity: &str,
+    form: DeclarationForm,
+    node: &str,
+) -> CheckedNodeId {
+    CheckedNodeId {
+        package: identity.into(),
+        path: vec![
+            CheckedNodePathSegment::Name(form.tag().into()),
+            CheckedNodePathSegment::Name(form.form().into()),
+            CheckedNodePathSegment::Name(node.into()),
+        ],
+        ordinal: 0,
     }
 }
 
@@ -1964,7 +1981,13 @@ pub(super) fn check_declaration_node<Body>(
     if form.tag() != node.node_tag.as_ref() || form.form() != node.semantic_form.as_ref() {
         return Err(ModelRefusal::unselected());
     }
-    let fixed = node.semantic_type == node.node_id
+    let exact_owner_id = matches!(
+        &node.owner,
+        Some(CheckedNodeOwner::Model { identity, node: declaration })
+            if node.node_id == declaration_node_id(identity, form, declaration)
+    );
+    let fixed = exact_owner_id
+        && node.semantic_type == node.node_id
         && node.declaration.is_none()
         && node.recursion_group.is_none()
         && (form != DeclarationForm::Population || node.dependencies.is_empty())
