@@ -303,7 +303,7 @@ fn root_owner_and_generated_source_occurrence_are_closed() {
         };
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
         assert!(
-            refusal
+            refusal.loci[0]
                 .path
                 .as_ref()
                 .is_some_and(|path| path.as_str().starts_with(&format!("{root_at}/owner"))),

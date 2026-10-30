@@ -296,10 +296,8 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
         CheckedCompositeOperator::Eq => {}
         CheckedCompositeOperator::Ne => {}
     }
-    assert_eq!(
-        application.domain.as_ref(),
-        "quire.checked-semantic-node/v1"
-    );
+    assert!(!application.package.is_empty());
+    assert!(!application.path.is_empty());
     assert_eq!(occurrence.role, CheckedOccurrenceRole::Expression);
     assert!(*consumed_work > 0);
     for operand in operands {
@@ -311,7 +309,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
         } = operand;
         match child {
             CheckedScalarOperandChild::GraphChild(node) => {
-                assert_eq!(node.domain, application.domain)
+                assert_eq!(node.package, application.package)
             }
             CheckedScalarOperandChild::InlineLiteral {
                 application,
@@ -320,7 +318,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
             } => {
                 assert_eq!(occurrence.role, CheckedOccurrenceRole::Expression);
                 assert_eq!(position, ordinal);
-                assert_eq!(application.domain, semantic_type.domain);
+                assert_eq!(application.package, semantic_type.package);
             }
         }
         match domain {
@@ -333,7 +331,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
                         path: _,
                         edges,
                     } = entry;
-                    assert_eq!(type_node.domain, semantic_type.domain);
+                    assert_eq!(type_node.package, semantic_type.package);
                     for edge in edges {
                         let CheckedCompositeChildEdge {
                             target,
@@ -341,7 +339,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
                             name: _,
                             optional_presence: _,
                         } = edge;
-                        assert_eq!(target.domain, type_node.domain);
+                        assert_eq!(target.package, type_node.package);
                     }
                 }
                 for entry in positions {
@@ -351,7 +349,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
                         authored,
                     } = entry;
                     let CheckedCompositeDomainKey::Node { node, path: _ } = key;
-                    assert_eq!(node.domain, type_node.domain);
+                    assert_eq!(node.package, type_node.package);
                     match authored {
                         Domain::IntegerRange { lower, upper } => {
                             assert!(!lower.as_str().is_empty());
