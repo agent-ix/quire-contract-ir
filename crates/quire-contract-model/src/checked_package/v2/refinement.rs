@@ -809,10 +809,7 @@ fn shape(
         .keys()
         .find(|name| !required.contains(&name.as_str()) && !optional.contains(&name.as_str()))
     {
-        return Err(ValidationFailure::refused(
-            CheckedPackageRefusalCode::UnknownMember,
-            at.key(extra).pointer(),
-        ));
+        return Err(invalid(&at.key(extra)));
     }
     Ok(())
 }
