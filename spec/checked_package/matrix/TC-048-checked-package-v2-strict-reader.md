@@ -477,8 +477,9 @@ relationship-navigation additions require the lead-owned existing TC-048 Rust
 refusal-enum assertion to be amended, not claimed as executed here. Read a
 diagnostics entry whose `code` is `unsupported_construct`, and lower the admitted
 `temporal`/`formula` and `expression`/`case` nodes under supporting and
-non-supporting profiles, comparing the lowered body and `ir_id` with the admitted
-node's (AC-101). Build a placement defect beside a lower-structural-id node with an
+non-supporting profiles, comparing each lowered node's exact structural ID and body
+with the admitted node's, and requiring `unsupported` for a profile lacking its tag
+(AC-101). Build a placement defect beside a lower-structural-id node with an
 unknown identity or a class mismatch, in both structural-id orders, two placement
 defects, and, within one clause, each adjacent pair of the order `over`, fairness
 resolution, profile fit, bounds, with the two defects' positions swapped; then two

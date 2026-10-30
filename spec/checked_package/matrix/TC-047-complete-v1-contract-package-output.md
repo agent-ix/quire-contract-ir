@@ -96,7 +96,7 @@ and claim subsets, compare both exposed typed-key subsets with independently
 derived IR lowering results, including exact membership and order. Repeat for
 roots with empty bound and claim subsets and require both empty subsets. Include a
 selected external reference and an identically keyed local node; confirm the
-view retains the selected identity and target key, and admission refuses a
+view retains the selected dependency package name and target key, and admission refuses a
 missing or differently named selected package. Admit a validly edited
 selected package under the same name when its independent joins still pass; there
 is no content-staleness refusal. Query refused, unrequested reached
@@ -123,9 +123,10 @@ source through plain `read`. The authenticated result must match the producer's
 requested-root kinds; the plain result must report typed `NotAdmitted` for each
 `unsupported` index, including a requested root also represented through a
 different lowered root. Query a healthy record and an out-of-range index and
-require typed absence, distinct from `NotAdmitted`. Supply a mismatched source
-identity and lock separately, and a source missing the requested root through
-a controlled test-only mutation; require a typed handoff error with no
+require typed absence, distinct from `NotAdmitted`. Separately supply a V2
+source whose exact `name` differs from V1 `package.source.identity`, a source
+with a mismatched complete lock, and a source missing the requested root
+through a controlled test-only mutation; require a typed handoff error with no
 partially authenticated package. Also assert existing V1 reader refusal and
 limit precedence over source handoff. Compare all five wire members and canonical
 bytes before and after the typed queries.
@@ -182,9 +183,10 @@ existing refusal or incomplete result, without a new operation-source code.
 Read the same bytes through an explicit authenticated handoff with the exact
 reader-admitted V2 source. Compare source, producer and reader terms and all
 three typed accessors, including their admitted absence cases. In otherwise
-canonical V1 packages, separately supply a wrong source identity, wrong lock,
-absent represented node, changed represented operation body and changed
-represented non-operation body; each
+canonical V1 packages, separately supply a V2 source whose exact `name` differs
+from V1 `package.source.identity`, a wrong complete lock, an absent represented
+node, a changed represented operation body and a changed represented
+non-operation body; each
 must return a typed handoff error and no partially authenticated package. Repeat the plain reader's
 strict wire, source selection, dependency and limit probes through the authenticated
 handoff to show it does not bypass or reorder those decisions. At a consumer
