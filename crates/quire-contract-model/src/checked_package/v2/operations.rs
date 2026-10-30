@@ -10,8 +10,8 @@
 
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::model_members::{
-    declaration_key, units, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind,
-    MemberType, ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
+    units, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind, MemberType,
+    ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
 };
 use super::operation_catalog::{
     operation_catalog, CatalogLeafSource, CatalogResult, FamilyClass, OperationCatalog,
@@ -29,7 +29,7 @@ use super::{
     StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
-use crate::checked_package::common::{decoder_pointer, node_pointer, NODE_DOMAIN};
+use crate::checked_package::common::{decoder_pointer, node_pointer};
 use crate::checked_package::selected_population::{
     is_model_population, least_type_occurrence, population_maximum, population_object_type,
 };
@@ -1742,16 +1742,15 @@ fn selected_union_members<'m>(
             let Some(member_type) = owner.package.element_type(payload_type) else {
                 return Ok(None);
             };
-            let digest = member_type.node_key(owner.package.bytes).map_err(|_| {
-                ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    budget.row(),
-                )
-            })?;
-            vec![CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: digest.into(),
-            }]
+            let id = member_type
+                .node_id(&owner.package.checked_package)
+                .ok_or_else(|| {
+                    ValidationFailure::refused(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        budget.row(),
+                    )
+                })?;
+            vec![id]
         } else {
             Vec::new()
         };
@@ -2325,22 +2324,14 @@ fn check_reference_edge(
     else {
         return ineligible(member_at("name"));
     };
-    // `ModelOwners::new` derived this key (or a longer one for an interface)
-    // under the same limit, so the encoder cannot refuse it here; were it to,
-    // the refusal is `invalid_semantic_graph` at the node, as a refused node
-    // key is.
-    let Ok(edge_key) = declaration_key(
-        &owner.package.identity,
-        DeclarationForm::ObjectType,
-        edge_owner,
-        owner.package.bytes,
-    ) else {
-        return Ok(Some(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.node_id(),
-        )));
+    let Some(edge_form) = owner.package.end_declaration_form(edge_owner) else {
+        return ineligible(member_at("name"));
     };
-    let edge = MemberType::Reference(edge_key.into());
+    let Some(edge_id) = owners.declaration_id(&owner.package.identity, edge_owner, edge_form)
+    else {
+        return ineligible(member_at("name"));
+    };
+    let edge = MemberType::Reference(edge_id.clone());
     let is_edge = match owner.package.field_type(field) {
         Some(MemberType::Option(inner)) => *inner == edge,
         Some(MemberType::Collection {
@@ -2473,7 +2464,7 @@ fn check_tuple_position(
     }
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(1)?;
-    let Ok(expected_type) = position_type.node_key(owner.package.bytes) else {
+    let Some(expected_type) = position_type.node_id(&application.node.node_id.package) else {
         return Ok(Some(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             application.node_id(),
@@ -2484,10 +2475,10 @@ fn check_tuple_position(
         .get(application.position)
         .and_then(Option::as_ref)
         .and_then(|term| match term {
-            CheckedTerm::Application { result_type, .. } => Some(result_type.digest.as_ref()),
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result_type != Some(expected_type.as_str()) {
+    if result_type != Some(&expected_type) {
         return ineligible();
     }
     Ok(None)
@@ -2507,12 +2498,6 @@ fn check_relationship_member(
         Ok(Some(model_refusal(application, path, refusal)))
     };
     let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
-    let key_refused = || {
-        Ok(Some(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.node_id(),
-        )))
-    };
     let Some(declaring) =
         member_declaration(operation).and_then(|id| graph.index.get(&id).copied())
     else {
@@ -2609,13 +2594,17 @@ fn check_relationship_member(
     if !relationship.direction.admits(forward) {
         return ineligible(member_at("name"));
     }
-    let destination_key = match owner.package.end_declaration_key(&destination.type_ref) {
-        None => return ineligible(member_at("name")),
-        Some(Ok(key)) => key,
-        Some(Err(_)) => return key_refused(),
+    let Some(destination_form) = owner.package.end_declaration_form(&destination.type_ref) else {
+        return ineligible(member_at("name"));
     };
-    let receiver_type_key = destination_key.clone();
-    let member_type = match relationship.navigation_type(forward, destination_key.into()) {
+    let Some(destination_id) = owners.declaration_id(
+        &owner.package.identity,
+        &destination.type_ref,
+        destination_form,
+    ) else {
+        return ineligible(member_at("name"));
+    };
+    let member_type = match relationship.navigation_type(forward, destination_id.clone()) {
         Ok(member_type) => member_type,
         Err(refusal) => return refuse(member_at("name"), refusal),
     };
@@ -2627,18 +2616,18 @@ fn check_relationship_member(
     } else {
         member_type
     };
-    let Ok(expected_key) = expected.node_key(owner.package.bytes) else {
-        return key_refused();
+    let Some(expected_id) = expected.node_id(&application.node.node_id.package) else {
+        return ineligible(application.body(&["result_type"]));
     };
     let result = graph
         .terms
         .get(application.position)
         .and_then(Option::as_ref)
         .and_then(|term| match term {
-            CheckedTerm::Application { result_type, .. } => Some(result_type.digest.as_ref()),
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result != Some(expected_key.as_str()) {
+    if result != Some(&expected_id) {
         return ineligible(application.body(&["result_type"]));
     }
     // The population link is the last check of the member: every earlier defect
@@ -2672,11 +2661,7 @@ fn check_relationship_member(
         return ineligible(member_at("population"));
     };
     // A reaches application's ends share one declared type (checked above).
-    let receiver_type = CheckedNodeId {
-        domain: NODE_DOMAIN.into(),
-        digest: receiver_type_key.into(),
-    };
-    if population_object_type(population, node_of) != Some(receiver_type) {
+    if population_object_type(population, node_of) != Some(destination_id.clone()) {
         return ineligible(member_at("population"));
     }
     Ok(None)
@@ -2994,14 +2979,6 @@ fn check_model_member(
         Ok(Some(model_refusal(application, path, refusal)))
     };
     let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
-    // A type key the encoder refuses (a preimage past the byte limit) is
-    // `invalid_semantic_graph` at the node, as a refused node key is.
-    let key_refused = || {
-        Ok(Some(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.node_id(),
-        )))
-    };
     let Some(arguments) = admitted_arguments(application, graph) else {
         return Ok(None);
     };
@@ -3053,11 +3030,11 @@ fn check_model_member(
             if object.interface {
                 return ineligible(member_at("name"));
             }
-            let receiver = MemberType::Reference(declaring.node_id.digest.clone());
-            let Ok(receiver_key) = receiver.node_key(owner.package.bytes) else {
-                return key_refused();
+            let receiver = MemberType::Reference(declaring.node_id.clone());
+            let Some(receiver_id) = receiver.node_id(&application.node.node_id.package) else {
+                return ineligible(argument_at(0));
             };
-            if type_node(0).map(|id| id.digest).as_deref() != Some(receiver_key.as_str()) {
+            if type_node(0).as_ref() != Some(&receiver_id) {
                 return ineligible(argument_at(0));
             }
             if arguments.len().saturating_sub(1) != resolved.parameters.len() {
@@ -3068,11 +3045,11 @@ fn check_model_member(
                 let Some(expected) = owner.package.slot_type(parameter) else {
                     return ineligible(member_at("name"));
                 };
-                let Ok(expected_key) = expected.node_key(owner.package.bytes) else {
-                    return key_refused();
+                let Some(expected_id) = expected.node_id(&application.node.node_id.package) else {
+                    return ineligible(argument_at(position));
                 };
                 if !conforms_to_type(
-                    &expected_key,
+                    &expected_id,
                     type_node(position).as_ref(),
                     graph,
                     owners,
@@ -3095,13 +3072,13 @@ fn check_model_member(
         .get(application.position)
         .and_then(Option::as_ref)
         .and_then(|term| match term {
-            CheckedTerm::Application { result_type, .. } => Some(result_type.digest.as_ref()),
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    let Ok(member_key) = member_type.node_key(owner.package.bytes) else {
-        return key_refused();
+    let Some(member_id) = member_type.node_id(&application.node.node_id.package) else {
+        return ineligible(application.body(&["result_type"]));
     };
-    if result_type != Some(member_key.as_str()) {
+    if result_type != Some(&member_id) {
         return ineligible(application.body(&["result_type"]));
     }
     Ok(None)

@@ -22,7 +22,7 @@ use super::model_members::{
     RelationshipDecl,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
-use crate::checked_package::common::{ValidationFailure, NODE_DOMAIN};
+use crate::checked_package::common::ValidationFailure;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
@@ -89,25 +89,14 @@ impl FieldTable {
     }
 
     /// The effective record field types in inherited source order.
-    pub(super) fn binder_types(&self, bytes: u64) -> Option<RecordBinderTypes> {
+    pub(super) fn binder_types(&self, package: &str) -> Option<RecordBinderTypes> {
         if self.ambiguous.is_some() {
             return Some(RecordBinderTypes::Ambiguous);
         }
         let types = self
             .ordered_exposed
             .iter()
-            .map(|entry| {
-                Some(CheckedNodeId {
-                    domain: NODE_DOMAIN.into(),
-                    digest: entry
-                        .entry
-                        .member_type
-                        .as_ref()?
-                        .node_key(bytes)
-                        .ok()?
-                        .into(),
-                })
-            })
+            .map(|entry| entry.entry.member_type.as_ref()?.node_id(package))
             .collect::<Option<Vec<_>>>()?;
         Some(RecordBinderTypes::Known(types))
     }
@@ -885,26 +874,11 @@ impl From<&MemberType> for CheckedMemberType {
                 upper: bounds.upper,
                 profile: bounds.profile.clone(),
             },
-            MemberType::Reference(target) => Self::Reference(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
-            MemberType::Record(target) => Self::Record(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
-            MemberType::Tuple(target) => Self::Tuple(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
-            MemberType::Variant(target) => Self::Variant(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
-            MemberType::Quantity(target) => Self::Quantity(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
+            MemberType::Reference(target) => Self::Reference(target.clone()),
+            MemberType::Record(target) => Self::Record(target.clone()),
+            MemberType::Tuple(target) => Self::Tuple(target.clone()),
+            MemberType::Variant(target) => Self::Variant(target.clone()),
+            MemberType::Quantity(target) => Self::Quantity(target.clone()),
             MemberType::Option(element) => Self::Option(Box::new(Self::from(element.as_ref()))),
             MemberType::Collection {
                 kind,
