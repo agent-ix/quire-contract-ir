@@ -473,12 +473,13 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
                 node_id(&right)
             );
             for key in [
-                left.as_str(),
-                right.as_str(),
-                nodes[at].node_id.digest.as_ref(),
+                node_id(&left),
+                node_id(&right),
+                serde_json::to_value(&nodes[at].node_id).expect("application id"),
             ] {
                 assert!(admitted.source_map().iter().any(|entry| {
-                    entry.node_id.digest.as_ref() == key && !entry.regions.is_empty()
+                    serde_json::to_value(&entry.node_id).expect("source-map id") == key
+                        && !entry.regions.is_empty()
                 }));
             }
             assert_eq!(
@@ -618,7 +619,10 @@ fn native_literal_payloads_are_canonical_after_type_validation() {
         let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
             panic!("native literal refused: {:?}", read(&package));
         };
-        assert_eq!(admitted.graph().nodes[at].node_id.digest.as_ref(), key);
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[at].node_id).expect("literal id"),
+            node_id(&key)
+        );
         assert_eq!(
             serde_json::to_value(&admitted.graph().nodes[at].body).expect("typed body")["value"],
             good[0]
