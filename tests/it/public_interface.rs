@@ -870,8 +870,8 @@ fn quoted_names(text: &str) -> impl Iterator<Item = &str> {
     text.split('`').skip(1).step_by(2)
 }
 
-fn expected_items() -> BTreeMap<String, BTreeSet<String>> {
-    let (_, after_heading) = FR_019
+fn expected_items_from(spec: &str) -> BTreeMap<String, BTreeSet<String>> {
+    let (_, after_heading) = spec
         .split_once("### Public items")
         .expect("FR-019 public items table must exist");
     let (table, _) = after_heading
@@ -880,13 +880,19 @@ fn expected_items() -> BTreeMap<String, BTreeSet<String>> {
     let mut items = BTreeMap::<String, BTreeSet<String>>::new();
     for row in table.lines().filter(|line| line.starts_with("| `")) {
         let cells: Vec<_> = row.split('|').collect();
+        if cells[1].contains("planned until") {
+            continue;
+        }
         let module = quoted_names(cells[1])
             .next()
             .expect("public item row must name a module")
             .split_whitespace()
             .next()
             .expect("module name must be present");
-        let names = quoted_names(cells[2]).map(|name| {
+        let declarations = cells[2]
+            .split_once(", the public record type of ")
+            .map_or(cells[2], |(declarations, _)| declarations);
+        let names = quoted_names(declarations).map(|name| {
             if module == "crate_root" {
                 name.strip_prefix("module ").unwrap_or(name).to_owned()
             } else {
@@ -896,6 +902,23 @@ fn expected_items() -> BTreeMap<String, BTreeSet<String>> {
         items.entry(module.into()).or_default().extend(names);
     }
     items
+}
+
+fn expected_items() -> BTreeMap<String, BTreeSet<String>> {
+    expected_items_from(FR_019)
+}
+
+#[trace("TC-058", "FR-019-AC-5")]
+#[test]
+fn tc_058_planned_items_are_excluded_from_the_exact_inventory() {
+    let sample = "### Public items\n\
+| `checked_package` | type `Live` | FR-019 |\n\
+| `checked_package` (planned until owner code lands) | type `Future` | FR-019 |\n\
+## Acceptance Criteria";
+    assert_eq!(
+        expected_items_from(sample)["checked_package"],
+        BTreeSet::from(["Live".to_owned()])
+    );
 }
 
 fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
@@ -998,6 +1021,7 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
 #[test]
 fn tc_058_model_root_exports_exactly_the_documented_public_items() {
     assert_eq!(exported_items(), expected_items());
+    assert!(!MODEL_ROOT.contains("PACKAGE_DOMAIN_V2"));
     assert_eq!(
         MODEL_ROOT
             .lines()

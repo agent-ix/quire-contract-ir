@@ -141,8 +141,6 @@ where
 
 /// The I04 transport version admitted by the V2 reader.
 pub const CHECKED_PACKAGE_V2: &str = "quire.checked-package/v2";
-/// The V2 semantic package identity domain.
-pub const PACKAGE_DOMAIN_V2: &str = "quire.package.semantic/v2";
 const GRAPH_V2: &str = "quire.checked-semantic-graph/v2";
 
 #[derive(Clone, Copy, Eq, PartialEq)]

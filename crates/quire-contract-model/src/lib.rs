@@ -190,7 +190,7 @@ pub use checked_package::{
     ContractUnsupportedSourceKindError, CorrespondenceForm, DimensionTerm, ExpressionForm,
     FunctionForm, HybridForm, JsonPointer, LoweringProfileRef, ModelForm, NominalBody,
     ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, TimedModelForm, ValueForm,
-    CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION, PACKAGE_DOMAIN_V2,
+    CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
 };
 
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
