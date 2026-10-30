@@ -309,7 +309,7 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
         selector,
     }) {
         Outcome::Finite(finite) => {
-            assert_eq!(finite.maximum, 3);
+            assert_eq!(finite.maximum.as_str(), "3");
             assert_eq!(finite.minimum, 0);
             assert_eq!(finite.object_type, order_declaration_id());
             assert_eq!(finite.binding, typed_id(&population));
@@ -664,16 +664,12 @@ fn tc_048_the_dependency_join_lists_exactly_the_named_population() {
         .iter()
         .find(|node| node.node_id == reaches_id(&package))
         .expect("application");
-    let listed: Vec<String> = application
-        .dependencies
-        .iter()
-        .map(|id| id.digest.to_string())
-        .collect();
+    let listed: Vec<_> = application.dependencies.to_vec();
     let mut sorted = listed.clone();
     sorted.sort();
     sorted.dedup();
-    assert_eq!(listed, sorted, "unique and digest-ascending");
-    assert!(listed.contains(&population));
+    assert_eq!(listed, sorted, "unique and structural-id ascending");
+    assert!(listed.contains(&typed_id(&population)));
 
     // The population id omitted from the list.
     let mut omitted = Scenario::standard();
@@ -799,7 +795,6 @@ fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
         ("two max members", vec![max_of("3"), max_of("5")]),
         ("not a literal", vec![not_a_literal]),
         ("negative", vec![max_of("-1")]),
-        ("above u64", vec![max_of("18446744073709551616")]),
     ] {
         let mut scenario = Scenario::standard();
         let population = scenario.add_population(ORDER, members, &[0]);
@@ -823,8 +818,8 @@ fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
         &format!("/semantic_graph/nodes/{at}/body/members/0"),
     );
 
-    for max in [0_u64, 3, u64::MAX] {
-        let (scenario, population) = linked(ORDER, &max.to_string(), &[0]);
+    for max in ["0", "3", "18446744073709551615", "18446744073709551616"] {
+        let (scenario, population) = linked(ORDER, max, &[0]);
         let package = scenario.admitted();
         let selector = package
             .reaches_population(&reaches_id(&package))
@@ -835,7 +830,7 @@ fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
             selector,
         }) {
             Outcome::Finite(finite) => {
-                assert_eq!(finite.maximum, max);
+                assert_eq!(finite.maximum.as_str(), max);
                 assert_eq!(finite.binding, typed_id(&population));
             }
             other => panic!("expected a finite population for {max}, got {other:?}"),
@@ -952,7 +947,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         }
     );
     assert_eq!(finite.object_type, order_declaration_id());
-    assert_eq!((finite.minimum, finite.maximum), (0, 3));
+    assert_eq!((finite.minimum, finite.maximum.as_str()), (0, "3"));
     let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
         serde_json::from_value(scenario.package["source_map"].clone()).expect("authored sources");
     assert_eq!(package.source_map(), authored_sources);
