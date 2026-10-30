@@ -11,11 +11,11 @@ use super::shared::{push_index, push_key};
 use super::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRef, JsonPointer, RefusalFields,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry, CheckedSourceRef,
+    JsonPointer, RefusalFields,
 };
 use super::terms::{subterms_of, At, Cursor};
-use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
+use super::v2::{ApplicationOperator, BodyTerm, LiteralKind};
 use closed_members::ClosedMemberProvenance;
 use quire_walk::{walk, Children, Walk};
 use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
