@@ -733,7 +733,7 @@ fn invalid_value_at(result: CheckedPackageV2ReadResult, pointer: &str) {
 fn writer_bytes(package: &Value) -> Vec<u8> {
     let name = package["name"].as_str().expect("package name");
     let lock: CheckedPackageLockV2 = serde_json::from_value(package["lock"].clone()).expect("lock");
-    let graph: CheckedSemanticGraphV2<CheckedTerm> =
+    let graph: CheckedSemanticGraphV2<Value> =
         serde_json::from_value(package["semantic_graph"].clone()).expect("typed graph");
     let source_map: Vec<CheckedSourceMapEntry> =
         serde_json::from_value(package["source_map"].clone()).expect("source map");
@@ -1174,48 +1174,7 @@ fn edit_catalog_free_frame(
         .iter()
         .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "frame")
         .expect("frame");
-    let old_frame = package["semantic_graph"]["nodes"][frame]["node_id"]["digest"]
-        .as_str()
-        .expect("frame digest")
-        .to_owned();
     edit(&mut package["semantic_graph"]["nodes"][frame]);
-    let context = package["semantic_graph"]["nodes"][frame]["semantic_type"]["digest"]
-        .as_str()
-        .expect("context digest")
-        .to_owned();
-    let new_frame = structural_key(
-        "state",
-        "frame",
-        Some(&context),
-        &package["semantic_graph"]["nodes"][frame]["body"],
-    );
-    crate::support::checked_package::rename_node(package, &old_frame, &new_frame);
-    let anchor = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "operation_anchor")
-        .expect("anchor");
-    let old_anchor = package["semantic_graph"]["nodes"][anchor]["node_id"]["digest"]
-        .as_str()
-        .expect("anchor digest")
-        .to_owned();
-    let new_anchor = structural_key(
-        "state",
-        "operation_anchor",
-        Some(&context),
-        &package["semantic_graph"]["nodes"][anchor]["body"],
-    );
-    crate::support::checked_package::rename_node(package, &old_anchor, &new_anchor);
-    for node in package["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-    {
-        node["dependencies"]
-            .as_array_mut()
-            .expect("dependencies")
-            .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
-    }
     settle_refinement(package, refinement);
     frame
 }
@@ -1232,10 +1191,6 @@ fn rebind_catalog_free_anchor(
         .iter()
         .position(|node| node["semantic_form"] == "operation_anchor")
         .expect("anchor");
-    let old = package["semantic_graph"]["nodes"][anchor]["node_id"]["digest"]
-        .as_str()
-        .expect("anchor digest")
-        .to_owned();
     let node = &mut package["semantic_graph"]["nodes"][anchor];
     node["semantic_type"] = context.clone();
     node["body"]["members"][0]["value"]["target"] = context.clone();
@@ -1244,24 +1199,14 @@ fn rebind_catalog_free_anchor(
         context.clone(),
         node["body"]["members"][2]["value"]["target"].clone(),
     ];
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.sort_by(|left, right| {
+        let left: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(left.clone()).expect("anchor dependency");
+        let right: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(right.clone()).expect("anchor dependency");
+        left.cmp(&right)
+    });
     node["dependencies"] = json!(dependencies);
-    let new = structural_key(
-        "state",
-        "operation_anchor",
-        context["digest"].as_str(),
-        &node["body"],
-    );
-    crate::support::checked_package::rename_node(package, &old, &new);
-    for node in package["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-    {
-        node["dependencies"]
-            .as_array_mut()
-            .expect("dependencies")
-            .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
-    }
     settle_refinement(package, refinement);
     anchor
 }
