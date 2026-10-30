@@ -301,15 +301,69 @@ pub(super) fn check_lossless_source(
     compare_root(&root, "lock", &wire.lock, &[])?;
     compare_root(&root, "name", &wire.name, &[])?;
     compare_root(&root, "semantic_graph", &wire.semantic_graph, &["nodes"])?;
-    compare_items(
-        &["semantic_graph", "nodes"],
-        &nodes,
-        &wire.semantic_graph.nodes,
-        &["body"],
-    )?;
-    compare_items(&["source_map"], &source_map, &wire.source_map, &[])?;
+    if nodes.len() != wire.semantic_graph.nodes.len() {
+        return Err(malformed(
+            JsonPointer::root().key("semantic_graph").key("nodes"),
+        ));
+    }
+    for (index, (original, node)) in nodes.iter().zip(&wire.semantic_graph.nodes).enumerate() {
+        let at = JsonPointer::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(index);
+        super::lossless::compare(
+            original,
+            node,
+            at.clone(),
+            &[
+                "body",
+                "node_id",
+                "semantic_type",
+                "dependencies",
+                "owner_model",
+            ],
+        )?;
+        compare_id_member(original, "node_id", &node.node_id, at.clone())?;
+        compare_id_member(original, "semantic_type", &node.semantic_type, at.clone())?;
+        let dependencies: Vec<&RawValue> = serde_json::from_str(
+            raw_member(Some(original), "dependencies")
+                .ok_or_else(|| malformed(at.clone().key("dependencies")))?
+                .get(),
+        )
+        .map_err(|_| malformed(at.clone().key("dependencies")))?;
+        if dependencies.len() != node.dependencies.len() {
+            return Err(malformed(at.clone().key("dependencies")));
+        }
+        for (item, (raw, id)) in dependencies.iter().zip(&node.dependencies).enumerate() {
+            compare_id(raw, id, at.clone().key("dependencies").index(item))?;
+        }
+        match (&node.owner_model, raw_member(Some(original), "owner_model")) {
+            (Some(id), Some(raw)) => compare_id(raw, id, at.key("owner_model"))?,
+            (None, None) => {}
+            _ => return Err(malformed(at.key("owner_model"))),
+        }
+    }
+    if source_map.len() != wire.source_map.len() {
+        return Err(malformed(JsonPointer::root().key("source_map")));
+    }
+    for (index, (original, entry)) in source_map.iter().zip(&wire.source_map).enumerate() {
+        let at = JsonPointer::root().key("source_map").index(index);
+        super::lossless::compare(original, entry, at.clone(), &["node_id"])?;
+        compare_id_member(original, "node_id", &entry.node_id, at)?;
+    }
     if let Some(rows) = &wire.refinement_step_rows {
-        compare_root(&root, "refinement_step_rows", rows, &[])?;
+        let originals = raw_array(
+            root.get("refinement_step_rows").copied(),
+            &["refinement_step_rows"],
+        )?;
+        if originals.len() != rows.len() {
+            return Err(malformed(JsonPointer::root().key("refinement_step_rows")));
+        }
+        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
+            let at = JsonPointer::root().key("refinement_step_rows").index(index);
+            super::lossless::compare(original, row, at.clone(), &["node_id"])?;
+            compare_id_member(original, "node_id", &row.node_id, at)?;
+        }
     } else if root.contains_key("refinement_step_rows") {
         return Err(malformed(JsonPointer::root().key("refinement_step_rows")));
     }
@@ -319,6 +373,31 @@ pub(super) fn check_lossless_source(
         &wire.diagnostics.entries,
         &["details"],
     )
+}
+
+fn compare_id(
+    raw: &RawValue,
+    typed: &CheckedNodeId,
+    at: JsonPointer,
+) -> Result<(), ValidationFailure> {
+    let decoded: CheckedNodeId =
+        serde_json::from_str(raw.get()).map_err(|_| malformed(at.clone()))?;
+    if decoded == *typed {
+        Ok(())
+    } else {
+        Err(malformed(at))
+    }
+}
+
+fn compare_id_member(
+    raw: &RawValue,
+    key: &str,
+    typed: &CheckedNodeId,
+    parent: JsonPointer,
+) -> Result<(), ValidationFailure> {
+    let at = parent.key(key);
+    let value = raw_member(Some(raw), key).ok_or_else(|| malformed(at.clone()))?;
+    compare_id(value, typed, at)
 }
 
 fn compare_root<T: serde::Serialize>(
