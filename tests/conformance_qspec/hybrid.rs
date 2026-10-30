@@ -342,7 +342,7 @@ fn qspec_hybrid_capture_initializer_must_match_capture_type() {
         .find(|key| **key == old)
         .expect("capture dependency");
     *dependency = boolean;
-    sort_node_ids(&mut dependencies);
+    sort_node_ids(dependencies);
     let fair = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
