@@ -111,7 +111,7 @@ type: TestMatrix
 
 | Functional Req | Acceptance Criteria | Test Case | Status | Required cases |
 |---|---|---|---|---|
-| FR-038 | FR-038-AC-303, FR-038-AC-304 | TC-229 | Implemented; focused tests pass | Required `ModelOwner`, closed P7/P8 preimages, selected `populations` join, absent-owner and wrong-kind refusals. |
+| FR-038 | FR-038-AC-303, FR-038-AC-304 | TC-229 | Implemented; focused tests pass | Required `ModelOwner`, structural P7/P8 ids, selected `populations` join, absent-owner and wrong-kind refusals. |
 | FR-038 | FR-038-AC-305, FR-038-AC-306 | TC-229 | Implemented; focused tests pass | Both model operations over declared references and typed parameter bindings; dependency and identity distinctions, result bound placement, and forbidden position refusals. |
 | FR-038 | FR-038-AC-307 | TC-229 | Implemented; QSpec conformance passes | Direct selected-checkout QSpec vectors and adverse recipes; no fixture copy. |
 
