@@ -321,7 +321,8 @@ impl<'a> DependencyReferences<'a> {
                 | CheckedTerm::Frame { .. }
                 | CheckedTerm::AbstractionRelation { .. }
                 | CheckedTerm::Refinement { .. }
-                | CheckedTerm::ExtensionForm { .. } => {}
+                | CheckedTerm::ExtensionForm { .. }
+                | CheckedTerm::NominalBody(_) => {}
             }
         }
         Ok(())
@@ -496,7 +497,8 @@ pub(super) fn selected_reference_targets(body: &CheckedTerm) -> Vec<(Box<str>, C
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
             | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. } => {}
+            | CheckedTerm::ExtensionForm { .. }
+            | CheckedTerm::NominalBody(_) => {}
         }
     }
     selected
