@@ -1,15 +1,17 @@
-//! The closed-schema decode of the package document, without a recursion that
-//! follows the nesting of a term or a copy of the document that follows its size.
+//! The closed-schema decode of the package document, without native recursion
+//! following the nesting of a term or structural node path.
 //!
 //! A node `body` and a diagnostic's `details`
 //! entry may nest as deep as the strict parser's limit of 128. The outer typed
 //! decode borrows each such term as a raw source slice, then decodes it into a
-//! `Value` only after that outer frame has returned. This keeps an adverse
-//! deep term within the 256 KiB reader stack (FR-038-AC-117).
+//! `Value` only after that outer frame has returned. A `NodeId.path` is
+//! captured and decoded on a heap worklist, so it has no fixed depth cap.
+//! This keeps an adverse deep term or path within the reader stack budget.
 //!
 //! The lossless-decode check (no member defaulted, nulled or dropped) compares
 //! borrowed source array items against their typed serialization one at a
-//! time, so no second copy of the whole document is built.
+//! time, except structural node identities, which compare from raw slices
+//! to avoid recursive serialization.
 
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
