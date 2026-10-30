@@ -5,7 +5,7 @@
 
 use crate::support::checked_package::{
     add_family_reference_target, canonical, evidence_for, family_key, node_id,
-    nominal_fixture_members, nominal_package, settle, v2_all_families,
+    nominal_fixture_members, nominal_package, refresh_identity, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -825,7 +825,7 @@ fn tc_048_malformed_operation_facts_have_no_admitted_view() {
         .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
         .expect("field projection");
     field_node["body"]["operation"]["member"]["declaration"] = json!(false);
-    settle(&mut field);
+    refresh_identity(&mut field);
     let result = read_with_evidence(&field, &evidence);
     assert!(
         matches!(&result, CheckedPackageV2ReadResult::Refused(_)),

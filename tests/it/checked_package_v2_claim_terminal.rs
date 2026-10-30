@@ -59,13 +59,18 @@ fn node(tag: &str, form: &str, body: Value, dependencies: &[String]) -> Value {
         || format!("fixture/claim-terminal/{tag}/{form}"),
         |name| format!("fixture/claim-terminal/{tag}/{form}/{name}"),
     );
-    let mut dependencies = dependencies.to_vec();
-    dependencies.sort();
+    let mut dependencies = dependencies
+        .iter()
+        .map(|key| node_id(key))
+        .collect::<Vec<_>>();
+    dependencies.sort_by_key(|id| {
+        serde_json::from_value::<CheckedNodeId>(id.clone()).expect("dependency node ID")
+    });
     dependencies.dedup();
     json!({
         "node_id": node_id(&id), "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": tag, "semantic_form": form, "semantic_type": node_id(&ty),
-        "dependencies": dependencies.into_iter().map(|key| node_id(&key)).collect::<Vec<_>>(),
+        "dependencies": dependencies,
         "occurrences": [{"role": "claim", "ordinal": 0}], "body": body,
     })
 }
@@ -240,16 +245,20 @@ fn terminal_for_selected_model(model: &str) -> Value {
         .as_array_mut()
         .expect("nodes")
         .push(other_object_node());
+    let mut terminal_node = terminal(
+        "any",
+        reference(model),
+        empty(),
+        empty(),
+        &[model.to_owned()],
+    );
+    terminal_node["node_id"] = node_id(&format!(
+        "fixture/claim-terminal/temporal/terminal/any/{model}"
+    ));
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .push(terminal(
-            "any",
-            reference(model),
-            empty(),
-            empty(),
-            &[model.to_owned()],
-        ));
+        .push(terminal_node);
     settle(&mut package);
     package
 }
@@ -987,16 +996,16 @@ fn terminal_identity_and_uniqueness_per_model() {
     );
     changed_node["node_id"] = node_id(&changed_condition);
     changed_node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
-    let changed = package_with_nodes(vec![
-        changed_node,
-        terminal(
-            "when",
-            reference(&model),
-            empty(),
-            reference(&changed_condition),
-            &[model.clone(), changed_condition],
-        ),
-    ]);
+    let mut changed_terminal = terminal(
+        "when",
+        reference(&model),
+        empty(),
+        reference(&changed_condition),
+        &[model.clone(), changed_condition],
+    );
+    changed_terminal["node_id"] =
+        node_id("fixture/claim-terminal/temporal/terminal/when/changed-condition");
+    let changed = package_with_nodes(vec![changed_node, changed_terminal]);
     let _ = admitted(&changed);
     assert_ne!(
         when["semantic_graph"]["nodes"][base_node_index()]["node_id"],
