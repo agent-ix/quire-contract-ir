@@ -23,8 +23,11 @@ Verify FR-038's independent closed body, owner, graph, dependency and recursion-
    otherwise valid group members without changing any ID, label or reference;
    require admission and a changed complete graph-array value. In separate
    copies, duplicate a structural ID, make its ordinal out of range or
-   non-integer, omit an exactly referenced member, give one node an invalid or
-   mismatched cycle label, redirect an exact reference to a type-incompatible
+   non-integer, omit an exactly referenced member, give exactly one member of
+   an actual cyclic reference component a different non-empty
+   `recursion_group` label while every other member retains the original
+   shared label, separately give that member an invalid empty label, redirect
+   an exact reference to a type-incompatible
    member, and break an outside target. Require each independent typed graph,
    label, body/type or wire refusal at its own locus. A valid structural
    ordinal unrelated to graph position admits. The former group-position,
