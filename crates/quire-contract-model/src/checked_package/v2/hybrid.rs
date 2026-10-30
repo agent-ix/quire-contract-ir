@@ -1353,9 +1353,6 @@ pub(super) fn check_wire(
     if node.recursion_group.is_some() {
         return Err(malformed(at.clone().key("recursion_group")));
     }
-    if node.nominal_identity_preimage.is_some() {
-        return Err(malformed(at.clone().key("nominal_identity_preimage")));
-    }
     let expected_role = match form {
         HybridForm::Model | HybridForm::Mode => {
             if node.declaration.is_none() {

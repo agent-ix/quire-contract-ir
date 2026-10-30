@@ -136,10 +136,6 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
             let forbidden = [
                 ("declaration", node.declaration.is_some()),
                 ("owner", node.owner.is_some()),
-                (
-                    "nominal_identity_preimage",
-                    node.nominal_identity_preimage.is_some(),
-                ),
             ];
             if let Some((member, _)) = forbidden.into_iter().find(|(_, present)| *present) {
                 return Err(ValidationFailure::refused(
