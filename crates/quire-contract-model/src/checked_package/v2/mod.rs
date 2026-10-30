@@ -531,6 +531,16 @@ pub struct CheckedDependencySelection {
     pub identity: Box<str>,
 }
 
+/// One refinement and its nonempty canonical list of internal step classes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedRefinementInternal {
+    /// Qualified refinement declaration name.
+    pub refinement: Box<str>,
+    /// Step class spellings excluded from external obligations.
+    pub internal: Vec<Box<str>>,
+}
+
 /// The exact immutable V2 package lock.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
@@ -547,6 +557,9 @@ pub struct CheckedPackageLockV2 {
     pub required_features: Vec<Box<str>>,
     /// Dependency selections: one per library identity, ascending.
     pub dependency_selections: Vec<CheckedDependencySelection>,
+    /// Nonempty refinement internal lists, omitted when no list is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refinement_internals: Option<Vec<CheckedRefinementInternal>>,
 }
 
 /// The six wire selections of the V2 package identity preimage.
@@ -1568,6 +1581,7 @@ fn validate_lock<'a>(
         })?;
     }
     validate_dependency_selections(&lock.dependency_selections)?;
+    validate_refinement_internals(lock.refinement_internals.as_deref())?;
     for (index, definition) in lock.definition_selections.iter().enumerate() {
         validate_definition_ref(definition, &|| {
             member_pointer(&["lock", "definition_selections"]).index(index)
@@ -1657,6 +1671,62 @@ fn validate_dependency_selections(
             at(index + 1),
             CheckedPackageRefusalCause::InvalidValue,
         ));
+    }
+    Ok(())
+}
+
+/// Enforce FR-322's canonical refinement internal lock rows and spellings.
+fn validate_refinement_internals(
+    rows: Option<&[CheckedRefinementInternal]>,
+) -> Result<(), ValidationFailure> {
+    let Some(rows) = rows else { return Ok(()) };
+    let at = |index: usize| member_pointer(&["lock", "refinement_internals"]).index(index);
+    if rows.is_empty() {
+        return Err(refuse(
+            CheckedPackageRefusalCode::MalformedWire,
+            member_pointer(&["lock", "refinement_internals"]),
+        ));
+    }
+    let mut seen_rows = BTreeMap::new();
+    for (index, row) in rows.iter().enumerate() {
+        if !is_nonempty(&row.refinement) || row.internal.is_empty() {
+            return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at(index)));
+        }
+        if seen_rows.insert(row.refinement.as_ref(), index).is_some() {
+            return Err(ValidationFailure::refused_because(
+                CheckedPackageRefusalCode::InvalidPackage,
+                at(index).key("refinement"),
+                CheckedPackageRefusalCause::ConflictingDefinition,
+            ));
+        }
+        let mut seen_classes = BTreeMap::new();
+        for (class_index, class) in row.internal.iter().enumerate() {
+            let class_at = || at(index).key("internal").index(class_index);
+            if !is_nonempty(class) {
+                return Err(refuse(CheckedPackageRefusalCode::MalformedWire, class_at()));
+            }
+            if seen_classes.insert(class.as_ref(), class_index).is_some() {
+                return Err(ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    class_at(),
+                    CheckedPackageRefusalCause::ConflictingDefinition,
+                ));
+            }
+            if class_index > 0 && row.internal[class_index - 1] >= *class {
+                return Err(ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    class_at(),
+                    CheckedPackageRefusalCause::InvalidValue,
+                ));
+            }
+        }
+        if index > 0 && rows[index - 1].refinement >= row.refinement {
+            return Err(ValidationFailure::refused_because(
+                CheckedPackageRefusalCode::InvalidPackage,
+                at(index).key("refinement"),
+                CheckedPackageRefusalCause::InvalidValue,
+            ));
+        }
     }
     Ok(())
 }
@@ -3213,12 +3283,12 @@ mod test_support {
     use super::CheckedNodeId;
     use serde_json::{json, Value};
 
-    /// The JSON of a node id whose digest is `digit` repeated.
+    /// The JSON of a distinct structural node identity.
     pub(super) fn id(digit: char) -> Value {
-        json!({"domain": "quire.checked-semantic-node/v1", "digest": digit.to_string().repeat(64)})
+        json!({"package": "test", "path": [digit.to_string()], "ordinal": 0})
     }
 
-    /// The typed node id whose digest is `digit` repeated.
+    /// A typed structural node identity.
     pub(super) fn node_id(digit: char) -> CheckedNodeId {
         serde_json::from_value(id(digit)).expect("node id")
     }
@@ -3235,6 +3305,53 @@ mod tests {
     };
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    /// Trace: FR-322-AC-77, TC-233.
+    #[test]
+    fn refinement_internal_lock_rows_are_nonempty_ordered_and_unique() {
+        use super::CheckedRefinementInternal;
+        let row = |refinement: &str, internal: &[&str]| CheckedRefinementInternal {
+            refinement: refinement.into(),
+            internal: internal.iter().map(|name| (*name).into()).collect(),
+        };
+        assert!(super::validate_refinement_internals(None).is_ok());
+        assert!(super::validate_refinement_internals(Some(&[
+            row("A", &["memory drain", "memory flush"]),
+            row("B", &["protocol call"]),
+        ]))
+        .is_ok());
+        let invalid = [
+            (vec![], CheckedPackageRefusalCode::MalformedWire),
+            (
+                vec![row("A", &[])],
+                CheckedPackageRefusalCode::MalformedWire,
+            ),
+            (
+                vec![row("B", &["step"]), row("A", &["step"])],
+                CheckedPackageRefusalCode::InvalidPackage,
+            ),
+            (
+                vec![row("A", &["step"]), row("A", &["step"])],
+                CheckedPackageRefusalCode::InvalidPackage,
+            ),
+            (
+                vec![row("A", &["z", "a"])],
+                CheckedPackageRefusalCode::InvalidPackage,
+            ),
+            (
+                vec![row("A", &["a", "a"])],
+                CheckedPackageRefusalCode::InvalidPackage,
+            ),
+        ];
+        for (rows, expected) in invalid {
+            let Err(ValidationFailure::Refused(refusal)) =
+                super::validate_refinement_internals(Some(&rows))
+            else {
+                panic!("expected lock refusal");
+            };
+            assert_eq!(refusal.code, expected);
+        }
+    }
 
     fn recursion_test_node(digit: char, group: Option<&str>) -> super::RawSemanticNodeV2 {
         serde_json::from_value(json!({
