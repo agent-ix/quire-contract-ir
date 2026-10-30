@@ -183,7 +183,11 @@ fn tc_048_ir575_metadata_only_peak() {
         CheckedPackageRefusalCode::UnknownRequiredCapability
     );
     assert_eq!(
-        refusal.path.as_ref().expect("refusal path").as_str(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .expect("refusal path")
+            .as_str(),
         "/capability_report/1/feature",
     );
     let (post_rss, post_hwm) = proc_memory_kib();

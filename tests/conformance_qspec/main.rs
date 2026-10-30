@@ -711,7 +711,7 @@ fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() 
             (Code::InvalidPackage, Some(Cause::StaleNodeKey))
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
         );
         assert_eq!(
@@ -752,7 +752,7 @@ fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() 
             (Code::InvalidPackage, Some(Cause::StaleNodeKey))
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
         );
         assert_eq!(

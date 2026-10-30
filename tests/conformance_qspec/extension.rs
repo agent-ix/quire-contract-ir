@@ -148,7 +148,7 @@ fn tc_459_extension_record_clause_uses_selected_model_directional_conformance() 
         (Code::IllTyped, Some(Cause::TypeMismatch))
     );
     assert_eq!(
-        refusal.path.expect("path").to_string(),
+        refusal.loci[0].path.clone().expect("path").to_string(),
         format!("/semantic_graph/nodes/{form}/body/clauses/0/value")
     );
 
@@ -164,7 +164,7 @@ fn tc_459_extension_record_clause_uses_selected_model_directional_conformance() 
         (Code::IllTyped, Some(Cause::TypeMismatch))
     );
     assert_eq!(
-        refusal.path.expect("path").to_string(),
+        refusal.loci[0].path.clone().expect("path").to_string(),
         format!("/semantic_graph/nodes/{form}/body/clauses/0/value")
     );
 }
@@ -201,7 +201,7 @@ fn tc_459_extension_composite_record_name_is_not_selected_model_type() {
         (Code::IllTyped, Some(Cause::TypeMismatch))
     );
     assert_eq!(
-        refusal.path.expect("path").to_string(),
+        refusal.loci[0].path.clone().expect("path").to_string(),
         format!("/semantic_graph/nodes/{form}/body/clauses/0/value")
     );
 }
@@ -237,7 +237,11 @@ fn tc_459_unheld_extension_refuses_at_its_definition() {
         format!("/semantic_graph/nodes/{position}/body/definition")
     );
     assert_eq!(
-        refusal.path.expect("definition pointer").to_string(),
+        refusal.loci[0]
+            .path
+            .clone()
+            .expect("definition pointer")
+            .to_string(),
         format!("/semantic_graph/nodes/{position}/body/definition")
     );
     assert_eq!(
@@ -574,7 +578,11 @@ fn assert_extension_refusal(
     assert_eq!(refusal.code, code);
     assert_eq!(refusal.cause, cause);
     assert_eq!(
-        refusal.path.as_ref().expect("refusal path").to_string(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .expect("refusal path")
+            .to_string(),
         path
     );
     refusal
@@ -1082,7 +1090,7 @@ fn tc_459_extension_join_precedes_frame_semantic_join() {
     };
     assert_eq!(refusal.code, Code::UnknownRequiredCapability);
     assert_eq!(
-        refusal.path.as_ref().expect("pointer").to_string(),
+        refusal.loci[0].path.as_ref().expect("pointer").to_string(),
         format!("/semantic_graph/nodes/{extension}/body/definition")
     );
 }

@@ -424,7 +424,7 @@ fn published_transition_join_mutations_refuse_at_the_first_target() {
             "{case}: {refusal:?}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some(path),
             "{case}: {refusal:?}"
         );
@@ -491,7 +491,7 @@ fn published_transition_closed_shape_mutations_refuse_before_identity() {
         assert_eq!(refusal.code, Code::MalformedWire, "{case}: {refusal:?}");
         assert_eq!(refusal.cause, None, "{case}: {refusal:?}");
         assert!(
-            refusal.path.as_ref().is_some_and(|path| path
+            refusal.loci[0].path.as_ref().is_some_and(|path| path
                 .to_string()
                 .starts_with(&format!("/semantic_graph/nodes/{position}"))),
             "{case}: {refusal:?}"
@@ -519,7 +519,7 @@ fn transition_schema_defect_precedes_a_wrong_anchor() {
     assert_eq!(refusal.code, Code::MalformedWire);
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}/body"))
     );
 }
@@ -577,7 +577,7 @@ fn transition_member_and_profile_mutations_refuse() {
     assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{position}/body/operation/member/operator"
         ))
@@ -605,7 +605,7 @@ fn transition_member_and_profile_mutations_refuse() {
     assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{control_position}/body/operation/member/operator"
         ))
@@ -855,7 +855,7 @@ fn a_second_transition_for_the_same_anchor_and_subject_refuses() {
     assert_eq!(refusal.code, Code::AmbiguousDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::AmbiguousName));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{later}"))
     );
     assert_eq!(
@@ -900,7 +900,7 @@ fn two_transition_defects_refuse_in_ascending_node_digest_order() {
     assert_eq!(refusal.code, Code::InvalidModelBinding, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{earliest}/body/arguments/0/value/target"
         ))
@@ -955,7 +955,7 @@ fn integer_model_field_cannot_be_a_boolean_transition_subject() {
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}"))
     );
 }
@@ -988,7 +988,7 @@ fn selected_optional_boolean_field_refuses_at_the_transition() {
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}"))
     );
 }
@@ -1072,7 +1072,7 @@ fn two_boolean_inputs_must_follow_the_selected_operation_order() {
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}"))
     );
 }
@@ -1093,7 +1093,7 @@ fn transition_application_nested_in_boolean_or_refuses_at_the_inner_application(
     assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/9/body/arguments/0".into())
     );
 }
@@ -1119,7 +1119,7 @@ fn a_frame_member_defect_precedes_a_transition_anchor_defect() {
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingName));
     assert!(
-        refusal.path.as_ref().is_some_and(|path| path
+        refusal.loci[0].path.as_ref().is_some_and(|path| path
             .to_string()
             .starts_with("/semantic_graph/nodes/10/body/modifies/0")),
         "{refusal:?}"
@@ -1152,7 +1152,7 @@ fn graph_dependency_and_selected_model_owner_refuse_before_a_frame_defect() {
     assert_eq!(refusal.code, Code::InvalidSemanticGraph, "{refusal:?}");
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/9/dependencies".into())
     );
 
@@ -1167,7 +1167,7 @@ fn graph_dependency_and_selected_model_owner_refuse_before_a_frame_defect() {
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingSelection));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/3/node_id".into())
     );
 }
@@ -1213,7 +1213,7 @@ fn anchor_refusal_precedes_transition_and_state_refusal_precedes_operation_catal
     assert_eq!(refusal.code, Code::InvalidPackage, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperationLawUnselected));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{position}/body/operation/laws/0/definition"
         ))
@@ -1230,7 +1230,7 @@ fn anchor_refusal_precedes_transition_and_state_refusal_precedes_operation_catal
     assert_eq!(refusal.code, Code::InvalidModelBinding, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{position}/body/arguments/0/value/target"
         ))
@@ -1262,7 +1262,7 @@ fn a_clause_anchor_defect_precedes_a_transition_anchor_defect() {
     assert_eq!(refusal.code, Code::InvalidModelBinding, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/12/body/arguments/1/target".into())
     );
 }
@@ -1288,7 +1288,7 @@ fn transition_application_at_a_binary_expression_root_refuses_before_anchor_join
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/9/body".into())
     );
 }
@@ -1344,7 +1344,7 @@ fn transition_joins_refuse_in_anchor_subject_input_clause_order() {
         );
         assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some(target_path)
         );
     }

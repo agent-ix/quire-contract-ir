@@ -99,7 +99,7 @@ fn expect_stale(result: CheckedPackageV2ReadResult, path: &str, cause: CheckedPa
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::StaleDependency);
     assert_eq!(refusal.cause, Some(cause));
-    assert_eq!(refusal.path, Some(pointer(path)));
+    assert_eq!(refusal.loci[0].path.clone(), Some(pointer(path)));
     let expected = refusal.expected.expect("selected identity");
     let actual = refusal.actual.expect("supplied identity");
     assert_eq!(expected.algorithm.as_ref(), "sha256");
@@ -454,7 +454,10 @@ fn exact_feature_repeats_are_idempotent_and_variants_do_not_imply_support() {
             refusal.code,
             CheckedPackageRefusalCode::UnknownRequiredCapability
         );
-        assert_eq!(refusal.path, Some(pointer("/lock/required_features/0")));
+        assert_eq!(
+            refusal.loci[0].path.clone(),
+            Some(pointer("/lock/required_features/0"))
+        );
         let mut both = control;
         both.support_feature(distinct);
         only_distinct.support_feature(required);

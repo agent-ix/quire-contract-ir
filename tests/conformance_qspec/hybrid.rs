@@ -11,7 +11,7 @@ fn assert_locus(
     suffix: &str,
 ) {
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}{suffix}")),
         "{refusal:?}"
     );
@@ -125,7 +125,7 @@ fn qspec_hybrid_schema_defects_refuse_before_identity() {
         assert_eq!(refusal.code, Code::MalformedWire, "{form} {change}");
         assert_eq!(refusal.cause, None, "{form} {change}");
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some(format!("/semantic_graph/nodes/{position}{locus}")),
             "{form} {change}: {refusal:?}"
         );

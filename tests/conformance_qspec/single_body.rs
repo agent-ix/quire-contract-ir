@@ -147,7 +147,11 @@ fn shipped_projection_vector_refuses_at_the_first_wire_member(selected: &str) {
             "{id}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             row["expected_locus"].as_str(),
             "{id}: first refusal follows the published locus"
         );
@@ -197,7 +201,10 @@ fn derived_identity_binds_a_nominal_body_and_node_order_but_excludes_occurrences
         refusal.cause,
         Some(CheckedPackageRefusalCause::ContentMismatch)
     );
-    assert_eq!(refusal.path.unwrap().to_string(), "/package_id/digest");
+    assert_eq!(
+        refusal.loci[0].path.clone().unwrap().to_string(),
+        "/package_id/digest"
+    );
     assert_eq!(refusal.actual.unwrap().digest.as_ref(), changed_hash);
 
     let mut reordered = base.clone();
@@ -349,6 +356,10 @@ fn unknown_wire_selection_member_refuses_at_that_member() {
             "/identity_preimage/{}",
             member.replace('~', "~0").replace('/', "~1")
         );
-        assert_eq!(refusal.path.unwrap().as_str(), expected, "{member:?}");
+        assert_eq!(
+            refusal.loci[0].path.clone().unwrap().as_str(),
+            expected,
+            "{member:?}"
+        );
     }
 }
