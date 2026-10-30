@@ -2561,7 +2561,9 @@ fallible nominal constructor with typed values and compare its serialized
 `CheckedTerm::NominalBody` against an independently authored closed V2 body.
 Read a conforming package containing that body and compare the retained typed
 term. For each malformed member named in AC-374, assert `malformed_wire` and
-the exact body-relative pointer without receiving a body. Construct a valid
+the exact body-relative pointer without receiving a body. Include independent
+zero and negative `dimension_equivalence.root_scale.numerator` constructor
+requests; both must refuse at `/root_scale/numerator`. Construct a valid
 shape with an unresolved graph reference or wrong owner, then verify that the
 ordinary reader gives its existing semantic refusal, not constructor success
 as a claim of package admission.
