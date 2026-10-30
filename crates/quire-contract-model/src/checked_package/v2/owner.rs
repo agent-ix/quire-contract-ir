@@ -303,8 +303,7 @@ pub(super) fn validate_owner_joins(
     positions.sort_unstable_by(|&left, &right| {
         wire.semantic_graph.nodes[left]
             .node_id
-            .digest
-            .cmp(&wire.semantic_graph.nodes[right].node_id.digest)
+            .cmp(&wire.semantic_graph.nodes[right].node_id)
     });
     for position in positions {
         let node = &wire.semantic_graph.nodes[position];
