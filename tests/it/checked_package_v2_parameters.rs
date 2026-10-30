@@ -353,12 +353,12 @@ fn dependent_compound_unit_references_wait_for_target_key() {
     rebuild_source_map(&mut root);
     refresh_identity(&mut root);
     let root_refusal = refused(&root);
-    // The compound unit's nominal target join observes the rekeyed target
-    // before the target's own key can be authenticated.
+    // The kilometre nominal preimage names metre as its target unit. Its
+    // nominal join is checked before the compound unit and structural keys.
     assert_eq!(
         root_refusal.path.as_ref().map(ToString::to_string),
         Some(format!(
-            "/semantic_graph/nodes/{COMPOUND}/nominal_identity_preimage/target_unit_node_id"
+            "/semantic_graph/nodes/{KILOMETRE}/nominal_identity_preimage/target_unit_node_id"
         ))
     );
 

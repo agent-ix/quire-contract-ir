@@ -2627,14 +2627,11 @@ fn validate_graph(
         });
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
-    // Graph-shape body and dependency rules FR-322 orders before the general
-    // stale-key stage: the structural forms' bodies and occurrence roles and
-    // the application-node dependency join. Then, in reader order, the
-    // stale-key, declaration, frame, state and operation steps. All of them
-    // run before the dependency and body-reference edges below are resolved,
-    // so an entry, anchor or clause reference naming no node is the step's
-    // own `missing_declaration` refusal rather than the generic
-    // unresolved-reference `invalid_semantic_graph`.
+    // FR-322 puts structural body and occurrence shape, the application
+    // dependency join, and independent dangling body references before key
+    // authentication. Family-owned entry, anchor and clause references keep
+    // their later checks and may yield the family's `missing_declaration`
+    // refusal rather than the generic unresolved-reference refusal.
     let deferred_keys = deferred_key_targets(&graph.nodes, &kinds, limits.bytes);
     validate_structural_nodes(&graph.nodes, &kinds, &terms, &index, &deferred_keys)?;
     // An independent dangling body reference belongs to graph shape. A

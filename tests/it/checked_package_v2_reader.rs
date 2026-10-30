@@ -663,6 +663,13 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                 None,
                 &digest_of(&mutated["semantic_graph"]["nodes"][4]),
             )
+        } else if name == "dangling dependency" {
+            checked_package::refusal_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "/semantic_graph/nodes/1/dependencies/0",
+                None,
+                &digest_of(&mutated["semantic_graph"]["nodes"][1]),
+            )
         } else {
             expected
         };

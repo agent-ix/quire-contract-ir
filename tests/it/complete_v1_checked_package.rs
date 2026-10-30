@@ -301,9 +301,11 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
     refresh_identity(&mut dangling_target);
     assert_eq!(
         refused(&dangling_target, &evidence_for(&dangling_target)),
-        refusal(
+        crate::support::checked_package::refusal_at(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            &format!("/semantic_graph/nodes/{expression}/body/target"),
+            &format!("/semantic_graph/nodes/{expression}"),
+            None,
+            wire_node_id(&dangling_target, expression).digest.as_ref(),
         )
     );
 
