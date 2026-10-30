@@ -7,13 +7,12 @@
 //! and `modifies` of `FrameModifiesEntry` values, `{kind: "relationship",
 //! declaration}` or `{kind: "field", declaration, name, scope}`, and
 //! `deletes_scoped` of receiver or named parameter entries. A shape defect
-//! refuses as `invalid_semantic_graph` at the entry (a node key outside the
-//! node domain as `digest_domain_mismatch`), a repeated entry at its second
+//! refuses as `invalid_semantic_graph` at the entry, a repeated entry at its second
 //! occurrence.
 //!
 //! [`validate_frame_semantics`] is the frame step, run after every
-//! graph-shape, stale-key and declaration refusal. For each frame node, in
-//! ascending node-id digest order, it collects every meaning-join defect:
+//! graph-shape and declaration refusal. For each frame node, in
+//! ascending structural node-id order, it collects every meaning-join defect:
 //!
 //! - the frame's `semantic_type` names no node (`missing-name`) or a node
 //!   that is not an operation-bearing object type, process or state machine
@@ -34,7 +33,7 @@
 //! its own `declaration` is declared by this package's source, names no
 //! member in its body, and is not resolved against any domain package.
 //!
-//! The reported meaning defect is the least by (position, entry declaration digest,
+//! The reported meaning defect is the least by (position, entry declaration id,
 //! field name), positions ordered `semantic_type`, `modifies`, `creates`,
 //! `deletes`. A conflicting pair of field scopes follows other meaning defects
 //! and precedes order checks. With no meaning defect, a member not strictly ascending by
@@ -109,13 +108,13 @@ impl ModifiesEntry {
         }
     }
 
-    /// FR-340's order key: the declaration digest, field name, then scope.
-    fn order_key(&self) -> (&str, &str, Option<FieldScope>) {
+    /// FR-340's order key: the declaration id, field name, then scope.
+    fn order_key(&self) -> (&CheckedNodeId, &str, Option<FieldScope>) {
         let scope = match self {
             Self::Relationship { .. } => None,
             Self::Field { scope, .. } => Some(*scope),
         };
-        (&self.declaration().digest, self.name(), scope)
+        (self.declaration(), self.name(), scope)
     }
 }
 
@@ -340,7 +339,7 @@ impl Position {
 #[derive(Clone, Debug)]
 struct MeaningDefect {
     position: Position,
-    digest: Box<str>,
+    node_id: CheckedNodeId,
     name: Box<str>,
     /// The entry's index in its member array; `None` for `semantic_type`.
     entry: Option<usize>,
@@ -348,9 +347,9 @@ struct MeaningDefect {
 }
 
 impl MeaningDefect {
-    /// Position, then entry declaration digest, then field name.
-    fn rank(&self) -> (Position, &str, &str) {
-        (self.position, &self.digest, &self.name)
+    /// Position, then entry declaration id, then field name.
+    fn rank(&self) -> (Position, &CheckedNodeId, &str) {
+        (self.position, &self.node_id, &self.name)
     }
 }
 
@@ -371,8 +370,7 @@ impl StepGraph<'_, '_> {
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
     }
 
-    /// Every node of `kind`, as `(position, node)`, in ascending node-id
-    /// digest order.
+    /// Every node of `kind`, as `(position, node)`, in ascending node-id order.
     pub(super) fn each(
         &self,
         kind: CheckedNodeKind,
@@ -429,7 +427,7 @@ fn field_entry(kind: CheckedNodeKind) -> bool {
     )
 }
 
-/// The frame step: every `state`/`frame` node, in ascending node-id digest
+/// The frame step: every `state`/`frame` node, in ascending node-id
 /// order, reporting the first one carrying a defect. `frames` holds each
 /// frame node's key, position and body as [`read_frame_body`] read them.
 pub(super) fn validate_frame_semantics(
@@ -484,7 +482,7 @@ fn frame_defect(
         )) => {}
         found => defects.push(MeaningDefect {
             position: Position::SemanticType,
-            digest: frame.semantic_type.digest.clone(),
+            node_id: frame.semantic_type.clone(),
             name: "".into(),
             entry: None,
             refusal: if found.is_some() {
@@ -517,7 +515,7 @@ fn frame_defect(
         if let Some(refusal) = refusal {
             defects.push(MeaningDefect {
                 position: Position::Modifies,
-                digest: entry.declaration().digest.clone(),
+                node_id: entry.declaration().clone(),
                 name: entry.name().into(),
                 entry: Some(entry_index),
                 refusal,
@@ -532,7 +530,7 @@ fn frame_defect(
             if let Err(refusal) = join(frame, entry, creates_or_deletes, graph) {
                 defects.push(MeaningDefect {
                     position,
-                    digest: entry.digest.clone(),
+                    node_id: entry.clone(),
                     name: "".into(),
                     entry: Some(entry_index),
                     refusal,
@@ -543,7 +541,7 @@ fn frame_defect(
     if receiver_scoped && body.deletes_scoped.contains(&DeletesScopedEntry::Receiver) {
         defects.push(MeaningDefect {
             position: Position::DeletesScoped,
-            digest: frame_id.digest.clone(),
+            node_id: frame_id.clone(),
             name: "".into(),
             entry: None,
             refusal: ModelRefusal::malformed(),
@@ -560,10 +558,7 @@ fn frame_defect(
             defect.refusal.code,
             path,
             Some(defect.refusal.cause),
-            CheckedNodeId {
-                domain: frame.semantic_type.domain.clone(),
-                digest: defect.digest,
-            },
+            defect.node_id,
         )));
     }
     let mut scopes = BTreeMap::new();
@@ -575,7 +570,7 @@ fn frame_defect(
             scope,
         } = entry
         {
-            let key = (&declaration.digest, name);
+            let key = (declaration, name);
             if let Some((earlier_scope, earlier_index)) = scopes.insert(key, (*scope, entry_index))
             {
                 if earlier_scope != *scope {
@@ -588,8 +583,7 @@ fn frame_defect(
                     if conflict
                         .as_ref()
                         .is_none_or(|best: &(&CheckedNodeId, &str, usize)| {
-                            (candidate.0.digest.as_ref(), candidate.1)
-                                < (best.0.digest.as_ref(), best.1)
+                            (candidate.0, candidate.1) < (best.0, best.1)
                         })
                     {
                         conflict = Some(candidate);
@@ -609,7 +603,7 @@ fn frame_defect(
             declaration.clone(),
         )));
     }
-    let ascending = |keys: Vec<(&str, &str)>| keys.windows(2).all(|pair| pair[0] < pair[1]);
+    let ascending = |keys: Vec<&CheckedNodeId>| keys.windows(2).all(|pair| pair[0] < pair[1]);
     let modifies_ordered = body
         .modifies
         .windows(2)
@@ -617,8 +611,8 @@ fn frame_defect(
     let scoped_ordered = body.deletes_scoped.windows(2).all(|pair| pair[0] < pair[1]);
     let in_order = modifies_ordered
         && scoped_ordered
-        && ascending(body.creates.iter().map(|id| (&*id.digest, "")).collect())
-        && ascending(body.deletes.iter().map(|id| (&*id.digest, "")).collect());
+        && ascending(body.creates.iter().collect())
+        && ascending(body.deletes.iter().collect());
     if in_order {
         Ok(None)
     } else {
