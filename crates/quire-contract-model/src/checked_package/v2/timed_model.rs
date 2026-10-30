@@ -12,8 +12,7 @@ use super::{
     RawSemanticNodeV2 as CheckedSemanticNodeV2, TimedModelForm,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, is_digest, node_pointer, TermField, ValidationFailure, WireTerm,
-    NODE_DOMAIN,
+    body_term, exact_members, node_pointer, TermField, ValidationFailure, WireTerm,
 };
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
@@ -78,7 +77,7 @@ fn possible_binding_value(value: &Value) -> Option<&Value> {
 fn node_key(value: &Value) -> Option<CheckedNodeId> {
     serde_json::from_value::<CheckedNodeId>(value.clone())
         .ok()
-        .filter(|key| key.domain.as_ref() == NODE_DOMAIN && is_digest(&key.digest))
+        .filter(CheckedNodeId::is_well_formed)
 }
 
 fn reference(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
