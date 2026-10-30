@@ -1376,18 +1376,6 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
             return Err(order_defect(position, "objects", index + 1));
         }
     }
-    for (index, pair) in steps.windows(2).enumerate() {
-        fn key(step: &RefinementStep) -> (bool, Option<&CheckedNodeId>, &str) {
-            (
-                step.source_node.is_none(),
-                step.source_node.as_ref(),
-                step.source_class.as_ref(),
-            )
-        }
-        if key(&pair[0]) >= key(&pair[1]) {
-            return Err(order_defect(position, "steps", index + 1));
-        }
-    }
     for (index, history) in histories.iter().enumerate() {
         for (update_index, pair) in history.updates.windows(2).enumerate() {
             if pair[0].operation >= pair[1].operation {
