@@ -4,8 +4,7 @@
 //! FR-035/TC-047 and QSpec FR-330: the single five-field package value.
 
 use crate::support::checked_package::{
-    self, canonical, evidence_for, mint_ungrouped_structural_keys, settle, structural_key,
-    typed_node_id, v2_all_families,
+    self, canonical, evidence_for, refresh_identity, settle, typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -21,21 +20,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 fn id(prefix: &str) -> CheckedNodeId {
-    if matches!(prefix, "1010" | "dddd") {
-        let (tag, form) = if prefix == "1010" {
-            ("model", "namespace")
-        } else {
-            ("value", "literal")
-        };
-        typed_node_id(&structural_key(
-            tag,
-            form,
-            Some(&checked_package::family_key("a3a3")),
-            &json!({"term": "aggregate", "members": []}),
-        ))
-    } else {
-        typed_node_id(&checked_package::family_key(prefix))
-    }
+    typed_node_id(&checked_package::family_key(prefix))
 }
 
 fn missing() -> CheckedNodeId {
@@ -71,7 +56,6 @@ fn mixed_fixture() -> Value {
             ))]);
         }
     }
-    mint_ungrouped_structural_keys(&mut value);
     settle(&mut value);
     value
 }
@@ -88,7 +72,6 @@ fn mixed_fixture_with_two_dependencies() -> Value {
         node["dependencies"][0],
         checked_package::node_id(&checked_package::family_key("a3a3"))
     ]);
-    mint_ungrouped_structural_keys(&mut value);
     settle(&mut value);
     value
 }
@@ -378,7 +361,10 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         .node_id
         .clone();
     let lowered = source.lower(std::slice::from_ref(&key), &profile());
-    let wrong_source = admit(&mixed_fixture());
+    let mut different_name = mixed_fixture();
+    different_name["name"] = json!("test/different");
+    refresh_identity(&mut different_name);
+    let wrong_source = admit(&different_name);
     assert_eq!(
         ContractPackageWireV1::read_with_source(
             bytes(&lowered),
@@ -408,8 +394,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
     );
 
     let mut unrelated: Value = serde_json::from_slice(bytes(&lowered)).expect("wire json");
-    unrelated["package"]["source"]["package_id"] =
-        serde_json::to_value(wrong_source.package_id()).expect("source id wire");
+    unrelated["package"]["source"]["name"] = json!(wrong_source.name());
     unrelated["package"]["source"]["lock"] =
         serde_json::to_value(wrong_source.lock()).expect("source lock wire");
     let unrelated = canonical(&unrelated);
@@ -458,8 +443,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
     let changed_lowered = changed_operation.lower(std::slice::from_ref(&changed_key), &no_bounds);
     let mut changed: Value =
         serde_json::from_slice(bytes(&changed_lowered)).expect("changed operation V1 wire");
-    changed["package"]["source"]["package_id"] =
-        serde_json::to_value(original_operation.package_id()).expect("original source identity");
+    changed["package"]["source"]["name"] = json!(original_operation.name());
     changed["package"]["source"]["lock"] =
         serde_json::to_value(original_operation.lock()).expect("original source lock");
     let changed = canonical(&changed);
@@ -486,7 +470,6 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         .find(|node| node["body"]["term"] == "reference")
         .expect("reference source node");
     reference["body"]["target"] = checked_package::node_id(&checked_package::family_key("aaaa"));
-    mint_ungrouped_structural_keys(&mut changed_reference_wire);
     settle(&mut changed_reference_wire);
     let changed_reference = admit(&changed_reference_wire);
     let changed_key = changed_reference
@@ -501,8 +484,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
     let changed_lowered = changed_reference.lower(std::slice::from_ref(&changed_key), &profile());
     let mut changed: Value =
         serde_json::from_slice(bytes(&changed_lowered)).expect("changed reference V1 wire");
-    changed["package"]["source"]["package_id"] =
-        serde_json::to_value(original_reference.package_id()).expect("original source identity");
+    changed["package"]["source"]["name"] = json!(original_reference.name());
     changed["package"]["source"]["lock"] =
         serde_json::to_value(original_reference.lock()).expect("original source lock");
     let changed = canonical(&changed);
@@ -954,7 +936,6 @@ fn reached_view_uses_all_three_edges_and_preserves_sources_and_wire() {
         checked_package::node_id(&checked_package::family_key("cccc")),
         checked_package::node_id(&checked_package::family_key("6060")),
     ]);
-    mint_ungrouped_structural_keys(&mut input);
     settle(&mut input);
     let admitted = admit(&input);
     let root = admitted
@@ -1062,7 +1043,7 @@ fn one_call_emits_one_five_field_package_with_total_accounting_and_source_map() 
     let result = admitted.lower(&request(), &profile());
     let package = result.package.wire().expect("wire").wire();
     assert_eq!(package.contract_version.as_ref(), CONTRACT_PACKAGE_VERSION);
-    assert_eq!(package.package.source.package_id, *admitted.package_id());
+    assert_eq!(package.package.source.name.as_ref(), admitted.name());
     assert_eq!(package.package.source.lock, *admitted.lock());
     assert_eq!(package.package.lowering_profile, profile().reference);
     assert_eq!(package.semantic_graph.nodes.len(), 3);
@@ -1984,50 +1965,51 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
 }
 
 fn wire_selecting_lib_a() -> (CheckedPackageV2, Value) {
-    let dependency = admit(&mixed_fixture());
+    let mut dependency_wire = mixed_fixture();
+    dependency_wire["name"] = json!("lib/a");
+    refresh_identity(&mut dependency_wire);
+    let dependency = admit(&dependency_wire);
     let output = lower(&mixed_fixture(), &request());
     let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
-    wire["package"]["source"]["lock"]["dependency_selections"] = json!([{
-        "identity": "lib/a", "package_id": dependency.package_id(),
-    }]);
+    wire["package"]["source"]["lock"]["dependency_selections"] = json!([{"identity": "lib/a"}]);
     (dependency, wire)
 }
 
 #[trace("TC-047", "FR-035-AC-18")]
 #[test]
-fn contract_reader_refuses_different_ids_in_derived_dependency_diamond() {
-    use crate::support::checked_package::{
-        admitted_dependency, positive_operation_identities, read_with_dependencies,
-        refresh_identity,
-    };
+fn contract_reader_refuses_unequal_complete_values_in_dependency_diamond() {
+    use crate::support::checked_package::read_with_dependencies;
     use quire_contract_model::ContractDependencyInput;
 
-    let base = mixed_fixture();
-    let (first_id, first_leaf) = admitted_dependency(&base);
-    let (second_id, second_leaf) = admitted_dependency(&positive_operation_identities());
-    let mut direct_wire = base.clone();
-    direct_wire["lock"]["dependency_selections"] =
-        json!([{"identity": "lib/leaf", "package_id": first_leaf.package_id()}]);
-    refresh_identity(&mut direct_wire);
-    let CheckedPackageV2ReadResult::Admitted(left) =
-        read_with_dependencies(&direct_wire, &[("lib/leaf", &first_leaf)])
-    else {
-        panic!("left dependency admits");
-    };
-    direct_wire["lock"]["dependency_selections"][0]["package_id"]["digest"] = json!(second_id);
-    refresh_identity(&mut direct_wire);
-    let CheckedPackageV2ReadResult::Admitted(right) =
-        read_with_dependencies(&direct_wire, &[("lib/leaf", &second_leaf)])
-    else {
-        panic!("right dependency admits");
-    };
-    assert_ne!(first_id, second_id);
+    let mut first_wire = mixed_fixture();
+    first_wire["name"] = json!("lib/leaf");
+    refresh_identity(&mut first_wire);
+    let first_leaf = admit(&first_wire);
+    let mut second_wire = first_wire.clone();
+    second_wire["source_map"][0]["regions"][0]["end"] = json!(2);
+    let second_leaf = admit(&second_wire);
+    assert_eq!(first_leaf.name(), second_leaf.name());
+    assert_ne!(canonical(&first_wire), canonical(&second_wire));
 
-    let output = lower(&base, &request());
+    let intermediary = |name: &str, leaf: &CheckedPackageV2| {
+        let mut wire = mixed_fixture();
+        wire["name"] = json!(name);
+        wire["lock"]["dependency_selections"] = json!([{"identity": "lib/leaf"}]);
+        refresh_identity(&mut wire);
+        let CheckedPackageV2ReadResult::Admitted(package) =
+            read_with_dependencies(&wire, &[("lib/leaf", leaf)])
+        else {
+            panic!("intermediary dependency admits");
+        };
+        package
+    };
+    let left = intermediary("lib/left", &first_leaf);
+    let right = intermediary("lib/right", &second_leaf);
+
+    let output = lower(&mixed_fixture(), &request());
     let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
     wire["package"]["source"]["lock"]["dependency_selections"] = json!([
-        {"identity": "lib/left", "package_id": left.package_id()},
-        {"identity": "lib/right", "package_id": right.package_id()}
+        {"identity": "lib/left"}, {"identity": "lib/right"}
     ]);
     let bytes = canonical(&wire);
     let mut supplied = ContractDependencies::new();
@@ -2048,7 +2030,7 @@ fn contract_reader_refuses_different_ids_in_derived_dependency_diamond() {
     let ContractPackageReadResult::Refused(refusal) =
         ContractPackageWireV1::read(&bytes, CheckedPackageReadLimits::bounded(), &supplied)
     else {
-        panic!("ContractPackage must refuse the transitive diamond");
+        panic!("ContractPackage must refuse the unequal transitive diamond");
     };
     assert_eq!(refusal.code, Code::InvalidPackage);
     assert_eq!(refusal.cause, Some(Cause::ConflictingDefinition));
@@ -2064,7 +2046,7 @@ fn contract_reader_refuses_different_ids_in_derived_dependency_diamond() {
 
 #[trace("TC-047", "FR-035-AC-2")]
 #[test]
-fn reader_refuses_stale_selected_dependency_at_selection() {
+fn reader_refuses_wrong_named_selected_dependency_at_selection() {
     use quire_contract_model::{
         CheckedPackageRefusalCause, CheckedPackageRefusalCode, ContractDependencyInput,
     };
@@ -2077,39 +2059,24 @@ fn reader_refuses_stale_selected_dependency_at_selection() {
             package: &dependency,
         },
     );
-    wire["package"]["source"]["lock"]["dependency_selections"][0]["package_id"]["digest"] =
-        json!("0".repeat(64));
-    let stale = canonical(&wire);
-    let ContractPackageReadResult::Refused(wrong_package) =
-        ContractPackageWireV1::read(&stale, CheckedPackageReadLimits::bounded(), &supplied)
-    else {
-        panic!("stale package refuses");
+    wire["package"]["source"]["lock"]["dependency_selections"][0]["identity"] =
+        json!("lib/missing");
+    let ContractPackageReadResult::Refused(refusal) = ContractPackageWireV1::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &supplied,
+    ) else {
+        panic!("wrong-named selected dependency must refuse");
     };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingImport);
     assert_eq!(
-        wrong_package.code,
-        CheckedPackageRefusalCode::StaleDependency
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        wrong_package.cause,
-        Some(CheckedPackageRefusalCause::ContentMismatch)
-    );
-    assert_eq!(
-        wrong_package.loci[0]
-            .path
-            .as_ref()
-            .map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some("/package/source/lock/dependency_selections/0")
     );
-    assert_eq!(
-        wrong_package
-            .expected
-            .as_ref()
-            .expect("selected identity")
-            .digest
-            .as_ref(),
-        "0".repeat(64)
-    );
-    assert_eq!(wrong_package.actual.as_ref(), Some(dependency.package_id()));
 }
 
 #[trace("TC-047", "FR-035-AC-4")]
