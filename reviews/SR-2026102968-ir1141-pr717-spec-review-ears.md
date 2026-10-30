@@ -1,0 +1,33 @@
+---
+id: SR-2026102968
+title: "spec-review/ears-conformance review of IR-1141 PR #717"
+type: SpecReview
+analysis: ears-conformance
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+review_set: subset
+---
+
+## Summary
+
+Reviewed PR #717 exact frozen head against IR main and QSpec main. The CheckedNodeId independent byte oracle is concrete, and recursion-group graph-order ordinals are preserved. No finding in this method. No applicable AssuranceProfile was found.
+
+## Examined scope
+
+- `FR-038 structural ordinal behavior` (examined): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `FR-038 application ordinal behavior` (examined): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `FR-038-AC-76` (examined): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `FR-038-AC-80` (context_only): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `FR-038-AC-364` (examined): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `TC-048 ordinal controls` (examined): spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
+- `TC-048 canonical-byte controls` (examined): spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
+- `QSpec FR-322 structural ordinal` (context_only): agent-ix/quire-specification/spec/objects/interfaces/FR-322-checked-package-artifact.md
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | low | No findings (placeholder) | - |
+
+## Verdict
+
+PASS for this method.

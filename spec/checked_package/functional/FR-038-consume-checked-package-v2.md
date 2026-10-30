@@ -15,6 +15,10 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-51
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-52
+    type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-66
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-120
@@ -36,6 +40,10 @@ relationships:
   - target: ix://agent-ix/quire-specification/FR-322-AC-265
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-266
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-272
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-273
     type: references
   - target: ix://agent-ix/quire-specification/FR-342-AC-11
     type: references
@@ -348,8 +356,11 @@ array: a declared node's declaration path is its `declaration.qualified_name`;
 an ungrouped derived node's path is `[node_tag, semantic_form, ...operands]`,
 where an operand is a string or another structural node id. A grouped member
 uses its declared path, never an operand-derived path, and its ordinal is its
-position among group members in graph order. Otherwise ordinal is zero. It is
-an integer from zero through 9007199254740991. A malformed ordinal refuses
+position among group members in graph order. For every node outside a
+recursion group, `ordinal` is producer assigned and need not be zero or
+contiguous with another node's ordinal. The reader does not derive it from
+the body or graph position, or require sibling ordering. It is an integer
+from zero through 9007199254740991. A malformed ordinal refuses
 `malformed_wire` at its own pointer. Two equal node ids refuse
 `invalid_semantic_graph` at the second node's `node_id`; a repeated model root
 of the same identity refuses at its later `owner`. A declared path that differs
@@ -2477,7 +2488,10 @@ as `package`. A derived ungrouped node has the QSpec path
 `[node_tag, semantic_form, ...operands]`; each operand is a string or nested
 structural node id. A recursion-group member uses its declared path and its
 position among that group's members in graph order as `ordinal`, with no
-operand embedding. Each ungrouped node has ordinal zero. An imported node
+operand embedding. Each ungrouped node retains its producer-assigned ordinal;
+it may be nonzero even when no other node shares its package and path. The
+reader checks shape and uniqueness among nodes sharing that package and path,
+without inferring a missing ordinal, contiguity or sibling order. An imported node
 keeps the dependency package's name. The reader's deterministic visit order
 compares `package`, then `path` elements, then numeric `ordinal` as FR-322
 specifies; graph-array order is retained.
@@ -3643,8 +3657,9 @@ this extension shall not admit an operand or operation refused by that owner.
 
 An application is a derived node with the structural id of QSpec FR-322:
 `package` is the owning package name, `path` is
-`[node_tag, semantic_form, ...operands]`, and `ordinal` is zero unless the node
-is a recursion-group member. The body retains its exact operator, operation,
+`[node_tag, semantic_form, ...operands]`, and `ordinal` is producer assigned
+under the structural-id shape and uniqueness rules above; a recursion-group
+member separately uses its graph-order member position. The body retains its exact operator, operation,
 arguments and result type; the reader validates these under the application
 body and dependency rules below. It SHALL not hash an application preimage,
 refuse a stale key or expose a pre-read candidate-key helper. A changed
@@ -4442,7 +4457,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-58 | The operation catalog read over supplied bytes whose `law_roles` entries are exactly `{authority, identity}` returns the catalog, and over bytes in which an entry carries `revision`, `digest_domain` or `digest` returns an error naming the unreadable entry instead of a catalog and without a panic; this is a catalog read failure and not a package refusal. | Test (TC-048) |
 | FR-038-AC-59 | Withdrawn: no identity preimage mirrors definition selections and no stale-selection refusal exists. FR-038-AC-366 checks the single authoritative lock row. | Test (TC-048) |
 | FR-038-AC-60 | Editing one lock definition identity produces a different package value under the same name. The reader joins that identity to the supplied definition; it admits a valid selection and refuses a missing or ineligible selection under the existing definition-join code, without comparing an old package identity. | Test (TC-048) |
-| FR-038-AC-61 | A `source` or `definition` nominal owner whose `{authority, identity}` pair is the pair of no `lock.sources` or `lock.definition_selections` row respectively refuses as `invalid_semantic_graph`. | Test (TC-048) |
+| FR-038-AC-61 | A schema-valid `SourceOwner` whose `{authority, identity}` pair is absent from `lock.sources` refuses `missing_declaration`/`missing-selection` at its node's `node_id` in the owner join (QSpec FR-322-AC-52; FR-038-AC-155). A node carrying `DefinitionOwner` refuses `malformed_wire` at its `owner` during closed-schema validation, before any lock join, because `NodeOwner` admits only `SourceOwner`, `ModelOwner` and `ModelRootOwner` (QSpec FR-322-AC-51). Both adverse cases remain required; there is no definition-owner selection or compatibility variant. | Test (TC-048) |
 | FR-038-AC-62 | A package whose lock holds exactly `sources`, `edition`, `profile_selections`, `definition_selections`, `required_features` and `dependency_selections` admits when all checks pass. A lock with `model_selections` or `identity_preimage`, or a model-root owner with `digest`, `version` or any extra member, refuses `unknown_member` at the first extra member. A model-root owner lacking a non-empty string identity refuses `malformed_wire` at the owner or value. | Test (TC-048) |
 | FR-038-AC-63 | Each dependency selection is exactly `{identity}`. Adding `package_id`, `version` or any other member refuses `unknown_member` there; omitting identity refuses `malformed_wire` at the entry. The reader does not ignore, relabel or compare a removed member. | Test (TC-048) |
 | FR-038-AC-64 | A model-root owner admits when the supplied document names its identity; a model owner joins the root of that identity and an owner naming another identity refuses `invalid_semantic_graph`. A dependency selection admits only a supplied package whose `name` equals its selected identity; a package supplied under another identity leaves the selection unsupplied and refuses `missing_import`/`missing-selection`. No version or content-derived id is compared. | Test (TC-048) |
@@ -4456,7 +4471,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-73 | Under a bounds-required profile a position typed at a quantity returns `requires_bound` naming the `unit` or `compound_unit` node: a record whose field is typed at a `unit` node, a parameter typed at a `compound_unit` node, `Sequence<Quantity>[0,3]` whose element type is a `unit` node, and a record whose field is typed at a reachable `bounded_domain` over a `unit` node, which names the `unit` node rather than the domain, each return it; while a `unit` declaration lowered as the requested node, a `compound_unit` node lowered as the requested node with its unit nodes in `dependencies`, a record with no quantity position whose closure reaches a unit only as a `literal.type` annotation, and an application whose `result_type` is a quantity over parameters typed at a bounded type each lower. | Test (TC-050) |
 | FR-038-AC-74 | For every in-repo positive fixture, canonical encoding of the complete closed V2 envelope agrees with independent canonical JSON. The full graph, including non-ASCII and astral strings and supported integer bounds, is retained once in `semantic_graph`; an added identity preimage or projection is refused as an unknown member. | Test |
 | FR-038-AC-75 | PLANNED/UNRUN (IR-1141). For every positive graph fixture, quire_canonical::to_vec(CheckedSemanticGraphV2) equals independently constructed canonical JSON bytes for the same graph, including declared and derived structural ids, declaration, recursion_group, every JSON body kind, non-ASCII and astral strings, and the supported integer bounds. | Test (TC-048) |
-| FR-038-AC-76 | For every in-repo positive fixture, the bytes `quire_canonical::to_vec` returns for each of `CheckedPackageLockV2`, `CheckedSourceMapEntry`, `CheckedCapability`, `CheckedSemanticId` and `CheckedDiagnosticsV2` equal the bytes of `serde_json::to_vec(&serde_json::to_value(&value))`, one assertion per type; the diagnostics value carries entries whose `details` hold nested objects and arrays and whose `loci` are non-empty. | Test (TC-048) |
+| FR-038-AC-76 | For every in-repo positive fixture, the bytes `quire_canonical::to_vec` returns for each of `CheckedPackageLockV2`, `CheckedSourceMapEntry`, `CheckedCapability`, `CheckedNodeId` and `CheckedDiagnosticsV2` equal the independently constructed canonical JSON bytes for the same value, one assertion per type; the `CheckedNodeId` oracle includes its exact structural `{package,path,ordinal}` members and a nested path operand, and the diagnostics value carries entries whose `details` hold nested objects and arrays and whose `loci` are non-empty. This replaces only the removed `CheckedSemanticId` oracle under FR-038-AC-80; no identity preimage or digest is encoded. | Test (TC-048) |
 | FR-038-AC-77 | A `CheckedSemanticGraphV2` node body and `CheckedDiagnosticsV2` detail nested 100000 levels deep each encode on a 256 KiB stack to independently written expected text without stack overflow. The canonical envelope encodes each supplied deep body once without retaining a second wire body. | Test |
 | FR-038-AC-78 | The encodes of FR-038-AC-77, run under a byte ceiling of the encoded text's exact length, return the bytes; run under a ceiling one byte lower, return the byte-limit error with no bytes; a body nested 20000 levels deep encodes and is not refused for its depth; and a body holding the integer 9007199254740993 returns the encoder's refusal naming that value with no bytes. | Test (TC-048) |
 | FR-038-AC-79 | A package document holding 9007199254740993, -9007199254740993 or 2.0 in a node body, or an object with UTF-8-out-of-order member names, refuses noncanonical_wire before graph and body checks. | Test (TC-048) |
@@ -4741,7 +4756,7 @@ reader does not blanket-refuse those temporal/case forms (FR-038-AC-101).
 IR-661's planned relationship-navigation-only refusal does not reinstate AC-66.
 
 | FR-038-AC-363 | PLANNED/UNRUN (IR-1141). The production V2 reader requires a non-empty top-level `name` and rejects `package_id`, `identity_preimage`, `identity_projection` and any other extra top-level member at that member. It exposes the exact name after admission. Equal names with unequal complete JSON packages remain distinguishable by structural comparison, with object member names and ordered array elements preserved. No content-derived package or graph-node id is computed or exposed; admitted structural node ids remain public. | Test (TC-048) |
-| FR-038-AC-364 | PLANNED/UNRUN (IR-1141). The reader admits declared, derived, model-owned and imported nodes with QSpec FR-322 structural ids `{package,path,ordinal}`. Declared paths equal `declaration.qualified_name`; derived ungrouped paths have `[node_tag,semantic_form,...operands]`; group members use their declared path and graph-order ordinal. An ordinal outside 0..9007199254740991 or not an integer refuses `malformed_wire` at the exact ordinal; duplicate ids refuse `invalid_semantic_graph` at the later `node_id`, and a repeated model root at its later `owner`. No node id is re-derived from a body hash. | Test (TC-048) |
+| FR-038-AC-364 | PLANNED/UNRUN (IR-1141; QSpec FR-322-AC-272/273). The reader admits declared, derived, model-owned and imported nodes with QSpec FR-322 structural ids `{package,path,ordinal}`. Declared paths equal `declaration.qualified_name`; derived ungrouped paths have `[node_tag,semantic_form,...operands]`; group members use their declared path and separate graph-order member ordinal. An otherwise valid ungrouped node with sole `(package,path)` and producer-assigned ordinal 7 admits; two otherwise valid ungrouped nodes sharing `(package,path)` with distinct producer-assigned ordinals 7 and 23 admit without a contiguity or sibling-order check. The published NO-05 sibling at 7 and NO-06 siblings at 3 then 2 before ordinal 0 admit; NO-07's repeated 0 and NO-08's repeated 4 refuse `invalid_semantic_graph` at the later duplicate `node_id`. An ordinal outside 0..9007199254740991 or not an integer refuses `malformed_wire` at the exact ordinal; a repeated model root refuses at its later `owner`. The reader neither derives an ungrouped ordinal nor re-derives any node id from a body. | Test (TC-048) |
 | FR-038-AC-365 | PLANNED/UNRUN (IR-1141). Reader first-refusal visits order node ids by UTF-8 package, then path elements with strings before nested node ids and proper prefix first, then numeric ordinal; graph array order and complete body values remain unchanged. A two-defect control reverses structural id order relative to structural order and reports the structurally first defect. Nested path operands and recursion-group members resolve by exact structural equality. | Test (TC-048) |
 | FR-038-AC-366 | PLANNED/UNRUN (IR-1141). Lock dependency selections are exactly `{identity}` in ascending UTF-8 identity order. Missing supply refuses `missing_import`/`missing-selection`; an extra `package_id` or `version` refuses `unknown_member`. The host supplies a package with matching `name`; a diamond over one identity admits equal complete JSON values and refuses unequal values `invalid_package`/`conflicting-definition` with both complete lock paths. The reader neither records a transitive closure row nor compares content-derived ids. | Test (TC-048) |
 | FR-038-AC-367 | PLANNED/UNRUN (IR-1141). A selected domain document is joined by its model-root identity and every selected source by its exact `{authority,identity}` pair. Changing a selected document's declaration or a source body's meaning is checked by the applicable model, owner, body and graph rules; there is no stale-content refusal. The reader exposes no `CheckedSemanticId`, expected/actual digest pair, candidate-key helper or stale-node-key refusal. A valid edited package retains its name and its declared structural ids where their paths are unchanged. | Test (TC-048; TC-058) |

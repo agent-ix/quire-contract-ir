@@ -186,6 +186,25 @@ For AC-45, read a model-owned declaration with owner `{kind: model, identity, no
 
 Read one positive V2 package with declared and derived structural ids. Independently mutate it to duplicate a node id, mismatch a declared path and qualified name, break a derived body shape, select an absent or unselected owner, leave a `reference` target dangling, give a compound unit a wrong shape, and leave a frame `semantic_type` unresolved. For each mutation, keep unrelated ids and bodies valid, read through the public reader, and compare exact code, cause and RFC 6901 pointer. Pair an owner-selection defect with a dependent dangling edge and require the owner refusal; pair a graph-shape defect with an owner or body defect and require the graph refusal. No content-key or nominal-rekey vector is used.
 
+For FR-038-AC-364, use separately authored, otherwise valid ungrouped nodes
+with a single `(package,path)` at ordinal 7 and with two nodes sharing that
+pair at ordinals 7 and 23. Update every reference to the authored ids and
+require admission without a zero, contiguity or sibling-order check. Read
+QSpec `proposals/checked-package-v2/node-ordinal-vectors.json`
+`uniqueness_cases` NO-05..NO-08 directly from its selected checkout: NO-05
+admits the original ordinal 0 and a sibling at 7; NO-06 admits siblings at
+3 then 2 before the original at 0, in neither ordinal nor graph order;
+NO-07 duplicates the original's ordinal 0 and NO-08 repeats ordinal 4,
+each refusing `invalid_semantic_graph` at the recorded later `node_id`.
+Apply the vector's declared placement and compare exact code and locus.
+Also supply a negative, fractional, string or above-safe-integer ordinal
+and require `malformed_wire` at that ordinal. Keep recursion-group
+`{size,ordinal}` and its graph-order controls separate. Read QSpec XP-04
+directly from its selected checkout: its second equivalence node's ordinal
+1 makes a distinct structural id, while the repeated pair still refuses
+`invalid_semantic_graph` for pair meaning, not an ordinal-shape or
+duplicate-id defect. Copy no vector into this repository.
+
 ## Expected Results
 
 Valid protocol references to clause, role and control nodes admit with exact local targets and one graph collection. Extra or unequal dependencies refuse `invalid_semantic_graph` at `/dependencies`; absent local targets refuse `missing_declaration`/`missing-name` at `/body/target`, even if a dependency package has the same id. Wrong form or type refuses `ill_typed`/`operator-ineligible`. Malformed body, group, owner and occurrence controls refuse at their own earlier stages, and no failure is attributed to a removed identity check.
@@ -617,6 +636,14 @@ the pointer of the `incomplete` outcome resolves in the lock.
 Construct definition and source references as exact `{authority, identity}` pairs at every lock, diagnostic, source-map and operation-law site. A valid pair admits; missing, empty or wrong-kind members refuse at the exact member. An extra revision, digest, domain or export member refuses `unknown_member`. The reader retains one authoritative lock row and does not compare a second identity-preimage mirror. Two dependency selections sort by UTF-8 identity text, admit with matching supplied package names and refuse duplication or wrong order under the published lock rule. A foreign or absent selected source refuses at the owner join, without inferred replacement.
 
 Supply equal complete packages through two dependency branches and require admission. Change one node body or ordered array in one branch under the same name and require `invalid_package`/`conflicting-definition` with both importer-rooted paths. A selected name with no package refuses `missing_import`/`missing-selection`; no content mismatch or stale-dependency code exists.
+
+For FR-038-AC-61, start from one otherwise admitting source-owned node,
+change only its `{authority,identity}` pair to one absent from `lock.sources`,
+and require `missing_declaration`/`missing-selection` at that node's
+`node_id` after wire validation. In a separate otherwise valid node, replace
+its `owner` with a `DefinitionOwner` shape and require `malformed_wire` at
+`owner` before the owner join. Neither case supplies a definition-owner
+selection path or treats a wire-shape refusal as owner-join evidence.
 
 ## Operation identity, laws, mode, member and operands (FR-038-AC-81 through FR-038-AC-88)
 
@@ -1135,6 +1162,14 @@ operation check and refuses `ill_typed`/`operator-ineligible` at
 ## Canonical encoding (FR-038-AC-74 through FR-038-AC-80)
 
 For each positive fixture, encode the complete V2 envelope, graph, lock, source-map entries, capability report and diagnostics through `quire_canonical::to_vec`, comparing independently authored canonical JSON bytes for the same complete typed values. Include declared and derived structural ids, recursion groups, all JSON body kinds, non-ASCII strings and supported numeric bounds. A 100000-level in-memory body is encoded and disposed iteratively on a 256 KiB thread stack. At exact and one-byte-below limits, require success and typed byte refusal respectively. A package document containing noncanonical numeric spelling or out-of-order UTF-8 object members refuses `noncanonical_wire` before body and graph checks. No preimage or digest is encoded or compared.
+
+For FR-038-AC-76, compare one independent canonical-byte oracle per public
+`CheckedPackageLockV2`, `CheckedSourceMapEntry`, `CheckedCapability`,
+`CheckedNodeId` and `CheckedDiagnosticsV2` value from every in-repo positive
+fixture. The `CheckedNodeId` oracle includes a nested structural id in `path`
+and its exact producer-assigned ordinal; diagnostics include nested object
+and array `details` and non-empty `loci`. Do not construct or encode the
+removed `CheckedSemanticId` (FR-038-AC-80).
 
 ## Structural identity and canonical byte controls (FR-038-AC-89 through FR-038-AC-95)
 
