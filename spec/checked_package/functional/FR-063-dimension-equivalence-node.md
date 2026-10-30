@@ -60,8 +60,10 @@ owner joins the lock. Reversing the source declaration's operand spelling
 preserves the normalized pair and scale. A valid pair or scale edit changes
 the retained body without causing a stale-id refusal.
 
-The reader SHALL validate the authored structural id for shape, uniqueness
-and declared-path agreement without deriving the path from the pair or scale.
+The reader SHALL validate the authored structural id for shape and uniqueness
+without deriving the path from the pair or scale. The path on this
+declaration-free node is a producer-assigned identity label; declared-path
+equality applies only where a declaration exists.
 
 The closed V2 wire schema SHALL require `root_scale` with positive-integer
 `numerator` and `denominator` strings, exactly two `dimension_node_ids`, and
@@ -95,8 +97,10 @@ reader admission.
 - [FR-051](./FR-051-encode-checked-package-v2-envelope.md) owns the typed
   envelope writer.
 - QSpec FR-322's dimension-equivalence narrative owns the pair, scale and graph
-  meaning. QSpec FR-322-AC-51/52 own top-level SourceOwner presence and join.
-  QSpec #529 is the pending owner/body-shape correction. The former FR-322-AC-118/139
+  meaning. QSpec #529 proposes top-level SourceOwner presence and a closed
+  body; FR-322-AC-51 explicitly admits SourceOwner on this declaration-free
+  form, and FR-322-AC-52 owns the owner join.
+  The former FR-322-AC-118/139
   and TC-233 equivalence vectors are withdrawn; IR's controls above require
   fresh, independently authored fixtures and claim no coverage from those vectors.
 
