@@ -3794,12 +3794,11 @@ supplies the id of the application at the argument path it is bounding.
 second selector type.
 
 - When the application's `operation.member` has no `population` key,
-  `reaches_population` shall return `Ok(None)`: the walked population has no
-  authored bound, the caller holds the population declaration identity from the
-  domain package, and the unbounded outcome of `select_population`
-  (`Declaration`) is the caller's. `reaches_population` shall not infer a
-  population from an object type, a count of population nodes or the absence of
-  a node.
+  `reaches_population` shall return `Ok(None)`: the application names no
+  population binding for this accessor to select. `reaches_population` shall not
+  infer a population or a bound from an object type, a count of population
+  nodes or the absence of a node. A domain-package declaration-only selection
+  is a separate FR-053 input; this accessor does not construct it.
 - Otherwise `reaches_population` shall return `Ok(Some(selector))` with
   `package_id` the package's own identity, `binding` the `population` node id
   exactly as the member holds it, and `occurrence` the `Type` occurrence of that

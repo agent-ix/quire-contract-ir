@@ -50,6 +50,13 @@ distinguishes `Finite`, `Unbounded`, `UnknownClosure`, `Unavailable`,
 `MissingOccurrence`, `StaleBinding`, `ForeignPackage`, and `NotPopulation`.
 Non-finite outcomes carry no extent.
 
+The admitted V2 projection reached through FR-038's `reaches_population`
+accessor exposes only `Finite` populations: a `reaches` application naming a
+population node without a readable `max` is refused at admission under
+FR-038-AC-279. `Unbounded` remains the outcome of a separate, closed
+domain-package declaration-only selection with no binding maximum; it is not
+an admitted `reaches` population link.
+
 `select_population` accepts a source selection that is either an admitted
 `CheckedPackageV2` plus selector, a declaration-only population selection, an
 upstream typed QSL `UnknownClosure` admission result with its selected model,
@@ -86,6 +93,12 @@ from changing the selected source binding. It SHALL retain that exact
 occurrence and its source-map regions as provenance. An equal object type
 identity, or another population node under the same parameter, is not an
 equivalent selector.
+
+For a selector returned by `reaches_population`, the admitted binding SHALL
+have a readable finite `max`; a missing, duplicated, non-integer, negative or
+out-of-range `max` on the linked node is refused by the V2 reader under
+FR-038-AC-279 before this projection is available. A standalone unbounded
+population node is distinct from an admitted `reaches` population link.
 
 The domain-package `PopulationRecord` identifies a population declaration and
 its member types and closure, but carries no finite maximum. A declaration-only
