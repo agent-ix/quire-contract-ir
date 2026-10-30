@@ -795,6 +795,46 @@ fn source_owner_join_precedes_derived_shape_refusal() {
     );
 }
 
+#[trace("TC-226", "FR-038-AC-127", "FR-038-AC-155")]
+#[test]
+fn independent_graph_shape_refuses_before_source_owner_join() {
+    let (mut package, option, record) = list_group();
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let mut parameter = v2_all_families()["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
+        .expect("parameter")
+        .clone();
+    parameter["node_id"] = structural_id(
+        package["name"].as_str().expect("package name"),
+        vec![json!("malformed-parameter")],
+        0,
+    );
+    let option_id = package["semantic_graph"]["nodes"][option]["node_id"].clone();
+    parameter["semantic_type"] = option_id.clone();
+    parameter["dependencies"] = json!([option_id]);
+    let parameter = append_authored(&mut package, parameter);
+    package["semantic_graph"]["nodes"][record]["owner"]["identity"] = json!("unselected-source");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("independent graph-shape and owner defects must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{parameter}/body")),
+    );
+}
+
 #[trace("TC-226", "FR-038-AC-127")]
 #[test]
 fn derived_shape_refusal_precedes_dependent_frame_check() {
