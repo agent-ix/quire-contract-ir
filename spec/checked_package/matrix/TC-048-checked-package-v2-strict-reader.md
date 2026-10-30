@@ -606,11 +606,38 @@ Build a package in QSL FR-092's shapes for `function both(a: Boolean, b:
 Boolean): Boolean { a and b }` plus the compound unit `Metre^2`, read it and
 lower every node.
 Then mutate one parameter, the compound unit or the application node at a
-time and re-read. The package admits and every node lowers; each parameter
-body mutation (level, name or binding) refuses as `invalid_semantic_graph` at
-the parameter node's `body`, every other mutation as `invalid_semantic_graph`
-at the member it breaks, each located at the mutated node, and the
-dimensionless compound unit admits.
+time and re-read. The valid package and the dimensionless compound unit admit.
+A parameter body mutation (level, name or binding) refuses
+`invalid_semantic_graph` at its `body`; parameter dependency/type defects and
+application dependency defects retain their graph or declaration refusals.
+Independently mutate compound-unit term order (`RM-CU-ORDER`), a zero or
+non-integer exponent, non-unit or non-root unit, repeated unit, and wrong
+semantic dimension; each schema-valid derived-shape defect refuses
+`invalid_package`/`invalid-derived-shape` at the compound unit's `node_id`.
+A wrong dependency list instead refuses `invalid_semantic_graph` at
+`/dependencies`, including when the same node also has a derived-shape defect;
+assert this precedence. These corrected compound-unit cases are
+PLANNED/UNRUN until backed by the IR reader.
+
+## Derived reference target-kind join (FR-038-AC-124)
+
+Build one otherwise valid `composite_type`/`reference` node for each allowed
+model target kind (`object_type`, `process`, `state_machine`,
+`systems_interface`) and for a relation `relationship` target; assert reader
+admission and exact target retention. In each separate negative package,
+substitute a builtin `scalar_type`/`integer`, a source-declared function,
+a `value`/`literal`, or a derived `composite_type`/`option` target with a valid
+structural ID, and update the reference node's `dependencies` to contain
+exactly that substituted target in the required order. Give each substituted
+node the owner state required for its own kind: the declared function has its
+valid joined `SourceOwner`; the builtin scalar, literal value and derived
+composite nodes carry no `owner` (QSpec FR-322-AC-51). This keeps schema,
+owner and dependency checks passing so the target-kind check is reached.
+Each `RM-REF-TARGET` mutation is schema-valid and
+refuses `invalid_package`/`invalid-derived-shape` at the reference node's
+`node_id` under QSpec FR-322 "Derived type forms and forwarding". Keep the
+existing reference body-shape and graph/owner checks independent. These
+reader controls are PLANNED/UNRUN.
 
 ## Model-owned members (FR-038-AC-27 through FR-038-AC-30)
 
@@ -2255,7 +2282,7 @@ multiplicity, subtype, and absent-graph controls above.
 
 ## Typed population of a reaches application (FR-038-AC-269 through FR-038-AC-280)
 
-Implemented (IR-852); tagged tests. The new error type is listed in the
+The bounded selector path is implemented (IR-852); corrected no-`max` admission and exact-decimal projection are PLANNED/UNRUN. The new error type is listed in the
 FR-019 Public items table by the code change that exports it, not by the
 specification change; [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md)
 compares the compiled exports to that table. The producer rule that admits the
@@ -2275,7 +2302,7 @@ type from the fixture and the authored structural paths, not from the accessor.
 
 Expected: `reaches_population` returns the selector with the supplied node id and
 ordinal 1, and `select_population` over `Admitted` with it returns `Finite` with
-the fixture's maximum, minimum 0 and the object type; an application without the
+the fixture's canonical decimal maximum text, minimum 0 and the object type; an application without the
 key returns `Ok(None)`; two applications over one population return equal
 selectors and over two populations differ in `binding`. Supply an unknown id
 (`UnknownNode`) and a navigate application, an `integer.add` application, the
@@ -2291,9 +2318,20 @@ population over a subtype or another object type (each `ill_typed`/
 pointer; admit the
 exact type; refuse a navigate application carrying `population`; omit the
 population id from `dependencies` and list an unreferenced one (each
-`invalid_semantic_graph`, no cause). Refuse each `max` defect of AC-279 (missing, two `max` members,
-non-integer literal, negative, above `u64`); a non-binding `max` member is refused earlier as `invalid_semantic_graph` at the member; admit `0` and a decimal-string
-`max`; spell the above-`u64` `max` as a decimal string. Build a navigate
+`invalid_semantic_graph`, no cause). For AC-279 and QSpec FR-322-AC-74, admit one linked population with empty
+aggregate body and no `max`, and assert its selector identifies the exact
+node and `Type` occurrence; `select_population(Admitted)` returns
+`AdmittedUnbounded` with the package name, binding, occurrence, object type
+and source regions, and no finite extent. Admit separate `max` values `0`,
+`3`, and canonical decimal string `18446744073709551616` (above `u64::MAX`);
+assert `Finite` projects each maximum as exact canonical decimal text with
+minimum zero. A negative or non-integer `max`, a second body member, and a
+wrong `set<reference<T>>` semantic target each refuse
+`invalid_package`/`invalid-derived-shape` at the population node's `node_id`
+(`RM-POP-MAX`); a non-binding term retains its earlier graph-term refusal,
+and a noncanonical JSON number retains `noncanonical_wire`. Do not reject a
+valid maximum on a machine-width limit. These corrected population controls
+are PLANNED/UNRUN until backed by the IR reader and projection. Build a navigate
 application carrying `population` twice, naming an absent node, an
 integer-range node and a valid population node in turn: with the id in
 `dependencies` (each refused at the `population` pointer, operation stage) and
@@ -2304,9 +2342,10 @@ order (AC-280), combine an invalid `population` whose node id is listed in
 assert the refusal is at the operand; give a reaches application a mode and,
 separately, a leaf, with a `population` that is a listed node id (and, separately, an invalid id missing from `dependencies`, refused by the join), and assert the
 identity-stage refusal (`operation-mode-mismatch`, a law mismatch) in each case.
-For the published QSpec `reaches_population_cases` vectors (FR-322-AC-73), build each
-descriptor into a package in the IR harness and run it through
-`make conformance-qspec`, asserting the same outcomes. The harness shall give
+For the published QSpec `reaches_population_cases` and
+`unbounded_population_cases` vectors (FR-322-AC-73/74), use the QSpec checkout
+directly from the IR harness without copying fixtures, and assert the same
+admission and refusal outcomes. The harness shall give
 each appended node (`Reference`, `Set`, population) exactly one `Type`
 occurrence and one matching `source_map` row, because the reader requires the
 source map to equal the occurrence set exactly; it shall reuse an existing

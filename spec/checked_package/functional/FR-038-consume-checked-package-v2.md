@@ -2354,8 +2354,8 @@ A `value` node may carry the `parameter` form and a `scalar_type` node the
 (a function parameter, a `let` name, a query, `count`, `sum`, `fold` or
 `reduce` binder) and the anonymous quantity type QSL FR-094 builds for a
 product, quotient or power of units. QSpec FR-322's published form list
-does not yet name either; QSL proposes both, and the reader admits them in
-exactly the shapes QSL fixes.
+names both forms; the reader admits them in the exact QSpec FR-322 shapes and
+checks the compound unit's derived shape independently of graph dependencies.
 
 A `value`/`parameter` node carries no `declaration`. Its `semantic_type` is
 its binder's type: a `scalar_type`, `composite_type` or `bounded_domain`
@@ -2385,11 +2385,16 @@ dependency. An application stands only at a body root ("The flat wire"), so the
 join applies to the nodes whose body root is one. A member `declaration` that is not
 a node key is left to the operation stage's refusal.
 
-Any violation refuses as `invalid_semantic_graph` at the member that breaks
-the rule (`semantic_graph.nodes.body`, `.dependencies` or `.semantic_type`),
-located at the offending node, at the first such node in ascending node-id
-structural id order. A `declaration` on either form refuses as the declaration rule
-above does. These are graph-shape refusals. The reader does not re-derive either form's structural node id from its body.
+A parameter body or a graph dependency mismatch refuses `invalid_semantic_graph`
+at the member that breaks that graph rule, located at the offending node; a
+`declaration` on either form follows the declaration rule above. A compound
+unit's term order, term kind, root-unit identity, nonzero integer exponent or
+semantic dimension mismatch instead refuses `invalid_package` with cause
+`invalid-derived-shape` at that compound unit's `node_id`, under QSpec FR-322
+"Derived type forms and forwarding" (including `RM-CU-ORDER`). The dependency
+join remains an independent earlier graph-shape check; a compound unit with
+both defects refuses at `/dependencies` first. The reader does not re-derive
+either form's structural node id from its body.
 
 ### Wire owner on checked nodes
 
@@ -3171,8 +3176,10 @@ body keys are the closed set `term`, `operator`, `operation`, `result_type` and
 `arguments`, its `operation.member` is `{kind, declaration, name}`, and the
 selected domain package's population has no maximum, so
 [FR-053](../../model/functional/FR-053-selected-population-binding.md)'s
-`select_population` can return `Finite` only for a `bounded_domain` /
-`model_population` node whose `Type` occurrence a caller names. Nothing in the
+`select_population` returns `Finite` for a selected bounded `model_population`
+and `AdmittedUnbounded` for a selected admitted `model_population` with no `max`,
+retaining the selected node and `Type` occurrence in either case (QSpec
+FR-322-AC-74). Nothing in the
 admitted package tells a consumer which such node bounds the population a
 reachability walks, and the IR must not choose one by object type: a
 `Population<E>[N]` parameter type of the same `E` and `N` is the same
@@ -3182,9 +3189,10 @@ checks the name.
 
 **The link.** A `quire.op.model.reaches` application MAY carry one additional
 key in `operation.member`, `population`, whose value is the node id of one
-`bounded_domain` / `model_population` node. The producer omits the key, and
-never writes `null`, when the walked population has no authored bound; the
-producer rule is owned by the QSL lowering and is not restated here. The V2
+`bounded_domain` / `model_population` node. The producer may name an admitted unbounded population with the key;
+absence of the key means this accessor has no selected binding. The producing
+language owns when to omit the key; an omitted key shall not be inferred from
+an absent `max` on a selected node (QSpec FR-322-AC-74). The V2
 reader shall refuse a present `population` that is not a node id, `null`
 included, as the reader check below states. The key is added to no other object
 of the application: the application body, its `operation` object, its operands,
@@ -3219,10 +3227,12 @@ second selector type.
   `package` the package's own name, `binding` the `population` node id
   exactly as the member holds it, and `occurrence` the `Type` occurrence of that
   node with the least ordinal. The selector is exactly what FR-053's `Admitted`
-  source accepts. Because the reader check below refuses a population node whose
-  `max` FR-053 cannot read, `select_population` over the selector returns
-  `Finite` with the node's own `max`, `minimum` 0 and the object type the node's
-  `semantic_type` chain names. `reaches_population` shall itself read no `max`,
+  source accepts. After the reader validates the node's derived shape,
+  `select_population` over the selector returns `Finite` with exact canonical
+  nonnegative decimal `maximum` text and `minimum` zero when `max` is present,
+  or `AdmittedUnbounded` with the same selected binding, occurrence, object
+  type and authentic source regions when `max` is absent. The maximum has no
+  `u64` cap (QSpec FR-322-AC-74). `reaches_population` shall itself read no `max`,
   shall charge no work and shall add no second derivation of the object type.
 
 `CheckedReachesPopulationError` has the closed variants `UnknownNode`,
@@ -3279,35 +3289,18 @@ order:
   `ill_typed`/`operator-ineligible`. FR-322-AC-73 is silent on this; the
   refusal exists because `reaches_population` returns the least `Type`
   ordinal.
-- When the node's `max` is one that FR-053's `population_maximum` rejects (the
-  member is missing or duplicated, is not an integer
-  `literal`, or the value is negative or exceeds `u64`), the reader shall refuse
-  `ill_typed`/`operator-ineligible`. A `max` member that is not a `binding` is not a
-  valid body term, so the graph reader refuses it earlier as `invalid_semantic_graph`
-  at the member (`/semantic_graph/nodes/N/body/members/M`) and it never reaches this
-  check. The reader shall read `max` through
-  `population_maximum` itself, so that a package the reader admits is one for
-  which `select_population` is `Finite`; a `max` of 0 is admitted. For a `max` that
-  is absent (a `max` that is not a binding is FR-322's absent case), negative or
-  not an integer literal (FR-322's model-population shape
-  rule in "Derived type forms and forwarding", whose negative-bound vector is
-  RM-POP-MAX, FR-322-AC-62, and which FR-322's section "Population link of a
-  `reaches`" applies), FR-322 refuses `invalid_package`/`invalid-derived-shape`
-  at the population node, and the same check refuses a population node whose
-  `semantic_type` is not `set<reference<T>>`. For a non-binding `max`, this reader
-  instead refuses `invalid_semantic_graph` at
-  `/semantic_graph/nodes/N/body/members/M` before the population check. This
-  reader has no derived-shape check for a `model_population` node (that is
-  FR-038-AC-131, still PLANNED), so it
-  cannot produce that refusal, and until AC-131 lands it refuses an absent,
-  non-literal or negative `max` `ill_typed`/`operator-ineligible` at
-  `member.population`. It does not check the form of the node's `semantic_type`
-  either (FR-053's `population_object_type` follows the first member target
-  twice and checks neither form), so a node whose `semantic_type` is not
-  `set<reference<T>>` but whose chain still names `E` is admitted here where
-  FR-322 refuses it. The differences are in outcome, code, pointer and stage, and
-  end when AC-131 lands; the code of FR-322 then governs, and no published vector exercises these
-  cases.
+- The graph dependency join and owner/declaration checks precede derived-shape
+  checking. A `model_population` body with no `max` is the admitted unbounded
+  form. One canonical nonnegative integer `max` binding is the bounded form;
+  `0` and exact decimal text above `u64::MAX` admit without narrowing. A
+  negative or non-integer `max`, a second member, or a semantic type other
+  than `set<reference<T>>` refuses `invalid_package` with cause
+  `invalid-derived-shape` at the population node's `node_id`, under QSpec
+  FR-322 "Derived type forms and forwarding", FR-322-AC-74 and `RM-POP-MAX`.
+  A `max` term that is not a binding remains subject to the earlier graph
+  term-shape refusal. The population link check does not impose a finite
+  maximum or a `u64` projection limit. These corrected derived-shape checks
+  are PLANNED/UNRUN until the IR reader implements them.
 - When the node's object type is not the declared type of the receiver end that
   the member's `name` selects (the destination end's type, which a reaches
   application shares with the receiver end, FR-038-AC-256), the reader shall
@@ -4418,7 +4411,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-19 | Withdrawn: the lock holds no domain-package row and no digest, so there is no `lock.model_selections` array whose entries can carry classed defects. | Test (TC-048) |
 | FR-038-AC-20 | Two `model_root` nodes naming one `identity` refuse `invalid_semantic_graph` at the later root's `owner` (`/semantic_graph/nodes/<i>/owner`), whichever order the graph holds them in; two roots naming different identities admit, each other check passing. A root carries no `version` and no `digest`, so the identity is the whole locator (FR-038-AC-62). | Test (TC-048) |
 | FR-038-AC-21 | A node whose declared `qualified_name` differs from its declared structural path refuses as `invalid_package` with cause `declaration-nominal-mismatch` at that node; two nodes in the same namespace declaring one name refuse as `ambiguous_declaration` with cause `ambiguous-name` at the later node in node-id order, while the same name across namespaces admits; a package carrying both defects refuses for the nominal mismatch; and a package also carrying a frame or an operation defect still refuses for its declaration defect. | Test (TC-048, TC-230) |
-| FR-038-AC-22 | A QSL-shaped package holding a function whose body applies an operation to its parameters, each a `value`/`parameter` node, and a `scalar_type`/`compound_unit` node, admits and lowers; a parameter with a negative, non-canonical or missing level, an empty, non-identifier or wrongly typed name, or an extra binding refuses as `invalid_semantic_graph` at the node's `body`; a parameter with a dependency, itself as its type or a `declaration`, and a compound unit with a zero exponent, a term naming a non-unit, a repeated unit, a dependency list other than its unit keys or a type other than itself, each refuses as `invalid_semantic_graph` at the member it breaks; the empty compound unit admits. | Test (TC-048) |
+| FR-038-AC-22 | PLANNED/UNRUN (IR-1141 derived-shape correction). A QSL-shaped package holding a function whose body applies an operation to its `value`/`parameter` nodes and a valid `scalar_type`/`compound_unit` node admits and lowers. A parameter with a negative, non-canonical or missing level, an empty, non-identifier or wrongly typed name, or an extra binding refuses `invalid_semantic_graph` at its `body`; a parameter with a dependency, itself as its type or a `declaration` follows the graph or declaration refusal at the broken member. A compound unit with a zero or non-integer exponent, a non-unit or non-root unit, repeated or out-of-order unit terms (`RM-CU-ORDER`), or the wrong semantic dimension refuses `invalid_package`/`invalid-derived-shape` at that node's `node_id` under QSpec FR-322 "Derived type forms and forwarding"; an independently wrong `dependencies` list refuses `invalid_semantic_graph` at `/dependencies` before derived-shape checking. The empty dimensionless compound unit admits. | Test (TC-048) |
 | FR-038-AC-23 | An application node whose `dependencies` omits a body reference target, lists them out of structural id order, repeats one, or adds its `result_type` refuses as `invalid_semantic_graph` at `semantic_graph.nodes.dependencies`, located at that node. | Test (TC-048) |
 | FR-038-AC-24 | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position: member names escaped (`~` as `~0`, `/` as `~1`), array elements by index, resolving in the document read — an unknown member (including one whose name holds `~` or `/`) at that member, a repeated member at that member, a missing member at the object lacking it, a wrongly typed value at that value, a malformed structural id at its exact member, and each graph, lock, source-map, capability and diagnostic refusal at the member its failed check read; malformed JSON and non-canonical bytes carry no pointer. The `unknown field` occurrence-role value of FR-038-AC-2 points exactly at `/semantic_graph/nodes/0/occurrences/0/role`; the genuine extra-member and wrong-kind controls each point at the member or value they change. No refusal code changes. | Test (TC-048) |
 | FR-038-AC-25 | An `unknown_contract_version` refusal points at `/contract_version` and carries the exact `contract_version` string the reader read, including an empty one; no other refusal carries a version. | Test (TC-048) |
@@ -4519,7 +4512,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-121 | An unreduced timed rational bound refuses invalid_semantic_graph at its bound after strict wire validation and before the temporal step, including when another later timed defect is present. | Test (TC-048) |
 | FR-038-AC-122 | The timed form `{lower, upper, lower_end, upper_end}` with bounds `{numerator: "0", denominator: "1"}` and `{numerator: "3", denominator: "1"}` and both ends `closed` refuses `invalid_package`/`operation-member-mismatch` at `/semantic_graph/nodes/{n}/body` under `quire.temporal.infinite-trace/v1` and under each of the three bounded profiles (merged FR-370-AC-8), and admits under `quire.temporal.timed/v1`, whose refusal of an integer-form `{lower, upper}` and of `{lower, upper: null}` is FR-038-AC-104's; four-member intervals with valid rational bounds and `lower_end` `"half"`, or `upper_end` `"half"`, each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`, as do `{lower: "0", upper: "3", lower_end: "closed"}` (a missing end, integer-string bounds), `{lower: "0", upper: "3", lower_end: "closed", upper_end: "closed", extra: "x"}` (a fifth member, integer-string bounds), each an IR reading that diverges from the published schema, whose closed interval `oneOf` and end `enum` fail them at strict wire validation, and each reported at the operation step after the temporal step, so a profile-fit defect in a later-structural-id clause is reported first; and the same missing-end and fifth-member intervals with the rational-object bounds of the timed form refuse `invalid-value` at `.../interval/lower` instead, an interval of another member set having no form, its bounds judged against the integer pattern (an IR reading). | Test (TC-048) |
 | FR-038-AC-123 | Withdrawn by the IR-1141 structural-identity decision: changing the body of a node under a retained derived path does not trigger a key or path recomputation. The old content-authentication tamper proof and its exact stale-key refusal no longer exist. The id is not reused. | Withdrawn |
-| FR-038-AC-124 | PLANNED/UNRUN (IR-1141). Each `scalar_type`/`boolean` or `/integer` body is the empty aggregate; `reference`, `option`, `set`, `bag`, `sequence` and `ordered_set` have exactly one reference; `integer_range` and `collection_bounds` have ordered `min` and `max` integer-literal bindings of their specified decimal grammar. A missing, extra, reordered, wrongly typed or malformed member refuses `invalid_package`/`invalid-derived-shape` at that node without using a content-derived key. Positive `integer_range` `min` `-5` and canonical extreme bounds admit. | Test (TC-226) |
+| FR-038-AC-124 | PLANNED/UNRUN (IR-1141). Each `scalar_type`/`boolean` or `/integer` body is the empty aggregate; `reference`, `option`, `set`, `bag`, `sequence` and `ordered_set` have exactly one reference; `integer_range` and `collection_bounds` have ordered `min` and `max` integer-literal bindings of their specified decimal grammar. A missing, extra, reordered, wrongly typed or malformed member refuses `invalid_package`/`invalid-derived-shape` at that node without using a content-derived key. For `composite_type`/`reference`, a valid body target must be a model `object_type`, `process`, `state_machine` or `systems_interface` declaration, or a relation `relationship` declaration; a schema-valid reference to a scalar, function, value or other composite kind (`RM-REF-TARGET`) refuses that same code and cause at the reference node's `node_id` under QSpec FR-322 "Derived type forms and forwarding". Positive `integer_range` `min` `-5` and canonical extreme bounds admit. | Test (TC-226, TC-048) |
 | FR-038-AC-125 | PLANNED/UNRUN (IR-1141). A `scalar_type` or `composite_type` in those ten shapes is self typed; an `integer_range` is typed at the exact Integer node and `collection_bounds` at a collection node. A wrong semantic type or a bound literal typed at Boolean refuses `invalid_package`/`invalid-derived-shape` at the offending node; a valid structural id alone does not bypass the body/type check. | Test (TC-226) |
 | FR-038-AC-126 | Withdrawn by the IR-1141 structural-identity decision: the former preimage-key tamper control for indirect type redirection is not a structural-id check. Other declaration, type, body and graph validation remains under its own criteria; this id is not reused. | Withdrawn |
 | FR-038-AC-127 | PLANNED/UNRUN (IR-1141). Graph shape and owner joins precede derived-shape semantic checks; an invalid derived shape precedes dependent declaration, frame, state, temporal, abstraction and operation checks. Two malformed structural nodes are visited in ascending componentwise structural id order. Each check reports its own exact typed refusal and pointer; no application, nominal, structural or group hash stage runs. | Test (TC-226) |
@@ -4659,7 +4652,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-266 | Implemented (IR-851). When `relationship_end` is called twice on an admitted reaches application and on a clone of the admitted package, the results are equal, the package equals its pre-call self, the accessor charges no work, and every package of FR-038-AC-252 through FR-038-AC-257 yields its pre-change admission or refusal outcome at the same pointer and the same refusal order. | Test (TC-048) |
 | FR-038-AC-267 | Implemented (IR-851). An external Rust API fixture calls `relationship_end` with `&CheckedNodeId`, exhaustively matches `CheckedRelationshipEndError` without a wildcard arm and constructs `CheckedRelationshipEnd` field by field with exactly the nine fields of the table, so a tenth public field or a `serde_json::Value`, `CheckedMemberType` or population member fails to compile. The FR-019 Public items row for the two new types is added by the code change that exports them, not by this specification change. | Test (TC-048) |
 | FR-038-AC-268 | Implemented (IR-851). `model_object_fields` over the object type named by a relationship returns the same fields as before this change and no relationship end, and no `selected_population` item is `pub use`d at the model crate root or re-exported from the `quire-contract-ir` root (FR-053-AC-5); `selected_population` stays reachable only by its module path. | Test (TC-048) |
-| FR-038-AC-269 | Implemented (IR-852). When `reaches_population` is called with the id of an admitted `quire.op.model.reaches` application whose `operation.member` carries `population` naming a `bounded_domain` / `model_population` node of the receiver end's declared type with a `max` of 3 and two `Type` occurrences at ordinals 1 and 4, it returns `Ok(Some(selector))` with `package` the package's name, `binding` the node id the member holds and `occurrence` the `Type` occurrence at ordinal 1, and `select_population` over `Admitted` with that selector returns `Finite` (AC-279 makes this hold for every admitted population link) with `maximum` 3, `minimum` 0 and the object type the receiver end's declared type derives, each expected value derived from the fixture and not from the accessor. | Test (TC-048) |
+| FR-038-AC-269 | Implemented bounded selector path (IR-852); the corrected admitted-unbounded and exact-decimal projection are PLANNED/UNRUN (IR-1141). For an admitted `quire.op.model.reaches` application whose `operation.member.population` names a `bounded_domain`/`model_population` node over the receiver end's declared type, with `max` 3 and two `Type` occurrences at ordinals 1 and 4, `reaches_population` returns `Ok(Some(selector))` with the package's exact name, the member's structural node ID and the `Type` occurrence at ordinal 1. `select_population(Admitted)` returns `Finite` with canonical decimal maximum "3", minimum zero, selected object type and authentic source regions. For an otherwise equivalent admitted node without `max`, the same selector carries its exact binding and occurrence and `select_population(Admitted)` returns `AdmittedUnbounded` with the same identity and provenance fields and no finite extent (QSpec FR-322-AC-74). All expected values derive from independently authored input, not from the accessor. | Test (TC-048) |
 | FR-038-AC-270 | Implemented (IR-852). When `reaches_population` is called with an admitted reaches application whose `operation.member` has no `population` key it returns `Ok(None)`, also in a package that holds a `model_population` node of the receiver end's declared type; two reaches applications in one package naming the same population node return equal selectors, and two naming populations of different bounds return selectors that differ in `binding`. | Test (TC-048) |
 | FR-038-AC-271 | Implemented (IR-852). `reaches_population` over an id absent from the graph refuses `UnknownNode`; over an admitted `quire.op.model.navigate` application, an application of `quire.op.integer.add`, the relationship declaration node, a `model_population` node and a `value`/`literal` node it refuses `NotReachesApplication` for each; and when a crate-internal post-admission mutation of an admitted reaches application sets `population` to a non-node-id value, to a node id absent from the graph, to the id of a node that is not a `model_population` node, or to the id of a `model_population` node whose `Type` occurrences are removed, it refuses `UnresolvedPopulation` for each. Every refusal returns only the typed error and no partial selector. | Test (TC-048) |
 | FR-038-AC-272 | Implemented (IR-852). A reaches application whose `operation.member.population` is not a node id (a number, an object and `null`), or is a node id with no node in the graph and listed in `dependencies`, is refused by the reader with `ill_typed`/`operator-ineligible` at the member's `population` pointer, for each, and none is refused `missing_declaration`. | Test (TC-048) |
@@ -4669,7 +4662,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-276 | Implemented (IR-852). A reaches or navigate application whose `operation.member.population` is a node id is admitted by the dependency join only when its `dependencies` hold that id in the unique, structurally ascending list; a package that omits that id, and a package that lists a population id no reaches or navigate application names, are each refused at the structural stage with `invalid_semantic_graph` and no cause, and a reaches application without the key keeps the dependency list it has today. | Test (TC-048) |
 | FR-038-AC-277 | Implemented (IR-852). When `reaches_population` is called twice on an admitted reaches application and on a clone of the admitted package, the results are equal, the package equals its pre-call self and no work is charged; every package of FR-038-AC-252 through FR-038-AC-257 and FR-038-AC-262 through FR-038-AC-268 that carries no `population` key yields its pre-change admission or refusal outcome at the same pointer. | Test (TC-048) |
 | FR-038-AC-278 | Implemented (IR-852). An external Rust API fixture calls `reaches_population` with `&CheckedNodeId`, binds the result as `Result<Option<CheckedSelectedPopulationSelector>, CheckedReachesPopulationError>` and exhaustively matches `CheckedReachesPopulationError` without a wildcard arm, so a fourth variant fails to compile; no `selected_population` item is `pub use`d at the model crate root or re-exported from the `quire-contract-ir` root (FR-053-AC-5). The FR-019 Public items row for the new error type is added by the code change that exports it, not by this specification change. | Test (TC-048) |
-| FR-038-AC-279 | Implemented (IR-852). A reaches application whose `operation.member.population` names a `model_population` node over the receiver end's declared type with a missing `max`, two `max` members, a `max` that is not an integer `literal`, a negative `max` and a `max` above `u64` spelled as the decimal string `"18446744073709551616"` (a JSON number that large is refused earlier as `noncanonical_wire`) is refused by the reader with `ill_typed`/`operator-ineligible` at the member's `population` pointer, for each of the five (the missing, non-literal and negative cases differ from the code FR-322 gives them at the node, as the reader check states); a population node whose `max` member is not a `binding` is refused earlier by the graph reader as `invalid_semantic_graph` at `/semantic_graph/nodes/N/body/members/M` and never reaches the population check; a `max` of 0 and a `max` given as a decimal string are admitted and yield `Finite` from `select_population` with that maximum. | Test (TC-048) |
+| FR-038-AC-279 | PLANNED/UNRUN (IR-1141 derived-shape and projection correction; IR-852's earlier bounded-path evidence remains historical). Under QSpec FR-322 "Derived type forms and forwarding" and FR-322-AC-74, a reaches application linked to a `model_population` over the receiver end's declared type with empty aggregate body and no `max` admits; `reaches_population` returns its exact selector and `select_population(Admitted)` returns `AdmittedUnbounded` retaining package name, selected binding, `Type` occurrence, object type and authentic source regions, with no finite extent. A single integer-literal `max` of 0 or 3 admits and projects `Finite` with exact canonical decimal maximum text and minimum zero; a canonical decimal-string `max` above `u64::MAX` also admits and projects unchanged. A negative or non-integer `max`, a second body member, or a wrong semantic target refuses `invalid_package`/`invalid-derived-shape` at the population node's `node_id` (`RM-POP-MAX`); an invalid non-binding body term retains its earlier graph-term refusal, and a noncanonical JSON number retains `noncanonical_wire` before semantic checks. Neither the reader nor the public projection invents a `u64` maximum cap. | Test (TC-048) |
 | FR-038-AC-280 | Implemented (IR-852). A reaches application with an invalid `population` (a node id absent from the graph, listed in its `dependencies`) and an earlier defect in `check_relationship_member` (an operand 1 that does not conform to the receiver end) is refused for the operand at its `arguments` pointer, not at `population`; a reaches application that carries a mode or a leaf is refused by the identity stage (`operation-mode-mismatch` for the mode, a law mismatch for the leaf) whatever its `population` when the `population` is a node id listed in the application's `dependencies`, because the catalog gives `quire.op.model.reaches` neither; an invalid `population` id missing from `dependencies` is refused earlier by the dependency join (`invalid_semantic_graph`, no cause), which runs before the identity stage. | Test (TC-048) |
 | FR-038-AC-281 | A reader-admitted protocol member has a `quire.op.protocol.control` body root, exactly one `protocol_profile` law matching the selected lock row, `null` mode, no leaves, Boolean result and semantic types, and a `profile_operator` member. Under the published `quire.protocol.finite-global/v1` selection the admitted operators are exactly `protocol`, `role`, `channel`, `queue`, `finish`, `terminal`, `sequence`, `choice`, `parallel`, `repeat`, `await`, `check`, `send`, `receive`, `attempt`, `effect`, `event`, `commit`, `fence` and `compensate`; an unknown operator refuses `operation-member-mismatch`. A law selected as `quire.protocol.complete/v1` does not satisfy a `finite-global/v1` row, nor the reverse. A missing or mismatched law refuses with its catalogued law cause; a member whose kind is not `profile_operator` refuses `invalid_package`/`operation-member-mismatch` at the application, before any member-body check. An `await` or `compensate` without a selected `temporal_profile` refuses `missing_declaration`/`missing-selection` because it reads a clock role. | Test (TC-048) |
 | FR-038-AC-282 | Each of the seven protocol member forms admits only the FR-464, FR-465 or FR-466 fixed argument names, order and term shapes for its selected operator: thirteen clause bindings, the role, channel, queue, finish and terminal layouts, thirteen control layouts and thirteen compensation bindings. A missing, extra, reordered, wrongly shaped or misspelled binding refuses `malformed_wire`; an optional Group admits zero or one member only, an interval has non-negative integer bounds with lower no greater than upper, and a set or sorted-record list repeated or out of its specified ascending order refuses `invalid_semantic_graph`. An ordered `sequence` or capture list retains its authored order. | Test (TC-048) |
