@@ -82,10 +82,18 @@ extent; `model_object_fields` remains authoritative for edge multiplicity.
 
 ## Current Verification Status
 
-The default-feature public consumer exercises QSL-emitted maxima `0`, `1`,
-`3`, and `[2,5]`, plus the authoritative same-type/second-type, changed-maximum,
-and retargeted variants. It verifies exact package name and node/occurrence identity,
-provenance, selected object type, reader-limit invariance, typed non-finite
-outcomes, and rejection of malformed maximum body shapes, including a
-reader-admitted duplicate-`max` package. No copied V2 bytes or IR-authored
-substitute fixture is used.
+The existing default-feature public consumer exercises QSL-emitted maxima
+`0`, `1`, `3`, and `[2,5]`, plus same-type/second-type, changed-maximum, and
+retargeted variants through the pre-cutover `package_id: CheckedSemanticId`
+selector and result. It verifies node/occurrence selection, provenance,
+selected object type, reader-limit invariance, typed non-finite outcomes,
+and malformed maximum body handling under that interface. Its changed-maximum
+control currently expects a changed binding ID. No copied V2 bytes or
+IR-authored substitute fixture is used.
+
+PLANNED/UNRUN (IR-1141 #709): replace that consumer evidence with exact V2
+package `name` and structural node-ID selection and result checks, a body-only
+maximum change that retains the structural ID while changing extent, a
+different admitted node and occurrence that change the selected ID and extent,
+and exact foreign-package-name refusal. These structural controls are not
+claimed as verified by the existing consumer.
