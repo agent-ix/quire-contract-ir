@@ -54,7 +54,7 @@ fn outcome(refusal: &CheckedPackageRefusal) -> (Code, Option<CheckedPackageRefus
     (
         refusal.code,
         refusal.cause,
-        refusal
+        refusal.loci[0]
             .path
             .as_ref()
             .map_or_else(|| "<none>".to_owned(), |path| path.as_str().to_owned()),
@@ -925,17 +925,17 @@ fn tc_048_a_syntax_or_duplicate_defect_is_refused_before_the_parse_limit() {
             other => panic!("expected a refusal, read {other:?}"),
         };
         assert_eq!(
-            (refusal(&deep).code, refusal(&deep).path),
+            (refusal(&deep).code, refusal(&deep).loci[0].path),
             (Code::MalformedWire, None)
         );
         let broken = format!("{}x{}", "[".repeat(200), "]".repeat(200));
         assert_eq!(
-            (refusal(&broken).code, refusal(&broken).path),
+            (refusal(&broken).code, refusal(&broken).loci[0].path),
             (Code::MalformedWire, None)
         );
         let duplicate = format!("{{\"a\":{deep},\"a\":1}}");
         assert_eq!(
-            (refusal(&duplicate).code, refusal(&duplicate).path),
+            (refusal(&duplicate).code, refusal(&duplicate).loci[0].path),
             (Code::DuplicateMember, Some(pointer("/a")))
         );
     });
