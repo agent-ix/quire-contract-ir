@@ -163,7 +163,6 @@ pub use checked_package::{
     CheckedNodePathSegment, CheckedNodeProjectionV2, CheckedNodeTag, CheckedOccurrence,
     CheckedOccurrenceRole, CheckedOperationModeView, CheckedOperationViewError,
     CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageEvidenceInsertionError,
-    CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageLockV2, CheckedPackageReadLimits,
     CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
