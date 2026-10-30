@@ -171,14 +171,18 @@ fn tc_230_declaration_names_are_scoped_to_unit_dimension_and_type() {
 #[test]
 fn tc_230_repeated_unit_name_refuses_at_later_node() {
     let mut package = same_named_unit_and_dimension();
-    let mut repeated = package["semantic_graph"]["nodes"]
+    let original = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
         .find(|node| node["semantic_form"] == "unit")
         .expect("unit")
         .clone();
+    let mut repeated = original.clone();
     repeated["node_id"]["ordinal"] = json!(2);
+    repeated["body"]["target_unit_node_id"] = original["node_id"].clone();
+    repeated["body"]["scale"]["numerator"] = json!("2");
+    repeated["dependencies"] = json!([repeated["body"]["dimension_node_id"], original["node_id"],]);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")

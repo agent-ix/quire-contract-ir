@@ -17,9 +17,9 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedParameterDeclaration, CheckedParameterDeclarationError, CompleteLoweringProfileV2,
-    CompleteLoweringRecordV2,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedParameterDeclaration, CheckedParameterDeclarationError,
+    CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -29,8 +29,6 @@ type Mutation = Box<dyn Fn(&mut Value)>;
 // Pointer suffixes below `/semantic_graph/nodes/{n}`: each structural
 // refusal names the member it is about.
 const BODY: &str = "/body";
-const FIRST_TERM: &str = "/body/members/0";
-const SECOND_TERM: &str = "/body/members/1";
 const DEPENDENCIES: &str = "/dependencies";
 const SEMANTIC_TYPE: &str = "/semantic_type";
 
@@ -310,6 +308,15 @@ fn invalid_at(package: &Value, position: usize, member: &str) -> ExpectedRefusal
     )
 }
 
+fn invalid_derived_at(package: &Value, position: usize) -> ExpectedRefusal {
+    refusal_at_id(
+        CheckedPackageRefusalCode::InvalidPackage,
+        &format!("/semantic_graph/nodes/{position}/node_id"),
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+        &package["semantic_graph"]["nodes"][position]["node_id"],
+    )
+}
+
 /// Compound-unit body rules remain independent of structural node paths.
 #[test]
 fn compound_unit_references_and_exponents_are_validated() {
@@ -318,7 +325,7 @@ fn compound_unit_references_and_exponents_are_validated() {
     });
     assert_eq!(
         refused(&independent),
-        invalid_at(&independent, COMPOUND, FIRST_TERM),
+        invalid_derived_at(&independent, COMPOUND),
     );
 
     let kilometre = node_key(&parameters_package(), KILOMETRE);
@@ -328,7 +335,7 @@ fn compound_unit_references_and_exponents_are_validated() {
     });
     assert_eq!(
         refused(&names_non_root),
-        invalid_at(&names_non_root, COMPOUND, FIRST_TERM)
+        invalid_derived_at(&names_non_root, COMPOUND)
     );
 
     let dimensionless = mutated(COMPOUND, |node| {
@@ -521,7 +528,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&zero_exponent),
-        invalid_at(&zero_exponent, COMPOUND, FIRST_TERM)
+        invalid_derived_at(&zero_exponent, COMPOUND)
     );
 
     // A term names a root unit, never a dimension.
@@ -531,7 +538,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&names_dimension),
-        invalid_at(&names_dimension, COMPOUND, FIRST_TERM)
+        invalid_derived_at(&names_dimension, COMPOUND)
     );
 
     let repeated_unit = mutated(COMPOUND, |node| {
@@ -543,7 +550,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&repeated_unit),
-        invalid_at(&repeated_unit, COMPOUND, SECOND_TERM)
+        invalid_at(&repeated_unit, COMPOUND, DEPENDENCIES)
     );
 
     let undeclared_dependency = mutated(COMPOUND, |node| node["dependencies"] = json!([]));
@@ -557,7 +564,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&typed_by_another),
-        invalid_at(&typed_by_another, COMPOUND, SEMANTIC_TYPE)
+        invalid_derived_at(&typed_by_another, COMPOUND)
     );
 
     // Terms naming distinct root units must still ascend by unit key.
@@ -589,7 +596,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&descending),
-        invalid_at(&descending, COMPOUND, SECOND_TERM)
+        invalid_derived_at(&descending, COMPOUND)
     );
 
     // A term names a root unit, never a unit with a target.
@@ -600,7 +607,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&names_non_root),
-        invalid_at(&names_non_root, COMPOUND, FIRST_TERM)
+        invalid_derived_at(&names_non_root, COMPOUND)
     );
 
     // The empty body is the dimensionless unit, with no dependencies.
