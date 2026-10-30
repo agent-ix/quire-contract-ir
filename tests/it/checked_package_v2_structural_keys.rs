@@ -829,7 +829,7 @@ fn derived_shape_refusal_precedes_dependent_frame_check() {
 
 #[trace("TC-226", "FR-038-AC-127")]
 #[test]
-fn derived_shape_refusal_precedes_declaration_operation_and_temporal_checks() {
+fn derived_shape_refusal_precedes_declaration_state_temporal_abstraction_and_operation_checks() {
     let mut duplicate_declaration = v2_all_families();
     let function = duplicate_declaration["semantic_graph"]["nodes"]
         .as_array()
@@ -881,7 +881,59 @@ fn derived_shape_refusal_precedes_declaration_operation_and_temporal_checks() {
         CheckedPackageRefusalCode::UnknownProfile
     );
 
-    for mut package in [duplicate_declaration, unknown_operation, unknown_temporal] {
+    let mut invalid_state_placement = v2_all_families();
+    let source_clause = index_of(&invalid_state_placement, "temporal", "temporal_clause");
+    let snapshot = index_of(&invalid_state_placement, "state", "snapshot");
+    let mut clause_body =
+        invalid_state_placement["semantic_graph"]["nodes"][source_clause]["body"].clone();
+    clause_body["operation"]["identity"] = json!("quire.op.state.clause");
+    invalid_state_placement["semantic_graph"]["nodes"][snapshot]["body"] = clause_body;
+    settle(&mut invalid_state_placement);
+    let CheckedPackageV2ReadResult::Refused(state_refusal) = read(&invalid_state_placement) else {
+        panic!("state clause application on snapshot must refuse");
+    };
+    assert_eq!(state_refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        state_refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+
+    let mut invalid_abstraction = v2_all_families();
+    let name = invalid_abstraction["name"]
+        .as_str()
+        .expect("package name")
+        .to_owned();
+    let relation_id = structural_id(
+        &name,
+        vec![json!("correspondence"), json!("abstraction_relation")],
+        0,
+    );
+    let mut relation = invalid_abstraction["semantic_graph"]["nodes"][0].clone();
+    relation["node_id"] = relation_id.clone();
+    relation["node_tag"] = json!("correspondence");
+    relation["semantic_form"] = json!("abstraction_relation");
+    relation["semantic_type"] = relation_id;
+    relation["dependencies"] = json!([]);
+    relation["occurrences"] = json!([{"role":"declaration","ordinal":0}]);
+    relation["body"] = json!({"term":"aggregate","members":[]});
+    append_authored(&mut invalid_abstraction, relation);
+    settle(&mut invalid_abstraction);
+    let CheckedPackageV2ReadResult::Refused(abstraction_refusal) = read(&invalid_abstraction)
+    else {
+        panic!("empty abstraction relation must refuse");
+    };
+    assert_ne!(
+        abstraction_refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
+    );
+
+    for mut package in [
+        duplicate_declaration,
+        unknown_operation,
+        unknown_temporal,
+        invalid_state_placement,
+        invalid_abstraction,
+    ] {
         let boolean = index_of(&package, "scalar_type", "boolean");
         package["semantic_graph"]["nodes"][boolean]["body"]["members"] = json!([
             {"term":"reference","target":package["semantic_graph"]["nodes"][boolean]["node_id"]}
