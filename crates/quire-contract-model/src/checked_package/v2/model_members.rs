@@ -1731,7 +1731,7 @@ impl<'m> ModelOwners<'m> {
 /// the node's tag and form are the declaration's (`missing_declaration`/
 /// `missing-selection` otherwise), and its fixed members hold, `semantic_type`
 /// itself, no `declaration`, no `recursion_group`, an empty body
-/// (`invalid_package`/`stale-node-key` otherwise). The one statement of the
+/// (`invalid_package`/`invalid-derived-shape` otherwise). The one statement of the
 /// rule: [`ModelOwners::recover`] at admission and the field accessor of an
 /// admitted package both apply it.
 pub(super) fn check_declaration_node<Body>(
@@ -1766,7 +1766,7 @@ pub(super) fn check_declaration_node<Body>(
     } else {
         Err(ModelRefusal::new(
             CheckedPackageRefusalCode::InvalidPackage,
-            CheckedPackageRefusalCause::StaleNodeKey,
+            CheckedPackageRefusalCause::InvalidDerivedShape,
         ))
     }
 }
