@@ -11,9 +11,9 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, family_key, family_model_document,
-    fixture_source, mint_ungrouped_structural_keys, node_id, over_body, rebuild_source_map,
-    refresh_identity, rename_node, select_model, settle, sha256_hex, source_owner, structural_key,
-    typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
+    fixture_source, node_id, over_body, rebuild_source_map, refresh_identity, rename_node,
+    select_model, settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families,
+    BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
@@ -21,10 +21,9 @@ use quire_contract_model::{
     encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
     CheckedComparisonRefusal, CheckedExecutionPointRefusal, CheckedMemberType, CheckedNodeId,
     CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole, CheckedOperationAnchorBody,
-    CheckedPackageEvidence, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedStepRelationCapability, CheckedTerm,
+    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedStepRelationCapability, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName,
     StateClauseKind,
 };
@@ -111,7 +110,7 @@ fn refused(value: &Value) -> CheckedPackageRefusal {
     }
 }
 
-/// Asserts the refusal's code, cause, pointer and (when given) locus digest.
+/// Asserts the refusal's code, cause, pointer and complete structural locus.
 fn expect(
     case: &str,
     value: &Value,
@@ -129,9 +128,17 @@ fn expect(
         "{case}: {refusal:?}"
     );
     if let Some(locus) = locus {
+        let candidates = nodes(value)
+            .iter()
+            .filter(|node| node["node_id"]["path"][0] == locus)
+            .collect::<Vec<_>>();
+        assert_eq!(candidates.len(), 1, "{case}: ambiguous fixture locus");
         assert_eq!(
-            refusal.locus.as_ref().map(|id| &*id.digest),
-            Some(locus),
+            refusal
+                .locus
+                .as_ref()
+                .map(|id| serde_json::to_value(id).expect("refusal locus")),
+            Some(candidates[0]["node_id"].clone()),
             "{case}: {refusal:?}"
         );
     }
@@ -139,6 +146,12 @@ fn expect(
 
 fn nodes(value: &Value) -> &Vec<Value> {
     value["semantic_graph"]["nodes"].as_array().expect("nodes")
+}
+
+fn id_order(left: &Value, right: &Value) -> std::cmp::Ordering {
+    let left: CheckedNodeId = serde_json::from_value(left.clone()).expect("left node id");
+    let right: CheckedNodeId = serde_json::from_value(right.clone()).expect("right node id");
+    left.cmp(&right)
 }
 
 fn position(value: &Value, tag: &str, form: &str) -> usize {
@@ -166,7 +179,7 @@ fn select_other_protocol_owner(value: &mut Value) {
 }
 
 fn digest(value: &Value, position: usize) -> String {
-    nodes(value)[position]["node_id"]["digest"]
+    nodes(value)[position]["node_id"]["path"][0]
         .as_str()
         .expect("digest")
         .to_owned()
@@ -257,7 +270,6 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
 }
 
 /// ACs: FR-040-AC-17, FR-040-AC-21, FR-040-AC-22, FR-040-AC-23, FR-040-AC-24, FR-040-AC-25,
-/// FR-040-AC-26
 #[trace(
     "TC-056",
     "FR-040-AC-17",
@@ -265,11 +277,10 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
     "FR-040-AC-22",
     "FR-040-AC-23",
     "FR-040-AC-24",
-    "FR-040-AC-25",
-    "FR-040-AC-26"
+    "FR-040-AC-25"
 )]
 #[test]
-fn tc_056_scoped_frame_order_conflict_and_stale_key() {
+fn tc_056_scoped_frame_order_and_conflict() {
     let (empty, _) = frame_mutation(|frame| {
         frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [],
             "deletes_scoped": []});
@@ -393,31 +404,6 @@ fn tc_056_scoped_frame_order_conflict_and_stale_key() {
         &format!("/semantic_graph/nodes/{frame}/body/creates/0"),
         Some(&"ef".repeat(32)),
     );
-    let mut stale = ordered.clone();
-    let frame = position(&stale, "state", "frame");
-    stale["semantic_graph"]["nodes"][frame]["body"]["deletes_scoped"] = json!([]);
-    refresh_identity(&mut stale);
-    expect(
-        "stale scoped deletion",
-        &stale,
-        Code::InvalidPackage,
-        Some(Cause::StaleNodeKey),
-        &format!("/semantic_graph/nodes/{frame}/node_id"),
-        None,
-    );
-    let mut stale_scope = ordered_names.clone();
-    let frame = position(&stale_scope, "state", "frame");
-    stale_scope["semantic_graph"]["nodes"][frame]["body"]["modifies"][0]["scope"] =
-        json!("receiver");
-    refresh_identity(&mut stale_scope);
-    expect(
-        "stale field scope",
-        &stale_scope,
-        Code::InvalidPackage,
-        Some(Cause::StaleNodeKey),
-        &format!("/semantic_graph/nodes/{frame}/node_id"),
-        None,
-    );
 }
 
 fn relationship(declaration: &str) -> Value {
@@ -430,7 +416,6 @@ fn frame_mutation(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
     let mut value = v2_all_families();
     let frame = position(&value, "state", "frame");
     edit(&mut value["semantic_graph"]["nodes"][frame]);
-    mint_ungrouped_structural_keys(&mut value);
     rebuild_source_map(&mut value);
     refresh_identity(&mut value);
     (value, frame)
@@ -756,7 +741,7 @@ fn tc_056_record_source_declared_field_entries_admit_unresolved() {
     let base = v2_all_families();
     let record = nodes(&base)
         .iter()
-        .position(|node| node["node_id"]["digest"] == namespace_key())
+        .position(|node| node["node_id"]["path"][0] == namespace_key())
         .expect("the namespace node");
     let with_record = |declared: bool| {
         let mut value = base.clone();
@@ -788,17 +773,12 @@ fn tc_056_record_source_declared_field_entries_admit_unresolved() {
             field(object_key(), "balance"),
             relationship(relationship_key()),
         ];
-        modifies.sort_by(|left, right| {
-            left["declaration"]["digest"]
-                .as_str()
-                .cmp(&right["declaration"]["digest"].as_str())
-        });
+        modifies.sort_by(|left, right| id_order(&left["declaration"], &right["declaration"]));
         frame["body"]["modifies"] = json!(modifies);
         frame["dependencies"]
             .as_array_mut()
             .expect("frame dependencies")
-            .sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
-        mint_ungrouped_structural_keys(&mut value);
+            .sort_by(id_order);
         settle(&mut value);
         value
     };
@@ -815,7 +795,7 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
     let base = v2_all_families();
     let model = nodes(&base)
         .iter()
-        .position(|node| node["node_id"]["digest"] == namespace_key())
+        .position(|node| node["node_id"]["path"][0] == namespace_key())
         .expect("the namespace node");
     let with_form = |form: &str| {
         if matches!(form, "object_type" | "process" | "namespace") {
@@ -1086,7 +1066,6 @@ impl StatePackage {
             .as_array_mut()
             .expect("nodes")
             .extend(added);
-        mint_ungrouped_structural_keys(&mut value);
         settle(&mut value);
         Self { value }
     }
@@ -1108,7 +1087,6 @@ impl StatePackage {
 
     fn edit(mut self, position: usize, edit: impl FnOnce(&mut Value)) -> Self {
         edit(&mut self.value["semantic_graph"]["nodes"][position]);
-        mint_ungrouped_structural_keys(&mut self.value);
         settle(&mut self.value);
         self
     }
@@ -1132,7 +1110,6 @@ fn pointed_state_package(anchor_point: Option<Value>, clause_point: Option<Value
         package.value["semantic_graph"]["nodes"][clause]["body"]["operation"]["member"]
             ["execution_point"] = point;
     }
-    mint_ungrouped_structural_keys(&mut package.value);
     settle(&mut package.value);
     package
 }
@@ -1156,7 +1133,6 @@ fn pointed_invariant(point: Value) -> StatePackage {
     let clause = package.clause("invariant");
     package.value["semantic_graph"]["nodes"][clause]["body"]["operation"]["member"]
         ["execution_point"] = point;
-    mint_ungrouped_structural_keys(&mut package.value);
     settle(&mut package.value);
     package
 }
@@ -1169,7 +1145,6 @@ fn pointed_constraint(point: Value) -> StatePackage {
         .as_array_mut()
         .expect("nodes")
         .push(node);
-    mint_ungrouped_structural_keys(&mut package.value);
     settle(&mut package.value);
     package
 }
@@ -1179,19 +1154,8 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("pointed package refused: {other:?}"),
     };
-    let preimage = admitted.identity_preimage();
-    let borrowed = CheckedPackageIdentityPreimageRefV2 {
-        version: &preimage.version,
-        edition: &preimage.edition,
-        profile_selections: &preimage.profile_selections,
-        definition_selections: &preimage.definition_selections,
-        required_features: &preimage.required_features,
-        dependency_selections: &preimage.dependency_selections,
-        identity_projection: &admitted.graph().nodes,
-    };
     let encoded = encode_checked_package_v2(
-        &borrowed,
-        admitted.package_id(),
+        admitted.name(),
         admitted.lock(),
         admitted.graph(),
         CheckedPackageSourceCorrespondenceRef {
@@ -1218,7 +1182,7 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
         CheckedPackageV2ReadResult::Admitted(read_back) => read_back,
         other => panic!("writer output refused: {other:?}"),
     };
-    assert_eq!(read_back.package_id(), admitted.package_id());
+    assert_eq!(read_back.name(), admitted.name());
     assert_eq!(read_back.graph(), admitted.graph());
 }
 
@@ -1238,11 +1202,15 @@ fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
             serde_json::to_value(&admitted.graph().nodes[clause].body).expect("typed clause"),
             package.value["semantic_graph"]["nodes"][clause]["body"]
         );
-        assert_ne!(
-            digest(&absent.value, absent.clause("invariant")),
-            digest(&package.value, clause)
+        assert_eq!(
+            nodes(&absent.value)[absent.clause("invariant")]["node_id"],
+            nodes(&package.value)[clause]["node_id"]
         );
-        assert_ne!(absent.value["package_id"], package.value["package_id"]);
+        assert_ne!(
+            nodes(&absent.value)[absent.clause("invariant")]["body"],
+            nodes(&package.value)[clause]["body"]
+        );
+        assert_eq!(absent.value["name"], package.value["name"]);
         assert_pointed_writer_round_trip(package, &[clause]);
     }
     assert_ne!(
@@ -1271,17 +1239,16 @@ fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
         .as_array_mut()
         .expect("nodes")
         .push(clause_node("constraint", &[self_key()], object_key()));
-    mint_ungrouped_structural_keys(&mut absent_constraint.value);
     settle(&mut absent_constraint.value);
     let pointed = pointed_constraint(json!({"kind": "handler", "name": "tick"}));
     let constraint = pointed.clause("constraint");
-    assert_ne!(
-        absent_constraint.value["package_id"],
-        pointed.value["package_id"]
+    assert_eq!(
+        nodes(&absent_constraint.value)[absent_constraint.clause("constraint")]["node_id"],
+        nodes(&pointed.value)[constraint]["node_id"]
     );
     assert_ne!(
-        absent_constraint.digest(absent_constraint.clause("constraint")),
-        pointed.digest(constraint)
+        nodes(&absent_constraint.value)[absent_constraint.clause("constraint")]["body"],
+        nodes(&pointed.value)[constraint]["body"]
     );
     let wrong_constraint = pointed_constraint(json!({"kind": "pre", "operation": "deposit"}));
     let constraint = wrong_constraint.clause("constraint");
@@ -1474,17 +1441,17 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
         assert_pointed_writer_round_trip(package, &[anchor, clause]);
     }
     for package in [&pre, &post] {
-        assert_ne!(
-            digest(&absent.value, absent.at("state", "operation_anchor")),
-            digest(&package.value, package.at("state", "operation_anchor"))
-        );
-        assert_ne!(absent.value["package_id"], package.value["package_id"]);
+        let absent_anchor = &nodes(&absent.value)[absent.at("state", "operation_anchor")];
+        let pointed_anchor = &nodes(&package.value)[package.at("state", "operation_anchor")];
+        assert_eq!(absent_anchor["node_id"], pointed_anchor["node_id"]);
+        assert_ne!(absent_anchor["body"], pointed_anchor["body"]);
+        assert_eq!(absent.value["name"], package.value["name"]);
     }
-    assert_ne!(
-        digest(&pre.value, pre.at("state", "operation_anchor")),
-        digest(&post.value, post.at("state", "operation_anchor"))
-    );
-    assert_ne!(pre.value["package_id"], post.value["package_id"]);
+    let pre_anchor = &nodes(&pre.value)[pre.at("state", "operation_anchor")];
+    let post_anchor = &nodes(&post.value)[post.at("state", "operation_anchor")];
+    assert_eq!(pre_anchor["node_id"], post_anchor["node_id"]);
+    assert_ne!(pre_anchor["body"], post_anchor["body"]);
+    assert_eq!(pre.value["name"], post.value["name"]);
     for point in [
         json!({"kind": "pre", "operation": "deposit"}),
         json!({"kind": "post", "operation": "deposit"}),
@@ -1521,7 +1488,6 @@ fn tc_056_same_operation_admits_distinct_anchor_points() {
         .as_array_mut()
         .expect("nodes")
         .push(second);
-    mint_ungrouped_structural_keys(&mut package.value);
     settle(&mut package.value);
     admits(&package.value);
     let anchors = nodes(&package.value)
@@ -1556,7 +1522,6 @@ fn tc_056_same_operation_admits_distinct_anchor_points() {
         json!([node_id(object_key()), node_id(&alternate_key)]);
     duplicate["semantic_graph"]["nodes"][second]["body"]["members"][3]["value"]["kind"] =
         json!("pre");
-    mint_ungrouped_structural_keys(&mut duplicate);
     settle(&mut duplicate);
     let later = nodes(&duplicate)
         .iter()
@@ -1582,7 +1547,6 @@ fn tc_056_same_operation_admits_distinct_anchor_points() {
     {
         node["body"]["members"][3]["value"]["operation"] = json!("withdraw");
     }
-    mint_ungrouped_structural_keys(&mut duplicate);
     settle(&mut duplicate);
     let first = nodes(&duplicate)
         .iter()
@@ -1707,11 +1671,11 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
         json!("post");
     settle(&mut stale.value);
     expect(
-        "stale anchor key precedes point agreement",
+        "changed anchor point is judged by state agreement",
         &stale.value,
-        Code::InvalidPackage,
-        Some(Cause::StaleNodeKey),
-        &format!("/semantic_graph/nodes/{anchor}/node_id"),
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("/semantic_graph/nodes/{anchor}"),
         None,
     );
     for point in [
@@ -1776,11 +1740,11 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
         ["execution_point"]["kind"] = json!("post");
     refresh_identity(&mut stale_clause.value);
     expect(
-        "stale clause application key precedes agreement",
+        "changed clause point is judged by anchor agreement",
         &stale_clause.value,
-        Code::InvalidPackage,
-        Some(Cause::StaleNodeKey),
-        &format!("/semantic_graph/nodes/{clause}/node_id"),
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("/semantic_graph/nodes/{clause}"),
         None,
     );
 }
@@ -2041,7 +2005,6 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
             .as_array_mut()
             .expect("nodes")
             .push(second);
-        mint_ungrouped_structural_keys(&mut package.value);
         settle(&mut package.value);
         let second = nodes(&package.value).len() - 1;
         let second_key = digest(&package.value, second);
@@ -2081,14 +2044,13 @@ fn tc_056_shared_frame_checks_scoped_deletes_for_each_anchor() {
         .as_array_mut()
         .expect("nodes")
         .retain(|node| node["body"]["operation"]["member"]["clause"] != "precondition");
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     let mut anchors = nodes(&package)
         .iter()
         .filter(|node| node["semantic_form"] == "operation_anchor")
         .map(|node| {
             (
-                node["node_id"]["digest"].as_str().expect("key").to_owned(),
+                node["node_id"]["path"][0].as_str().expect("key").to_owned(),
                 node["body"]["members"][1]["value"]["value"]
                     .as_str()
                     .expect("operation")
@@ -2554,7 +2516,9 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
         .value;
     assert_eq!(refused(&value).code, Code::InvalidModelBinding);
     assert_eq!(
-        refused(&value).path.map(|path| path.as_str().to_owned()),
+        refused(&value).loci[0]
+            .path
+            .map(|path| path.as_str().to_owned()),
         Some(format!("/semantic_graph/nodes/{frame}/body/deletes/0")),
         "a frame defect before a state defect"
     );
@@ -2563,7 +2527,9 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
         .edit(invariant, clause_defect)
         .value;
     assert_eq!(
-        refused(&value).path.map(|path| path.as_str().to_owned()),
+        refused(&value).loci[0]
+            .path
+            .map(|path| path.as_str().to_owned()),
         Some(format!("/semantic_graph/nodes/{anchor}")),
         "an anchor defect before a clause defect"
     );
@@ -2575,7 +2541,9 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
         .edit(precondition, operation_defect)
         .value;
     assert_eq!(
-        refused(&value).path.map(|path| path.as_str().to_owned()),
+        refused(&value).loci[0]
+            .path
+            .map(|path| path.as_str().to_owned()),
         Some(format!("/semantic_graph/nodes/{anchor}")),
         "a state defect before an operation defect"
     );
@@ -2752,20 +2720,15 @@ fn record_package() -> Value {
     }
     let frame = position(&package, "state", "frame");
     let mut entries = vec![field(&account, "address"), field(&address, "street")];
-    entries.sort_by(|a, b| {
-        a["declaration"]["digest"]
-            .as_str()
-            .cmp(&b["declaration"]["digest"].as_str())
-    });
+    entries.sort_by(|a, b| id_order(&a["declaration"], &b["declaration"]));
     package["semantic_graph"]["nodes"][frame]["body"]["modifies"] = json!(entries);
     let mut deps = package["semantic_graph"]["nodes"][frame]["dependencies"]
         .as_array()
         .expect("deps")
         .clone();
     deps.extend([node_id(&account), node_id(&address)]);
-    deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    deps.sort_by(id_order);
     package["semantic_graph"]["nodes"][frame]["dependencies"] = json!(deps);
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     package
 }
@@ -2798,7 +2761,8 @@ fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
         .expect("selected Account fields");
     assert!(matches!(
         fields.field("address").and_then(|field| field.member_type()),
-        Some(CheckedMemberType::Record(target)) if target.digest.as_ref() == record_key()
+        Some(CheckedMemberType::Record(target))
+            if serde_json::to_value(target).expect("record identity") == node_id(&record_key())
     ));
     let mut ghost = package.clone();
     let frame = position(&ghost, "state", "frame");
@@ -2807,10 +2771,9 @@ fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
         .expect("modifies");
     let index = entries
         .iter()
-        .position(|entry| entry["declaration"]["digest"] == record_key())
+        .position(|entry| entry["declaration"]["path"][0] == record_key())
         .expect("record entry");
     entries[index]["name"] = json!("ghost");
-    mint_ungrouped_structural_keys(&mut ghost);
     settle(&mut ghost);
     match read_record_package(&ghost, &document, CheckedPackageReadLimits::bounded().work) {
         CheckedPackageV2ReadResult::Refused(refusal) => assert_eq!(
@@ -2830,7 +2793,6 @@ fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
     let mut operation_name = package.clone();
     operation_name["semantic_graph"]["nodes"][frame]["body"]["modifies"][index]["name"] =
         json!("scaled");
-    mint_ungrouped_structural_keys(&mut operation_name);
     settle(&mut operation_name);
     match read_record_package(
         &operation_name,
@@ -2895,21 +2857,16 @@ fn tc_056_selected_record_frame_field_keeps_inherited_ambiguity() {
         .as_array_mut()
         .expect("modifies");
     entries.push(field(&key, "shared"));
-    entries.sort_by(|a, b| {
-        a["declaration"]["digest"]
-            .as_str()
-            .cmp(&b["declaration"]["digest"].as_str())
-    });
+    entries.sort_by(|a, b| id_order(&a["declaration"], &b["declaration"]));
     let at = entries
         .iter()
-        .position(|entry| entry["declaration"]["digest"] == key)
+        .position(|entry| entry["declaration"]["path"][0] == key)
         .expect("ambiguous record entry");
     let deps = package["semantic_graph"]["nodes"][frame]["dependencies"]
         .as_array_mut()
         .expect("dependencies");
     deps.push(node_id(&key));
-    deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
-    mint_ungrouped_structural_keys(&mut package);
+    deps.sort_by(id_order);
     settle(&mut package);
     match read_record_package(
         &package,
@@ -2983,12 +2940,11 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
         .expect("modifies");
     let record = entries
         .iter()
-        .position(|entry| entry["declaration"]["digest"] == record_key())
+        .position(|entry| entry["declaration"]["path"][0] == record_key())
         .expect("record entry");
     entries[record]["name"] = json!("ghost");
     entries.reverse();
     let reversed = entries.len() - 1 - record;
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     match read_record_package(
         &package,
@@ -3011,7 +2967,7 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
     }
     let record_node = nodes(&package)
         .iter()
-        .position(|node| node["node_id"]["digest"] == record_key())
+        .position(|node| node["node_id"]["path"][0] == record_key())
         .expect("selected record node");
     package["semantic_graph"]["nodes"][record_node]["owner"]["identity"] = json!(OTHER_PACKAGE);
     // Keep the old key deliberately: the owner/key join must be checked before
@@ -3038,7 +2994,7 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
         .as_array()
         .expect("modifies")
         .iter()
-        .position(|entry| entry["declaration"]["digest"] == record_key())
+        .position(|entry| entry["declaration"]["path"][0] == record_key())
         .expect("record entry");
     stale["semantic_graph"]["nodes"][stale_frame]["body"]["modifies"][stale_entry]["name"] =
         json!("ghost");
@@ -3051,12 +3007,15 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
                 refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (
-                Code::InvalidPackage,
-                Some(Cause::StaleNodeKey),
-                Some(format!("/semantic_graph/nodes/{stale_frame}/node_id").as_str())
+                Code::MissingDeclaration,
+                Some(Cause::MissingName),
+                Some(
+                    format!("/semantic_graph/nodes/{stale_frame}/body/modifies/{stale_entry}")
+                        .as_str()
+                )
             )
         ),
-        other => panic!("a stale frame key must precede record field resolution: {other:?}"),
+        other => panic!("record field name must refuse at its entry: {other:?}"),
     }
 }
 
@@ -3074,7 +3033,7 @@ fn tc_056_record_name_defects_follow_frame_node_key_order() {
             .as_array()
             .expect("modifies")
             .iter()
-            .position(|entry| entry["declaration"]["digest"] == record_key())
+            .position(|entry| entry["declaration"]["path"][0] == record_key())
             .expect("record field entry")
     };
     let first_entry = entry(&other_frame);
@@ -3086,7 +3045,6 @@ fn tc_056_record_name_defects_follow_frame_node_key_order() {
         .as_array_mut()
         .expect("nodes")
         .push(other_frame);
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     let frames: Vec<(usize, &Value)> = nodes(&package)
         .iter()
@@ -3096,7 +3054,7 @@ fn tc_056_record_name_defects_follow_frame_node_key_order() {
     assert_eq!(frames.len(), 2);
     let (earlier, _) = frames
         .into_iter()
-        .min_by_key(|(_, node)| node["node_id"]["digest"].as_str().expect("frame key"))
+        .min_by_key(|(_, node)| node["node_id"]["path"][0].as_str().expect("frame key"))
         .expect("the lower-key frame");
     match read_record_package(
         &package,
@@ -3263,7 +3221,7 @@ impl ModelPackage {
             .as_array_mut()
             .expect("nodes");
         for node in nodes.iter_mut() {
-            let key = node["node_id"]["digest"].as_str().expect("key").to_owned();
+            let key = node["node_id"]["path"][0].as_str().expect("key").to_owned();
             if key == reference_key(object_key()) {
                 node["dependencies"] = json!([node_id(&order)]);
                 node["body"] = json!({"term": "aggregate", "members": [reference(&order)]});
@@ -3271,7 +3229,7 @@ impl ModelPackage {
                 node["semantic_type"] = node_id(&order);
                 let mut deps = node["dependencies"].as_array().expect("deps").clone();
                 deps.push(node_id(&order));
-                deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+                deps.sort_by(id_order);
                 node["dependencies"] = Value::Array(deps);
             } else if key == anchor_key() {
                 let mut deps = [order.clone(), frame_key.clone()];
@@ -3297,7 +3255,6 @@ impl ModelPackage {
             &reference_key(object_key()),
             &reference_key(&order),
         );
-        mint_ungrouped_structural_keys(&mut state.value);
         settle(&mut state.value);
         Self { value: state.value }
     }
@@ -3305,7 +3262,7 @@ impl ModelPackage {
     fn position_of(&self, key: &str) -> usize {
         nodes(&self.value)
             .iter()
-            .position(|node| node["node_id"]["digest"] == key)
+            .position(|node| node["node_id"]["path"][0] == key)
             .unwrap_or_else(|| panic!("node {key}"))
     }
 
@@ -3320,7 +3277,7 @@ impl ModelPackage {
                 node["semantic_form"] == "parameter"
                     && node["body"]["members"][0]["value"]["value"] == name
             })
-            .and_then(|node| node["node_id"]["digest"].as_str())
+            .and_then(|node| node["node_id"]["path"][0].as_str())
             .unwrap_or_else(|| panic!("parameter {name}"))
             .to_owned()
     }
@@ -3349,7 +3306,6 @@ impl ModelPackage {
     /// Edits the node at `position`, then re-keys and re-derives identity.
     fn edit(mut self, position: usize, edit: impl FnOnce(&mut Value)) -> Self {
         edit(&mut self.value["semantic_graph"]["nodes"][position]);
-        mint_ungrouped_structural_keys(&mut self.value);
         settle(&mut self.value);
         self
     }
@@ -3366,7 +3322,7 @@ impl ModelPackage {
             if !deps.contains(&node_id(&declaring)) {
                 deps.push(node_id(&declaring));
             }
-            deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+            deps.sort_by(id_order);
             node["dependencies"] = Value::Array(deps);
         })
     }
@@ -3390,8 +3346,11 @@ fn tc_056_scoped_deletes_check_resolved_operation_after_frame_step() {
             &format!("/semantic_graph/nodes/{frame}"),
         );
         assert_eq!(
-            refusal.locus.as_ref().map(|id| id.digest.as_ref()),
-            Some(digest(&package.value, frame).as_str()),
+            refusal
+                .locus
+                .as_ref()
+                .map(|id| serde_json::to_value(id).expect("frame identity")),
+            Some(nodes(&package.value)[frame]["node_id"].clone()),
             "{name}: frame-node locus"
         );
     }
@@ -3413,7 +3372,6 @@ fn tc_056_scoped_deletes_check_resolved_operation_after_frame_step() {
         json!({"qualified_name": ["Account"]});
     state.value["semantic_graph"]["nodes"][object]["occurrences"] =
         json!([{"role": "declaration", "ordinal": 0}]);
-    mint_ungrouped_structural_keys(&mut state.value);
     select_other_protocol_owner(&mut state.value);
     settle(&mut state.value);
     let frame = position(&state.value, "state", "frame");
@@ -3464,7 +3422,7 @@ impl ModelPackage {
             if !deps.contains(&node_id(&with_context)) {
                 deps.push(node_id(&with_context));
             }
-            deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+            deps.sort_by(id_order);
             node["dependencies"] = Value::Array(deps);
         });
         let frame_key = digest(&package.value, frame);
@@ -3757,7 +3715,6 @@ fn tc_445_source_declared_operation_input_has_no_selected_model_range() {
         .expect("parameter aggregate")
         .push(reference(&input));
     source.value["semantic_graph"]["nodes"][pre]["body"]["arguments"][2] = reference(&comparison);
-    mint_ungrouped_structural_keys(&mut source.value);
     select_other_protocol_owner(&mut source.value);
     settle(&mut source.value);
     let admitted = match read(&source.value) {
@@ -3778,10 +3735,7 @@ fn tc_445_source_declared_operation_input_has_no_selected_model_range() {
         .direct_integer_comparison(&clause, claim)
         .expect_err("no selected operation slot bound");
     assert_eq!(refusal.kind, CheckedComparisonRefusal::MissingRange);
-    assert_eq!(
-        refusal.loci[0].path.clone(),
-        CheckedComparisonPath::Operand(0)
-    );
+    assert_eq!(refusal.path.clone(), CheckedComparisonPath::Operand(0));
     assert_eq!(refusal.clause, clause);
     assert_eq!(&refusal.claim, claim);
 }
@@ -4039,7 +3993,7 @@ fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
         let clause = admitted.graph().nodes[position].node_id.clone();
         let claim = admitted.graph().nodes[position].occurrences[0].clone();
         let unchanged = admitted.clone();
-        let identity = admitted.package_id().clone();
+        let identity = admitted.name().to_owned();
         drop(source);
         assert_eq!(
             cg_consumer(&admitted, &clause, (&clause, &claim)),
@@ -4054,7 +4008,7 @@ fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
             Ok(expected)
         );
         assert_eq!(admitted, unchanged);
-        assert_eq!(*admitted.package_id(), identity);
+        assert_eq!(admitted.name(), identity);
     }
 }
 
@@ -4228,16 +4182,12 @@ fn tc_462_point_change_rekeys_node_and_package_without_losing_accessor_value() {
         let ids = std::array::from_fn::<_, 3, _>(|index| {
             sources[index].value["semantic_graph"]["nodes"][positions[index]]["node_id"].clone()
         });
-        assert_ne!(ids[0], ids[1]);
-        assert_ne!(ids[1], ids[2]);
-        assert_ne!(
-            sources[0].value["package_id"],
-            sources[1].value["package_id"]
-        );
-        assert_ne!(
-            sources[1].value["package_id"],
-            sources[2].value["package_id"]
-        );
+        assert_eq!(ids[0], ids[1]);
+        assert_eq!(ids[1], ids[2]);
+        assert_ne!(bodies[0], bodies[1]);
+        assert_ne!(bodies[1], bodies[2]);
+        assert_eq!(sources[0].value["name"], sources[1].value["name"]);
+        assert_eq!(sources[1].value["name"], sources[2].value["name"]);
         for (source, position, expected) in [
             (
                 &sources[0],
@@ -4278,14 +4228,11 @@ fn tc_462_point_change_rekeys_node_and_package_without_losing_accessor_value() {
 /// Settle a relation fixture and map its second occurrence to the same source.
 fn settle_step_relation(package: &mut Value) {
     settle(package);
-    // A changed application-keyed premise is renamed by `settle`; that
-    // replacement is part of the enclosing structural claim's own key.
     let relation = position(package, "claim", "step_relation");
     package["semantic_graph"]["nodes"][relation]["dependencies"]
         .as_array_mut()
         .expect("relation dependencies")
-        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
-    mint_ungrouped_structural_keys(package);
+        .sort_by(id_order);
     settle(package);
     let relation = position(package, "claim", "step_relation");
     let mut claim = package["source_map"]
@@ -4330,7 +4277,6 @@ fn step_relation_package() -> Value {
         .as_array_mut()
         .expect("nodes")
         .extend([first_i, second_self, second_i]);
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     let binder = |package: &Value, name: &str, level: &str| {
         nodes(package)
@@ -4419,7 +4365,7 @@ fn step_relation_package() -> Value {
             .as_array_mut()
             .expect("nodes");
         nodes.push(application(
-            deref["digest"].as_str().expect("deref digest"),
+            deref["path"][0].as_str().expect("deref digest"),
             "deref",
             "deref",
             "quire.op.model.deref",
@@ -4428,7 +4374,7 @@ fn step_relation_package() -> Value {
             self_id.clone(),
         ));
         nodes.push(application(
-            field["digest"].as_str().expect("field digest"),
+            field["path"][0].as_str().expect("field digest"),
             "query",
             "query",
             "quire.op.record.project",
@@ -4437,7 +4383,7 @@ fn step_relation_package() -> Value {
             deref,
         ));
         nodes.push(application(
-            pre_read["digest"].as_str().expect("pre digest"),
+            pre_read["path"][0].as_str().expect("pre digest"),
             "pre_read",
             "pre",
             "quire.op.state.pre",
@@ -4462,7 +4408,7 @@ fn step_relation_package() -> Value {
         ],
     });
     let mut equality_deps = pre_reads;
-    equality_deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    equality_deps.sort_by(id_order);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -4526,7 +4472,7 @@ fn step_relation_package() -> Value {
         invariant,
         expression,
     ];
-    dependencies.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    dependencies.sort_by(id_order);
     dependencies.dedup();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -4541,7 +4487,6 @@ fn step_relation_package() -> Value {
             "occurrences": [{"role": "declaration", "ordinal": 0}, {"role": "claim", "ordinal": 0}],
             "body": body,
         }));
-    mint_ungrouped_structural_keys(&mut package);
     settle_step_relation(&mut package);
     package
 }
@@ -4559,11 +4504,14 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
     });
     let original = position(&package, "claim", "step_relation");
     let swapped_at = position(&swapped, "claim", "step_relation");
-    assert_ne!(
+    assert_eq!(
         package["semantic_graph"]["nodes"][original]["node_id"],
         swapped["semantic_graph"]["nodes"][swapped_at]["node_id"]
     );
-    assert_ne!(package["package_id"], swapped["package_id"]);
+    assert_ne!(
+        package["semantic_graph"]["nodes"][original]["body"],
+        swapped["semantic_graph"]["nodes"][swapped_at]["body"]
+    );
     let admitted = match read(&package) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("step relation must admit: {other:?}"),
@@ -4698,19 +4646,8 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
         model_only[0].capability,
         CheckedStepRelationCapability::TemporalSatisfaction
     );
-    let preimage = admitted.identity_preimage();
-    let borrowed = CheckedPackageIdentityPreimageRefV2 {
-        version: &preimage.version,
-        edition: &preimage.edition,
-        profile_selections: &preimage.profile_selections,
-        definition_selections: &preimage.definition_selections,
-        required_features: &preimage.required_features,
-        dependency_selections: &preimage.dependency_selections,
-        identity_projection: &admitted.graph().nodes,
-    };
     let bytes = encode_checked_package_v2(
-        &borrowed,
-        admitted.package_id(),
+        admitted.name(),
         admitted.lock(),
         admitted.graph(),
         CheckedPackageSourceCorrespondenceRef {
@@ -4736,7 +4673,7 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
                 .expect("relation");
             assert_eq!(again.step_relation_body(), Some(body));
             assert_eq!(again.node_id, relation.node_id);
-            assert_eq!(reloaded.package_id(), admitted.package_id());
+            assert_eq!(reloaded.name(), admitted.name());
         }
         other => panic!("written package must read back: {other:?}"),
     }
@@ -4750,11 +4687,14 @@ fn step_relation_identity_tracks_effective_premises() {
     let relation = position(&base, "claim", "step_relation");
     let changed = |candidate: &Value| {
         let at = position(candidate, "claim", "step_relation");
-        assert_ne!(
+        assert_eq!(
             base["semantic_graph"]["nodes"][relation]["node_id"],
             candidate["semantic_graph"]["nodes"][at]["node_id"]
         );
-        assert_ne!(base["package_id"], candidate["package_id"]);
+        assert_ne!(
+            base["semantic_graph"]["nodes"][relation]["body"],
+            candidate["semantic_graph"]["nodes"][at]["body"]
+        );
         admits(candidate);
     };
     let mut precondition = base.clone();
@@ -4795,7 +4735,7 @@ fn step_relation_identity_tracks_effective_premises() {
         })
         .map(|node| node["node_id"].clone())
         .collect::<Vec<_>>();
-    ids.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    ids.sort_by(id_order);
     let added = rekey_step_relation(added, |node| {
         node["body"]["members"][2]["value"]["members"][0]["value"]["members"] = json!(ids
             .into_iter()
@@ -4845,13 +4785,13 @@ fn step_relation_source_correspondence_does_not_change_semantic_identity() {
         original_relation.step_relation_body(),
         moved_relation.step_relation_body()
     );
-    assert_eq!(original.package_id(), moved.package_id());
+    assert_eq!(original.name(), moved.name());
 }
 
 fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Value {
     fn targets(term: &Value, found: &mut std::collections::BTreeSet<String>) {
         if term["term"] == "reference" {
-            if let Some(digest) = term["target"]["digest"].as_str() {
+            if let Some(digest) = term["target"]["path"][0].as_str() {
                 found.insert(digest.to_owned());
             }
         }
@@ -4877,7 +4817,6 @@ fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Val
         .into_iter()
         .map(|digest| node_id(&digest))
         .collect::<Vec<_>>());
-    mint_ungrouped_structural_keys(&mut package);
     settle_step_relation(&mut package);
     package
 }
@@ -4968,7 +4907,6 @@ fn step_relation_reader_refuses_layout_alias_targets_and_premises() {
         .as_array_mut()
         .expect("nodes")
         .push(integer_literal);
-    mint_ungrouped_structural_keys(&mut integer_package);
     settle_step_relation(&mut integer_package);
     let integer_literal = nodes(&integer_package)
         .iter()
@@ -4992,7 +4930,6 @@ fn step_relation_reader_refuses_layout_alias_targets_and_premises() {
         .as_array_mut()
         .expect("nodes")
         .push(integer_expression);
-    mint_ungrouped_structural_keys(&mut integer_package);
     settle_step_relation(&mut integer_package);
     let integer_expression = nodes(&integer_package)
         .iter()
@@ -5142,7 +5079,7 @@ fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
     unbound["semantic_graph"]["nodes"][abstraction]["semantic_type"] = node_id(&new_key);
     rename_node(
         &mut unbound,
-        package["semantic_graph"]["nodes"][abstraction]["node_id"]["digest"]
+        package["semantic_graph"]["nodes"][abstraction]["node_id"]["path"][0]
             .as_str()
             .expect("key"),
         &new_key,
