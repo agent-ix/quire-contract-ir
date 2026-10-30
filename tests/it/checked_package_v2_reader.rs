@@ -708,15 +708,30 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
     }]);
     let evidence = evidence_for(&value);
     let bytes = canonical(&value);
+    // Find this fixture's exact work boundary through the public reader. A
+    // changed semantic body or edge must move both the admitted and one-over
+    // checks together, while still exercising the actual meter.
+    let (mut below, mut minimum_work) = (0_u64, CheckedPackageReadLimits::bounded().work);
+    while below + 1 < minimum_work {
+        let middle = below + (minimum_work - below) / 2;
+        let mut probe = CheckedPackageReadLimits::bounded();
+        probe.work = middle;
+        match CheckedPackageV2::read(&bytes, probe, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(_) => minimum_work = middle,
+            CheckedPackageV2ReadResult::Incomplete(limit) => {
+                assert_eq!(limit.limit_kind, CheckedPackageLimit::Work);
+                below = middle;
+            }
+            other => panic!("work boundary probe failed for another reason: {other:?}"),
+        }
+    }
     let exact = CheckedPackageReadLimits {
         bytes: u64::try_from(bytes.len()).expect("length"),
         nodes: 4,
         edges: 2,
         occurrences: 8,
         diagnostics: 1,
-        // The current nominal fixture consumes 26 units of reader work,
-        // including graph and diagnostic validation.
-        work: 26,
+        work: minimum_work,
     };
     match CheckedPackageV2::read(&bytes, exact, &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => {
