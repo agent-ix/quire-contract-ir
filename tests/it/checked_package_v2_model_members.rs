@@ -1997,7 +1997,7 @@ fn tc_230_dispatch_call_requires_the_selected_checked_unit() {
     }
 }
 
-#[trace("FR-038-AC-150", "FR-038-AC-185", "TC-048")]
+#[trace("FR-038-AC-185", "TC-048")]
 #[test]
 fn tc_048_selected_model_declaration_shape_refuses_at_its_node_before_the_call() {
     let (mut package, evidence) = package_over(&domain_document(json!({})), "total");
@@ -2010,13 +2010,14 @@ fn tc_048_selected_model_declaration_shape_refuses_at_its_node_before_the_call()
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("selected model declaration must refuse: {other:?}"),
     };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
-        refusal.code,
-        CheckedPackageRefusalCode::InvalidSemanticGraph
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{position}/semantic_type"))
+        Some(format!("/semantic_graph/nodes/{position}/node_id"))
     );
     assert_eq!(
         serde_json::to_value(refusal.locus.as_ref().expect("node locus"))
