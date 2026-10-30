@@ -11,9 +11,8 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, family_key, family_model_document,
-    fixture_source, node_id, over_body, rebuild_source_map, refresh_identity, rename_node,
-    select_model, settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families,
-    BOOLEAN_KEY, INTEGER_KEY,
+    fixture_source, node_id, rebuild_source_map, refresh_identity, rename_node, select_model,
+    settle, sha256_hex, source_owner, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
@@ -898,7 +897,7 @@ const INTEGER: &str = INTEGER_KEY;
 
 /// The derived key of the anonymous `Reference<target>` node (FR-038-AC-134).
 fn reference_key(target: &str) -> String {
-    structural_key("composite_type", "reference", None, &over_body(target))
+    format!("fixture/frame/reference/{target}")
 }
 
 fn plain(
@@ -923,26 +922,11 @@ fn plain(
 }
 
 fn self_key() -> &'static str {
-    static KEY: LazyLock<String> = LazyLock::new(|| {
-        let ty = reference_key(object_key());
-        let body = json!({"term": "aggregate", "members": [
-            binding("name", text("self")),
-            binding("level", json!({"term": "literal", "type": node_id(INTEGER),
-                "value_kind": "integer", "value": "0"})),
-        ]});
-        structural_key("value", "parameter", Some(&ty), &body)
-    });
-    &KEY
+    "fixture/frame/self-parameter"
 }
 
 fn anchor_key() -> &'static str {
-    static KEY: LazyLock<String> = LazyLock::new(|| {
-        let package = v2_all_families();
-        let frame = position(&package, "state", "frame");
-        let body = anchor_body(object_key(), text("deposit"), &digest(&package, frame));
-        structural_key("state", "operation_anchor", Some(object_key()), &body)
-    });
-    &KEY
+    "fixture/frame/deposit-anchor"
 }
 
 fn reference(digest: &str) -> Value {
