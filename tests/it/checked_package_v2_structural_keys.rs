@@ -1231,6 +1231,27 @@ fn malformed_group_member_structural_ordinals_refuse_at_the_ordinal() {
     }
 }
 
+#[trace("TC-226", "FR-038-AC-147")]
+#[test]
+fn malformed_nested_semantic_type_ordinal_refuses_at_the_ordinal() {
+    let mut package = v2_all_families();
+    let position = index_of(&package, "scalar_type", "boolean");
+    package["semantic_graph"]["nodes"][position]["semantic_type"]["ordinal"] =
+        json!(9_007_199_254_740_992_u64);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("invalid nested semantic type ordinal must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(refusal.cause, None, "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{position}/semantic_type/ordinal"
+        )),
+        "{refusal:?}"
+    );
+}
+
 #[trace("TC-226", "FR-038-AC-147", "FR-038-AC-150")]
 #[test]
 fn mismatched_cycle_label_refuses_at_the_member() {
