@@ -13,8 +13,44 @@ use quire_contract_model::{
     LoweringProfileRef,
 };
 use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
 
 use crate::support::checked_package::v2_all_families;
+
+/// Resolve a path inside this checkout for the V1 source-scan controls.
+pub(crate) fn repository_path(relative: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
+}
+
+/// Omit test-only items when a source inventory asserts production behavior.
+pub(crate) fn production_source(text: &str) -> String {
+    let mut kept = String::new();
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        if line.trim_start() != "#[cfg(test)]" {
+            kept.push_str(line);
+            kept.push('\n');
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        let closing = format!("{}}}", " ".repeat(indent));
+        let mut first = true;
+        for skipped in lines.by_ref() {
+            let item = skipped.trim_start();
+            if item.starts_with("#[") || item.starts_with("//") {
+                continue;
+            }
+            if first && item.ends_with(';') {
+                break;
+            }
+            first = false;
+            if skipped.starts_with(&closing) {
+                break;
+            }
+        }
+    }
+    kept
+}
 
 fn local_package() -> Value {
     let mut package = v2_all_families();
