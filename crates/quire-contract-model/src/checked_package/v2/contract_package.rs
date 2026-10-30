@@ -1528,12 +1528,7 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
                 "occurrences",
                 "body",
             ],
-            &[
-                "recursion_group",
-                "nominal_identity_preimage",
-                "declaration",
-                "owner",
-            ],
+            &["recursion_group", "declaration", "owner"],
         )?;
         id_shape(member(node, "node_id", &at)?, at.clone().key("node_id"))?;
         id_shape(
@@ -1673,7 +1668,7 @@ fn validate_body_refusal(value: &Value, at: JsonPointer) -> Result<(), Validatio
     }
     if let Some(locus) = object.get("locus") {
         let locus_at = at.clone().key("locus");
-        shape(locus, locus_at.clone(), &["domain", "digest"], &[])?;
+        id_shape(locus, locus_at.clone())?;
         let id: CheckedNodeId = serde_json::from_value(locus.clone())
             .map_err(|_| malformed(locus_at.clone(), CheckedPackageRefusalCause::WrongValueKind))?;
         if !valid_node_id(&id) {
