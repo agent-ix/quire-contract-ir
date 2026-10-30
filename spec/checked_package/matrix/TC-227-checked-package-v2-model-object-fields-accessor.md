@@ -10,11 +10,12 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-136 through FR-038-AC-144 (IR-628): the reader computes, at
+Verify FR-038-AC-136 through FR-038-AC-144 and AC-370 through AC-373: the reader computes, at
 admission and under the `work` limit, each selected object type's effective field
 table and retains it; the admitted `CheckedPackageV2` exports
 `model_object_fields`, which returns a model declaration object type's fields in
-ascending name order, each with the member type FR-322 step 4 derives (`Boolean`,
+the retained declaration order, each with its authentic declaring object node id
+and the member type FR-322 step 4 derives (`Boolean`,
 `Integer`, `IntRange` with `i128` bounds, `Reference`, `Option`, `Collection`) or
 `None` where the tables give none, by the functions admission uses, independent
 of every node body.
@@ -27,8 +28,19 @@ chain, an inherited field, a redefinition with a narrower range and a
 most-derived redefiner; one declaring every kind of AC-138 (the `i128` extremes,
 2^53 + 1 and one past each `i128` extreme); one with an ambiguous
 name, in a package with no read of it and a sibling with a read; one with a 200-type chain and 100
-redefinitions; chains of 4, 8, 1000 and 1500 types with one field each. Build the checked packages in the test, selecting every read's type node by its valid structural id and checking its declared type independently of the reader. Admit each, call `model_object_fields` on the model declaration
-node, and compare the result with the declared values. Call it with an unknown id
+redefinitions; chains of 4, 8, 1000 and 1500 types with one field each.
+Include an object declaring `zeta` then `alpha`, a Base/Mid/Leaf chain, a
+redefiner and a diamond; include their actual model declaration nodes in the
+graph. Build the checked packages in the test, selecting every read's type node by its valid structural id and checking its declared type independently of the reader. Admit each, call `model_object_fields` on the model declaration
+node, and compare the result with the declared values and graph declaration ids.
+Look up `alpha` from the unsorted returned slice. Separately remove Base's
+declaration node while Leaf still inherits `Base.b`; this package admits
+under QSpec FR-322-AC-30, but `model_object_fields(Leaf)` must return the
+named typed `MissingDeclaringNode` for `Base.b`, with no partial result. Add
+Base’s authentic graph node and require success with its ID. Two admitted
+object declaration nodes matching the same selected owner identity but with
+different structural ordinals must return `AmbiguousDeclaringNode` for the
+first exposed field they own, choosing neither. Call the accessor with an unknown id
 and with each admitted non-model-object node of AC-139. Mutate only an unread selected model declaration's closed body while retaining its valid structural id and require admission when its declaration and graph joins remain valid; separately append a declaration with an unselected model owner and assert its owner-join refusal. In a crate-internal test,
 replace a read node's body bounds after admission and compare the result. For
 each returned type, admit a read naming its selected structural type node and a read naming the distinct structural type node for its perturbation (AC-141). Compile the API fixtures of AC-142 (exhaustive matches, a
@@ -48,8 +60,13 @@ items 4 to 9.
 
 ## Expected Results
 
-The fields, order, types and `None` entries equal the declaration; each error is
-the variant AC-139 names; a valid retained model declaration body change admits and updates the selected document value, while the crate-internal post-admission
+The fields, declaration order, declaring node ids, types and `None` entries equal
+the selected declarations and admitted graph; `zeta` precedes `alpha`, and
+Base/Mid/Leaf identities remain distinct. The absent Base and ambiguous owner
+controls return the distinct typed accessor errors with no partial field
+set; no accessor result invents a node id. Unknown and wrong-kind node calls
+return the AC-139 variants, while missing and ambiguous declaring nodes return
+the distinct AC-372 variants; a valid retained model declaration body change admits and updates the selected document value, while the crate-internal post-admission
 body replacement changes nothing; a read naming the selected structural type node admits and its perturbation refuses `ill_typed`; the API
 fixtures compile or fail as stated; the chains admit under a sufficient limit
 and are `incomplete` at the selected-owner charge one below the whole-read
@@ -58,7 +75,10 @@ the call does no resolution.
 
 ## Status
 
-IR-1141 revised structural-id and valid-body-mutation controls are PLANNED/UNRUN. The independent table and accessor controls remain implemented (IR-628) in `tests/it/checked_package_v2_model_fields.rs` (AC-136 to
+IR-1141 revised structural-id and valid-body-mutation controls are PLANNED/UNRUN.
+IR-1164/IR-1165 declaration-order, genuine declaring-node identity and
+typed missing/ambiguous declaring-node controls (AC-370 through AC-373 and the revised
+AC-136/AC-142 portions) are PLANNED/UNRUN. The independent table and accessor controls remain implemented (IR-628) in `tests/it/checked_package_v2_model_fields.rs` (AC-136 to
 AC-139, AC-141 to AC-144 over packages the reader admits, using the earlier content-derived type-node fixture, which must be updated for structural ids) and the unit tests
 of `crates/quire-contract-model/src/checked_package/v2/model_fields.rs` (the
 tables, charges, cycles, read charges, node-body independence) and
@@ -69,5 +89,5 @@ relationship-edge charges are also measured end to end in
 and `checked_package_v2_model_members.rs`: each paired admitted package has a
 one-entry table difference and refuses under one less than its admitting work
 limit. The initial implementation did not run the mutation rows as mutations.
-The branch-dominance, name-order, ambiguity, f64-bound, equality, and stack
+The branch-dominance, former name-order, ambiguity, f64-bound, equality, and stack
 regressions were added in the review fix.
