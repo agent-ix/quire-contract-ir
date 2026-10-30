@@ -108,6 +108,48 @@ fn public_constructors_round_trip_all_four_nominal_forms_through_reader() {
     );
 }
 
+/// Trace: FR-038-AC-343, FR-038-AC-365, TC-048.
+#[trace("FR-038-AC-343", "FR-038-AC-365", "TC-048")]
+#[test]
+fn nominal_semantic_refusals_visit_structural_ids_before_graph_positions() {
+    let mut members = nominal_fixture_members();
+    let unit = members
+        .iter()
+        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+        .expect("root unit")
+        .clone();
+    let mut earlier = unit.0;
+    earlier["qualified_declaration"] = json!(["Example", "Acre"]);
+    earlier["scale"]["numerator"] = json!("3");
+    members.push((earlier, "qualified:Example/Acre".to_owned()));
+    let original = members
+        .iter_mut()
+        .find(|(_, key)| key == "qualified:Example/Metre")
+        .expect("original root unit");
+    original.0["scale"]["numerator"] = json!("2");
+
+    let package = nominal_package(&members);
+    let earlier_position = members.len() - 1;
+    let result = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package),
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("two invalid root units must refuse: {result:?}");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{earlier_position}/body/scale"
+        )),
+    );
+}
+
 #[trace("TC-048", "TC-058", "FR-038-AC-375")]
 #[test]
 fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
