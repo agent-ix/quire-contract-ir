@@ -24,8 +24,8 @@
 
 use super::{
     CheckedDeclaration, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner,
-    CheckedNodeProjectionV2, CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2,
-    CheckedSemanticGraphV2, CheckedSemanticNodeV2, NominalIdentityPreimage,
+    CheckedNodeProjectionV2, CheckedSemanticGraphV2, CheckedSemanticNodeV2,
+    NominalIdentityPreimage,
 };
 use crate::checked_package::shared::CheckedNodeId;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
@@ -270,65 +270,7 @@ where
     body.encode_into(writer)
 }
 
-impl Encode for CheckedPackageIdentityPreimageV2 {
-    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        writer.begin_object()?;
-        member(writer, "version", &self.version)?;
-        member(writer, "edition", &self.edition)?;
-        member(writer, "profile_selections", &self.profile_selections)?;
-        member(writer, "definition_selections", &self.definition_selections)?;
-        member(writer, "required_features", &self.required_features)?;
-        member(writer, "dependency_selections", &self.dependency_selections)?;
-        writer.end_object()
-    }
-}
-
-/// The six wire selections; graph nodes are only encoded under semantic_graph.
-#[derive(serde::Serialize, FixedShape)]
-pub(super) struct SelectionFields<'a> {
-    version: &'a str,
-    edition: &'a crate::checked_package::shared::CheckedSelection,
-    profile_selections: &'a [crate::checked_package::shared::CheckedSelection],
-    definition_selections: &'a [crate::checked_package::shared::CheckedArtifactRef],
-    required_features: &'a [Box<str>],
-    dependency_selections: &'a [super::CheckedDependencySelection],
-}
-
-impl<'a, Body> From<&CheckedPackageIdentityPreimageRefV2<'a, Body>> for SelectionFields<'a> {
-    fn from(value: &CheckedPackageIdentityPreimageRefV2<'a, Body>) -> Self {
-        Self {
-            version: value.version,
-            edition: value.edition,
-            profile_selections: value.profile_selections,
-            definition_selections: value.definition_selections,
-            required_features: value.required_features,
-            dependency_selections: value.dependency_selections,
-        }
-    }
-}
-
-impl<Body: Encode> Encode for CheckedPackageIdentityPreimageRefV2<'_, Body> {
-    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        writer.begin_object()?;
-        writer.name("version")?;
-        writer.string(self.version)?;
-        member(writer, "edition", self.edition)?;
-        member(writer, "profile_selections", self.profile_selections)?;
-        member(writer, "definition_selections", self.definition_selections)?;
-        member(writer, "required_features", self.required_features)?;
-        member(writer, "dependency_selections", self.dependency_selections)?;
-        writer.name("identity_projection")?;
-        writer.begin_array()?;
-        for node in self.identity_projection {
-            ProjectionFields::from_node(node).encode_into(writer)?;
-        }
-        writer.end_array()?;
-        writer.end_object()
-    }
-}
-
-/// The fields common to the retained reader projection and the producer's
-/// borrowed graph-node projection. Source occurrences are intentionally absent.
+/// The fields of one retained graph-node view used by lowering.
 struct ProjectionFields<'a, Body> {
     node_id: &'a CheckedNodeId,
     schema_version: &'a str,
@@ -346,23 +288,6 @@ struct ProjectionFields<'a, Body> {
 
 impl<'a, Body> ProjectionFields<'a, Body> {
     fn from_owned(node: &'a CheckedNodeProjectionV2<Body>) -> Self {
-        Self {
-            node_id: &node.node_id,
-            schema_version: &node.schema_version,
-            node_tag: &node.node_tag,
-            semantic_form: &node.semantic_form,
-            semantic_type: &node.semantic_type,
-            dependencies: &node.dependencies,
-            recursion_group: node.recursion_group.as_deref(),
-            nominal_identity_preimage: node.nominal_identity_preimage.as_ref(),
-            declaration: node.declaration.as_ref(),
-            owner: node.owner.as_ref(),
-            owner_model: node.owner_model.as_ref(),
-            body: &node.body,
-        }
-    }
-
-    fn from_node(node: &'a CheckedSemanticNodeV2<Body>) -> Self {
         Self {
             node_id: &node.node_id,
             schema_version: &node.schema_version,
