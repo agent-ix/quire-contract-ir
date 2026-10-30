@@ -206,8 +206,9 @@ value. The former group-position and group-reference-ordinal controls are
 withdrawn in place because the checked wire has no such carrier. Read QSpec FR-322-AC-274's four positive
 group fixtures directly from the selected checkout: `positive-recursive-records`,
 `positive-two-owners-a`, `positive-two-owners-b` and
-`positive-integer-literal-references`. Assert every member, including an
-anonymous derived member, uses its group's declaration path and retains its
+`positive-integer-literal-references`. Each fixture group has a declared
+member: assert every member, including an anonymous derived member, shares
+that member's declaration path and retains its
 producer-assigned structural ordinal; assert admission without deriving that
 ordinal from graph position. Read QSpec XP-04
 directly from its selected checkout: its second equivalence node's ordinal
