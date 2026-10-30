@@ -1394,8 +1394,9 @@ pub(super) trait NominalEnumOrder {
 
 impl NominalEnumOrder for serde_json::Value {
     fn enum_ordered(&self) -> Option<bool> {
-        match super::identity::NominalBody::from_value(self, JsonPointer::root()).ok()? {
-            super::identity::NominalBody::Enum { ordered, .. } => Some(ordered),
+        let body = super::identity::NominalBody::from_value(self, JsonPointer::root()).ok()?;
+        match body.kind() {
+            super::identity::NominalBodyKind::Enum { ordered, .. } => Some(*ordered),
             _ => None,
         }
     }
@@ -1404,8 +1405,8 @@ impl NominalEnumOrder for serde_json::Value {
 impl NominalEnumOrder for CheckedTerm {
     fn enum_ordered(&self) -> Option<bool> {
         match self {
-            CheckedTerm::NominalBody(body) => match body.as_ref() {
-                super::identity::NominalBody::Enum { ordered, .. } => Some(*ordered),
+            CheckedTerm::NominalBody(body) => match body.kind() {
+                super::identity::NominalBodyKind::Enum { ordered, .. } => Some(*ordered),
                 _ => None,
             },
             _ => None,

@@ -1857,13 +1857,16 @@ pub(super) fn validate_models<'a>(
                     binding_at(source, 1),
                     |kind| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
                 )?;
-                let is_base_time = matches!(
-                    super::identity::NominalBody::from_value(
-                        &nodes[dimension].body,
-                        node_pointer(dimension).key("body"),
-                    ),
-                    Ok(super::identity::NominalBody::Dimension { terms }) if terms.is_empty()
-                ) && nodes[dimension]
+                let is_base_time = super::identity::NominalBody::from_value(
+                    &nodes[dimension].body,
+                    node_pointer(dimension).key("body"),
+                )
+                .is_ok_and(|body| {
+                    matches!(
+                        body.kind(),
+                        super::identity::NominalBodyKind::Dimension { terms } if terms.is_empty()
+                    )
+                }) && nodes[dimension]
                     .declaration
                     .as_ref()
                     .and_then(|declaration| declaration.qualified_name.last())
