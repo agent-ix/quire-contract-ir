@@ -2611,7 +2611,7 @@ impl CatalogSignatures<'_, '_> {
     ) -> Option<super::model_fields::RecordBinderTypes> {
         match self {
             Self::Local(owners) => {
-                let owner = owners.record_by_key(&key.digest)?;
+                let owner = owners.record_by_key(key)?;
                 owner.package.record_binder_types(owner.node)
             }
             Self::External(models) => models.record_binder_types(key),
@@ -2620,7 +2620,7 @@ impl CatalogSignatures<'_, '_> {
 
     fn is_record(&self, key: &CheckedNodeId) -> bool {
         match self {
-            Self::Local(owners) => owners.record_by_key(&key.digest).is_some(),
+            Self::Local(owners) => owners.record_by_key(key).is_some(),
             Self::External(models) => models.is_record_type(key),
         }
     }
