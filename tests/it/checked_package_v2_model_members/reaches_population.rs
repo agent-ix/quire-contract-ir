@@ -482,7 +482,30 @@ fn tc_048_a_population_that_is_not_a_population_with_a_type_occurrence_is_refuse
     // `max` and an object type, and is not a population.
     let mut scenario = Scenario::standard();
     let reference = scenario.reference_of(ORDER);
-    let bounds = bounded_collection(scenario.nodes(), &reference, "set", 0, 3);
+    let set = set_handle(&reference);
+    scenario.nodes().push(derived_node(
+        &set,
+        "composite_type",
+        "set",
+        &set,
+        &[&reference],
+        over_id(&reference),
+    ));
+    let bounds = handle(&json!({"package": FIXTURE_PACKAGE,
+        "path": ["bounded_domain", "collection_bounds", fixture_id(&set), "0", "3"],
+        "ordinal": 0}));
+    let bound = |name: &str, value: &str| {
+        json!({"term": "binding", "name": name,
+        "value": literal(&INTEGER, "integer", value)})
+    };
+    scenario.nodes().push(derived_node(
+        &bounds,
+        "bounded_domain",
+        "collection_bounds",
+        &set,
+        &[&set],
+        json!({"term": "aggregate", "members": [bound("min", "0"), bound("max", "3")]}),
+    ));
     scenario.link(Some(fixture_id(&bounds)), Some(&bounds));
     let refusal = refused(&scenario.package, &scenario.evidence);
     assert_eq!(
