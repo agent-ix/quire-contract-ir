@@ -4427,7 +4427,7 @@ mod tests {
         role: &str,
         receiver_type: &str,
         operation_identity: &str,
-        result_key: &str,
+        result_key: &CheckedNodeId,
     ) -> Option<(
         CheckedPackageRefusalCode,
         CheckedPackageRefusalCause,
@@ -4449,7 +4449,7 @@ mod tests {
         role: &str,
         receiver_type: &str,
         operation_identity: &str,
-        result_key: &str,
+        result_key: &CheckedNodeId,
         configure: impl FnOnce(&mut Vec<CheckedSemanticNodeV2>, &mut Vec<CheckedNodeKind>, &mut Value),
     ) -> (
         Option<(
@@ -4460,12 +4460,11 @@ mod tests {
         u64,
     ) {
         use crate::checked_package::v2::model_members::{
-            declaration_key, tests as model_tests, DeclarationForm, MemberType,
+            declaration_id, tests as model_tests, DeclarationForm, MemberType,
         };
         let model = model_tests::read(&model_tests::relationship_document(vec![relation]))
             .expect("selected document admits");
         let mut meter = WorkMeter::new(100_000);
-        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
         let identity = "acme/orders";
         let widget = "ix://acme/orders/Widget";
         let gadget = "ix://acme/orders/Gadget";
@@ -4476,7 +4475,7 @@ mod tests {
             } else {
                 DeclarationForm::ObjectType
             };
-            declaration_key(identity, form, name, model_tests::BYTES).expect("declaration key")
+            declaration_id(identity, form, name)
         });
         let [widget_key, gadget_key, relationship_key] = &keys;
         let receiver_key = if receiver_type == widget {
@@ -4484,10 +4483,10 @@ mod tests {
         } else {
             gadget_key
         };
-        let reference_key = MemberType::Reference(receiver_key.as_str().into())
-            .node_key(model_tests::BYTES)
-            .expect("reference key");
-        let id = |digest: &str| json!({"domain": NODE_DOMAIN, "digest": digest});
+        let reference_key = MemberType::Reference(receiver_key.clone())
+            .node_id("checked")
+            .expect("reference ID");
+        let id = |node: &CheckedNodeId| json!(node);
         let mut operation = plain_operation(operation_identity);
         operation["member"] = json!({
             "kind": "relationship_end", "declaration": id(relationship_key), "name": role,
@@ -4500,16 +4499,16 @@ mod tests {
         let mut application = custom_application_node(
             operator,
             operation.clone(),
-            vec![json!({"term": "reference", "target": id(&dummy_digest('r'))})],
+            vec![json!({"term": "reference", "target": id(&node_id('r'))})],
         );
         if operation_identity == "quire.op.model.reaches" {
             application.body["arguments"]
                 .as_array_mut()
                 .expect("arguments")
-                .push(json!({"term": "reference", "target": id(&dummy_digest('r'))}));
+                .push(json!({"term": "reference", "target": id(&node_id('r'))}));
         }
         application.body["result_type"] = id(result_key);
-        let object = |key: &str, name: &str| {
+        let object = |key: &CheckedNodeId, name: &str| {
             let mut node = graph_node(
                 'o',
                 "model",
@@ -4517,7 +4516,7 @@ mod tests {
                 &node_id('o'),
                 json!({"term": "aggregate", "members": []}),
             );
-            node.node_id.digest = key.into();
+            node.node_id = key.clone();
             node.semantic_type = node.node_id.clone();
             node.owner = Some(
                 serde_json::from_value(json!({
@@ -4534,7 +4533,7 @@ mod tests {
             &node_id('l'),
             json!({"term": "aggregate", "members": []}),
         );
-        relation_node.node_id.digest = relationship_key.as_str().into();
+        relation_node.node_id = relationship_key.clone();
         relation_node.semantic_type = relation_node.node_id.clone();
         relation_node.owner = Some(
             serde_json::from_value(json!({
@@ -4549,7 +4548,7 @@ mod tests {
             &node_id('e'),
             json!({"term": "aggregate", "members": [{"term": "reference", "target": id(receiver_key)}]}),
         );
-        reference_node.node_id.digest = reference_key.into();
+        reference_node.node_id = reference_key;
         reference_node.semantic_type = reference_node.node_id.clone();
         let mut parameter = graph_node(
             'r',
@@ -4558,7 +4557,7 @@ mod tests {
             &reference_node.node_id,
             json!({"term": "aggregate", "members": []}),
         );
-        parameter.node_id.digest = dummy_digest('r').into();
+        parameter.node_id = node_id('r');
         let mut nodes = vec![
             application,
             object(widget_key, widget),
@@ -4575,6 +4574,8 @@ mod tests {
             .enumerate()
             .map(|(at, node)| (&node.node_id, at))
             .collect();
+        let owners =
+            ModelOwners::new(std::slice::from_ref(&model), &nodes, |_| Ok(())).expect("owners");
         let terms = decoded_terms(&nodes);
         let graph = Graph {
             nodes: &nodes,
@@ -4615,9 +4616,7 @@ mod tests {
         use crate::checked_package::v2::{BoundedDomainForm, CompositeTypeForm};
         let mut relation = model_tests::relationship();
         relation["targetEnd"]["type"] = json!("ix://acme/orders/Widget");
-        let boolean = MemberType::Boolean
-            .node_key(model_tests::BYTES)
-            .expect("boolean key");
+        let boolean = MemberType::Boolean.node_id("checked").expect("boolean key");
         let run = |raw_population: bool, typed_population: bool| {
             relationship_member_outcome_with_graph(
                 relation.clone(),
@@ -4700,29 +4699,25 @@ mod tests {
     #[test]
     fn tc_048_relationship_end_binding_resolves_roles_before_navigation_and_reachability() {
         use crate::checked_package::v2::model_members::{
-            declaration_key, tests::relationship, DeclarationForm, MemberType,
+            declaration_id, tests::relationship, DeclarationForm, MemberType,
         };
-        let widget = declaration_key(
+        let widget = declaration_id(
             "acme/orders",
             DeclarationForm::ObjectType,
             "ix://acme/orders/Widget",
-            1 << 20,
-        )
-        .expect("widget key");
-        let gadget = declaration_key(
+        );
+        let gadget = declaration_id(
             "acme/orders",
             DeclarationForm::ObjectType,
             "ix://acme/orders/Gadget",
-            1 << 20,
-        )
-        .expect("gadget key");
-        let reference = MemberType::Reference(gadget.into())
-            .node_key(1 << 20)
+        );
+        let reference = MemberType::Reference(gadget)
+            .node_id("checked")
             .expect("reference");
-        let option = MemberType::Option(Box::new(MemberType::Reference(widget.clone().into())))
-            .node_key(1 << 20)
+        let option = MemberType::Option(Box::new(MemberType::Reference(widget.clone())))
+            .node_id("checked")
             .expect("option");
-        let boolean = MemberType::Boolean.node_key(1 << 20).expect("boolean");
+        let boolean = MemberType::Boolean.node_id("checked").expect("boolean");
         let navigate = "quire.op.model.navigate";
         assert_eq!(
             relationship_member_outcome(
@@ -4750,7 +4745,7 @@ mod tests {
                 "absent",
                 "ix://acme/orders/Gadget",
                 navigate,
-                "wrong"
+                &node_id('w')
             ),
             Some((
                 CheckedPackageRefusalCode::MissingDeclaration,
@@ -4778,7 +4773,7 @@ mod tests {
                 "links",
                 "ix://acme/orders/Widget",
                 navigate,
-                "wrong"
+                &node_id('w')
             ),
             Some((
                 CheckedPackageRefusalCode::IllTyped,
@@ -4841,7 +4836,7 @@ mod tests {
                 "links",
                 "ix://acme/orders/Widget",
                 "quire.op.model.reaches",
-                "wrong"
+                &node_id('w')
             ),
             Some((
                 CheckedPackageRefusalCode::IllTyped,
@@ -4896,8 +4891,11 @@ mod tests {
 
     fn node_id(byte: char) -> CheckedNodeId {
         CheckedNodeId {
-            domain: Box::from(NODE_DOMAIN),
-            digest: Box::from(dummy_digest(byte).as_str()),
+            package: "checked".into(),
+            path: vec![super::super::CheckedNodePathSegment::Name(
+                byte.to_string().into(),
+            )],
+            ordinal: 0,
         }
     }
 
@@ -5025,14 +5023,11 @@ mod tests {
     ) -> CheckedSemanticNodeV2 {
         let body = admitted_fixture_term(body, semantic_type);
         let value = json!({
-            "node_id": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
+            "node_id": node_id(id_byte),
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": node_tag,
             "semantic_form": semantic_form,
-            "semantic_type": {
-                "domain": semantic_type.domain.as_ref(),
-                "digest": semantic_type.digest.as_ref(),
-            },
+            "semantic_type": semantic_type,
             "dependencies": [],
             "occurrences": [],
             "body": body,
@@ -5416,12 +5411,12 @@ mod tests {
     #[test]
     fn selected_model_union_float_payloads_have_scalar_node_keys() {
         use crate::checked_package::v2::model_members::{
-            declaration_key, tests as model_tests, DeclarationForm, MemberType,
+            declaration_id, tests as model_tests, DeclarationForm, MemberType,
         };
         use std::sync::Arc;
         const VARIANT: &str = "ix://acme/orders/Measurements";
         const UNIT: &str = "ix://quire/unit/acme/orders/ms";
-        let unit_key = "ab".repeat(32);
+        let unit_key = node_id('u');
         let variant = json!({
             "identity": VARIANT,
             "kind": {"module": "acme/orders", "name": "variant"},
@@ -5440,21 +5435,30 @@ mod tests {
             .expect("constructs")
             .push(json!({"kind":{"module":"acme/orders","name":"variant"},
                 "construct":{"meaning":"quire.meaning.model.variant-type/v1"}}));
-        let unit_refs = Arc::new(BTreeMap::from([(UNIT.into(), unit_key.clone().into())]));
+        let unit_refs = Arc::new(BTreeMap::from([(UNIT.into(), unit_key.clone())]));
         let model = model_tests::read_with_unit_refs(&selected, &unit_refs)
             .expect("float and resolved unit payloads admit at model intake");
-        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
-        let key = declaration_key(
-            "acme/orders",
-            DeclarationForm::VariantType,
-            VARIANT,
-            model_tests::BYTES,
+        let type_id = declaration_id("acme/orders", DeclarationForm::VariantType, VARIANT);
+        let mut variant_node = graph_node(
+            'v',
+            "model",
+            "variant_type",
+            &type_id,
+            json!({"term":"aggregate","members":[]}),
+        );
+        variant_node.node_id = type_id.clone();
+        variant_node.owner = Some(
+            serde_json::from_value(json!({
+                "kind":"model","identity":"acme/orders","node":VARIANT,
+            }))
+            .expect("model owner"),
+        );
+        let owners = ModelOwners::new(
+            std::slice::from_ref(&model),
+            std::slice::from_ref(&variant_node),
+            |_| Ok(()),
         )
-        .expect("variant key");
-        let type_id = CheckedNodeId {
-            domain: NODE_DOMAIN.into(),
-            digest: key.into(),
-        };
+        .expect("owners");
         let members =
             super::selected_union_members(&type_id, &owners, &mut WorkMeter::new(100_000))
                 .expect("bounded member resolution")
@@ -5462,15 +5466,15 @@ mod tests {
         assert_eq!(members.len(), 3);
         for (member, name, member_type) in [
             (&members[0], "A64", MemberType::Float64),
-            (&members[1], "MUnit", MemberType::Quantity(unit_key.into())),
+            (&members[1], "MUnit", MemberType::Quantity(unit_key.clone())),
             (&members[2], "Z32", MemberType::Float32),
         ] {
             assert_eq!(member.name, name);
             assert_eq!(member.payload.len(), 1);
             let expected = member_type
-                .node_key(model_tests::BYTES)
-                .expect("native scalar key");
-            assert_eq!(member.payload[0].digest.as_ref(), expected.as_str());
+                .node_id("checked")
+                .expect("structural payload ID");
+            assert_eq!(member.payload[0], expected);
         }
     }
 
@@ -5991,10 +5995,7 @@ mod tests {
         let mut operation = plain_operation(RECORD_PROJECT_IDENTITY);
         operation["member"] = json!({
             "kind": "field",
-            "declaration": {
-                "domain": record_type.domain.as_ref(),
-                "digest": record_type.digest.as_ref(),
-            },
+            "declaration": record_type,
             "name": "missing_field",
         });
         let root = custom_application_node(
@@ -9710,8 +9711,9 @@ mod tests {
                 };
                 assert_eq!(refusal.cause, Some(cause), "{id}");
                 assert!(
-                    refusal
+                    refusal.loci[0]
                         .path
+                        .clone()
                         .expect("refusal locus")
                         .to_string()
                         .ends_with(case["locus_suffix"].as_str().expect("published locus")),
