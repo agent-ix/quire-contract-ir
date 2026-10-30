@@ -161,26 +161,24 @@ impl Defect {
 }
 
 /// The node key held in `object[key]` of the entry at `at`. A value that is
-/// not a node key at all is an entry of the wrong shape; a node key outside
-/// the reader's structural node-identity domain is refused at the key itself,
-/// as every other node reference the reader reads (FR-038 "Frame bodies").
+/// not a node key object at all is an entry of the wrong shape; a malformed
+/// structural node key is refused at the key itself, as every other node
+/// reference the reader reads (FR-038 "Frame bodies").
 #[ix_trace_rs::string_edge]
 fn node_key(
     object: &Map<String, Value>,
     key: &str,
     at: &JsonPointer,
 ) -> Result<CheckedNodeId, Defect> {
-    let id = object
-        .get(key)
-        .and_then(CheckedNodeId::from_value)
-        .ok_or_else(|| Defect::invalid(at))?;
-    if id.is_well_formed() {
-        Ok(id)
-    } else {
-        Err(Defect {
+    let Some(value @ Value::Object(_)) = object.get(key) else {
+        return Err(Defect::invalid(at));
+    };
+    match CheckedNodeId::from_value(value) {
+        Some(id) if id.is_well_formed() => Ok(id),
+        _ => Err(Defect {
             code: CheckedPackageRefusalCode::MalformedWire,
             path: at.clone().key(key),
-        })
+        }),
     }
 }
 
