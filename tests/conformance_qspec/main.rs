@@ -33,6 +33,7 @@ use quire_contract_model::{
     CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 mod dependency_call;
@@ -84,42 +85,139 @@ const POSITIVE_ALL: [&str; 19] = [
 /// The selected domain document in the proposal.
 const DOMAIN_DOCUMENT: &str = "domain-package-acme-orders.json";
 
-/// QSpec's vector files select these different documents for their positive fixtures.
-fn positive_document(name: &str) -> &'static str {
-    match name {
-        "positive-model-tuple-union.json" => "domain-package-acme-shapes.json",
-        "positive-timed-clause-nodes.json" => "domain-package-acme-timed-clauses.json",
-        "positive-tick-timed-model-nodes.json"
-        | "positive-timed-model-nodes.json"
-        | "positive-timed-slot-nodes.json" => "domain-package-acme-timed-slots.json",
-        _ => DOMAIN_DOCUMENT,
+/// These published vectors require their own `selected_document` member.
+const SELECTED_DOCUMENT_VECTORS: [&str; 3] = [
+    "model-tuple-union-vectors.json",
+    "timed-clause-node-vectors.json",
+    "timed-slot-selector-vectors.json",
+];
+
+/// Read a vector's authoritative document and the complete positive fixtures it names.
+fn selected_document_assignments(
+    vector: &Value,
+    vector_name: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let document = vector
+        .get("selected_document")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{vector_name}: selected_document is missing or not a string"))?;
+    if !document.starts_with("domain-package-")
+        || !document.ends_with(".json")
+        || document.contains('/')
+        || document.contains('\\')
+    {
+        return Err(format!(
+            "{vector_name}: invalid selected_document {document:?}"
+        ));
     }
+    let mut fixtures = BTreeSet::new();
+    let mut pending = vec![vector];
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::Array(values) => pending.extend(values),
+            Value::Object(members) => pending.extend(members.values()),
+            Value::String(path)
+                if path.starts_with("fixtures/positive-") && path.ends_with(".json") =>
+            {
+                let name = path
+                    .strip_prefix("fixtures/")
+                    .expect("checked fixture prefix");
+                if name.contains('/') || name.contains('\\') {
+                    return Err(format!("{vector_name}: invalid positive fixture {path:?}"));
+                }
+                fixtures.insert(name.to_owned());
+            }
+            _ => {}
+        }
+    }
+    if fixtures.is_empty() {
+        return Err(format!(
+            "{vector_name}: selected_document names no positive fixture"
+        ));
+    }
+    Ok(fixtures
+        .into_iter()
+        .map(|name| (name, document.to_owned()))
+        .collect())
+}
+
+/// Discover every vector-selected document; a declared selection cannot fall back.
+fn vector_selected_documents(proposal: &Path) -> Result<BTreeMap<String, String>, String> {
+    let mut vectors = Vec::new();
+    for entry in
+        std::fs::read_dir(proposal).map_err(|error| format!("{}: {error}", proposal.display()))?
+    {
+        let entry = entry.map_err(|error| format!("{}: {error}", proposal.display()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.ends_with("-vectors.json") {
+            vectors.push((name, entry.path()));
+        }
+    }
+    vectors.sort_by(|left, right| left.0.cmp(&right.0));
+    for required in SELECTED_DOCUMENT_VECTORS {
+        if !vectors.iter().any(|(name, _)| name == required) {
+            return Err(format!("{required}: required QSpec vector is missing"));
+        }
+    }
+    let mut documents = BTreeMap::new();
+    for (name, path) in vectors {
+        let vector = read_json(&path)?;
+        if vector.get("selected_document").is_none()
+            && !SELECTED_DOCUMENT_VECTORS.contains(&name.as_str())
+        {
+            continue;
+        }
+        for (fixture, document) in selected_document_assignments(&vector, &name)? {
+            if !POSITIVE_ALL.contains(&fixture.as_str()) {
+                return Err(format!("{name}: unlisted positive fixture {fixture}"));
+            }
+            read_json(&proposal.join(&document))?;
+            if let Some(previous) = documents.insert(fixture.clone(), document.clone()) {
+                if previous != document {
+                    return Err(format!(
+                        "{fixture}: conflicting selected_document {previous:?} and {document:?}"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(documents)
+}
+
+/// Ordinary positives use QSpec's baseline Orders document. Missing or invalid
+/// vector selections fail in `vector_selected_documents` before this lookup.
+fn positive_document<'a>(name: &str, documents: &'a BTreeMap<String, String>) -> &'a str {
+    documents
+        .get(name)
+        .map(String::as_str)
+        .unwrap_or(DOMAIN_DOCUMENT)
 }
 
 #[trace("TC-048", "FR-038-AC-107")]
 #[test]
 fn tc_048_positive_document_selection_follows_qspec_vectors() {
     let proposal = proposal_dir_of(&fixtures_dir());
-    for (vector, fixture_member) in [
-        ("model-tuple-union-vectors.json", "base"),
-        ("timed-clause-node-vectors.json", "fixture"),
-        ("timed-slot-selector-vectors.json", "fixture"),
-        ("timed-slot-selector-vectors.json", "selected_package"),
-    ] {
-        let published = read_json(&proposal.join(vector)).expect("published vector");
-        let fixture = published[fixture_member]
-            .as_str()
-            .expect("published fixture")
-            .strip_prefix("fixtures/")
-            .expect("fixture path");
-        assert_eq!(
-            positive_document(fixture),
-            published["selected_document"]
-                .as_str()
-                .expect("selected document"),
-            "{vector}: {fixture}",
-        );
-    }
+    vector_selected_documents(&proposal).expect("published document selections");
+    let sample = json!({
+        "selected_document": "domain-package-sample.json",
+        "fixture": "fixtures/positive-sample.json"
+    });
+    assert_eq!(
+        selected_document_assignments(&sample, "sample-vectors.json").expect("sample selection"),
+        vec![(
+            "positive-sample.json".to_owned(),
+            "domain-package-sample.json".to_owned()
+        )]
+    );
+    let mut missing = sample.clone();
+    missing
+        .as_object_mut()
+        .expect("sample object")
+        .remove("selected_document");
+    assert!(selected_document_assignments(&missing, "sample-vectors.json").is_err());
+    let mut invalid = sample;
+    invalid["selected_document"] = json!("../other.json");
+    assert!(selected_document_assignments(&invalid, "sample-vectors.json").is_err());
 }
 
 /// QSpec's recursive records, including the owner-free derived nodes in each group.
@@ -520,7 +618,7 @@ fn typed_node_id(value: &Value) -> CheckedNodeId {
 }
 
 fn sort_node_ids(ids: &mut [Value]) {
-    ids.sort_by(|left, right| typed_node_id(left).cmp(&typed_node_id(right)));
+    ids.sort_by_key(typed_node_id);
 }
 
 /// The mutation list `name` of `adverse`, non-empty, or why it is not.
@@ -612,8 +710,10 @@ fn adverse_problems(base: &Value, adverse: &Value, expected: &[ExpectedFailure])
 #[test]
 fn tc_048_qspec_positive_fixtures_admit() {
     let dir = fixtures_dir();
+    let proposal = proposal_dir_of(&dir);
+    let documents = vector_selected_documents(&proposal).expect("published document selections");
     for name in POSITIVE_ALL {
-        let document = proposal_dir_of(&dir).join(positive_document(name));
+        let document = proposal.join(positive_document(name, &documents));
         let (package, admitted) =
             read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
         let _ = (&package, &admitted);
@@ -758,9 +858,11 @@ fn read_positive_package(
 #[test]
 fn tc_048_qspec_all_positive_packages_and_owner_identities() {
     let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let documents = vector_selected_documents(&proposal).expect("published document selections");
     let mut owners = std::collections::BTreeMap::new();
     for name in POSITIVE_ALL {
-        let document = proposal_dir_of(&fixtures).join(positive_document(name));
+        let document = proposal.join(positive_document(name, &documents));
         let (wire, admitted) =
             read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{why}"));
         let nodes = wire["semantic_graph"]["nodes"]
