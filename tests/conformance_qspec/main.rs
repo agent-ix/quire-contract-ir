@@ -38,13 +38,14 @@ use std::path::{Path, PathBuf};
 mod dependency_call;
 mod dimension_equivalence;
 mod extension;
-mod grouped_ordinal;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;
+mod grouped_ordinal;
 mod hybrid;
 mod model_root;
 mod model_tuple_union;
 mod node_ordinal;
+mod protocol_vectors;
 mod reaches_population;
 mod selection_vectors;
 mod single_body;
