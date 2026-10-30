@@ -217,15 +217,12 @@ fn protocol_reference_joins_only_the_local_typed_protocol_target() {
     let mut selected_only = base.clone();
     retarget(&mut selected_only, position, &selected_target);
     selected_only["lock"]["dependency_selections"] = json!([{
-        "identity": "quire.fixture.selected-protocol/v1",
+        "identity": dependency_name,
     }]);
     refresh_identity(&mut selected_only);
     assert_eq!(dependency_name, dependency_document["name"]);
     expect_refusal(
-        read_with_dependencies(
-            &selected_only,
-            &[("quire.fixture.selected-protocol/v1", &admitted)],
-        ),
+        read_with_dependencies(&selected_only, &[(dependency_name.as_str(), &admitted)]),
         CheckedPackageRefusalCode::MissingDeclaration,
         Some(CheckedPackageRefusalCause::MissingName),
         &at,
