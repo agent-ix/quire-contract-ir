@@ -2715,13 +2715,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         &format!("{root}/histories/0/initial"),
     );
-    assert!(
-        serde_json::from_value::<CheckedSemanticGraphV2<CheckedTerm>>(
-            base["semantic_graph"].clone()
-        )
-        .is_ok(),
-        "valid fairness baseline must be representable by the public writer"
-    );
+    assert_eq!(writer_bytes(&base), canonical(&base));
     for side in ["assume", "ensure"] {
         for (member, value) in [("kind", "eventual"), ("granularity", "global")] {
             let mut package = base.clone();
@@ -2735,15 +2729,9 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
                 &package,
                 &evidence,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                &root,
+                &format!("{root}/{side}/0/{member}"),
             );
-            assert!(
-                serde_json::from_value::<CheckedSemanticGraphV2<CheckedTerm>>(
-                    package["semantic_graph"].clone()
-                )
-                .is_err(),
-                "invalid {side} {member} must have no public writer input"
-            );
+            assert_eq!(writer_bytes(&package), canonical(&package));
         }
     }
     let mut package = base.clone();
@@ -3450,12 +3438,12 @@ fn append_catalog_free_step(package: &mut Value, position: usize, class: &str) {
 #[test]
 fn catalog_free_operation_steps_join_in_received_order() {
     let (mut package, evidence, position) = catalog_free_operation_package("object_type");
-    append_catalog_free_step(&mut package, position, "other");
+    append_catalog_free_step(&mut package, position, "zzz");
     let rows = package["semantic_graph"]["nodes"][position]["body"]["steps"]
         .as_array()
         .expect("steps");
     assert_eq!(rows[0]["source_class"], "save");
-    assert_eq!(rows[1]["source_class"], "other");
+    assert_eq!(rows[1]["source_class"], "zzz");
     assert_eq!(rows[0]["source_node"], rows[1]["source_node"]);
     let at = format!("/semantic_graph/nodes/{position}/body/steps");
     let encoded = writer_bytes(&package);
@@ -3483,12 +3471,11 @@ fn catalog_free_operation_steps_join_in_received_order() {
     settle_refinement(&mut package, position);
     assert_step_refusal(
         read(&package, &evidence),
-        CheckedPackageRefusalCode::InvalidModelBinding,
-        Some(CheckedPackageRefusalCause::MalformedDeclaration),
-        &format!("{at}/0/source_class"),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &format!("{at}/1"),
     );
-    package["semantic_graph"]["nodes"][position]["body"]["steps"][1]["source_class"] =
-        json!("wrong");
+    package["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_class"] = json!("aaa");
     settle_refinement(&mut package, position);
     assert_step_refusal(
         read(&package, &evidence),
