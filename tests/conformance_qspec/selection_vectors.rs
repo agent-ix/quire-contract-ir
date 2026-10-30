@@ -399,13 +399,39 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
         CompleteLoweringRecordV2::InvalidInput { node_id: absent }
     );
 
-    // The scalar root costs one node, one aggregate body term and one self edge.
-    // Adding request, requirement and first candidate charges gives 6.
     let (matching_source, admitted, _) = selected_nominal(vec![t.clone()]);
     let matching_request =
         serde_json::from_value(matching_source["semantic_graph"]["nodes"][1]["node_id"].clone())
             .expect("self-typed declaration key");
-    let exact = with_requirements(std::slice::from_ref(&t), 6);
+    let admits_at = |limit| {
+        matches!(
+            admitted
+                .lower(
+                    std::slice::from_ref(&matching_request),
+                    &with_requirements(std::slice::from_ref(&t), limit),
+                )
+                .records
+                .first(),
+            Some(CompleteLoweringRecordV2::Lowered { .. })
+        )
+    };
+    let mut exact_work = 1_u64;
+    while !admits_at(exact_work) {
+        exact_work = exact_work
+            .checked_mul(2)
+            .expect("finite fixture work bound");
+    }
+    let mut below = exact_work / 2;
+    while below + 1 < exact_work {
+        let middle = below + (exact_work - below) / 2;
+        if admits_at(middle) {
+            exact_work = middle;
+        } else {
+            below = middle;
+        }
+    }
+    assert!(exact_work > 0);
+    let exact = with_requirements(std::slice::from_ref(&t), exact_work);
     assert_eq!(
         lowered(
             &admitted
@@ -416,12 +442,30 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
         .node_id,
         matching_request
     );
+    let failed = admitted
+        .lower(
+            std::slice::from_ref(&matching_request),
+            &with_requirements(std::slice::from_ref(&t), exact_work - 1),
+        )
+        .records
+        .remove(0);
+    let CompleteLoweringRecordV2::Failed {
+        limit_kind: CheckedPackageLimit::Work,
+        limit,
+        consumed,
+        ..
+    } = failed
+    else {
+        panic!("one less than the minimum admitting work must fail: {failed:?}");
+    };
+    assert_eq!(limit, exact_work - 1);
+    assert!(consumed > limit, "the first unpaid charge is reported");
     assert_tc_935_failed_work(
         &matching_source,
         &admitted,
         &matching_request,
         std::slice::from_ref(&t),
-        5,
-        6,
+        limit,
+        consumed,
     );
 }

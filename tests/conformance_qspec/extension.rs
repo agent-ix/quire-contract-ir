@@ -97,8 +97,18 @@ fn record_extension_case(actual: &str) -> (Value, Value, usize) {
             .expect("model node")
             .remove("declaration");
         node["owner"] = json!({"kind":"model","identity":"acme/orders","node":format!("ix://acme/orders/{name}")});
-        node["semantic_type"] = provisional;
+        node["semantic_type"] = provisional.clone();
         node["occurrences"] = json!([{"role":"type","ordinal":0}]);
+        let declared_id = fixture_support::structural_id(
+            "acme/orders",
+            vec![
+                json!("model"),
+                json!("record_value_type"),
+                json!(format!("ix://acme/orders/{name}")),
+            ],
+            0,
+        );
+        fixture_support::reassign_node_id(&mut package, &provisional, &declared_id);
         refresh_extension(&mut package, position);
         package["source_map"]
             .as_array_mut()
@@ -597,7 +607,9 @@ fn tc_459_extension_clause_targets_are_typed_and_present() {
     let subject = package["semantic_graph"]["nodes"][position]["body"]["clauses"][0]["value"]
         ["target"]
         .clone();
-    package["semantic_graph"]["nodes"][position]["dependencies"] = json!([subject, absent]);
+    let mut dependencies = vec![subject, absent];
+    sort_node_ids(&mut dependencies);
+    package["semantic_graph"]["nodes"][position]["dependencies"] = json!(dependencies);
     refresh_extension(&mut package, position);
     assert_extension_refusal(
         &package,
@@ -705,6 +717,13 @@ fn tc_459_extension_and_record_share_the_types_namespace() {
         .iter()
         .position(|node| node["node_tag"] == "extension")
         .expect("extension");
+    // Both declarations keep the authored path; a distinct producer ordinal
+    // lets name ambiguity reach its own validation stage before duplicate-ID
+    // rejection.
+    let prior_id = package["semantic_graph"]["nodes"][record]["node_id"].clone();
+    let mut distinct_id = prior_id.clone();
+    distinct_id["ordinal"] = json!(1);
+    fixture_support::reassign_node_id(&mut package, &prior_id, &distinct_id);
     package["semantic_graph"]["nodes"][record]["declaration"]["qualified_name"] = json!(["Audit"]);
     refresh_extension(&mut package, record);
     let record_id: CheckedNodeId =
