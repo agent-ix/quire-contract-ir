@@ -7864,6 +7864,24 @@ fn process_and_machine_clause_signatures_use_declared_context() {
             mk_ref_type(&context, format!("refinement/{form}/self-reference"));
         let (argument_type, argument_body) =
             mk_ref_type(&account, format!("refinement/{form}/argument-reference"));
+        let self_id = json!({"package":FAMILY_MODEL_IDENTITY,
+            "path":["composite_type","reference",context],"ordinal":0});
+        let argument_id = json!({"package":FAMILY_MODEL_IDENTITY,
+            "path":["composite_type","reference",account],"ordinal":0});
+        let result_type_key = format!("refinement/{form}/result-type");
+        let result_type_id = json!({"package":FAMILY_MODEL_IDENTITY,
+            "path":["scalar_type","integer"],"ordinal":0});
+        let id_for = |key: &str| {
+            if key == self_type {
+                self_id.clone()
+            } else if key == argument_type {
+                argument_id.clone()
+            } else if key == result_type_key {
+                result_type_id.clone()
+            } else {
+                node_id(key)
+            }
+        };
         let mk_parameter = |name: &str, _ty: &str, level: &str| {
             let body = json!({"term":"aggregate","members":[
                 {"term":"binding","name":"name","value":{"term":"literal","type":text_type,"value_kind":"text","value":name}},
@@ -7902,6 +7920,19 @@ fn process_and_machine_clause_signatures_use_declared_context() {
                 nodes.push(node);
             }
         }
+        let mut result_type_node = family["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("family nodes")
+            .iter()
+            .find(|node| node["node_id"] == node_id(INTEGER_KEY))
+            .expect("integer type")
+            .clone();
+        result_type_node["node_id"] = result_type_id.clone();
+        result_type_node["semantic_type"] = result_type_id.clone();
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(result_type_node);
         let node = |key: &str,
                     tag: &str,
                     semantic_form: &str,
@@ -7909,8 +7940,8 @@ fn process_and_machine_clause_signatures_use_declared_context() {
                     deps: Vec<Value>,
                     role: &str,
                     body: Value| {
-            json!({"node_id":node_id(key),"schema_version":"quire.checked-semantic-graph/v2",
-                "node_tag":tag,"semantic_form":semantic_form,"semantic_type":node_id(ty),
+            json!({"node_id":id_for(key),"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":tag,"semantic_form":semantic_form,"semantic_type":id_for(ty),
                 "dependencies":deps,"occurrences":[{"role":role,"ordinal":0}],"body":body})
         };
         let added = vec![
@@ -7954,7 +7985,7 @@ fn process_and_machine_clause_signatures_use_declared_context() {
                 &result_key,
                 "value",
                 "parameter",
-                INTEGER_KEY,
+                &result_type_key,
                 vec![],
                 "expression",
                 result_parameter,
@@ -7996,7 +8027,7 @@ fn process_and_machine_clause_signatures_use_declared_context() {
         {
             let members: Vec<Value> = params
                 .iter()
-                .map(|key| json!({"term":"reference","target":node_id(key)}))
+                .map(|key| json!({"term":"reference","target":id_for(key)}))
                 .collect();
             let body = json!({"term":"application","operator":"state_clause",
             "operation":{"identity":"quire.op.state.clause","laws":[],"mode":null,
@@ -8008,7 +8039,7 @@ fn process_and_machine_clause_signatures_use_declared_context() {
             ]});
             let mut deps: Vec<Value> = params
                 .iter()
-                .map(|key| node_id(key))
+                .map(|key| id_for(key))
                 .chain([anchor_id, condition.clone()])
                 .collect();
             deps.sort_by(node_id_order);
