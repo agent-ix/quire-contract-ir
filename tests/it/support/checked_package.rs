@@ -33,7 +33,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
-pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
+pub const FIXTURE_PACKAGE: &str = "test/families";
 const FAMILY_MODEL_IDENTITY: &str = "test/families";
 const FAMILY_OBJECT: &str = "ix://test/families/Account";
 const FAMILY_PROCESS: &str = "ix://test/families/Flow";
@@ -185,7 +185,6 @@ pub fn v2_nominal() -> Value {
 /// ever held, which would be many times the size of its text.
 pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
     const NODES: &str = "\u{1}nodes";
-    const PROJECTION: &str = "\u{1}projection";
     const SOURCE_MAP: &str = "\u{1}source_map";
     let boolean = family_key("aaaa");
     let mut previous = family_key("eeee");
@@ -195,10 +194,10 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
         .expect("nodes")
         .len();
     let source = fixture_source();
-    let (mut nodes, mut projection, mut source_map) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut nodes, mut source_map) = (Vec::new(), Vec::new());
     for index in 0..length {
         let body = json!({"term": "reference", "target": node_id(&previous)});
-        let key = structural_key("expression", "reference", Some(&boolean), &body);
+        let key = format!("expression/reference/{index}");
         let mut node = plain_node(
             &key,
             "expression",
@@ -208,10 +207,6 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
             body,
         );
         nodes.push(serde_json::to_string(&node).expect("node"));
-        node.as_object_mut()
-            .expect("node object")
-            .remove("occurrences");
-        projection.push(serde_json::to_string(&node).expect("projection"));
         let position = base + index;
         source_map.push(
             serde_json::to_string(&json!({
@@ -230,29 +225,11 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
             .push(json!(text));
     };
     marker(&mut package, "/semantic_graph/nodes", NODES);
-    let mut hash_input = package["identity_preimage"].clone();
-    hash_input["identity_projection"] = Value::Array(
-        package["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("nodes")
-            .iter()
-            .filter(|node| node.is_object())
-            .map(|node| {
-                let mut node = node.clone();
-                node.as_object_mut().expect("node").remove("occurrences");
-                node
-            })
-            .collect(),
-    );
-    marker(&mut hash_input, "/identity_projection", PROJECTION);
     marker(&mut package, "/source_map", SOURCE_MAP);
     let splice = |text: String, marker: &str, entries: &[String]| {
         let quoted = serde_json::to_string(marker).expect("marker");
         text.replace(&quoted, &entries.join(","))
     };
-    let preimage = String::from_utf8(canonical(&hash_input)).expect("utf-8");
-    let preimage = splice(preimage, PROJECTION, &projection);
-    package["package_id"]["digest"] = json!(sha256_hex(preimage.as_bytes()));
     let text = String::from_utf8(canonical(&package)).expect("utf-8");
     let text = splice(text, NODES, &nodes);
     let text = splice(text, SOURCE_MAP, &source_map);
@@ -277,8 +254,43 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-pub fn node_id(digest: &str) -> Value {
-    json!({"domain": NODE_DOMAIN, "digest": digest})
+pub fn node_id(path_label: &str) -> Value {
+    let package = match path_label {
+        "fixture/1515" | "fixture/1616" | "fixture/2020" => FAMILY_MODEL_IDENTITY,
+        _ => FIXTURE_PACKAGE,
+    };
+    let path = path_label.strip_prefix("qualified:").map_or_else(
+        || vec![path_label],
+        |qualified| qualified.split('/').collect(),
+    );
+    json!({"package": package, "path": path, "ordinal": 0})
+}
+
+/// A structural fixture identity with an explicit package, path and ordinal.
+pub fn structural_id(package: &str, path: Vec<Value>, ordinal: u64) -> Value {
+    json!({"package": package, "path": path, "ordinal": ordinal})
+}
+
+/// Renames one structural identity throughout a synthetic package, including
+/// body references, dependency edges, nested paths and source-map entries.
+pub fn reassign_node_id(package: &mut Value, old: &Value, fresh: &Value) {
+    if package == old {
+        *package = fresh.clone();
+        return;
+    }
+    match package {
+        Value::Array(items) => {
+            for item in items {
+                reassign_node_id(item, old, fresh);
+            }
+        }
+        Value::Object(members) => {
+            for item in members.values_mut() {
+                reassign_node_id(item, old, fresh);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// The source owner attached to a declared structural fixture node.
@@ -368,17 +380,10 @@ fn read_admitting(package: &Value) -> CheckedPackageV2ReadResult {
     )
 }
 
-/// A dependency package the reader admitted: the digest its `package_id`
-/// carries, and the package itself.
+/// A dependency package the reader admitted: its structural name and package.
 pub fn admitted_dependency(package: &Value) -> (String, CheckedPackageV2) {
     match read_admitting(package) {
-        CheckedPackageV2ReadResult::Admitted(admitted) => (
-            package["package_id"]["digest"]
-                .as_str()
-                .expect("package id digest")
-                .to_owned(),
-            *admitted,
-        ),
+        CheckedPackageV2ReadResult::Admitted(admitted) => (admitted.name().to_owned(), *admitted),
         other => panic!("the dependency package admits, read {other:?}"),
     }
 }
@@ -452,13 +457,7 @@ pub fn select_model(package: &mut Value, identity: &str) {
         return;
     }
     let body = json!({"term": "aggregate", "members": []});
-    let preimage = json!({
-        "version": "quire.structural-node/v1", "node_tag": "model",
-        "semantic_form": "model_root", "semantic_type": null,
-        "declaration": null, "recursion": null, "owner": owner,
-        "body": body,
-    });
-    let node_id = node_id(&sha256_hex(&canonical(&preimage)));
+    let node_id = json!({"package": identity, "path": ["model", "model_root"], "ordinal": 0});
     let node = json!({
         "node_id": node_id, "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "model", "semantic_form": "model_root",
@@ -495,31 +494,63 @@ pub fn select_model(package: &mut Value, identity: &str) {
 
 /// Re-derives package identity without changing its graph or source map.
 pub fn refresh_identity_projection(package: &mut Value) {
-    let projection = package["semantic_graph"]["nodes"]
+    package
+        .as_object_mut()
+        .expect("package")
+        .remove("identity_preimage");
+    package
+        .as_object_mut()
+        .expect("package")
+        .remove("package_id");
+    let package_name = package["name"]
+        .as_str()
+        .expect("fixture package name")
+        .to_owned();
+    let replacements = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .cloned()
-        .map(|mut node| {
-            node.as_object_mut()
-                .expect("node object")
-                .remove("occurrences");
-            node
+        .filter_map(|node| {
+            let old = node["node_id"].clone();
+            let (owner_package, path) = match node["owner"]["kind"].as_str() {
+                Some("model_root") => (
+                    node["owner"]["identity"]
+                        .as_str()
+                        .expect("model root identity"),
+                    json!(["model", "model_root"]),
+                ),
+                Some("model") => (
+                    node["owner"]["identity"].as_str().expect("model identity"),
+                    old["path"].clone(),
+                ),
+                _ => (
+                    package_name.as_str(),
+                    node.get("declaration").map_or_else(
+                        || old["path"].clone(),
+                        |declaration| declaration["qualified_name"].clone(),
+                    ),
+                ),
+            };
+            let fresh = json!({"package": owner_package, "path": path, "ordinal": old["ordinal"]});
+            (old != fresh).then_some((old, fresh))
         })
         .collect::<Vec<_>>();
-
-    for key in [
-        "edition",
-        "profile_selections",
-        "definition_selections",
-        "required_features",
-        "dependency_selections",
-    ] {
-        package["identity_preimage"][key] = package["lock"][key].clone();
+    fn replace_ids(value: &mut Value, replacements: &[(Value, Value)]) {
+        if let Some((_, fresh)) = replacements.iter().find(|(old, _)| value == old) {
+            *value = fresh.clone();
+            return;
+        }
+        match value {
+            Value::Array(items) => items
+                .iter_mut()
+                .for_each(|item| replace_ids(item, replacements)),
+            Value::Object(members) => members
+                .values_mut()
+                .for_each(|item| replace_ids(item, replacements)),
+            _ => {}
+        }
     }
-    let mut hash_input = package["identity_preimage"].clone();
-    hash_input["identity_projection"] = Value::Array(projection);
-    package["package_id"]["digest"] = json!(sha256_hex(&canonical(&hash_input)));
+    replace_ids(package, &replacements);
 }
 
 /// Nesting depth counted the way the reader charges it (scalars are one).
@@ -1134,7 +1165,7 @@ pub fn structural_key(
         "recursion": Value::Null,
         "body": body,
     });
-    sha256_hex(&canonical(&preimage))
+    format!("structural/{preimage}")
 }
 
 /// The same structural preimage for fixture nodes with an owner or declaration.
@@ -1147,6 +1178,16 @@ fn owned_structural_key(
     owner: Value,
     declaration: Value,
 ) -> String {
+    if let Some(names) = declaration["qualified_name"].as_array() {
+        return format!(
+            "qualified:{}",
+            names
+                .iter()
+                .map(|name| name.as_str().expect("name"))
+                .collect::<Vec<_>>()
+                .join("/")
+        );
+    }
     let preimage = json!({
         "version": "quire.structural-node/v1",
         "node_tag": node_tag,
@@ -1157,7 +1198,7 @@ fn owned_structural_key(
         "recursion": Value::Null,
         "body": empty_aggregate(),
     });
-    sha256_hex(&canonical(&preimage))
+    format!("owned/{preimage}")
 }
 
 /// A second selected local model declaration in the family package.
@@ -1207,10 +1248,10 @@ pub fn admitted_protocol_families() -> Value {
 
 /// The derived key of the anonymous `scalar_type`/`boolean` node, as a
 /// literal; `structural_key` recomputes it in `tc_226_the_recorded_scalar_keys_are_the_derived_ones`.
-pub const BOOLEAN_KEY: &str = "9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa";
+pub const BOOLEAN_KEY: &str = "builtin/boolean";
 
 /// The derived key of the anonymous `scalar_type`/`integer` node, as a literal.
-pub const INTEGER_KEY: &str = "07f6dca966d22bde13d3bb198f12610e57d8e1e04d0476bbab03f405d2b04e32";
+pub const INTEGER_KEY: &str = "builtin/integer";
 
 /// The derived key of the anonymous `scalar_type`/`boolean` node.
 pub fn boolean_key() -> String {
@@ -1287,7 +1328,7 @@ fn application_preimage_key(
     if let Some(owner_model) = owner_model {
         preimage["owner_model"] = owner_model.clone();
     }
-    sha256_hex(&canonical(&preimage))
+    format!("application/{preimage}")
 }
 /// QSpec FR-322's `quire.application-node/v1` key for a node inside a
 /// recursion group: `recursion` is `{size, ordinal}` of `node` among
@@ -1328,134 +1369,23 @@ pub fn application_key_in_group(node: &Value, group: &[Value]) -> String {
     )
 }
 
-/// The exact 64-hex-digit node key this generator assigns to a family or
-/// supporting node's historical `prefix` in [`build_v2_all_families`].
-/// Structural and application nodes use the keys of their respective
-/// preimages; forms outside those stages retain their fixture identity.
-/// `tests/checked_package_v2_lowering.rs`'s own `key()` calls this directly,
-/// so the fixture and the test that indexes it by prefix can never drift.
+/// A readable path label for a node in the all-family fixture.
+/// These labels are local test identities; the reader resolves the complete
+/// `{package, path, ordinal}` value and never re-derives one from node content.
 pub fn family_key(prefix: &str) -> String {
     match prefix {
-        "ffff" => application_key(
-            "function",
-            "pure_function",
-            &node_id(&family_key("aaaa")),
-            &function_call_body(),
-        ),
-        "4040" => application_key(
-            "temporal",
-            "temporal_clause",
-            &node_id(&family_key("aaaa")),
-            &temporal_clause_body(),
-        ),
-        "a2a2" => application_key(
-            "temporal",
-            "formula",
-            &node_id(&family_key("aaaa")),
-            &eventually_formula_body(),
-        ),
-        "a5a5" => application_key(
-            "temporal",
-            "formula",
-            &node_id(&family_key("aaaa")),
-            &holds_formula_body(),
-        ),
-        "5050" => protocol_named_key(
-            "protocol_clause",
-            &["Example", "OrderFlow"],
-            &protocol_control_body(),
-        ),
-        "p-run" => protocol_run_key(),
-        "p-finish" => protocol_finish_key(),
-        "p-close" => closing_parameter_key(),
-        "6060" => application_key(
-            "claim",
-            "verification_claim",
-            &node_id(&family_key("aaaa")),
-            &claim_clause_body(),
-        ),
-        // The undeclared nodes of the ten derived shapes carry the key the
-        // reader derives (FR-038-AC-134), not a placeholder. `a6a6` is the
-        // same anonymous Boolean node as `aaaa`: one key names one node.
         "aaaa" | "a6a6" => boolean_key(),
         "a3a3" => integer_key(),
-        "bbbb" => structural_key(
-            "composite_type",
-            "option",
-            None,
-            &over_body(&family_key("aaaa")),
-        ),
-        "cccc" => integer_range_key("0", "1000"),
-        "1010" => structural_key(
-            "model",
-            "namespace",
-            Some(&boolean_key()),
-            &empty_aggregate(),
-        ),
-        "1616" => owned_structural_key(
-            "model",
-            "process",
-            None,
-            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_PROCESS),
-            Value::Null,
-        ),
-        "2020" => owned_structural_key(
-            "relation",
-            "relationship",
-            None,
-            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_RELATIONSHIP),
-            Value::Null,
-        ),
-        "1515" => owned_structural_key(
-            "model",
-            "object_type",
-            None,
-            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_OBJECT),
-            Value::Null,
-        ),
-        "3030" => structural_key(
-            "state",
-            "snapshot",
-            Some(&boolean_key()),
-            &empty_aggregate(),
-        ),
-        "7070" => structural_key(
-            "correspondence",
-            "source_locus",
-            Some(&boolean_key()),
-            &empty_aggregate(),
-        ),
-        "8080" => owned_structural_key(
-            "function",
-            "pure_function",
-            Some(&boolean_key()),
-            source_owner(&fixture_source()),
-            json!({"qualified_name": ["Example", "Function"]}),
-        ),
-        "a1a1" => structural_key("scalar_type", "text", None, &empty_aggregate()),
-        "dddd" => structural_key("value", "literal", Some(&boolean_key()), &empty_aggregate()),
-        "eeee" => structural_key(
-            "expression",
-            "reference",
-            Some(&boolean_key()),
-            &json!({"term": "reference", "target": node_id(&family_key("dddd"))}),
-        ),
-        "a4a4" => structural_key(
-            "value",
-            "parameter",
-            Some(&boolean_key()),
-            &json!({
-                "term": "aggregate", "members": [
-                    {"term": "binding", "name": "name", "value": {
-                        "term": "literal", "type": node_id(&family_key("a1a1")),
-                        "value_kind": "text", "value": "over"}},
-                    {"term": "binding", "name": "level", "value": {
-                        "term": "literal", "type": node_id(&family_key("a3a3")),
-                        "value_kind": "integer", "value": "0"}},
-                ],
-            }),
-        ),
-        _ => prefix.repeat(16),
+        "ffff" => "function/pure_function/call".into(),
+        "4040" => "temporal/temporal_clause".into(),
+        "a2a2" => "temporal/formula/eventually".into(),
+        "a5a5" => "temporal/formula/holds".into(),
+        "5050" => "protocol/protocol_clause".into(),
+        "p-run" => "protocol/control/run".into(),
+        "p-finish" => "protocol/obligation/finish".into(),
+        "p-close" => "value/parameter/closed".into(),
+        "6060" => "claim/verification_claim".into(),
+        other => format!("fixture/{other}"),
     }
 }
 
@@ -1626,17 +1556,8 @@ fn protocol_control_body() -> Value {
     })
 }
 
-fn protocol_named_key(form: &str, declaration: &[&str], body: &Value) -> String {
-    let owner_model = (form == "protocol_clause").then(|| node_id(&family_key("1515")));
-    application_preimage_key(
-        "protocol",
-        form,
-        &node_id(&family_key("aaaa")),
-        &json!({"qualified_name": declaration}),
-        &Value::Null,
-        owner_model.as_ref(),
-        body,
-    )
+fn protocol_named_key(_form: &str, declaration: &[&str], _body: &Value) -> String {
+    format!("qualified:{}", declaration.join("/"))
 }
 
 pub fn protocol_named_node(
@@ -1956,31 +1877,32 @@ pub fn rekey_application_node(package: &mut Value, position: usize) {
 /// Collects the targets FR-322's application-node dependency join names in
 /// `term`: references and an application's declaration or population link.
 /// Returns whether `term` holds an application.
-fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<String>) -> bool {
+fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<CheckedNodeId>) -> bool {
+    fn add(out: &mut std::collections::BTreeSet<CheckedNodeId>, id: &Value) {
+        out.insert(serde_json::from_value(id.clone()).expect("local structural node id"));
+    }
     let mut holds_application = false;
     match term["term"].as_str() {
         Some("reference") => {
-            out.insert(
-                term["target"]["digest"]
-                    .as_str()
-                    .expect("digest")
-                    .to_owned(),
-            );
+            add(out, &term["target"]);
         }
         Some("application") => {
             holds_application = true;
-            if let Some(declaration) = term["operation"]["member"]["declaration"]["digest"].as_str()
+            if let Some(declaration) = term["operation"]["member"]
+                .get("declaration")
+                .filter(|value| !value.is_null())
             {
-                out.insert(declaration.to_owned());
+                add(out, declaration);
             }
             if matches!(
                 term["operation"]["identity"].as_str(),
                 Some("quire.op.model.reaches" | "quire.op.model.navigate")
             ) {
-                if let Some(population) =
-                    term["operation"]["member"]["population"]["digest"].as_str()
+                if let Some(population) = term["operation"]["member"]
+                    .get("population")
+                    .filter(|value| !value.is_null())
                 {
-                    out.insert(population.to_owned());
+                    add(out, population);
                 }
             }
             for argument in term["arguments"].as_array().into_iter().flatten() {
@@ -1999,7 +1921,7 @@ fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<String>) -> b
 }
 
 /// Gives every node whose body holds an `application` exactly the
-/// `dependencies` FR-322's join names, digest-ascending.
+/// `dependencies` FR-322's join names in structural node-id order.
 fn join_application_dependencies(package: &mut Value) {
     for node in package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -2007,12 +1929,15 @@ fn join_application_dependencies(package: &mut Value) {
     {
         let mut targets = std::collections::BTreeSet::new();
         if join_targets(&node["body"], &mut targets) {
-            if let Some(owner_model) = node.get("owner_model").and_then(|id| id["digest"].as_str())
-            {
-                targets.insert(owner_model.to_owned());
+            if let Some(owner_model) = node.get("owner_model") {
+                targets.insert(serde_json::from_value(owner_model.clone()).expect("owner model"));
             }
-            node["dependencies"] =
-                Value::Array(targets.iter().map(|digest| node_id(digest)).collect());
+            node["dependencies"] = Value::Array(
+                targets
+                    .iter()
+                    .map(|id| serde_json::to_value(id).expect("id"))
+                    .collect(),
+            );
         }
     }
 }
@@ -2050,28 +1975,6 @@ fn fixture_application_key(node: &Value, nodes: &Value) -> String {
 /// referenced, then the source map and the package identity. A node keyed by
 /// something other than its application preimage keeps its key.
 pub fn settle(package: &mut Value) {
-    let count = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .len();
-    for _ in 0..=count {
-        join_application_dependencies(package);
-        let mut changed = false;
-        for position in 0..count {
-            let node = package["semantic_graph"]["nodes"][position].clone();
-            if !fixture_has_application_key(&node) {
-                continue;
-            }
-            let fresh = fixture_application_key(&node, &package["semantic_graph"]["nodes"]);
-            if node["node_id"]["digest"] != fresh.as_str() {
-                rekey_application_node(package, position);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
     join_application_dependencies(package);
     rebuild_source_map(package);
     refresh_identity(package);
@@ -2104,32 +2007,6 @@ fn source_map_for(nodes: &[Value], source: &Value) -> Value {
     Value::Array(entries)
 }
 
-/// A structurally valid but not-yet-derived `identity_preimage`/`package_id`
-/// pair: every member [`refresh_identity`] does not itself overwrite
-/// (`version`, `domain`, `algorithm`) is set to its real closed-schema value
-/// here; every member it does overwrite (the six
-/// lock-mirrored fields, plus `package_id.digest`) is a placeholder,
-/// replaced by the `refresh_identity(&mut package)` call every builder below
-/// makes as its last step.
-fn placeholder_identity_preimage() -> Value {
-    json!({
-        "version": "quire.checked-package-id/v2",
-        "edition": Value::Null,
-        "profile_selections": Value::Array(Vec::new()),
-        "definition_selections": Value::Array(Vec::new()),
-        "required_features": Value::Array(Vec::new()),
-        "dependency_selections": Value::Array(Vec::new()),
-    })
-}
-
-fn placeholder_package_id() -> Value {
-    json!({
-        "domain": "quire.package.semantic/v2",
-        "algorithm": "sha256",
-        "digest": "0".repeat(64),
-    })
-}
-
 /// The base lock/diagnostics/capability skeleton [`nominal_package`] overlays
 /// with a caller-supplied node set. Kept separate from [`v2_nominal`] (which
 /// *is* one particular overlay of this skeleton — see [`nominal_fixture_members`])
@@ -2140,8 +2017,7 @@ fn nominal_skeleton() -> Value {
     lock["definition_selections"] = json!([fixture_definition_selection()]);
     json!({
         "contract_version": "quire.checked-package/v2",
-        "identity_preimage": placeholder_identity_preimage(),
-        "package_id": placeholder_package_id(),
+        "name": FIXTURE_PACKAGE,
         "lock": lock,
         "semantic_graph": {
             "graph_version": "quire.checked-semantic-graph/v2",
@@ -2189,14 +2065,14 @@ pub fn nominal_fixture_members() -> Vec<(Value, String)> {
         "ordered": false,
         "members": ["ACTIVE", "DONE"],
     });
-    let declaration_key = sha256_hex(&canonical(&declaration_preimage));
+    let declaration_key = "qualified:Example/Status".to_owned();
 
     let member_preimage = json!({
         "version": "quire.enum-member-node/v1",
         "declaration_node_id": node_id(&declaration_key),
         "case": "ACTIVE",
     });
-    let member_key = sha256_hex(&canonical(&member_preimage));
+    let member_key = "value/enum_value/ACTIVE".to_owned();
 
     let dimension_preimage = json!({
         "version": "quire.dimension-node/v1",
@@ -2204,7 +2080,7 @@ pub fn nominal_fixture_members() -> Vec<(Value, String)> {
         "qualified_declaration": ["Example", "Length"],
         "terms": Value::Array(Vec::new()),
     });
-    let dimension_key = sha256_hex(&canonical(&dimension_preimage));
+    let dimension_key = "qualified:Example/Length".to_owned();
 
     let unit_preimage = json!({
         "version": "quire.unit-node/v1",
@@ -2215,7 +2091,7 @@ pub fn nominal_fixture_members() -> Vec<(Value, String)> {
         "scale": {"numerator": "1", "denominator": "1"},
         "offset": {"numerator": "0", "denominator": "1"},
     });
-    let unit_key = sha256_hex(&canonical(&unit_preimage));
+    let unit_key = "qualified:Example/Metre".to_owned();
 
     vec![
         (member_preimage, member_key),
@@ -2542,8 +2418,7 @@ fn build_v2_all_families() -> Value {
     let profile_selections = vec![temporal_profile_law(), protocol_profile_law()];
     let mut package = json!({
         "contract_version": "quire.checked-package/v2",
-        "identity_preimage": placeholder_identity_preimage(),
-        "package_id": placeholder_package_id(),
+        "name": FIXTURE_PACKAGE,
         "lock": fixture_lock(profile_selections),
         "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
         "source_map": Value::Array(Vec::new()),
@@ -2652,8 +2527,7 @@ fn build_operation_identities() -> Value {
     let source = fixture_source();
     let mut package = json!({
         "contract_version": "quire.checked-package/v2",
-        "identity_preimage": placeholder_identity_preimage(),
-        "package_id": placeholder_package_id(),
+        "name": FIXTURE_PACKAGE,
         "lock": fixture_lock(Vec::new()),
         "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
         "source_map": Value::Array(Vec::new()),
