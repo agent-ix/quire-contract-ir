@@ -7,8 +7,10 @@
 use ix_trace_rs::trace;
 use quire_canonical::{Error, LimitKind, Limits};
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    encode_checked_package_v2, CheckedPackageEvidence, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    LoweringProfileRef,
 };
 use serde_json::{json, Value};
 
@@ -26,6 +28,32 @@ fn local_package() -> Value {
         .filter(|entry| entry["node_id"] == scalar_id)
         .cloned()
         .collect::<Vec<_>>());
+    package
+}
+
+fn package_with_independent_requests() -> Value {
+    let mut package = local_package();
+    let boolean = package["semantic_graph"]["nodes"][0].clone();
+    let boolean_id = boolean["node_id"].clone();
+    let mut integer = boolean.clone();
+    integer["node_id"] = json!({"package":"test/families","path":["i"],"ordinal":0});
+    integer["semantic_type"] = integer["node_id"].clone();
+    integer["semantic_form"] = json!("integer");
+    let mut reference = boolean;
+    reference["node_id"] = json!({"package":"test/families","path":["reference-long"],"ordinal":0});
+    reference["semantic_type"] = boolean_id.clone();
+    reference["node_tag"] = json!("expression");
+    reference["semantic_form"] = json!("reference");
+    reference["body"] = json!({"term":"reference","target":boolean_id});
+    reference["dependencies"] = json!([boolean_id]);
+    package["semantic_graph"]["nodes"] =
+        json!([package["semantic_graph"]["nodes"][0], integer, reference]);
+    let original = package["source_map"][0].clone();
+    let mut integer_map = original.clone();
+    integer_map["node_id"] = package["semantic_graph"]["nodes"][1]["node_id"].clone();
+    let mut reference_map = original.clone();
+    reference_map["node_id"] = package["semantic_graph"]["nodes"][2]["node_id"].clone();
+    package["source_map"] = json!([original, integer_map, reference_map]);
     package
 }
 
@@ -126,4 +154,59 @@ fn typed_node_and_envelope_encoding_have_exact_byte_limits() {
         encode(&package, bytes.len() as u64 - 1),
         Err(Error::Limit(limit)) if limit.kind == LimitKind::CanonicalBytes
     ));
+}
+
+/// One request remains lowered when another independent request exceeds its
+/// own package bytes; the aggregate call yields no partial package.
+#[trace("TC-048", "FR-038-AC-95")]
+#[test]
+fn multi_request_lowering_preserves_independent_sibling_on_local_byte_failure() {
+    let wire = package_with_independent_requests();
+    let bytes = quire_canonical::to_vec(&wire, Limits::new(u64::MAX)).expect("input bytes");
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.bytes = bytes.len() as u64;
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence.support_feature("quire.value.complete/v1");
+    let CheckedPackageV2ReadResult::Admitted(package) =
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    else {
+        panic!("input admits at its exact byte limit");
+    };
+    let requests = [
+        package.graph().nodes[1].node_id.clone(),
+        package.graph().nodes[2].node_id.clone(),
+    ];
+    let profile = CompleteLoweringProfileV2 {
+        reference: LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        required_source_selections: Vec::new(),
+        supported_tags: package.node_kinds().iter().map(|kind| kind.tag()).collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let local = package.lower_independent_records(&requests, &profile);
+    assert!(matches!(local[0], CompleteLoweringRecordV2::Lowered { .. }));
+    assert!(matches!(
+        local[1],
+        CompleteLoweringRecordV2::Failed {
+            limit_kind: CheckedPackageLimit::Bytes,
+            limit,
+            consumed,
+            ..
+        } if limit == limits.bytes && consumed > limit
+    ));
+
+    let whole = package.lower(&requests, &profile);
+    assert!(whole.records.iter().all(|record| matches!(
+        record,
+        CompleteLoweringRecordV2::Failed {
+            limit_kind: CheckedPackageLimit::Bytes,
+            ..
+        }
+    )));
+    assert!(whole.package.lowered().is_empty());
+    assert!(whole.package.dependencies().is_empty());
+    assert!(whole.package.canonical_bytes().is_none());
 }
