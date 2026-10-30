@@ -8,7 +8,7 @@
 use quire_contract_model::{
     CheckedApplicationOperation, CheckedApplicationOperationFixture,
     CheckedApplicationOperationFixtureError as FixtureError, CheckedArtifactRef, CheckedNodeId,
-    OperationModeKind,
+    CheckedNodePathSegment, OperationModeKind,
 };
 
 fn definition(identity: &str) -> CheckedArtifactRef {
@@ -20,8 +20,9 @@ fn definition(identity: &str) -> CheckedArtifactRef {
 
 fn node_key() -> CheckedNodeId {
     CheckedNodeId {
-        domain: "quire.checked-semantic-node/v1".into(),
-        digest: "a".repeat(64).into(),
+        package: "fixture-package".into(),
+        path: vec![CheckedNodePathSegment::Name("declaration".into())],
+        ordinal: 0,
     }
 }
 
@@ -147,42 +148,26 @@ fn malformed_present_fields_are_typed_refusals() {
             expected,
         );
     }
-    for (key, expected) in [
-        (
-            CheckedNodeId {
-                domain: "wrong".into(),
-                digest: "a".repeat(64).into(),
-            },
-            FixtureError::InvalidMemberDomain,
-        ),
-        (
-            CheckedNodeId {
-                domain: "quire.checked-semantic-node/v1".into(),
-                digest: "a".repeat(63).into(),
-            },
-            FixtureError::InvalidMemberDigest,
-        ),
-        (
-            CheckedNodeId {
-                domain: "quire.checked-semantic-node/v1".into(),
-                digest: "A".repeat(64).into(),
-            },
-            FixtureError::InvalidMemberDigest,
-        ),
-        (
-            CheckedNodeId {
-                domain: "quire.checked-semantic-node/v1".into(),
-                digest: "g".repeat(64).into(),
-            },
-            FixtureError::InvalidMemberDigest,
-        ),
+    for key in [
+        CheckedNodeId {
+            package: "".into(),
+            ..node_key()
+        },
+        CheckedNodeId {
+            path: Vec::new(),
+            ..node_key()
+        },
+        CheckedNodeId {
+            ordinal: 9_007_199_254_740_992,
+            ..node_key()
+        },
     ] {
         refuse(
             CheckedApplicationOperationFixture {
                 member_declaration: Some(key),
                 ..Default::default()
             },
-            expected,
+            FixtureError::InvalidMemberNodeId,
         );
     }
 }

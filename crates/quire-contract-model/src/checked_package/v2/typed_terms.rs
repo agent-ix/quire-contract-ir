@@ -10,7 +10,7 @@ use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
     RefinementPopulation, RefinementStep,
 };
-use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
+use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment};
 use crate::identity::ExecutionPoint;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::ser::{SerializeMap, SerializeSeq};
@@ -75,12 +75,10 @@ pub enum CheckedApplicationOperationFixtureError {
     /// A law definition had an empty identity.
     #[error("law definition identity is empty")]
     EmptyLawIdentity,
-    /// The member declaration key had an invalid domain.
-    #[error("member declaration domain is invalid")]
-    InvalidMemberDomain,
-    /// The member declaration key had an invalid digest.
-    #[error("member declaration digest is invalid")]
-    InvalidMemberDigest,
+    /// The member declaration has an empty package or path, or an ordinal
+    /// outside the exact JSON integer range.
+    #[error("member declaration node id is invalid")]
+    InvalidMemberNodeId,
 }
 
 /// The admitted kind and value of an operation's mode.
@@ -160,13 +158,12 @@ impl CheckedApplicationOperation {
                 return Err(FixtureError::EmptyLawIdentity);
             }
         }
-        if let Some(key) = &fixture.member_declaration {
-            if key.domain.as_ref() != super::NODE_DOMAIN {
-                return Err(FixtureError::InvalidMemberDomain);
-            }
-            if !super::is_digest(&key.digest) {
-                return Err(FixtureError::InvalidMemberDigest);
-            }
+        if fixture
+            .member_declaration
+            .as_ref()
+            .is_some_and(|key| !key.is_well_formed())
+        {
+            return Err(FixtureError::InvalidMemberNodeId);
         }
 
         let mut record = serde_json::Map::new();
@@ -1169,27 +1166,80 @@ impl Encode for CheckedTerm {
 }
 
 fn replace_node_ids_in_value(value: &mut Value, old: &CheckedNodeId, new: &CheckedNodeId) {
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                replace_node_ids_in_value(item, old, new);
+    let mut pending = vec![value];
+    while let Some(current) = pending.pop() {
+        if value_is_node_id(current, old) {
+            *current = node_id_value(new);
+            continue;
+        }
+        match current {
+            Value::Array(items) => pending.extend(items.iter_mut()),
+            Value::Object(object) => pending.extend(object.values_mut()),
+            _ => {}
+        }
+    }
+}
+
+fn value_is_node_id(value: &Value, id: &CheckedNodeId) -> bool {
+    let mut pending = vec![(value, id)];
+    while let Some((value, id)) = pending.pop() {
+        let Some(object) = value.as_object() else {
+            return false;
+        };
+        if object.len() != 3
+            || object.get("package").and_then(Value::as_str) != Some(id.package.as_ref())
+            || object.get("ordinal").and_then(Value::as_u64) != Some(id.ordinal)
+        {
+            return false;
+        }
+        let Some(path) = object.get("path").and_then(Value::as_array) else {
+            return false;
+        };
+        if path.len() != id.path.len() {
+            return false;
+        }
+        for (segment, expected) in path.iter().zip(&id.path) {
+            match expected {
+                CheckedNodePathSegment::Name(name) if segment.as_str() == Some(name.as_ref()) => {}
+                CheckedNodePathSegment::Node(node) => pending.push((segment, node)),
+                _ => return false,
             }
         }
-        Value::Object(object) => {
-            if object.len() == 2
-                && object.get("domain").and_then(Value::as_str) == Some(old.domain.as_ref())
-                && object.get("digest").and_then(Value::as_str) == Some(old.digest.as_ref())
-            {
-                object.insert("domain".into(), Value::String(new.domain.to_string()));
-                object.insert("digest".into(), Value::String(new.digest.to_string()));
-            } else {
-                for member in object.values_mut() {
-                    replace_node_ids_in_value(member, old, new);
+    }
+    true
+}
+
+fn node_id_value(id: &CheckedNodeId) -> Value {
+    enum Task<'a> {
+        Node(&'a CheckedNodeId),
+        Name(&'a str),
+        Finish(&'a CheckedNodeId),
+    }
+    let mut pending = vec![Task::Node(id)];
+    let mut values = Vec::new();
+    while let Some(task) = pending.pop() {
+        match task {
+            Task::Node(node) => {
+                pending.push(Task::Finish(node));
+                for segment in node.path.iter().rev() {
+                    pending.push(match segment {
+                        CheckedNodePathSegment::Name(name) => Task::Name(name),
+                        CheckedNodePathSegment::Node(child) => Task::Node(child),
+                    });
                 }
             }
+            Task::Name(name) => values.push(Value::String(name.to_owned())),
+            Task::Finish(node) => {
+                let path = values.split_off(values.len() - node.path.len());
+                let mut object = serde_json::Map::new();
+                object.insert("package".into(), Value::String(node.package.to_string()));
+                object.insert("path".into(), Value::Array(path));
+                object.insert("ordinal".into(), Value::Number(node.ordinal.into()));
+                values.push(Value::Object(object));
+            }
         }
-        _ => {}
     }
+    values.pop().expect("one constructed node id")
 }
 
 /// One frame write grant.
@@ -1432,14 +1482,9 @@ mod tests {
     #[test]
     fn checked_term_variants_round_trip_the_closed_wire_arms() {
         let node = json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": "a".repeat(64)
+            "package": "test-package", "path": ["node-a"], "ordinal": 0
         });
-        let package = json!({
-            "domain": "quire.package.semantic/v2",
-            "algorithm": "sha256",
-            "digest": "b".repeat(64)
-        });
+        let package = "dependency-package";
         let literal = json!({"term":"literal","type":node,"value_kind":"integer","value":"1"});
         let reference = json!({"term":"reference","target":node});
         let dependency = json!({"term":"dependency_reference","package":package,"node":node});
@@ -1542,12 +1587,12 @@ mod tests {
     #[test]
     fn public_producer_helpers_build_typed_terms_and_visit_reference_targets() {
         let node = serde_json::from_value(json!({
-            "domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)
+            "package": "test-package", "path": ["node-a"], "ordinal": 0
         }))
         .expect("node identity");
         let replacement: crate::checked_package::shared::CheckedNodeId =
             serde_json::from_value(json!({
-                "domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)
+                "package": "test-package", "path": ["node-b"], "ordinal": 0
             }))
             .expect("replacement identity");
         let mut body = CheckedTerm::aggregate(vec![
@@ -1561,8 +1606,8 @@ mod tests {
         assert_eq!(body.reference_targets(), [&replacement]);
         let wire = serde_json::to_value(&body).expect("producer term serializes");
         assert_eq!(
-            wire["members"][0]["value"]["target"]["digest"],
-            "b".repeat(64)
+            wire["members"][0]["value"]["target"]["path"],
+            json!(["node-b"])
         );
         assert_eq!(wire["members"][1]["value"], "plain text");
 
