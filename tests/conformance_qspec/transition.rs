@@ -4,6 +4,7 @@
 //! TC-064: the published QSpec transition is read through the public typed carrier.
 
 use super::*;
+use quire_canonical::Limits;
 use quire_contract_model::{
     encode_checked_package_v2, ApplicationOperator, CheckedNodeId, CheckedTerm,
 };
@@ -1033,7 +1034,7 @@ fn anchor_refusal_precedes_transition_and_state_refusal_precedes_operation_catal
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingName));
     assert!(
-        refusal
+        refusal.loci[0]
             .path
             .as_ref()
             .is_some_and(|path| path.to_string().starts_with("/semantic_graph/nodes/11")),
