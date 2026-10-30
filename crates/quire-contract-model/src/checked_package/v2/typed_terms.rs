@@ -1056,7 +1056,7 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("frame")?;
                 writer.name("modifies")?;
-                writer.serialize(modifies)?;
+                super::refinement::encode_rows(modifies, writer)?;
                 writer.name("creates")?;
                 super::refinement::encode_rows(creates, writer)?;
                 writer.name("deletes")?;
@@ -1072,11 +1072,11 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("abstraction_relation")?;
                 writer.name("objects")?;
-                writer.serialize(objects)?;
+                super::refinement::encode_rows(objects, writer)?;
                 writer.name("populations")?;
-                writer.serialize(populations)?;
+                super::refinement::encode_rows(populations, writer)?;
                 writer.name("frames")?;
-                writer.serialize(frames)?;
+                super::refinement::encode_rows(frames, writer)?;
             }
             Self::Refinement {
                 abstract_key,
@@ -1243,7 +1243,7 @@ fn node_id_value(id: &CheckedNodeId) -> Value {
 }
 
 /// One frame write grant.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedFrameModification {
     /// A relationship declaration.
@@ -1286,7 +1286,7 @@ pub enum CheckedScopedDeletion {
 }
 
 /// One abstraction object mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionObject {
     /// Model type node.
@@ -1311,7 +1311,7 @@ pub struct CheckedAbstractionField {
 }
 
 /// One abstraction population mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionPopulation {
     /// Population node.
@@ -1321,7 +1321,7 @@ pub struct CheckedAbstractionPopulation {
 }
 
 /// One abstraction frame mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionFrame {
     /// Context node.
@@ -1345,6 +1345,76 @@ pub struct CheckedAbstractionParameter {
     /// Rust parameter.
     #[serde(rename = "rust_parameter")]
     pub parameter_ident: Box<str>,
+}
+
+impl Encode for CheckedFrameModification {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        match self {
+            Self::Relationship { declaration } => {
+                writer.name("kind")?;
+                writer.string("relationship")?;
+                writer.name("declaration")?;
+                declaration.encode_into(writer)?;
+            }
+            Self::Field {
+                declaration,
+                name,
+                scope,
+            } => {
+                writer.name("kind")?;
+                writer.string("field")?;
+                writer.name("declaration")?;
+                declaration.encode_into(writer)?;
+                writer.name("name")?;
+                writer.serialize(name)?;
+                writer.name("scope")?;
+                writer.serialize(scope)?;
+            }
+        }
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedAbstractionObject {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("type")?;
+        self.type_id.encode_into(writer)?;
+        writer.name("rust_type")?;
+        writer.serialize(&self.type_path)?;
+        writer.name("fields")?;
+        writer.serialize(&self.fields)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedAbstractionPopulation {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("population")?;
+        self.population.encode_into(writer)?;
+        writer.name("collection")?;
+        writer.serialize(&self.collection)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedAbstractionFrame {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("context")?;
+        self.context.encode_into(writer)?;
+        writer.name("operation")?;
+        writer.serialize(&self.operation)?;
+        writer.name("function")?;
+        writer.serialize(&self.function)?;
+        writer.name("receiver")?;
+        writer.serialize(&self.receiver)?;
+        writer.name("parameters")?;
+        writer.serialize(&self.parameters)?;
+        writer.end_object()
+    }
 }
 
 #[cfg(test)]

@@ -1074,6 +1074,7 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
     let CheckedTerm::Refinement {
         populations,
         objects,
+        steps,
         histories,
         assume,
         ensure,
@@ -1179,8 +1180,12 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
                 RefinementGranularity::Whole => "whole",
             }
         }
-        fn key(row: &RefinementEnsure) -> (&str, &str, &str) {
-            (&row.operation, kind(row.kind), granularity(row.granularity))
+        fn key(row: &RefinementEnsure) -> (&CheckedNodeId, &str, &str) {
+            (
+                row.operation.node_id(),
+                kind(row.kind),
+                granularity(row.granularity),
+            )
         }
         if key(&pair[0]) >= key(&pair[1]) {
             return Err(order_defect(position, "ensure", index + 1));
