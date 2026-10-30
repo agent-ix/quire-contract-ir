@@ -13,8 +13,8 @@
 //! use fixture-authored structural paths independent of body content.
 
 use crate::support::checked_package::{
-    canonical, evidence_with_document, node_id, nominal_package, rebuild_source_map,
-    refresh_identity, select_model, settle, typed_node_id, INTEGER_KEY,
+    canonical, evidence_with_document, node_id as fixture_node_id, nominal_package,
+    rebuild_source_map, refresh_identity, select_model, settle, structural_id, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -39,6 +39,33 @@ const BOTH: &str = "ix://acme/config/Both";
 const NATIVE_INTEGER: &str = "ix://quire/native/Integer";
 const POPULATION_A: &str = "ix://acme/config/PopulationA";
 const POPULATION_B: &str = "ix://acme/config/PopulationB";
+
+/// Model-owned fixtures use the current declaration key, including the
+/// selected package and the declared model form. Other fixture keys remain
+/// local to the synthetic checked package.
+fn node_id(label: &str) -> Value {
+    for identity in [IDENTITY, OTHER_IDENTITY] {
+        if let Some(declared) = label.strip_prefix(&format!("model/{identity}/")) {
+            return structural_id(
+                identity,
+                vec![json!("model"), json!("object_type"), json!(declared)],
+                0,
+            );
+        }
+    }
+    if let Some(declared) = label.strip_prefix("population/") {
+        return structural_id(
+            IDENTITY,
+            vec![json!("relation"), json!("population"), json!(declared)],
+            0,
+        );
+    }
+    fixture_node_id(label)
+}
+
+fn typed_node_id(label: &str) -> CheckedNodeId {
+    serde_json::from_value(node_id(label)).expect("structural fixture node id")
+}
 
 /// The derived key of the anonymous `Integer` node (FR-038-AC-134).
 const INTEGER: &str = INTEGER_KEY;
@@ -290,6 +317,19 @@ fn nodes(package: &Value) -> &[Value] {
 
 fn id_label(id: &Value) -> String {
     let path = id["path"].as_array().expect("structural path");
+    if path.len() == 3 && path[0] == "model" && path[1] == "object_type" {
+        return format!(
+            "model/{}/{}",
+            id["package"].as_str().expect("model package"),
+            path[2].as_str().expect("model declaration")
+        );
+    }
+    if path.len() == 3 && path[0] == "relation" && path[1] == "population" {
+        return format!(
+            "population/{}",
+            path[2].as_str().expect("population declaration")
+        );
+    }
     let parts = path
         .iter()
         .map(|part| part.as_str().expect("path segment"))
