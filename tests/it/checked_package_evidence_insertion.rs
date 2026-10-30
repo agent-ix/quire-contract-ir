@@ -9,7 +9,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    read_checked_package, CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageEvidenceInsertionError, CheckedPackageReadLimits, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
@@ -119,6 +119,19 @@ fn expect_refused(
 fn named_fixture(mut package: Value, name: &str) -> Value {
     package["name"] = json!(name);
     refresh_identity(&mut package);
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("fixture graph")
+    {
+        let mut dependencies = node["dependencies"]
+            .as_array()
+            .expect("fixture dependencies")
+            .iter()
+            .map(|id| serde_json::from_value::<CheckedNodeId>(id.clone()).expect("structural id"))
+            .collect::<Vec<_>>();
+        dependencies.sort();
+        node["dependencies"] = serde_json::to_value(dependencies).expect("dependencies");
+    }
     package
 }
 
