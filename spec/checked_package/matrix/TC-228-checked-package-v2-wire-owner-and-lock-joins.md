@@ -27,7 +27,7 @@ fixtures from its selected checkout; copy no fixture into this repository.
    `version` member, and an owner on an anonymous, nominal or application
    node. Repeat an omitted-owner mutation while an occurrence and the source
    map still name the source unit. Apply the current QSpec adverse owner mutations to fresh positive packages. Keep each authored structural id unchanged and compare owner joins directly. Check exact code,
-   cause and RFC 6901 pointer before the owner join or a key check can run.
+   cause and RFC 6901 pointer before the owner join.
 3. Set a source owner pair and a model owner identity to values absent from
    their respective lock selections. Put two unmatched owners in inverse wire and structural node-id order, and assert the reported node. Repeat with both source
    pairs selected but with a declared node's source-map region changed to the
@@ -40,7 +40,9 @@ fixtures from its selected checkout; copy no fixture into this repository.
    `interfaceFeatures`. Retain well-formed structural ids so a malformed graph id cannot mask the owner join.
    Give an unreachable clause function an absent operation member, then a
    field as its owner node; as positive controls, use an operation member's
-   clause and an object type's invariant. Place a duplicate structural id on a lower-id node beside an invalid owner, and measure the exact work limit around one
+   clause and an object type's invariant. In a separate combined-defect package,
+   repeat an earlier node's structural id on a later node beside an invalid owner;
+   require the duplicate-id graph refusal first. Measure the exact work limit around one
    selected-document lookup.
 
 ## Expected Results
@@ -51,8 +53,10 @@ forbidden owners refuse `malformed_wire` at the object lacking the member or
 at the present `owner`; no occurrence repairs the omission. An added top-level identity projection refuses `unknown_member` at that member; owner mutations without it reach their exact source or model join.
 Unmatched source owners and unresolved or wrong-kind model owners, including
 both `interfaceFeatures` cross-kind mutations, refuse
-`missing_declaration`/`missing-selection` at the lowest-key offending node,
-even when it is unreachable and another lower-id node has a duplicate id. A
+`missing_declaration`/`missing-selection` at the lowest-structural-id offending node,
+even when it is unreachable. When a duplicate structural id and an invalid owner
+are present together, graph-shape validation refuses `invalid_semantic_graph`
+at the later duplicate node before the owner join. A
 declaration occurrence whose source differs from its owner refuses
 `invalid_package`/`invalid-value` at its source-map entry. The operation
 clause and invariant owners pass. One document lookup consumes one validation

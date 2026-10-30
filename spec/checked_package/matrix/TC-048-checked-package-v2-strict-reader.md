@@ -1389,8 +1389,7 @@ vector or schema is copied into this repository.
     single source defaults `sc`, `tso` and `ra`. Require a node-free, binder-free
     `memory drain` entry with `drain: store-buffer-flush` for each default;
     require `memory flush` with `memory_model: tso` only for `tso`. Keep the
-    memory class when no refinement step row names it. In separate separate structurally valid
-    packages, omit a required memory class, add `memory flush` under `sc` or
+    memory class when no refinement step row names it. In separate packages with valid structural ids, omit a required memory class, add `memory flush` under `sc` or
     `ra`, change the drain model or drain member, and duplicate or reorder a
     memory entry. Compare the exact QSpec FR-375 code, cause and catalog
     pointer, including earlier refinement canonical-order refusal for
@@ -1414,7 +1413,7 @@ vector or schema is copied into this repository.
     Require `activate <protocol>` to name the clause node on the concrete
     side and its clause `RefinementKey` on the abstract side, with `[T]` for
     non-record `T` and one binder type per effective record field. A clause
-    activated `on origin` contributes no activate entry. In separate structurally valid packages, substitute the trigger node substituted for the clause, another clause node,
+    activated `on origin` contributes no activate entry. In separate packages with valid structural ids, substitute the trigger node or another clause node for the selected clause,
     a wrong binder type, reversed binder order, a missing activate entry
     and an extra origin entry. Require respectively
     `invalid_model_binding`/`malformed-declaration` at the entry for the
@@ -2363,14 +2362,14 @@ independent mutations that keep its first out-of-order pair. First replace
 the timed root's required `occurrences` array with text and require
 `malformed_wire` at `/semantic_graph/nodes/{i}/occurrences` before any
 graph or order check. Second remove one still-referenced root dependency,
-keep the rest of the complete package valid and require
+keep all unrelated package members valid and require
 `invalid_semantic_graph` with null cause at
 `/semantic_graph/nodes/{i}/dependencies` before timed-body checks.
 Third duplicate the root's structural id on a later graph node while preserving
 the root's order defect and require `invalid_semantic_graph` at the later node
 before timed order. With distinct valid ids, retain the matching root source-map
-reference and assert the published timed-order refusal. Verify each unmodified AO patch still reaches its
-published order refusal after the three precedence probes.
+reference and assert the published timed-order refusal. Verify each unmodified AO patch still reaches its published order refusal
+after the three precedence probes.
 
 For AC-357, inspect each admitted form and exact binding order in `CL-01`.
 Assert `CL-17`..`CL-20`, `CL-27` and `CL-28` refuse at strict wire validation

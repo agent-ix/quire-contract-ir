@@ -56,8 +56,8 @@ entry-member order where FR-375 fixes no further tie-break. Retain structural id
 For FR-061-AC-3 and AC-7, construct IR-owned wire packages with two selected
 concrete models, each with its own canonical `model_root`, while retaining one
 abstract root and profile. Retain the complete structural ids while replacing only `semantic_type`. Admit the row-empty model-subject swap
-as a distinct node, and admit the protocol-subject swap only when it has no
-concrete key and the new identity derives the same class set, including two
+in a separately read package, and admit the protocol-subject swap only when it has no
+concrete key and the newly selected model supplies the same class set, including two
 empty sets. Separately refuse an absent protocol catalog at
 `/body/class_catalog`; a foreign `populations[0].concrete` before foreign
 object and step keys as `invalid_model_binding`/`malformed-declaration` at
@@ -107,8 +107,7 @@ to the new index without an order refusal. Finally use a separate valid
 protocol refinement with a present catalog; change its row class to one
 absent from the concrete catalog, then restore the class and change its
 `source_node` away from the matching catalog entry. Confirm the existing
-missing-class and wrong-node refusals. Retain all structural ids and update exact bodies.
-structural ids and complete bodies after each mutation except the intentional duplicate-id precedence control.
+missing-class and wrong-node refusals. Retain all structural ids and update exact bodies after each mutation, except for the intentional duplicate-id precedence control.
 
 ## Expected Results
 
