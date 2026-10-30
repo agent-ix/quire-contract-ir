@@ -577,23 +577,6 @@ impl DeclarationForm {
     }
 }
 
-/// The assigned structural identity of one selected model declaration.
-pub(super) fn declaration_node_id(
-    identity: &str,
-    form: DeclarationForm,
-    node: &str,
-) -> CheckedNodeId {
-    CheckedNodeId {
-        package: identity.into(),
-        path: vec![
-            CheckedNodePathSegment::Name(form.tag().into()),
-            CheckedNodePathSegment::Name(form.form().into()),
-            CheckedNodePathSegment::Name(node.into()),
-        ],
-        ordinal: 0,
-    }
-}
-
 /// The `ModelDeclarationNode` key of one declaration: the JCS SHA-256 of
 /// `node-identity-preimage.schema.json`'s closed preimage, computed by
 /// `quire-canonical` under `bytes`, the reader's byte limit.
@@ -1747,7 +1730,7 @@ pub(super) struct ModelOperationClass {
 /// Every selected declaration's model declaration node key.
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
-    by_key: BTreeMap<String, Owner<'m>>,
+    by_key: BTreeMap<CheckedNodeId, Owner<'m>>,
     /// The identity of every selected domain package.
     identities: BTreeSet<&'m str>,
 }
@@ -1773,7 +1756,7 @@ impl<'m> ModelOwners<'m> {
     }
 
     pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
-        self.by_key.get(key.digest.as_ref()).copied()
+        self.by_key.get(key).copied()
     }
 
     /// Effective operation names, declaration nodes and checked binder records
@@ -1784,7 +1767,7 @@ impl<'m> ModelOwners<'m> {
         meter: &mut super::WorkMeter,
     ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
         let mut classes = Vec::new();
-        for (digest, owner) in &self.by_key {
+        for (id, owner) in &self.by_key {
             if owner.package.identity.as_ref() != identity
                 || !matches!(
                     owner.form,
@@ -1808,10 +1791,7 @@ impl<'m> ModelOwners<'m> {
                 classes.push(ModelOperationClass {
                     object: member_name(owner.node).into(),
                     operation: name,
-                    node: CheckedNodeId {
-                        domain: NODE_DOMAIN.into(),
-                        digest: digest.clone().into(),
-                    },
+                    node: id.clone(),
                     binder_types: binder,
                 });
             }
@@ -1822,7 +1802,7 @@ impl<'m> ModelOwners<'m> {
         &self,
         key: &crate::checked_package::shared::CheckedNodeId,
     ) -> Option<BTreeSet<Box<str>>> {
-        let owner = self.by_key.get(key.digest.as_ref())?;
+        let owner = self.by_key.get(key)?;
         if owner.form != DeclarationForm::ObjectType {
             return None;
         }
@@ -1830,12 +1810,22 @@ impl<'m> ModelOwners<'m> {
     }
     /// Recomputes the key of every selected model declaration
     /// of each admitted document; `charge` is called once per key.
-    pub(super) fn new(
+    pub(super) fn new<Body>(
         models: &'m [DomainModel],
+        nodes: &[CheckedSemanticNodeV2<Body>],
         mut charge: impl FnMut(usize) -> Result<(), ValidationFailure>,
     ) -> Result<Self, ValidationFailure> {
         let mut by_key = BTreeMap::new();
         let mut identities = BTreeSet::new();
+        let mut authored = BTreeMap::<(&str, &str), Vec<&CheckedSemanticNodeV2<Body>>>::new();
+        for candidate in nodes {
+            if let Some(CheckedNodeOwner::Model { identity, node }) = &candidate.owner {
+                authored
+                    .entry((identity.as_ref(), node.as_ref()))
+                    .or_default()
+                    .push(candidate);
+            }
+        }
         for (index, package) in models.iter().enumerate() {
             identities.insert(package.identity.as_ref());
             let objects = package.object_types.iter().map(|(node, declared)| {
@@ -1884,26 +1874,24 @@ impl<'m> ModelOwners<'m> {
                 .chain(persistence_interfaces)
             {
                 charge(package.root)?;
-                // A key the encoder refuses (a preimage past the byte limit)
-                // refuses the read as `invalid_semantic_graph` at the
-                // selection row the declaration belongs to.
-                let key = declaration_key(&package.identity, form, node, package.bytes).map_err(
-                    |_| {
-                        ValidationFailure::refused(
-                            CheckedPackageRefusalCode::InvalidSemanticGraph,
-                            crate::checked_package::common::node_pointer(package.root).key("owner"),
-                        )
-                    },
-                )?;
-                by_key.insert(
-                    key,
-                    Owner {
-                        package,
-                        form,
-                        node,
-                        selection: index,
-                    },
-                );
+                if let Some(candidates) = authored.get(&(package.identity.as_ref(), node.as_ref()))
+                {
+                    for candidate in candidates {
+                        if candidate.node_tag.as_ref() == form.tag()
+                            && candidate.semantic_form.as_ref() == form.form()
+                        {
+                            by_key.insert(
+                                candidate.node_id.clone(),
+                                Owner {
+                                    package,
+                                    form,
+                                    node,
+                                    selection: index,
+                                },
+                            );
+                        }
+                    }
+                }
             }
         }
         Ok(Self { by_key, identities })
@@ -1918,8 +1906,7 @@ impl<'m> ModelOwners<'m> {
         tag: CheckedNodeTag,
     ) -> bool {
         matches!(tag, CheckedNodeTag::Model | CheckedNodeTag::Relation)
-            && (node.declaration.is_none()
-                || self.by_key.contains_key(node.node_id.digest.as_ref()))
+            && (node.declaration.is_none() || self.by_key.contains_key(&node.node_id))
     }
 
     /// FR-322 step 2 over one wire node.
@@ -1929,7 +1916,7 @@ impl<'m> ModelOwners<'m> {
     ) -> Result<Owner<'m>, ModelRefusal> {
         let owner = self
             .by_key
-            .get(node.node_id.digest.as_ref())
+            .get(&node.node_id)
             .copied()
             .ok_or_else(ModelRefusal::unselected)?;
         check_declaration_node(owner.form, node, node.body.is_empty_aggregate())?;
@@ -1938,7 +1925,7 @@ impl<'m> ModelOwners<'m> {
 
     /// Implements: FR-347. the record value type whose model declaration node key is
     /// `key`, `None` when `key` names no selected record.
-    pub(super) fn record_by_key(&self, key: &str) -> Option<Owner<'m>> {
+    pub(super) fn record_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
         self.by_key
             .get(key)
             .copied()
@@ -1984,7 +1971,15 @@ pub(super) fn check_declaration_node<Body>(
     let exact_owner_id = matches!(
         &node.owner,
         Some(CheckedNodeOwner::Model { identity, node: declaration })
-            if node.node_id == declaration_node_id(identity, form, declaration)
+            if node.node_id.package.as_ref() == identity.as_ref()
+                && node.node_id.ordinal == 0
+                && matches!(node.node_id.path.as_slice(),
+                    [CheckedNodePathSegment::Name(tag),
+                     CheckedNodePathSegment::Name(semantic_form),
+                     CheckedNodePathSegment::Name(path)]
+                        if tag.as_ref() == form.tag()
+                            && semantic_form.as_ref() == form.form()
+                            && path.as_ref() == declaration.as_ref())
     );
     let fixed = exact_owner_id
         && node.semantic_type == node.node_id
