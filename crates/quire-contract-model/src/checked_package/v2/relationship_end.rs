@@ -2,14 +2,13 @@
 
 use super::model_members::SelectedEnds;
 use super::{CheckedNodeId, CheckedPackageV2};
-use crate::checked_package::common::NODE_DOMAIN;
 use serde_json::Value;
 use thiserror::Error;
 
 /// The relationship end a reaches application names, as the reader resolved it.
 ///
-/// `destination_type` is the model declaration node the reader derived for the
-/// declared end type; the graph need not hold that node.
+/// `destination_type` is the structural ID supplied by the admitted operation
+/// member; the graph need not hold that node.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedRelationshipEnd {
     /// The reaches application node that was read.
@@ -18,7 +17,7 @@ pub struct CheckedRelationshipEnd {
     pub relationship: CheckedNodeId,
     /// The destination end's authored role; `None` when it carries none.
     pub role: Option<Box<str>>,
-    /// The derived model declaration node of the destination end's type.
+    /// The supplied structural ID of the destination end's type.
     pub destination_type: CheckedNodeId,
     /// The destination end's declared lower bound.
     pub lower: u64,
@@ -93,9 +92,13 @@ impl CheckedPackageV2 {
         if member.get("kind").and_then(Value::as_str) != Some("relationship_end") {
             return Err(Error::UnresolvedEnd);
         }
-        let relationship: CheckedNodeId = member
+        let relationship = member
             .get("declaration")
-            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .and_then(CheckedNodeId::from_value)
+            .ok_or(Error::UnresolvedEnd)?;
+        let destination_type = member
+            .get("destination_type")
+            .and_then(CheckedNodeId::from_value)
             .ok_or(Error::UnresolvedEnd)?;
         let name = member
             .get("name")
@@ -115,17 +118,11 @@ impl CheckedPackageV2 {
             .declaration
             .select_ends(name)
             .map_err(|_| Error::UnresolvedEnd)?;
-        let digest = retained
-            .destination_key(forward)
-            .ok_or(Error::UnresolvedEnd)?;
         Ok(CheckedRelationshipEnd {
             application: application.clone(),
             relationship,
             role: destination.role.clone(),
-            destination_type: CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: digest.into(),
-            },
+            destination_type,
             lower: destination.multiplicity.lower,
             upper: destination.multiplicity.upper,
             ordered: destination.multiplicity.ordered,
