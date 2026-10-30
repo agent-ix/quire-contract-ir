@@ -516,7 +516,7 @@ fn boolean_rooted_bare_record_read(package: &mut Value, binder: &Value) -> (Valu
 fn assert_protocol_refusal_at(refusal: &CheckedPackageRefusal, package: &Value, position: usize) {
     let expected_path = format!("/semantic_graph/nodes/{position}");
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(expected_path.as_str())
     );
     let expected_locus = checked_node_id(&package["semantic_graph"]["nodes"][position]["node_id"]);
@@ -2077,7 +2077,7 @@ fn terminal_each_refuses_capture_and_activation_binder_but_origin_reads_capture(
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
         assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{terminal}").as_str())
         );
         assert_eq!(
@@ -2339,7 +2339,7 @@ fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
-        refusal.path.as_ref().map(|p| p.as_str()),
+        refusal.loci[0].path.as_ref().map(|p| p.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
     );
 
@@ -2356,7 +2356,7 @@ fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|p| p.as_str()),
+        refusal.loci[0].path.as_ref().map(|p| p.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
     );
 }
@@ -2381,7 +2381,7 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|p| p.as_str()),
+        refusal.loci[0].path.as_ref().map(|p| p.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
     );
 
@@ -2405,7 +2405,7 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
             CheckedPackageRefusalCode::InvalidSemanticGraph
         );
         assert_eq!(
-            refusal.path.as_ref().map(|p| p.as_str()),
+            refusal.loci[0].path.as_ref().map(|p| p.as_str()),
             Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
         );
     }
@@ -2423,7 +2423,7 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|p| p.as_str()),
+        refusal.loci[0].path.as_ref().map(|p| p.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
     );
 }
@@ -2472,7 +2472,7 @@ fn protocol_owner_or_extra_dependency_precedes_stale_key() {
             "omit_owner={omit_owner}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
         );
     }
@@ -2496,7 +2496,7 @@ fn protocol_owner_or_extra_dependency_precedes_stale_key() {
     );
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
     );
 }
@@ -2529,7 +2529,7 @@ fn protocol_owner_retarget_with_retained_key_refuses_before_target_meaning() {
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|p| p.as_str()),
+        refusal.loci[0].path.as_ref().map(|p| p.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
     );
 }
@@ -2565,7 +2565,7 @@ fn protocol_owner_retarget_to_selected_non_object_model_refuses() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
     );
 }
@@ -2653,7 +2653,7 @@ fn protocol_owner_selected_state_machine_and_record_value_type_refuse_at_edge() 
             "{label}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str()),
             "{label}"
         );
@@ -2701,7 +2701,7 @@ fn protocol_owner_unselected_object_refuses_at_target_before_clause() {
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{unselected_position}/node_id").as_str())
     );
     assert_eq!(
@@ -2751,7 +2751,7 @@ fn protocol_owner_selected_wrong_kinds_and_missing_target_refuse_at_edge() {
         assert_eq!(refusal.code, code, "{label}");
         assert_eq!(refusal.cause, Some(cause), "{label}");
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str()),
             "{label}"
         );
@@ -2781,7 +2781,7 @@ fn protocol_owner_wrong_kind_precedes_same_clause_capture_scope() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str())
     );
 }
@@ -2806,7 +2806,7 @@ fn protocol_role_member_defect_precedes_wrong_clause_owner() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{role}/body/arguments/0/value/target").as_str())
     );
 }
@@ -6820,7 +6820,7 @@ fn compensation_refuses_a_commit_taken_before_its_forward_effect() {
         Some(CheckedPackageRefusalCause::DeclarationForm)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{commit}"))
     );
     assert_eq!(
@@ -8790,7 +8790,7 @@ fn repeat_body_without_necessary_step_refuses_after_local_checks() {
         Some(CheckedPackageRefusalCause::DeclarationForm)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{holder}"))
     );
     assert_eq!(
@@ -8950,7 +8950,7 @@ fn nested_repeat_guard_and_maximum_determine_outer_progress() {
         Some(CheckedPackageRefusalCause::DeclarationForm)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{outer}"))
     );
     assert!(matches!(
@@ -9009,7 +9009,7 @@ fn nested_repeat_guard_and_maximum_determine_outer_progress() {
         CheckedPackageRefusalCode::UnsupportedConstruct
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{outer}"))
     );
 }
@@ -9072,7 +9072,7 @@ fn nested_repeat_exhausted_step_cannot_supply_outer_progress() {
         Some(CheckedPackageRefusalCause::DeclarationForm)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{outer}"))
     );
 }
@@ -9151,7 +9151,7 @@ fn nested_repeat_keeps_visible_composites_and_ordered_equalities_as_atoms() {
         CheckedPackageRefusalCode::UnsupportedConstruct
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{outer}"))
     );
 
@@ -9200,7 +9200,7 @@ fn nested_repeat_keeps_visible_composites_and_ordered_equalities_as_atoms() {
         CheckedPackageRefusalCode::UnsupportedConstruct
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{outer}"))
     );
 }
@@ -9228,7 +9228,7 @@ fn nested_repeat_stops_at_first_false_two_atom_valuation() {
         Some(CheckedPackageRefusalCause::DeclarationForm)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{outer}"))
     );
 }
@@ -9267,7 +9267,7 @@ fn nested_repeat_valuation_charges_and_denial_precede_progress() {
     assert!(
         matches!(read_at_work(&package, first_decision), CheckedPackageV2ReadResult::Refused(ref refusal)
         if refusal.code == CheckedPackageRefusalCode::UnsupportedConstruct
-            && refusal.path.as_ref().is_some_and(|path| path.as_str() == format!("/semantic_graph/nodes/{outer}")))
+            && refusal.loci[0].path.as_ref().is_some_and(|path| path.as_str() == format!("/semantic_graph/nodes/{outer}")))
     );
     assert!(longest_nested_work_charge_run(&package, nested, first_decision).len() < 4);
     set_nested_guard(&mut package, nested, &tautology, &[]);
@@ -9281,7 +9281,7 @@ fn nested_repeat_valuation_charges_and_denial_precede_progress() {
     assert_eq!(denied.limit, v - 1);
     assert_eq!(denied.consumed, v);
     assert_eq!(
-        denied.path.as_ref().map(ToString::to_string),
+        denied.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{nested}"))
     );
     let CheckedPackageV2ReadResult::Incomplete(later) = read_at_work(&package, v) else {
@@ -9291,7 +9291,7 @@ fn nested_repeat_valuation_charges_and_denial_precede_progress() {
     assert_eq!(later.limit, v);
     assert_eq!(later.consumed, v + 1);
     assert_eq!(
-        later.path.as_ref().map(ToString::to_string),
+        later.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{later_control}"))
     );
     let t = decision_work(&package);
@@ -9355,13 +9355,13 @@ fn nested_repeat_valuation_charges_and_denial_precede_progress() {
     assert_eq!(zero_denied.limit_kind, CheckedPackageLimit::Work);
     assert_eq!(zero_denied.consumed, zero_run[0] + 1);
     assert_eq!(
-        zero_denied.path.as_ref().map(ToString::to_string),
+        zero_denied.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{nested}"))
     );
     assert!(
         matches!(read_at_work(&package, zero_decision), CheckedPackageV2ReadResult::Refused(ref refusal)
         if refusal.code == CheckedPackageRefusalCode::UnsupportedConstruct
-            && refusal.path.as_ref().is_some_and(|path| path.as_str() == format!("/semantic_graph/nodes/{outer}")))
+            && refusal.loci[0].path.as_ref().is_some_and(|path| path.as_str() == format!("/semantic_graph/nodes/{outer}")))
     );
 }
 
@@ -9444,7 +9444,7 @@ fn nested_repeat_causal_cycle_precedes_valuation_and_progress() {
         "{refusal:?}"
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{outer}"))
     );
     let nested_path = format!("/semantic_graph/nodes/{nested}");
@@ -9596,7 +9596,7 @@ fn nested_repeat_sequence_and_parallel_supply_step_but_choice_requires_each_case
         CheckedPackageRefusalCode::UnsupportedConstruct
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{outer}"))
     );
 }

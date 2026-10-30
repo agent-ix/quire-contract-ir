@@ -317,7 +317,7 @@ fn selected_process_machine_and_persistence_require_complete_meaning_declaration
             "{name}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(root_owner_path(&package, MODEL_IDENTITY).as_str()),
             "{name}"
         );
@@ -357,7 +357,7 @@ fn selected_process_machine_and_persistence_require_complete_meaning_declaration
             "{name}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(root_owner_path(&package, MODEL_IDENTITY).as_str()),
             "{name}"
         );
@@ -504,7 +504,7 @@ fn selected_form_owner_join_refuses_wrong_meaning_absence_and_missing_owner() {
                 "{form} {label}"
             );
             assert_eq!(
-                refusal.path.as_ref().map(|path| path.as_str()),
+                refusal.loci[0].path.as_ref().map(|path| path.as_str()),
                 Some(format!("/semantic_graph/nodes/{position}/node_id").as_str()),
                 "{form} {label}"
             );
@@ -665,7 +665,7 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
             "{form}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str()),
             "{form}"
         );
@@ -726,7 +726,7 @@ fn invalid_value_at(result: CheckedPackageV2ReadResult, pointer: &str) {
         Some(CheckedPackageRefusalCause::InvalidValue)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(pointer)
     );
 }
@@ -1743,7 +1743,10 @@ fn assert_step_refusal(
     assert_eq!(refusal.code, code, "{refusal:?}");
     assert_eq!(refusal.cause, cause, "{refusal:?}");
     assert_eq!(
-        refusal.path.as_ref().map(|pointer| pointer.as_str()),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(|pointer| pointer.as_str()),
         Some(path),
         "expected {path}: {refusal:?}"
     );
@@ -1769,7 +1772,10 @@ fn assert_concrete_row_binding(
         "{refusal:?}"
     );
     assert_eq!(
-        refusal.path.as_ref().map(|pointer| pointer.as_str()),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(|pointer| pointer.as_str()),
         Some(path),
         "{refusal:?}"
     );
@@ -3863,7 +3869,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
     );
 
@@ -3880,7 +3886,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
     );
 
@@ -3899,7 +3905,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
     );
 
@@ -3913,7 +3919,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
     );
 
@@ -3948,7 +3954,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(
             format!("/semantic_graph/nodes/{origin_position}/body/class_catalog/concrete/1")
                 .as_str()
@@ -4029,7 +4035,7 @@ fn refinement_catalog_activate_record_follows_authored_inherited_field_order() {
             Some(CheckedPackageRefusalCause::MalformedDeclaration)
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(
                 format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str()
             )
@@ -4186,7 +4192,7 @@ fn refinement_catalog_activate_ambiguous_record_refuses_at_binder_types() {
         Some(CheckedPackageRefusalCause::AmbiguousName)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(
             format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1/binder_types")
                 .as_str()
@@ -4681,7 +4687,7 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/3").as_str())
     );
 
@@ -4698,7 +4704,7 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
     );
 }
@@ -4792,7 +4798,7 @@ fn memory_drain_wire_and_catalog_order_refuse_at_their_stage() {
             "{label}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("{path}/{index}{suffix}").as_str()),
             "{label}"
         );
@@ -4823,7 +4829,7 @@ fn memory_drain_wire_and_catalog_order_refuse_at_their_stage() {
             "{label}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("{path}/{expected_index}").as_str()),
             "{label}"
         );
@@ -4852,7 +4858,7 @@ fn memory_catalog_completeness_identity_and_dependency_precedence() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
     );
     let entries = base["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
@@ -4881,7 +4887,7 @@ fn memory_catalog_completeness_identity_and_dependency_precedence() {
             CheckedPackageRefusalCode::InvalidSemanticGraph
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(path.as_str())
         );
     }
@@ -4897,7 +4903,7 @@ fn memory_catalog_completeness_identity_and_dependency_precedence() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract/0").as_str())
     );
     let mut changed = base.clone();
@@ -4915,7 +4921,7 @@ fn memory_catalog_completeness_identity_and_dependency_precedence() {
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
     );
     rekey_refinement(&mut changed, position);
@@ -4951,7 +4957,7 @@ fn memory_catalog_completeness_identity_and_dependency_precedence() {
             "{label}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str()),
             "{label}"
         );
@@ -5198,7 +5204,7 @@ fn refinement_class_catalog_entries_are_closed() {
         };
         assert_eq!(refusal.code, code);
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(
                 format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/0{member}")
                     .as_str()
@@ -5229,7 +5235,7 @@ fn refinement_open_argument_has_one_closed_spelling() {
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{refinement}/node_id").as_str())
     );
 
@@ -5244,7 +5250,7 @@ fn refinement_open_argument_has_one_closed_spelling() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(
             format!("/semantic_graph/nodes/{refinement}/body/steps/0/target/arguments/0").as_str()
         )
@@ -5273,7 +5279,7 @@ fn refinement_class_catalog_is_in_dedicated_refinement_key() {
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
     );
 }
@@ -5297,7 +5303,7 @@ fn refinement_step_regions_bind_generated_occurrences_before_row_join() {
         .len()
         - 1;
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog").as_str())
     );
     let bytes = writer_bytes(&package);
@@ -5841,7 +5847,7 @@ fn refinement_headers_require_selected_roots_not_state_machine_declarations() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/semantic_type").as_str())
     );
 
@@ -5858,7 +5864,7 @@ fn refinement_headers_require_selected_roots_not_state_machine_declarations() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/abstract").as_str())
     );
 }
@@ -5917,7 +5923,7 @@ fn refinement_external_abstract_resolves_only_the_directly_selected_package_root
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/abstract").as_str())
     );
 
@@ -5933,7 +5939,7 @@ fn refinement_external_abstract_resolves_only_the_directly_selected_package_root
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/abstract/package").as_str())
     );
 }
@@ -5959,7 +5965,7 @@ fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(catalog_at.as_str())
     );
 
@@ -5976,7 +5982,7 @@ fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
     assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{refinement}/body/steps/0/source_class").as_str())
     );
 
@@ -6005,7 +6011,7 @@ fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/steps/0/source_node").as_str())
     );
 
@@ -6032,7 +6038,7 @@ fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
         "{refusal:?}"
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
     );
 }
@@ -6171,7 +6177,10 @@ fn refinement_step_defect_precedes_wrong_protocol_clause_owner() {
         CheckedPackageRefusalCode::InvalidModelBinding
     );
     assert_eq!(
-        wrong_owner_refusal.path.as_ref().map(|path| path.as_str()),
+        wrong_owner_refusal.loci[0]
+            .path
+            .as_ref()
+            .map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str())
     );
 
@@ -6189,7 +6198,7 @@ fn refinement_step_defect_precedes_wrong_protocol_clause_owner() {
     );
     assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{refinement}/body/steps/0/source_class").as_str())
     );
 }
@@ -6213,7 +6222,7 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(catalog_at.as_str())
     );
 
@@ -6240,7 +6249,7 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
     );
 
@@ -6256,7 +6265,7 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/steps/0/source_node").as_str())
     );
 }
@@ -6383,7 +6392,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
     );
 
@@ -6416,7 +6425,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/0").as_str())
     );
 
@@ -6450,7 +6459,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/0").as_str())
     );
 }
@@ -6527,7 +6536,7 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
     );
 
@@ -6541,7 +6550,7 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
     );
 
@@ -6565,7 +6574,7 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
     );
 
@@ -6578,7 +6587,7 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
     );
 
@@ -6595,7 +6604,7 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
     );
 }
@@ -6655,7 +6664,7 @@ fn refinement_catalog_reconstructs_abstract_model_operations_without_protocol() 
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/abstract").as_str())
     );
 
@@ -6676,7 +6685,7 @@ fn refinement_catalog_reconstructs_abstract_model_operations_without_protocol() 
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/abstract/0").as_str())
     );
 }
@@ -6753,7 +6762,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
             CheckedPackageRefusalCode::InvalidSemanticGraph
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(
                 format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete").as_str()
             )
@@ -6771,7 +6780,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
             CheckedPackageRefusalCode::InvalidSemanticGraph
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(
                 format!(
                     "/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/{}",
@@ -6794,7 +6803,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
             Some(CheckedPackageRefusalCause::MalformedDeclaration)
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(
                 format!(
                     "/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/{class_index}"
@@ -6816,7 +6825,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
             Some(CheckedPackageRefusalCause::MalformedDeclaration)
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(
                 format!(
                     "/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/{class_index}"
@@ -6862,7 +6871,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete").as_str())
     );
 
@@ -6884,7 +6893,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/6").as_str())
     );
 
@@ -6915,7 +6924,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(
             format!("/semantic_graph/nodes/{no_template_position}/body/class_catalog/concrete/1")
                 .as_str()
@@ -7019,7 +7028,7 @@ fn refinement_catalog_rejects_cend_associated_with_another_template() {
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/7").as_str())
     );
 }
@@ -7112,7 +7121,7 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
             CheckedPackageRefusalCode::InvalidSemanticGraph
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(path.as_str()),
             "{wrong_class}"
         );
@@ -7128,7 +7137,7 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
     );
 
@@ -7173,7 +7182,7 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
     );
 }
@@ -7307,7 +7316,7 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
             CheckedPackageRefusalCode::InvalidSemanticGraph
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(
                 if substituted.starts_with("fork ") {
                     format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete")
@@ -7432,7 +7441,7 @@ fn refinement_catalog_assigns_nested_members_only_to_inner_clause() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
     );
 }
@@ -7611,7 +7620,7 @@ fn refinement_catalog_uses_channel_carries_for_send_binder() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(
             format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/{send_index}")
                 .as_str()
@@ -7672,7 +7681,7 @@ fn refinement_catalog_joins_selected_abstract_clause_and_binder() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract/0").as_str())
     );
 }
@@ -7769,7 +7778,7 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract/0").as_str())
     );
 }
@@ -7877,7 +7886,7 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
     );
 }

@@ -348,7 +348,7 @@ fn dependent_compound_unit_references_wait_for_target_key() {
     // STD-536 will settle the nominal-stage code, cause and locus. The
     // dependent compound-body refusal must not mask the root node's key.
     assert_eq!(
-        root_refusal.path.as_ref().map(ToString::to_string),
+        root_refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{METRE}/node_id"))
     );
 
@@ -374,7 +374,7 @@ fn dependent_compound_unit_references_wait_for_target_key() {
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{INTEGER_NODE}/node_id"))
     );
     assert_eq!(refusal.locus, Some(id_of(&retained)));

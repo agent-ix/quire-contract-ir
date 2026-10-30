@@ -60,7 +60,11 @@ fn expect_refusal(
 ) {
     let refusal = refused(package);
     assert_eq!(refusal.code, code, "{refusal:?}");
-    assert_eq!(refusal.path, Some(pointer(path)), "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        Some(pointer(path)),
+        "{refusal:?}"
+    );
     assert_eq!(refusal.cause, cause, "{refusal:?}");
 }
 
@@ -106,7 +110,10 @@ fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
         stale_refusal.code,
         CheckedPackageRefusalCode::StaleDependency
     );
-    assert_eq!(stale_refusal.path, Some(pointer("/package_id/digest")));
+    assert_eq!(
+        stale_refusal.loci[0].path.clone(),
+        Some(pointer("/package_id/digest"))
+    );
     assert_eq!(
         stale_refusal.cause,
         Some(CheckedPackageRefusalCause::ContentMismatch)
@@ -163,13 +170,13 @@ fn tc_048_dependency_selection_shape_and_domain_refuse_at_the_entry() {
         CheckedPackageRefusalCode::DigestDomainMismatch
     );
     assert_eq!(
-        wrong_domain.path,
+        wrong_domain.loci[0].path.clone(),
         Some(pointer("/lock/dependency_selections/0/package_id/domain"))
     );
     let bare = refuse_with(&|e| e["package_id"] = json!(DIGEST_A));
     assert_eq!(bare.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
-        bare.path,
+        bare.loci[0].path.clone(),
         Some(pointer(
             "/identity_preimage/dependency_selections/0/package_id"
         ))
@@ -179,7 +186,7 @@ fn tc_048_dependency_selection_shape_and_domain_refuse_at_the_entry() {
     });
     assert_eq!(no_package_id.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
-        no_package_id.path,
+        no_package_id.loci[0].path.clone(),
         Some(pointer("/identity_preimage/dependency_selections/0"))
     );
     let empty_identity = refuse_with(&|e| e["identity"] = json!(""));
@@ -188,13 +195,13 @@ fn tc_048_dependency_selection_shape_and_domain_refuse_at_the_entry() {
         CheckedPackageRefusalCode::MalformedWire
     );
     assert_eq!(
-        empty_identity.path,
+        empty_identity.loci[0].path.clone(),
         Some(pointer("/lock/dependency_selections/0/identity"))
     );
     let short_digest = refuse_with(&|e| e["package_id"]["digest"] = json!("abc"));
     assert_eq!(short_digest.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
-        short_digest.path,
+        short_digest.loci[0].path.clone(),
         Some(pointer("/lock/dependency_selections/0/package_id/digest"))
     );
     // An entry with every required member and one more is an unknown member
@@ -202,7 +209,7 @@ fn tc_048_dependency_selection_shape_and_domain_refuse_at_the_entry() {
     let role = refuse_with(&|e| e["role"] = json!("profile"));
     assert_eq!(role.code, CheckedPackageRefusalCode::UnknownMember);
     assert_eq!(
-        role.path,
+        role.loci[0].path.clone(),
         Some(pointer("/identity_preimage/dependency_selections/0/role"))
     );
 }
@@ -239,7 +246,7 @@ fn tc_048_dependency_is_no_longer_a_selection_role() {
         let refusal = refused(&package);
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&format!("/identity_preimage{member}"))),
             "{refusal:?}"
         );
@@ -282,7 +289,11 @@ fn tc_048_lock_and_identity_preimage_dependency_selections_must_match() {
             CheckedPackageRefusalCode::StaleDependency,
             "{label}: {refusal:?}"
         );
-        assert_eq!(refusal.path, Some(pointer(at)), "{label}: {refusal:?}");
+        assert_eq!(
+            refusal.loci[0].path.clone(),
+            Some(pointer(at)),
+            "{label}: {refusal:?}"
+        );
     }
 }
 
@@ -392,7 +403,7 @@ fn tc_048_a_dependency_entry_carrying_version_is_an_unknown_member() {
             CheckedPackageRefusalCode::UnknownMember,
             "{at}"
         );
-        assert_eq!(refusal.path, Some(pointer(at)), "{at}");
+        assert_eq!(refusal.loci[0].path.clone(), Some(pointer(at)), "{at}");
         assert_eq!(refusal.cause, None, "{at}");
     };
     // In the lock only: the preimage mirror is left as it was.
@@ -454,7 +465,10 @@ fn tc_048_a_dependency_entry_binds_by_identity_and_package_id() {
         missing.cause,
         Some(CheckedPackageRefusalCause::MissingSelection)
     );
-    assert_eq!(missing.path, Some(pointer("/lock/dependency_selections/0")));
+    assert_eq!(
+        missing.loci[0].path.clone(),
+        Some(pointer("/lock/dependency_selections/0"))
+    );
     let CheckedPackageV2ReadResult::Refused(stale) =
         read_with(&package, &[("test/geometry", &units)])
     else {
@@ -466,7 +480,7 @@ fn tc_048_a_dependency_entry_binds_by_identity_and_package_id() {
         Some(CheckedPackageRefusalCause::ContentMismatch)
     );
     assert_eq!(
-        stale.path,
+        stale.loci[0].path.clone(),
         Some(pointer("/lock/dependency_selections/0/package_id/digest"))
     );
     assert_eq!(stale.expected.as_ref(), Some(geometry.package_id()));
@@ -513,13 +527,13 @@ fn diamond_with_different_transitive_package_ids_refuses() {
         Some(CheckedPackageRefusalCause::ConflictingDefinition)
     );
     assert_eq!(
-        conflict.path,
+        conflict.loci[0].path.clone(),
         Some(pointer(
             "/lock/dependency_selections/0/lock/dependency_selections/0"
         ))
     );
     assert_eq!(
-        conflict.related_path,
+        conflict.loci[1].path.clone(),
         Some(pointer(
             "/lock/dependency_selections/1/lock/dependency_selections/0"
         ))
@@ -584,9 +598,12 @@ fn one_direct_edge_still_refuses_a_conflicting_identity_below_it() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::ConflictingDefinition)
     );
-    assert_eq!(refusal.path, Some(pointer("/lock/dependency_selections/0")));
     assert_eq!(
-        refusal.related_path,
+        refusal.loci[0].path.clone(),
+        Some(pointer("/lock/dependency_selections/0"))
+    );
+    assert_eq!(
+        refusal.loci[1].path.clone(),
         Some(pointer(
             "/lock/dependency_selections/0/lock/dependency_selections/0/lock/dependency_selections/0"
         ))

@@ -72,7 +72,11 @@ fn refused(
             assert_eq!(refusal.code, code);
             assert_eq!(refusal.cause, cause);
             assert_eq!(
-                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .as_deref(),
                 Some(path)
             );
         }
@@ -455,7 +459,11 @@ fn root_graph_shape_is_closed_before_key_checking() {
         );
         assert_eq!(refusal.cause, None);
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(expected_path.as_str())
         );
     }

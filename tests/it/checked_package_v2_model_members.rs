@@ -785,7 +785,11 @@ fn selected_variant_admits_enum_equality_and_refuses_order_or_structural_equalit
         } else {
             format!("/semantic_graph/nodes/{position}/body/arguments/0")
         };
-        assert_eq!(refusal.path, Some(pointer(&expected_path)), "{operation}");
+        assert_eq!(
+            refusal.loci[0].path.clone(),
+            Some(pointer(&expected_path)),
+            "{operation}"
+        );
     }
 }
 
@@ -798,7 +802,10 @@ fn selected_variant_refuses_absent_case_and_empty_declaration() {
         refusal.code,
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
-    assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/9")));
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        Some(pointer("/semantic_graph/nodes/9"))
+    );
 
     let (package, evidence, _) = variant_package(&[], &[], false);
     let refusal = refused(&package, &evidence);
@@ -807,7 +814,10 @@ fn selected_variant_refuses_absent_case_and_empty_declaration() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
-    assert_eq!(refusal.path, Some(pointer(&root_owner(&package))));
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        Some(pointer(&root_owner(&package)))
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-236")]
@@ -822,7 +832,10 @@ fn selected_variant_requires_its_exact_model_owner() {
     refresh_identity(&mut missing);
     let refusal = refused(&missing, &evidence);
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
-    assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/5")));
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        Some(pointer("/semantic_graph/nodes/5"))
+    );
 
     for owner_node in ["ix://acme/orders/Missing", ORDER] {
         let mut changed = package.clone();
@@ -834,7 +847,10 @@ fn selected_variant_requires_its_exact_model_owner() {
             refusal.cause,
             Some(CheckedPackageRefusalCause::MissingSelection)
         );
-        assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/5/owner")));
+        assert_eq!(
+            refusal.loci[0].path.clone(),
+            Some(pointer("/semantic_graph/nodes/5/owner"))
+        );
     }
 }
 
@@ -1256,7 +1272,11 @@ fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
     assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
     assert_eq!(refusal.terminal_duplicate, None);
@@ -1294,7 +1314,11 @@ fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
 }
@@ -1359,7 +1383,11 @@ fn tc_048_navigation_admits_canonical_finite_results_and_observes_destination_ch
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/result_type")
     );
 
@@ -1374,7 +1402,11 @@ fn tc_048_navigation_admits_canonical_finite_results_and_observes_destination_ch
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/result_type")
     );
 
@@ -1393,7 +1425,11 @@ fn tc_048_navigation_admits_canonical_finite_results_and_observes_destination_ch
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/result_type")
     );
     let (package, evidence) = navigation_with_result(relation, NavigationResult::Reference);
@@ -1447,7 +1483,11 @@ fn tc_048_a_selected_self_relationship_reaches_through_either_named_end() {
             )
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(expected_path)
         );
     }
@@ -1548,7 +1588,11 @@ fn tc_048_reaches_finite_multivalued_ends_keep_the_single_valued_node_shape() {
                 "{lower}..{upper}, unique={unique}: a multiplicity member must be refused"
             );
             assert_eq!(
-                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .as_deref(),
                 Some("/semantic_graph/nodes/6/body"),
                 "{lower}..{upper}, unique={unique}"
             );
@@ -1618,7 +1662,11 @@ fn tc_048_reaches_checks_operand_one_against_receiver_before_edge_defects() {
             )
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some("/semantic_graph/nodes/6/body/arguments/1")
         );
     }
@@ -1704,7 +1752,11 @@ fn tc_048_reaches_refusal_order_is_direction_then_multiplicity_then_type() {
         let refusal = refused(&package, &evidence);
         assert_eq!((refusal.code, refusal.cause), (code, Some(cause)));
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some("/semantic_graph/nodes/6/body/operation/member/name")
         );
     }
@@ -1750,7 +1802,11 @@ fn tc_048_reaches_multivalued_end_requires_boolean_result() {
             "{form}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some("/semantic_graph/nodes/6/body/result_type"),
             "{form}"
         );
@@ -1858,7 +1914,11 @@ fn tc_048_selected_relationship_declaration_refusals_precede_navigation() {
             "{relation}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(root_owner(&package).as_str())
         );
     }
@@ -1877,7 +1937,11 @@ fn tc_048_selected_relationship_declaration_refusals_precede_navigation() {
         )
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
 }
@@ -2002,7 +2066,7 @@ fn tc_230_dispatch_call_requires_the_selected_checked_unit() {
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some(format!("/semantic_graph/nodes/{CALL}/body/arguments/1")),
         );
     }
@@ -2027,7 +2091,7 @@ fn tc_048_selected_model_declaration_shape_refuses_at_its_node_before_the_call()
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}/node_id"))
     );
     assert_eq!(
@@ -2101,7 +2165,11 @@ fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
         .position(|node| node["owner"]["identity"] == OTHER_PACKAGE)
         .expect("unselected model node");
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some(format!("/semantic_graph/nodes/{unselected}/node_id").as_str())
     );
     // The selected package's own key for the same node resolves.
@@ -2175,7 +2243,11 @@ fn tc_048_a_model_owned_operation_the_document_does_not_declare_refuses() {
         Some(CheckedPackageRefusalCause::OperatorIneligible)
     );
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some(format!("/semantic_graph/nodes/{CALL}/body/operation/member/name").as_str())
     );
 }
@@ -3118,7 +3190,11 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
         let refusal = refused(&package, &evidence);
         let expected = format!("/semantic_graph/nodes/{position}/{path}");
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(expected.as_str()),
             "{refusal:?}"
         );
@@ -3146,7 +3222,11 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
     assert_eq!(refusal.code, Code::MissingDeclaration);
     assert_eq!(refusal.cause, Some(Cause::MissingSelection));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
         Some(format!("/semantic_graph/nodes/{unselected}/node_id").as_str())
     );
 }

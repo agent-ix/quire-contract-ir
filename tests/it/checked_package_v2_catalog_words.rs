@@ -153,7 +153,7 @@ fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_nested_applicati
             let (package, position) = with_second_argument(build);
             let refusal = refused(&package);
             assert_eq!(
-                (refusal.code, refusal.cause, refusal.path),
+                (refusal.code, refusal.cause, refusal.loci[0].path.clone()),
                 expected(position, below),
                 "{operator} {name}"
             );
@@ -186,7 +186,7 @@ fn tc_048_a_root_application_of_a_placed_class_in_another_form_refuses_in_a_pack
         refresh_identity(&mut package);
         let refusal = refused(&package);
         assert_eq!(
-            (refusal.code, refusal.cause, refusal.path),
+            (refusal.code, refusal.cause, refusal.loci[0].path.clone()),
             ineligible(&format!("/semantic_graph/nodes/{position}")),
             "{operator}"
         );
@@ -229,7 +229,7 @@ fn tc_048_a_diagnostic_detail_of_a_placed_class_refuses_at_its_operator() {
             }]);
             let refusal = refused(&package);
             assert_eq!(
-                (refusal.code, refusal.cause, refusal.path),
+                (refusal.code, refusal.cause, refusal.loci[0].path.clone()),
                 ineligible(&format!("/diagnostics/entries/0/details/0/{tail}")),
                 "{operator} {name}"
             );
@@ -251,7 +251,7 @@ fn tc_048_an_operator_outside_the_closed_vocabulary_refuses_at_the_term() {
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!("/semantic_graph/nodes/{position}/body")))
     );
 }
@@ -266,7 +266,7 @@ fn tc_048_a_nested_application_with_an_unknown_operator_is_outside_the_grammar()
     let refusal = refused(&package);
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(pointer(&format!(
             "/semantic_graph/nodes/{position}/body/arguments/1"
         )))
