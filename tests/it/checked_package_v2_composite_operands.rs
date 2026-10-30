@@ -4,9 +4,9 @@
 //! Authored operand projection through the production admitted-package API.
 
 use crate::support::checked_package::{
-    application_node_key, bounds_body, canonical, evidence_for, fixture_source,
-    mint_grouped_structural_keys, node_id, nominal_fixture_members, nominal_package, over_body,
-    rebuild_source_map, refresh_identity, sha256_hex, source_owner, structural_key, typed_node_id,
+    add_family_reference_target, canonical, evidence_for, family_key, fixture_source, node_id,
+    nominal_fixture_members, nominal_package, over_body, rebuild_source_map, refresh_identity,
+    source_owner, typed_node_id,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -27,8 +27,36 @@ fn reference(id: &str) -> Value {
     json!({"term":"reference", "target":node_id(id)})
 }
 
+fn id_label(id: &Value) -> String {
+    let path = id["path"].as_array().expect("structural path");
+    let parts = path
+        .iter()
+        .map(|part| part.as_str().expect("path segment"))
+        .collect::<Vec<_>>();
+    if parts.len() == 1 {
+        parts[0].to_owned()
+    } else {
+        format!("qualified:{}", parts.join("/"))
+    }
+}
+
 fn binding(name: &str, value: Value) -> Value {
     json!({"term":"binding", "name":name, "value":value})
+}
+
+fn bounds_body(integer: &str, min: &str, max: &str) -> Value {
+    aggregate(vec![
+        binding(
+            "min",
+            json!({"term":"literal", "type":node_id(integer),
+            "value_kind":"integer", "value":min}),
+        ),
+        binding(
+            "max",
+            json!({"term":"literal", "type":node_id(integer),
+            "value_kind":"integer", "value":max}),
+        ),
+    ])
 }
 
 fn occurrence(ordinal: u64) -> CheckedOccurrence {
@@ -38,17 +66,22 @@ fn occurrence(ordinal: u64) -> CheckedOccurrence {
     }
 }
 
-/// Only this test's authored wire goes into the production reader. Keys use
-/// test preimages and the authoritative canonical encoder, never accessor output.
+/// Only this test's authored wire goes into the production reader. Structural
+/// paths are assigned by the fixture, independently of node bodies.
 struct Fixture {
     nodes: BTreeMap<String, Value>,
     boolean: String,
     integer: String,
     text: String,
     definitions: Vec<Value>,
+    include_model_target: bool,
 }
 
 impl Fixture {
+    fn next_key(&self, tag: &str, form: &str) -> String {
+        format!("composite/{tag}/{form}/{}", self.nodes.len())
+    }
+
     fn new() -> Self {
         let mut fixture = Self {
             nodes: BTreeMap::new(),
@@ -56,6 +89,7 @@ impl Fixture {
             integer: String::new(),
             text: String::new(),
             definitions: Vec::new(),
+            include_model_target: false,
         };
         fixture.boolean = fixture.ty("scalar_type", "boolean", None, aggregate(vec![]));
         fixture.integer = fixture.ty("scalar_type", "integer", None, aggregate(vec![]));
@@ -72,10 +106,18 @@ impl Fixture {
         body: Value,
         dependencies: Vec<String>,
     ) -> String {
+        let mut dependencies = dependencies
+            .iter()
+            .map(|id| node_id(id))
+            .collect::<Vec<_>>();
+        dependencies.sort_by_key(|id| {
+            serde_json::from_value::<CheckedNodeId>(id.clone()).expect("dependency node ID")
+        });
+        dependencies.dedup();
         self.nodes.insert(id.clone(), json!({
             "node_id":node_id(&id), "schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":tag, "semantic_form":form, "semantic_type":node_id(ty),
-            "dependencies":dependencies.iter().map(|id| node_id(id)).collect::<Vec<_>>(),
+            "dependencies":dependencies,
             "occurrences":[{"role":if matches!(tag,"value"|"expression") {"expression"} else {"type"},"ordinal":0}],
             "body":body,
         }));
@@ -83,7 +125,7 @@ impl Fixture {
     }
 
     fn ty(&mut self, tag: &str, form: &str, base: Option<&str>, body: Value) -> String {
-        let id = structural_key(tag, form, base, &body);
+        let id = self.next_key(tag, form);
         let mut dependencies = Vec::new();
         references(&body, &mut dependencies);
         dependencies.sort();
@@ -100,6 +142,20 @@ impl Fixture {
 
     fn collection(&mut self, form: &str, inner: &str) -> String {
         self.ty("composite_type", form, None, over_body(inner))
+    }
+
+    fn model_reference(&mut self) -> String {
+        self.include_model_target = true;
+        let target = family_key("1515");
+        let id = self.next_key("composite_type", "reference");
+        self.node(
+            id.clone(),
+            "composite_type",
+            "reference",
+            &id,
+            over_body(&target),
+            vec![target],
+        )
     }
 
     fn record(&mut self, fields: &[(&str, &str)]) -> String {
@@ -123,16 +179,12 @@ impl Fixture {
                 json!({"term":"literal", "type":node_id(&self.integer),"value_kind":"integer","value":"0"}),
             ),
         ]);
-        let id = structural_key("value", "parameter", Some(ty), &body);
+        let id = format!("composite/value/parameter/{name}");
         self.node(id, "value", "parameter", ty, body, vec![])
     }
 
     fn graph_value(&mut self, form: &str, ty: &str, body: Value) -> String {
-        let id = if form == "union_value" {
-            application_node_key("value", form, ty, &body)
-        } else {
-            structural_key("value", form, Some(ty), &body)
-        };
+        let id = self.next_key("value", form);
         let mut dependencies = Vec::new();
         references(&body, &mut dependencies);
         dependencies.sort();
@@ -153,7 +205,7 @@ impl Fixture {
         let body = json!({"term":"application", "operator":"binary",
             "operation":{"identity":operation,"laws":[],"mode":null,"member":null,"leaves":leaves},
             "result_type":node_id(&self.boolean),"arguments":args});
-        let id = application_node_key("expression", "binary", &self.boolean, &body);
+        let id = self.next_key("expression", "binary");
         let mut dependencies = Vec::new();
         references(&body, &mut dependencies);
         dependencies.sort();
@@ -165,6 +217,9 @@ impl Fixture {
     fn wire(&self) -> Value {
         let mut wire = nominal_package(&[]);
         wire["semantic_graph"]["nodes"] = Value::Array(self.nodes.values().cloned().collect());
+        if self.include_model_target {
+            add_family_reference_target(&mut wire);
+        }
         wire["lock"]["definition_selections"]
             .as_array_mut()
             .expect("definitions")
@@ -200,34 +255,6 @@ impl Fixture {
         wire
     }
 
-    /// Key one labelled cycle while retaining its original wire order. Map
-    /// keys are stable insertion handles; their values carry the derived ids.
-    fn rekey_group(&mut self, members: &[&str]) -> Vec<String> {
-        let mut wire = self.wire();
-        mint_grouped_structural_keys(&mut wire);
-        let mut renamed = BTreeMap::new();
-        for (old, fresh) in self
-            .nodes
-            .values_mut()
-            .zip(wire["semantic_graph"]["nodes"].as_array().expect("nodes"))
-        {
-            let previous = old["node_id"]["digest"]
-                .as_str()
-                .expect("old key")
-                .to_owned();
-            let current = fresh["node_id"]["digest"]
-                .as_str()
-                .expect("new key")
-                .to_owned();
-            renamed.insert(previous, current);
-            *old = fresh.clone();
-        }
-        members
-            .iter()
-            .map(|member| renamed.get(*member).expect("group member").clone())
-            .collect()
-    }
-
     fn read(&self) -> CheckedPackageV2 {
         admit(&self.wire())
     }
@@ -237,12 +264,7 @@ impl Fixture {
 /// production traversal or a copy of a foreign fixture.
 fn references(term: &Value, out: &mut Vec<String>) {
     match term.get("term").and_then(Value::as_str) {
-        Some("reference") => out.push(
-            term["target"]["digest"]
-                .as_str()
-                .expect("test target")
-                .into(),
-        ),
+        Some("reference") => out.push(id_label(&term["target"])),
         Some("application") => {
             for argument in term["arguments"].as_array().expect("test arguments") {
                 references(argument, out);
@@ -296,10 +318,8 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
         CheckedCompositeOperator::Eq => {}
         CheckedCompositeOperator::Ne => {}
     }
-    assert_eq!(
-        application.domain.as_ref(),
-        "quire.checked-semantic-node/v1"
-    );
+    assert!(!application.package.is_empty());
+    assert!(!application.path.is_empty());
     assert_eq!(occurrence.role, CheckedOccurrenceRole::Expression);
     assert!(*consumed_work > 0);
     for operand in operands {
@@ -311,7 +331,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
         } = operand;
         match child {
             CheckedScalarOperandChild::GraphChild(node) => {
-                assert_eq!(node.domain, application.domain)
+                assert_eq!(node.package, application.package)
             }
             CheckedScalarOperandChild::InlineLiteral {
                 application,
@@ -320,7 +340,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
             } => {
                 assert_eq!(occurrence.role, CheckedOccurrenceRole::Expression);
                 assert_eq!(position, ordinal);
-                assert_eq!(application.domain, semantic_type.domain);
+                assert_eq!(application.package, semantic_type.package);
             }
         }
         match domain {
@@ -333,7 +353,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
                         path: _,
                         edges,
                     } = entry;
-                    assert_eq!(type_node.domain, semantic_type.domain);
+                    assert_eq!(type_node.package, semantic_type.package);
                     for edge in edges {
                         let CheckedCompositeChildEdge {
                             target,
@@ -341,7 +361,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
                             name: _,
                             optional_presence: _,
                         } = edge;
-                        assert_eq!(target.domain, type_node.domain);
+                        assert_eq!(target.package, type_node.package);
                     }
                 }
                 for entry in positions {
@@ -351,7 +371,7 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
                         authored,
                     } = entry;
                     let CheckedCompositeDomainKey::Node { node, path: _ } = key;
-                    assert_eq!(node.domain, type_node.domain);
+                    assert_eq!(node.package, type_node.package);
                     match authored {
                         Domain::IntegerRange { lower, upper } => {
                             assert!(!lower.as_str().is_empty());
@@ -561,14 +581,14 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
         "bounded_domain",
         "integer_range",
         Some(&integer),
-        bounds_body(low, high),
+        bounds_body(&integer, low, high),
     );
     let sequence = f.collection("sequence", &range);
     let bounded = f.ty(
         "bounded_domain",
         "collection_bounds",
         Some(&sequence),
-        bounds_body("2", maximum),
+        bounds_body(&integer, "2", maximum),
     );
     let record = f.record(&[("items", &bounded)]);
     let p = f.parameter("p", &record);
@@ -693,14 +713,14 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
         "bounded_domain",
         "integer_range",
         Some(&integer),
-        bounds_body(changed_lower, high),
+        bounds_body(&integer, changed_lower, high),
     );
     let changed_sequence = f.collection("sequence", &changed_range);
     let changed_bounded = f.ty(
         "bounded_domain",
         "collection_bounds",
         Some(&changed_sequence),
-        bounds_body("2", maximum),
+        bounds_body(&integer, "2", maximum),
     );
     let changed_record = f.record(&[("items", &changed_bounded)]);
     let changed_parameter = f.parameter("p", &changed_record);
@@ -816,8 +836,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
     let application_body = json!({"term":"application","operator":"collection",
         "operation":{"identity":"quire.op.collection.sequence","laws":[],"mode":null,"member":null,"leaves":[]},
         "result_type":node_id(&sequence),"arguments":[literal.clone()]});
-    let expression_key =
-        application_node_key("expression", "collection", &sequence, &application_body);
+    let expression_key = f.next_key("expression", "collection");
     let expression = f.node(
         expression_key,
         "expression",
@@ -889,7 +908,11 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
             );
             assert_eq!(refusal.cause, None);
             assert_eq!(
-                refusal.path.expect("nested argument pointer").as_str(),
+                refusal.loci[0]
+                    .path
+                    .clone()
+                    .expect("nested argument pointer")
+                    .as_str(),
                 format!("/semantic_graph/nodes/{nested_position}/body/arguments/1")
             );
         }
@@ -957,7 +980,11 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
                 Some(quire_contract_model::CheckedPackageRefusalCause::OperatorIneligible)
             );
             assert_eq!(
-                refusal.path.expect("argument pointer").as_str(),
+                refusal.loci[0]
+                    .path
+                    .clone()
+                    .expect("argument pointer")
+                    .as_str(),
                 format!("/semantic_graph/nodes/{position}/body/arguments/0")
             );
             assert_eq!(refusal.locus, Some(typed_node_id(&integer_application)));
@@ -1096,10 +1123,8 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
     for wrapped in [false, true] {
         let mut f = Fixture::new();
         let integer = f.integer.clone();
-        // Construction handles are replaced by FR-092 group member keys before
-        // parameter and application preimages refer to the cycle.
-        let list = sha256_hex(b"authored recursive List declaration");
-        let option = sha256_hex(b"authored recursive List Option");
+        let list = "composite/group/list/record".to_owned();
+        let option = "composite/group/list/option".to_owned();
         let tail = if wrapped {
             aggregate(vec![binding("optional", reference(&option))])
         } else {
@@ -1127,9 +1152,7 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
         for id in [&list, &option] {
             f.nodes.get_mut(id).expect("cycle member")["recursion_group"] = json!("list");
         }
-        let keys = f.rekey_group(&[&list, &option]);
-        let list = &keys[0];
-        let p = f.parameter("list", list);
+        let p = f.parameter("list", &list);
         let app = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.eq");
         let ne = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.ne");
         let package = f.read();
@@ -1150,18 +1173,18 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
                 path: vec![]
             }
         );
-        assert_eq!(depth.type_node, typed_node_id(list));
+        assert_eq!(depth.type_node, typed_node_id(&list));
         assert_eq!(
             depth.authored,
             Domain::UnboundedDepth {
-                declaration: typed_node_id(list),
+                declaration: typed_node_id(&list),
                 reentry_paths: vec![vec![1, 0]]
             }
         );
     }
     let mut f = Fixture::new();
-    let tree = sha256_hex(b"authored recursive Tree declaration");
-    let option = sha256_hex(b"authored recursive Tree Option");
+    let tree = "composite/group/tree/record".to_owned();
+    let option = "composite/group/tree/option".to_owned();
     let optional = aggregate(vec![binding("optional", reference(&option))]);
     f.node(
         tree.clone(),
@@ -1185,9 +1208,7 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
     for id in [&tree, &option] {
         f.nodes.get_mut(id).expect("cycle member")["recursion_group"] = json!("tree");
     }
-    let keys = f.rekey_group(&[&tree, &option]);
-    let tree = &keys[0];
-    let p = f.parameter("tree", tree);
+    let p = f.parameter("tree", &tree);
     let app = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.eq");
     let result = project(&f.read(), &app);
     let (_, positions) = parameter_domain(&result, 0);
@@ -1202,7 +1223,7 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
     assert_eq!(
         positions[0].authored,
         Domain::UnboundedDepth {
-            declaration: typed_node_id(tree),
+            declaration: typed_node_id(&tree),
             reentry_paths: vec![vec![0, 0], vec![1, 0]]
         }
     );
@@ -1252,7 +1273,7 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
         .as_array()
         .expect("nominal nodes")
     {
-        let id = node["node_id"]["digest"].as_str().expect("id").to_owned();
+        let id = id_label(&node["node_id"]);
         if node["node_tag"] == "scalar_type" {
             types.insert(
                 node["semantic_form"].as_str().expect("form").into(),
@@ -1263,16 +1284,13 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
     }
     let color = json!({"version":"quire.enum-declaration-node/v1","owner":source_owner(&fixture_source()),
         "qualified_declaration":["Color"],"ordered":false,"members":["Blue","Green","Red"]});
-    let color_key = sha256_hex(&canonical(&color));
+    let color_key = "Color".to_owned();
     let color_package = nominal_package(&[(color, color_key.clone())]);
     for node in color_package["semantic_graph"]["nodes"]
         .as_array()
         .expect("enum nodes")
     {
-        f.nodes.insert(
-            node["node_id"]["digest"].as_str().expect("enum id").into(),
-            node.clone(),
-        );
+        f.nodes.insert(id_label(&node["node_id"]), node.clone());
     }
     types.insert("enum".into(), color_key);
     let compound = f.ty("scalar_type", "compound_unit", None, aggregate(vec![]));
@@ -1289,7 +1307,7 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
         "bounded_domain",
         "integer_range",
         Some(&integer),
-        bounds_body("-2", "3"),
+        bounds_body(&integer, "-2", "3"),
     );
     types.insert("integer_range".into(), range);
     let sequence = f.collection("sequence", &integer);
@@ -1297,7 +1315,7 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
         "bounded_domain",
         "collection_bounds",
         Some(&sequence),
-        bounds_body("1", "4"),
+        bounds_body(&integer, "1", "4"),
     );
     types.insert("collection_bounds".into(), bounded);
     for (form, base) in [("rational_range", "rational"), ("decimal_range", "decimal")] {
@@ -1307,37 +1325,12 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
     }
     let text_bounds = f.ty("bounded_domain", "text_bounds", Some(&text), profile);
     types.insert("text_bounds".into(), text_bounds);
-    let family = crate::support::checked_package::v2_all_families();
-    let mut object = None;
-    for node in family["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("family nodes")
-    {
-        if matches!(
-            node["semantic_form"].as_str(),
-            Some("model_root" | "object_type")
-        ) {
-            let key = node["node_id"]["digest"]
-                .as_str()
-                .expect("model id")
-                .to_owned();
-            if node["semantic_form"] == "object_type" {
-                object = Some(key.clone());
-            }
-            let mut node = node.clone();
-            if node["semantic_form"] == "object_type" {
-                node["dependencies"] = json!([]);
-            }
-            f.nodes.insert(key, node);
-        }
-    }
-    let object = object.expect("family object type");
-    let object_reference = f.collection("reference", &object);
-    let population_set = f.collection("set", &object_reference);
+    let model_reference = f.model_reference();
+    let model_set = f.collection("set", &model_reference);
     let population = f.ty(
         "bounded_domain",
         "model_population",
-        Some(&population_set),
+        Some(&model_set),
         aggregate(vec![]),
     );
     types.insert("model_population".into(), population);
@@ -1501,16 +1494,13 @@ fn tc_048_collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_orde
     }
     let color = json!({"version":"quire.enum-declaration-node/v1","owner":source_owner(&fixture_source()),
         "qualified_declaration":["Priority"],"ordered":true,"members":["Red","Blue","Green"]});
-    let color_key = sha256_hex(&canonical(&color));
-    let nominal = nominal_package(&[(color, color_key.clone())]);
+    let color_key = "Priority".to_owned();
+    let nominal = nominal_package(&[(color.clone(), color_key.clone())]);
     for node in nominal["semantic_graph"]["nodes"]
         .as_array()
         .expect("nominal nodes")
     {
-        f.nodes.insert(
-            node["node_id"]["digest"].as_str().expect("id").into(),
-            node.clone(),
-        );
+        f.nodes.insert(id_label(&node["node_id"]), node.clone());
     }
     let record = f.record(&[("priority", &color_key)]);
     let p = f.parameter("priority", &record);
@@ -1529,8 +1519,8 @@ fn tc_048_collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_orde
         }
     );
     let member = json!({"version":"quire.enum-member-node/v1","declaration_node_id":node_id(&color_key),"case":"Blue"});
-    let member_key = sha256_hex(&canonical(&member));
-    let declaration = f.nodes[&color_key]["nominal_identity_preimage"].clone();
+    let member_key = "value/enum_value/Priority/Blue".to_owned();
+    let declaration = color;
     let nominal = nominal_package(&[
         (declaration, color_key.clone()),
         (member, member_key.clone()),
@@ -1539,10 +1529,7 @@ fn tc_048_collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_orde
         .as_array()
         .expect("nominal nodes")
     {
-        f.nodes.insert(
-            node["node_id"]["digest"].as_str().expect("id").into(),
-            node.clone(),
-        );
+        f.nodes.insert(id_label(&node["node_id"]), node.clone());
     }
     let literal = f.graph_value(
         "record_value",
@@ -1622,7 +1609,7 @@ fn tc_048_external_error_consumer_retains_authentic_node_and_application_loci() 
         "quire.op.boolean.and",
     );
     let package = f.read();
-    let unknown = typed_node_id(&sha256_hex(b"absent application"));
+    let unknown = typed_node_id("composite/absent/application");
     let err = package
         .composite_application_operands(&unknown, &occurrence(0), 100_000)
         .expect_err("unknown");

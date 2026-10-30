@@ -50,8 +50,7 @@ impl CheckedPackageV2 {
         let Some(named) = operation.pointer("/member/population") else {
             return Ok(None);
         };
-        let binding: CheckedNodeId =
-            serde_json::from_value(named.clone()).map_err(|_| Error::UnresolvedPopulation)?;
+        let binding = CheckedNodeId::from_value(named).ok_or(Error::UnresolvedPopulation)?;
         let population = self
             .node(&binding)
             .filter(|_| {
@@ -65,7 +64,7 @@ impl CheckedPackageV2 {
             .cloned()
             .ok_or(Error::UnresolvedPopulation)?;
         Ok(Some(CheckedSelectedPopulationSelector {
-            package_id: self.package_id().clone(),
+            package_name: self.name().into(),
             binding,
             occurrence,
         }))

@@ -49,7 +49,7 @@ fn replace_extension_subject(package: &mut Value, form: usize, target: Value) {
         .iter()
         .map(|clause| clause["value"]["target"].clone())
         .collect::<Vec<_>>();
-    dependencies.sort_by_key(|id| id["digest"].as_str().unwrap_or_default().to_owned());
+    sort_node_ids(&mut dependencies);
     dependencies.dedup();
     package["semantic_graph"]["nodes"][form]["dependencies"] = json!(dependencies);
     refresh_extension(package, form);
@@ -97,8 +97,18 @@ fn record_extension_case(actual: &str) -> (Value, Value, usize) {
             .expect("model node")
             .remove("declaration");
         node["owner"] = json!({"kind":"model","identity":"acme/orders","node":format!("ix://acme/orders/{name}")});
-        node["semantic_type"] = provisional;
+        node["semantic_type"] = provisional.clone();
         node["occurrences"] = json!([{"role":"type","ordinal":0}]);
+        let declared_id = fixture_support::structural_id(
+            "acme/orders",
+            vec![
+                json!("model"),
+                json!("record_value_type"),
+                json!(format!("ix://acme/orders/{name}")),
+            ],
+            0,
+        );
+        fixture_support::reassign_node_id(&mut package, &provisional, &declared_id);
         refresh_extension(&mut package, position);
         package["source_map"]
             .as_array_mut()
@@ -148,7 +158,7 @@ fn tc_459_extension_record_clause_uses_selected_model_directional_conformance() 
         (Code::IllTyped, Some(Cause::TypeMismatch))
     );
     assert_eq!(
-        refusal.path.expect("path").to_string(),
+        refusal.loci[0].path.clone().expect("path").to_string(),
         format!("/semantic_graph/nodes/{form}/body/clauses/0/value")
     );
 
@@ -164,7 +174,7 @@ fn tc_459_extension_record_clause_uses_selected_model_directional_conformance() 
         (Code::IllTyped, Some(Cause::TypeMismatch))
     );
     assert_eq!(
-        refusal.path.expect("path").to_string(),
+        refusal.loci[0].path.clone().expect("path").to_string(),
         format!("/semantic_graph/nodes/{form}/body/clauses/0/value")
     );
 }
@@ -201,7 +211,7 @@ fn tc_459_extension_composite_record_name_is_not_selected_model_type() {
         (Code::IllTyped, Some(Cause::TypeMismatch))
     );
     assert_eq!(
-        refusal.path.expect("path").to_string(),
+        refusal.loci[0].path.clone().expect("path").to_string(),
         format!("/semantic_graph/nodes/{form}/body/clauses/0/value")
     );
 }
@@ -237,7 +247,11 @@ fn tc_459_unheld_extension_refuses_at_its_definition() {
         format!("/semantic_graph/nodes/{position}/body/definition")
     );
     assert_eq!(
-        refusal.path.expect("definition pointer").to_string(),
+        refusal.loci[0]
+            .path
+            .clone()
+            .expect("definition pointer")
+            .to_string(),
         format!("/semantic_graph/nodes/{position}/body/definition")
     );
     assert_eq!(
@@ -294,7 +308,7 @@ fn tc_459_held_extension_fixtures_admit() {
                 clause["value"]["target"].clone()
             })
             .collect::<Vec<_>>();
-        targets.sort_by_key(|id| id["digest"].as_str().unwrap_or_default().to_owned());
+        sort_node_ids(&mut targets);
         assert_eq!(form["dependencies"], json!(targets));
         for (ordinal, expected_form) in [(0, "text"), (1, "integer_range")] {
             let target = &form["body"]["clauses"][ordinal]["value"]["target"];
@@ -389,41 +403,10 @@ fn extension_fixture() -> (Value, usize) {
     (package, position)
 }
 
-/// Recompute the published extension structural preimage and package identity
-/// after changing one extension node. The fixture stays in the QSpec checkout.
-fn refresh_extension(package: &mut Value, position: usize) {
-    let node = package["semantic_graph"]["nodes"][position].clone();
-    let mut preimage = json!({
-        "version": "quire.structural-node/v1",
-        "node_tag": node["node_tag"],
-        "semantic_form": node["semantic_form"],
-        "semantic_type": if node["semantic_type"] == node["node_id"] { Value::Null } else { node["semantic_type"].clone() },
-        "declaration": node["declaration"],
-        "recursion": null,
-        "owner": node["owner"],
-        "body": node["body"],
-    });
-    if node["owner"].is_null() {
-        preimage
-            .as_object_mut()
-            .expect("preimage object")
-            .remove("owner");
-    }
-    let digest = quire_canonical::sha256(&preimage, Limits::new(DERIVATION_CEILING))
-        .expect("extension preimage encodes")
-        .to_string();
-    let old = node["node_id"].clone();
-    let id = json!({"domain": "quire.checked-semantic-node/v1", "digest": digest});
-    package["semantic_graph"]["nodes"][position]["node_id"] = id.clone();
-    if node["semantic_type"] == old {
-        package["semantic_graph"]["nodes"][position]["semantic_type"] = id.clone();
-    }
-    for entry in package["source_map"].as_array_mut().expect("source map") {
-        if entry["node_id"] == old {
-            entry["node_id"] = id.clone();
-        }
-    }
-    package["package_id"]["digest"] = json!(derived_with(package, None).expect("package identity"));
+/// Reconcile changed declarations and their references under structural identity.
+/// A body-only edit leaves the node id unchanged by design.
+fn refresh_extension(package: &mut Value, _position: usize) {
+    fixture_support::refresh_identity(package);
 }
 
 fn append_structural_node(
@@ -434,7 +417,15 @@ fn append_structural_node(
 ) -> usize {
     let original = package["semantic_graph"]["nodes"][template].clone();
     let original_id = original["node_id"].clone();
-    let placeholder_id = json!({"domain":"quire.checked-semantic-node/v1", "digest":placeholder.to_string().repeat(64)});
+    let placeholder_id = fixture_support::structural_id(
+        original_id["package"].as_str().expect("template package"),
+        vec![
+            original["node_tag"].clone(),
+            original["semantic_form"].clone(),
+            json!(format!("test-{placeholder}")),
+        ],
+        0,
+    );
     let mut node = original.clone();
     node["node_id"] = placeholder_id.clone();
     if original["semantic_type"] == original_id {
@@ -465,101 +456,9 @@ fn append_structural_node(
     position
 }
 
-#[trace("TC-459", "FR-348-AC-2")]
-#[test]
-fn tc_459_extension_identity_binds_each_semantic_member_but_not_source_region() {
-    let (base, position) = extension_fixture();
-    let node_id = base["semantic_graph"]["nodes"][position]["node_id"].clone();
-    let package_id = base["package_id"].clone();
-    let mut changed = Vec::new();
-    for member in ["definition", "node_kind", "declaration", "owner", "clause"] {
-        let mut package = base.clone();
-        match member {
-            "definition" => {
-                package["semantic_graph"]["nodes"][position]["body"]["definition"]["identity"] =
-                    json!("retention-v2")
-            }
-            "node_kind" => {
-                package["semantic_graph"]["nodes"][position]["body"]["node_kind"] = json!("quota")
-            }
-            "declaration" => {
-                package["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"][0] =
-                    json!("Review")
-            }
-            "owner" => {
-                package["semantic_graph"]["nodes"][position]["owner"]["identity"] =
-                    json!("other-source")
-            }
-            "clause" => {
-                package["semantic_graph"]["nodes"][position]["body"]["clauses"][1]["value"]
-                    ["target"]["digest"] = json!("f".repeat(64))
-            }
-            _ => unreachable!(),
-        }
-        refresh_extension(&mut package, position);
-        let next = package["semantic_graph"]["nodes"][position]["node_id"].clone();
-        assert_ne!(next, node_id, "{member} must enter the node key");
-        assert_ne!(
-            package["package_id"], package_id,
-            "{member} must enter package identity"
-        );
-        changed.push(next);
-    }
-    changed.sort_by_key(ToString::to_string);
-    changed.dedup();
-    assert_eq!(changed.len(), 5);
-
-    let mut with_subnode = base.clone();
-    let days = with_subnode["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["node_tag"] == "value" && node["body"]["value"] == "30")
-        .expect("days literal");
-    let new_days = append_structural_node(&mut with_subnode, days, 'f', 280);
-    with_subnode["semantic_graph"]["nodes"][new_days]["body"]["value"] = json!("31");
-    refresh_extension(&mut with_subnode, new_days);
-    let new_id = with_subnode["semantic_graph"]["nodes"][new_days]["node_id"].clone();
-    with_subnode["semantic_graph"]["nodes"][position]["body"]["clauses"][1]["value"]["target"] =
-        new_id.clone();
-    let first_id = with_subnode["semantic_graph"]["nodes"][position]["body"]["clauses"][0]["value"]
-        ["target"]
-        .clone();
-    let mut dependencies = vec![first_id, new_id];
-    dependencies.sort_by_key(|id| id["digest"].as_str().unwrap_or_default().to_owned());
-    with_subnode["semantic_graph"]["nodes"][position]["dependencies"] = json!(dependencies);
-    refresh_extension(&mut with_subnode, position);
-    assert_ne!(
-        with_subnode["semantic_graph"]["nodes"][position]["node_id"],
-        node_id
-    );
-    assert_ne!(with_subnode["package_id"], package_id);
-    let read = read_package(&with_subnode).expect("changed subnode read");
-    assert!(
-        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
-        "{read:?}"
-    );
-
-    let mut region_only = base.clone();
-    let entry = region_only["source_map"]
-        .as_array_mut()
-        .expect("source map")
-        .iter_mut()
-        .find(|entry| entry["node_id"] == node_id)
-        .expect("form source region");
-    entry["regions"][0]["start"] = json!(3);
-    entry["regions"][0]["end"] = json!(49);
-    assert_eq!(
-        region_only["semantic_graph"]["nodes"][position]["node_id"],
-        node_id
-    );
-    assert_eq!(region_only["package_id"], package_id);
-    let read = read_package(&region_only).expect("production read");
-    assert!(
-        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
-        "{read:?}"
-    );
-}
+// FR-348-AC-2 is withdrawn under QSpec #517: content edits retain a valid
+// structural id. The remaining TC-459 cases assert the independent schema,
+// dependency, owner, clause and selected-definition checks.
 
 fn assert_extension_refusal(
     package: &Value,
@@ -574,7 +473,11 @@ fn assert_extension_refusal(
     assert_eq!(refusal.code, code);
     assert_eq!(refusal.cause, cause);
     assert_eq!(
-        refusal.path.as_ref().expect("refusal path").to_string(),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .expect("refusal path")
+            .to_string(),
         path
     );
     refusal
@@ -585,30 +488,11 @@ fn assert_extension_refusal(
 fn tc_459_unselected_extension_refuses_before_held_lookup() {
     let (mut package, position) = extension_fixture();
     package["lock"]["definition_selections"] = json!([]);
-    package["identity_preimage"]["definition_selections"] = json!([]);
-    package["package_id"]["digest"] =
-        json!(derived_with(&package, None).expect("package identity"));
     assert_extension_refusal(
         &package,
         Code::MissingDeclaration,
         Some(Cause::MissingSelection),
         format!("/semantic_graph/nodes/{position}/body/definition"),
-    );
-}
-
-#[trace("TC-459", "FR-348-AC-2")]
-#[test]
-fn tc_459_stale_extension_key_refuses_before_definition_join() {
-    let (mut package, position) = extension_fixture();
-    package["semantic_graph"]["nodes"][position]["body"]["definition"]["identity"] =
-        json!("different");
-    package["package_id"]["digest"] =
-        json!(derived_with(&package, None).expect("package identity"));
-    assert_extension_refusal(
-        &package,
-        Code::InvalidPackage,
-        Some(Cause::StaleNodeKey),
-        format!("/semantic_graph/nodes/{position}/node_id"),
     );
 }
 
@@ -713,13 +597,19 @@ fn tc_459_extension_clause_targets_are_typed_and_present() {
     );
 
     let (mut package, position) = extension_fixture();
-    let absent = json!({"domain":"quire.checked-semantic-node/v1", "digest":"f".repeat(64)});
+    let absent = fixture_support::structural_id(
+        "example",
+        vec![json!("value"), json!("literal"), json!("absent")],
+        0,
+    );
     package["semantic_graph"]["nodes"][position]["body"]["clauses"][1]["value"]["target"] =
         absent.clone();
     let subject = package["semantic_graph"]["nodes"][position]["body"]["clauses"][0]["value"]
         ["target"]
         .clone();
-    package["semantic_graph"]["nodes"][position]["dependencies"] = json!([subject, absent]);
+    let mut dependencies = vec![subject, absent];
+    sort_node_ids(&mut dependencies);
+    package["semantic_graph"]["nodes"][position]["dependencies"] = json!(dependencies);
     refresh_extension(&mut package, position);
     assert_extension_refusal(
         &package,
@@ -759,8 +649,6 @@ fn tc_459_extension_wire_and_dependency_shape_refuse_early() {
         .as_array_mut()
         .expect("dependencies")
         .pop();
-    package["package_id"]["digest"] =
-        json!(derived_with(&package, None).expect("package identity"));
     assert_extension_refusal(
         &package,
         Code::InvalidSemanticGraph,
@@ -829,14 +717,21 @@ fn tc_459_extension_and_record_share_the_types_namespace() {
         .iter()
         .position(|node| node["node_tag"] == "extension")
         .expect("extension");
+    // Both declarations keep the authored path; a distinct producer ordinal
+    // lets name ambiguity reach its own validation stage before duplicate-ID
+    // rejection.
+    let prior_id = package["semantic_graph"]["nodes"][record]["node_id"].clone();
+    let mut distinct_id = prior_id.clone();
+    distinct_id["ordinal"] = json!(1);
+    fixture_support::reassign_node_id(&mut package, &prior_id, &distinct_id);
     package["semantic_graph"]["nodes"][record]["declaration"]["qualified_name"] = json!(["Audit"]);
     refresh_extension(&mut package, record);
-    let record_id = package["semantic_graph"]["nodes"][record]["node_id"]["digest"]
-        .as_str()
-        .expect("record id");
-    let extension_id = package["semantic_graph"]["nodes"][extension]["node_id"]["digest"]
-        .as_str()
-        .expect("extension id");
+    let record_id: CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][record]["node_id"].clone())
+            .expect("record id");
+    let extension_id: CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][extension]["node_id"].clone())
+            .expect("extension id");
     let later = if record_id > extension_id {
         record
     } else {
@@ -891,13 +786,7 @@ fn quota_package() -> (Value, usize, usize) {
     package["lock"]["definition_selections"]
         .as_array_mut()
         .expect("definitions")
-        .insert(0, selection.clone());
-    package["identity_preimage"]["definition_selections"]
-        .as_array_mut()
-        .expect("preimage definitions")
         .insert(0, selection);
-    package["package_id"]["digest"] =
-        json!(derived_with(&package, None).expect("package identity"));
     (package, retention, quota)
 }
 
@@ -937,13 +826,7 @@ fn tc_459_extension_kind_clause_requires_the_named_kind() {
     package["lock"]["definition_selections"]
         .as_array_mut()
         .expect("definitions")
-        .insert(1, selection.clone());
-    package["identity_preimage"]["definition_selections"]
-        .as_array_mut()
-        .expect("preimage definitions")
         .insert(1, selection);
-    package["package_id"]["digest"] =
-        json!(derived_with(&package, None).expect("package identity"));
     let mismatch = assert_extension_refusal(
         &package,
         Code::IllTyped,
@@ -974,18 +857,18 @@ fn tc_459_extension_kind_clause_requires_the_named_kind() {
 
 #[trace("TC-459", "FR-348-AC-7")]
 #[test]
-fn tc_459_extension_refusal_order_follows_graph_stages_then_node_digest() {
+fn tc_459_extension_refusal_order_follows_graph_stages_then_structural_id() {
     let (mut package, retention, quota) = quota_package();
     for position in [retention, quota] {
         package["semantic_graph"]["nodes"][position]["body"]["node_kind"] = json!("unknown");
         refresh_extension(&mut package, position);
     }
-    let retention_id = package["semantic_graph"]["nodes"][retention]["node_id"]["digest"]
-        .as_str()
-        .expect("retention id");
-    let quota_id = package["semantic_graph"]["nodes"][quota]["node_id"]["digest"]
-        .as_str()
-        .expect("quota id");
+    let retention_id: CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][retention]["node_id"].clone())
+            .expect("retention id");
+    let quota_id: CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][quota]["node_id"].clone())
+            .expect("quota id");
     let first = if retention_id < quota_id {
         retention
     } else {
@@ -998,10 +881,12 @@ fn tc_459_extension_refusal_order_follows_graph_stages_then_node_digest() {
         format!("/semantic_graph/nodes/{first}/body/node_kind"),
     );
     assert_eq!(
-        refusal.locus.as_ref().expect("locus").digest.as_ref(),
-        package["semantic_graph"]["nodes"][first]["node_id"]["digest"]
-            .as_str()
-            .expect("node id")
+        refusal.locus.as_ref().expect("locus"),
+        if first == retention {
+            &retention_id
+        } else {
+            &quota_id
+        }
     );
 
     let mut malformed = package.clone();
@@ -1016,8 +901,6 @@ fn tc_459_extension_refusal_order_follows_graph_stages_then_node_digest() {
 
     let mut bad_graph = package.clone();
     bad_graph["semantic_graph"]["nodes"][quota]["dependencies"] = json!([]);
-    bad_graph["package_id"]["digest"] =
-        json!(derived_with(&bad_graph, None).expect("package identity"));
     assert_extension_refusal(
         &bad_graph,
         Code::InvalidSemanticGraph,
@@ -1025,13 +908,13 @@ fn tc_459_extension_refusal_order_follows_graph_stages_then_node_digest() {
         format!("/semantic_graph/nodes/{quota}/dependencies"),
     );
 
-    let mut stale = package;
-    stale["semantic_graph"]["nodes"][quota]["body"]["node_kind"] = json!("stale");
-    stale["package_id"]["digest"] = json!(derived_with(&stale, None).expect("package identity"));
+    let mut duplicate = package;
+    duplicate["semantic_graph"]["nodes"][quota]["node_id"] =
+        duplicate["semantic_graph"]["nodes"][retention]["node_id"].clone();
     assert_extension_refusal(
-        &stale,
-        Code::InvalidPackage,
-        Some(Cause::StaleNodeKey),
+        &duplicate,
+        Code::InvalidSemanticGraph,
+        None,
         format!("/semantic_graph/nodes/{quota}/node_id"),
     );
 }
@@ -1065,7 +948,7 @@ fn tc_459_extension_join_precedes_frame_semantic_join() {
         node["body"]["modifies"][0]["declaration"].clone(),
         node["body"]["modifies"][1]["declaration"].clone(),
     ];
-    dependencies.sort_by_key(|id| id["digest"].as_str().unwrap_or_default().to_owned());
+    sort_node_ids(&mut dependencies);
     dependencies.dedup();
     package["semantic_graph"]["nodes"][frame]["dependencies"] = json!(dependencies);
     refresh_extension(&mut package, frame);
@@ -1082,7 +965,7 @@ fn tc_459_extension_join_precedes_frame_semantic_join() {
     };
     assert_eq!(refusal.code, Code::UnknownRequiredCapability);
     assert_eq!(
-        refusal.path.as_ref().expect("pointer").to_string(),
+        refusal.loci[0].path.as_ref().expect("pointer").to_string(),
         format!("/semantic_graph/nodes/{extension}/body/definition")
     );
 }

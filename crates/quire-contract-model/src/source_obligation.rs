@@ -192,11 +192,11 @@ pub struct SourceTypeExhaustion {
     pub site: SourceObligationSite,
 }
 
-/// QSL checked requirement map key: wire node plus native role and ordinal.
+/// QSL checked requirement occurrence: structural node plus native role and ordinal.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SourceRequirementOccurrenceId {
-    /// Bytes of QSL's existing wire node id; the model computes no digest.
-    pub node: [u8; 32],
+    /// Structural identity of the checked requirement node.
+    pub node: CheckedNodeId,
     /// QSL origin role, without restricting its native vocabulary.
     pub role: Box<str>,
     /// QSL origin ordinal.
@@ -344,19 +344,22 @@ impl SourceSemanticOccurrenceId {
 ///
 /// ```compile_fail,E0308
 /// use quire_contract_model::source_obligation::{SourceAuthoredCriterionId, SourceRequirementOccurrenceId};
-/// let requirement = SourceRequirementOccurrenceId { node: [1; 32], role: "claim".into(), ordinal: 0 };
+/// use quire_contract_model::{CheckedNodeId, CheckedNodePathSegment};
+/// let requirement = SourceRequirementOccurrenceId { node: CheckedNodeId { package: "pkg".into(), path: vec![CheckedNodePathSegment::Name("claim".into())], ordinal: 0 }, role: "claim".into(), ordinal: 0 };
 /// let _: SourceAuthoredCriterionId = requirement;
 /// ```
 ///
 /// ```compile_fail,E0277
 /// use quire_contract_model::source_obligation::{SourceAuthoredCriterionId, SourceRequirementOccurrenceId};
-/// let requirement = SourceRequirementOccurrenceId { node: [1; 32], role: "claim".into(), ordinal: 0 };
+/// use quire_contract_model::{CheckedNodeId, CheckedNodePathSegment};
+/// let requirement = SourceRequirementOccurrenceId { node: CheckedNodeId { package: "pkg".into(), path: vec![CheckedNodePathSegment::Name("claim".into())], ordinal: 0 }, role: "claim".into(), ordinal: 0 };
 /// let _: SourceAuthoredCriterionId = SourceAuthoredCriterionId::from(requirement);
 /// ```
 ///
 /// ```compile_fail,E0277
 /// use quire_contract_model::source_obligation::{SourceAuthoredCriterionId, SourceRequirementOccurrenceId};
-/// let requirement = SourceRequirementOccurrenceId { node: [1; 32], role: "claim".into(), ordinal: 0 };
+/// use quire_contract_model::{CheckedNodeId, CheckedNodePathSegment};
+/// let requirement = SourceRequirementOccurrenceId { node: CheckedNodeId { package: "pkg".into(), path: vec![CheckedNodePathSegment::Name("claim".into())], ordinal: 0 }, role: "claim".into(), ordinal: 0 };
 /// let _: SourceAuthoredCriterionId = requirement.into();
 /// ```
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

@@ -20,11 +20,11 @@ When QSL emits with that view, the integrated producer SHALL reduce the median
 incremental peak resident memory in the fixed TC-455 emission window by at
 least 65,536 KiB (64 MiB) relative to a freshly measured owned-projection
 baseline on the same host, while preserving the exact canonical package bytes
-and `package_id`.
+and package `name`.
 
 ## Scope
 
-This requirement covers production of the identity preimage and complete V2
+This requirement covers production of the complete V2
 envelope from an already checked graph. The performance measurement begins
 immediately before QSL's `emit_checked` call and ends when it returns. The
 reader's separate FR-038-AC-214 memory ceiling does not measure this path.
@@ -41,8 +41,8 @@ part of this requirement.
 | Metric | Target | Threshold | Method |
 |---|---|---|---|
 | Peak incremental resident memory in the TC-455 emission window | At least 65,536 KiB (64 MiB) lower than the fresh owned-projection baseline median | Candidate median ≤ fresh baseline median − 65,536 KiB; the measured control's ceiling is 273,588 KiB (339,124 − 65,536) | Median of three fresh-process runs before and after the change, same fixture, toolchain, release profile, allocator, and host; sample `/proc/self/status` `VmRSS` from just before `emit_checked` until it returns and subtract the starting `VmRSS` |
-| Concurrent extra owned copies of each projected graph-node body on the successful producer path | 0 | 0 | Inspect the producer and IR encoder call path; assert no retained `Value::clone` or collected owned identity projection is required to hash and encode |
-| Canonical package bytes and `package_id` for the same checked input | Exact equality with the baseline | Any difference fails | Compare complete byte sequences and the typed package identity across the baseline and candidate producer; admit both through the existing V2 reader |
+| Concurrent extra owned copies of each projected graph-node body on the successful producer path | 0 | 0 | Inspect the producer and IR encoder call path; assert no retained `Value::clone` or collected owned graph projection is required to encode |
+| Canonical package bytes and package `name` for the same checked input | Exact equality with the baseline | Any difference fails | Compare complete byte sequences and the typed package name across the baseline and candidate producer; admit both through the existing V2 reader |
 
 The fixed TC-455 source has 12,500 sum terms, 50,138 source bytes, 12,505
 semantic graph nodes, and 40,631,408 emitted bytes. A fresh QSL-main
@@ -52,11 +52,11 @@ owned-projection control measured incremental peaks of 339,076, 339,124, and
 254,692, and 254,796 KiB (median 254,692 KiB; range 1,364 KiB). The observed
 median reduction is 84,432 KiB (82.45 MiB, 24.90%), leaving 18,896 KiB below
 the 64 MiB target ceiling. All six complete byte sequences and typed
-`package_id` values were identical, and the V2 reader admitted each envelope.
+package names were identical, and the V2 reader admitted each envelope.
 Median process high-water RSS was 449,996 KiB for the control and 365,296 KiB
 for the candidate.
 This local candidate is measurement evidence, not completed QSL adoption.
-The trial changed QSL's emitter and preimage call path and advanced its IR
+The trial changed QSL's emitter and envelope call path and advanced its IR
 dependency to the merged borrowed API; the measured delta is for that
 integrated candidate, not an IR-only microbenchmark.
 

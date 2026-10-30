@@ -90,7 +90,7 @@ fn transition_profile_wire_shape(operation: &Value) -> bool {
 
 /// Checks every node body and every `details` term of `wire` against the flat
 /// grammar, nodes first, in document order, then the diagnostics' `details`.
-/// Closed node headers refuse before hashing the single shipped graph, using
+/// Closed node headers refuse before checking the single shipped graph, using
 /// the same header decoder as the graph stage.
 pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     let mut kinds = Vec::with_capacity(wire.semantic_graph.nodes.len());
@@ -196,6 +196,21 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                             return Err(ValidationFailure::refused(
                                 CheckedPackageRefusalCode::MalformedWire,
                                 at.key("operation").key("member").key("operator").pointer(),
+                            ));
+                        }
+                        let member = &operation["member"];
+                        if member["kind"].as_str() == Some("relationship_end")
+                            && member
+                                .get("destination_type")
+                                .and_then(CheckedNodeId::from_value)
+                                .is_none()
+                        {
+                            return Err(ValidationFailure::refused(
+                                CheckedPackageRefusalCode::MalformedWire,
+                                at.key("operation")
+                                    .key("member")
+                                    .key("destination_type")
+                                    .pointer(),
                             ));
                         }
                         if kind == CheckedNodeKind::State(super::StateForm::Transition) {
@@ -783,7 +798,7 @@ mod tests {
     /// Private wire-shape inputs only: check does not authenticate identity
     /// or admit a package. These inputs deliberately combine header defects.
     fn header_node(tag: &str, form: &str, schema: &str, body: Value) -> Value {
-        let id = json!({"domain": "quire.checked-semantic-node/v1", "digest": "1".repeat(64)});
+        let id = json!({"package": "test/header", "path": [tag, form], "ordinal": 0});
         json!({
             "schema_version": schema, "node_id": id.clone(), "semantic_type": id,
             "node_tag": tag, "semantic_form": form, "dependencies": [],
@@ -794,13 +809,7 @@ mod tests {
     fn header_wire(nodes: Vec<Value>) -> RawCheckedPackageWireV2 {
         serde_json::from_value(json!({
             "contract_version": "quire.checked-package/v2",
-            "identity_preimage": {
-                "version": "quire.checked-package-id/v2",
-                "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
-                "profile_selections": [], "definition_selections": [],
-                "required_features": [], "dependency_selections": [],
-            },
-            "package_id": {"domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": "2".repeat(64)},
+            "name": "test/header",
             "lock": {
                 "sources": [], "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
                 "profile_selections": [], "definition_selections": [],
@@ -818,7 +827,7 @@ mod tests {
             panic!("a refusal, not an incomplete result");
         };
         assert_eq!(refusal.code, code);
-        assert_eq!(refusal.path, JsonPointer::parse(path));
+        assert_eq!(refusal.loci[0].path.clone(), JsonPointer::parse(path));
         assert_eq!(refusal.cause, None);
     }
 
@@ -877,7 +886,7 @@ mod tests {
                     "member": {"kind": "profile_operator", "operator": "protocol"},
                     "leaves": []
                 },
-                "result_type": {"domain": "quire.checked-semantic-node/v1", "digest": "1".repeat(64)},
+                "result_type": {"package": "test/header", "path": ["protocol", "protocol_clause"], "ordinal": 0},
                 "arguments": []
             }),
         );
@@ -1026,7 +1035,7 @@ mod tests {
         };
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
         let expected = format!("/creates{}", "/0".repeat(LEVELS));
-        assert_eq!(refusal.path, JsonPointer::parse(&expected));
+        assert_eq!(refusal.loci[0].path.clone(), JsonPointer::parse(&expected));
         // The frame object, its `creates` array levels and the scalar at the
         // bottom, and the `term` member: LEVELS + 3 values.
         assert_eq!(worked, Ok(u64::try_from(LEVELS + 3).expect("count")));
@@ -1045,7 +1054,9 @@ mod tests {
                 .err()
                 .map(|failure| match failure {
                     crate::checked_package::common::ValidationFailure::Refused(refusal) => refusal
+                        .loci[0]
                         .path
+                        .clone()
                         .map_or_else(|| "<none>".to_owned(), |path| path.as_str().to_owned()),
                     crate::checked_package::common::ValidationFailure::Incomplete(_) => {
                         "incomplete".to_owned()

@@ -21,10 +21,7 @@ Supply the validated FR-467 `retention` definition through the reader's
 held-definition evidence and read QSpec's positive extension fixtures. Check
 the admitted node, clause references, types, declaration, owner, occurrence,
 source region, structural key and package identity. Supply a second node kind
-under the same tag/form. Change each keyed member and the source region in
-turn, recomputing fixture identities where required. For TC-951 X02, compare
-the changed node and package identities through the published preimage rule;
-only the owner-change branch needs a reader admission check. Run each other
+under the same tag/form. Change each body member and the source region in turn, retaining valid structural ids. For TC-951 X02, compare complete typed bodies and require reader admission or the specified independent refusal for each variant. Run each other
 X01..X17 control through the public reader where TC-951 specifies an
 admission or refusal outcome; check identity for admitted branches and the
 exact first refusal for adverse branches.

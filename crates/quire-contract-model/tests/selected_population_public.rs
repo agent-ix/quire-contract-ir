@@ -7,8 +7,8 @@ use quire_contract_model::{
         select_population, CheckedSelectedPopulationOutcome as Outcome,
         CheckedSelectedPopulationSelector as Selector, CheckedSelectedPopulationSource as Source,
     },
-    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageEvidence,
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticId,
+    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
     CheckedSourceRef, CheckedSourceRegion,
 };
 use serde_json::Value;
@@ -20,8 +20,6 @@ use std::{
 };
 
 const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
-const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
-const PACKAGE_DOMAIN: &str = "quire.package.semantic/v2";
 static NEXT_SCRATCH_ID: AtomicU64 = AtomicU64::new(0);
 
 struct Scratch(PathBuf);
@@ -35,25 +33,25 @@ impl Drop for Scratch {
 #[derive(Clone, Copy)]
 struct FixtureCase {
     file: &'static str,
-    expected: &'static [u64],
+    expected: &'static [&'static str],
 }
 
 const CASES: &[FixtureCase] = &[
     FixtureCase {
         file: "population-0.json",
-        expected: &[0],
+        expected: &["0"],
     },
     FixtureCase {
         file: "population-1.json",
-        expected: &[1],
+        expected: &["1"],
     },
     FixtureCase {
         file: "population-3.json",
-        expected: &[3],
+        expected: &["3"],
     },
     FixtureCase {
         file: "population-2-5.json",
-        expected: &[2, 5],
+        expected: &["2", "5"],
     },
 ];
 
@@ -144,7 +142,7 @@ fn selector(
         .expect("population node has a Type occurrence")
         .clone();
     Selector {
-        package_id: package.package_id().clone(),
+        package_name: package.name().into(),
         binding: node.node_id.clone(),
         occurrence,
     }
@@ -200,7 +198,7 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
                 Outcome::Finite(selected) => selected,
                 other => panic!("exact QSL population selection must be finite: {other:?}"),
             };
-            assert_eq!(selected.package_id, *package.package_id());
+            assert_eq!(selected.package_name.as_ref(), package.name());
             assert_eq!(selected.binding, node.node_id);
             assert_eq!(selected.minimum, 0);
             assert_eq!(
@@ -219,7 +217,10 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
             assert!(package.model_object_fields(&selected.object_type).is_ok());
             found.push(selected);
         }
-        let mut actual: Vec<_> = found.iter().map(|population| population.maximum).collect();
+        let mut actual: Vec<_> = found
+            .iter()
+            .map(|population| population.maximum.as_str())
+            .collect();
         actual.sort_unstable();
         assert_eq!(actual, case.expected, "{}", case.file);
         if case.file == "population-2-5.json" {
@@ -228,14 +229,14 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     }
 
     let mut paired = paired.expect("two-binding QSL fixture");
-    paired.sort_by_key(|population| population.maximum);
+    paired.sort_by_key(|population| population.maximum.clone());
     assert_eq!(paired.len(), 2);
     assert_eq!(
         paired
             .iter()
-            .map(|population| population.maximum)
+            .map(|population| population.maximum.as_str())
             .collect::<Vec<_>>(),
-        vec![2, 5]
+        vec!["2", "5"]
     );
     assert_ne!(paired[0].binding, paired[1].binding);
     assert_eq!(paired[0].object_type, paired[1].object_type);
@@ -278,7 +279,7 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     let population = population_nodes(&package)[0];
     let original = selector(&package, population);
     let mut foreign = original.clone();
-    foreign.package_id.domain = "foreign".into();
+    foreign.package_name = "foreign".into();
     assert_no_extent(
         select_population(Source::Admitted {
             package: &package,
@@ -288,8 +289,9 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     );
     let mut stale = original.clone();
     stale.binding = CheckedNodeId {
-        domain: NODE_DOMAIN.into(),
-        digest: "f".repeat(64).into(),
+        package: package.name().into(),
+        path: vec![CheckedNodePathSegment::Name("absent-population".into())],
+        ordinal: 0,
     };
     assert_no_extent(
         select_population(Source::Admitted {
@@ -333,11 +335,7 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
         }),
         |outcome| matches!(outcome, Outcome::NotPopulation(_)),
     );
-    let selected_model = CheckedSemanticId {
-        domain: PACKAGE_DOMAIN.into(),
-        algorithm: "sha256".into(),
-        digest: "e".repeat(64).into(),
-    };
+    let selected_model: Box<str> = "selected-model".into();
     let population_id = population.node_id.clone();
     assert_no_extent(
         select_population(Source::Declaration {
@@ -349,8 +347,6 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     let upstream_source = CheckedSourceRef {
         authority: "qsl".into(),
         identity: "test:unknown-closure".into(),
-        digest_domain: "quire.source.bytes/v1".into(),
-        digest: "0".repeat(64).into(),
     };
     let provenance = vec![CheckedSourceRegion {
         source: upstream_source.clone(),
@@ -369,11 +365,7 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     assert_eq!(
         open,
         Outcome::UnknownClosureOpenExtent {
-            selected_model: CheckedSemanticId {
-                domain: PACKAGE_DOMAIN.into(),
-                algorithm: "sha256".into(),
-                digest: "e".repeat(64).into(),
-            },
+            selected_model: "selected-model".into(),
             population: population_nodes(&package)[0].node_id.clone(),
             source: upstream_source,
             provenance,
@@ -381,17 +373,11 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     );
     assert_no_extent(
         select_population(Source::UnknownClosureUnresolvedObjectType {
-            selected_model: CheckedSemanticId {
-                domain: PACKAGE_DOMAIN.into(),
-                algorithm: "sha256".into(),
-                digest: "d".repeat(64).into(),
-            },
+            selected_model: "other-model".into(),
             population: population_nodes(&package)[0].node_id.clone(),
             source: CheckedSourceRef {
                 authority: "qsl".into(),
                 identity: "test:unknown-object".into(),
-                digest_domain: "quire.source.bytes/v1".into(),
-                digest: "1".repeat(64).into(),
             },
             provenance: vec![],
         }),
@@ -399,17 +385,11 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     );
     assert_no_extent(
         select_population(Source::UnknownClosureUnresolvedSubtypeClosure {
-            selected_model: CheckedSemanticId {
-                domain: PACKAGE_DOMAIN.into(),
-                algorithm: "sha256".into(),
-                digest: "c".repeat(64).into(),
-            },
+            selected_model: "third-model".into(),
             population: population_nodes(&package)[0].node_id.clone(),
             source: CheckedSourceRef {
                 authority: "qsl".into(),
                 identity: "test:unknown-subtype".into(),
-                digest_domain: "quire.source.bytes/v1".into(),
-                digest: "2".repeat(64).into(),
             },
             provenance: vec![],
         }),
@@ -456,7 +436,7 @@ fn selected_population_tracks_authoritative_variants_and_retargeted_package() {
                 }
             })
             .collect();
-        populations.sort_by_key(|population| population.maximum);
+        populations.sort_by_key(|population| population.maximum.clone());
         populations
     };
 
@@ -464,22 +444,22 @@ fn selected_population_tracks_authoritative_variants_and_retargeted_package() {
     assert_eq!(
         before
             .iter()
-            .map(|population| population.maximum)
+            .map(|population| population.maximum.as_str())
             .collect::<Vec<_>>(),
-        vec![0, 3, 5]
+        vec!["0", "3", "5"]
     );
     assert_eq!(before[0].object_type, before[2].object_type);
     assert_ne!(before[0].binding, before[2].binding);
     assert_ne!(before[0].object_type, before[1].object_type);
 
     let changed = selected(&changed_max);
-    assert_ne!(same_type.package_id(), changed_max.package_id());
+    assert_eq!(same_type.name(), changed_max.name());
     assert_eq!(
         changed
             .iter()
-            .map(|population| population.maximum)
+            .map(|population| population.maximum.as_str())
             .collect::<Vec<_>>(),
-        vec![0, 3, 6]
+        vec!["0", "3", "6"]
     );
     for (old, new) in before.iter().take(2).zip(changed.iter().take(2)) {
         assert_eq!(old.maximum, new.maximum);
@@ -488,13 +468,13 @@ fn selected_population_tracks_authoritative_variants_and_retargeted_package() {
     assert_ne!(before[2].binding, changed[2].binding);
 
     let retargeted_selections = selected(&retargeted);
-    assert_ne!(same_type.package_id(), retargeted.package_id());
+    assert_eq!(same_type.name(), retargeted.name());
     assert_eq!(
         retargeted_selections
             .iter()
-            .map(|population| population.maximum)
+            .map(|population| population.maximum.as_str())
             .collect::<Vec<_>>(),
-        vec![0, 3, 5]
+        vec!["0", "3", "5"]
     );
     for (original, after_retarget) in before.iter().zip(retargeted_selections.iter()) {
         assert_eq!(original.binding, after_retarget.binding);

@@ -1,26 +1,28 @@
-//! The closed-schema decode of the package document, without a recursion that
-//! follows the nesting of a term or a copy of the document that follows its size.
+//! The closed-schema decode of the package document, without native recursion
+//! following the nesting of a term or structural node path.
 //!
 //! A node `body` and a diagnostic's `details`
 //! entry may nest as deep as the strict parser's limit of 128. The outer typed
 //! decode borrows each such term as a raw source slice, then decodes it into a
-//! `Value` only after that outer frame has returned. This keeps an adverse
-//! deep term within the 256 KiB reader stack (FR-038-AC-117).
+//! `Value` only after that outer frame has returned. A `NodeId.path` is
+//! captured and decoded on a heap worklist, so it has no fixed depth cap.
+//! This keeps an adverse deep term or path within the reader stack budget.
 //!
 //! The lossless-decode check (no member defaulted, nulled or dropped) compares
 //! borrowed source array items against their typed serialization one at a
-//! time, so no second copy of the whole document is built.
+//! time, except structural node identities, which compare from raw slices
+//! to avoid recursive serialization.
 
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
     CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner, CheckedPackageEnvelope,
-    CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, NominalIdentityPreimage,
-    RawCheckedPackageWireV2, RawSemanticGraphV2, RawSemanticNodeV2, ValidationFailure,
+    CheckedPackageLockV2, RawCheckedPackageWireV2, RawSemanticGraphV2, RawSemanticNodeV2,
+    ValidationFailure,
 };
 use crate::checked_package::common::{decode_closed_bytes, node_pointer, strict_parse};
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRegion,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSourceMapEntry,
+    CheckedSourceRegion,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
 use serde::{Deserialize, Deserializer};
@@ -45,8 +47,7 @@ fn key_ordinal(value: &Value) -> bool {
         && (text.len() > MAX_SAFE.len() || (text.len() == MAX_SAFE.len() && text > MAX_SAFE))
 }
 
-/// Check a present position ordinal before key derivation can mistake its
-/// malformed spelling for a changed application preimage.
+/// Check a present position ordinal before semantic graph validation.
 fn position_member_shape(body: &Value) -> bool {
     let mut pending = vec![body];
     while let Some(value) = pending.pop() {
@@ -81,8 +82,7 @@ fn position_member_shape(body: &Value) -> bool {
 // member is decoded by the same public type as the admitted wire.
 type BorrowedWire<'a> = CheckedPackageEnvelope<
     Box<str>,
-    CheckedPackageIdentityPreimageV2,
-    CheckedSemanticId,
+    Box<str>,
     CheckedPackageLockV2,
     BorrowedGraph<'a>,
     Vec<CheckedSourceMapEntry>,
@@ -111,8 +111,6 @@ struct BorrowedNode<'a> {
     occurrences: Vec<CheckedOccurrence>,
     #[serde(default)]
     recursion_group: Option<Box<str>>,
-    #[serde(default)]
-    nominal_identity_preimage: Option<NominalIdentityPreimage>,
     #[serde(default, deserialize_with = "present_nullable")]
     declaration: Option<Option<CheckedDeclaration>>,
     #[serde(default)]
@@ -155,29 +153,25 @@ struct BorrowedDiagnostic<'a> {
 pub(super) fn decode_borrowed_wire(
     bytes: &[u8],
 ) -> Result<RawCheckedPackageWireV2, ValidationFailure> {
-    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|failure| {
-        let ValidationFailure::Refused(mut refusal) = failure else {
-            return failure;
-        };
-        if refusal.code == CheckedPackageRefusalCode::UnknownMember
-            && refusal.path.as_ref().is_some_and(|path| {
-                path.as_str()
-                    .strip_prefix("/identity_preimage/")
-                    .is_some_and(|member| !member.contains('/'))
-            })
-        {
-            refusal.code = CheckedPackageRefusalCode::MalformedWire;
+    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|mut failure| {
+        if let ValidationFailure::Refused(ref mut refusal) = failure {
+            if refusal.code == CheckedPackageRefusalCode::MalformedWire {
+                if let Some(at) = refusal.primary_path().cloned() {
+                    if let Some(ordinal) = invalid_node_id_ordinal(bytes, &at) {
+                        refusal.set_primary_path(Some(ordinal));
+                    }
+                }
+            }
         }
-        ValidationFailure::Refused(refusal)
+        failure
     })?;
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
     let mut nodes = Vec::with_capacity(graph.nodes.len());
     for (position, node) in graph.nodes.into_iter().enumerate() {
-        if matches!(
-            &node.nominal_identity_preimage,
-            Some(NominalIdentityPreimage::DimensionEquivalence(_))
-        ) && node.declaration.is_some()
+        if node.node_tag.as_ref() == "scalar_type"
+            && node.semantic_form.as_ref() == "dimension_equivalence"
+            && node.declaration.is_some()
         {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::MalformedWire,
@@ -200,7 +194,6 @@ pub(super) fn decode_borrowed_wire(
             dependencies: node.dependencies,
             occurrences: node.occurrences,
             recursion_group: node.recursion_group,
-            nominal_identity_preimage: node.nominal_identity_preimage,
             declaration: node.declaration.flatten(),
             owner: node.owner,
             owner_model: node.owner_model,
@@ -209,8 +202,7 @@ pub(super) fn decode_borrowed_wire(
     }
     Ok(CheckedPackageEnvelope {
         contract_version: wire.contract_version,
-        identity_preimage: wire.identity_preimage,
-        package_id: wire.package_id,
+        name: wire.name,
         lock: wire.lock,
         semantic_graph: RawSemanticGraphV2 {
             graph_version: graph.graph_version,
@@ -242,9 +234,44 @@ pub(super) fn decode_borrowed_wire(
     })
 }
 
+/// Refine a buffered structural ID decode error to the actual ordinal member.
+/// Nested operand IDs are walked on the heap, without a path-depth cap.
+#[ix_trace_rs::string_edge]
+fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+    const MAX_SAFE: u64 = 9_007_199_254_740_991;
+    let mut pending = vec![(source_raw(bytes, at)?, at.clone())];
+    while let Some((raw, path)) = pending.pop() {
+        let members: BTreeMap<&str, &RawValue> = serde_json::from_str(raw.get()).ok()?;
+        if !members.contains_key("package") || !members.contains_key("path") {
+            continue;
+        }
+        if let Some(ordinal) = members.get("ordinal") {
+            if serde_json::from_str::<u64>(ordinal.get())
+                .ok()
+                .is_none_or(|value| value > MAX_SAFE)
+            {
+                return Some(path.key("ordinal"));
+            }
+        }
+        if let Some(raw_path) = members.get("path") {
+            let segments: Vec<&RawValue> = serde_json::from_str(raw_path.get()).ok()?;
+            for (index, segment) in segments.into_iter().enumerate().rev() {
+                if segment.get().starts_with('{') {
+                    pending.push((segment, path.clone().key("path").index(index)));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Read only the JSON value named by `pointer`. Borrowed raw subtrees retain
 /// slices of the caller's bytes; no ancestor is decoded into a `Value`.
 pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value> {
+    serde_json::from_str(source_raw(bytes, pointer)?.get()).ok()
+}
+
+fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a RawValue> {
     let mut current: &RawValue = serde_json::from_slice(bytes).ok()?;
     let path = pointer.as_str();
     if !path.is_empty() {
@@ -264,7 +291,7 @@ pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value>
             };
         }
     }
-    serde_json::from_str(current.get()).ok()
+    Some(current)
 }
 
 /// `malformed_wire` at `at`.
@@ -300,19 +327,72 @@ pub(super) fn check_lossless_source(
     compare_root(&root, "capability_report", &wire.capability_report, &[])?;
     compare_root(&root, "contract_version", &wire.contract_version, &[])?;
     compare_root(&root, "diagnostics", &wire.diagnostics, &["entries"])?;
-    compare_root(&root, "identity_preimage", &wire.identity_preimage, &[])?;
     compare_root(&root, "lock", &wire.lock, &[])?;
-    compare_root(&root, "package_id", &wire.package_id, &[])?;
+    compare_root(&root, "name", &wire.name, &[])?;
     compare_root(&root, "semantic_graph", &wire.semantic_graph, &["nodes"])?;
-    compare_items(
-        &["semantic_graph", "nodes"],
-        &nodes,
-        &wire.semantic_graph.nodes,
-        &["body"],
-    )?;
-    compare_items(&["source_map"], &source_map, &wire.source_map, &[])?;
+    if nodes.len() != wire.semantic_graph.nodes.len() {
+        return Err(malformed(
+            JsonPointer::root().key("semantic_graph").key("nodes"),
+        ));
+    }
+    for (index, (original, node)) in nodes.iter().zip(&wire.semantic_graph.nodes).enumerate() {
+        let at = JsonPointer::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(index);
+        super::lossless::compare(
+            original,
+            node,
+            at.clone(),
+            &[
+                "body",
+                "node_id",
+                "semantic_type",
+                "dependencies",
+                "owner_model",
+            ],
+        )?;
+        compare_id_member(original, "node_id", &node.node_id, at.clone())?;
+        compare_id_member(original, "semantic_type", &node.semantic_type, at.clone())?;
+        let dependencies: Vec<&RawValue> = serde_json::from_str(
+            raw_member(Some(original), "dependencies")
+                .ok_or_else(|| malformed(at.clone().key("dependencies")))?
+                .get(),
+        )
+        .map_err(|_| malformed(at.clone().key("dependencies")))?;
+        if dependencies.len() != node.dependencies.len() {
+            return Err(malformed(at.clone().key("dependencies")));
+        }
+        for (item, (raw, id)) in dependencies.iter().zip(&node.dependencies).enumerate() {
+            compare_id(raw, id, at.clone().key("dependencies").index(item))?;
+        }
+        match (&node.owner_model, raw_member(Some(original), "owner_model")) {
+            (Some(id), Some(raw)) => compare_id(raw, id, at.key("owner_model"))?,
+            (None, None) => {}
+            _ => return Err(malformed(at.key("owner_model"))),
+        }
+    }
+    if source_map.len() != wire.source_map.len() {
+        return Err(malformed(JsonPointer::root().key("source_map")));
+    }
+    for (index, (original, entry)) in source_map.iter().zip(&wire.source_map).enumerate() {
+        let at = JsonPointer::root().key("source_map").index(index);
+        super::lossless::compare(original, entry, at.clone(), &["node_id"])?;
+        compare_id_member(original, "node_id", &entry.node_id, at)?;
+    }
     if let Some(rows) = &wire.refinement_step_rows {
-        compare_root(&root, "refinement_step_rows", rows, &[])?;
+        let originals = raw_array(
+            root.get("refinement_step_rows").copied(),
+            &["refinement_step_rows"],
+        )?;
+        if originals.len() != rows.len() {
+            return Err(malformed(JsonPointer::root().key("refinement_step_rows")));
+        }
+        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
+            let at = JsonPointer::root().key("refinement_step_rows").index(index);
+            super::lossless::compare(original, row, at.clone(), &["node_id"])?;
+            compare_id_member(original, "node_id", &row.node_id, at)?;
+        }
     } else if root.contains_key("refinement_step_rows") {
         return Err(malformed(JsonPointer::root().key("refinement_step_rows")));
     }
@@ -322,6 +402,31 @@ pub(super) fn check_lossless_source(
         &wire.diagnostics.entries,
         &["details"],
     )
+}
+
+fn compare_id(
+    raw: &RawValue,
+    typed: &CheckedNodeId,
+    at: JsonPointer,
+) -> Result<(), ValidationFailure> {
+    let decoded: CheckedNodeId =
+        serde_json::from_str(raw.get()).map_err(|_| malformed(at.clone()))?;
+    if decoded == *typed {
+        Ok(())
+    } else {
+        Err(malformed(at))
+    }
+}
+
+fn compare_id_member(
+    raw: &RawValue,
+    key: &str,
+    typed: &CheckedNodeId,
+    parent: JsonPointer,
+) -> Result<(), ValidationFailure> {
+    let at = parent.key(key);
+    let value = raw_member(Some(raw), key).ok_or_else(|| malformed(at.clone()))?;
+    compare_id(value, typed, at)
 }
 
 fn compare_root<T: serde::Serialize>(
@@ -372,4 +477,36 @@ fn raw_array<'a>(
         .fold(JsonPointer::root(), |pointer, key| pointer.key(key));
     serde_json::from_str(raw.ok_or_else(|| malformed(pointer.clone()))?.get())
         .map_err(|_| malformed(pointer))
+}
+
+#[cfg(test)]
+mod ordinal_locus_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_structural_ordinals_keep_their_exact_member_pointer() {
+        let node = JsonPointer::parse("/semantic_graph/nodes/1/node_id").unwrap();
+        for ordinal in ["9007199254740992", "1.5", "-1", "\"one\""] {
+            let bytes = format!(
+                "{{\"semantic_graph\":{{\"nodes\":[null,{{\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":{ordinal}}}}}]}}}}"
+            );
+            assert_eq!(
+                invalid_node_id_ordinal(bytes.as_bytes(), &node),
+                Some(node.clone().key("ordinal"))
+            );
+        }
+
+        let nested = br#"{"semantic_graph":{"nodes":[null,{"node_id":{"package":"p","path":[{"package":"p","path":["x"],"ordinal":1.5}],"ordinal":0}}]}}"#;
+        assert_eq!(
+            invalid_node_id_ordinal(nested, &node),
+            Some(node.key("path").index(0).key("ordinal"))
+        );
+
+        let dependency = br#"{"semantic_graph":{"nodes":[{"dependencies":[{"package":"p","path":["x"],"ordinal":"one"}]}]}}"#;
+        let reference = JsonPointer::parse("/semantic_graph/nodes/0/dependencies/0").unwrap();
+        assert_eq!(
+            invalid_node_id_ordinal(dependency, &reference),
+            Some(reference.key("ordinal"))
+        );
+    }
 }

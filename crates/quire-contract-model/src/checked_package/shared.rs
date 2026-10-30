@@ -5,7 +5,7 @@
 //! source/occurrence records that the current reader and its lowering
 //! pipeline both use unchanged.
 
-use quire_canonical::FixedShape;
+use quire_canonical::{Encode, Error as CanonicalError, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
 
 /// Caller-supplied, exact ceilings for a checked-package read.
@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 pub struct CheckedPackageReadLimits {
     /// Maximum canonical wire bytes.
     ///
-    /// There is no depth limit: the closed body grammar fixes the JSON depth
-    /// of every package whatever its node count (FR-038-AC-117).
+    /// There is no fixed depth limit. Structural node paths and canonical
+    /// encoding use heap worklists bounded by this byte ceiling.
     pub bytes: u64,
     /// Maximum semantic graph nodes.
     pub nodes: u64,
@@ -74,13 +74,6 @@ pub enum CheckedPackageRefusalCode {
     UnknownMember,
     /// The parsed value was not RFC-8785-style canonical JSON bytes.
     NoncanonicalWire,
-    /// The package, or something it selects, does not match the content
-    /// identity it names: the `package_id`, identity preimage or projection,
-    /// a selected domain package document, a dependency's `package_id`, or a
-    /// lock that contradicts itself.
-    StaleDependency,
-    /// A digest appeared under an incompatible identity domain.
-    DigestDomainMismatch,
     /// A required capability was absent or non-available.
     UnknownRequiredCapability,
     /// Graph identity, reference, form, or source correspondence was invalid.
@@ -96,8 +89,7 @@ pub enum CheckedPackageRefusalCode {
     /// A frame entry named a declared dependency of a meaning its member
     /// does not admit.
     InvalidModelBinding,
-    /// An application node's `operation` failed catalog validation, or its
-    /// retained key is not its own preimage digest.
+    /// An application node's `operation` failed catalog validation.
     InvalidPackage,
     /// An application node's argument, member or leaf is ill-typed against
     /// its catalogued operation.
@@ -139,8 +131,6 @@ pub enum CheckedPackageRefusalCause {
     FeatureSetMismatch,
     /// A resource charge could not be made.
     InsufficientNextCharge,
-    /// Selected content has a different recomputed identity.
-    ContentMismatch,
     /// `missing-name`: an entry naming no node of the graph, or a node that
     /// is not a declared dependency of the frame node that names it.
     MissingName,
@@ -152,9 +142,6 @@ pub enum CheckedPackageRefusalCause {
     /// `wrong-export`: a protocol `related.relationship` target is not a
     /// `relation`/`relationship` declaration of the selected model.
     WrongExport,
-    /// `stale-node-key`: an application node whose retained key is not the
-    /// JCS SHA-256 of its own preimage.
-    StaleNodeKey,
     /// `invalid-derived-shape`: a correctly keyed derived node has an
     /// inadmissible semantic target.
     InvalidDerivedShape,
@@ -191,7 +178,7 @@ pub enum CheckedPackageRefusalCause {
     /// the awaited event or a repeat body with a path that makes no step.
     DeclarationForm,
     /// `declaration-nominal-mismatch`: a node's declared `qualified_name`
-    /// differs from its nominal identity preimage's `qualified_declaration`.
+    /// differs from its declaration's `qualified_name` path.
     DeclarationNominalMismatch,
     /// `ambiguous-name`: another node carries the same declared
     /// `qualified_name`, or a model-owned member's name matches two exposed
@@ -359,7 +346,7 @@ impl AsRef<str> for JsonPointer {
 }
 
 /// Clause information carried by an extension reader refusal.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CheckedExtensionRefusalDetail {
     /// The clause or first absent member.
     pub member: Box<str>,
@@ -372,7 +359,7 @@ pub struct CheckedExtensionRefusalDetail {
 }
 
 /// The two identities involved in a terminal declaration duplicate.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum CheckedTerminalDuplicate {
     /// Distinct terminal nodes for the same model, in node-id order.
     Nodes {
@@ -393,7 +380,7 @@ pub enum CheckedTerminalDuplicate {
 }
 
 /// Protocol control information retained at a typed reader refusal.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum CheckedProtocolRefusalDetail {
     /// A protocol expression reads a binder outside its stage's readable set.
     BinderScope {
@@ -484,7 +471,7 @@ pub enum CheckedProtocolRefusalDetail {
 }
 
 /// The record binder and field named by a decision-fact read.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CheckedProtocolDecisionRead {
     /// The record binder node.
     pub binder: CheckedNodeId,
@@ -492,18 +479,22 @@ pub struct CheckedProtocolDecisionRead {
     pub field: Box<str>,
 }
 
-/// A typed refusal with a stable code and the location of the value it is
-/// about.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// One exact location of a typed refusal.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CheckedPackageRefusalLocation {
+    /// RFC 6901 pointer of the value; absent only for a byte-stream defect.
+    pub path: Option<JsonPointer>,
+    /// Exact admitted source region of this value, when one exists.
+    pub source_region: Option<CheckedSourceRegion>,
+}
+
+/// A typed refusal with a stable code and one or more ordered locations.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CheckedPackageRefusal {
     /// The condition callers can distinguish without parsing prose.
     pub code: CheckedPackageRefusalCode,
-    /// The RFC 6901 pointer of the value the refusal is about; absent when
-    /// the refusal concerns the byte stream rather than a value (malformed
-    /// JSON, non-canonical bytes).
-    pub path: Option<JsonPointer>,
-    /// The other importer-rooted selection path in a dependency diamond conflict.
-    pub related_path: Option<JsonPointer>,
+    /// Nonempty locations in declaration order; the first is primary.
+    pub loci: Vec<CheckedPackageRefusalLocation>,
     /// The cause tag paired with `code` under FR-322's `DiagnosticCausePairing`,
     /// present exactly when this reader determined one.
     pub cause: Option<CheckedPackageRefusalCause>,
@@ -518,23 +509,21 @@ pub struct CheckedPackageRefusal {
     /// unsupported variant payload, or into the checked package for an
     /// unheld extension definition (FR-469).
     pub document_pointer: Option<JsonPointer>,
-    /// Selected or pinned identity in a content or byte digest mismatch.
-    pub expected: Option<CheckedSemanticId>,
-    /// Recomputed identity in a content or byte digest mismatch.
-    pub actual: Option<CheckedSemanticId>,
     /// Extension clause information at a missing-member or type-mismatch refusal.
     pub extension_detail: Option<Box<CheckedExtensionRefusalDetail>>,
     /// Protocol event, type or interval context for a control refusal.
     pub protocol_detail: Option<Box<CheckedProtocolRefusalDetail>>,
     /// Both parties to a terminal declaration duplicate, when applicable.
     pub terminal_duplicate: Option<CheckedTerminalDuplicate>,
-    /// The key already derived at a stale-node-key refusal site, when one
-    /// exists. It is meaningful only with the original reader-returned locus.
-    expected_node_id: Option<Box<CheckedNodeId>>,
 }
 
-/// Named fields for constructing a refusal inside this crate. The expected
-/// key is set only by the dedicated stale-key constructor.
+impl std::fmt::Display for CheckedPackageRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, formatter)
+    }
+}
+
+/// Named fields for constructing a refusal inside this crate.
 pub(crate) struct RefusalFields {
     pub(crate) code: CheckedPackageRefusalCode,
     pub(crate) path: Option<JsonPointer>,
@@ -548,64 +537,38 @@ impl CheckedPackageRefusal {
     pub(crate) fn new(fields: RefusalFields) -> Self {
         Self {
             code: fields.code,
-            path: fields.path,
-            related_path: None,
+            loci: vec![CheckedPackageRefusalLocation {
+                path: fields.path,
+                source_region: None,
+            }],
             cause: fields.cause,
             locus: fields.locus,
             contract_version: fields.contract_version,
             document_pointer: fields.document_pointer,
-            expected: None,
-            actual: None,
             extension_detail: None,
             protocol_detail: None,
             terminal_duplicate: None,
-            expected_node_id: None,
         }
     }
 
-    /// A selected or pinned identity differs from the supplied content.
-    pub(crate) fn mismatch(
-        path: JsonPointer,
-        cause: CheckedPackageRefusalCause,
-        expected: CheckedSemanticId,
-        actual: CheckedSemanticId,
-    ) -> Self {
-        debug_assert!(matches!(cause, CheckedPackageRefusalCause::ContentMismatch));
-        let mut refusal = Self::new(RefusalFields {
-            code: CheckedPackageRefusalCode::StaleDependency,
-            path: Some(path),
-            cause: Some(cause),
-            locus: None,
-            contract_version: None,
-            document_pointer: None,
-        });
-        refusal.expected = Some(expected);
-        refusal.actual = Some(actual);
-        refusal
+    /// The primary RFC 6901 pointer, if this is a value refusal.
+    pub(crate) fn primary_path(&self) -> Option<&JsonPointer> {
+        self.loci
+            .first()
+            .and_then(|location| location.path.as_ref())
     }
 
-    pub(crate) fn stale_node_key(
-        path: JsonPointer,
-        locus: CheckedNodeId,
-        expected_node_id: CheckedNodeId,
-    ) -> Self {
-        let mut refusal = Self::new(RefusalFields {
-            code: CheckedPackageRefusalCode::InvalidPackage,
-            path: Some(path),
-            cause: Some(CheckedPackageRefusalCause::StaleNodeKey),
-            locus: Some(locus),
-            contract_version: None,
-            document_pointer: None,
-        });
-        refusal.expected_node_id = Some(Box::new(expected_node_id));
-        refusal
+    /// Replace the primary value pointer after a more precise decode locates it.
+    pub(crate) fn set_primary_path(&mut self, path: Option<JsonPointer>) {
+        self.loci[0].path = path;
     }
 
-    /// The production-derived node key retained with a stale-key refusal, if
-    /// the reader could derive one. The original [`Self::locus`] identifies the
-    /// stored key that refused.
-    pub fn expected_node_id(&self) -> Option<&CheckedNodeId> {
-        self.expected_node_id.as_deref()
+    /// Add another independently identified refusal location in declaration order.
+    pub(crate) fn push_path(&mut self, path: JsonPointer) {
+        self.loci.push(CheckedPackageRefusalLocation {
+            path: Some(path),
+            source_region: None,
+        });
     }
 }
 
@@ -633,50 +596,341 @@ pub struct CheckedArtifactLocator {
     pub identity: Box<str>,
 }
 
-/// A semantic digest with an explicit domain and algorithm.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
-#[serde(deny_unknown_fields)]
-pub struct CheckedSemanticId {
-    /// Identity domain.
-    pub domain: Box<str>,
-    /// Digest algorithm.
-    pub algorithm: Box<str>,
-    /// Lowercase SHA-256 digest.
-    pub digest: Box<str>,
+/// One segment of a checked node's structural path.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(untagged)]
+pub enum CheckedNodePathSegment {
+    /// An authored or derived path spelling.
+    Name(Box<str>),
+    /// An operand node's structural identity.
+    Node(Box<CheckedNodeId>),
 }
 
 /// A checked semantic graph node identity.
-#[derive(Clone, Debug, Serialize, Deserialize, FixedShape)]
-#[cfg_attr(not(test), derive(Eq, PartialEq, Ord, PartialOrd))]
-#[cfg_attr(test, derive(Eq))]
+#[derive(Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedNodeId {
-    /// Must be `quire.checked-semantic-node/v1`.
-    pub domain: Box<str>,
-    /// Lowercase SHA-256 digest.
-    pub digest: Box<str>,
+    /// The name of the owning package.
+    pub package: Box<str>,
+    /// Nonempty declared or derived path.
+    pub path: Vec<CheckedNodePathSegment>,
+    /// Position among nodes sharing the package and path.
+    pub ordinal: u64,
 }
 
-#[cfg(test)]
-impl PartialEq for CheckedNodeId {
-    fn eq(&self, other: &Self) -> bool {
-        checked_node_comparisons::visited();
-        self.domain == other.domain && self.digest == other.digest
+impl<'de> Deserialize<'de> for CheckedNodeId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        use serde_json::value::RawValue;
+
+        // RawValue captures the nested object with serde_json's iterative
+        // scanner. Decode one object at a time so input depth consumes heap
+        // frames, never the call stack.
+        let raw = Box::<RawValue>::deserialize(deserializer)?;
+        enum Task<'a> {
+            Parse(&'a RawValue),
+            Finish {
+                package: Box<str>,
+                ordinal: u64,
+                path_len: usize,
+            },
+        }
+        let mut tasks = vec![Task::Parse(&raw)];
+        let mut segments = Vec::<CheckedNodePathSegment>::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Parse(value) if value.get().starts_with('"') => {
+                    let name = serde_json::from_str(value.get()).map_err(D::Error::custom)?;
+                    segments.push(CheckedNodePathSegment::Name(name));
+                }
+                Task::Parse(value) => {
+                    let mut members: std::collections::BTreeMap<&str, &RawValue> =
+                        serde_json::from_str(value.get()).map_err(D::Error::custom)?;
+                    if members.len() != 3 {
+                        return Err(D::Error::custom("node id requires package, path, ordinal"));
+                    }
+                    let package: Box<str> = serde_json::from_str(
+                        members
+                            .remove("package")
+                            .ok_or_else(|| D::Error::custom("missing package"))?
+                            .get(),
+                    )
+                    .map_err(D::Error::custom)?;
+                    let path: Vec<&RawValue> = serde_json::from_str(
+                        members
+                            .remove("path")
+                            .ok_or_else(|| D::Error::custom("missing path"))?
+                            .get(),
+                    )
+                    .map_err(D::Error::custom)?;
+                    let ordinal: u64 = serde_json::from_str(
+                        members
+                            .remove("ordinal")
+                            .ok_or_else(|| D::Error::custom("missing ordinal"))?
+                            .get(),
+                    )
+                    .map_err(D::Error::custom)?;
+                    tasks.push(Task::Finish {
+                        package,
+                        ordinal,
+                        path_len: path.len(),
+                    });
+                    tasks.extend(path.into_iter().rev().map(Task::Parse));
+                }
+                Task::Finish {
+                    package,
+                    ordinal,
+                    path_len,
+                } => {
+                    let start = segments
+                        .len()
+                        .checked_sub(path_len)
+                        .ok_or_else(|| D::Error::custom("malformed node path"))?;
+                    let path = segments.split_off(start);
+                    segments.push(CheckedNodePathSegment::Node(Box::new(Self {
+                        package,
+                        path,
+                        ordinal,
+                    })));
+                }
+            }
+        }
+        match segments.pop() {
+            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => Ok(*node),
+            _ => Err(D::Error::custom("malformed node id")),
+        }
     }
 }
 
-#[cfg(test)]
+impl CheckedNodeId {
+    /// Read a structural ID already held as JSON without recursively cloning
+    /// its nested path operands.
+    pub(crate) fn from_value(value: &serde_json::Value) -> Option<Self> {
+        enum Task<'a> {
+            Parse(&'a serde_json::Value),
+            Finish {
+                package: Box<str>,
+                ordinal: u64,
+                path_len: usize,
+            },
+        }
+        let mut tasks = vec![Task::Parse(value)];
+        let mut segments = Vec::<CheckedNodePathSegment>::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Parse(serde_json::Value::String(name)) => {
+                    segments.push(CheckedNodePathSegment::Name(name.as_str().into()));
+                }
+                Task::Parse(serde_json::Value::Object(object)) => {
+                    if object.len() != 3 {
+                        return None;
+                    }
+                    let package = object.get("package")?.as_str()?;
+                    let path = object.get("path")?.as_array()?;
+                    let ordinal = object.get("ordinal")?.as_u64()?;
+                    if package.is_empty() || path.is_empty() || ordinal > 9_007_199_254_740_991 {
+                        return None;
+                    }
+                    tasks.push(Task::Finish {
+                        package: package.into(),
+                        ordinal,
+                        path_len: path.len(),
+                    });
+                    tasks.extend(path.iter().rev().map(Task::Parse));
+                }
+                Task::Parse(_) => return None,
+                Task::Finish {
+                    package,
+                    ordinal,
+                    path_len,
+                } => {
+                    let start = segments.len().checked_sub(path_len)?;
+                    let path = segments.split_off(start);
+                    segments.push(CheckedNodePathSegment::Node(Box::new(Self {
+                        package,
+                        path,
+                        ordinal,
+                    })));
+                }
+            }
+        }
+        match segments.pop() {
+            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => Some(*node),
+            _ => None,
+        }
+    }
+
+    /// Whether every segment and nested operand is within the V2 wire bounds.
+    pub(crate) fn is_well_formed(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(candidate) = pending.pop() {
+            if candidate.package.is_empty()
+                || candidate.path.is_empty()
+                || candidate.ordinal > 9_007_199_254_740_991
+            {
+                return false;
+            }
+            pending.extend(candidate.path.iter().filter_map(|segment| match segment {
+                CheckedNodePathSegment::Name(_) => None,
+                CheckedNodePathSegment::Node(node) => Some(node.as_ref()),
+            }));
+        }
+        true
+    }
+}
+
+impl Drop for CheckedNodeId {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.path);
+        while let Some(segment) = pending.pop() {
+            if let CheckedNodePathSegment::Node(mut node) = segment {
+                pending.append(&mut node.path);
+            }
+        }
+    }
+}
+
+impl Clone for CheckedNodeId {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Segment(&'a CheckedNodePathSegment),
+            Finish(&'a CheckedNodeId),
+        }
+        let mut tasks = vec![Task::Finish(self)];
+        tasks.extend(self.path.iter().rev().map(Task::Segment));
+        let mut segments = Vec::<CheckedNodePathSegment>::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Segment(CheckedNodePathSegment::Name(name)) => {
+                    segments.push(CheckedNodePathSegment::Name(name.clone()));
+                }
+                Task::Segment(CheckedNodePathSegment::Node(node)) => {
+                    tasks.push(Task::Finish(node));
+                    tasks.extend(node.path.iter().rev().map(Task::Segment));
+                }
+                Task::Finish(node) => {
+                    let path = segments.split_off(segments.len() - node.path.len());
+                    segments.push(CheckedNodePathSegment::Node(Box::new(Self {
+                        package: node.package.clone(),
+                        path,
+                        ordinal: node.ordinal,
+                    })));
+                }
+            }
+        }
+        let Some(CheckedNodePathSegment::Node(root)) = segments.pop() else {
+            unreachable!("root clone is a node")
+        };
+        *root
+    }
+}
+
+impl PartialEq for CheckedNodeId {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for CheckedNodeId {}
+
 impl PartialOrd for CheckedNodeId {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-#[cfg(test)]
 impl Ord for CheckedNodeId {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        checked_node_comparisons::visited();
-        (&self.domain, &self.digest).cmp(&(&other.domain, &other.digest))
+        use std::cmp::Ordering;
+        enum Task<'a> {
+            Node(&'a CheckedNodeId, &'a CheckedNodeId),
+            Path(&'a [CheckedNodePathSegment], &'a [CheckedNodePathSegment]),
+            Ordinal(u64, u64),
+        }
+        let mut tasks = vec![Task::Node(self, other)];
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Node(left, right) => {
+                    #[cfg(test)]
+                    checked_node_comparisons::visited();
+                    match left.package.cmp(&right.package) {
+                        Ordering::Equal => {
+                            tasks.push(Task::Ordinal(left.ordinal, right.ordinal));
+                            tasks.push(Task::Path(&left.path, &right.path));
+                        }
+                        order => return order,
+                    }
+                }
+                Task::Path(left, right) => match (left.split_first(), right.split_first()) {
+                    (None, None) => {}
+                    (None, Some(_)) => return Ordering::Less,
+                    (Some(_), None) => return Ordering::Greater,
+                    (Some((head_left, rest_left)), Some((head_right, rest_right))) => {
+                        tasks.push(Task::Path(rest_left, rest_right));
+                        match (head_left, head_right) {
+                            (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => {
+                                match a.cmp(b) {
+                                    Ordering::Equal => {}
+                                    order => return order,
+                                }
+                            }
+                            (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Node(_)) => {
+                                return Ordering::Less
+                            }
+                            (CheckedNodePathSegment::Node(_), CheckedNodePathSegment::Name(_)) => {
+                                return Ordering::Greater
+                            }
+                            (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
+                                tasks.push(Task::Node(a, b));
+                            }
+                        }
+                    }
+                },
+                Task::Ordinal(left, right) => match left.cmp(&right) {
+                    Ordering::Equal => {}
+                    order => return order,
+                },
+            }
+        }
+        Ordering::Equal
+    }
+}
+
+impl Encode for CheckedNodeId {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        enum Event<'a> {
+            Node(&'a CheckedNodeId),
+            Segment(&'a CheckedNodePathSegment),
+            EndNode(u64),
+        }
+        let mut pending = vec![Event::Node(self)];
+        while let Some(event) = pending.pop() {
+            match event {
+                Event::Node(node) => {
+                    writer.begin_object()?;
+                    writer.name("package")?;
+                    writer.string(&node.package)?;
+                    writer.name("path")?;
+                    writer.begin_array()?;
+                    pending.push(Event::EndNode(node.ordinal));
+                    pending.extend(node.path.iter().rev().map(Event::Segment));
+                }
+                Event::Segment(CheckedNodePathSegment::Name(name)) => writer.string(name)?,
+                Event::Segment(CheckedNodePathSegment::Node(node)) => {
+                    pending.push(Event::Node(node));
+                }
+                Event::EndNode(ordinal) => {
+                    writer.end_array()?;
+                    writer.name("ordinal")?;
+                    writer.integer(i128::from(ordinal))?;
+                    writer.end_object()?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -698,6 +952,169 @@ pub(crate) mod checked_node_comparisons {
 
     pub(crate) fn count() -> u64 {
         COUNT.with(Cell::get)
+    }
+}
+
+#[cfg(test)]
+mod structural_node_identity_tests {
+    use super::{
+        CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal, CheckedPackageRefusalCode,
+        JsonPointer, RefusalFields,
+    };
+
+    /// Trace: FR-038-AC-185, TC-048.
+    #[test]
+    fn refusal_public_forms_retain_only_the_reported_structural_locus() {
+        let pre_graph = CheckedPackageRefusal::new(RefusalFields {
+            code: CheckedPackageRefusalCode::MalformedWire,
+            path: None,
+            cause: None,
+            locus: None,
+            contract_version: None,
+            document_pointer: None,
+        });
+        let pre_graph_json = serde_json::to_value(&pre_graph).expect("serialize refusal");
+        assert!(pre_graph_json["locus"].is_null());
+        assert!(pre_graph.to_string().contains("locus: None"));
+
+        let id = CheckedNodeId {
+            package: "example".into(),
+            path: vec![CheckedNodePathSegment::Name("declaration".into())],
+            ordinal: 7,
+        };
+        let located = CheckedPackageRefusal::new(RefusalFields {
+            code: CheckedPackageRefusalCode::InvalidSemanticGraph,
+            path: JsonPointer::parse("/semantic_graph/nodes/1/node_id"),
+            cause: None,
+            locus: Some(id.clone()),
+            contract_version: None,
+            document_pointer: None,
+        });
+        let cloned = located.clone();
+        assert_eq!(cloned.locus, Some(id.clone()));
+        let encoded = serde_json::to_value(&located).expect("serialize located refusal");
+        assert_eq!(
+            encoded["locus"],
+            serde_json::to_value(&id).expect("serialize ID")
+        );
+        assert_eq!(
+            encoded["loci"][0]["path"],
+            "/semantic_graph/nodes/1/node_id"
+        );
+        assert!(located.to_string().contains("declaration"));
+        assert!(encoded.get("expected_node_id").is_none());
+        assert!(encoded.get("actual_digest").is_none());
+    }
+
+    /// Trace: FR-038-AC-364, FR-322-AC-270, FR-322-AC-271.
+    #[test]
+    fn supplied_node_id_value_requires_the_exact_structural_shape() {
+        let valid = serde_json::json!({"package":"p","path":["owner",{
+            "package":"q","path":["type"],"ordinal":0
+        }],"ordinal":1});
+        let parsed = CheckedNodeId::from_value(&valid).expect("nested structural ID");
+        assert_eq!(serde_json::to_value(&parsed).expect("encode ID"), valid);
+        for malformed in [
+            serde_json::json!("p/owner"),
+            serde_json::json!({"package":"p","path":[],"ordinal":0}),
+            serde_json::json!({"package":"p","path":["owner"],"ordinal":"0"}),
+            serde_json::json!({"package":"p","path":["owner"],"ordinal":0,"version":1}),
+            serde_json::json!({"package":"p","path":[{"package":"q","path":[],"ordinal":0}],"ordinal":0}),
+        ] {
+            assert!(
+                CheckedNodeId::from_value(&malformed).is_none(),
+                "{malformed}"
+            );
+        }
+    }
+
+    /// Trace: FR-038-AC-364, FR-038-AC-365.
+    #[test]
+    fn nested_paths_compare_by_segment_kind_then_ordinal() {
+        let named = CheckedNodeId {
+            package: "example".into(),
+            path: vec![CheckedNodePathSegment::Name("A".into())],
+            ordinal: 0,
+        };
+        let longer = CheckedNodeId {
+            package: named.package.clone(),
+            path: vec![
+                CheckedNodePathSegment::Name("A".into()),
+                CheckedNodePathSegment::Name("B".into()),
+            ],
+            ordinal: named.ordinal,
+        };
+        let nested = CheckedNodeId {
+            package: named.package.clone(),
+            path: vec![CheckedNodePathSegment::Node(Box::new(named.clone()))],
+            ordinal: named.ordinal,
+        };
+        assert!(named < longer);
+        assert!(longer < nested);
+        assert!(
+            named
+                < CheckedNodeId {
+                    package: named.package.clone(),
+                    path: named.path.clone(),
+                    ordinal: 1
+                }
+        );
+        assert_eq!(
+            serde_json::to_value(&nested).expect("serialize structural id"),
+            serde_json::json!({"package":"example","path":[
+                {"package":"example","path":["A"],"ordinal":0}
+            ],"ordinal":0})
+        );
+        let canonical = quire_canonical::to_vec(&nested, quire_canonical::Limits::new(4096))
+            .expect("encode nested structural id");
+        let encoded: serde_json::Value =
+            serde_json::from_slice(&canonical).expect("decode encoded structural id");
+        assert_eq!(
+            encoded,
+            serde_json::to_value(&nested).expect("serialize id")
+        );
+    }
+
+    /// Trace: FR-038-AC-364.
+    #[test]
+    fn structural_identity_rejects_empty_or_out_of_range_components() {
+        let mut id = CheckedNodeId {
+            package: "example".into(),
+            path: vec![CheckedNodePathSegment::Name("A".into())],
+            ordinal: 0,
+        };
+        assert!(id.is_well_formed());
+        id.ordinal = 9_007_199_254_740_992;
+        assert!(!id.is_well_formed());
+        id.ordinal = 0;
+        id.path.clear();
+        assert!(!id.is_well_formed());
+        id.path.push(CheckedNodePathSegment::Name("A".into()));
+        id.package = "".into();
+        assert!(!id.is_well_formed());
+    }
+
+    /// Trace: FR-038-AC-117, FR-038-AC-364.
+    #[test]
+    fn ten_thousand_nested_node_paths_decode_encode_and_drop_iteratively() {
+        const NESTING: usize = 10_000;
+        let prefix = r#"{"package":"p","path":["#;
+        let suffix = r#"],"ordinal":0}"#;
+        let text = format!(
+            "{}\"leaf\"{}",
+            prefix.repeat(NESTING),
+            suffix.repeat(NESTING)
+        );
+        let id: CheckedNodeId = serde_json::from_str(&text).expect("decode deep structural id");
+        assert!(id.is_well_formed());
+        let copy = id.clone();
+        assert_eq!(id.cmp(&copy), std::cmp::Ordering::Equal);
+        let canonical = quire_canonical::to_vec(&id, quire_canonical::Limits::new(1 << 20))
+            .expect("encode deep structural id");
+        assert_eq!(canonical.len(), text.len());
+        // The ordinary drop path also has to consume no native recursion.
+        drop(id);
+        drop(copy);
     }
 }
 
@@ -775,7 +1192,7 @@ pub struct CheckedSourceRegion {
 }
 
 /// Exact source correspondence for one node occurrence.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedSourceMapEntry {
     /// Graph node identity.
@@ -786,6 +1203,24 @@ pub struct CheckedSourceMapEntry {
     pub ordinal: u64,
     /// One or more half-open source regions.
     pub regions: Vec<CheckedSourceRegion>,
+}
+
+impl Encode for CheckedSourceMapEntry {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        writer.name("node_id")?;
+        self.node_id.encode_into(writer)?;
+        writer.name("role")?;
+        writer.serialize(&self.role)?;
+        writer.name("ordinal")?;
+        writer.integer(i128::from(self.ordinal))?;
+        writer.name("regions")?;
+        writer.serialize(&self.regions)?;
+        writer.end_object()
+    }
 }
 
 /// Reported availability of one required capability.

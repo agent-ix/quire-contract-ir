@@ -9,8 +9,7 @@
 //! `crates/quire-contract-model/src/checked_package/v2/`.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, refresh_identity, refusal, refusal_cause, rekey_application_node,
-    v2_all_families, v2_nominal,
+    canonical, evidence_for, refusal, refusal_cause, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -85,8 +84,7 @@ fn law_definition(package: &Value) -> String {
 }
 
 /// Every definition reference of the fixtures, outside an operation law, as
-/// `(package, pointer)`: the lock sites with their `identity_preimage` mirrors
-/// and the diagnostics catalog.
+/// `(package, pointer)`: the lock sites and diagnostics catalog.
 fn definition_places() -> Vec<(Value, String)> {
     let families = v2_all_families();
     let nominal = v2_nominal();
@@ -94,18 +92,11 @@ fn definition_places() -> Vec<(Value, String)> {
     for place in [
         "/lock/edition/definition",
         "/lock/profile_selections/0/definition",
-        "/identity_preimage/edition/definition",
-        "/identity_preimage/profile_selections/0/definition",
         "/diagnostics/catalog",
     ] {
         places.push((families.clone(), place.to_owned()));
     }
-    for place in [
-        "/lock/definition_selections/0",
-        "/identity_preimage/definition_selections/0",
-    ] {
-        places.push((nominal.clone(), place.to_owned()));
-    }
+    places.push((nominal, "/lock/definition_selections/0".to_owned()));
     places
 }
 
@@ -217,7 +208,6 @@ fn tc_048_a_definition_reference_with_a_digest_member_is_an_unknown_member() {
 #[test]
 fn tc_048_an_operation_law_definition_refuses_as_a_closed_graph_shape() {
     let base = v2_all_families();
-    let node = temporal_node(&base);
     let definition = law_definition(&base);
     type Mutation = Box<dyn Fn(&mut Value)>;
     let cases: Vec<(&str, Mutation, String)> = vec![
@@ -254,8 +244,6 @@ fn tc_048_an_operation_law_definition_refuses_as_a_closed_graph_shape() {
     for (name, mutate, path) in cases {
         let mut mutated = base.clone();
         mutate(&mut mutated);
-        rekey_application_node(&mut mutated, node);
-        refresh_identity(&mut mutated);
         expect(
             &mutated,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -314,19 +302,14 @@ fn tc_048_a_definition_reference_member_that_is_absent_empty_or_not_a_string_is_
                 &format!("{place}/{member}"),
                 &format!("{place} {member} not a string"),
             );
-            // An empty member refuses at a lock or catalog site; the preimage
-            // mirror is not a site of its own, it mirrors the lock.
-            if !place.starts_with("/identity_preimage") {
-                let mut empty = package.clone();
-                at(&mut empty, &place)[member] = json!("");
-                refresh_identity(&mut empty);
-                expect(
-                    &empty,
-                    CheckedPackageRefusalCode::MalformedWire,
-                    &format!("{place}/{member}"),
-                    &format!("{place} {member} empty"),
-                );
-            }
+            let mut empty = package.clone();
+            at(&mut empty, &place)[member] = json!("");
+            expect(
+                &empty,
+                CheckedPackageRefusalCode::MalformedWire,
+                &format!("{place}/{member}"),
+                &format!("{place} {member} empty"),
+            );
         }
     }
 }
@@ -456,8 +439,6 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
     ] {
         let mut mutated = base.clone();
         at(&mut mutated, &definition)[member] = value;
-        rekey_application_node(&mut mutated, node);
-        refresh_identity(&mut mutated);
         // The refusal also carries the calling node as its locus.
         let actual = refused(&mutated);
         let expected = refusal_cause(
@@ -466,100 +447,74 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
             CheckedPackageRefusalCause::OperationLawUnselected,
         );
         assert_eq!(
-            (actual.code, actual.path, actual.cause),
-            (expected.code, expected.path, expected.cause),
+            (actual.code, actual.loci[0].path.clone(), actual.cause),
+            (expected.code, expected.path.clone(), expected.cause),
             "{member}"
         );
-    }
-}
-
-#[trace("TC-048", "FR-038-AC-59")]
-#[test]
-fn tc_048_a_definition_row_that_differs_from_its_preimage_mirror_is_stale() {
-    let base = v2_nominal();
-    for member in DEFINITION_MEMBERS {
-        let mut mutated = base.clone();
-        at(&mut mutated, "/lock/definition_selections/0")[member] = json!("changed");
-        expect(
-            &mutated,
-            CheckedPackageRefusalCode::StaleDependency,
-            &format!("/lock/definition_selections/0/{member}"),
-            member,
+        assert_eq!(
+            actual
+                .locus
+                .as_ref()
+                .map(|id| serde_json::to_value(id).expect("node id")),
+            Some(base["semantic_graph"]["nodes"][node]["node_id"].clone()),
+            "{member} calling node locus"
         );
     }
 }
 
 #[trace("TC-048", "FR-038-AC-60")]
 #[test]
-fn tc_048_a_rederived_definition_row_edit_admits_and_the_old_package_id_is_stale() {
+fn tc_048_definition_selection_is_the_single_authoritative_row() {
     let mut base = v2_nominal();
-    // A definition row no node owns, so editing its identity breaks no join.
+    // A definition row no node owns, so changing its identity only changes
+    // the selection that the reader joins to the supplied definition.
     let mut rows = base["lock"]["definition_selections"].clone();
     rows.as_array_mut()
         .expect("rows")
         .push(json!({"authority": "agent-ix", "identity": "quire.fixture.definition.extra/v1"}));
     base["lock"]["definition_selections"] = rows;
-    refresh_identity(&mut base);
-    let recorded = admitted(&base).package_id().clone();
+    admitted(&base);
 
     let mut edited = base.clone();
     at(&mut edited, "/lock/definition_selections/1")["identity"] =
         json!("quire.fixture.definition.extra.next/v1");
-    refresh_identity(&mut edited);
-    let next = admitted(&edited).package_id().clone();
-    assert_ne!(next, recorded);
-
-    // The same edit mirrored into the preimage but kept under the old id.
-    let mut stale = edited.clone();
-    stale["package_id"]["digest"] = json!(recorded.digest);
-    assert_eq!(
-        refused(&stale),
-        refusal_cause(
-            CheckedPackageRefusalCode::StaleDependency,
-            "/package_id/digest",
-            CheckedPackageRefusalCause::ContentMismatch,
-        ),
-        "the old package id",
-    );
+    admitted(&edited);
+    assert_ne!(canonical(&base), canonical(&edited));
 }
 
 #[trace("TC-048", "FR-038-AC-61")]
 #[test]
-fn tc_048_a_nominal_owner_naming_no_lock_row_is_an_invalid_semantic_graph() {
+fn tc_048_nominal_owner_requires_a_selected_source_and_closed_kind() {
     let base = v2_nominal();
-    let owner_of = |package: &Value, kind: &str| -> String {
-        package["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("nodes")
-            .iter()
-            .position(|node| node["nominal_identity_preimage"]["owner"]["kind"] == kind)
-            .map(|index| format!("/semantic_graph/nodes/{index}/nominal_identity_preimage/owner"))
-            .unwrap_or_else(|| panic!("the fixture has a {kind}-owned node"))
-    };
-
-    // A definition owner whose pair is no `definition_selections` row.
-    let mut definition = base.clone();
-    at(&mut definition, "/lock/definition_selections/0")["identity"] = json!("other-definition");
-    refresh_identity(&mut definition);
-    expect(
-        &definition,
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        &owner_of(&base, "definition"),
-        "definition owner",
+    let index = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "enum")
+        .expect("source-owned nominal declaration");
+    let mut missing_source = base.clone();
+    missing_source["semantic_graph"]["nodes"][index]["owner"]["identity"] =
+        json!("quire.fixture.source.unselected/v1");
+    let refusal = refused(&missing_source);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{index}/node_id").as_str())
     );
 
-    // A source owner whose pair is no `sources` row: the row and every region
-    // naming it move together, so only the owner join is left to fail.
-    let mut source = base.clone();
-    let old = base["lock"]["sources"][0].clone();
-    let mut new = old.clone();
-    new["identity"] = json!("quire.fixture.source.other/v1");
-    replace_everywhere(&mut source, &old, &new);
+    let mut definition_owner = base;
+    definition_owner["semantic_graph"]["nodes"][index]["owner"] = json!({
+        "kind": "definition", "authority": "agent-ix", "identity": "quire.fixture.definition/v1"
+    });
     expect(
-        &source,
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        &owner_of(&base, "source"),
-        "source owner",
+        &definition_owner,
+        CheckedPackageRefusalCode::MalformedWire,
+        &format!("/semantic_graph/nodes/{index}/owner/kind"),
+        "retired DefinitionOwner shape",
     );
 }
 
@@ -598,21 +553,4 @@ fn tc_018_the_artifact_reference_member_sets_are_exact() {
         sorted(&SOURCE_MEMBERS)
     );
     assert_eq!((&*locator.authority, &*locator.identity), ("a", "i"));
-}
-
-/// Replaces every value equal to `from` inside `value` with `to`.
-fn replace_everywhere(value: &mut Value, from: &Value, to: &Value) {
-    if value == from {
-        *value = to.clone();
-        return;
-    }
-    match value {
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|item| replace_everywhere(item, from, to)),
-        Value::Object(members) => members
-            .values_mut()
-            .for_each(|member| replace_everywhere(member, from, to)),
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-    }
 }

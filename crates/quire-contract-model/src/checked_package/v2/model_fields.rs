@@ -22,7 +22,7 @@ use super::model_members::{
     RelationshipDecl,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
-use crate::checked_package::common::{ValidationFailure, NODE_DOMAIN};
+use crate::checked_package::common::ValidationFailure;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
@@ -89,25 +89,14 @@ impl FieldTable {
     }
 
     /// The effective record field types in inherited source order.
-    pub(super) fn binder_types(&self, bytes: u64) -> Option<RecordBinderTypes> {
+    pub(super) fn binder_types(&self, package: &str) -> Option<RecordBinderTypes> {
         if self.ambiguous.is_some() {
             return Some(RecordBinderTypes::Ambiguous);
         }
         let types = self
             .ordered_exposed
             .iter()
-            .map(|entry| {
-                Some(CheckedNodeId {
-                    domain: NODE_DOMAIN.into(),
-                    digest: entry
-                        .entry
-                        .member_type
-                        .as_ref()?
-                        .node_key(bytes)
-                        .ok()?
-                        .into(),
-                })
-            })
+            .map(|entry| entry.entry.member_type.as_ref()?.node_id(package))
             .collect::<Option<Vec<_>>>()?;
         Some(RecordBinderTypes::Known(types))
     }
@@ -522,7 +511,7 @@ pub(super) struct DeclaredNode {
 /// An owned index from each selected declaration's model declaration node key
 /// to its selection row, form and node identity.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct DeclarationIndex(pub(super) BTreeMap<String, DeclaredNode>);
+pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNode>);
 
 /// What an admitted [`CheckedPackageV2`] retains of its selected documents:
 /// the declaration index, each document's field tables, the selected
@@ -541,27 +530,11 @@ pub(super) struct RetainedModels {
 }
 
 /// The relationship record admission consults, kept for the accessor: both
-/// ends (role, type reference, multiplicity), the direction, and the derived
-/// model declaration node key of each end's type. `None` when no such
-/// declaration is selected or the key cannot be derived, which admission
-/// refuses for an end it reads.
+/// ends (role, type reference, multiplicity) and the direction. The reaches
+/// operation supplies its destination type ID separately.
 #[derive(Clone, Debug)]
 pub(super) struct RetainedRelationship {
     pub(super) declaration: RelationshipDecl,
-    pub(super) source_key: Option<Box<str>>,
-    pub(super) target_key: Option<Box<str>>,
-}
-
-impl RetainedRelationship {
-    /// The derived declaration key of the destination end of a traversal.
-    pub(super) fn destination_key(&self, forward: bool) -> Option<&str> {
-        let key = if forward {
-            &self.target_key
-        } else {
-            &self.source_key
-        };
-        key.as_deref()
-    }
 }
 
 /// The selected model signature already checked against a clause by FR-341.
@@ -572,6 +545,11 @@ pub(super) struct OperationTypes {
 }
 
 impl RetainedModels {
+    /// Selected documents retained by this already admitted package.
+    pub(super) fn selected_models(&self) -> &[DomainModel] {
+        &self.models
+    }
+
     /// Effective operation classes of the selected model document named by its identity.
     pub(super) fn operation_classes(
         &self,
@@ -579,7 +557,7 @@ impl RetainedModels {
         meter: &mut WorkMeter,
     ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
         let mut classes = Vec::new();
-        for (digest, declared) in &self.index.0 {
+        for (id, declared) in &self.index.0 {
             let Some(model) = self.models.get(declared.selection) else {
                 continue;
             };
@@ -601,10 +579,7 @@ impl RetainedModels {
                 classes.push(ModelOperationClass {
                     object: member_name(&declared.node).into(),
                     operation,
-                    node: CheckedNodeId {
-                        domain: NODE_DOMAIN.into(),
-                        digest: digest.clone().into(),
-                    },
+                    node: id.clone(),
                     binder_types,
                 });
             }
@@ -614,7 +589,7 @@ impl RetainedModels {
 
     /// The selected variant's family, for checked projections after admission.
     pub(super) fn variant_family(&self, key: &CheckedNodeId) -> Option<&'static str> {
-        let declared = self.index.0.get(key.digest.as_ref())?;
+        let declared = self.index.0.get(key)?;
         if declared.form != DeclarationForm::VariantType {
             return None;
         }
@@ -634,7 +609,7 @@ impl RetainedModels {
         &self,
         key: &CheckedNodeId,
     ) -> Option<BTreeSet<Box<str>>> {
-        let declared = self.index.0.get(key.digest.as_ref())?;
+        let declared = self.index.0.get(key)?;
         if declared.form != DeclarationForm::ObjectType {
             return None;
         }
@@ -670,18 +645,10 @@ impl RetainedModels {
         }
         let mut relationships = BTreeMap::new();
         for (selection, model) in models.iter().enumerate() {
-            let key = |type_ref: &str| {
-                model
-                    .end_declaration_key(type_ref)
-                    .and_then(Result::ok)
-                    .map(Box::<str>::from)
-            };
             for (node, declaration) in &model.relationships {
                 relationships.insert(
                     (selection, node.clone()),
                     RetainedRelationship {
-                        source_key: key(&declaration.source.type_ref),
-                        target_key: key(&declaration.target.type_ref),
                         declaration: declaration.clone(),
                     },
                 );
@@ -696,7 +663,7 @@ impl RetainedModels {
     }
 
     pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<RecordBinderTypes> {
-        let declared = self.index.0.get(key.digest.as_ref())?;
+        let declared = self.index.0.get(key)?;
         if declared.form != DeclarationForm::RecordValueType {
             return None;
         }
@@ -708,7 +675,7 @@ impl RetainedModels {
     pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {
         self.index
             .0
-            .get(key.digest.as_ref())
+            .get(key)
             .is_some_and(|declared| declared.form == DeclarationForm::RecordValueType)
     }
 
@@ -718,7 +685,7 @@ impl RetainedModels {
         name: &str,
         meter: &mut WorkMeter,
     ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
-        let Some(declared) = self.index.0.get(context.digest.as_ref()) else {
+        let Some(declared) = self.index.0.get(context) else {
             return Ok(None);
         };
         let Some(model) = self.models.get(declared.selection) else {
@@ -728,41 +695,13 @@ impl RetainedModels {
         model.effective_operation_binder_types(&declared.node, name, &mut budget)
     }
 
-    /// A retained index of one relationship, for tests that build a package
-    /// by hand instead of admitting one.
-    #[cfg(test)]
-    pub(super) fn with_relationship(
-        digest: &str,
-        selection: usize,
-        node: &str,
-        relationship: RetainedRelationship,
-    ) -> Self {
-        let mut index = DeclarationIndex::default();
-        index.0.insert(
-            digest.to_owned(),
-            DeclaredNode {
-                form: DeclarationForm::Relationship,
-                selection,
-                node: node.into(),
-            },
-        );
-        let mut retained = Self {
-            index,
-            ..Self::default()
-        };
-        retained
-            .relationships
-            .insert((selection, node.into()), relationship);
-        retained
-    }
-
     /// The retained relationship the model declaration node `node` is.
     pub(super) fn relationship(
         &self,
         node: &super::CheckedSemanticNodeV2,
         term: &CheckedTerm,
     ) -> Option<&RetainedRelationship> {
-        let declared = self.index.0.get(node.node_id.digest.as_ref())?;
+        let declared = self.index.0.get(&node.node_id)?;
         check_declaration_node(declared.form, node, empty_declaration_term(term)).ok()?;
         // The map holds relationship identities only, so an indexed
         // declaration of another form finds nothing.
@@ -777,7 +716,7 @@ impl RetainedModels {
         term: &CheckedTerm,
         name: &str,
     ) -> Option<&OperationTypes> {
-        let declared = self.index.0.get(context.node_id.digest.as_ref())?;
+        let declared = self.index.0.get(&context.node_id)?;
         check_declaration_node(declared.form, context, empty_declaration_term(term)).ok()?;
         if !matches!(
             declared.form,
@@ -796,7 +735,7 @@ impl RetainedModels {
         node: &super::CheckedSemanticNodeV2,
         term: &CheckedTerm,
     ) -> Option<&FieldTable> {
-        let declared = self.index.0.get(node.node_id.digest.as_ref())?;
+        let declared = self.index.0.get(&node.node_id)?;
         check_declaration_node(declared.form, node, empty_declaration_term(term)).ok()?;
         if declared.form != DeclarationForm::ObjectType {
             return None;
@@ -940,26 +879,11 @@ impl From<&MemberType> for CheckedMemberType {
                 upper: bounds.upper,
                 profile: bounds.profile.clone(),
             },
-            MemberType::Reference(target) => Self::Reference(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
-            MemberType::Record(target) => Self::Record(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
-            MemberType::Tuple(target) => Self::Tuple(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
-            MemberType::Variant(target) => Self::Variant(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
-            MemberType::Quantity(target) => Self::Quantity(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: target.clone(),
-            }),
+            MemberType::Reference(target) => Self::Reference(target.clone()),
+            MemberType::Record(target) => Self::Record(target.clone()),
+            MemberType::Tuple(target) => Self::Tuple(target.clone()),
+            MemberType::Variant(target) => Self::Variant(target.clone()),
+            MemberType::Quantity(target) => Self::Quantity(target.clone()),
             MemberType::Option(element) => Self::Option(Box::new(Self::from(element.as_ref()))),
             MemberType::Collection {
                 kind,

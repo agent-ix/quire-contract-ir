@@ -8,12 +8,11 @@
 //!
 //! The package below is built here, node by node, in QSL FR-092's shapes for
 //! `function both(a: Boolean, b: Boolean): Boolean { a and b }`, each node
-//! keyed from its own preimage.
+//! assigned its own structural path.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, fixture_source, mint_ungrouped_structural_keys, node_id,
-    nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, refusal,
-    refusal_at, sha256_hex, source_owner, ExpectedRefusal,
+    canonical, evidence_for, fixture_source, node_id, nominal_fixture_members, nominal_package,
+    rebuild_source_map, refusal, refusal_at_id, source_owner, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -27,57 +26,17 @@ use std::sync::LazyLock;
 
 type Mutation = Box<dyn Fn(&mut Value)>;
 
-const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
-const APPLICATION_NODE: &str = "quire.application-node/v1";
 // Pointer suffixes below `/semantic_graph/nodes/{n}`: each structural
 // refusal names the member it is about.
 const BODY: &str = "/body";
-const FIRST_TERM: &str = "/body/members/0";
 const DEPENDENCIES: &str = "/dependencies";
 const SEMANTIC_TYPE: &str = "/semantic_type";
 
 /// The self-typed scalar type nodes the package's literals and parameters
-/// are typed at, keyed by [`structural_key`].
+/// are typed at.
 static BOOLEAN: LazyLock<String> = LazyLock::new(|| scalar("boolean").0);
 static INTEGER: LazyLock<String> = LazyLock::new(|| scalar("integer").0);
 static TEXT: LazyLock<String> = LazyLock::new(|| scalar("text").0);
-
-/// A node's key under QSL's `quire.structural-node/v1` preimage (FR-092).
-/// `semantic_type` is `None` for a self-typed node.
-fn structural_key(
-    tag: &str,
-    form: &str,
-    semantic_type: Option<&str>,
-    declaration: Option<(&[&str], Value)>,
-    body: &Value,
-) -> String {
-    let mut preimage = json!({
-        "version": STRUCTURAL_NODE,
-        "node_tag": tag,
-        "semantic_form": form,
-        "semantic_type": semantic_type.map(node_id),
-        "declaration": declaration.as_ref().map(|(name, _)| json!({"qualified_name": name})),
-        "recursion": null,
-        "body": body,
-    });
-    if let Some((_, owner)) = declaration {
-        preimage["owner"] = owner;
-    }
-    sha256_hex(&canonical(&preimage))
-}
-
-/// FR-322's `quire.application-node/v1` key of a node outside any group.
-fn application_key(tag: &str, form: &str, semantic_type: &str, body: &Value) -> String {
-    sha256_hex(&canonical(&json!({
-        "version": APPLICATION_NODE,
-        "node_tag": tag,
-        "semantic_form": form,
-        "semantic_type": node_id(semantic_type),
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    })))
-}
 
 fn wire_node(
     key: &str,
@@ -114,7 +73,7 @@ fn reference(key: &str) -> Value {
 
 fn scalar(form: &str) -> (String, Value) {
     let body = json!({"term": "aggregate", "members": []});
-    let key = structural_key("scalar_type", form, None, None, &body);
+    let key = format!("scalar_type/{form}");
     let node = wire_node(&key, "scalar_type", form, &key, &[], "type", body);
     (key, node)
 }
@@ -128,7 +87,7 @@ fn parameter_body(name: &str, level: &str) -> Value {
 
 fn parameter(name: &str, level: &str) -> (String, Value) {
     let body = parameter_body(name, level);
-    let key = structural_key("value", "parameter", Some(&BOOLEAN), None, &body);
+    let key = format!("value/parameter/{name}/{level}");
     let node = wire_node(
         &key,
         "value",
@@ -150,12 +109,26 @@ fn compound_unit_body(unit: &str, exponent: &str) -> Value {
     ]})
 }
 
+fn set_compound_id(node: &mut Value, terms: &[(&str, &str)]) {
+    let mut path = vec![json!("scalar_type"), json!("compound_unit")];
+    for &(unit, exponent) in terms {
+        path.push(node_id(unit));
+        path.push(json!(exponent));
+    }
+    let id = json!({
+        "package": node["node_id"]["package"],
+        "path": path,
+        "ordinal": node["node_id"]["ordinal"],
+    });
+    node["node_id"] = id.clone();
+    node["semantic_type"] = id;
+}
+
 /// Positions of the QSL-shaped nodes in [`parameters_package`]'s graph.
 const DIMENSION: usize = 0;
 const METRE: usize = 1;
 const SECOND: usize = 3;
 const KILOMETRE: usize = 4;
-const INTEGER_NODE: usize = 6;
 const P1: usize = 8;
 const E1: usize = 10;
 const COMPOUND: usize = 12;
@@ -165,7 +138,16 @@ const COMPOUND: usize = 12;
 /// a non-root unit of `Length` whose target is `Metre`.
 fn extra_units(dimension: &Value, metre: &Value, metre_key: &str) -> Vec<(Value, String)> {
     let keyed = |preimage: Value| {
-        let key = sha256_hex(&canonical(&preimage));
+        let key = format!(
+            "qualified:{}",
+            preimage["qualified_declaration"]
+                .as_array()
+                .expect("nominal declaration")
+                .iter()
+                .map(|part| part.as_str().expect("path segment"))
+                .collect::<Vec<_>>()
+                .join("/")
+        );
         (preimage, key)
     };
     let time = keyed(json!({
@@ -221,7 +203,7 @@ fn parameters_package() -> Value {
         "result_type": node_id(&BOOLEAN),
         "arguments": [reference(&a), reference(&b)],
     });
-    let and = application_key("expression", "binary", &BOOLEAN, &and_body);
+    let and = "expression/binary/and".to_owned();
     let mut and_dependencies = [a.as_str(), b.as_str()];
     and_dependencies.sort_unstable();
     let and_node = wire_node(
@@ -239,13 +221,7 @@ fn parameters_package() -> Value {
         binding("body", reference(&and)),
     ]});
     let owner = source_owner(&fixture_source());
-    let both = structural_key(
-        "function",
-        "pure_function",
-        Some(&BOOLEAN),
-        Some((&["both"], owner.clone())),
-        &both_body,
-    );
+    let both = "qualified:both".to_owned();
     let mut both_dependencies = [a.as_str(), b.as_str(), and.as_str()];
     both_dependencies.sort_unstable();
     let mut both_node = wire_node(
@@ -261,8 +237,8 @@ fn parameters_package() -> Value {
     both_node["owner"] = owner;
 
     let compound_body = compound_unit_body(&metre, "2");
-    let compound = structural_key("scalar_type", "compound_unit", None, None, &compound_body);
-    let compound_node = wire_node(
+    let compound = "scalar_type/compound_unit/metre_squared".to_owned();
+    let mut compound_node = wire_node(
         &compound,
         "scalar_type",
         "compound_unit",
@@ -271,6 +247,7 @@ fn parameters_package() -> Value {
         "type",
         compound_body,
     );
+    set_compound_id(&mut compound_node, &[(metre.as_str(), "2")]);
 
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -286,7 +263,6 @@ fn parameters_package() -> Value {
         compound_node,
     ]);
     rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
     package
 }
 
@@ -306,93 +282,79 @@ fn refused(value: &Value) -> CheckedPackageRefusal {
 }
 
 fn node_key(package: &Value, position: usize) -> String {
-    package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-        .as_str()
-        .expect("node digest")
-        .to_owned()
+    let path = package["semantic_graph"]["nodes"][position]["node_id"]["path"]
+        .as_array()
+        .expect("node path");
+    let names = path
+        .iter()
+        .map(|segment| segment.as_str().expect("name segment"))
+        .collect::<Vec<_>>();
+    if names.len() == 1 {
+        names[0].to_owned()
+    } else {
+        format!("qualified:{}", names.join("/"))
+    }
 }
 
-/// Applies `mutate` to the node at `position`, then re-derives the source
-/// map and the package identity so only the mutated rule can refuse.
+/// Applies `mutate` to the node at `position`, then rebuilds its source map
+/// so only the mutated rule can refuse.
 fn mutated(position: usize, mutate: impl Fn(&mut Value)) -> Value {
     let mut package = parameters_package();
     mutate(&mut package["semantic_graph"]["nodes"][position]);
-    mint_ungrouped_structural_keys(&mut package);
     rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
     package
 }
 
 /// `invalid_semantic_graph` at the node at `position`, pointing at `member`
 /// (a pointer suffix below that node).
 fn invalid_at(package: &Value, position: usize, member: &str) -> ExpectedRefusal {
-    refusal_at(
+    refusal_at_id(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         &format!("/semantic_graph/nodes/{position}{member}"),
         None,
-        &node_key(package, position),
+        &package["semantic_graph"]["nodes"][position]["node_id"],
     )
 }
 
-fn invalid_derived_shape_at(package: &Value, position: usize) -> ExpectedRefusal {
-    refusal_at(
+fn invalid_derived_at(package: &Value, position: usize) -> ExpectedRefusal {
+    refusal_at_id(
         CheckedPackageRefusalCode::InvalidPackage,
         &format!("/semantic_graph/nodes/{position}/node_id"),
         Some(CheckedPackageRefusalCause::InvalidDerivedShape),
-        &node_key(package, position),
+        &package["semantic_graph"]["nodes"][position]["node_id"],
     )
 }
 
-/// A rekeyed target's old canonical key remains available to the shape
-/// stage, leaving the target's own key authentication to choose the refusal.
-/// Provenance: IR-1059, QSpec FR-322-AC-154; FR-069-AC-6 stays open.
+/// Compound-unit body rules remain independent of structural node paths.
 #[test]
-fn dependent_compound_unit_references_wait_for_target_key() {
-    let mut root = parameters_package();
-    root["semantic_graph"]["nodes"][METRE]["node_id"] = node_id(&"f".repeat(64));
-    rebuild_source_map(&mut root);
-    refresh_identity(&mut root);
-    let root_refusal = refused(&root);
-    // The kilometre nominal preimage names metre as its target unit. Its
-    // nominal join is checked before the compound unit and structural keys.
-    assert_eq!(
-        root_refusal.path.as_ref().map(ToString::to_string),
-        Some(format!(
-            "/semantic_graph/nodes/{KILOMETRE}/nominal_identity_preimage/target_unit_node_id"
-        ))
-    );
-
-    let mut paired = root.clone();
-    paired["semantic_graph"]["nodes"][COMPOUND]["body"]["members"][0]["members"][1]["value"]
-        ["value"] = json!("0");
-    refresh_identity(&mut paired);
-    assert_eq!(refused(&paired), root_refusal);
-
+fn compound_unit_references_and_exponents_are_validated() {
     let independent = mutated(COMPOUND, |node| {
         node["body"]["members"][0]["members"][1]["value"]["value"] = json!("0");
     });
     assert_eq!(
         refused(&independent),
-        invalid_derived_shape_at(&independent, COMPOUND),
+        invalid_derived_at(&independent, COMPOUND),
     );
 
-    let mut exponent = parameters_package();
-    let retained = "f".repeat(63) + "e";
-    exponent["semantic_graph"]["nodes"][INTEGER_NODE]["node_id"] = node_id(&retained);
-    exponent["semantic_graph"]["nodes"][INTEGER_NODE]["semantic_type"] = node_id(&retained);
-    rebuild_source_map(&mut exponent);
-    refresh_identity(&mut exponent);
-    let refusal = refused(&exponent);
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    let kilometre = node_key(&parameters_package(), KILOMETRE);
+    let names_non_root = mutated(COMPOUND, |node| {
+        node["body"] = compound_unit_body(&kilometre, "2");
+        node["dependencies"] = json!([node_id(&kilometre)]);
+    });
     assert_eq!(
-        refusal.cause,
-        Some(CheckedPackageRefusalCause::StaleNodeKey)
+        refused(&names_non_root),
+        invalid_derived_at(&names_non_root, COMPOUND)
     );
-    assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{INTEGER_NODE}/node_id"))
-    );
-    assert_eq!(refusal.locus, Some(id_of(&retained)));
+
+    let dimensionless = mutated(COMPOUND, |node| {
+        node["body"] = json!({"term": "aggregate", "members": []});
+        node["dependencies"] = json!([]);
+        set_compound_id(node, &[]);
+    });
+    assert!(matches!(
+        read(&dimensionless),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
 }
 
 #[trace("TC-048", "TC-050", "FR-038-AC-22", "FR-038-AC-23", "FR-038-AC-308")]
@@ -563,7 +525,7 @@ fn tc_048_a_malformed_parameter_node_refuses() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-22", "FR-038-AC-343")]
+#[trace("TC-048", "FR-038-AC-22")]
 #[test]
 fn tc_048_a_malformed_compound_unit_node_refuses() {
     let metre = node_key(&parameters_package(), METRE);
@@ -574,7 +536,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&zero_exponent),
-        invalid_derived_shape_at(&zero_exponent, COMPOUND)
+        invalid_derived_at(&zero_exponent, COMPOUND)
     );
 
     // A term names a root unit, never a dimension.
@@ -584,7 +546,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&names_dimension),
-        invalid_at(&names_dimension, COMPOUND, FIRST_TERM)
+        invalid_derived_at(&names_dimension, COMPOUND)
     );
 
     let repeated_unit = mutated(COMPOUND, |node| {
@@ -596,25 +558,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&repeated_unit),
-        invalid_derived_shape_at(&repeated_unit, COMPOUND)
-    );
-
-    // The same body under its retained key refuses at key authentication
-    // before the semantic order/uniqueness rule is reached.
-    let mut repeated_with_old_key = parameters_package();
-    let term =
-        repeated_with_old_key["semantic_graph"]["nodes"][COMPOUND]["body"]["members"][0].clone();
-    repeated_with_old_key["semantic_graph"]["nodes"][COMPOUND]["body"]["members"]
-        .as_array_mut()
-        .expect("members")
-        .push(term);
-    refresh_identity(&mut repeated_with_old_key);
-    let stale = refused(&repeated_with_old_key);
-    assert_eq!(stale.code, CheckedPackageRefusalCode::InvalidPackage);
-    assert_eq!(stale.cause, Some(CheckedPackageRefusalCause::StaleNodeKey));
-    assert_eq!(
-        stale.path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{COMPOUND}/node_id"))
+        invalid_at(&repeated_unit, COMPOUND, DEPENDENCIES)
     );
 
     let undeclared_dependency = mutated(COMPOUND, |node| node["dependencies"] = json!([]));
@@ -628,7 +572,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&typed_by_another),
-        invalid_at(&typed_by_another, COMPOUND, SEMANTIC_TYPE)
+        invalid_derived_at(&typed_by_another, COMPOUND)
     );
 
     // Terms naming distinct root units must still ascend by unit key.
@@ -647,6 +591,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     let ascending = mutated(COMPOUND, |node| {
         node["body"] = two_terms(&low, &high);
         node["dependencies"] = json!([node_id(&low), node_id(&high)]);
+        set_compound_id(node, &[(low.as_str(), "1"), (high.as_str(), "-1")]);
     });
     assert!(matches!(
         read(&ascending),
@@ -654,11 +599,12 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     ));
     let descending = mutated(COMPOUND, |node| {
         node["body"] = two_terms(&high, &low);
-        node["dependencies"] = json!([node_id(&low), node_id(&high)]);
+        node["dependencies"] = json!([node_id(&high), node_id(&low)]);
+        set_compound_id(node, &[(high.as_str(), "1"), (low.as_str(), "-1")]);
     });
     assert_eq!(
         refused(&descending),
-        invalid_derived_shape_at(&descending, COMPOUND)
+        invalid_derived_at(&descending, COMPOUND)
     );
 
     // A term names a root unit, never a unit with a target.
@@ -669,13 +615,14 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&names_non_root),
-        invalid_at(&names_non_root, COMPOUND, FIRST_TERM)
+        invalid_derived_at(&names_non_root, COMPOUND)
     );
 
     // The empty body is the dimensionless unit, with no dependencies.
     let dimensionless = mutated(COMPOUND, |node| {
         node["body"] = json!({"term": "aggregate", "members": []});
         node["dependencies"] = json!([]);
+        set_compound_id(node, &[]);
     });
     assert!(matches!(
         read(&dimensionless),
@@ -693,7 +640,7 @@ fn tc_048_an_application_node_dependency_list_is_its_exact_body_join() {
     let cases: [(&str, Value); 4] = [
         ("missing target", json!([node_id(&a)])),
         (
-            "not digest-ascending",
+            "not path-ascending",
             json!([
                 node_id(&b.clone().max(a.clone())),
                 node_id(&b.clone().min(a.clone()))
@@ -726,7 +673,6 @@ fn admitted_with(extra: Vec<Value>) -> CheckedPackageV2 {
         .expect("nodes")
         .extend(extra);
     rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
     match read(&package) {
         CheckedPackageV2ReadResult::Admitted(admitted) => *admitted,
         other => panic!("expected admission, got {other:?}"),
@@ -740,7 +686,7 @@ fn id_of(key: &str) -> CheckedNodeId {
 /// An integer `value`/`literal` node, which is not a parameter.
 fn integer_literal_node() -> (String, Value) {
     let body = literal(&INTEGER, "integer", "7");
-    let key = structural_key("value", "literal", Some(&INTEGER), None, &body);
+    let key = "value/literal/integer-seven".to_owned();
     let node = wire_node(
         &key,
         "value",
@@ -782,7 +728,7 @@ fn tc_048_parameter_declaration_refuses_unknown_and_non_parameter_nodes() {
     let package = admitted_with(vec![literal_node]);
     let parameters = parameters_package();
     assert_eq!(
-        package.parameter_declaration(&id_of(&"f".repeat(64))),
+        package.parameter_declaration(&id_of("absent-parameter")),
         Err(CheckedParameterDeclarationError::UnknownNode)
     );
     for (label, key) in [

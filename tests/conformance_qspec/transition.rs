@@ -4,7 +4,10 @@
 //! TC-064: the published QSpec transition is read through the public typed carrier.
 
 use super::*;
-use quire_contract_model::{encode_checked_package_v2, ApplicationOperator, CheckedTerm};
+use quire_canonical::Limits;
+use quire_contract_model::{
+    encode_checked_package_v2, ApplicationOperator, CheckedNodeId, CheckedTerm,
+};
 use std::collections::BTreeMap;
 
 fn published() -> Value {
@@ -22,19 +25,8 @@ fn transition_position(package: &Value) -> usize {
 }
 
 fn write(read: &CheckedPackageV2) -> Value {
-    let selection = read.identity_preimage();
-    let preimage = CheckedPackageIdentityPreimageRefV2 {
-        version: &selection.version,
-        edition: &selection.edition,
-        profile_selections: &selection.profile_selections,
-        definition_selections: &selection.definition_selections,
-        required_features: &selection.required_features,
-        dependency_selections: &selection.dependency_selections,
-        identity_projection: &read.graph().nodes,
-    };
     let bytes = encode_checked_package_v2(
-        &preimage,
-        read.package_id(),
+        read.name(),
         read.lock(),
         read.graph(),
         quire_contract_model::CheckedPackageSourceCorrespondenceRef {
@@ -72,12 +64,18 @@ fn parameter(package: &Value, name: &str) -> Value {
         .clone()
 }
 
-fn collect_references(term: &Value, references: &mut BTreeMap<String, Value>) {
+fn node_id_less(left: &Value, right: &Value) -> bool {
+    let left: CheckedNodeId = serde_json::from_value(left.clone()).expect("left node id");
+    let right: CheckedNodeId = serde_json::from_value(right.clone()).expect("right node id");
+    left < right
+}
+
+fn collect_references(term: &Value, references: &mut BTreeMap<CheckedNodeId, Value>) {
     match term["term"].as_str() {
         Some("reference") => {
             let target = &term["target"];
             references.insert(
-                target["digest"].as_str().expect("reference digest").into(),
+                serde_json::from_value(target.clone()).expect("structural reference"),
                 target.clone(),
             );
         }
@@ -104,8 +102,7 @@ fn refresh_transition(package: &mut Value, position: usize) {
     );
     package["semantic_graph"]["nodes"][position]["dependencies"] =
         Value::Array(references.into_values().collect());
-    fixture_support::rekey_application_node(package, position);
-    fixture_support::refresh_identity_projection(package);
+    fixture_support::settle(package);
 }
 
 fn rekey_application_with_references(package: &mut Value, position: usize) {
@@ -116,7 +113,7 @@ fn rekey_application_with_references(package: &mut Value, position: usize) {
     );
     package["semantic_graph"]["nodes"][position]["dependencies"] =
         Value::Array(references.into_values().collect());
-    fixture_support::rekey_application_node(package, position);
+    fixture_support::settle(package);
 }
 
 fn read_with_selected_model_document(
@@ -194,7 +191,7 @@ fn published_boolean_transition_retains_five_typed_bindings_through_writer() {
         panic!("written transition must read again");
     };
     assert_eq!(second.graph(), read.graph());
-    assert_eq!(second.package_id(), read.package_id());
+    assert_eq!(second.name(), read.name());
 }
 
 #[trace("TC-064", "FR-067-AC-1", "FR-067-AC-6")]
@@ -217,15 +214,7 @@ fn pointed_clause_anchors_and_a_distinct_unpointed_transition_anchor_round_trip(
             .as_array_mut()
             .expect("anchor members")
             .push(json!({"term":"binding","name":"execution_point","value":point}));
-        let context = anchor["semantic_type"]["digest"]
-            .as_str()
-            .expect("anchor context");
-        anchor["node_id"]["digest"] = json!(fixture_support::structural_key(
-            "state",
-            "operation_anchor",
-            Some(context),
-            &anchor["body"]
-        ));
+        anchor["node_id"]["ordinal"] = json!(clause - 11);
         let mut source = original_source.clone();
         source["node_id"] = anchor["node_id"].clone();
         source["regions"][0]["start"] = json!(start);
@@ -249,7 +238,7 @@ fn pointed_clause_anchors_and_a_distinct_unpointed_transition_anchor_round_trip(
             .as_array_mut()
             .expect("source map")
             .push(source);
-        fixture_support::rekey_application_node(&mut package, clause);
+        fixture_support::settle(&mut package);
     }
     refresh_transition(&mut package, transition);
     let CheckedPackageV2ReadResult::Admitted(read) =
@@ -264,11 +253,11 @@ fn pointed_clause_anchors_and_a_distinct_unpointed_transition_anchor_round_trip(
     ));
 }
 
-#[trace("TC-064", "FR-067-AC-5", "FR-067-AC-6")]
+#[trace("TC-064", "FR-067-AC-6")]
 #[test]
 fn two_source_claims_share_one_transition_identity_and_retain_regions() {
     let mut package = published();
-    let original_id = package["package_id"].clone();
+    let original_name = package["name"].clone();
     let transition = transition_position(&package);
     let node_id = package["semantic_graph"]["nodes"][transition]["node_id"].clone();
     package["semantic_graph"]["nodes"][transition]["occurrences"]
@@ -290,8 +279,8 @@ fn two_source_claims_share_one_transition_identity_and_retain_regions() {
         .expect("source map")
         .insert(entry + 1, second);
     assert_eq!(
-        package["package_id"], original_id,
-        "occurrences are outside identity"
+        package["name"], original_name,
+        "occurrences do not rename the package"
     );
     let CheckedPackageV2ReadResult::Admitted(read) =
         read_package(&package).expect("selected QSpec evidence")
@@ -302,15 +291,12 @@ fn two_source_claims_share_one_transition_identity_and_retain_regions() {
         .graph()
         .nodes
         .iter()
-        .find(|node| node.node_id.digest.as_ref() == node_id["digest"].as_str().expect("digest"))
+        .find(|node| serde_json::to_value(&node.node_id).expect("node id") == node_id)
         .expect("shared typed transition");
     assert_eq!(transition.occurrences.len(), 2);
     assert_eq!(transition.occurrences[0].ordinal, 0);
     assert_eq!(transition.occurrences[1].ordinal, 1);
-    assert_eq!(
-        read.package_id().digest.as_ref(),
-        original_id["digest"].as_str().expect("digest")
-    );
+    assert_eq!(read.name(), original_name.as_str().expect("name"));
     assert_eq!(
         read.source_map()
             .iter()
@@ -327,7 +313,7 @@ fn two_source_claims_share_one_transition_identity_and_retain_regions() {
     };
     assert_eq!(second_read.graph(), read.graph());
     assert_eq!(second_read.source_map(), read.source_map());
-    assert_eq!(second_read.package_id(), read.package_id());
+    assert_eq!(second_read.name(), read.name());
 }
 
 #[trace("TC-064", "FR-067-AC-3")]
@@ -424,7 +410,7 @@ fn published_transition_join_mutations_refuse_at_the_first_target() {
             "{case}: {refusal:?}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some(path),
             "{case}: {refusal:?}"
         );
@@ -482,7 +468,7 @@ fn published_transition_closed_shape_mutations_refuse_before_identity() {
             "wrong_role" => node["occurrences"][0]["role"] = json!("declaration"),
             _ => unreachable!("closed QSpec shape mutation list"),
         }
-        fixture_support::refresh_identity_projection(&mut package);
+        fixture_support::settle(&mut package);
         let CheckedPackageV2ReadResult::Refused(refusal) =
             read_package(&package).expect("selected QSpec evidence")
         else {
@@ -491,7 +477,7 @@ fn published_transition_closed_shape_mutations_refuse_before_identity() {
         assert_eq!(refusal.code, Code::MalformedWire, "{case}: {refusal:?}");
         assert_eq!(refusal.cause, None, "{case}: {refusal:?}");
         assert!(
-            refusal.path.as_ref().is_some_and(|path| path
+            refusal.loci[0].path.as_ref().is_some_and(|path| path
                 .to_string()
                 .starts_with(&format!("/semantic_graph/nodes/{position}"))),
             "{case}: {refusal:?}"
@@ -510,7 +496,7 @@ fn transition_schema_defect_precedes_a_wrong_anchor() {
         .expect("bindings")
         .swap(0, 1);
     node["body"]["arguments"][1]["value"]["target"] = target(&published(), "model", "object_type");
-    fixture_support::refresh_identity_projection(&mut package);
+    fixture_support::settle(&mut package);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&package).expect("selected QSpec evidence")
     else {
@@ -519,46 +505,9 @@ fn transition_schema_defect_precedes_a_wrong_anchor() {
     assert_eq!(refusal.code, Code::MalformedWire);
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}/body"))
     );
-}
-
-#[trace("TC-064", "FR-067-AC-5")]
-#[test]
-fn stale_transition_key_precedes_state_join_and_source_move_preserves_identity() {
-    let mut package = published();
-    let position = transition_position(&package);
-    let original_node_id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
-    let original_package_id = package["package_id"].clone();
-    let source = package["source_map"]
-        .as_array_mut()
-        .expect("source map")
-        .iter_mut()
-        .find(|row| row["node_id"] == original_node_id)
-        .expect("transition source");
-    source["regions"][0]["start"] = json!(125);
-    source["regions"][0]["end"] = json!(135);
-    assert_eq!(
-        package["semantic_graph"]["nodes"][position]["node_id"],
-        original_node_id
-    );
-    assert_eq!(package["package_id"], original_package_id);
-    assert!(matches!(
-        read_package(&package).expect("selected QSpec evidence"),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
-
-    package["semantic_graph"]["nodes"][position]["body"]["operation"]["laws"][0]["definition"]
-        ["identity"] = json!("missing-profile");
-    fixture_support::refresh_identity_projection(&mut package);
-    let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_package(&package).expect("selected QSpec evidence")
-    else {
-        panic!("stale transition key must refuse before unselected law");
-    };
-    assert_eq!(refusal.code, Code::InvalidPackage);
-    assert_eq!(refusal.cause, Some(Cause::StaleNodeKey));
 }
 
 #[trace("TC-064", "FR-067-AC-2")]
@@ -577,7 +526,7 @@ fn transition_member_and_profile_mutations_refuse() {
     assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{position}/body/operation/member/operator"
         ))
@@ -605,16 +554,15 @@ fn transition_member_and_profile_mutations_refuse() {
     assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{control_position}/body/operation/member/operator"
         ))
     );
 
     let mut profile = published();
-    profile["identity_preimage"]["profile_selections"] = json!([]);
     profile["lock"]["profile_selections"] = json!([]);
-    fixture_support::refresh_identity_projection(&mut profile);
+    fixture_support::settle(&mut profile);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&profile).expect("selected QSpec evidence")
     else {
@@ -622,83 +570,6 @@ fn transition_member_and_profile_mutations_refuse() {
     };
     assert_eq!(refusal.code, Code::InvalidPackage, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperationLawUnselected));
-}
-
-#[trace("TC-064", "FR-067-AC-5")]
-#[test]
-fn transition_identity_tracks_its_referenced_body_and_selected_profile() {
-    let base = published();
-    let position = transition_position(&base);
-    let original_transition = base["semantic_graph"]["nodes"][position]["node_id"].clone();
-    let original_package = base["package_id"].clone();
-    for case in ["subject_field", "input", "pre", "post", "profile"] {
-        let mut package = base.clone();
-        match case {
-            "subject_field" => {
-                package["semantic_graph"]["nodes"][8]["body"]["operation"]["member"]["name"] =
-                    json!("level");
-                fixture_support::rekey_application_node(&mut package, 8);
-            }
-            "input" => {
-                let self_parameter = parameter(&package, "self");
-                package["semantic_graph"]["nodes"][position]["body"]["arguments"][2]["value"]
-                    ["members"][0]["target"] = self_parameter;
-            }
-            "pre" => {
-                package["semantic_graph"]["nodes"][position]["body"]["arguments"][3]["value"]
-                    ["members"] = json!([]);
-            }
-            "post" => {
-                let pre = package["semantic_graph"]["nodes"][position]["body"]["arguments"][3]
-                    ["value"]["members"][0]["target"]
-                    .clone();
-                package["semantic_graph"]["nodes"][position]["body"]["arguments"][4]["value"]
-                    ["target"] = pre;
-            }
-            "profile" => {
-                let changed = json!({"authority":"agent-ix","identity":"quire.protocol.other/v1"});
-                package["identity_preimage"]["profile_selections"][0]["definition"] =
-                    changed.clone();
-                package["lock"]["profile_selections"][0]["definition"] = changed.clone();
-                package["semantic_graph"]["nodes"][position]["body"]["operation"]["laws"][0]
-                    ["definition"] = changed;
-            }
-            _ => unreachable!("closed identity mutation list"),
-        }
-        refresh_transition(&mut package, position);
-        assert_ne!(
-            package["semantic_graph"]["nodes"][position]["node_id"], original_transition,
-            "{case} must rekey the transition"
-        );
-        assert_ne!(
-            package["package_id"], original_package,
-            "{case} must rekey the package"
-        );
-    }
-
-    let mut operation = base.clone();
-    operation["semantic_graph"]["nodes"][11]["body"]["members"][1]["value"]["value"] =
-        json!("reset");
-    fixture_support::mint_ungrouped_structural_keys(&mut operation);
-    for clause in [12, 13] {
-        fixture_support::rekey_application_node(&mut operation, clause);
-    }
-    refresh_transition(&mut operation, position);
-    assert_ne!(
-        operation["semantic_graph"]["nodes"][11]["node_id"],
-        base["semantic_graph"]["nodes"][11]["node_id"]
-    );
-    for clause in [12, 13] {
-        assert_ne!(
-            operation["semantic_graph"]["nodes"][clause]["node_id"],
-            base["semantic_graph"]["nodes"][clause]["node_id"]
-        );
-    }
-    assert_ne!(
-        operation["semantic_graph"]["nodes"][position]["node_id"],
-        original_transition
-    );
-    assert_ne!(operation["package_id"], original_package);
 }
 
 fn two_transitions_with_distinct_optional_preconditions() -> Value {
@@ -710,15 +581,7 @@ fn two_transitions_with_distinct_optional_preconditions() -> Value {
     let mut references = BTreeMap::new();
     collect_references(&second["body"], &mut references);
     second["dependencies"] = Value::Array(references.into_values().collect());
-    let boolean = second["semantic_type"]["digest"]
-        .as_str()
-        .expect("Boolean digest");
-    second["node_id"]["digest"] = json!(fixture_support::application_node_key(
-        "state",
-        "transition",
-        boolean,
-        &second["body"]
-    ));
+    second["node_id"]["ordinal"] = json!(1);
     let source = package["source_map"]
         .as_array()
         .expect("source map")
@@ -738,7 +601,7 @@ fn two_transitions_with_distinct_optional_preconditions() -> Value {
         .as_array_mut()
         .expect("source map")
         .push(second_source);
-    fixture_support::refresh_identity_projection(&mut package);
+    fixture_support::settle(&mut package);
     package
 }
 
@@ -749,15 +612,7 @@ fn append_second_clause(package: &mut Value, position: usize, condition: usize) 
     let mut references = BTreeMap::new();
     collect_references(&clause["body"], &mut references);
     clause["dependencies"] = Value::Array(references.into_values().collect());
-    let boolean = clause["semantic_type"]["digest"]
-        .as_str()
-        .expect("Boolean digest");
-    clause["node_id"]["digest"] = json!(fixture_support::application_node_key(
-        "state",
-        "state_clause",
-        boolean,
-        &clause["body"]
-    ));
+    clause["node_id"]["ordinal"] = json!(1);
     let mut source = package["source_map"]
         .as_array()
         .expect("source map")
@@ -776,7 +631,7 @@ fn append_second_clause(package: &mut Value, position: usize, condition: usize) 
         .as_array_mut()
         .expect("source map")
         .push(source);
-    fixture_support::refresh_identity_projection(package);
+    fixture_support::settle(package);
 }
 
 #[trace("TC-064", "FR-067-AC-3")]
@@ -835,13 +690,10 @@ fn a_second_transition_for_the_same_anchor_and_subject_refuses() {
         .expect("nodes")
         .len()
         - 1;
-    let first_digest = package["semantic_graph"]["nodes"][first]["node_id"]["digest"]
-        .as_str()
-        .expect("first transition digest");
-    let second_digest = package["semantic_graph"]["nodes"][second]["node_id"]["digest"]
-        .as_str()
-        .expect("second transition digest");
-    let later = if first_digest < second_digest {
+    let later = if node_id_less(
+        &package["semantic_graph"]["nodes"][first]["node_id"],
+        &package["semantic_graph"]["nodes"][second]["node_id"],
+    ) {
         second
     } else {
         first
@@ -855,7 +707,7 @@ fn a_second_transition_for_the_same_anchor_and_subject_refuses() {
     assert_eq!(refusal.code, Code::AmbiguousDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::AmbiguousName));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{later}"))
     );
     assert_eq!(
@@ -867,7 +719,7 @@ fn a_second_transition_for_the_same_anchor_and_subject_refuses() {
 
 #[trace("TC-064", "FR-067-AC-4")]
 #[test]
-fn two_transition_defects_refuse_in_ascending_node_digest_order() {
+fn two_transition_defects_refuse_in_ascending_structural_node_order() {
     let mut package = two_transitions_with_distinct_optional_preconditions();
     let model = target(&package, "model", "object_type");
     let first_position = transition_position(&package);
@@ -881,13 +733,10 @@ fn two_transition_defects_refuse_in_ascending_node_digest_order() {
             model.clone();
         refresh_transition(&mut package, position);
     }
-    let first_digest = package["semantic_graph"]["nodes"][first_position]["node_id"]["digest"]
-        .as_str()
-        .expect("first digest");
-    let second_digest = package["semantic_graph"]["nodes"][second_position]["node_id"]["digest"]
-        .as_str()
-        .expect("second digest");
-    let earliest = if first_digest < second_digest {
+    let earliest = if node_id_less(
+        &package["semantic_graph"]["nodes"][first_position]["node_id"],
+        &package["semantic_graph"]["nodes"][second_position]["node_id"],
+    ) {
         first_position
     } else {
         second_position
@@ -900,7 +749,7 @@ fn two_transition_defects_refuse_in_ascending_node_digest_order() {
     assert_eq!(refusal.code, Code::InvalidModelBinding, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{earliest}/body/arguments/0/value/target"
         ))
@@ -917,15 +766,7 @@ fn integer_model_field_cannot_be_a_boolean_transition_subject() {
     query["semantic_type"] = integer.clone();
     query["body"]["result_type"] = integer;
     query["body"]["operation"]["member"]["name"] = json!("level");
-    let integer_digest = query["semantic_type"]["digest"]
-        .as_str()
-        .expect("Integer digest");
-    query["node_id"]["digest"] = json!(fixture_support::application_node_key(
-        "expression",
-        "query",
-        integer_digest,
-        &query["body"]
-    ));
+    query["node_id"]["ordinal"] = json!(1);
     let mut source = package["source_map"]
         .as_array()
         .expect("source map")
@@ -955,7 +796,7 @@ fn integer_model_field_cannot_be_a_boolean_transition_subject() {
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}"))
     );
 }
@@ -988,7 +829,7 @@ fn selected_optional_boolean_field_refuses_at_the_transition() {
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}"))
     );
 }
@@ -1021,8 +862,7 @@ fn two_boolean_inputs_must_follow_the_selected_operation_order() {
         .push(other_slot);
 
     let mut other = package["semantic_graph"]["nodes"][6].clone();
-    other["node_id"]["digest"] =
-        json!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    other["node_id"]["ordinal"] = json!(1);
     other["body"]["members"][0]["value"]["value"] = json!("other");
     other["body"]["members"][1]["value"]["value"] = json!("2");
     let mut source = package["source_map"]
@@ -1043,7 +883,7 @@ fn two_boolean_inputs_must_follow_the_selected_operation_order() {
         .as_array_mut()
         .expect("source map")
         .push(source);
-    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    fixture_support::settle(&mut package);
     let other_id = parameter(&package, "other");
     for clause in [12, 13] {
         package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["members"]
@@ -1057,7 +897,7 @@ fn two_boolean_inputs_must_follow_the_selected_operation_order() {
         );
         package["semantic_graph"]["nodes"][clause]["dependencies"] =
             Value::Array(references.into_values().collect());
-        fixture_support::rekey_application_node(&mut package, clause);
+        fixture_support::settle(&mut package);
     }
     package["semantic_graph"]["nodes"][position]["body"]["arguments"][2]["value"]["members"]
         .as_array_mut()
@@ -1072,7 +912,7 @@ fn two_boolean_inputs_must_follow_the_selected_operation_order() {
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{position}"))
     );
 }
@@ -1084,7 +924,7 @@ fn transition_application_nested_in_boolean_or_refuses_at_the_inner_application(
     let position = transition_position(&package);
     let transition = package["semantic_graph"]["nodes"][position]["body"].clone();
     package["semantic_graph"]["nodes"][9]["body"]["arguments"][0] = transition;
-    fixture_support::refresh_identity_projection(&mut package);
+    fixture_support::settle(&mut package);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&package).expect("selected QSpec evidence")
     else {
@@ -1093,7 +933,7 @@ fn transition_application_nested_in_boolean_or_refuses_at_the_inner_application(
     assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/9/body/arguments/0".into())
     );
 }
@@ -1104,7 +944,7 @@ fn a_frame_member_defect_precedes_a_transition_anchor_defect() {
     let mut package = published();
     let position = transition_position(&package);
     package["semantic_graph"]["nodes"][10]["body"]["modifies"][0]["name"] = json!("not_a_field");
-    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    fixture_support::settle(&mut package);
     for clause in [12, 13] {
         rekey_application_with_references(&mut package, clause);
     }
@@ -1119,7 +959,7 @@ fn a_frame_member_defect_precedes_a_transition_anchor_defect() {
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingName));
     assert!(
-        refusal.path.as_ref().is_some_and(|path| path
+        refusal.loci[0].path.as_ref().is_some_and(|path| path
             .to_string()
             .starts_with("/semantic_graph/nodes/10/body/modifies/0")),
         "{refusal:?}"
@@ -1130,7 +970,7 @@ fn with_bad_frame() -> Value {
     let mut package = published();
     let position = transition_position(&package);
     package["semantic_graph"]["nodes"][10]["body"]["modifies"][0]["name"] = json!("not_a_field");
-    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    fixture_support::settle(&mut package);
     for clause in [12, 13] {
         rekey_application_with_references(&mut package, clause);
     }
@@ -1143,7 +983,6 @@ fn with_bad_frame() -> Value {
 fn graph_dependency_and_selected_model_owner_refuse_before_a_frame_defect() {
     let mut graph = with_bad_frame();
     graph["semantic_graph"]["nodes"][9]["dependencies"] = json!([]);
-    fixture_support::refresh_identity_projection(&mut graph);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&graph).expect("selected QSpec evidence")
     else {
@@ -1152,13 +991,13 @@ fn graph_dependency_and_selected_model_owner_refuse_before_a_frame_defect() {
     assert_eq!(refusal.code, Code::InvalidSemanticGraph, "{refusal:?}");
     assert_eq!(refusal.cause, None);
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/9/dependencies".into())
     );
 
     let mut selected = with_bad_frame();
     selected["semantic_graph"]["nodes"][3]["owner"]["node"] = json!("ix://acme/orders/Missing");
-    fixture_support::refresh_identity_projection(&mut selected);
+    fixture_support::settle(&mut selected);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&selected).expect("selected QSpec evidence")
     else {
@@ -1167,7 +1006,7 @@ fn graph_dependency_and_selected_model_owner_refuse_before_a_frame_defect() {
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingSelection));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/3/node_id".into())
     );
 }
@@ -1179,7 +1018,7 @@ fn anchor_refusal_precedes_transition_and_state_refusal_precedes_operation_catal
     let position = transition_position(&anchor);
     anchor["semantic_graph"]["nodes"][11]["body"]["members"][1]["value"]["value"] =
         json!("missing");
-    fixture_support::mint_ungrouped_structural_keys(&mut anchor);
+    fixture_support::settle(&mut anchor);
     for clause in [12, 13] {
         rekey_application_with_references(&mut anchor, clause);
     }
@@ -1194,7 +1033,7 @@ fn anchor_refusal_precedes_transition_and_state_refusal_precedes_operation_catal
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingName));
     assert!(
-        refusal
+        refusal.loci[0]
             .path
             .as_ref()
             .is_some_and(|path| path.to_string().starts_with("/semantic_graph/nodes/11")),
@@ -1213,7 +1052,7 @@ fn anchor_refusal_precedes_transition_and_state_refusal_precedes_operation_catal
     assert_eq!(refusal.code, Code::InvalidPackage, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperationLawUnselected));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{position}/body/operation/laws/0/definition"
         ))
@@ -1230,7 +1069,7 @@ fn anchor_refusal_precedes_transition_and_state_refusal_precedes_operation_catal
     assert_eq!(refusal.code, Code::InvalidModelBinding, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
             "/semantic_graph/nodes/{position}/body/arguments/0/value/target"
         ))
@@ -1251,7 +1090,7 @@ fn a_clause_anchor_defect_precedes_a_transition_anchor_defect() {
     );
     package["semantic_graph"]["nodes"][12]["dependencies"] =
         Value::Array(references.into_values().collect());
-    fixture_support::rekey_application_node(&mut package, 12);
+    fixture_support::settle(&mut package);
     package["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["value"]["target"] = model;
     refresh_transition(&mut package, position);
     let CheckedPackageV2ReadResult::Refused(refusal) =
@@ -1262,7 +1101,7 @@ fn a_clause_anchor_defect_precedes_a_transition_anchor_defect() {
     assert_eq!(refusal.code, Code::InvalidModelBinding, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/12/body/arguments/1/target".into())
     );
 }
@@ -1288,7 +1127,7 @@ fn transition_application_at_a_binary_expression_root_refuses_before_anchor_join
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
     assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string),
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/9/body".into())
     );
 }
@@ -1344,7 +1183,7 @@ fn transition_joins_refuse_in_anchor_subject_input_clause_order() {
         );
         assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some(target_path)
         );
     }

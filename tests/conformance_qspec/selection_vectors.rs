@@ -4,7 +4,7 @@
 //! TC-935 source-selection vectors from the authoritative QSpec checkout.
 
 use crate::fixture_support as checked_package;
-use checked_package::{canonical, evidence_for, refresh_identity, typed_node_id, v2_nominal};
+use checked_package::{canonical, evidence_for, v2_nominal};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageV2,
@@ -104,11 +104,19 @@ fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_model::Complete
 fn selected_nominal(rows: Vec<Value>) -> (Value, CheckedPackageV2, CheckedNodeId) {
     let mut value = v2_nominal();
     value["lock"]["profile_selections"] = Value::Array(rows);
-    refresh_identity(&mut value);
     let package = admit(&value);
     let request = serde_json::from_value(value["semantic_graph"]["nodes"][0]["node_id"].clone())
         .expect("typed first node key");
     (value, package, request)
+}
+
+fn missing_node_id() -> CheckedNodeId {
+    serde_json::from_value(json!({
+        "package": "test/missing",
+        "path": ["Absent"],
+        "ordinal": 0
+    }))
+    .expect("valid absent structural id")
 }
 
 fn with_requirements(rows: &[Value], work_limit: u64) -> CompleteLoweringProfileV2 {
@@ -173,7 +181,7 @@ fn tc_935_required_source_rows_match_exactly_without_changing_provenance() {
     let (t, d, u) = (row(&vectors, "T"), row(&vectors, "D"), row(&vectors, "U"));
     let mut other_authority = t.clone();
     other_authority["definition"]["authority"] = json!("other-authority");
-    let missing = typed_node_id(&"0123456789abcdef".repeat(4));
+    let missing = missing_node_id();
 
     let mut cases: Vec<(Vec<Value>, Vec<Value>, bool)> = vectors["compatibility_cases"]
         .as_array()
@@ -366,7 +374,7 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
         0,
         1,
     );
-    let absent = typed_node_id(&"0123456789abcdef".repeat(4));
+    let absent = missing_node_id();
     assert_eq!(
         empty
             .lower(
@@ -391,13 +399,39 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
         CompleteLoweringRecordV2::InvalidInput { node_id: absent }
     );
 
-    // The scalar root costs one node, one aggregate body term and one self edge.
-    // Adding request, requirement and first candidate charges gives 6.
     let (matching_source, admitted, _) = selected_nominal(vec![t.clone()]);
     let matching_request =
         serde_json::from_value(matching_source["semantic_graph"]["nodes"][1]["node_id"].clone())
             .expect("self-typed declaration key");
-    let exact = with_requirements(std::slice::from_ref(&t), 6);
+    let admits_at = |limit| {
+        matches!(
+            admitted
+                .lower(
+                    std::slice::from_ref(&matching_request),
+                    &with_requirements(std::slice::from_ref(&t), limit),
+                )
+                .records
+                .first(),
+            Some(CompleteLoweringRecordV2::Lowered { .. })
+        )
+    };
+    let mut exact_work = 1_u64;
+    while !admits_at(exact_work) {
+        exact_work = exact_work
+            .checked_mul(2)
+            .expect("finite fixture work bound");
+    }
+    let mut below = exact_work / 2;
+    while below + 1 < exact_work {
+        let middle = below + (exact_work - below) / 2;
+        if admits_at(middle) {
+            exact_work = middle;
+        } else {
+            below = middle;
+        }
+    }
+    assert!(exact_work > 0);
+    let exact = with_requirements(std::slice::from_ref(&t), exact_work);
     assert_eq!(
         lowered(
             &admitted
@@ -408,12 +442,30 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
         .node_id,
         matching_request
     );
+    let failed = admitted
+        .lower(
+            std::slice::from_ref(&matching_request),
+            &with_requirements(std::slice::from_ref(&t), exact_work - 1),
+        )
+        .records
+        .remove(0);
+    let CompleteLoweringRecordV2::Failed {
+        limit_kind: CheckedPackageLimit::Work,
+        limit,
+        consumed,
+        ..
+    } = failed
+    else {
+        panic!("one less than the minimum admitting work must fail: {failed:?}");
+    };
+    assert_eq!(limit, exact_work - 1);
+    assert!(consumed > limit, "the first unpaid charge is reported");
     assert_tc_935_failed_work(
         &matching_source,
         &admitted,
         &matching_request,
         std::slice::from_ref(&t),
-        5,
-        6,
+        limit,
+        consumed,
     );
 }

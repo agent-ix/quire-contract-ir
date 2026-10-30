@@ -1135,8 +1135,7 @@ pub(super) fn validate_claims(
                 continue;
             };
             let member = &operation.record()["member"];
-            let declaration: Option<CheckedNodeId> =
-                serde_json::from_value(member["declaration"].clone()).ok();
+            let declaration = CheckedNodeId::from_value(&member["declaration"]);
             let name = member["name"].as_str().unwrap_or_default();
             let mut resolved = false;
             for mode_key in &mode_keys {
@@ -1352,9 +1351,6 @@ pub(super) fn check_wire(
     let at = node_pointer(position);
     if node.recursion_group.is_some() {
         return Err(malformed(at.clone().key("recursion_group")));
-    }
-    if node.nominal_identity_preimage.is_some() {
-        return Err(malformed(at.clone().key("nominal_identity_preimage")));
     }
     let expected_role = match form {
         HybridForm::Model | HybridForm::Mode => {

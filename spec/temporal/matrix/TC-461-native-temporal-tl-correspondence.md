@@ -34,15 +34,7 @@ once by QSpec FR-092; strong previous is `once[1,1]`.
    Project a future-only event-position formula under complete and open
    surrounding execution. Require the corresponding closed-trace and
    online-prefix formulas, trace requests and owner-reader admissions (FR-350-AC-1).
-   Supply the admitted native subject identity and the fixed
-   `quire.native-temporal-correspondence/v1` profile identity to quire-mltl
-   `RequestInput`; owner-read the generated request before hashing its canonical
-   bytes into `target.request`, then derive the record reference. Recompute the
-   request with a different correspondence profile identity and require an
-   owner-reader mismatch; substitute the record reference for that profile
-   identity, and separately corrupt only `target.request`, and require refusal
-   before an admitted projection. The request identity must be independent of
-   the record reference; the record reference must cover the request digest.
+   Supply the admitted native subject name and the correspondence profile name to quire-mltl `RequestInput`; owner-read the generated request and retain its exact typed value in the correspondence record. Substitute a wrong subject or profile name and a request unequal to the retained value, requiring refusal before projection admission. No record reference or hash is formed.
 2. Under each false-extension profile, project `once[0,2] p`,
    `historically[0,2] p`, `p since[0,2] q` and `p triggered[0,2] q`
    individually with an execution-origin history. Also project strong previous
@@ -63,7 +55,7 @@ once by QSpec FR-092; strong previous is `once[1,1]`.
 5. Mutate each preserved correspondence key axis independently, including the
    source span, predicate/type/model binding, anchor, capture, clock,
    observation, interval, closure/history, TL selection and bridge definition.
-   Recompute the bridge-owned reference and read the generated TL artifacts
+   Compare the corresponding exposed typed member and read the generated TL artifacts
    with their exact public readers (FR-350-AC-3, FR-350-AC-4).
 6. Join native `evaluate_v2` and TL mapped results through every decision row,
    including equal-final, equal-pending, unavailable, unsupported, incomplete,
@@ -90,35 +82,18 @@ once by QSpec FR-092; strong previous is `once[1,1]`.
    observed counts, then force two limits to cross on one action and require
    the first limit in FR-350's table. Check that the rejected unit was not
    visited, the returned `value` is `setting + 1`, and no partial record exists.
-8. Encode the canonical correspondence record from FR-350-AC-7, require the
-   specified 1429-byte encoding and digest, and recompute with interval
-   `[[0, 2]]`, model package 64 `a`s and bridge definition 64 `b`s. Require the
-   listed digests for all three single-member mutations. Reordered or
-   whitespace-padded records refuse. The byte-level fixed vector's digest
-   values are independent from step 1's owner-admitted artifacts; do not use
-   its fixture digest strings as a substitute for owner-reader evidence
-   (FR-350-AC-7, FR-350-AC-8).
-
 ## Expected Results
 
 - Each bounded past operator individually projects only with origin-complete
   history; each cutoff case is incomplete with `missing-history`; mixed
   past/future is unsupported and emits no substitute artifact.
 - Generated formula, history/trace, request, valuation and correspondence
-  records are admitted by their owners and preserve distinct identities.
-- A changed preserved axis changes the correspondence reference. A changed
+  records are admitted by their owners and retain exact typed values and public names/versions.
+- A changed preserved axis changes its corresponding exposed typed member. A changed
   period refuses; an absent sample is incomplete.
 - Only an equal final pair yields `agreement` with a Boolean. Every other
   decision has no Boolean and preserves its ordered causes, progress/closure,
   settlement, support, completeness and supersession axes.
-- The canonical record line is 1429 bytes with SHA-256
-  `af94ffed6cf2056cac630658154340137d6380fe6cf095a8a6511ca75aeb4213`;
-  the interval mutation gives
-  `8dbb7a21dd50d966b9912e59dfca7816f3ebda90c5591fbc2df9a2f5544efba7`,
-  the model mutation
-  `f736217757ea655a077861685a257707d92e872b83101fdc5d1437d062a6e4d2`,
-  and the bridge mutation
-  `9b5860c947e2237d5bacda3fe3da0e0b110e8ae7d7fb80862229e3234390ef7a`.
 - Malformed or over-limit inputs produce one deterministic refusal or
   incomplete result with no partial artifact and no evaluator invocation by
   Contract IR. Exact limits admit; one past yields `limit-reached` naming the

@@ -12,19 +12,18 @@
 //! fixtures are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    canonical, evidence_with_document, family_key, fixture_source, mint_ungrouped_structural_keys,
-    model_owner, node_id, owned_structural_node, select_model, settle, sha256_hex, source_owner,
-    structural_key, typed_node_id, v2_all_families,
+    canonical, evidence_with_document, family_key, fixture_source, model_owner,
+    node_id as fixture_node_id, owned_structural_node, reassign_node_id, select_model, settle,
+    source_owner, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::LazyLock;
 
 // ---------------------------------------------------------------------------
 // Reading
@@ -80,19 +79,31 @@ fn orders_document() -> Value {
     })
 }
 
-/// The model declaration node key of `node` owned by the domain package
-/// `identity`: the SHA-256 of its structural preimage.
+/// The authored path label for a model declaration under `identity`.
 fn model_key_in(identity: &str, node: &str) -> String {
-    sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "model",
-        "semantic_form": "object_type", "semantic_type": null, "declaration": null,
-        "recursion": null, "body": {"term": "aggregate", "members": []},
-        "owner": {"kind": "model", "identity": identity, "node": node},
-    })))
+    format!("{identity}/{node}")
 }
 
 fn model_key(node: &str) -> String {
     model_key_in(ORDERS, node)
+}
+
+/// Model-owned object types use the selected package and FCD identity in their ID.
+fn node_id(key: &str) -> Value {
+    if let Some((package, node)) = key.split_once("/ix://") {
+        if package == ORDERS || package == OTHER_PACKAGE {
+            return json!({
+                "package": package,
+                "path": ["model", "object_type", format!("ix://{node}")],
+                "ordinal": 0,
+            });
+        }
+    }
+    fixture_node_id(key)
+}
+
+fn typed_node_id(key: &str) -> CheckedNodeId {
+    serde_json::from_value(node_id(key)).expect("structural node ID")
 }
 
 /// Reads `package` with [`orders_document`] supplied under its identity.
@@ -123,15 +134,18 @@ fn admitted(case: &str, package: &Value) -> CheckedPackageV2 {
 /// The refusal's code, cause and pointer text.
 type Outcome = (Code, Option<Cause>, Option<String>);
 
-fn refusal_of(case: &str, package: &Value) -> (Outcome, Option<String>) {
+fn refusal_of(case: &str, package: &Value) -> (Outcome, Option<CheckedNodeId>) {
     match read(package) {
         CheckedPackageV2ReadResult::Refused(refusal) => (
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.map(|path| path.as_str().to_owned()),
+                refusal.loci[0]
+                    .path
+                    .clone()
+                    .map(|path| path.as_str().to_owned()),
             ),
-            refusal.locus.map(|locus| locus.digest.to_string()),
+            refusal.locus,
         ),
         other => panic!("{case}: expected a refusal, read {other:?}"),
     }
@@ -146,11 +160,16 @@ fn expect(case: &str, package: &Value, code: Code, cause: Cause, path: &str) {
         .and_then(|rest| rest.split('/').next())
         .and_then(|node| node.parse().ok())
         .unwrap_or_else(|| panic!("{case}: {path} is on no node"));
-    expect_located(
-        case,
-        package,
-        (code, cause, path),
-        &digest(package, position),
+    assert_eq!(
+        refusal_of(case, package),
+        (
+            (code, Some(cause), Some(path.to_owned())),
+            Some(
+                serde_json::from_value(nodes(package)[position]["node_id"].clone())
+                    .expect("node ID"),
+            ),
+        ),
+        "{case}"
     );
 }
 
@@ -161,7 +180,7 @@ fn expect_located(case: &str, package: &Value, outcome: (Code, Cause, &str), loc
         refusal_of(case, package),
         (
             (code, Some(cause), Some(path.to_owned())),
-            Some(locus.to_owned())
+            Some(typed_node_id(locus))
         ),
         "{case}"
     );
@@ -196,15 +215,31 @@ fn find_identity(package: &Value, identity: &str) -> usize {
     })
 }
 
-fn digest(package: &Value, position: usize) -> String {
-    nodes(package)[position]["node_id"]["digest"]
+fn node_label(package: &Value, position: usize) -> String {
+    let owner = &nodes(package)[position]["owner"];
+    if owner["kind"] == "model" {
+        return model_key_in(
+            owner["identity"].as_str().expect("model package"),
+            owner["node"].as_str().expect("model node"),
+        );
+    }
+    nodes(package)[position]["node_id"]["path"][0]
         .as_str()
-        .expect("digest")
+        .expect("key")
         .to_owned()
 }
 
-fn refer(digest: &str) -> Value {
-    json!({"term": "reference", "target": node_id(digest)})
+/// Assign distinct producer-owned structural IDs to exercise either node order.
+fn order_pair(package: &mut Value, first: usize, second: usize) {
+    let first_id = nodes(package)[first]["node_id"].clone();
+    let second_id = nodes(package)[second]["node_id"].clone();
+    reassign_node_id(package, &first_id, &node_id("a-temporal-order"));
+    reassign_node_id(package, &second_id, &node_id("z-temporal-order"));
+    settle(package);
+}
+
+fn refer(key: &str) -> Value {
+    json!({"term": "reference", "target": node_id(key)})
 }
 
 fn aaaa() -> String {
@@ -213,13 +248,9 @@ fn aaaa() -> String {
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
-/// A key no node of the fixture has; `settle` replaces it for an application
-/// node, and a node with another body keeps it.
+/// A distinct producer-assigned label for each synthetic temporal node.
 fn fresh() -> String {
-    format!(
-        "{:064x}",
-        0xf000_0000_0000_0000_u64 + NEXT.fetch_add(1, Ordering::Relaxed)
-    )
+    format!("temporal-{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 /// A node keyed `key` whose body is `body`.
@@ -348,7 +379,7 @@ fn with_root(
     let mut package = v2_all_families();
     select_profile(&mut package, profile);
     let root = find_identity(&package, &temporal_identity("eventually"));
-    let holds = digest(
+    let holds = node_label(
         &package,
         find_identity(&package, &temporal_identity("holds")),
     );
@@ -417,7 +448,7 @@ fn fairness(member: Value) -> Value {
 fn with_fairness_argument(package: &mut Value, fairness_nodes: &[usize]) {
     let members: Vec<Value> = fairness_nodes
         .iter()
-        .map(|position| refer(&digest(package, *position)))
+        .map(|position| refer(&node_label(package, *position)))
         .collect();
     let clause = clause(package);
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][4] =
@@ -437,36 +468,14 @@ fn with_fairness(profile: &str, member: Value) -> (Value, usize) {
 }
 
 pub(crate) fn admitted_fairness_source_for_contract() -> CheckedPackageV2 {
-    // Lowering chooses the first unsupported key. Keep the fairness child
-    // before both the clause root and its formula child in this source.
-    for (declaration, name) in [
-        (ORDER_NODE, "scaled"),
-        (ORDER_NODE, "reset"),
-        (LEFT_NODE, "act"),
-        (RIGHT_NODE, "act"),
-    ] {
-        let (mut package, fair) =
-            with_fairness(INFINITE, fairness_member(&model_key(declaration), name));
-        let fair_key = digest(&package, fair);
-        let earliest_formula = nodes(&package)
-            .iter()
-            .filter(|node| node["semantic_form"] == "formula")
-            .filter_map(|node| node["node_id"]["digest"].as_str())
-            .min()
-            .expect("formula node");
-        if fair_key.as_str() < earliest_formula {
-            for suffix in 0..64 {
-                let clause_at = clause(&package);
-                package["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][1]["value"] =
-                    json!(format!("clause-{suffix}"));
-                settle(&mut package);
-                if fair_key < digest(&package, clause(&package)) {
-                    return admitted("contract source with fairness", &package);
-                }
-            }
-        }
-    }
-    panic!("no fairness key sorts before the formula keys")
+    // Lowering chooses the first unsupported ID. Put the fairness child
+    // before the clause root and formula children using an authored ID.
+    let (mut package, fair) =
+        with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
+    let old = nodes(&package)[fair]["node_id"].clone();
+    reassign_node_id(&mut package, &old, &node_id("a-fairness-source"));
+    settle(&mut package);
+    admitted("contract source with fairness", &package)
 }
 
 fn profile_supporting(tags: &[CheckedNodeTag]) -> CompleteLoweringProfileV2 {
@@ -491,12 +500,12 @@ fn profile_supporting(tags: &[CheckedNodeTag]) -> CompleteLoweringProfileV2 {
 fn tc_048_every_temporal_identity_admits_at_its_node_and_lowers_as_data() {
     let mut package = v2_all_families();
     select_profile(&mut package, BOUNDED);
-    let holds = digest(
+    let holds = node_label(
         &package,
         find_identity(&package, &temporal_identity("holds")),
     );
     let eventually = find_identity(&package, &temporal_identity("eventually"));
-    let mut tree = digest(&package, eventually);
+    let mut tree = node_label(&package, eventually);
     let two = |short: &str, left: &str, right: &str| {
         formula(short, Value::Null, vec![refer(left), refer(right)])
     };
@@ -504,8 +513,8 @@ fn tc_048_every_temporal_identity_admits_at_its_node_and_lowers_as_data() {
     for short in ["true", "false"] {
         leaves.push(push(&mut package, formula(short, Value::Null, vec![])));
     }
-    let truth = digest(&package, leaves[0]);
-    let falsehood = digest(&package, leaves[1]);
+    let truth = node_label(&package, leaves[0]);
+    let falsehood = node_label(&package, leaves[1]);
     leaves.push(push(
         &mut package,
         formula("not", Value::Null, vec![refer(&holds)]),
@@ -526,9 +535,9 @@ fn tc_048_every_temporal_identity_admits_at_its_node_and_lowers_as_data() {
     }
     // `and` over the chain, so every formula node is an operand of one.
     for leaf in leaves {
-        let operand = digest(&package, leaf);
+        let operand = node_label(&package, leaf);
         let node = push(&mut package, two("and", &tree, &operand));
-        tree = digest(&package, node);
+        tree = node_label(&package, node);
     }
     let clause_at = clause(&package);
     package["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][5] = refer(&tree);
@@ -544,7 +553,7 @@ fn tc_048_every_temporal_identity_admits_at_its_node_and_lowers_as_data() {
 
     // The clause lowers as data under a profile that supports `temporal`, and
     // returns `unsupported` naming it under one that does not.
-    let clause_key = typed_node_id(&digest(&package, clause_at));
+    let clause_key = typed_node_id(&node_label(&package, clause_at));
     let temporal_only = profile_supporting(&[
         CheckedNodeTag::ScalarType,
         CheckedNodeTag::BoundedDomain,
@@ -876,7 +885,7 @@ fn misplaced(case: &str, package: &Value, position: usize) {
 #[test]
 fn tc_048_a_placed_application_in_another_form_refuses_at_its_node() {
     let holds_body = |package: &Value| {
-        let holds = digest(package, find_identity(package, &temporal_identity("holds")));
+        let holds = node_label(package, find_identity(package, &temporal_identity("holds")));
         formula_body("holds", Value::Null, vec![refer(&holds)])
     };
     let fair_body = application(
@@ -935,7 +944,6 @@ fn tc_048_a_formula_fairness_or_clause_node_needs_its_own_application() {
         ] {
             let mut package = v2_all_families();
             let position = push(&mut package, node_with_key(&fresh(), tag, form, body));
-            mint_ungrouped_structural_keys(&mut package);
             settle(&mut package);
             misplaced(&format!("{form} with {case}"), &package, position);
         }
@@ -948,7 +956,7 @@ fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_sta
     // A reference to the formula node from a function node's body.
     let mut package = v2_all_families();
     let formula_at = find_identity(&package, &temporal_identity("eventually"));
-    let formula_key = digest(&package, formula_at);
+    let formula_key = node_label(&package, formula_at);
     let mut function = node_with_key(&fresh(), "function", "pure_function", refer(&formula_key));
     function["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
     function["declaration"] = json!({"qualified_name": ["Example", "FormulaUser"]});
@@ -956,14 +964,13 @@ fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_sta
         &mut package,
         owned_structural_node(function, source_owner(&fixture_source())),
     );
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     misplaced("from a function body", &package, position);
 
     // From a clause's fairness argument.
     let mut package = v2_all_families();
     let clause_at = clause(&package);
-    let formula_key = digest(
+    let formula_key = node_label(
         &package,
         find_identity(&package, &temporal_identity("eventually")),
     );
@@ -974,7 +981,7 @@ fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_sta
 
     // From a `case` application's argument.
     let mut package = v2_all_families();
-    let formula_key = digest(
+    let formula_key = node_label(
         &package,
         find_identity(&package, &temporal_identity("eventually")),
     );
@@ -999,7 +1006,7 @@ fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_sta
     // from a formula operand.
     let mut package = v2_all_families();
     let fair = push(&mut package, fairness(fairness_member(&aaaa(), "Step")));
-    let fair_key = digest(&package, fair);
+    let fair_key = node_label(&package, fair);
     let clause_at = clause(&package);
     package["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][5] = refer(&fair_key);
     settle(&mut package);
@@ -1007,7 +1014,7 @@ fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_sta
 
     let mut package = v2_all_families();
     let fair = push(&mut package, fairness(fairness_member(&aaaa(), "Step")));
-    let fair_key = digest(&package, fair);
+    let fair_key = node_label(&package, fair);
     let root = find_identity(&package, &temporal_identity("eventually"));
     package["semantic_graph"]["nodes"][root]["body"]["arguments"] = json!([refer(&fair_key)]);
     settle(&mut package);
@@ -1072,9 +1079,8 @@ fn tc_048_a_case_application_stands_only_at_the_root_of_a_case_node() {
             &mut package,
             node_with_key(&fresh(), "expression", form, body),
         );
-        mint_ungrouped_structural_keys(&mut package);
         settle(&mut package);
-        let locus = digest(&package, position);
+        let locus = node_label(&package, position);
         // `invalid_semantic_graph` carries no cause.
         assert_eq!(
             refusal_of(case, &package),
@@ -1084,14 +1090,14 @@ fn tc_048_a_case_application_stands_only_at_the_root_of_a_case_node() {
                     None,
                     Some(at_node(position, "/body"))
                 ),
-                Some(locus)
+                Some(typed_node_id(&locus))
             ),
             "{case}"
         );
     }
 
     // `case` placement is the operation step's: a temporal-step defect is
-    // reported ahead of it whatever the digest order.
+    // reported ahead of it whatever the key order.
     for key in [LOWEST, HIGHEST] {
         let mut package = v2_all_families();
         let placement = push(&mut package, misplaced_formula(key));
@@ -1101,9 +1107,9 @@ fn tc_048_a_case_application_stands_only_at_the_root_of_a_case_node() {
         );
         settle(&mut package);
         assert_eq!(
-            digest(&package, placement) < digest(&package, case_position),
+            node_label(&package, placement) < node_label(&package, case_position),
             key == LOWEST,
-            "the valid structural key must exercise this digest order",
+            "the valid structural key must exercise this key order",
         );
         misplaced(
             &format!("a temporal placement defect beside a case placement defect, {key}"),
@@ -1125,8 +1131,6 @@ fn code_word(code: Code) -> &'static str {
         Code::DuplicateMember => "duplicate_member",
         Code::UnknownMember => "unknown_member",
         Code::NoncanonicalWire => "noncanonical_wire",
-        Code::StaleDependency => "stale_dependency",
-        Code::DigestDomainMismatch => "digest_domain_mismatch",
         Code::UnknownRequiredCapability => "unknown_required_capability",
         Code::InvalidSemanticGraph => "invalid_semantic_graph",
         Code::InvalidSourceMap => "invalid_source_map",
@@ -1153,10 +1157,8 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::IncompatibleDefinition => "incompatible-definition",
         Cause::FeatureSetMismatch => "feature-set-mismatch",
         Cause::InsufficientNextCharge => "insufficient-next-charge",
-        Cause::ContentMismatch => "content-mismatch",
         Cause::MissingName => "missing-name",
         Cause::MalformedDeclaration => "malformed-declaration",
-        Cause::StaleNodeKey => "stale-node-key",
         Cause::InvalidDerivedShape => "invalid-derived-shape",
         Cause::UnknownOperation => "unknown-operation",
         Cause::OperationClassMismatch => "operation-class-mismatch",
@@ -1249,7 +1251,7 @@ fn tc_048_relationship_refusal_words_are_typed_and_diagnostics_stay_closed() {
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_details_reference_to_a_formula_or_fairness_node_refuses_at_the_entry() {
-    let formula_key = digest(
+    let formula_key = node_label(
         &v2_all_families(),
         find_identity(&v2_all_families(), &temporal_identity("eventually")),
     );
@@ -1259,7 +1261,7 @@ fn tc_048_a_details_reference_to_a_formula_or_fairness_node_refuses_at_the_entry
         fairness(fairness_member(&aaaa(), "Step")),
     );
     settle(&mut with_fairness_node);
-    let fair_key = digest(&with_fairness_node, fair);
+    let fair_key = node_label(&with_fairness_node, fair);
     for (case, mut package, target) in [
         ("a formula node", v2_all_families(), formula_key),
         ("a fairness node", with_fairness_node, fair_key),
@@ -1292,7 +1294,7 @@ fn forbidden_diagnostic_reference_precedes_unknown_temporal_profile() {
     let mut package = v2_all_families();
     select_profile(&mut package, "quire.fixture.temporal-profile/v1");
     settle(&mut package);
-    let formula = digest(
+    let formula = node_label(
         &package,
         find_identity(&package, &temporal_identity("eventually")),
     );
@@ -1335,42 +1337,19 @@ fn tc_048_a_diagnostics_entry_may_carry_the_unsupported_construct_code() {
 // AC-102
 // ---------------------------------------------------------------------------
 
-/// Valid derived-key formula nodes with opposite digest order, each retaining
-/// the same temporal placement defect. The salt lives only in a closed body.
-static MISPLACED_FORMULAS: LazyLock<(Value, Value)> = LazyLock::new(|| {
-    let mut candidates = (0..128)
-        .map(|salt| {
-            let body = json!({"term": "aggregate", "members": [{
-                "term": "binding", "name": format!("salt{salt}"),
-                "value": {"term": "literal", "type": node_id(&aaaa()),
-                    "value_kind": "boolean", "value": true},
-            }]});
-            let key = structural_key("temporal", "formula", Some(&aaaa()), &body);
-            (
-                key.clone(),
-                node_with_key(&key, "temporal", "formula", body),
-            )
-        })
-        .collect::<Vec<_>>();
-    candidates.sort_by(|left, right| left.0.cmp(&right.0));
-    (
-        candidates.first().expect("candidate").1.clone(),
-        candidates.last().expect("candidate").1.clone(),
-    )
-});
-
 /// A formula node with a placement defect and a valid low or high key.
 fn misplaced_formula(key: &str) -> Value {
-    if key == LOWEST {
-        MISPLACED_FORMULAS.0.clone()
-    } else {
-        assert_eq!(key, HIGHEST, "placement fixture key selection");
-        MISPLACED_FORMULAS.1.clone()
-    }
+    assert!(key == LOWEST || key == HIGHEST, "placement fixture key");
+    let body = json!({"term": "aggregate", "members": [{
+        "term": "binding", "name": key,
+        "value": {"term": "literal", "type": node_id(&aaaa()),
+            "value_kind": "boolean", "value": true},
+    }]});
+    node_with_key(key, "temporal", "formula", body)
 }
 
 /// A function node whose application has an unknown identity: an operation
-/// defect, keyed by its own preimage.
+/// defect, keyed by its own authored structural ID.
 fn unknown_identity_call() -> Value {
     node_with_key(
         &fresh(),
@@ -1385,22 +1364,22 @@ fn unknown_identity_call() -> Value {
     )
 }
 
-const LOWEST: &str = "0000000000000000000000000000000000000000000000000000000000000001";
-const HIGHEST: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+const LOWEST: &str = "a-temporal-placement";
+const HIGHEST: &str = "z-temporal-placement";
 
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect() {
     for key in [LOWEST, HIGHEST] {
-        // Beside an operation defect, whatever the digest order.
+        // Beside an operation defect, whatever the key order.
         let mut package = v2_all_families();
         let placement = push(&mut package, misplaced_formula(key));
         let operation = push(&mut package, unknown_identity_call());
         settle(&mut package);
         assert_eq!(
-            digest(&package, placement) < digest(&package, operation),
+            node_label(&package, placement) < node_label(&package, operation),
             key == LOWEST,
-            "the valid structural key must exercise this digest order",
+            "the valid structural key must exercise this key order",
         );
         misplaced(
             &format!("beside an operation defect, {key}"),
@@ -1408,7 +1387,7 @@ fn tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect() {
             placement,
         );
 
-        // Beside a clause defect (an unknown profile), whatever the digest order.
+        // Beside a clause defect (an unknown profile), whatever the key order.
         let mut package = v2_all_families();
         let placement = push(&mut package, misplaced_formula(key));
         select_profile(&mut package, "quire.fixture.temporal-profile/v1");
@@ -1423,7 +1402,7 @@ fn tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect() {
     let mut package = v2_all_families();
     let placement = push(&mut package, misplaced_formula(LOWEST));
     settle(&mut package);
-    let formula = digest(
+    let formula = node_label(
         &package,
         find_identity(&package, &temporal_identity("eventually")),
     );
@@ -1437,20 +1416,20 @@ fn tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect() {
         placement,
     );
 
-    // Two placement defects: the lower digest.
+    // Two placement defects: the lower key.
     let mut package = v2_all_families();
     let low = push(&mut package, misplaced_formula(LOWEST));
     let high = push(&mut package, misplaced_formula(HIGHEST));
     settle(&mut package);
-    assert!(digest(&package, low) < digest(&package, high));
+    assert!(node_label(&package, low) < node_label(&package, high));
     misplaced("two placement defects", &package, low);
 }
 
 /// A `function` node whose application has an unknown identity, and one whose
 /// `operator` differs from its entry's class (`quire.op.control.case` under
-/// `unary`), each salted so its digest can be searched.
-fn operation_defects(salt: u32) -> [(&'static str, Value); 2] {
-    let salted = |operator: &str, identity: &str| {
+/// `unary`). Their IDs are assigned independently of their bodies.
+fn operation_defects() -> [(&'static str, Value); 2] {
+    let defect = |operator: &str, identity: &str| {
         node_with_key(
             &fresh(),
             "function",
@@ -1460,61 +1439,55 @@ fn operation_defects(salt: u32) -> [(&'static str, Value); 2] {
                 identity,
                 Value::Null,
                 vec![json!({"term": "literal", "type": node_id(&aaaa()),
-                            "value_kind": "text", "value": format!("s{salt}")})],
+                            "value_kind": "text", "value": "s"})],
             ),
         )
     };
     [
         (
             "an unknown identity",
-            salted("call", "quire.op.function.not-catalogued"),
+            defect("call", "quire.op.function.not-catalogued"),
         ),
-        ("a class mismatch", salted("unary", "quire.op.control.case")),
+        ("a class mismatch", defect("unary", "quire.op.control.case")),
     ]
 }
 
 /// The AC's own placement defect, a `temporal_formula` application as the body
-/// root of a `function` node, beside each operation defect whose digest is
+/// root of a `function` node, beside each operation defect whose key is
 /// lower and higher than its own, in both orders.
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_a_formula_application_in_a_function_node_precedes_operation_defects() {
     for which in 0..2 {
         for placement_is_lower in [true, false] {
-            let mut found = false;
-            for salt in 0..256 {
-                let mut package = v2_all_families();
-                let placement = push(
-                    &mut package,
-                    node_with_key(
-                        &fresh(),
-                        "function",
-                        "pure_function",
-                        formula_body(
-                            "true",
-                            Value::Null,
-                            vec![json!({"term": "literal", "type": node_id(&aaaa()),
-                                        "value_kind": "text", "value": format!("p{salt}")})],
-                        ),
+            let mut package = v2_all_families();
+            let placement = push(
+                &mut package,
+                node_with_key(
+                    &fresh(),
+                    "function",
+                    "pure_function",
+                    formula_body(
+                        "true",
+                        Value::Null,
+                        vec![json!({"term": "literal", "type": node_id(&aaaa()),
+                                    "value_kind": "text", "value": "p"})],
                     ),
-                );
-                let [unknown, mismatch] = operation_defects(salt);
-                let (case, node) = if which == 0 { unknown } else { mismatch };
-                let operation = push(&mut package, node);
-                settle(&mut package);
-                if (digest(&package, placement) < digest(&package, operation)) != placement_is_lower
-                {
-                    continue;
-                }
-                found = true;
-                misplaced(
-                    &format!("{case}, placement lower: {placement_is_lower}"),
-                    &package,
-                    placement,
-                );
-                break;
+                ),
+            );
+            let [unknown, mismatch] = operation_defects();
+            let (case, node) = if which == 0 { unknown } else { mismatch };
+            let operation = push(&mut package, node);
+            if placement_is_lower {
+                order_pair(&mut package, placement, operation);
+            } else {
+                order_pair(&mut package, operation, placement);
             }
-            assert!(found, "a salt orders the two nodes as the case needs");
+            misplaced(
+                &format!("{case}, placement lower: {placement_is_lower}"),
+                &package,
+                placement,
+            );
         }
     }
 }
@@ -1572,7 +1545,7 @@ fn tc_048_profile_fit_precedes_bounds_whichever_operator_comes_first() {
     for fit_first in [true, false] {
         let mut package = v2_all_families();
         select_profile(&mut package, BOUNDED);
-        let holds = digest(
+        let holds = node_label(
             &package,
             find_identity(&package, &temporal_identity("holds")),
         );
@@ -1590,8 +1563,8 @@ fn tc_048_profile_fit_precedes_bounds_whichever_operator_comes_first() {
             (bounds, fit)
         };
         let operands = vec![
-            refer(&digest(&package, first)),
-            refer(&digest(&package, second)),
+            refer(&node_label(&package, first)),
+            refer(&node_label(&package, second)),
         ];
         let root = find_identity(&package, &temporal_identity("eventually"));
         package["semantic_graph"]["nodes"][root]["body"] =
@@ -1614,7 +1587,7 @@ fn tc_048_profile_fit_precedes_bounds_whichever_operator_comes_first() {
 fn tc_048_an_unreached_formula_node_with_lower_above_upper_is_refused() {
     for (member, refused) in [(closed("0", "3"), false), (closed("3", "0"), true)] {
         let mut package = v2_all_families();
-        let holds = digest(
+        let holds = node_label(
             &package,
             find_identity(&package, &temporal_identity("holds")),
         );
@@ -1647,11 +1620,11 @@ fn second_clause(package: &mut Value, name: &str, member: Value, over_defect: bo
         package,
         node_with_key(&fresh(), "temporal", "formula", holds_body),
     );
-    let operand = refer(&digest(package, holds));
+    let operand = refer(&node_label(package, holds));
     let root = push(package, formula("eventually", member, vec![operand]));
     let mut body = nodes(package)[first]["body"].clone();
     body["arguments"][1]["value"] = json!(name);
-    body["arguments"][5] = refer(&digest(package, root));
+    body["arguments"][5] = refer(&node_label(package, root));
     if over_defect {
         body["arguments"][0] = refer(&aaaa());
     }
@@ -1661,61 +1634,44 @@ fn second_clause(package: &mut Value, name: &str, member: Value, over_defect: bo
     )
 }
 
-/// Two clauses: the lower-digest clause's later-stage defect (profile fit) is
-/// reported ahead of the higher-digest clause's earlier-stage defect (`over`),
-/// in both digest orders; found by varying the second clause's name.
+/// Two clauses: the lower-key clause's later-stage defect (profile fit) is
+/// reported ahead of the higher-key clause's earlier-stage defect (`over`),
+/// in both producer-assigned ID orders.
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
-fn tc_048_a_lower_digest_clause_is_taken_through_every_stage_before_the_next() {
+fn tc_048_a_lower_key_clause_is_taken_through_every_stage_before_the_next() {
     for fit_clause_is_lower in [true, false] {
-        let mut found = false;
-        for salt in 0..64 {
-            // The fixture's own clause carries the fit defect (a null interval
-            // under the bounded profile); the added one the `over` defect.
-            let mut package = v2_all_families();
-            select_profile(&mut package, BOUNDED);
-            let root = find_identity(&package, &temporal_identity("eventually"));
-            package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] = unbounded();
-            let added = second_clause(
-                &mut package,
-                &format!("other{salt}"),
-                closed("0", "3"),
-                true,
+        // The fixture's own clause carries the fit defect (a null interval
+        // under the bounded profile); the added one the `over` defect.
+        let mut package = v2_all_families();
+        select_profile(&mut package, BOUNDED);
+        let root = find_identity(&package, &temporal_identity("eventually"));
+        package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] = unbounded();
+        let added = second_clause(&mut package, "other", closed("0", "3"), true);
+        let own = clause(&package);
+        if fit_clause_is_lower {
+            order_pair(&mut package, own, added);
+            // The lower clause's later-stage defect comes first.
+            expect(
+                "the fit defect of the lower clause",
+                &package,
+                Code::InvalidPackage,
+                Cause::OperationMemberMismatch,
+                &at_node(root, "/body"),
             );
-            // Both names vary, so the two digests are free of each other.
-            let own = clause(&package);
-            package["semantic_graph"]["nodes"][own]["body"]["arguments"][1]["value"] =
-                json!(format!("own{salt}"));
-            settle(&mut package);
-            let own = clause(&package);
-            if (digest(&package, own) < digest(&package, added)) != fit_clause_is_lower {
-                continue;
-            }
-            found = true;
-            if fit_clause_is_lower {
-                // The lower-digest clause's later-stage defect comes first.
-                expect(
-                    "the fit defect of the lower clause",
-                    &package,
-                    Code::InvalidPackage,
-                    Cause::OperationMemberMismatch,
-                    &at_node(root, "/body"),
-                );
-            } else {
-                expect_located(
-                    "the over defect of the lower clause",
-                    &package,
-                    (
-                        Code::InvalidModelBinding,
-                        Cause::MalformedDeclaration,
-                        &at_node(added, "/body/arguments/0"),
-                    ),
-                    &aaaa(),
-                );
-            }
-            break;
+        } else {
+            order_pair(&mut package, added, own);
+            expect_located(
+                "the over defect of the lower clause",
+                &package,
+                (
+                    Code::InvalidModelBinding,
+                    Cause::MalformedDeclaration,
+                    &at_node(added, "/body/arguments/0"),
+                ),
+                &aaaa(),
+            );
         }
-        assert!(found, "a salt orders the two clauses as the case needs");
     }
 }
 
@@ -1760,7 +1716,7 @@ fn tc_048_the_temporal_step_skips_a_member_the_operation_step_refuses() {
 
 /// A negative bound is refused in strict wire validation
 /// (`flat_wire::check_interval_bounds`): before placement
-/// and every temporal step, so also beside a placement defect at a lower-digest
+/// and every temporal step, so also beside a placement defect at a lower-key
 /// node and under a profile whose fit it would also fail.
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
@@ -1779,7 +1735,7 @@ fn tc_048_a_negative_bound_is_refused_before_any_temporal_step() {
                 Cause::InvalidValue,
                 &at_node(root, &format!("/body/operation/member/interval/{bound}")),
             );
-            // Beside a placement defect at a lower-digest node.
+            // Beside a placement defect at a lower-key node.
             push(&mut package, misplaced_formula(LOWEST));
             settle(&mut package);
             expect(
@@ -1859,7 +1815,7 @@ fn tc_048_a_clause_over_must_be_a_declared_parameter() {
             Cause::MissingName,
             &at_node(clause_at, "/body/arguments/0"),
         ),
-        &digest(&package, clause_at),
+        &node_label(&package, clause_at),
     );
 }
 
@@ -1924,7 +1880,7 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
         let locus = if row.locus_is_target {
             row.declaration.clone()
         } else {
-            digest(&package, fair)
+            node_label(&package, fair)
         };
         expect_located(
             row.case,
@@ -1982,10 +1938,9 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
                 json!({"term": "aggregate", "members": []}),
             ),
         );
-        mint_ungrouped_structural_keys(&mut package);
         settle(&mut package);
         let declaration = if case == "a model/value_type declaration" {
-            digest(&package, target)
+            node_label(&package, target)
         } else {
             declaration
         };
@@ -2027,13 +1982,7 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
         .expect("types")
         .push(declared);
 
-    let interface_key = sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "model",
-        "semantic_form": "systems_interface", "semantic_type": null,
-        "declaration": null, "recursion": null,
-        "body": {"term": "aggregate", "members": []},
-        "owner": {"kind": "model", "identity": ORDERS, "node": INTERFACE},
-    })));
+    let interface_key = format!("{ORDERS}/{INTERFACE}");
     let (mut package, fair) =
         with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
     let mut interface_node = node_with_key(
@@ -2065,16 +2014,16 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
     assert_eq!(refusal.code, Code::InvalidModelBinding);
     assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
     assert_eq!(
-        refusal.path.expect("path").as_str(),
+        refusal.loci[0].path.clone().expect("path").as_str(),
         at_node(fair, "/body/operation/member/declaration")
     );
     assert_eq!(
-        refusal.locus.expect("locus").digest.to_string(),
-        interface_key
+        serde_json::to_value(refusal.locus.expect("locus")).expect("locus"),
+        node_id(&interface_key)
     );
 
     let base = v2_all_families();
-    let value_key = digest(&base, find(&base, |node| node["node_tag"] == "value"));
+    let value_key = node_label(&base, find(&base, |node| node["node_tag"] == "value"));
     let (package, fair) = with_fairness(INFINITE, fairness_member(&value_key, "scaled"));
     expect_located(
         "a value node cannot declare an operation",
@@ -2117,12 +2066,14 @@ fn fairness_resolves_the_most_derived_operation_redefinition() {
             assert_eq!(refusal.cause, Some(Cause::AmbiguousName));
             let fair = find_identity(&package, &temporal_identity("fair"));
             assert_eq!(
-                refusal.path.map(|path| path.to_string()),
+                refusal.loci[0].path.clone().map(|path| path.to_string()),
                 Some(at_node(fair, "/body/operation/member/name"))
             );
             assert_eq!(
-                refusal.locus.map(|locus| locus.digest.to_string()),
-                Some(declaration)
+                refusal
+                    .locus
+                    .map(|locus| serde_json::to_value(locus).expect("locus")),
+                Some(node_id(&declaration))
             );
         }
     }
@@ -2210,7 +2161,7 @@ fn tc_048_the_profile_fit_reads_only_the_formula_nodes_reachable_from_the_clause
     let mut package = v2_all_families();
     select_profile(&mut package, BOUNDED);
     // An unreachable formula node with a null interval fits no clause.
-    let holds = digest(
+    let holds = node_label(
         &package,
         find_identity(&package, &temporal_identity("holds")),
     );
@@ -2232,7 +2183,7 @@ fn tc_048_the_profile_fit_reads_only_the_formula_nodes_reachable_from_the_clause
 fn tc_048_the_temporal_operands_are_checked_at_the_operation_step() {
     let boolean = family_key("a6a6");
     let holds =
-        |package: &Value| digest(package, find_identity(package, &temporal_identity("holds")));
+        |package: &Value| node_label(package, find_identity(package, &temporal_identity("holds")));
     let ineligible = |case: &str, package: &Value, root: usize, tail: &str| {
         expect(
             case,
@@ -2540,82 +2491,61 @@ fn tc_048_a_clause_without_exactly_one_profile_law_skips_the_profile_check() {
     );
 }
 
-/// Ahead of any defect of a higher-digest clause: the lower-digest clause is
+/// Ahead of any defect of a higher-key clause: the lower-key clause is
 /// reported, whether it holds the unknown profile or an `over` defect.
 #[trace("TC-048", "FR-038-AC-108", "FR-038-AC-102")]
 #[test]
-fn tc_048_the_lower_digest_clause_is_read_first_whatever_its_defect() {
+fn tc_048_the_lower_key_clause_is_read_first_whatever_its_defect() {
     for own_is_unknown in [true, false] {
         for lower_is_own in [true, false] {
-            let mut found = false;
-            for salt in 0..64 {
-                let mut package = v2_all_families();
-                // The added clause holds the `over` defect when the fixture's
-                // own clause holds the unknown profile, and the reverse.
-                let added = second_clause(
-                    &mut package,
-                    &format!("other{salt}"),
-                    closed("0", "3"),
-                    own_is_unknown,
-                );
-                // Both names vary, so the two digests are free of each other.
-                let own = clause(&package);
-                package["semantic_graph"]["nodes"][own]["body"]["arguments"][1]["value"] =
-                    json!(format!("own{salt}"));
-                if own_is_unknown {
-                    // The fixture's clause alone selects an unknown profile.
-                    let own = clause(&package);
-                    package["semantic_graph"]["nodes"][own]["body"]["operation"]["laws"][0]
-                        ["definition"]["identity"] = json!("quire.fixture.temporal-profile/v1");
-                } else {
-                    let own = clause(&package);
-                    package["semantic_graph"]["nodes"][added]["body"]["operation"]["laws"][0]
-                        ["definition"]["identity"] = json!("quire.fixture.temporal-profile/v1");
-                    package["semantic_graph"]["nodes"][own]["body"]["arguments"][0] =
-                        refer(&aaaa());
-                }
-                settle(&mut package);
-                let own = clause(&package);
-                if (digest(&package, own) < digest(&package, added)) != lower_is_own {
-                    continue;
-                }
-                found = true;
-                let (lower, lower_is_unknown) = if lower_is_own {
-                    (own, own_is_unknown)
-                } else {
-                    (added, !own_is_unknown)
-                };
-                let expected = if lower_is_unknown {
-                    (
-                        Code::UnknownProfile,
-                        Cause::UnsupportedSelection,
-                        "/body/operation/laws/0/definition",
-                    )
-                } else {
-                    (
-                        Code::InvalidModelBinding,
-                        Cause::MalformedDeclaration,
-                        "/body/arguments/0",
-                    )
-                };
-                // `unknown_profile` has the clause's key as locus; a malformed
-                // `over` has its target's, a `scalar_type`.
-                let locus = if lower_is_unknown {
-                    digest(&package, lower)
-                } else {
-                    aaaa()
-                };
-                expect_located(
-                    &format!("own unknown {own_is_unknown}, own lower {lower_is_own}"),
-                    &package,
-                    (expected.0, expected.1, &at_node(lower, expected.2)),
-                    &locus,
-                );
-                break;
+            let mut package = v2_all_families();
+            // The added clause holds the `over` defect when the fixture's
+            // own clause holds the unknown profile, and the reverse.
+            let added = second_clause(&mut package, "other", closed("0", "3"), own_is_unknown);
+            let own = clause(&package);
+            if own_is_unknown {
+                package["semantic_graph"]["nodes"][own]["body"]["operation"]["laws"][0]
+                    ["definition"]["identity"] = json!("quire.fixture.temporal-profile/v1");
+            } else {
+                package["semantic_graph"]["nodes"][added]["body"]["operation"]["laws"][0]
+                    ["definition"]["identity"] = json!("quire.fixture.temporal-profile/v1");
+                package["semantic_graph"]["nodes"][own]["body"]["arguments"][0] = refer(&aaaa());
             }
-            assert!(
-                found,
-                "a salt orders the two clauses as the case needs: {own_is_unknown} {lower_is_own}"
+            if lower_is_own {
+                order_pair(&mut package, own, added);
+            } else {
+                order_pair(&mut package, added, own);
+            }
+            let (lower, lower_is_unknown) = if lower_is_own {
+                (own, own_is_unknown)
+            } else {
+                (added, !own_is_unknown)
+            };
+            let expected = if lower_is_unknown {
+                (
+                    Code::UnknownProfile,
+                    Cause::UnsupportedSelection,
+                    "/body/operation/laws/0/definition",
+                )
+            } else {
+                (
+                    Code::InvalidModelBinding,
+                    Cause::MalformedDeclaration,
+                    "/body/arguments/0",
+                )
+            };
+            // An unknown profile names the clause; a malformed `over` names
+            // its scalar target.
+            let locus = if lower_is_unknown {
+                node_label(&package, lower)
+            } else {
+                aaaa()
+            };
+            expect_located(
+                &format!("own unknown {own_is_unknown}, own lower {lower_is_own}"),
+                &package,
+                (expected.0, expected.1, &at_node(lower, expected.2)),
+                &locus,
             );
         }
     }
@@ -2657,7 +2587,10 @@ fn expect_graph(case: &str, package: &Value, path: &str) {
         refusal_of(case, package),
         (
             (Code::InvalidSemanticGraph, None, Some(path.to_owned())),
-            Some(digest(package, position))
+            Some(
+                serde_json::from_value(nodes(package)[position]["node_id"].clone())
+                    .expect("node ID"),
+            )
         ),
         "{case}"
     );
@@ -2789,7 +2722,7 @@ fn tc_048_a_pattern_failure_in_a_later_node_precedes_a_non_reduced_bound() {
             (pattern_failure.clone(), non_reduced.clone())
         };
         let (mut package, _) = with_root(INFINITE, "eventually", first, None, 1);
-        let holds = digest(
+        let holds = node_label(
             &package,
             find_identity(&package, &temporal_identity("holds")),
         );
@@ -2918,7 +2851,7 @@ fn tc_048_a_bound_not_in_lowest_terms_is_refused_at_the_bound_before_the_tempora
     let beside_fit_defect = |member: Value, fit_upper: u32| {
         let mut package = v2_all_families();
         select_profile(&mut package, TIMED);
-        let holds = digest(
+        let holds = node_label(
             &package,
             find_identity(&package, &temporal_identity("holds")),
         );
@@ -2931,35 +2864,26 @@ fn tc_048_a_bound_not_in_lowest_terms_is_refused_at_the_bound_before_the_tempora
             ),
         );
         let root = find_identity(&package, &temporal_identity("eventually"));
-        let operand = vec![refer(&digest(&package, fit))];
+        let operand = vec![refer(&node_label(&package, fit))];
         package["semantic_graph"]["nodes"][root]["body"] =
             formula_body("eventually", member, operand);
         settle(&mut package);
         (package, root, fit)
     };
-    // Whichever of the two nodes has the lower digest: a multiple of 2/4 as the
-    // bound and the fit node's upper bound move the two digests until the
-    // arrangement holds, and the test asserts the arrangement it is about.
+    // Authored IDs put either defect first without changing the two bodies.
     for fit_is_lower in [true, false] {
-        let mut found = false;
-        for (multiple, fit_upper) in (1..16_u32).flat_map(|m| (1..16_u32).map(move |u| (m, u))) {
-            let bound = rational(&(2 * multiple).to_string(), &(4 * multiple).to_string());
-            let (package, root, fit) =
-                beside_fit_defect(timed_closed(bound, whole("3")), fit_upper);
-            if (digest(&package, fit) < digest(&package, root)) != fit_is_lower {
-                continue;
-            }
-            found = true;
-            expect_graph(
-                &format!(
-                    "a non-reduced bound beside a profile-fit defect, fit lower: {fit_is_lower}"
-                ),
-                &package,
-                &at_node(root, "/body/operation/member/interval/lower"),
-            );
-            break;
+        let (mut package, root, fit) =
+            beside_fit_defect(timed_closed(rational("2", "4"), whole("3")), 1);
+        if fit_is_lower {
+            order_pair(&mut package, fit, root);
+        } else {
+            order_pair(&mut package, root, fit);
         }
-        assert!(found, "a multiple orders the two nodes as the case needs");
+        expect_graph(
+            &format!("a non-reduced bound beside a profile-fit defect, fit lower: {fit_is_lower}"),
+            &package,
+            &at_node(root, "/body/operation/member/interval/lower"),
+        );
     }
     let (package, _, fit) = beside_fit_defect(timed_closed(whole("1"), whole("3")), 3);
     expect(
@@ -3095,7 +3019,10 @@ fn tc_048_the_timed_bound_checks_are_charged_to_the_work_limit() {
     };
     assert_eq!(refusal.code, Code::InvalidSemanticGraph);
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str().to_owned()),
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(|path| path.as_str().to_owned()),
         Some(at_node(root, "/body/operation/member/interval/lower"))
     );
     assert_eq!(
@@ -3185,94 +3112,54 @@ fn tc_048_a_timed_form_member_set_defect_is_a_member_mismatch_at_the_member() {
 }
 
 /// A member-set defect is the operation step's, after the whole temporal step:
-/// a profile-fit defect in a higher-digest clause is reported first.
+/// a profile-fit defect in a higher-key clause is reported first.
 #[trace("TC-048", "FR-038-AC-122")]
 #[test]
 fn tc_048_a_member_set_defect_is_reported_after_a_profile_fit_defect_of_a_later_clause() {
-    let mut found = false;
-    for salt in 0..64 {
-        let mut package = v2_all_families();
-        select_profile(&mut package, TIMED);
-        let root = find_identity(&package, &temporal_identity("eventually"));
-        // The fixture's own clause holds the member-set defect, the added
-        // clause the fit defect (an integer-form interval under `timed/v1`).
-        package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] =
-            timed(whole("0"), whole("3"), "half", "closed");
-        let added = second_clause(
-            &mut package,
-            &format!("other{salt}"),
-            closed("0", "3"),
-            false,
-        );
-        let own = clause(&package);
-        package["semantic_graph"]["nodes"][own]["body"]["arguments"][1]["value"] =
-            json!(format!("own{salt}"));
-        settle(&mut package);
-        let own = clause(&package);
-        if digest(&package, own) > digest(&package, added) {
-            continue;
-        }
-        found = true;
-        let added_root = nodes(&package)
-            .iter()
-            .rposition(|node| {
-                node["body"]["operation"]["identity"] == "quire.op.temporal.eventually"
-            })
-            .expect("the added clause's formula");
-        expect(
-            "the fit defect of the higher-digest clause",
-            &package,
-            Code::InvalidPackage,
-            Cause::OperationMemberMismatch,
-            &at_node(added_root, "/body"),
-        );
-        break;
-    }
-    assert!(found, "a salt orders the two clauses as the case needs");
+    let mut package = v2_all_families();
+    select_profile(&mut package, TIMED);
+    let root = find_identity(&package, &temporal_identity("eventually"));
+    // The fixture's own clause holds the member-set defect, the added
+    // clause the fit defect (an integer-form interval under `timed/v1`).
+    package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] =
+        timed(whole("0"), whole("3"), "half", "closed");
+    let added = second_clause(&mut package, "other", closed("0", "3"), false);
+    let own = clause(&package);
+    order_pair(&mut package, own, added);
+    let added_root = nodes(&package)
+        .iter()
+        .rposition(|node| node["body"]["operation"]["identity"] == "quire.op.temporal.eventually")
+        .expect("the added clause's formula");
+    expect(
+        "the fit defect of the higher clause",
+        &package,
+        Code::InvalidPackage,
+        Cause::OperationMemberMismatch,
+        &at_node(added_root, "/body"),
+    );
 }
 
-/// The bound pattern is strict wire validation, ahead of every identity check:
-/// in a package whose node ids and `package_id` are all stale, a bound outside
-/// its form's pattern, timed or integer, refuses `invalid-value` at the bound
-/// and not at an identity check; the same package with a good bound refuses at
-/// the identity check.
+/// The bound pattern is strict wire validation ahead of graph resolution.
+/// An independently invalid semantic type is reported only after a valid
+/// bound; an invalid bound always wins at its exact pointer.
 #[trace("TC-048", "FR-038-AC-97", "FR-038-AC-120")]
 #[test]
 fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check() {
-    let stale_with = |member: Value| {
-        let (mut package, root) = with_root(INFINITE, "eventually", closed("0", "3"), None, 1);
-        // Not settled again: the application key, every dependent node id and the
-        // `package_id` no longer match the body.
+    let invalid_graph_with = |member: Value| {
+        let (mut package, root) = with_root(TIMED, "eventually", closed("0", "3"), None, 1);
         package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] = member;
+        package["semantic_graph"]["nodes"][root]["semantic_type"] =
+            node_id("absent/temporal-semantic-type");
         (package, root)
     };
-    // With a good bound the stale identities refuse at the first identity check.
-    let (good, _good_root) = stale_with(timed_closed(whole("0"), whole("3")));
-    let ((code, cause, path), _) = refusal_of("a stale package with a good bound", &good);
+    let (good, root) = invalid_graph_with(timed_closed(whole("0"), whole("3")));
+    let ((code, cause, path), _) = refusal_of("an invalid graph with a good bound", &good);
     assert_eq!(
         (code, cause, path),
         (
-            Code::StaleDependency,
-            Some(Cause::ContentMismatch),
-            Some("/package_id/digest".to_owned())
-        )
-    );
-    // The `package_id` alone stale (every node key settled) with a bad bound.
-    let stale_package_id = |member: Value| {
-        let (mut package, _) = with_root(INFINITE, "eventually", member, None, 1);
-        package["package_id"]["digest"] = json!("0".repeat(64));
-        package
-    };
-    let ((code, cause, path), _) = refusal_of(
-        "a stale package_id with a good bound",
-        &stale_package_id(timed_closed(whole("0"), whole("3"))),
-    );
-    assert_eq!(
-        (code, cause, path.as_deref()),
-        (
-            Code::StaleDependency,
-            Some(Cause::ContentMismatch),
-            Some("/package_id/digest")
+            Code::InvalidSemanticGraph,
+            None,
+            Some(at_node(root, "/semantic_type"))
         )
     );
     for (case, member, bound) in [
@@ -3289,18 +3176,9 @@ fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check()
         ("an integer bound", closed("1.5", "0"), "lower"),
         ("a negative integer bound", closed("0", "-2"), "upper"),
     ] {
-        let (package, root) = stale_with(member.clone());
+        let (package, root) = invalid_graph_with(member);
         expect(
             case,
-            &package,
-            Code::InvalidPackage,
-            Cause::InvalidValue,
-            &at_node(root, &format!("/body/operation/member/interval/{bound}")),
-        );
-        let package = stale_package_id(member);
-        let root = find_identity(&package, &temporal_identity("eventually"));
-        expect(
-            &format!("{case}, a stale package_id alone"),
             &package,
             Code::InvalidPackage,
             Cause::InvalidValue,
@@ -3309,54 +3187,41 @@ fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check()
     }
 }
 
-/// The lowest-terms check reads nodes in ascending `node_id` digest order, not
+/// The lowest-terms check reads nodes in ascending `node_id` key order, not
 /// position order: of two non-reduced nodes, the refusal is at the one with the
-/// lower digest, whichever is first in the package.
+/// lower key, whichever is first in the package.
 #[trace("TC-048", "FR-038-AC-121")]
 #[test]
-fn tc_048_the_first_non_reduced_bound_is_the_lower_digest_nodes() {
+fn tc_048_the_first_non_reduced_bound_is_the_lower_key_nodes() {
     for added_is_lower in [true, false] {
-        let mut found = false;
-        for multiple in 1..64_u32 {
-            let (mut package, root) = with_root(
-                TIMED,
-                "eventually",
-                timed_closed(rational("2", "4"), whole("3")),
-                None,
-                1,
-            );
-            let holds = digest(
-                &package,
-                find_identity(&package, &temporal_identity("holds")),
-            );
-            let second = timed_closed(
-                whole("0"),
-                rational(&(2 * multiple).to_string(), &(4 * multiple).to_string()),
-            );
-            let added = push(&mut package, formula("once", second, vec![refer(&holds)]));
-            settle(&mut package);
-            assert!(root < added, "the pushed node is the later one");
-            if (digest(&package, added) < digest(&package, root)) != added_is_lower {
-                continue;
-            }
-            found = true;
-            // The arrangement asserted: the refused node is the lower digest one,
-            // at a position that is after or before the other.
-            let (lower_digest, bound) = if added_is_lower {
-                (added, "upper")
-            } else {
-                (root, "lower")
-            };
-            expect_graph(
-                &format!("added node has the lower digest: {added_is_lower}"),
-                &package,
-                &at_node(
-                    lower_digest,
-                    &format!("/body/operation/member/interval/{bound}"),
-                ),
-            );
-            break;
+        let (mut package, root) = with_root(
+            TIMED,
+            "eventually",
+            timed_closed(rational("2", "4"), whole("3")),
+            None,
+            1,
+        );
+        let holds = node_label(
+            &package,
+            find_identity(&package, &temporal_identity("holds")),
+        );
+        let second = timed_closed(whole("0"), rational("2", "4"));
+        let added = push(&mut package, formula("once", second, vec![refer(&holds)]));
+        assert!(root < added, "the pushed node is the later one");
+        if added_is_lower {
+            order_pair(&mut package, added, root);
+        } else {
+            order_pair(&mut package, root, added);
         }
-        assert!(found, "a multiple orders the two nodes as the case needs");
+        let (lower, bound) = if added_is_lower {
+            (added, "upper")
+        } else {
+            (root, "lower")
+        };
+        expect_graph(
+            &format!("added node has the lower ID: {added_is_lower}"),
+            &package,
+            &at_node(lower, &format!("/body/operation/member/interval/{bound}")),
+        );
     }
 }

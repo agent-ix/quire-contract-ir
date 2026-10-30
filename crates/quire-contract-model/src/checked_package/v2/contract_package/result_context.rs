@@ -7,9 +7,7 @@ use super::{
     ContractDispositionV1, ContractFeatureRecordV1, ContractNodeSourcesV1, ContractPackageV1,
     ContractProvenanceV1, ContractReachedClosureV1, ContractRootViewError, ContractRootViewV1,
 };
-use crate::checked_package::shared::{
-    CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
-};
+use crate::checked_package::shared::{CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry};
 use crate::checked_package::v2::{
     ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
     ExpressionForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
@@ -148,8 +146,6 @@ pub enum ContractResultContextV1<'a> {
 pub struct ContractLoweredResultV1<'a> {
     /// Exact source package identity and selected lowering profile.
     pub provenance: &'a ContractProvenanceV1,
-    /// Canonical identity of the admitted six-field package.
-    pub identity: &'a CheckedSemanticId,
     /// The QSL-checked application occurrence supplied by the caller.
     pub application: ContractOccurrenceKeyV1,
     /// The QSL-checked optional conversion occurrence supplied by the caller.
@@ -175,7 +171,7 @@ impl ContractPackageV1 {
     /// Queries one lowered expression for the result bound selected by a
     /// QSL-checked requirement occurrence. The caller passes QSL's exact
     /// optional conversion occurrence; this method never discovers one by a
-    /// reverse graph walk. The admitted six-field wire is unchanged.
+    /// reverse graph walk. The admitted five-field wire is unchanged.
     pub fn result_context(
         &self,
         expression: &CheckedNodeId,
@@ -195,7 +191,6 @@ impl ContractPackageV1 {
         Ok(ContractResultViewV1::Lowered(Box::new(
             ContractLoweredResultV1 {
                 provenance: &self.wire.package,
-                identity: &self.wire.identity,
                 application: application.clone(),
                 conversion: conversion.cloned(),
                 reached,
@@ -318,15 +313,15 @@ impl ContractPackageV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checked_package::shared::CheckedNodePathSegment;
     use ix_trace_rs::trace;
-    use serde_json::json;
 
     fn id(number: usize) -> CheckedNodeId {
-        serde_json::from_value(json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": format!("{number:064x}"),
-        }))
-        .expect("node identity")
+        CheckedNodeId {
+            package: "example".into(),
+            path: vec![CheckedNodePathSegment::Name(format!("n{number}").into())],
+            ordinal: 0,
+        }
     }
 
     #[trace("TC-447", "FR-049-AC-5")]

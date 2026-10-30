@@ -4,7 +4,7 @@ title: "IR to QSL seam: what QSL takes from the model crate, and the one directi
 type: ArchitectureDescription
 status: proposed
 owner: kreneskyp
-system: quire-contract-model public items that quire-spec-language consumes (checked-package reader and types, identity-preimage types, the authored-contract and expression model), the Cargo edge between the two repositories, and the checks that hold the direction
+system: quire-contract-model public items that quire-spec-language consumes (checked-package reader and types, structural checked-package types, the authored-contract and expression model), the Cargo edge between the two repositories, and the checks that hold the direction
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AD-001
     type: references
@@ -52,7 +52,7 @@ Measured at the commits of QSL and IR this AD was written against.
 | Item | Direction | Owner | Where QSL uses it |
 | --- | --- | --- | --- |
 | The `read_checked_package` reader, `CheckedPackageEvidence`, `CheckedPackageReadLimits`, `CheckedPackageDispatchResult`, `CheckedPackageV2`, the refusal and limit types | IR to QSL | IR (the wire is QSpec's) | the I2 byte reader, the `use` of the model crate's reader in `qsl-package/src/checked_v2.rs`, and its tests |
-| The identity-preimage and wire-envelope Rust types of the v2 package | IR to QSL | IR types, QSpec wire | the emitter builds the wire as a `Serialize` struct over them (`qsl-package/Cargo.toml` comment on the model dependency; the wire structs `CheckedPackageLockV2` and `CheckedPackageIdentityPreimageV2` built in `qsl-package/src/emit.rs`; on the reader side `canonical_preimage` in `qsl-package/src/checked_v2.rs` encodes the preimage for the `package_id` check) |
+| The typed lock, structural node-id and wire-envelope Rust types of the V2 package | IR to QSL | IR types, QSpec wire | QSL supplies the package name, lock, graph, source correspondence, capabilities and diagnostics to the IR encoder; IR performs strict admission of the resulting bytes |
 | `quire.checked-package/v2` bytes | QSL to IR | QSpec | AD-004 |
 | The authored-contract and expression model: `ValueType`, `Expression` and `ExpressionKind`, `StateObservation`, `RequirementRef`, `ExecutionPoint`, `TypeDeclaration`, `Diagnostic`, `SourceSpan`, `DeclarationEnvironment` and its `check_expression`, among others | IR to QSL | IR | 57 files across QSL's root crate and `qsl-package` name the model crate; `ValueType` alone is named 212 times through the `ir::` alias (checking, linking, lowering, `model_source`, `native_model`, `command`) |
 
@@ -69,26 +69,16 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
   (`publish = false`, version `0.1.0`). On the Rust types the assertion is the compiler plus
   one resolved copy in QSL's own lock; there is no version record to maintain and none is
   proposed.
-- On the wire the assertion is `contract_version`, read once by IR (AD-004). The one digest on
-  this seam is `package_id`, the content identity of a checked package. QSL computes it through
-  `quire-canonical` (a dependency of QSL's root `Cargo.toml`, at the time of writing); IR recomputes it and
-  refuses a mismatch (`stale_dependency`). One encoder produces that identity on both sides: IR
-  recomputes it from the typed `identity_preimage` struct with `quire_canonical::sha256`
-  (`checked_package/v2/mod.rs`, after IR-533), after the reader has refused bytes that are not
-  `quire_canonical::to_vec`'s. The other identity digests IR computes (a nominal, application
-  and structural node key, a lowered node's `ir_id` and the lowered package's id, the selected
-  model document's digest) were `digest_json` when this AD was written, which was
-  `serde_json::to_vec` followed by SHA-256 (since removed; see Current state and AD-007); FR-038 ("Every
-  identity digest is computed through quire-canonical") states that all of them go through
-  `quire-canonical` and that no encoder of IR's own remains, and the check of agreement by
-  emission tests (QSL `tc_469_step_6_the_emitted_package_admits_via_i04`, one fixture; D-5)
-  stays as a test, not as the guard. The v1 `quire.contract.canonical-json/v1` objects and the
-  output-mapping identities take the same encoder (FR-016, FR-034), which spells the v1
-  64-bit integers as decimal strings (a public v1 wire change that QSL's lowering wire emitted
-  as numbers when this AD was written; whether QSL has followed is QSL's to say).
-- IR states no pin, commit id or tool version about QSL, and QSL's references to "the pinned IR
-  revision" in comments (for example the comment in `qsl-package/src/emit.rs` that says "pinned IR revision") name its Cargo lock, which
-  is not an identity this seam asserts.
+- On the wire, `contract_version` distinguishes the closed document kind.
+  The package's required `name` is its identity. Every node id is
+  `{package, path, ordinal}` and is compared componentwise. A dependency
+  selection is `{identity}`; a supplied dependency binds when its `name`
+  matches. Diamond paths to unequal complete JSON packages under one identity
+  refuse `invalid_package`/`conflicting-definition`. QSL emits canonical
+  bytes; IR validates those bytes, the structural ids and the graph. Neither
+  side computes a package or node content hash, and no staleness refusal
+  exists. The emitted-package admission test remains QSL-owned.
+- IR states no commit id, tool pin or tool version about QSL.
 
 ### Dependency direction and what enforces it
 
@@ -109,7 +99,7 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 | QSL's emission is refused by the reader | IR reports (AD-004 codes); QSL owns the producer defect | a failing QSL test, never a widened reader (AD-004 precedence) |
 | A reader limit is reached | IR (`Incomplete` with limit, consumed, pointer) | QSL converts to its own `V2ReadIncomplete::Limit` (`V2ReadIncomplete` in `qsl-package/src/checked_v2.rs`) and its own limits struct is converted into IR's (`for_ir`, same file) |
 | QSL's extent classification and IR's `requires_bound` disagree | QSL's agreement test (TC-440, test-only: `qsl-package/src/emit/extent_agreement.rs`, mounted under `cfg(test)`) | a failing QSL test; one fixture (a quantity) is an ignored test because the emitter omits the record |
-| QSL and IR compute different `package_id` for one package | IR refuses `stale_dependency` | QSL's emission test fails |
+| QSL emits duplicate or malformed structural ids, or a dependency whose name does not bind its selection | IR returns the applicable typed refusal | QSL's emission test fails |
 | A QSL crate appears in IR's graph | IR's `tc_041` (root package by name and source, model package by a name list) and `make deny` `unknown-git` | IR test or `make deny` fails |
 
 ## Decisions
@@ -117,17 +107,14 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 Four decisions govern the seam. None adds a layer between the repositories.
 
 - A. QSL consumes IR through the model crate's items only. It never names the IR root crate. QSL
-  reads only its layer-4 set (the reader, evidence, limits and identity-preimage types); the
+  reads only its layer-4 set (the reader, evidence, limits and structural checked-package types); the
   authored-contract items are not frozen by name here because they retire under QSL ADR-011 M-6c.
 - B. A seam item changes in the order of AD-006 decision D: the consumer first gains what it needs, then IR removes the old item. IR does not widen a type to fit an emission
   (AD-004 precedence) and does not keep a second shape for QSL's convenience.
-- C. One encoder for one identity, and the one-encoder rule binds IR: IR computes digests with
-  `quire_canonical::to_vec(v, Limits)` and `quire_canonical::sha256`, not with `serde_json`. IR-274
-  (adopt `quire-canonical` for every identity digest and delete IR's own encoders) is the
-  one-owner fix; its spec is FR-016, FR-034 and FR-038, and its code has landed (IR-274 is
-  done). The encode of a `serde_json::Value` is `quire-canonical`'s (one owner for IR, codegen
-  and QSL; the upstream `Encode` is quire-canonical #7), so IR holds no walker of its own
-  (FR-038-AC-91).
+- C. One canonical byte encoder: IR and QSL use `quire-canonical` for
+  the V2 wire. Neither implements a second canonical encoder, and neither
+  derives product identities or known-answer seals from those bytes. IR's
+  `serde_json::Value` encoding remains iterative through that crate.
 - D. Target: IR has no dependency on codegen, runtime or QSL, and that is a build failure, not
   prose. A git edge to those repositories already fails `make deny` through `unknown-git`
   (`[sources]`, IR-346); `deny.toml` `[bans]` is to list the crates under `deny` so an edge fails by name too. No such entry exists today. The home of this guard is the IR
@@ -156,8 +143,8 @@ Local labels; the repository assigns requirement ids when one is authored.
   (FR-039-AC-4).
 - D-4. Every public item QSL reads is exported by name from the model crate's root, with no
   glob (FR-019; implemented under IR-347).
-- D-5. A package QSL emits for each node family and semantic form QSL can produce is admitted at
-  the `package_id` QSL wrote (runs in QSL; routed as R-Q6 of IR-324).
+- D-5. A package QSL emits for each node family and semantic form QSL can produce is admitted under
+  the package `name` QSL wrote (runs in QSL; routed as R-Q6 of IR-324).
 - D-6. For a record QSL classifies unbounded, IR lowers with `require_bounds` set and reports
   `requires_bound`, and conversely (QSL TC-440 today, one fixture ignored).
 

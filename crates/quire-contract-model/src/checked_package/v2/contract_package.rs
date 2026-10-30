@@ -24,26 +24,24 @@ use super::dependency_references::{
 use super::encode::{elements, encoded, member as encode_member};
 use super::lower::{
     CompleteContractNodeV2, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    ContractPackageDependencyV2, LoweringProfileRef, NodeSourceMaps, CONTRACT_IR_SEMANTIC_DOMAIN,
-    CONTRACT_PACKAGE_VERSION,
+    ContractPackageDependencyV2, LoweringProfileRef, NodeSourceMaps, CONTRACT_PACKAGE_VERSION,
 };
 use super::{
     CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole,
     CheckedTerm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
 use crate::checked_package::common::{
-    read_typed_prefix, strict_parse, Step, Trail, ValidationFailure, NODE_DOMAIN,
+    read_typed_prefix, strict_parse, Step, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageIncomplete, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedSemanticId, CheckedSourceMapEntry, JsonPointer,
+    CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
 use quire_canonical::{Encode, Error as CanonicalError, FixedShape, Sink, Writer};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The source package's exact admitted identity and lock.
@@ -51,7 +49,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 #[serde(deny_unknown_fields)]
 pub struct ContractSourceV1 {
     /// Originating admitted checked-package identity.
-    pub package_id: CheckedSemanticId,
+    pub name: Box<str>,
     /// Exact originating lock.
     pub lock: CheckedPackageLockV2,
 }
@@ -77,7 +75,7 @@ pub struct ContractSemanticGraphV1 {
 }
 
 /// One represented graph node's exact source occurrences.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractNodeSourcesV1 {
     /// Represented semantic node key.
@@ -87,7 +85,7 @@ pub struct ContractNodeSourcesV1 {
 }
 
 /// One requested item's source occurrences, including an absent request.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractRequestSourcesV1 {
     /// Exact requested key.
@@ -124,7 +122,7 @@ impl ContractDispositionV1 {
 }
 
 /// A refused request's exact available sources.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractRefusalSourcesV1 {
     /// Exact requested key.
@@ -136,7 +134,7 @@ pub struct ContractRefusalSourcesV1 {
 }
 
 /// Total source correspondence for graph nodes and requests.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractSourceMapV1 {
     /// One entry per represented node, in semantic-graph order.
@@ -148,7 +146,7 @@ pub struct ContractSourceMapV1 {
 }
 
 /// Closed projection of a defensive FR-322 refusal.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractBodyRefusalV1 {
     /// FR-322 refusal code.
@@ -174,7 +172,7 @@ impl From<&CheckedPackageRefusal> for ContractBodyRefusalV1 {
     fn from(value: &CheckedPackageRefusal) -> Self {
         Self {
             code: value.code,
-            path: value.path.clone(),
+            path: value.primary_path().cloned(),
             cause: value.cause,
             locus: value.locus.clone(),
             contract_version: value.contract_version.clone(),
@@ -210,7 +208,7 @@ impl From<&CheckedPackageIncomplete> for ContractBodyIncompleteV1 {
 }
 
 /// One exact terminal outcome, serialized as the closed FR-330 tagged record.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "disposition", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ContractFeatureRecordV1 {
     /// Exact represented root.
@@ -247,6 +245,86 @@ pub enum ContractFeatureRecordV1 {
         body_node_id: CheckedNodeId,
         incomplete: ContractBodyIncompleteV1,
     },
+}
+
+impl<'de> Deserialize<'de> for ContractFeatureRecordV1 {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+
+        fn take(map: &mut serde_json::Map<String, Value>, name: &str) -> Result<Value, String> {
+            map.remove(name).ok_or_else(|| format!("missing {name}"))
+        }
+
+        fn node(
+            map: &mut serde_json::Map<String, Value>,
+            name: &str,
+        ) -> Result<CheckedNodeId, String> {
+            CheckedNodeId::from_value(&take(map, name)?).ok_or_else(|| format!("invalid {name}"))
+        }
+
+        fn typed<T: serde::de::DeserializeOwned>(
+            map: &mut serde_json::Map<String, Value>,
+            name: &str,
+        ) -> Result<T, String> {
+            serde_json::from_value(take(map, name)?).map_err(|error| error.to_string())
+        }
+
+        let mut map = match Value::deserialize(deserializer)? {
+            Value::Object(map) => map,
+            _ => return Err(D::Error::custom("feature record must be an object")),
+        };
+        let disposition: ContractDispositionV1 =
+            typed(&mut map, "disposition").map_err(D::Error::custom)?;
+        let node_id = node(&mut map, "node_id").map_err(D::Error::custom)?;
+        let record = match disposition {
+            ContractDispositionV1::Lowered => Self::Lowered { node_id },
+            ContractDispositionV1::Unsupported => Self::Unsupported {
+                node_id,
+                unsupported_node_id: node(&mut map, "unsupported_node_id")
+                    .map_err(D::Error::custom)?,
+                node_tag: typed(&mut map, "node_tag").map_err(D::Error::custom)?,
+            },
+            ContractDispositionV1::RequiresBound => Self::RequiresBound {
+                node_id,
+                unbounded_type: node(&mut map, "unbounded_type").map_err(D::Error::custom)?,
+            },
+            ContractDispositionV1::InvalidInput => Self::InvalidInput { node_id },
+            ContractDispositionV1::Failed => Self::Failed {
+                node_id,
+                limit_kind: typed(&mut map, "limit_kind").map_err(D::Error::custom)?,
+                limit: typed(&mut map, "limit").map_err(D::Error::custom)?,
+                consumed: typed(&mut map, "consumed").map_err(D::Error::custom)?,
+            },
+            ContractDispositionV1::InvalidBody => {
+                let mut refusal: Value = take(&mut map, "refusal").map_err(D::Error::custom)?;
+                let locus = refusal
+                    .as_object_mut()
+                    .and_then(|object| object.remove("locus"))
+                    .map(|value| {
+                        CheckedNodeId::from_value(&value)
+                            .ok_or_else(|| D::Error::custom("invalid refusal locus"))
+                    })
+                    .transpose()?;
+                let mut refusal: ContractBodyRefusalV1 =
+                    serde_json::from_value(refusal).map_err(D::Error::custom)?;
+                refusal.locus = locus;
+                Self::InvalidBody {
+                    node_id,
+                    body_node_id: node(&mut map, "body_node_id").map_err(D::Error::custom)?,
+                    refusal,
+                }
+            }
+            ContractDispositionV1::BodyIncomplete => Self::BodyIncomplete {
+                node_id,
+                body_node_id: node(&mut map, "body_node_id").map_err(D::Error::custom)?,
+                incomplete: typed(&mut map, "incomplete").map_err(D::Error::custom)?,
+            },
+        };
+        if !map.is_empty() {
+            return Err(D::Error::custom("unknown feature record member"));
+        }
+        Ok(record)
+    }
 }
 
 impl ContractFeatureRecordV1 {
@@ -335,7 +413,7 @@ impl From<&CompleteLoweringRecordV2> for ContractFeatureRecordV1 {
     }
 }
 
-/// The one closed six-member FR-330 package value.
+/// The one closed five-member FR-330 package value.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractPackageWireV1 {
@@ -349,8 +427,6 @@ pub struct ContractPackageWireV1 {
     pub source_map: ContractSourceMapV1,
     /// One result per request, in request order.
     pub feature_accounting: Vec<ContractFeatureRecordV1>,
-    /// SHA-256 of the four-member canonical semantic projection.
-    pub identity: CheckedSemanticId,
 }
 
 /// A ContractPackage produced from an admitted source or admitted by the sole
@@ -506,7 +582,7 @@ pub struct ContractReachedNodeV1<'a> {
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ContractSelectedReferenceV1 {
     /// Identity of the selected dependency package.
-    pub package: CheckedSemanticId,
+    pub package: Box<str>,
     /// Typed target key in that selected package.
     pub node: CheckedNodeId,
 }
@@ -675,7 +751,7 @@ impl ContractPackageV1 {
         }))
     }
 
-    /// The exact six-field wire, available for read-only inspection.
+    /// The exact five-field wire, available for read-only inspection.
     pub fn wire(&self) -> &ContractPackageWireV1 {
         &self.wire
     }
@@ -752,13 +828,8 @@ impl ContractPackageV1 {
         true
     }
 
-    /// The canonical semantic identity retained in the admitted value.
-    pub fn identity(&self) -> &CheckedSemanticId {
-        &self.wire.identity
-    }
-
     /// Reads one exact requested key and, when lowered, its local reached
-    /// closure. The six-field wire and identity are never changed.
+    /// closure. The five-field wire is never changed.
     pub fn reached_closure(
         &self,
         requested: &CheckedNodeId,
@@ -809,13 +880,6 @@ pub struct ContractDependencyInput<'a> {
     pub package: &'a CheckedPackageV2,
 }
 
-struct SemanticProjection<'a> {
-    contract_version: &'a str,
-    package: &'a ContractProvenanceV1,
-    semantic_graph: &'a ContractSemanticGraphV1,
-    feature_accounting: &'a [ContractFeatureRecordV1],
-}
-
 impl Encode for ContractSemanticGraphV1 {
     fn encode_into<S: Sink + ?Sized>(
         &self,
@@ -828,16 +892,130 @@ impl Encode for ContractSemanticGraphV1 {
     }
 }
 
-impl Encode for SemanticProjection<'_> {
+impl Encode for ContractNodeSourcesV1 {
     fn encode_into<S: Sink + ?Sized>(
         &self,
         writer: &mut Writer<'_, S>,
     ) -> Result<(), CanonicalError> {
         writer.begin_object()?;
-        encode_member(writer, "contract_version", &self.contract_version)?;
-        encode_member(writer, "package", self.package)?;
-        encoded(writer, "semantic_graph", self.semantic_graph)?;
-        encode_member(writer, "feature_accounting", &self.feature_accounting)?;
+        encoded(writer, "node_id", &self.node_id)?;
+        elements(writer, "occurrences", &self.occurrences)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractRequestSourcesV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        encoded(writer, "requested_item", &self.requested_item)?;
+        elements(writer, "occurrences", &self.occurrences)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractRefusalSourcesV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        encoded(writer, "requested_item", &self.requested_item)?;
+        encode_member(writer, "disposition", &self.disposition)?;
+        elements(writer, "occurrences", &self.occurrences)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractSourceMapV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        elements(writer, "nodes", &self.nodes)?;
+        elements(writer, "requested_items", &self.requested_items)?;
+        elements(writer, "refusals", &self.refusals)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractBodyRefusalV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        encode_member(writer, "code", &self.code)?;
+        if let Some(path) = &self.path {
+            encode_member(writer, "path", path)?;
+        }
+        if let Some(cause) = &self.cause {
+            encode_member(writer, "cause", cause)?;
+        }
+        if let Some(locus) = &self.locus {
+            encoded(writer, "locus", locus)?;
+        }
+        if let Some(version) = &self.contract_version {
+            encode_member(writer, "contract_version", version)?;
+        }
+        if let Some(pointer) = &self.document_pointer {
+            encode_member(writer, "document_pointer", pointer)?;
+        }
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractFeatureRecordV1 {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), CanonicalError> {
+        writer.begin_object()?;
+        encode_member(writer, "disposition", &self.disposition())?;
+        encoded(writer, "node_id", self.node_id())?;
+        match self {
+            Self::Lowered { .. } | Self::InvalidInput { .. } => {}
+            Self::Unsupported {
+                unsupported_node_id,
+                node_tag,
+                ..
+            } => {
+                encoded(writer, "unsupported_node_id", unsupported_node_id)?;
+                encode_member(writer, "node_tag", node_tag)?;
+            }
+            Self::RequiresBound { unbounded_type, .. } => {
+                encoded(writer, "unbounded_type", unbounded_type)?;
+            }
+            Self::Failed {
+                limit_kind,
+                limit,
+                consumed,
+                ..
+            } => {
+                encode_member(writer, "limit_kind", limit_kind)?;
+                encode_member(writer, "limit", limit)?;
+                encode_member(writer, "consumed", consumed)?;
+            }
+            Self::InvalidBody {
+                body_node_id,
+                refusal,
+                ..
+            } => {
+                encoded(writer, "body_node_id", body_node_id)?;
+                encoded(writer, "refusal", refusal)?;
+            }
+            Self::BodyIncomplete {
+                body_node_id,
+                incomplete,
+                ..
+            } => {
+                encoded(writer, "body_node_id", body_node_id)?;
+                encode_member(writer, "incomplete", incomplete)?;
+            }
+        }
         writer.end_object()
     }
 }
@@ -851,9 +1029,8 @@ impl Encode for ContractPackageWireV1 {
         encode_member(writer, "contract_version", &self.contract_version)?;
         encode_member(writer, "package", &self.package)?;
         encoded(writer, "semantic_graph", &self.semantic_graph)?;
-        encode_member(writer, "source_map", &self.source_map)?;
-        encode_member(writer, "feature_accounting", &self.feature_accounting)?;
-        encode_member(writer, "identity", &self.identity)?;
+        encoded(writer, "source_map", &self.source_map)?;
+        elements(writer, "feature_accounting", &self.feature_accounting)?;
         writer.end_object()
     }
 }
@@ -913,10 +1090,9 @@ impl ContractPackageWireV1 {
         for represented in dependencies {
             nodes.insert(&represented.node.node_id);
         }
-        // FR-322 keys a recursion-group member by its ordinal in the admitted
-        // graph. Sorting those members by key would make their keys stale in
-        // the emitted graph. Group blocks sort by their least key, while each
-        // block retains the source graph's member order.
+        // Preserve each recursion group's source member order in the emitted
+        // graph. Group blocks sort by their least structural node ID; no
+        // graph-order coordinate is derived for a member's node ID.
         let nodes = canonical_node_order(
             source
                 .graph()
@@ -975,7 +1151,7 @@ impl ContractPackageWireV1 {
             .collect();
         let package = ContractProvenanceV1 {
             source: ContractSourceV1 {
-                package_id: source.package_id().clone(),
+                name: source.name().into(),
                 lock: source.lock().clone(),
             },
             lowering_profile: profile.reference.clone(),
@@ -1000,28 +1176,12 @@ impl ContractPackageWireV1 {
             requested_items,
             refusals,
         };
-        let projection = SemanticProjection {
-            contract_version: CONTRACT_PACKAGE_VERSION,
-            package: &package,
-            semantic_graph: &semantic_graph,
-            feature_accounting: &accounting,
-        };
-        // The package ceiling charges the emitted six-field value. Hashing its
-        // smaller semantic projection must not report that projection's length
-        // as the package's failed byte charge.
-        let preimage = canonical(&projection, u64::MAX)?;
-        let digest = format!("{:x}", Sha256::digest(&preimage));
         let wire = Self {
             contract_version: CONTRACT_PACKAGE_VERSION.into(),
             package,
             semantic_graph,
             source_map,
             feature_accounting: accounting,
-            identity: CheckedSemanticId {
-                domain: CONTRACT_IR_SEMANTIC_DOMAIN.into(),
-                algorithm: "sha256".into(),
-                digest: digest.into_boxed_str(),
-            },
         };
         let bytes = canonical(&wire, ceiling)?.into_boxed_slice();
         Ok((
@@ -1070,7 +1230,7 @@ impl ContractPackageWireV1 {
             ContractPackageReadResult::Admitted(package) => package,
             other => return Ok(other),
         };
-        if package.wire.package.source.package_id != *source.package_id() {
+        if package.wire.package.source.name.as_ref() != source.name() {
             return Err(ContractSourceHandoffError::SourceIdentity);
         }
         if package.wire.package.source.lock != *source.lock() {
@@ -1124,7 +1284,10 @@ impl ContractPackageWireV1 {
                     if refusal.code == CheckedPackageRefusalCode::DuplicateMember =>
                 {
                     malformed(
-                        refusal.path.unwrap_or_else(JsonPointer::root),
+                        refusal
+                            .primary_path()
+                            .cloned()
+                            .unwrap_or_else(JsonPointer::root),
                         CheckedPackageRefusalCause::DuplicateMember,
                     )
                 }
@@ -1149,7 +1312,12 @@ impl ContractPackageWireV1 {
             None => return Err(malformed(root, CheckedPackageRefusalCause::MissingMember)),
         }
         validate_shapes(&value)?;
-        let wire: Self = serde_path_to_error::deserialize(&value).map_err(|error| {
+        // CheckedNodeId uses RawValue for iterative nested-path decoding.
+        // Deserializing it from an in-memory Value cannot provide that raw
+        // token stream, so decode the already shape-checked input bytes.
+        // The strict parse above has already enforced Serde's depth limit.
+        let mut decoder = serde_json::Deserializer::from_slice(bytes);
+        let wire: Self = serde_path_to_error::deserialize(&mut decoder).map_err(|error| {
             malformed(
                 crate::checked_package::common::decoder_pointer(JsonPointer::root(), error.path()),
                 CheckedPackageRefusalCause::WrongValueKind,
@@ -1159,7 +1327,6 @@ impl ContractPackageWireV1 {
         let (node_kinds, unsupported_tags) = wire.validate_values(limits, &mut work_meter)?;
         wire.validate_correspondence(limits)?;
         wire.validate_accounting()?;
-        wire.validate_identity(limits.bytes)?;
         wire.validate_dependencies(dependencies, &mut work_meter)?;
         let terms = wire.validate_references(dependencies, limits, &mut work_meter)?;
         let node_index = wire
@@ -1267,15 +1434,45 @@ fn decimal(value: &Value, path: JsonPointer) -> Result<u64, ValidationFailure> {
         .map_err(|_| malformed(path, CheckedPackageRefusalCause::InvalidValue))
 }
 
-fn id_shape(value: &Value, at: JsonPointer, package: bool) -> Result<(), ValidationFailure> {
-    let required = if package {
-        &["domain", "algorithm", "digest"][..]
-    } else {
-        &["domain", "digest"][..]
-    };
-    let object = shape(value, at.clone(), required, &[])?;
-    for name in required {
-        string(member(object, name, &at)?, at.clone().key(name))?;
+fn id_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFailure> {
+    let mut pending = vec![(value, at)];
+    while let Some((value, at)) = pending.pop() {
+        let object = shape(value, at.clone(), &["package", "path", "ordinal"], &[])?;
+        if string(member(object, "package", &at)?, at.clone().key("package"))?.is_empty() {
+            return Err(malformed(
+                at.key("package"),
+                CheckedPackageRefusalCause::InvalidValue,
+            ));
+        }
+        let path_at = at.clone().key("path");
+        let path = array(member(object, "path", &at)?, path_at.clone())?;
+        if path.is_empty() {
+            return Err(malformed(path_at, CheckedPackageRefusalCause::InvalidValue));
+        }
+        let ordinal_at = at.clone().key("ordinal");
+        if !object
+            .get("ordinal")
+            .and_then(Value::as_u64)
+            .is_some_and(|ordinal| ordinal <= 9_007_199_254_740_991)
+        {
+            return Err(malformed(
+                ordinal_at,
+                CheckedPackageRefusalCause::InvalidValue,
+            ));
+        }
+        for (index, segment) in path.iter().enumerate().rev() {
+            let segment_at = path_at.clone().index(index);
+            match segment {
+                Value::String(_) => {}
+                Value::Object(_) => pending.push((segment, segment_at)),
+                _ => {
+                    return Err(malformed(
+                        segment_at,
+                        CheckedPackageRefusalCause::InvalidValue,
+                    ))
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -1307,7 +1504,6 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
             "semantic_graph",
             "source_map",
             "feature_accounting",
-            "identity",
         ],
         &[],
     )?;
@@ -1322,13 +1518,12 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
     let source = shape(
         member(package, "source", &package_at)?,
         source_at.clone(),
-        &["package_id", "lock"],
+        &["name", "lock"],
         &[],
     )?;
-    id_shape(
-        member(source, "package_id", &source_at)?,
-        source_at.clone().key("package_id"),
-        true,
+    string(
+        member(source, "name", &source_at)?,
+        source_at.clone().key("name"),
     )?;
     let lock_at = source_at.clone().key("lock");
     let lock = shape(
@@ -1417,22 +1612,12 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
                 "occurrences",
                 "body",
             ],
-            &[
-                "recursion_group",
-                "nominal_identity_preimage",
-                "declaration",
-                "owner",
-            ],
+            &["recursion_group", "declaration", "owner"],
         )?;
-        id_shape(
-            member(node, "node_id", &at)?,
-            at.clone().key("node_id"),
-            false,
-        )?;
+        id_shape(member(node, "node_id", &at)?, at.clone().key("node_id"))?;
         id_shape(
             member(node, "semantic_type", &at)?,
             at.clone().key("semantic_type"),
-            false,
         )?;
         for name in ["schema_version", "node_tag", "semantic_form"] {
             string(member(node, name, &at)?, at.clone().key(name))?;
@@ -1496,7 +1681,6 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
     {
         validate_record_shape(record, accounting_at.clone().index(index))?;
     }
-    id_shape(member(top, "identity", &root)?, root.key("identity"), true)?;
     Ok(())
 }
 
@@ -1525,14 +1709,10 @@ fn validate_record_shape(value: &Value, at: JsonPointer) -> Result<(), Validatio
         .chain(payload.iter().copied())
         .collect();
     let record = shape(value, at.clone(), &required, &[])?;
-    id_shape(
-        member(record, "node_id", &at)?,
-        at.clone().key("node_id"),
-        false,
-    )?;
+    id_shape(member(record, "node_id", &at)?, at.clone().key("node_id"))?;
     for name in ["unsupported_node_id", "unbounded_type", "body_node_id"] {
         if let Some(value) = record.get(name) {
-            id_shape(value, at.clone().key(name), false)?;
+            id_shape(value, at.clone().key(name))?;
         }
     }
     if disposition == ContractDispositionV1::Failed {
@@ -1572,9 +1752,10 @@ fn validate_body_refusal(value: &Value, at: JsonPointer) -> Result<(), Validatio
     }
     if let Some(locus) = object.get("locus") {
         let locus_at = at.clone().key("locus");
-        shape(locus, locus_at.clone(), &["domain", "digest"], &[])?;
-        let id: CheckedNodeId = serde_json::from_value(locus.clone())
-            .map_err(|_| malformed(locus_at.clone(), CheckedPackageRefusalCause::WrongValueKind))?;
+        id_shape(locus, locus_at.clone())?;
+        let id = CheckedNodeId::from_value(locus).ok_or_else(|| {
+            malformed(locus_at.clone(), CheckedPackageRefusalCause::WrongValueKind)
+        })?;
         if !valid_node_id(&id) {
             return Err(malformed(
                 locus_at,
@@ -1624,11 +1805,9 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::OperationModeMismatch
         | Cause::OperationMemberMismatch
         | Cause::OperationModeTypeMismatch
-        | Cause::StaleNodeKey
         | Cause::InvalidDerivedShape
         | Cause::DeclarationNominalMismatch => code == Code::InvalidPackage,
         Cause::AmbiguousName => code == Code::AmbiguousDeclaration,
-        Cause::ContentMismatch => code == Code::StaleDependency,
         Cause::InsufficientNextCharge => false,
         Cause::OperatorIneligible
         | Cause::TypeMismatch
@@ -1685,21 +1864,10 @@ fn validate_body_incomplete(value: &Value, at: JsonPointer) -> Result<(), Valida
     Ok(())
 }
 
-fn valid_digest(text: &str) -> bool {
-    text.len() == 64
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ContractWireTag {
     Version,
-    PackageDomain,
-    Sha256,
     GraphVersion,
-    ResultDomain,
-    NodeDomain,
 }
 
 impl ContractWireTag {
@@ -1707,19 +1875,14 @@ impl ContractWireTag {
     fn from_wire(text: &str) -> Option<Self> {
         match text {
             CONTRACT_PACKAGE_VERSION => Some(Self::Version),
-            super::PACKAGE_DOMAIN_V2 => Some(Self::PackageDomain),
-            "sha256" => Some(Self::Sha256),
             "quire.checked-semantic-graph/v2" => Some(Self::GraphVersion),
-            CONTRACT_IR_SEMANTIC_DOMAIN => Some(Self::ResultDomain),
-            NODE_DOMAIN => Some(Self::NodeDomain),
             _ => None,
         }
     }
 }
 
 fn valid_node_id(id: &CheckedNodeId) -> bool {
-    ContractWireTag::from_wire(&id.domain) == Some(ContractWireTag::NodeDomain)
-        && valid_digest(&id.digest)
+    id.is_well_formed()
 }
 
 impl ContractPackageWireV1 {
@@ -1729,16 +1892,9 @@ impl ContractPackageWireV1 {
         work_meter: &mut super::WorkMeter,
     ) -> Result<(Vec<CheckedNodeKind>, Vec<Option<CheckedNodeTag>>), ValidationFailure> {
         let source = &self.package.source;
-        let package_id = &source.package_id;
-        if ContractWireTag::from_wire(&package_id.domain) != Some(ContractWireTag::PackageDomain)
-            || ContractWireTag::from_wire(&package_id.algorithm) != Some(ContractWireTag::Sha256)
-            || !valid_digest(&package_id.digest)
-        {
+        if source.name.is_empty() {
             return Err(malformed(
-                JsonPointer::root()
-                    .key("package")
-                    .key("source")
-                    .key("package_id"),
+                JsonPointer::root().key("package").key("source").key("name"),
                 CheckedPackageRefusalCause::InvalidValue,
             ));
         }
@@ -1834,17 +1990,6 @@ impl ContractPackageWireV1 {
                 ));
             }
             previous_identity = Some(&selected.identity);
-            if ContractWireTag::from_wire(&selected.package_id.domain)
-                != Some(ContractWireTag::PackageDomain)
-                || ContractWireTag::from_wire(&selected.package_id.algorithm)
-                    != Some(ContractWireTag::Sha256)
-                || !valid_digest(&selected.package_id.digest)
-            {
-                return Err(malformed(
-                    at.key("package_id"),
-                    CheckedPackageRefusalCause::InvalidValue,
-                ));
-            }
         }
         if ContractWireTag::from_wire(&self.semantic_graph.graph_version)
             != Some(ContractWireTag::GraphVersion)
@@ -1939,21 +2084,6 @@ impl ContractPackageWireV1 {
                 _ => None,
             };
             unsupported_tags.push(unsupported_tag);
-        }
-        if ContractWireTag::from_wire(&self.identity.domain) != Some(ContractWireTag::ResultDomain)
-        {
-            return Err(malformed(
-                JsonPointer::root().key("identity").key("domain"),
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
-        }
-        if ContractWireTag::from_wire(&self.identity.algorithm) != Some(ContractWireTag::Sha256)
-            || !valid_digest(&self.identity.digest)
-        {
-            return Err(malformed(
-                JsonPointer::root().key("identity").key("digest"),
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
         }
         Ok((node_kinds, unsupported_tags))
     }
@@ -2235,28 +2365,6 @@ impl ContractPackageWireV1 {
         Ok(())
     }
 
-    fn validate_identity(&self, ceiling: u64) -> Result<(), ValidationFailure> {
-        let projection = SemanticProjection {
-            contract_version: &self.contract_version,
-            package: &self.package,
-            semantic_graph: &self.semantic_graph,
-            feature_accounting: &self.feature_accounting,
-        };
-        let preimage = canonical(&projection, ceiling).map_err(|_| {
-            malformed(
-                JsonPointer::root().key("identity"),
-                CheckedPackageRefusalCause::InvalidValue,
-            )
-        })?;
-        if format!("{:x}", Sha256::digest(&preimage)) != self.identity.digest.as_ref() {
-            return Err(malformed(
-                JsonPointer::root().key("identity").key("digest"),
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
-        }
-        Ok(())
-    }
-
     fn validate_dependencies(
         &self,
         dependencies: &ContractDependencies<'_>,
@@ -2285,15 +2393,12 @@ impl ContractPackageWireV1 {
                     CheckedPackageRefusalCause::MissingSelection,
                 ));
             }
-            if input.package.package_id() != &selection.package_id {
-                return Err(ValidationFailure::Refused(Box::new(
-                    CheckedPackageRefusal::mismatch(
-                        at,
-                        CheckedPackageRefusalCause::ContentMismatch,
-                        selection.package_id.clone(),
-                        input.package.package_id().clone(),
-                    ),
-                )));
+            if input.package.name() != selection.identity.as_ref() {
+                return Err(ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::MissingImport,
+                    at,
+                    CheckedPackageRefusalCause::MissingSelection,
+                ));
             }
             packages.push(input.package);
         }
@@ -2467,25 +2572,11 @@ impl ContractPackageWireV1 {
                 }
             }
         }
-        let deferred_keys = super::derived_keys::deferred_key_targets(
-            &self.semantic_graph.nodes,
-            &kinds,
-            limits.bytes,
-        );
         super::structural::validate_structural_nodes(
             &self.semantic_graph.nodes,
             &kinds,
             &terms,
             &positions,
-            &deferred_keys,
-        )?;
-        super::operations::validate_application_keys(
-            &self.semantic_graph.nodes,
-            &kinds,
-            &terms,
-            &positions,
-            &mut *meter,
-            limits.bytes,
         )?;
         super::identity::validate_nominal_nodes(
             &self.semantic_graph.nodes,
@@ -2493,16 +2584,7 @@ impl ContractPackageWireV1 {
             &positions,
             &self.package.source.lock,
             &[],
-            &mut *meter,
-            limits.bytes,
-        )?;
-        super::derived_keys::validate_derived_keys(
-            &self.semantic_graph.nodes,
-            &kinds,
-            &terms,
-            &positions,
-            &deferred_keys,
-            &[],
+            &supplied,
             &mut *meter,
             limits.bytes,
         )?;

@@ -3,7 +3,7 @@ use super::super::model_members::tests::{
     read, BYTES, ORDERS, RECORDED,
 };
 use super::super::model_members::{
-    declaration_key, probe, read_semantic_ir, Budget, DeclarationForm, MemberKind, ModelFailure,
+    declaration_id, probe, read_semantic_ir, Budget, DeclarationForm, MemberKind, ModelFailure,
     ModelOwners,
 };
 use super::super::CheckedSemanticNodeV2;
@@ -18,6 +18,7 @@ fn unbuilt(document: &Value) -> DomainModel {
     let mut meter = WorkMeter::new(u64::MAX);
     match read_semantic_ir(
         document,
+        "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
         &Arc::new(BTreeMap::new()),
     ) {
@@ -313,20 +314,8 @@ fn tc_056_record_fields_keep_value_types_and_effective_names() {
         record_type("SubProfile", &[&profile], vec![]),
     ]);
     let (_, model) = built(&document);
-    let record_key = declaration_key(
-        &model.identity,
-        DeclarationForm::RecordValueType,
-        &address,
-        BYTES,
-    )
-    .expect("record key");
-    let profile_key = declaration_key(
-        &model.identity,
-        DeclarationForm::RecordValueType,
-        &profile,
-        BYTES,
-    )
-    .expect("profile key");
+    let record_key = declaration_id(&model.identity, DeclarationForm::RecordValueType, &address);
+    let profile_key = declaration_id(&model.identity, DeclarationForm::RecordValueType, &profile);
     assert_eq!(
         exposed_identities(table_for(&model, "SubAddress")),
         [format!("{sub}/street")]
@@ -342,27 +331,27 @@ fn tc_056_record_fields_keep_value_types_and_effective_names() {
     assert_eq!(
         model.field_type(inherited),
         Some(MemberType::Option(Box::new(MemberType::Record(
-            record_key.clone().into(),
+            record_key.clone(),
         ))))
     );
     assert_eq!(
         model.field_type(&model.record_types[&*profile].fields[0]),
         Some(MemberType::Option(Box::new(MemberType::Record(
-            record_key.clone().into()
+            record_key.clone()
         ))))
     );
     assert_eq!(
         model.field_type(&model.record_types[&*profile].fields[1]),
         Some(MemberType::Collection {
             kind: super::super::model_members::CollectionKind::Sequence,
-            element: Box::new(MemberType::Record(record_key.into())),
+            element: Box::new(MemberType::Record(record_key)),
             bounds: Some((0, 3)),
         })
     );
     assert_eq!(
         model.field_type(&model.record_types[&*profile].fields[2]),
         Some(MemberType::Option(Box::new(MemberType::Record(
-            profile_key.into()
+            profile_key
         ))))
     );
 }
@@ -626,24 +615,22 @@ fn tc_227_a_field_read_charges_the_table_and_an_operation_keeps_the_walk() {
 #[test]
 fn tc_227_a_field_entry_resolves_through_the_table_and_charges_its_entries() {
     let models = [read(&chain_document(4)).expect("reads")];
-    let owners = ModelOwners::new(&models, |_| Ok(())).expect("keys");
     let declaring = |short: &str| -> CheckedSemanticNodeV2 {
-        let key = declaration_key(
-            &models[0].identity,
-            DeclarationForm::ObjectType,
-            &format!("{ORDERS}{short}"),
-            BYTES,
-        )
-        .expect("a key");
-        let id = json!({"domain": "quire.checked-semantic-node/v1", "digest": key});
-        serde_json::from_value(json!({
-            "node_id": id, "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "model", "semantic_form": "object_type", "semantic_type": id,
-            "dependencies": [], "occurrences": [],
-            "body": {"term": "aggregate", "members": []},
-        }))
-        .expect("a node")
+        let identity = format!("{ORDERS}{short}");
+        serde_json::from_value(node_of(
+            declaration_id(&models[0].identity, DeclarationForm::ObjectType, &identity),
+            "model",
+            "object_type",
+            json!({"term":"aggregate","members":[]}),
+            Some(json!({"kind":"model","identity":models[0].identity,"node":identity})),
+        ))
+        .expect("model declaration node")
     };
+    let nodes: Vec<_> = ["C1", "C2", "C3", "C4"]
+        .into_iter()
+        .map(declaring)
+        .collect();
+    let owners = ModelOwners::new(&models, &nodes, |_| Ok(())).expect("owner index");
     for (short, name, charge) in [("C4", "f2", 4), ("C1", "f1", 1)] {
         let walks = probe::ancestor_walks();
         let mut meter = WorkMeter::new(u64::MAX);
@@ -665,72 +652,59 @@ struct Fixture {
     range: usize,
 }
 
-fn node_of(key: &str, tag: &str, form: &str, body: Value) -> Value {
-    let id = json!({"domain": "quire.checked-semantic-node/v1", "digest": key});
-    json!({
-        "node_id": id,
-        "schema_version": "quire.checked-semantic-graph/v2",
-        "node_tag": tag,
-        "semantic_form": form,
-        "semantic_type": id,
-        "dependencies": [],
-        "occurrences": [],
-        "body": body,
-    })
+fn node_of(id: CheckedNodeId, tag: &str, form: &str, body: Value, owner: Option<Value>) -> Value {
+    let mut node = json!({
+        "node_id": id, "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": tag, "semantic_form": form, "semantic_type": id,
+        "dependencies": [], "occurrences": [], "body": body,
+    });
+    if let Some(owner) = owner {
+        node["owner"] = owner;
+    }
+    node
 }
 
 fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixture {
     let model = read(document).expect("reads");
     let models = [model];
-    let owners = ModelOwners::new(&models, |_| Ok(())).expect("keys");
-    let index = owners.index();
-    let [model] = models;
-    let key_of = |node: &str, form| {
-        super::super::model_members::declaration_key(&model.identity, form, node, BYTES)
-            .expect("a key")
-    };
     let empty = json!({"term": "aggregate", "members": []});
     let mut nodes = Vec::new();
     for (node, form) in declared {
+        let identity = format!("{ORDERS}{node}");
         nodes.push(node_of(
-            &key_of(&format!("{ORDERS}{node}"), *form),
+            declaration_id(&models[0].identity, *form, &identity),
             form.tag(),
             form.form(),
             empty.clone(),
+            Some(json!({"kind":"model","identity":models[0].identity,"node":identity})),
         ));
     }
-    let integer = "1".repeat(64);
+    let integer_id = MemberType::Integer.node_id("checked").expect("integer ID");
     let range = nodes.len();
+    let range_id = MemberType::IntRange(super::super::model_members::IntegerBounds {
+        lower: 0,
+        upper: 1000,
+    })
+    .node_id("checked")
+    .expect("range ID");
     let mut bounded = node_of(
-        &"2".repeat(64),
+        range_id,
         "bounded_domain",
         "integer_range",
-        json!({"term": "aggregate", "members": [
-            {"term": "binding", "name": "min", "value": {"term": "literal", "type": {"domain": "quire.checked-semantic-node/v1", "digest": integer}, "value_kind": "integer", "value": "0"}},
-            {"term": "binding", "name": "max", "value": {"term": "literal", "type": {"domain": "quire.checked-semantic-node/v1", "digest": integer}, "value_kind": "integer", "value": "1000"}},
+        json!({"term":"aggregate","members":[
+            {"term":"binding","name":"min","value":{"term":"literal","type":integer_id,"value_kind":"integer","value":"0"}},
+            {"term":"binding","name":"max","value":{"term":"literal","type":integer_id,"value_kind":"integer","value":"1000"}},
         ]}),
+        None,
     );
-    bounded["semantic_type"] =
-        json!({"domain": "quire.checked-semantic-node/v1", "digest": integer});
+    bounded["semantic_type"] = json!(integer_id);
     nodes.push(bounded);
-    nodes.push(node_of(&integer, "scalar_type", "integer", empty));
+    nodes.push(node_of(integer_id, "scalar_type", "integer", empty, None));
     let artifact = |identity: &str| json!({"authority": "agent-ix", "identity": identity});
     let edition = json!({"role": "edition", "definition": artifact("edition")});
-    let wire: super::super::CheckedPackageWireV2 = serde_json::from_value(json!({
+    let wire_value = json!({
         "contract_version": "quire.checked-package/v2",
-        "identity_preimage": {
-            "version": "quire.checked-package-id/v2",
-            "edition": edition,
-            "profile_selections": [],
-            "definition_selections": [],
-            "required_features": [],
-            "dependency_selections": [],
-        },
-        "package_id": {
-            "domain": "quire.package.semantic/v2",
-            "algorithm": "sha256",
-            "digest": "c".repeat(64),
-        },
+        "name": "checked",
         "lock": {
             "sources": [],
             "edition": edition,
@@ -743,8 +717,36 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
         "source_map": [],
         "capability_report": [],
         "diagnostics": {"catalog": artifact("diagnostics"), "entries": []},
-    }))
-    .expect("wire");
+    });
+    let raw: super::super::RawCheckedPackageWireV2 =
+        serde_json::from_value(wire_value).expect("raw wire");
+    let graph = super::super::CheckedSemanticGraphV2 {
+        graph_version: raw.semantic_graph.graph_version,
+        nodes: raw
+            .semantic_graph
+            .nodes
+            .into_iter()
+            .map(|node| {
+                let body =
+                    super::super::CheckedTerm::decode_admitted(&node.body).expect("fixture body");
+                node.into_typed(body)
+            })
+            .collect(),
+    };
+    let wire = super::super::CheckedPackageWireV2 {
+        contract_version: raw.contract_version,
+        name: raw.name,
+        lock: raw.lock,
+        semantic_graph: graph,
+        source_map: raw.source_map,
+        refinement_step_rows: raw.refinement_step_rows,
+        capability_report: raw.capability_report,
+        diagnostics: raw.diagnostics,
+    };
+    let owners =
+        ModelOwners::new(&models, &wire.semantic_graph.nodes, |_| Ok(())).expect("owner index");
+    let index = owners.index();
+    let [model] = models;
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); nodes_len(&wire)];
     let terms = wire
         .semantic_graph
@@ -946,11 +948,11 @@ fn admitted_model_fields_use_retained_declaration_term() {
         .package
         .model_object_fields(&ledger)
         .expect("admitted fields");
-    fixture.package.wire.semantic_graph.nodes[0].body =
-        serde_json::from_value(json!({"term":"aggregate","members":[
-            {"term":"reference","target": ledger}
-        ]}))
-        .expect("typed changed body");
+    fixture.package.wire.semantic_graph.nodes[0].body = super::super::CheckedTerm::Aggregate {
+        members: vec![super::super::CheckedTerm::Reference {
+            target: ledger.clone(),
+        }],
+    };
     assert_eq!(fixture.package.model_object_fields(&ledger), Ok(expected));
 }
 
@@ -990,8 +992,9 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
         "a relationship declaration node is no object type"
     );
     let unknown = CheckedNodeId {
-        domain: NODE_DOMAIN.into(),
-        digest: "9".repeat(64).into(),
+        package: "checked".into(),
+        path: vec![super::super::CheckedNodePathSegment::Name("absent".into())],
+        ordinal: 0,
     };
     assert_eq!(
         package.model_object_fields(&unknown),
@@ -1024,8 +1027,9 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
         |node| node.recursion_group = Some("group".into()),
         |node| {
             node.semantic_type = CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: "8".repeat(64).into(),
+                package: "checked".into(),
+                path: vec![super::super::CheckedNodePathSegment::Name("other".into())],
+                ordinal: 0,
             }
         },
     ];

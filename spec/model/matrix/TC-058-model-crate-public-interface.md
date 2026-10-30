@@ -6,11 +6,12 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-019
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
-    type: verifies
+    type: references
   - target: ix://agent-ix/quire-contract-ir/FR-048
-    type: verifies
+    type: references
 ---
 # TC-058: The model crate's public interface is exactly FR-019's list, re-exported by name
+
 
 ## Description
 
@@ -26,7 +27,8 @@ Read `crates/quire-contract-model/src/lib.rs` and fail on any `pub use` whose
 path ends in `*`. Inventory every public item the `quire_contract_model` crate
 root exports in a default-feature build, grouped by defining module, and
 compare the set with FR-019's implemented Public items table entries, excluding
-entries explicitly marked planned until their owning code lands. Build the same inventory
+entries explicitly marked planned until their owning code lands. Fail if a
+planned item is exported before its row is marked implemented. Build the same inventory
 with the `fault-injection` feature and confirm the only added item is
 `MappingAllocationPoint`. Compile one probe that names a table item through
 `quire_contract_model` and expect it to build, and one that names the same
@@ -38,8 +40,7 @@ probe), not here.
 ## Expected Results
 
 `lib.rs` has no glob re-export. The default-feature inventory equals the table's
-implemented entries
-with no extra or missing item, and the `fault-injection` inventory adds
+implemented entries with no extra or missing item, and the `fault-injection` inventory adds
 `MappingAllocationPoint` alone. The `quire_contract_model` probe builds and
 the `quire_contract_ir` probe fails to compile.
 
@@ -69,9 +70,11 @@ including intentional absence. Assert `is_test_fixture` remains true when
 all optional inputs are absent and false for direct-serde and actual
 reader-admitted operations. Refuse empty present identity, empty present mode
 value, a law definition with empty authority or identity, and present member
-keys with a wrong domain, wrong digest length, uppercase or nonhexadecimal
-digest with a typed error and no operation. Accept foreign and conflicting nonempty law identities
-as valid fixture shape. Serialize a fixture operation into a candidate package
+keys with an empty package, empty path, ordinal outside QSpec FR-322's range
+or a nested path node ID with an out-of-range ordinal with a typed error and
+no operation. Accept
+foreign and conflicting nonempty law identities
+as valid fixture shape. Serialize a fixture operation into complete package
 wire and confirm the ordinary strict reader still refuses a case admission
 does not permit; the fixture marker must not survive serialization and readback.
 Compile-fail probes reject conversion of a fixture into an admitted
@@ -79,45 +82,41 @@ Compile-fail probes reject conversion of a fixture into an admitted
 
 ## Status
 
-Implemented: `tc_058_model_root_exports_exactly_the_fr_019_public_items`,
-`tc_058_fault_injection_adds_only_its_named_export`, and
-`tc_058_root_crate_exposes_only_its_kani_module` in
-`tests/it/public_interface.rs` check the source inventories and root boundary.
-The positive model-path and negative root-path doctests in `src/lib.rs` check
-that one table item builds only through `quire_contract_model`.
+The source-inventory and root-boundary tests exist in
+`tests/it/public_interface.rs`; the model-path and root-path doctests exist in
+`src/lib.rs`. PLANNED/UNRUN (IR-1141): the compiled negative probes and exact
+FR-019 inventory must be updated and rerun after candidate helper exports
+are removed. Existing helper-dependent tests and doctests cannot back the
+structural boundary below.
 
-## Compiled candidate application API consumer
+## Structural V2 identity API boundary
 
-Implemented (IR-738). The compiled public consumer controls and the three
-source/spec inventory controls have passed. Verify
-[FR-046](../functional/FR-046-derive-candidate-application-node-identity.md),
-AC-1, and the candidate application identity row under Public items in
-[FR-019](../functional/FR-019-rust-library-interface.md).
-The source/spec inventory includes the five named candidate API exports;
-its source inspection remains separate from the compiled consumer checks.
-Compile and execute an external consumer probe that creates a borrowed `ApplicationNodeDraft`,
-constructs `ApplicationIdentityContext`, calls `derive_application_node_id`,
-obtains `CandidateApplicationNodeId::candidate_node_id()` and exhaustively
-matches `ApplicationIdentityError`. The consumer assembles a candidate before
-reading any package; no helper result constructs or substitutes for an admitted
-`CheckedPackageV2`. Preserve the existing model-only/root-crate path checks.
-Assert the candidate node key and each specified typed error outcome through
-the compiled public interface. Source-text inventory matching alone cannot
-satisfy this compiled consumer procedure.
+PLANNED/UNRUN (IR-1141). The former FR-046 and FR-048 content-derived candidate
+helper APIs are withdrawn. The external default-feature consumer compiles a
+`CheckedNodeId { package, path, ordinal }` with a non-empty package and path,
+uses the typed V2 encoder and reader, and reads the same id after admission.
+Negative compile probes cannot import `derive_application_node_id`,
+`derive_structural_candidates`, the candidate result/context/error types,
+`CheckedSemanticId`, the retired identity-preimage types or `PACKAGE_DOMAIN_V2`.
+Each forbidden import fails independently, including `PACKAGE_DOMAIN_V2`; the
+source inventory also confirms that the constant is not re-exported from the
+model crate root.
+The model crate's named public inventory and the absence of root-crate reexports
+remain enforced. A raw structural id does not assert admission; only the
+strict reader returns an admitted `CheckedPackageV2`.
 
-## Compiled candidate structural API consumer
+## Nominal body public boundary (FR-038-AC-374, FR-038-AC-375)
 
-Planned for IR-763; no compiled or tagged result is claimed. Verify
-[FR-048](../functional/FR-048-derive-structural-and-group-candidates.md),
-AC-1, and the candidate structural identity row under Public items in
-[FR-019](../functional/FR-019-rust-library-interface.md).
-Compile and run an external default-feature `quire_contract_model` consumer
-that builds ordered `CheckedSemanticNodeV2` drafts, calls
-`derive_structural_candidates`, obtains each typed candidate node ID and group
-label through accessors, and exhaustively matches `StructuralCandidateError`.
-Compile-fail probes shall reject direct construction of candidate results and
-imports through `quire_contract_ir`. Compare the default-feature root export
-set against the updated FR-019 inventory, retaining the existing no-glob and
-fault-injection-only-delta checks. The consumer shall obtain candidates before
-any package read and cannot turn a candidate into an admitted package.
-TC-048 owns the subsequent reader admission, stale-key and resource controls.
+PLANNED/UNRUN (IR-1141). The default-feature consumer imports `NominalBody`
+and its four fallible constructors from `quire_contract_model`. Compile-fail
+probes reject construction of a raw nominal
+variant, mutation of an opaque body, unchecked conversion and direct
+deserialization into `NominalBody`; the root `quire_contract_ir` crate does not
+export it. Re-run FR-019-AC-5's exact named inventory with this implemented
+entry included; a missing export fails.
+In a default-feature external compile probe, read enum details from a borrowed
+`NominalBody` and require the ordered flag and borrowed member slice without
+copying or sorting it. Compile-fail probes reject mutating the returned members
+or constructing an unchecked enum body through the accessor. The accessor
+introduces no separately exported root item and does not alter the exact
+inventory or the root-crate boundary.

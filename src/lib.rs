@@ -15,10 +15,10 @@
 //! use quire_contract_ir::SchemaVersion;
 //! ```
 //!
-//! Candidate structural identities also remain model-crate only:
+//! The strict V2 reader is also model-crate only:
 //!
 //! ```compile_fail,E0432
-//! use quire_contract_ir::derive_structural_candidates;
+//! use quire_contract_ir::CheckedPackageV2;
 //! ```
 //!
 //! Test operation fixtures also remain model-crate only (FR-019-AC-16, TC-058):

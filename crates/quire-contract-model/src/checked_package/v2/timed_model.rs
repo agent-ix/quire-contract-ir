@@ -12,8 +12,7 @@ use super::{
     RawSemanticNodeV2 as CheckedSemanticNodeV2, TimedModelForm,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, is_digest, node_pointer, TermField, ValidationFailure, WireTerm,
-    NODE_DOMAIN,
+    body_term, exact_members, node_pointer, TermField, ValidationFailure, WireTerm,
 };
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
@@ -76,9 +75,7 @@ fn possible_binding_value(value: &Value) -> Option<&Value> {
 
 #[ix_trace_rs::string_edge]
 fn node_key(value: &Value) -> Option<CheckedNodeId> {
-    serde_json::from_value::<CheckedNodeId>(value.clone())
-        .ok()
-        .filter(|key| key.domain.as_ref() == NODE_DOMAIN && is_digest(&key.digest))
+    CheckedNodeId::from_value(value).filter(CheckedNodeId::is_well_formed)
 }
 
 fn reference(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
@@ -242,13 +239,7 @@ pub(super) fn check_wire(
     position: usize,
 ) -> Result<(), ValidationFailure> {
     let at = node_pointer(position);
-    for (name, present) in [
-        ("recursion_group", node.recursion_group.is_some()),
-        (
-            "nominal_identity_preimage",
-            node.nominal_identity_preimage.is_some(),
-        ),
-    ] {
+    for (name, present) in [("recursion_group", node.recursion_group.is_some())] {
         if present {
             return Err(malformed(at.clone().key(name)));
         }
@@ -1758,7 +1749,8 @@ fn check_timed_reference_order(
     Ok(())
 }
 
-/// Join the retained timed roots, members and local typed targets in digest order.
+/// Join the retained timed roots, members and local typed targets in structural ID order.
+#[ix_trace_rs::string_edge]
 pub(super) fn validate_models<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
@@ -1865,12 +1857,20 @@ pub(super) fn validate_models<'a>(
                     binding_at(source, 1),
                     |kind| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
                 )?;
-                let is_base_time = matches!(
-                    nodes[dimension].nominal_identity_preimage.as_ref(),
-                    Some(super::NominalIdentityPreimage::Dimension(preimage))
-                        if preimage.terms.is_empty()
-                            && preimage.qualified_declaration.last().is_some_and(|name| name.as_ref() == "Time")
-                );
+                let is_base_time = super::identity::NominalBody::from_value(
+                    &nodes[dimension].body,
+                    node_pointer(dimension).key("body"),
+                )
+                .is_ok_and(|body| {
+                    matches!(
+                        body.kind(),
+                        super::identity::NominalBodyKind::Dimension { terms } if terms.is_empty()
+                    )
+                }) && nodes[dimension]
+                    .declaration
+                    .as_ref()
+                    .and_then(|declaration| declaration.qualified_name.last())
+                    .is_some_and(|name| name.as_ref() == "Time");
                 if !is_base_time || nodes[unit].semantic_type != nodes[dimension].node_id {
                     return Err(graph.issue(
                         source,
@@ -2408,11 +2408,11 @@ mod tests {
                     .as_str()
                     .expect("selected member type");
                 let selector = &step["members"][2]["value"];
-                let selector_kind = match selector["target"]["digest"].as_str() {
-                    Some(digest) if Some(digest) == vectors["type_nodes"]["integer"].as_str() => {
+                let selector_kind = match selector.get("target") {
+                    Some(target) if target == &vectors["type_nodes"]["integer"] => {
                         Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Integer))
                     }
-                    Some(digest) if Some(digest) == vectors["type_nodes"]["text"].as_str() => {
+                    Some(target) if target == &vectors["type_nodes"]["text"] => {
                         Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
                     }
                     Some(_) => Some(CheckedNodeKind::Expression(

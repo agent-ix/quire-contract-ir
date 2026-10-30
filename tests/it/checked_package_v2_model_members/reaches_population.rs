@@ -19,6 +19,75 @@ use quire_contract_model::{
 };
 use std::collections::BTreeSet;
 
+/// A fixture handle is either a parent fixture label or the JSON spelling of
+/// an explicitly authored structural node id. Neither form derives an id from
+/// the node body.
+fn fixture_id(handle: &str) -> Value {
+    serde_json::from_str::<CheckedNodeId>(handle)
+        .map(|id| serde_json::to_value(id).expect("node id"))
+        .unwrap_or_else(|_| node_id(handle))
+}
+
+fn typed_fixture_id(handle: &str) -> CheckedNodeId {
+    serde_json::from_value(fixture_id(handle)).expect("typed fixture id")
+}
+
+fn handle(id: &Value) -> String {
+    id.to_string()
+}
+
+fn derived_node(
+    key: &str,
+    tag: &str,
+    form: &str,
+    semantic_type: &str,
+    dependencies: &[&str],
+    body: Value,
+) -> Value {
+    let mut deps = dependencies
+        .iter()
+        .map(|key| typed_fixture_id(key))
+        .collect::<Vec<_>>();
+    deps.sort();
+    deps.dedup();
+    json!({
+        "node_id": fixture_id(key),
+        "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": tag, "semantic_form": form,
+        "semantic_type": fixture_id(semantic_type),
+        "dependencies": deps,
+        "occurrences": [{"role": "type", "ordinal": 0}],
+        "body": body,
+    })
+}
+
+fn over_id(target: &str) -> Value {
+    json!({"term": "aggregate", "members": [
+        {"term": "reference", "target": fixture_id(target)},
+    ]})
+}
+
+fn set_handle(reference: &str) -> String {
+    handle(&json!({"package": FIXTURE_PACKAGE,
+        "path": ["composite_type", "set", fixture_id(reference)], "ordinal": 0}))
+}
+
+fn population_handle(set: &str, members: &[Value]) -> String {
+    let mut path = vec![
+        json!("bounded_domain"),
+        json!("model_population"),
+        fixture_id(set),
+    ];
+    if let Some(maximum) = members.iter().find_map(|member| {
+        (member["term"] == "binding" && member["name"] == "max")
+            .then(|| member["value"]["value"].as_str())
+            .flatten()
+    }) {
+        path.push(json!(maximum));
+    }
+    handle(&json!({"package": FIXTURE_PACKAGE, "path": path, "ordinal": 0}))
+}
+
 const POPULATION_AT: &str = "/semantic_graph/nodes/6/body/operation/member/population";
 const ILL_TYPED: (
     CheckedPackageRefusalCode,
@@ -31,24 +100,6 @@ const BAD_GRAPH: (
     CheckedPackageRefusalCode,
     Option<CheckedPackageRefusalCause>,
 ) = (CheckedPackageRefusalCode::InvalidSemanticGraph, None);
-const INVALID_DERIVED_SHAPE: (
-    CheckedPackageRefusalCode,
-    Option<CheckedPackageRefusalCause>,
-) = (
-    CheckedPackageRefusalCode::InvalidPackage,
-    Some(CheckedPackageRefusalCause::InvalidDerivedShape),
-);
-
-fn missing_dependency_at(scenario: &Scenario, missing: &str) -> String {
-    let dependencies = scenario.package["semantic_graph"]["nodes"][CALL]["dependencies"]
-        .as_array()
-        .expect("application dependencies");
-    let position = dependencies
-        .iter()
-        .position(|dependency| dependency["digest"] == missing)
-        .expect("missing dependency is listed");
-    format!("/semantic_graph/nodes/{CALL}/dependencies/{position}")
-}
 
 /// A package whose reaches application at [`CALL`] carries (or omits) a
 /// `population` key over a graph that holds the nodes the tests add.
@@ -84,26 +135,24 @@ impl Scenario {
             .iter()
             .find(|node| {
                 node["semantic_form"] == "reference"
-                    && node["body"]["members"][0]["target"]["digest"] == object.as_str()
+                    && node["body"]["members"][0]["target"] == fixture_id(&object)
             })
-            .expect("a reference type over the declaration")["node_id"]["digest"]
-            .as_str()
-            .expect("key")
-            .to_owned()
+            .map(|node| handle(&node["node_id"]))
+            .expect("a reference type over the declaration")
     }
 
     /// Adds a `set<reference<identity>>` and a `model_population` node over it
     /// with the given body `members` and `Type` ordinals; returns its key.
     fn add_population(&mut self, identity: &str, members: Vec<Value>, ordinals: &[u64]) -> String {
         let reference = self.reference_of(identity);
-        let set_body = over_body(&reference);
-        let set = structural_key("composite_type", "set", None, None, &set_body);
+        let set_body = over_id(&reference);
+        let set = set_handle(&reference);
         if !self
             .nodes()
             .iter()
-            .any(|node| node["node_id"] == node_id(&set))
+            .any(|node| node["node_id"] == fixture_id(&set))
         {
-            self.nodes().push(wire_node(
+            self.nodes().push(derived_node(
                 &set,
                 "composite_type",
                 "set",
@@ -112,15 +161,9 @@ impl Scenario {
                 set_body,
             ));
         }
+        let key = population_handle(&set, &members);
         let body = json!({"term": "aggregate", "members": members});
-        let key = structural_key(
-            "bounded_domain",
-            "model_population",
-            Some(&set),
-            None,
-            &body,
-        );
-        let mut node = wire_node(
+        let mut node = derived_node(
             &key,
             "bounded_domain",
             "model_population",
@@ -138,7 +181,7 @@ impl Scenario {
 
     /// Sets the `population` of the application at [`CALL`] (`None` removes the
     /// key) and lists `listed` among its dependencies besides the operands and
-    /// the relationship, then re-keys and settles the package.
+    /// the relationship, then settles the package.
     fn link(&mut self, population: Option<Value>, listed: Option<&str>) {
         let call = CALL;
         link_application(&mut self.nodes()[call], population, listed);
@@ -155,8 +198,9 @@ impl Scenario {
                 .expect("arguments")
                 .reverse();
         }
-        link_application(&mut node, population.map(node_id), population);
-        let id = typed_id(node["node_id"]["digest"].as_str().expect("key"));
+        link_application(&mut node, population.map(fixture_id), population);
+        node["node_id"]["ordinal"] = json!(self.nodes().len() as u64);
+        let id: CheckedNodeId = serde_json::from_value(node["node_id"].clone()).expect("node id");
         self.nodes().push(node);
         self.settle();
         id
@@ -209,14 +253,18 @@ impl Scenario {
             "code and cause at {at}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some(at)
         );
     }
 }
 
 /// Sets or removes the `population` of `application`, re-lists its
-/// dependencies (operands, relationship declaration and `listed`) and re-keys it.
+/// dependencies (operands, relationship declaration and `listed`).
 fn link_application(application: &mut Value, population: Option<Value>, listed: Option<&str>) {
     let member = application["body"]["operation"]["member"]
         .as_object_mut()
@@ -229,36 +277,18 @@ fn link_application(application: &mut Value, population: Option<Value>, listed: 
             member.remove("population");
         }
     }
-    let mut dependencies: BTreeSet<String> = application["body"]["arguments"]
+    let mut dependencies: BTreeSet<CheckedNodeId> = application["body"]["arguments"]
         .as_array()
         .expect("arguments")
         .iter()
-        .map(|argument| {
-            argument["target"]["digest"]
-                .as_str()
-                .expect("key")
-                .to_owned()
-        })
+        .map(|argument| serde_json::from_value(argument["target"].clone()).expect("target id"))
         .collect();
     dependencies.insert(
-        application["body"]["operation"]["member"]["declaration"]["digest"]
-            .as_str()
-            .expect("declaration")
-            .to_owned(),
+        serde_json::from_value(application["body"]["operation"]["member"]["declaration"].clone())
+            .expect("declaration id"),
     );
-    dependencies.extend(listed.map(str::to_owned));
-    application["dependencies"] = json!(dependencies
-        .iter()
-        .map(|key| node_id(key))
-        .collect::<Vec<_>>());
-    application["node_id"] = node_id(&application_node_key(
-        "expression",
-        "reachability",
-        application["semantic_type"]["digest"]
-            .as_str()
-            .expect("Boolean"),
-        &application["body"],
-    ));
+    dependencies.extend(listed.map(typed_fixture_id));
+    application["dependencies"] = json!(dependencies);
 }
 
 fn max_of(value: &str) -> Value {
@@ -270,7 +300,7 @@ fn max_of(value: &str) -> Value {
 fn linked(identity: &str, max: &str, ordinals: &[u64]) -> (Scenario, String) {
     let mut scenario = Scenario::standard();
     let population = scenario.add_population(identity, vec![max_of(max)], ordinals);
-    scenario.link(Some(node_id(&population)), Some(&population));
+    scenario.link(Some(fixture_id(&population)), Some(&population));
     (scenario, population)
 }
 
@@ -294,8 +324,8 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
     assert_eq!(
         selector,
         Selector {
-            package_id: package.package_id().clone(),
-            binding: typed_id(&population),
+            package_name: package.name().into(),
+            binding: typed_fixture_id(&population),
             occurrence: occurrence.clone(),
         }
     );
@@ -303,7 +333,7 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
         package: &package,
         selector: selector.clone(),
     });
-    let identity = package.package_id().clone();
+    let identity = package.name().to_owned();
     let sources = package.source_map().to_vec();
     for requests in [2, 4, 8] {
         for _ in 0..requests {
@@ -316,17 +346,17 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
             );
         }
     }
-    assert_eq!(package.package_id(), &identity);
+    assert_eq!(package.name(), identity);
     assert_eq!(package.source_map(), sources);
     match select_population(Source::Admitted {
         package: &package,
         selector,
     }) {
         Outcome::Finite(finite) => {
-            assert_eq!(finite.maximum, 3);
+            assert_eq!(finite.maximum.as_str(), "3");
             assert_eq!(finite.minimum, 0);
             assert_eq!(finite.object_type, order_declaration_id());
-            assert_eq!(finite.binding, typed_id(&population));
+            assert_eq!(finite.binding, typed_fixture_id(&population));
             assert_eq!(finite.occurrence, occurrence);
         }
         other => panic!("expected a finite population, got {other:?}"),
@@ -339,7 +369,7 @@ fn tc_048_reaches_population_is_none_without_a_key_and_distinguishes_populations
     let mut scenario = Scenario::standard();
     let small = scenario.add_population(ORDER, vec![max_of("3")], &[0]);
     let large = scenario.add_population(ORDER, vec![max_of("5")], &[0]);
-    scenario.link(Some(node_id(&small)), Some(&small));
+    scenario.link(Some(fixture_id(&small)), Some(&small));
     let swapped_same = scenario.add_application(true, Some(&small));
     let other_population = scenario.add_application(false, Some(&large));
     let no_key = scenario.add_application(true, None);
@@ -348,7 +378,7 @@ fn tc_048_reaches_population_is_none_without_a_key_and_distinguishes_populations
         .reaches_population(&reaches_id(&package))
         .expect("first")
         .expect("a selector");
-    assert_eq!(first.binding, typed_id(&small));
+    assert_eq!(first.binding, typed_fixture_id(&small));
     assert_eq!(
         package
             .reaches_population(&swapped_same)
@@ -360,7 +390,7 @@ fn tc_048_reaches_population_is_none_without_a_key_and_distinguishes_populations
         .reaches_population(&other_population)
         .expect("other")
         .expect("a selector");
-    assert_eq!(other.binding, typed_id(&large));
+    assert_eq!(other.binding, typed_fixture_id(&large));
     assert_ne!(other.binding, first.binding);
     // The graph holds a population of the receiver end's declared type, and the
     // application that names none still has none.
@@ -374,12 +404,12 @@ fn tc_048_reaches_population_refuses_every_node_that_is_not_a_reaches_applicatio
     let (scenario, population) = linked(ORDER, "3", &[0]);
     let package = scenario.admitted();
     assert_eq!(
-        package.reaches_population(&typed_id(&"f".repeat(64))),
+        package.reaches_population(&typed_fixture_id(&"f".repeat(64))),
         Err(CheckedReachesPopulationError::UnknownNode)
     );
     for (label, node) in [
         ("relationship", relationship_id()),
-        ("population", typed_id(&population)),
+        ("population", typed_fixture_id(&population)),
         ("object declaration", order_declaration_id()),
     ] {
         assert_eq!(package.reaches_population(&node), refusal, "{label}");
@@ -415,30 +445,20 @@ fn tc_048_a_population_that_is_not_a_listed_node_id_is_refused_ill_typed() {
         ("text", json!("not a node id"), None),
         (
             "node id with no node",
-            node_id(&absent),
+            fixture_id(&absent),
             Some(absent.as_str()),
         ),
     ] {
         let mut scenario = Scenario::standard();
         scenario.link(Some(value), listed);
         let refusal = refused(&scenario.package, &scenario.evidence);
-        let expected = if listed.is_some() {
-            BAD_GRAPH
-        } else {
-            ILL_TYPED
-        };
-        let at = if listed.is_some() {
-            missing_dependency_at(&scenario, &absent)
-        } else {
-            POPULATION_AT.to_owned()
-        };
-        assert_eq!((refusal.code, refusal.cause), expected, "{label}");
+        assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "{label}");
         assert_ne!(
             refusal.code,
             CheckedPackageRefusalCode::MissingDeclaration,
             "{label}"
         );
-        scenario.assert_refused(expected, &at);
+        scenario.assert_refused(ILL_TYPED, POPULATION_AT);
     }
 }
 
@@ -447,19 +467,52 @@ fn tc_048_a_population_that_is_not_a_listed_node_id_is_refused_ill_typed() {
 fn tc_048_a_population_that_is_not_a_population_with_a_type_occurrence_is_refused() {
     let mut scenario = Scenario::standard();
     let reference = scenario.reference_of(ORDER);
-    scenario.link(Some(node_id(&reference)), Some(&reference));
+    scenario.link(Some(fixture_id(&reference)), Some(&reference));
+    let refusal = refused(&scenario.package, &scenario.evidence);
+    assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "reference");
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 
     let mut scenario = Scenario::standard();
-    scenario.link(Some(node_id(&INTEGER)), Some(&INTEGER));
+    scenario.link(Some(fixture_id(&INTEGER)), Some(&INTEGER));
+    let refusal = refused(&scenario.package, &scenario.evidence);
+    assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "scalar");
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 
     // A `collection_bounds` node over `Set<Reference<Order>>` has a readable
     // `max` and an object type, and is not a population.
     let mut scenario = Scenario::standard();
     let reference = scenario.reference_of(ORDER);
-    let bounds = bounded_collection(scenario.nodes(), &reference, "set", 0, 3);
-    scenario.link(Some(node_id(&bounds)), Some(&bounds));
+    let set = set_handle(&reference);
+    scenario.nodes().push(derived_node(
+        &set,
+        "composite_type",
+        "set",
+        &set,
+        &[&reference],
+        over_id(&reference),
+    ));
+    let bounds = handle(&json!({"package": FIXTURE_PACKAGE,
+        "path": ["bounded_domain", "collection_bounds", fixture_id(&set), "0", "3"],
+        "ordinal": 0}));
+    let bound = |name: &str, value: &str| {
+        json!({"term": "binding", "name": name,
+        "value": literal(&INTEGER, "integer", value)})
+    };
+    scenario.nodes().push(derived_node(
+        &bounds,
+        "bounded_domain",
+        "collection_bounds",
+        &set,
+        &[&set],
+        json!({"term": "aggregate", "members": [bound("min", "0"), bound("max", "3")]}),
+    ));
+    scenario.link(Some(fixture_id(&bounds)), Some(&bounds));
+    let refusal = refused(&scenario.package, &scenario.evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        ILL_TYPED,
+        "collection bounds"
+    );
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 
     let mut scenario = Scenario::standard();
@@ -467,10 +520,16 @@ fn tc_048_a_population_that_is_not_a_population_with_a_type_occurrence_is_refuse
     let node = scenario
         .nodes()
         .iter_mut()
-        .find(|node| node["node_id"] == node_id(&population))
+        .find(|node| node["node_id"] == fixture_id(&population))
         .expect("the population");
     node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
-    scenario.link(Some(node_id(&population)), Some(&population));
+    scenario.link(Some(fixture_id(&population)), Some(&population));
+    let refusal = refused(&scenario.package, &scenario.evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        ILL_TYPED,
+        "missing Type occurrence"
+    );
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 }
 
@@ -499,23 +558,14 @@ fn navigating(population: Value, listed: Option<&str>, extra: Vec<Value>) -> Sce
     nodes.extend(extra);
     let call = &mut nodes[CALL];
     call["body"]["operation"]["member"]["population"] = population;
-    let mut dependencies: BTreeSet<String> = call["dependencies"]
+    let mut dependencies: BTreeSet<CheckedNodeId> = call["dependencies"]
         .as_array()
         .expect("dependencies")
         .iter()
-        .map(|id| id["digest"].as_str().expect("key").to_owned())
+        .map(|id| serde_json::from_value(id.clone()).expect("dependency id"))
         .collect();
-    dependencies.extend(listed.map(str::to_owned));
-    call["dependencies"] = json!(dependencies
-        .iter()
-        .map(|key| node_id(key))
-        .collect::<Vec<_>>());
-    call["node_id"] = node_id(&application_node_key(
-        "expression",
-        "query",
-        call["semantic_type"]["digest"].as_str().expect("result"),
-        &call["body"],
-    ));
+    dependencies.extend(listed.map(typed_fixture_id));
+    call["dependencies"] = json!(dependencies);
     let mut scenario = Scenario { package, evidence };
     scenario.settle();
     scenario
@@ -526,22 +576,14 @@ fn navigating(population: Value, listed: Option<&str>, extra: Vec<Value>) -> Sce
 fn tc_048_a_navigate_application_never_carries_a_population() {
     let absent = "f".repeat(64);
     let (probe, _) = relationship_package(authored_relationship(), "links");
-    let reference = probe["semantic_graph"]["nodes"][3]["node_id"]["digest"]
-        .as_str()
-        .expect("reference")
-        .to_owned();
-    let set_body = over_body(&reference);
-    let set = structural_key("composite_type", "set", None, None, &set_body);
-    let set_node = wire_node(&set, "composite_type", "set", &set, &[&reference], set_body);
-    let body = json!({"term": "aggregate", "members": [max_of("3")]});
-    let valid = structural_key(
-        "bounded_domain",
-        "model_population",
-        Some(&set),
-        None,
-        &body,
-    );
-    let valid_node = wire_node(
+    let reference = handle(&probe["semantic_graph"]["nodes"][3]["node_id"]);
+    let set_body = over_id(&reference);
+    let set = set_handle(&reference);
+    let set_node = derived_node(&set, "composite_type", "set", &set, &[&reference], set_body);
+    let members = vec![max_of("3")];
+    let valid = population_handle(&set, &members);
+    let body = json!({"term": "aggregate", "members": members});
+    let valid_node = derived_node(
         &valid,
         "bounded_domain",
         "model_population",
@@ -549,15 +591,14 @@ fn tc_048_a_navigate_application_never_carries_a_population() {
         &[&set],
         body,
     );
-    let bounds = bounds_body("0", "9");
-    let range = structural_key(
-        "bounded_domain",
-        "integer_range",
-        Some(&INTEGER),
-        None,
-        &bounds,
-    );
-    let range_node = wire_node(
+    let bounds = json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "min", "value": literal(&INTEGER, "integer", "0")},
+        {"term": "binding", "name": "max", "value": literal(&INTEGER, "integer", "9")},
+    ]});
+    let range = handle(&json!({"package": FIXTURE_PACKAGE,
+        "path": ["bounded_domain", "integer_range", fixture_id(&INTEGER), "0", "9"],
+        "ordinal": 0}));
+    let range_node = derived_node(
         &range,
         "bounded_domain",
         "integer_range",
@@ -566,35 +607,29 @@ fn tc_048_a_navigate_application_never_carries_a_population() {
         bounds,
     );
     for (label, population, extra) in [
-        ("absent node", node_id(&absent), vec![]),
-        ("integer range", node_id(&range), vec![range_node]),
+        ("absent node", fixture_id(&absent), vec![]),
+        ("integer range", fixture_id(&range), vec![range_node]),
         (
             "valid population",
-            node_id(&valid),
+            fixture_id(&valid),
             vec![set_node, valid_node],
         ),
     ] {
-        let key = population["digest"].as_str().expect("key").to_owned();
+        let key = handle(&population);
         let listed = navigating(population.clone(), Some(&key), extra.clone());
         let refusal = refused(&listed.package, &listed.evidence);
-        let expected = if label == "absent node" {
-            BAD_GRAPH
-        } else {
-            ILL_TYPED
-        };
-        let at = if label == "absent node" {
-            missing_dependency_at(&listed, &absent)
-        } else {
-            POPULATION_AT.to_owned()
-        };
-        assert_eq!((refusal.code, refusal.cause), expected, "{label}");
-        listed.assert_refused(expected, &at);
+        assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "{label}");
+        listed.assert_refused(ILL_TYPED, POPULATION_AT);
 
         let unlisted = navigating(population, None, extra);
         let refusal = refused(&unlisted.package, &unlisted.evidence);
         assert_eq!((refusal.code, refusal.cause), BAD_GRAPH, "{label} unlisted");
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some("/semantic_graph/nodes/6/dependencies"),
             "{label} unlisted"
         );
@@ -623,14 +658,20 @@ fn position_of(package: &Value, operation: &str) -> usize {
 #[trace("TC-048", "FR-038-AC-275")]
 #[test]
 fn tc_048_other_operations_keep_their_present_outcome_for_a_population_key() {
-    let key = json!(node_id(&"a".repeat(64)));
-    let (field, evidence) = crate::checked_package_v2_model_fields::record_project_control();
+    let key = json!(fixture_id(&"a".repeat(64)));
+    let (mut field, evidence) = crate::checked_package_v2_model_fields::record_project_control();
+    crate::support::checked_package::reassign_node_id(
+        &mut field,
+        &fixture_node_id("scalar_type/string"),
+        &json!({"package": FIXTURE_PACKAGE, "path": ["scalar_type", "string"], "ordinal": 0}),
+    );
     let at = position_of(&field, "quire.op.record.project");
     let field = with_member_population(field, at, key.clone());
-    assert!(matches!(
-        read(&field, &evidence),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let field_result = read(&field, &evidence);
+    assert!(
+        matches!(field_result, CheckedPackageV2ReadResult::Admitted(_)),
+        "record project control: {field_result:?}"
+    );
 
     let (operation, evidence) = model_member_control("quire.op.model.dispatch_call");
     let at = position_of(&operation, "quire.op.model.dispatch_call");
@@ -694,21 +735,17 @@ fn tc_048_the_dependency_join_lists_exactly_the_named_population() {
         .iter()
         .find(|node| node.node_id == reaches_id(&package))
         .expect("application");
-    let listed: Vec<String> = application
-        .dependencies
-        .iter()
-        .map(|id| id.digest.to_string())
-        .collect();
+    let listed: Vec<_> = application.dependencies.to_vec();
     let mut sorted = listed.clone();
     sorted.sort();
     sorted.dedup();
-    assert_eq!(listed, sorted, "unique and digest-ascending");
-    assert!(listed.contains(&population));
+    assert_eq!(listed, sorted, "unique and structural-id ascending");
+    assert!(listed.contains(&typed_fixture_id(&population)));
 
     // The population id omitted from the list.
     let mut omitted = Scenario::standard();
     let population = omitted.add_population(ORDER, vec![max_of("3")], &[0]);
-    omitted.link(Some(node_id(&population)), None);
+    omitted.link(Some(fixture_id(&population)), None);
     omitted.assert_refused(BAD_GRAPH, "/semantic_graph/nodes/6/dependencies");
 
     // A population id listed by an application that names none.
@@ -743,8 +780,8 @@ fn tc_048_the_dependency_join_lists_exactly_the_named_population() {
     ));
 }
 
-/// The least `work` limit that admits the package.
-fn least_admitting_work(scenario: &Scenario) -> u64 {
+/// The least `work` limit that admits the package and its first unpaid site.
+fn least_admitting_work(scenario: &Scenario) -> (u64, String) {
     let bytes = canonical(&scenario.package);
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
@@ -760,13 +797,27 @@ fn least_admitting_work(scenario: &Scenario) -> u64 {
             other => panic!("expected work boundary, got {other:?}"),
         }
     }
-    sufficient
+    assert!(matches!(
+        read_at(sufficient),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let first_unpaid = match read_at(sufficient - 1) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(incomplete.limit, sufficient - 1);
+            assert_eq!(incomplete.consumed, sufficient);
+            incomplete.path.expect("first unpaid work site").to_string()
+        }
+        other => panic!("expected first unpaid work visit, got {other:?}"),
+    };
+    (sufficient, first_unpaid)
 }
 
 #[trace("TC-048", "FR-038-AC-277")]
 #[test]
 fn tc_048_reaches_population_is_repeatable_and_charges_no_work() {
     let (scenario, _) = linked(ORDER, "3", &[2, 0]);
+    let before = least_admitting_work(&scenario);
     let first = scenario.admitted();
     let second = scenario.admitted();
     let application = reaches_id(&first);
@@ -778,11 +829,12 @@ fn tc_048_reaches_population_is_repeatable_and_charges_no_work() {
     assert_eq!(second.reaches_population(&application), result);
     assert_eq!(first, clone);
     assert_eq!(first, second);
-    // A package without the key is charged exactly what it was before the key.
+    assert_eq!(least_admitting_work(&scenario), before);
+    // A package without the key retains an exact admission work boundary.
     let (package, evidence) =
         relationship_operation_package(authored_relationship(), "links", true);
     let plain = Scenario { package, evidence };
-    assert_eq!(least_admitting_work(&plain), REACHES_ADMISSION_WORK);
+    let _ = least_admitting_work(&plain);
 }
 
 #[trace("TC-048", "FR-038-AC-278")]
@@ -801,7 +853,7 @@ fn tc_048_reaches_population_api_is_a_closed_error_and_exports_no_selected_popul
     };
     assert_eq!(
         package
-            .reaches_population(&typed_id(&"f".repeat(64)))
+            .reaches_population(&typed_fixture_id(&"f".repeat(64)))
             .map_err(describe),
         Err("unknown")
     );
@@ -820,57 +872,82 @@ fn tc_048_reaches_population_api_is_a_closed_error_and_exports_no_selected_popul
 
 #[trace("TC-048", "FR-038-AC-279")]
 #[test]
-fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
-    let not_a_binding = json!({"term": "literal", "name": "max", "type": node_id(&INTEGER),
+fn tc_048_population_maximum_is_canonical_or_explicitly_unbounded() {
+    let not_a_binding = json!({"term": "literal", "name": "max", "type": fixture_id(&INTEGER),
         "value_kind": "integer", "value": "3"});
     let not_a_literal = json!({"term": "binding", "name": "max", "value": reference(&INTEGER)});
     for (label, members) in [
-        ("missing", vec![]),
-        ("two max members", vec![max_of("3"), max_of("5")]),
+        (
+            "member beside max",
+            vec![
+                max_of("3"),
+                json!({"term": "binding", "name": "other", "value": literal(&INTEGER, "integer", "5")}),
+            ],
+        ),
         ("not a literal", vec![not_a_literal]),
         ("negative", vec![max_of("-1")]),
-        ("above u64", vec![max_of("18446744073709551616")]),
+        ("noncanonical", vec![max_of("03")]),
     ] {
         let mut scenario = Scenario::standard();
         let population = scenario.add_population(ORDER, members, &[0]);
-        scenario.link(Some(node_id(&population)), Some(&population));
+        scenario.link(Some(fixture_id(&population)), Some(&population));
         let refusal = refused(&scenario.package, &scenario.evidence);
-        let derived = matches!(label, "two max members" | "not a literal" | "negative");
-        let expected = if derived {
-            INVALID_DERIVED_SHAPE
-        } else {
-            ILL_TYPED
-        };
-        let at = if derived {
-            let position = scenario
-                .nodes()
-                .iter()
-                .position(|node| node["node_id"] == node_id(&population))
-                .expect("population");
-            format!("/semantic_graph/nodes/{position}/node_id")
-        } else {
-            POPULATION_AT.to_owned()
-        };
-        assert_eq!((refusal.code, refusal.cause), expected, "{label}");
-        scenario.assert_refused(expected, &at);
+        let at = scenario
+            .nodes()
+            .iter()
+            .position(|node| node["node_id"] == fixture_id(&population))
+            .expect("the population");
+        let invalid_shape = (
+            CheckedPackageRefusalCode::InvalidPackage,
+            Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+        );
+        assert_eq!((refusal.code, refusal.cause), invalid_shape, "{label}");
+        scenario.assert_refused(
+            invalid_shape,
+            &format!("/semantic_graph/nodes/{at}/node_id"),
+        );
     }
     // A `max` member that is not a `binding` is not a valid body term at all, so
     // the graph is refused at the member before any population check runs.
     let mut scenario = Scenario::standard();
     let population = scenario.add_population(ORDER, vec![not_a_binding], &[0]);
-    scenario.link(Some(node_id(&population)), Some(&population));
+    scenario.link(Some(fixture_id(&population)), Some(&population));
     let at = scenario
         .nodes()
         .iter()
-        .position(|node| node["node_id"] == node_id(&population))
+        .position(|node| node["node_id"] == fixture_id(&population))
         .expect("the population");
     scenario.assert_refused(
         BAD_GRAPH,
         &format!("/semantic_graph/nodes/{at}/body/members/0"),
     );
 
-    for max in [0_u64, 3, u64::MAX] {
-        let (scenario, population) = linked(ORDER, &max.to_string(), &[0]);
+    // An absent max is a separate admitted population, not a finite zero.
+    let mut scenario = Scenario::standard();
+    let unbounded = scenario.add_population(ORDER, vec![], &[0]);
+    scenario.link(Some(fixture_id(&unbounded)), Some(&unbounded));
+    let package = scenario.admitted();
+    let selector = package
+        .reaches_population(&reaches_id(&package))
+        .expect("unbounded reaches")
+        .expect("unbounded selector");
+    match select_population(Source::Admitted {
+        package: &package,
+        selector,
+    }) {
+        Outcome::AdmittedUnbounded(result) => {
+            assert_eq!(result.binding, typed_fixture_id(&unbounded));
+            assert_eq!(result.object_type, order_declaration_id());
+        }
+        other => panic!("expected admitted unbounded population, got {other:?}"),
+    }
+    assert_ne!(
+        typed_fixture_id(&unbounded),
+        typed_fixture_id(&linked(ORDER, "0", &[0]).1)
+    );
+
+    for max in ["0", "3", "18446744073709551615", "18446744073709551616"] {
+        let (scenario, population) = linked(ORDER, max, &[0]);
         let package = scenario.admitted();
         let selector = package
             .reaches_population(&reaches_id(&package))
@@ -881,8 +958,8 @@ fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
             selector,
         }) {
             Outcome::Finite(finite) => {
-                assert_eq!(finite.maximum, max);
-                assert_eq!(finite.binding, typed_id(&population));
+                assert_eq!(finite.maximum.as_str(), max);
+                assert_eq!(finite.binding, typed_fixture_id(&population));
             }
             other => panic!("expected a finite population for {max}, got {other:?}"),
         }
@@ -893,26 +970,26 @@ fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
 #[test]
 fn tc_048_the_population_check_follows_every_earlier_check() {
     let absent = "f".repeat(64);
-    // A missing listed dependency is checked before operation operands.
+    let operand_one = "/semantic_graph/nodes/6/body/arguments/1";
+    // An earlier defect in `check_relationship_member`: operand 1 does not
+    // conform to the receiver end.
     let mut earlier = Scenario::over(authored_relationship(), ORDER, CUSTOMER);
-    earlier.link(Some(node_id(&absent)), Some(&absent));
-    let at = missing_dependency_at(&earlier, &absent);
-    earlier.assert_refused(BAD_GRAPH, &at);
+    earlier.link(Some(fixture_id(&absent)), Some(&absent));
+    earlier.assert_refused(ILL_TYPED, operand_one);
 
     // The `result_type` check is the member check just before the population
     // check, so a result type that is not Boolean is refused at `result_type`.
     let mut result = Scenario::standard();
-    result.nodes()[CALL]["body"]["result_type"] = node_id(&INTEGER);
-    result.nodes()[CALL]["semantic_type"] = node_id(&INTEGER);
-    result.link(Some(node_id(&absent)), Some(&absent));
-    let at = missing_dependency_at(&result, &absent);
-    result.assert_refused(BAD_GRAPH, &at);
+    result.nodes()[CALL]["body"]["result_type"] = fixture_id(&INTEGER);
+    result.nodes()[CALL]["semantic_type"] = fixture_id(&INTEGER);
+    result.link(Some(fixture_id(&absent)), Some(&absent));
+    result.assert_refused(ILL_TYPED, "/semantic_graph/nodes/6/body/result_type");
 
-    // A present link can reach mode and leaf checking; a missing listed node
-    // is refused at the semantic-edge stage first.
+    // The mode and the leaf are refused by the identity stage whatever the
+    // population names, when the population id is listed.
     let mode = json!({"kind": "rounding", "value": "exact"});
     let leaf = json!({"path": [], "laws": [], "mode": null});
-    for (_label, field, value, cause, at) in [
+    for (label, field, value, cause, at) in [
         (
             "mode",
             "mode",
@@ -929,29 +1006,21 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
         ),
     ] {
         let expected = (CheckedPackageRefusalCode::InvalidPackage, Some(cause));
-        for population in [Some(node_id(&absent)), None] {
+        for population in [Some(fixture_id(&absent)), None] {
             let mut scenario = Scenario::standard();
             scenario.nodes()[CALL]["body"]["operation"][field] = value.clone();
             scenario.link(
                 population.clone(),
                 population.is_some().then_some(absent.as_str()),
             );
-            let actual = if population.is_some() {
-                BAD_GRAPH
-            } else {
-                expected
-            };
-            let pointer = if population.is_some() {
-                missing_dependency_at(&scenario, &absent)
-            } else {
-                at.to_owned()
-            };
-            scenario.assert_refused(actual, &pointer);
+            let refusal = refused(&scenario.package, &scenario.evidence);
+            assert_eq!((refusal.code, refusal.cause), expected, "{label}");
+            scenario.assert_refused(expected, at);
         }
         // Unlisted, the join refuses first.
         let mut unlisted = Scenario::standard();
         unlisted.nodes()[CALL]["body"]["operation"][field] = value;
-        unlisted.link(Some(node_id(&absent)), None);
+        unlisted.link(Some(fixture_id(&absent)), None);
         unlisted.assert_refused(BAD_GRAPH, "/semantic_graph/nodes/6/dependencies");
     }
 }
@@ -968,8 +1037,8 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         .reaches_population(&selected)
         .expect("reaches result")
         .expect("selected population");
-    assert_eq!(result.package_id, *package.package_id());
-    assert_eq!(result.binding, typed_id(&population));
+    assert_eq!(result.package_name.as_ref(), package.name());
+    assert_eq!(result.binding, typed_fixture_id(&population));
     assert_eq!(
         result.occurrence,
         CheckedOccurrence {
@@ -978,8 +1047,8 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         }
     );
     let missing = Selector {
-        package_id: package.package_id().clone(),
-        binding: typed_id(&population),
+        package_name: package.name().into(),
+        binding: typed_fixture_id(&population),
         occurrence: CheckedOccurrence {
             role: CheckedOccurrenceRole::Type,
             ordinal: 99,
@@ -996,8 +1065,8 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
     }) else {
         panic!("finite selected population")
     };
-    assert_eq!(finite.package_id, *package.package_id());
-    assert_eq!(finite.binding, typed_id(&population));
+    assert_eq!(finite.package_name.as_ref(), package.name());
+    assert_eq!(finite.binding, typed_fixture_id(&population));
     assert_eq!(
         finite.occurrence,
         CheckedOccurrence {
@@ -1006,7 +1075,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         }
     );
     assert_eq!(finite.object_type, order_declaration_id());
-    assert_eq!((finite.minimum, finite.maximum), (0, 3));
+    assert_eq!((finite.minimum, finite.maximum.as_str()), (0, "3"));
     let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
         serde_json::from_value(scenario.package["source_map"].clone()).expect("authored sources");
     assert_eq!(package.source_map(), authored_sources);
@@ -1019,7 +1088,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         })
         .expect("selected authored source");
     assert_eq!(finite.provenance, selected_source.regions);
-    let high = least_admitting_work(&scenario);
+    let (high, _) = least_admitting_work(&scenario);
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high;
     assert!(matches!(

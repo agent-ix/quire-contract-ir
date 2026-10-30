@@ -5,9 +5,9 @@
 //!    stand only at one node form's body root (`temporal`, `temporal_formula`
 //!    and `temporal_fairness`; `case` is placed by the operation step), and of every `reference` to a
 //!    `temporal`/`formula` or `temporal`/`fairness` node, over the whole graph in
-//!    ascending node-id digest order;
+//!    ascending structural node-id order;
 //! 2. forbidden references in diagnostic details, in entry and detail order;
-//! 3. then each `temporal`/`temporal_clause` node in ascending node-id digest
+//! 3. then each `temporal`/`temporal_clause` node in ascending structural node-id
 //!    order, each taken through its checks before the next clause is read:
 //!    the profile identity (`unknown_profile`), the `over` reference, each
 //!    fairness member's resolution, the profile fit of every interval and of the
@@ -372,7 +372,7 @@ pub(super) fn timed_upper_is_null(operation: &Value) -> bool {
 /// FR-038 "The timed interval form" stage 2, a graph check: a bound of a
 /// timed-form interval that matches the rational pattern and is not in lowest
 /// terms refuses `invalid_semantic_graph` at that bound, the first in ascending
-/// `node_id` digest order and then member order. The GCD work is charged to the
+/// structural `node_id` order and then member order. The GCD work is charged to the
 /// work limit at the node's body.
 pub(super) fn validate_timed_bounds_reduced(
     nodes: &[CheckedSemanticNodeV2],
@@ -463,9 +463,9 @@ pub(in crate::checked_package) fn member_is_well_formed(
             .is_ok_and(|member| member.kind == OperationMemberKind::TypeArgument),
         OperationMemberKind::Field => {
             member.get("name").and_then(Value::as_str).is_some()
-                && member.get("declaration").is_some_and(|value| {
-                    serde_json::from_value::<CheckedNodeId>(value.clone()).is_ok()
-                })
+                && member
+                    .get("declaration")
+                    .is_some_and(|value| CheckedNodeId::from_value(value).is_some())
         }
         OperationMemberKind::Position
         | OperationMemberKind::Element
@@ -1104,14 +1104,13 @@ fn formula_intervals(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checked_package::common::NODE_DOMAIN;
     use crate::checked_package::shared::CheckedSelection;
     use crate::checked_package::v2::CheckedNodeTag;
     use ix_trace_rs::trace;
     use serde_json::json;
 
     fn id(fill: char) -> Value {
-        json!({ "domain": NODE_DOMAIN, "digest": fill.to_string().repeat(64) })
+        json!({ "package": "test/temporal", "path": [fill.to_string()], "ordinal": 0 })
     }
 
     #[trace("TC-048", "FR-038-AC-22")]
@@ -1166,6 +1165,7 @@ mod tests {
             definition_selections: Vec::new(),
             required_features: Vec::new(),
             dependency_selections: Vec::new(),
+            refinement_internals: None,
         }
     }
 
@@ -1273,7 +1273,7 @@ mod tests {
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
         assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
         assert_eq!(
-            refusal.path.as_ref().map(JsonPointer::as_str),
+            refusal.loci[0].path.as_ref().map(JsonPointer::as_str),
             Some("/semantic_graph/nodes/0/body/arguments/0")
         );
         // The path is on the argument and the locus is the target (a node that

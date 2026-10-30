@@ -7,7 +7,7 @@ use super::{
     RawCheckedPackageWireV2 as CheckedPackageWireV2, RawSemanticNodeV2 as CheckedSemanticNodeV2,
     ScalarTypeForm, WorkMeter,
 };
-use crate::checked_package::common::{is_digest, node_pointer, ValidationFailure, NODE_DOMAIN};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedExtensionRefusalDetail, CheckedNodeId,
@@ -70,11 +70,10 @@ pub(super) fn read_body(body: &Value, at: JsonPointer) -> Result<ExtensionBody, 
     if parsed.definition.authority.is_empty()
         || parsed.definition.identity.is_empty()
         || !is_identifier(&parsed.node_kind)
-        || parsed.clauses.iter().any(|clause| {
-            !is_identifier(&clause.name)
-                || clause.value.target.domain.as_ref() != NODE_DOMAIN
-                || !is_digest(&clause.value.target.digest)
-        })
+        || parsed
+            .clauses
+            .iter()
+            .any(|clause| !is_identifier(&clause.name) || !clause.value.target.is_well_formed())
     {
         return Err(ValidationFailure::refused(Code::MalformedWire, at));
     }
@@ -417,12 +416,21 @@ fn actual_type(
             _ => "extension".into(),
         };
     }
+    let structural_id = || {
+        quire_canonical::to_vec(
+            &target.semantic_type,
+            quire_canonical::Limits::new(u64::MAX),
+        )
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .unwrap_or_else(|| "unknown structural type".into())
+    };
     let Some(&type_position) = index.get(&target.semantic_type) else {
-        return target.semantic_type.digest.to_string();
+        return structural_id();
     };
     let Some((type_node, type_kind)) = nodes.get(type_position).zip(kinds.get(type_position))
     else {
-        return target.semantic_type.digest.to_string();
+        return structural_id();
     };
     if *type_kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) {
         if let Some((lo, hi)) = terms
@@ -477,13 +485,7 @@ mod tests {
             let edition = json!({"role": "edition", "definition": definition});
             let mut wire: CheckedPackageWireV2 = serde_json::from_value(json!({
                 "contract_version": super::super::CHECKED_PACKAGE_V2,
-                "identity_preimage": {
-                    "version": "quire.checked-package-id/v2", "edition": edition,
-                    "profile_selections": [], "definition_selections": [],
-                    "required_features": [], "dependency_selections": []
-                },
-                "package_id": {"domain": super::super::PACKAGE_DOMAIN_V2,
-                    "algorithm": "sha256", "digest": "a".repeat(64)},
+                "name": "test/extension",
                 "lock": {"sources": [], "edition": edition, "profile_selections": [],
                     "definition_selections": [definition],
                     "required_features": [], "dependency_selections": []},
@@ -553,7 +555,8 @@ mod tests {
         }
 
         fn run(&self) -> (Result<(), ValidationFailure>, u64) {
-            let owners = ModelOwners::new(&[], |_| Ok(())).expect("empty selected-model owners");
+            let owners = ModelOwners::new(&[], &self.wire.semantic_graph.nodes, |_| Ok(()))
+                .expect("empty selected-model owners");
             self.run_with_owners(&owners)
         }
 
@@ -606,7 +609,7 @@ mod tests {
                 (Code::IllTyped, Some(Cause::TypeMismatch))
             );
             assert_eq!(
-                refusal.path.expect("path").to_string(),
+                refusal.loci[0].path.clone().expect("path").to_string(),
                 "/semantic_graph/nodes/2/body/clauses/0/value"
             );
             assert_eq!(refusal.locus, Some(node_id('2')));
@@ -693,7 +696,7 @@ mod tests {
     #[trace("TC-459")]
     #[test]
     fn extension_join_selected_record_dispatch_preserves_owner_conformance() {
-        use crate::checked_package::v2::model_members::{declaration_key, tests as model_tests};
+        use crate::checked_package::v2::model_members::{declaration_id, tests as model_tests};
         let base = "ix://acme/orders/Base";
         let child = "ix://acme/orders/Child";
         let mut types = vec![
@@ -712,17 +715,10 @@ mod tests {
                 "construct": {"meaning": "quire.meaning.model.record-value-type/v1"}
             }));
         let model = model_tests::read(&document).expect("genuine selected record document");
-        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
         let mut join = Join::new(base, CheckedNodeKind::Model(ModelForm::RecordValueType));
-        let key = declaration_key(
-            "acme/orders",
-            DeclarationForm::RecordValueType,
-            child,
-            model_tests::BYTES,
-        )
-        .expect("child declaration key");
+        let key = declaration_id("acme/orders", DeclarationForm::RecordValueType, child);
         let ty = &mut join.wire.semantic_graph.nodes[0];
-        ty.node_id.digest = key.into();
+        ty.node_id = key;
         ty.semantic_type = ty.node_id.clone();
         ty.owner = Some(
             serde_json::from_value(json!({
@@ -731,6 +727,12 @@ mod tests {
             .expect("owner"),
         );
         join.wire.semantic_graph.nodes[1].semantic_type = ty.node_id.clone();
+        let owners = ModelOwners::new(
+            std::slice::from_ref(&model),
+            &join.wire.semantic_graph.nodes,
+            |_| Ok(()),
+        )
+        .expect("owners");
         let (baseline, baseline_work) = join.run_with_owners(&owners);
         assert!(
             baseline.is_ok(),
@@ -750,7 +752,7 @@ mod tests {
             (Code::IllTyped, Some(Cause::TypeMismatch))
         );
         assert_eq!(
-            refusal.path.expect("path").to_string(),
+            refusal.loci[0].path.clone().expect("path").to_string(),
             "/semantic_graph/nodes/2/body/clauses/0/value"
         );
         assert_eq!(
@@ -787,7 +789,7 @@ mod tests {
             (Code::MissingDeclaration, Some(Cause::MissingSelection))
         );
         assert_eq!(
-            refusal.path.expect("path").to_string(),
+            refusal.loci[0].path.clone().expect("path").to_string(),
             "/semantic_graph/nodes/2/body/definition"
         );
         assert_eq!(work, 0);

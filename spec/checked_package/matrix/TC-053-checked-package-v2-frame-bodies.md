@@ -13,7 +13,7 @@ relationships:
 Verify FR-038-AC-12 through FR-038-AC-15: the closed `creates`/`deletes`
 entry eligibility, the `missing_declaration`/`invalid_model_binding` refusal
 split and its cause, the meaning-join-over-order and member-then-order-key
-refusal precedence, and the ascending-node-id-digest visit order across
+refusal precedence, and the ascending-structural-node-id visit order across
 multiple frame nodes. The `modifies` and `deletes_scoped` entry shapes, scopes and eligibility are
 FR-040's and TC-056's.
 
@@ -27,7 +27,7 @@ triple are checked, not sampled. Using the in-repo `v2_all_families()`
 fixture built from this crate's own public vocabulary, reassign its frame
 body so its declared `object_type` and `process` dependencies sit in
 `creates` and `deletes` respectively and read the package. Then read one
-locally authored package per rule: an entry naming a digest outside the
+locally authored package per rule: an entry naming a structural node id outside the
 frame's own `dependencies`, once for a real node elsewhere in the graph and
 once for no node at all; a frame carrying a meaning-join defect beside a
 canonical-order defect; and two defective frames.
@@ -37,7 +37,7 @@ canonical-order defect; and two defective frames.
 The eligibility check admits exactly the four `creates`/`deletes` triples and
 refuses every other `creates`/`deletes` triple; the fixture, with `process` in
 `creates` and `object_type` in `deletes`, admits. An entry naming no declared
-dependency, whether or not the digest resolves to a node elsewhere, refuses as
+dependency, whether or not that id resolves to a node elsewhere, refuses as
 `missing_declaration`/`missing-name` at that entry; the meaning-join defect is
 reported over the co-occurring order defect; and the lower node-id frame's own
 defect is reported over the higher one's.

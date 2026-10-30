@@ -4,9 +4,8 @@
 //! Public-reader controls for declared-unit, aggregate and literal families.
 
 use crate::support::checked_package::{
-    add_family_reference_target, application_node_key, canonical, evidence_for, node_id,
-    nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, settle,
-    sha256_hex, structural_key, v2_all_families,
+    add_family_reference_target, canonical, evidence_for, node_id, nominal_fixture_members,
+    nominal_package, rebuild_source_map, refresh_identity, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -40,7 +39,7 @@ fn fixture() -> (Value, String, String, String, String, String) {
         .clone();
     let mut package = nominal_package(&members);
     let empty = json!({"term": "aggregate", "members": []});
-    let scalar = |form| structural_key("scalar_type", form, None, &empty);
+    let scalar = |form: &str| format!("operand/scalar/{form}");
     let boolean = scalar("boolean");
     let integer = scalar("integer");
     let text = scalar("text");
@@ -61,8 +60,8 @@ fn fixture() -> (Value, String, String, String, String, String) {
     };
     let left_body = parameter("left");
     let right_body = parameter("right");
-    let left = structural_key("value", "parameter", Some(&unit), &left_body);
-    let right = structural_key("value", "parameter", Some(&unit), &right_body);
+    let left = "operand/parameter/left".to_owned();
+    let right = "operand/parameter/right".to_owned();
     add_node(&mut package, &left, "value", "parameter", &unit, left_body);
     add_node(
         &mut package,
@@ -95,11 +94,11 @@ fn append_application(
 ) -> usize {
     let body = json!({"term": "application", "operator": operator,
         "operation": operation, "result_type": node_id(result), "arguments": arguments});
-    let key = application_node_key("expression", form, result, &body);
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .len();
+    let key = format!("operand/application/{form}/{position}");
     add_node(package, &key, "expression", form, result, body);
     settle(package);
     position
@@ -108,57 +107,57 @@ fn append_application(
 fn append_literal(package: &mut Value, ty: &str, kind: &str, value: Value) -> usize {
     let body = json!({"term": "literal", "type": node_id(ty),
         "value_kind": kind, "value": value});
-    let key = structural_key("value", "literal", Some(ty), &body);
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .len();
+    let key = format!("operand/literal/{position}");
     add_node(package, &key, "value", "literal", ty, body);
     settle(package);
     position
 }
 
-fn same_named_unit_and_dimension() -> Vec<(Value, String)> {
-    let mut members = nominal_fixture_members();
-    let dimension = members
-        .iter_mut()
-        .find(|(preimage, _)| preimage["version"] == "quire.dimension-node/v1")
-        .expect("dimension");
-    dimension.0["qualified_declaration"] = json!(["Example", "Metre"]);
-    dimension.1 = sha256_hex(&canonical(&dimension.0));
-    let dimension_id = node_id(&dimension.1);
-    let unit = members
-        .iter_mut()
-        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+fn same_named_unit_and_dimension() -> Value {
+    let mut package = nominal_package(&nominal_fixture_members());
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let unit = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "unit")
         .expect("unit");
-    unit.0["dimension_node_id"] = dimension_id;
-    unit.1 = sha256_hex(&canonical(&unit.0));
-    members
+    let dimension = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "dimension")
+        .expect("dimension");
+    // Both declarations keep their authored path. Their distinct ordinals
+    // distinguish the two structural node ids in the same package.
+    nodes[unit]["node_id"]["ordinal"] = json!(1);
+    nodes[dimension]["declaration"]["qualified_name"] = json!(["Example", "Metre"]);
+    refresh_identity(&mut package);
+    rebuild_source_map(&mut package);
+    package
 }
 
 #[trace("TC-230", "FR-038-AC-301", "FR-038-AC-302")]
 #[test]
 fn tc_230_declaration_names_are_scoped_to_unit_dimension_and_type() {
-    let mut package = nominal_package(&same_named_unit_and_dimension());
+    let mut package = same_named_unit_and_dimension();
     let source = &package["lock"]["sources"][0];
     let owner = json!({
         "kind": "source", "authority": source["authority"], "identity": source["identity"],
     });
     let body = json!({"term": "aggregate", "members": []});
-    let preimage = json!({
-        "version": "quire.structural-node/v1", "node_tag": "composite_type",
-        "semantic_form": "record", "semantic_type": null,
-        "declaration": {"qualified_name": ["Example", "Metre"]},
-        "recursion": null, "owner": owner, "body": body,
-    });
-    let key = sha256_hex(&canonical(&preimage));
+    let key = "qualified:Example/Metre";
+    let mut id = node_id(key);
+    id["ordinal"] = json!(2);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .unwrap()
         .push(json!({
-            "node_id": node_id(&key), "schema_version": "quire.checked-semantic-graph/v2",
+            "node_id": id, "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "composite_type", "semantic_form": "record",
-            "semantic_type": node_id(&key), "dependencies": [],
+            "semantic_type": id, "dependencies": [],
             "occurrences": [{"role": "declaration", "ordinal": 0}],
             "declaration": {"qualified_name": ["Example", "Metre"]},
             "owner": owner, "body": body,
@@ -171,34 +170,32 @@ fn tc_230_declaration_names_are_scoped_to_unit_dimension_and_type() {
 #[trace("TC-230", "FR-038-AC-301")]
 #[test]
 fn tc_230_repeated_unit_name_refuses_at_later_node() {
-    let mut members = same_named_unit_and_dimension();
-    let mut repeated = members
+    let mut package = same_named_unit_and_dimension();
+    let original = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
         .iter()
-        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+        .find(|node| node["semantic_form"] == "unit")
         .expect("unit")
-        .0
         .clone();
-    repeated["target_unit_node_id"] = node_id(
-        &members
-            .iter()
-            .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
-            .expect("unit")
-            .1,
-    );
-    repeated["scale"]["numerator"] = json!("2");
-    let key = sha256_hex(&canonical(&repeated));
-    members.push((repeated, key));
-    let package = nominal_package(&members);
+    let mut repeated = original.clone();
+    repeated["node_id"]["ordinal"] = json!(2);
+    repeated["body"]["target_unit_node_id"] = original["node_id"].clone();
+    repeated["body"]["scale"]["numerator"] = json!("2");
+    repeated["dependencies"] = json!([repeated["body"]["dimension_node_id"], original["node_id"],]);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(repeated);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
     let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
     let unit_positions: Vec<_> = nodes
         .iter()
         .enumerate()
         .filter(|(_, node)| node["semantic_form"] == "unit")
         .collect();
-    let (position, later) = unit_positions
-        .into_iter()
-        .max_by_key(|(_, node)| node["node_id"]["digest"].as_str().unwrap())
-        .unwrap();
+    let (position, later) = unit_positions.into_iter().last().expect("later unit");
     refuses(
         &package,
         CheckedPackageRefusalCode::AmbiguousDeclaration,
@@ -246,12 +243,7 @@ fn tc_230_quantity_literal_refuses_noncanonical_magnitude_and_other_family() {
         ("integer", "unit"),
     ] {
         let (mut package, unit, boolean, integer, _, _) = fixture();
-        let string = structural_key(
-            "scalar_type",
-            "string",
-            None,
-            &json!({"term": "aggregate", "members": []}),
-        );
+        let string = "operand/scalar/string".to_owned();
         if family == "string" {
             add_node(
                 &mut package,
@@ -284,15 +276,11 @@ fn tc_230_quantity_literal_refuses_noncanonical_magnitude_and_other_family() {
 #[test]
 fn tc_230_quantity_literal_refuses_dimension_type_without_operand_family() {
     let (mut package, _, _, _, _, _) = fixture();
-    let dimension = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .find(|node| node["semantic_form"] == "dimension")
-        .expect("dimension node")["node_id"]["digest"]
-        .as_str()
-        .expect("dimension digest")
-        .to_owned();
+    let dimension = nominal_fixture_members()
+        .into_iter()
+        .find(|(preimage, _)| preimage["version"] == "quire.dimension-node/v1")
+        .expect("dimension fixture")
+        .1;
     let at = append_literal(&mut package, &dimension, "quantity", json!("3"));
     refuses(
         &package,
@@ -305,12 +293,6 @@ fn tc_230_quantity_literal_refuses_dimension_type_without_operand_family() {
 fn change_literal_type(package: &mut Value, position: usize, ty: &str) {
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["type"] = node_id(ty);
-    let own_type = node["semantic_type"]["digest"]
-        .as_str()
-        .expect("type")
-        .to_owned();
-    let key = structural_key("value", "literal", Some(&own_type), &node["body"]);
-    node["node_id"] = node_id(&key);
     settle(package);
 }
 
@@ -343,7 +325,7 @@ fn refuses(
         (
             actual.code,
             actual.cause,
-            actual.path.as_ref().map(ToString::to_string)
+            actual.loci[0].path.as_ref().map(ToString::to_string)
         ),
         (code, Some(cause), Some(path.to_owned()))
     );
@@ -353,20 +335,20 @@ fn native_fixture() -> (Value, String, [String; 3], String) {
     let (mut package, _, boolean, _, _, _) = fixture();
     let empty = json!({"term": "aggregate", "members": []});
     let native = ["string", "uuid", "timestamp"].map(|form| {
-        let key = structural_key("scalar_type", form, None, &empty);
+        let key = format!("operand/scalar/{form}");
         add_node(&mut package, &key, "scalar_type", form, &key, empty.clone());
         key
     });
-    let text = structural_key("scalar_type", "text", None, &empty);
+    let text = "operand/scalar/text".to_owned();
     settle(&mut package);
     (package, boolean, native, text)
 }
 
 fn native_literal(package: &mut Value, ty: &str, kind: &str, value: Value) -> String {
     let at = append_literal(package, ty, kind, value);
-    package["semantic_graph"]["nodes"][at]["node_id"]["digest"]
+    package["semantic_graph"]["nodes"][at]["node_id"]["path"][0]
         .as_str()
-        .expect("literal key")
+        .expect("literal path")
         .to_owned()
 }
 
@@ -401,7 +383,7 @@ fn native_refuses(
     assert_eq!(actual.code, code, "{actual:?}");
     assert_eq!(actual.cause, Some(cause));
     assert_eq!(
-        actual.path.as_ref().map(ToString::to_string),
+        actual.loci[0].path.as_ref().map(ToString::to_string),
         Some(path.to_owned())
     );
     assert_eq!(
@@ -473,12 +455,13 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
                 node_id(&right)
             );
             for key in [
-                left.as_str(),
-                right.as_str(),
-                nodes[at].node_id.digest.as_ref(),
+                node_id(&left),
+                node_id(&right),
+                serde_json::to_value(&nodes[at].node_id).expect("application id"),
             ] {
                 assert!(admitted.source_map().iter().any(|entry| {
-                    entry.node_id.digest.as_ref() == key && !entry.regions.is_empty()
+                    serde_json::to_value(&entry.node_id).expect("source-map id") == key
+                        && !entry.regions.is_empty()
                 }));
             }
             assert_eq!(
@@ -550,12 +533,6 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
 fn change_native_literal_value(package: &mut Value, position: usize, value: Value) {
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["value"] = value;
-    let own_type = node["semantic_type"]["digest"]
-        .as_str()
-        .expect("type")
-        .to_owned();
-    let key = structural_key("value", "literal", Some(&own_type), &node["body"]);
-    node["node_id"] = node_id(&key);
     settle(package);
 }
 
@@ -618,7 +595,10 @@ fn native_literal_payloads_are_canonical_after_type_validation() {
         let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
             panic!("native literal refused: {:?}", read(&package));
         };
-        assert_eq!(admitted.graph().nodes[at].node_id.digest.as_ref(), key);
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[at].node_id).expect("literal id"),
+            node_id(&key)
+        );
         assert_eq!(
             serde_json::to_value(&admitted.graph().nodes[at].body).expect("typed body")["value"],
             good[0]
@@ -714,7 +694,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
     assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(actual.cause, Some(CheckedPackageRefusalCause::InvalidValue));
     assert_eq!(
-        actual.path.as_ref().map(ToString::to_string),
+        actual.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!("/semantic_graph/nodes/{at}/body/value"))
     );
     native_refuses(
@@ -823,8 +803,7 @@ fn text_comparison_rejects_string_at_its_mode_value() {
 #[test]
 fn text_comparison_checks_arity_and_other_families_before_string_mode() {
     let (mut package, boolean, native, text) = native_fixture();
-    let empty = json!({"term": "aggregate", "members": []});
-    let integer = structural_key("scalar_type", "integer", None, &empty);
+    let integer = "operand/scalar/integer".to_owned();
     let catalog: Value = serde_json::from_str(
         quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
     )
@@ -1027,7 +1006,7 @@ fn aggregate_arguments_admit_at_clause_positions_and_refuse_at_boolean_position(
     };
     assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
     assert_eq!(
-        actual.path.expect("path").as_str(),
+        actual.loci[0].path.clone().expect("path").as_str(),
         format!("/semantic_graph/nodes/{at}/body")
     );
 
@@ -1063,7 +1042,7 @@ fn literal_kind_is_checked_at_its_own_type_even_outside_family_operands() {
         .clone();
     let mut with_option = base.clone();
     let option_body = json!({"term": "aggregate", "members": [reference(&integer)]});
-    let option = structural_key("composite_type", "option", None, &option_body);
+    let option = "operand/type/option".to_owned();
     add_node(
         &mut with_option,
         &option,
@@ -1130,14 +1109,12 @@ fn literal_kind_is_checked_at_its_own_type_even_outside_family_operands() {
         .position(|(preimage, _)| preimage["version"] == "quire.enum-declaration-node/v1")
         .expect("declaration");
     ordered_members[declaration].0["ordered"] = json!(true);
-    let ordered_key = sha256_hex(&canonical(&ordered_members[declaration].0));
-    ordered_members[declaration].1 = ordered_key.clone();
+    let ordered_key = ordered_members[declaration].1.clone();
     let member = ordered_members
         .iter()
         .position(|(preimage, _)| preimage["version"] == "quire.enum-member-node/v1")
         .expect("member");
     ordered_members[member].0["declaration_node_id"] = node_id(&ordered_key);
-    ordered_members[member].1 = sha256_hex(&canonical(&ordered_members[member].0));
     let mut ordered = nominal_package(&ordered_members);
     let at = append_literal(&mut ordered, &ordered_key, "enum", json!("ACTIVE"));
     admits(&ordered);
@@ -1247,7 +1224,7 @@ fn quantity_convert_checks_member_result_before_rounding_type() {
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
         assert_eq!(
-            refusal.path.as_ref().map(ToString::to_string),
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some(format!("/semantic_graph/nodes/{at}/body/result_type"))
         );
         assert_eq!(
@@ -1275,7 +1252,7 @@ fn quantity_convert_checks_member_result_before_rounding_type() {
 fn position_and_element_member_results_do_not_require_declaration_equality() {
     let (mut tuple_package, _, _, integer, _, _) = fixture();
     let tuple_body = json!({"term": "aggregate", "members": [reference(&integer)]});
-    let tuple = structural_key("composite_type", "tuple", None, &tuple_body);
+    let tuple = "operand/type/tuple".to_owned();
     add_node(
         &mut tuple_package,
         &tuple,
@@ -1300,7 +1277,7 @@ fn position_and_element_member_results_do_not_require_declaration_equality() {
 
     let (mut index_package, _, _, integer, _, _) = fixture();
     let set_body = json!({"term": "aggregate", "members": [reference(&integer)]});
-    let set = structural_key("composite_type", "set", None, &set_body);
+    let set = "operand/type/set".to_owned();
     add_node(
         &mut index_package,
         &set,
@@ -1335,7 +1312,7 @@ fn quantity_convert_admits_equal_compound_unit_result() {
         {"term":"binding","name":"unit","value":reference(&unit)},
         {"term":"binding","name":"exponent","value":{"term":"literal","type":node_id(&integer),"value_kind":"integer","value":"2"}}
     ]}]});
-    let compound = structural_key("scalar_type", "compound_unit", None, &body);
+    let compound = "operand/type/compound_unit".to_owned();
     add_node(
         &mut package,
         &compound,
@@ -1380,7 +1357,7 @@ fn collection_size_admits_equal_model_population_result() {
     let (mut package, _, _, integer, _, _) = fixture();
     let target = add_family_reference_target(&mut package);
     let reference_body = json!({"term":"aggregate","members":[reference(&target)]});
-    let reference_type = structural_key("composite_type", "reference", None, &reference_body);
+    let reference_type = "operand/type/reference".to_owned();
     add_node(
         &mut package,
         &reference_type,
@@ -1390,15 +1367,10 @@ fn collection_size_admits_equal_model_population_result() {
         reference_body,
     );
     let set_body = json!({"term":"aggregate","members":[reference(&reference_type)]});
-    let set = structural_key("composite_type", "set", None, &set_body);
+    let set = "operand/type/set".to_owned();
     add_node(&mut package, &set, "composite_type", "set", &set, set_body);
     let population_body = json!({"term":"aggregate","members":[]});
-    let population = structural_key(
-        "bounded_domain",
-        "model_population",
-        Some(&set),
-        &population_body,
-    );
+    let population = "operand/type/model_population".to_owned();
     add_node(
         &mut package,
         &population,
@@ -1437,7 +1409,7 @@ fn fold_and_reduce_admit_without_member_family_and_refuse_unequal_result() {
     for identity in ["quire.op.collection.fold", "quire.op.collection.reduce"] {
         let (mut package, _, boolean, integer, _, _) = fixture();
         let set_body = json!({"term":"aggregate","members":[reference(&integer)]});
-        let set = structural_key("composite_type", "set", None, &set_body);
+        let set = "operand/type/set".to_owned();
         add_node(&mut package, &set, "composite_type", "set", &set, set_body);
         let value =
             json!({"term":"literal","type":node_id(&integer),"value_kind":"integer","value":"1"});
@@ -1480,7 +1452,7 @@ fn non_member_model_results_remain_admitted() {
         let (mut package, unit, _, integer, left, _) = fixture();
         let target = add_family_reference_target(&mut package);
         let reference_body = json!({"term":"aggregate","members":[reference(&target)]});
-        let reference_type = structural_key("composite_type", "reference", None, &reference_body);
+        let reference_type = "operand/query/type/reference".to_owned();
         add_node(
             &mut package,
             &reference_type,
@@ -1491,7 +1463,7 @@ fn non_member_model_results_remain_admitted() {
         );
         let result_form = if lookup { "option" } else { "set" };
         let result_body = json!({"term":"aggregate","members":[reference(if lookup { &unit } else { &reference_type })]});
-        let result = structural_key("composite_type", result_form, None, &result_body);
+        let result = format!("operand/query/result/{result_form}");
         add_node(
             &mut package,
             &result,
@@ -1500,24 +1472,18 @@ fn non_member_model_results_remain_admitted() {
             &result,
             result_body,
         );
-        let text = structural_key(
-            "scalar_type",
-            "text",
-            None,
-            &json!({"term":"aggregate","members":[]}),
-        );
+        let text = "operand/scalar/text".to_owned();
         let set_body = json!({"term":"aggregate","members":[reference(&reference_type)]});
-        let set = structural_key("composite_type", "set", None, &set_body);
+        let set = if lookup {
+            "operand/query/type/input_set".to_owned()
+        } else {
+            result.clone()
+        };
         if lookup {
             add_node(&mut package, &set, "composite_type", "set", &set, set_body);
         }
         let population_body = json!({"term":"aggregate","members":[]});
-        let population_type = structural_key(
-            "bounded_domain",
-            "model_population",
-            Some(&set),
-            &population_body,
-        );
+        let population_type = "operand/query/type/model_population".to_owned();
         add_node(
             &mut package,
             &population_type,
@@ -1532,12 +1498,7 @@ fn non_member_model_results_remain_admitted() {
             {"term":"binding","name":"level","value":{
                 "term":"literal","type":node_id(&integer),"value_kind":"integer","value":"0"}}
         ]});
-        let population = structural_key(
-            "value",
-            "parameter",
-            Some(&population_type),
-            &parameter_body,
-        );
+        let population = "operand/query/parameter/population_a".to_owned();
         add_node(
             &mut package,
             &population,
@@ -1549,8 +1510,7 @@ fn non_member_model_results_remain_admitted() {
         let mut arguments = vec![reference(&population)];
         if lookup {
             let body = reference(&left);
-            let expression =
-                structural_key("expression", "reference", Some(&reference_type), &body);
+            let expression = "operand/query/expression/object".to_owned();
             add_node(
                 &mut package,
                 &expression,
@@ -1588,7 +1548,7 @@ fn non_member_model_results_remain_admitted() {
 pub(crate) fn quantity_sum_control() -> (Value, usize) {
     let (mut package, unit, _, _, left, _) = fixture();
     let set_body = json!({"term": "aggregate", "members": [reference(&unit)]});
-    let set = structural_key("composite_type", "set", None, &set_body);
+    let set = "operand/type/set".to_owned();
     add_node(&mut package, &set, "composite_type", "set", &set, set_body);
     let at = append_application(
         &mut package,

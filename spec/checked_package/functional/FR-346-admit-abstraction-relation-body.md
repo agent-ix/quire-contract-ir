@@ -106,11 +106,9 @@ cases, with the path of the offending entry (an array element of `objects`,
 `fields`, `populations`, `frames` or `parameters`, for example
 `/semantic_graph/nodes/{n}/body/objects/{i}`) or, for a body shape, the path
 `/semantic_graph/nodes/{n}/body`. A `type`, `population` or `context` that is
-a node key outside the reader's node-identity domain, or whose digest is not
-lowercase hex, refuses as `digest_domain_mismatch` with no cause at that key
+a malformed structural node id refuses as `malformed_wire` at that key
 (`/semantic_graph/nodes/{n}/body/objects/{i}/type`, `.../populations/{i}/population`
-or `.../frames/{i}/context`), as FR-038 refuses every other node key outside
-that domain (IR reading: FR-451 gives no code); a value that is no node key at
+or `.../frames/{i}/context`), under FR-322's closed NodeId shape; a value that is no node key at
 all is an entry of the wrong shape. An occurrence whose role is not
 `declaration` refuses the same way at that occurrence's `role`. An
 `application` term standing as the body root of this node refuses
@@ -121,7 +119,7 @@ temporal step, `quire.op.state.clause` in the state step, the other classes in
 the operation step), and the abstraction step runs before the operation step,
 so this requirement states the stage: for any class, the root is refused in the
 first of those steps that reaches it, and otherwise by the shape check that
-opens the abstraction step, before its identity check, with the same code and
+opens the abstraction step, before its graph-shape check, with the same code and
 cause (IR reading). The pointer is the node's for the temporal step and the
 shape check, and the node's `body` for the state step, as that step already
 refuses a clause application placed at the root of any other node
@@ -143,30 +141,14 @@ binds (FR-040). A frame entry carries no frame or anchor identity and binds
 its operation whether or not the package holds the `state`/`frame` or
 `state`/`operation_anchor` node for the pair.
 
-### Identity
+### Structural identity and graph checks
 
-The node's `node_id` is the SHA-256 of the RFC 8785 canonical bytes of
-`{"version": "quire.abstraction-relation-node/v1", "body": <body>}`, computed
-through `quire-canonical` as every identity digest is (FR-038 "Every identity
-digest is computed through quire-canonical"). The node's `semantic_type` is
-its own `node_id`. Its `dependencies` are exactly the unique,
-digest-ascending set of every `type`, `population` and `context` target of the
-body. Every binding therefore enters the node key and, through the
-`identity_projection`, the `package_id`.
-
-IR reading (pending a QSpec reconciliation of FR-322 and FR-451): merged
-FR-322 refuses a node whose retained key differs from its preimage digest as
-`invalid_package`/`stale-node-key` before any declaration, frame or operation
-refusal, and FR-451 refuses a stale `node_id` of this node as
-`invalid_semantic_graph` at the abstraction step. The reader follows FR-451:
-the stale-key stage of FR-038 does not re-derive this node's key, so a stale
-`node_id` refuses in step 1 below, after the frame and state steps.
+The node carries its structural `node_id` under QSpec FR-322 and is self typed. Its `dependencies` are exactly the unique structurally ordered set of every `type`, `population` and `context` target in the body. The reader checks type, dependency membership and body semantics without computing a key from the body. A valid body edit may retain the same structural id.
 
 ### Canonical order
 
-`objects` is sorted ascending by `type` digest, `populations` by `population`
-digest, and `frames` by `context` digest and then `operation` as UTF-8 bytes,
-each digest compared as unsigned bytes. `fields` and `parameters` are sorted
+`objects` is sorted ascending by structural `type` id, `populations` by structural `population` id, and `frames` by structural `context` id and then `operation` as UTF-8 bytes,
+each structural id compared by QSpec order. `fields` and `parameters` are sorted
 ascending by `name` as UTF-8 bytes. An array out of order refuses as
 `invalid_semantic_graph` (FR-451), located, as an IR reading, at the array
 (`/semantic_graph/nodes/{n}/body/objects`, `.../objects/{i}/fields`, and so
@@ -179,11 +161,11 @@ IR reading (FR-451 says "after the state step" only): the abstraction step runs
 after the state step of FR-040 and after the temporal step of FR-038-AC-102
 and before the operation step, so the steps run in the order frame, state,
 temporal, abstraction, operation. It runs over every
-`correspondence`/`abstraction_relation` node in ascending `node_id` digest
+`correspondence`/`abstraction_relation` node in structural `node_id`
 order. For one node the checks run in this order and the first failing check
 is its defect:
 
-1. **Identity.** `node_id` is the digest of its preimage; `semantic_type`
+1. **Graph shape.** `semantic_type`
    equals `node_id`; `dependencies` equal the body's targets; each failure is
    `invalid_semantic_graph`, located (IR reading) at the node,
    `/semantic_graph/nodes/{n}`.
@@ -196,13 +178,13 @@ is its defect:
    `invalid_model_binding`/`malformed-declaration`; an owner the reader cannot
    recover refuses with the owner recovery's own refusal (FR-038 "Model-owned
    members", step 2: `missing_declaration`/`missing-selection` or
-   `invalid_package`/`stale-node-key`). IR reading: step 1 requires
+   `invalid_semantic_graph`). IR reading: step 1 requires
    `dependencies` to equal the body's targets, so after step 1 every target is
    a declared dependency and the missing-name branch has no input; FR-451-AC-3
    (`invalid_semantic_graph` for `dependencies` that omit a body target) and
    FR-451-AC-4 (`missing_declaration`/`missing-name` for a target missing from
    `dependencies`) name the two outcomes for one input, and this
-   reader follows the reader order: the identity step refuses it.
+   reader follows the reader order: the graph-shape step refuses it.
 4. **Members**, entry by entry in the same order. The entry of a refusal is
    the innermost array element holding the offending member (an `objects`,
    `fields`, `populations`, `frames` or `parameters` element), and its path is
@@ -241,7 +223,7 @@ is its defect:
 
 Once every node's own checks hold, the reader checks key uniqueness over all
 `correspondence`/`abstraction_relation` nodes of the package, in ascending
-`node_id` digest order and body order: the second entry to claim an object
+structural `node_id` order and body order: the second entry to claim an object
 key, a population key or an operation key refuses as
 `invalid_model_binding`/`conflicting-binding` (FR-451). The two entries may
 stand in one node or in two. IR reading: a refusal carries one path and one
@@ -270,15 +252,15 @@ reader does not do.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-346-AC-1 | A package holding one `correspondence`/`abstraction_relation` node over a domain package built here (`ConfigVersion` with the field `version`, the operation `attemptUpdate(next: Integer)` and the operation `rebase(from: Integer, to: Integer)`, and a subtype `ConfigVersionDraft` that only inherits `attemptUpdate`) admits, for the body `{term: "abstraction_relation", objects: [{type: ConfigVersion, rust_type: ["config_store", "ConfigVersion"], fields: [{name: "version", rust_field: "version"}]}], populations: [], frames: [{context: ConfigVersion, operation: "attemptUpdate", function: ["config_store", "attempt_update"], receiver: "self", parameters: [{name: "next", rust_parameter: "next"}]}]}`; the body with all three arrays empty admits; a tuple-field `rust_field` of `"0"` and a raw identifier `r#type` admit. An unrecognized `correspondence` form still refuses `invalid_semantic_graph` at `semantic_form`. | Test (TC-225) |
-| FR-346-AC-2 | IR reading: a body missing `frames` (path `/semantic_graph/nodes/{n}/body`), a body with a fourth member (same path), an `objects` entry missing `fields` (`.../body/objects/0`), a frame entry missing `receiver` (`.../body/frames/0`), a `function` that is an empty array (`.../body/frames/0`), a `type` that is not a node key (`.../body/objects/0`) and a `term` of `"aggregate"` each refuse as `invalid_semantic_graph` with no cause, while a `type`, `population` or `context` node key of another digest domain or with a digest that is not lowercase hex refuses `digest_domain_mismatch` at the key (`.../body/objects/0/type`); an occurrence of role `anchor` refuses the same way at `/semantic_graph/nodes/{n}/occurrences/{o}/role`; a node of another `semantic_form` carrying this body refuses the same way at its `body`. An `application` body root of an ordinary class refuses `ill_typed`/`operator-ineligible` at the node `/semantic_graph/nodes/{n}` from the shape check that opens the abstraction step, a `temporal_formula` application as the root refuses the same way from the temporal step, and a `quire.op.state.clause` application as the root refuses the same way from the state step, at `/semantic_graph/nodes/{n}/body` as FR-040-AC-10 has it; a non-`case` `application` standing as a `type` value refuses `malformed_wire` at that application, and a `case` application standing there refuses `ill_typed`/`operator-ineligible` at its `operator`. | Test (TC-225) |
+| FR-346-AC-2 | PLANNED/UNRUN (IR-1141). Missing or extra body members, malformed entries, a non-node-id structural target, wrong occurrence role and misplaced application bodies refuse at their exact wire, graph or body stages under FR-322 and FR-451. A malformed structural NodeId refuses malformed_wire at that key; a well-formed but unresolved target reaches the exact target join. No digest-domain refusal exists. | Test (TC-225) |
 | FR-346-AC-3 | A frame entry for (`ConfigVersion`, `attemptUpdate`) admits in a package that holds no `state`/`frame` node for that operation; in a package that holds one, the entry's pair equals that frame's `operation_anchor` pair. | Test (TC-225) |
-| FR-346-AC-4 | A node whose `node_id` is not the digest of `{version: "quire.abstraction-relation-node/v1", body}`, a node whose `semantic_type` is not its `node_id`, and a node whose `dependencies` omit a body target or hold a target the body does not each refuse as `invalid_semantic_graph` at the node `/semantic_graph/nodes/{n}` (IR reading); the dependency case is the identity step's, and no `missing_declaration`/`missing-name` reaches it (FR-451-AC-3 against FR-451-AC-4, IR reading). A stale `node_id` refuses in this step and not as `invalid_package`/`stale-node-key`. A node whose `objects` array is out of `type` digest order refuses as `invalid_semantic_graph` at `/semantic_graph/nodes/{n}/body/objects` (IR reading); so do `frames` holding two entries of one `context` in descending `operation` order, `fields` out of `name` order and `parameters` out of `name` order, at their arrays. | Test (TC-225) |
+| FR-346-AC-4 | PLANNED/UNRUN (IR-1141). A node whose semantic_type is not its own structural id, or whose dependencies omit a body target or include a target absent from the body, refuses invalid_semantic_graph at the node; the dependency defect is checked before abstraction-body joins. Out-of-order objects, frames, fields or parameters refuse invalid_semantic_graph at their exact arrays. A valid body edit under a retained id does not trigger a stale-key refusal. | Test (TC-225) |
 | FR-346-AC-5 | A `type` target naming a `relation`/`population` node and a `population` target naming an object type each refuse as `invalid_model_binding`/`malformed-declaration` at the target's node key; a `context` naming a `state`/`frame` node refuses the same way; a `context` keyed under an unselected domain package refuses as `missing_declaration`/`missing-selection`. | Test (TC-225) |
 | FR-346-AC-6 | A `fields` name `ConfigVersion` does not expose, a `rust_field` of `"not a name"`, a `function` segment `"crate"` and a `rust_type` segment `"9lives"` each refuse as `invalid_model_binding`/`malformed-declaration` at the entry; two `fields` entries named `version`, bound to different Rust fields, refuse as `invalid_model_binding`/`conflicting-binding` at the second `fields` entry; a `fields` name two supertypes both expose refuses as `ambiguous_declaration`/`ambiguous-name` (IR reading). | Test (TC-225) |
 | FR-346-AC-7 | A frame entry for (`ConfigVersion`, `noSuchOperation`) and one for (`ConfigVersion`, `version`) refuse as `missing_declaration`/`missing-name`; an operation name two supertypes of the `context` both carry refuses as `ambiguous_declaration`/`ambiguous-name`; (`ConfigVersionDraft`, `attemptUpdate`), an operation the context only inherits, refuses as `invalid_model_binding`/`malformed-declaration`; a `parameters` list missing `next` for `attemptUpdate` refuses as `invalid_model_binding`/`malformed-declaration` at the frame entry. For `rebase(from, to)`, a `parameters` list that is exactly `from` and `to` with `rust_parameter` values `"a"` and `"a"` refuses `invalid_model_binding`/`malformed-declaration` at the second `parameters` entry, and for `attemptUpdate` a `receiver` of `"next"` with `rust_parameter` `"next"` refuses the same way, each case holding the declared parameters exactly. A malformed declared parameter name or repeated parameter identity refuses at domain selection as FR-154-AC-14 requires, before this frame check. | Test (TC-225) |
-| FR-346-AC-8 | Two entries that bind the object key `ConfigVersion`, in one node or in two, refuse as `invalid_model_binding`/`conflicting-binding` at the second entry in ascending `node_id` digest order and body order, with the key's node key as locus and the first entry not carried (IR reading; FR-451-AC-5 says both entries); the same holds for two entries on one population key and two frame entries on one (`context`, `operation`) pair. | Test (TC-225) |
-| FR-346-AC-9 | A package carrying a state-step defect and an abstraction defect reports the state defect; one carrying an abstraction defect and an operation-step defect reports the abstraction defect (IR reading); one carrying a temporal placement defect and an abstraction defect reports the temporal defect, and one carrying an ordinary-class application as an abstraction node's body root and an operation-step defect reports the body-root refusal (IR reading); one carrying a stale abstraction `node_id` and a frame defect reports the frame defect; one node carrying an identity defect and a target defect reports the identity defect, a target defect and a member defect the target defect, and an order defect and a target defect the order defect; two defective nodes report the lower `node_id` node's own defect; nodes that each hold only a key collision with another report it only after every node's own checks held. | Test (TC-225) |
-| FR-346-AC-10 | Changing one `rust_field` in an admitted body and recomputing `node_id` gives another `node_id` and, through the `identity_projection`, another `package_id`; the same body gives the same `node_id` on every read; the same change without recomputing `node_id` refuses as in FR-346-AC-4. | Test (TC-225) |
+| FR-346-AC-8 | Two entries that bind the object key `ConfigVersion`, in one node or in two, refuse as `invalid_model_binding`/`conflicting-binding` at the second entry in structural node-id order and body order, with the key's node key as locus and the first entry not carried (IR reading; FR-451-AC-5 says both entries); the same holds for two entries on one population key and two frame entries on one (`context`, `operation`) pair. | Test (TC-225) |
+| FR-346-AC-9 | PLANNED/UNRUN (IR-1141). State and temporal defects precede abstraction defects; abstraction defects precede operation defects. Within abstraction, graph shape precedes order, order precedes target joins and target joins precede member checks. Two defective nodes report the first by structural node-id order; a duplicate binding across nodes is checked after their own checks. No stale-id stage exists. | Test (TC-225) |
+| FR-346-AC-10 | Withdrawn by the IR-1141 structural-identity decision under QSpec #517: the reader does not recompute identity from body content or refuse a retained structural id solely because a valid body changed. This id is retained and never reused. | Withdrawn |
 
 ## Dependencies
 
@@ -288,15 +270,7 @@ member resolution this requirement reuses. [FR-040](./FR-040-admit-frame-entries
 owns the state step this step follows and the operation resolution frame
 entries share. QSpec FR-451 owns the normative body and refusal order, FR-353
 the relation's meaning and FR-450 the source form and Rust spellings; FR-322
-owns the graph, node keys and the `identity_projection`. A generator reads the
+owns the graph and structural node ids. A generator reads the
 relation from this node alone, and no part of this reader depends on QSL.
 
-Questions for QSpec: (1) FR-451-AC-3 against FR-451-AC-4 give one input
-(`dependencies` omitting a body target) two refusals. (2) Whether the stale-key
-stage of FR-322 or FR-451's identity step refuses a stale abstraction
-`node_id`. (3) The codes and loci of schema failures and of the identity,
-order and member refusals. (4) How a refusal names two entries. (5) The place
-of the abstraction step against the operation step. (6) The code of an
-ambiguous `fields` name. (7) What an application body root or a body of another
-form carrying this shape refuses. (8) The lowering outcome and the refusal
-record for an unbound element.
+Open QSpec questions outside the structural-identity change: FR-451-AC-3 and AC-4 name different refusals for an omitted dependency; the remaining exact schema loci, two-entry refusal representation, ambiguous field name and unbound-element lowering outcomes require their own reconciliation. QSpec #517 resolves the former stale-key question: a valid body edit under an unchanged structural id is admitted when every independent graph and body rule holds.

@@ -5,11 +5,11 @@
 //! Two stages, in the reader's first-refusal order:
 //!
 //! 1. [`admit_dependencies`], in the lock stage: every entry, in lock order,
-//!    must have a package supplied under its identity (`missing_import` /
-//!    `missing-selection` at the entry), whose own `package_id` equals the
-//!    entry's (`stale_dependency` / `content-mismatch` at the entry's
-//!    `package_id.digest`). This runs before any node is read, so before any
-//!    `dependency_reference` check.
+//!    must have a package supplied under its name with the same package name;
+//!    absence or a nonmatching name refuses `missing_import` /
+//!    `missing-selection` at the entry.
+//!    This runs before any node is read, so before any `dependency_reference`
+//!    check.
 //! 2. [`DependencyReferences::walk_admitted`] in step 7 of the operation stage
 //!    and strict contract-package intake: a
 //!    term is checked at its place in its node's pre-order walk, wherever it
@@ -37,14 +37,12 @@
 
 use super::{
     CheckedDependencySelection, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedTerm,
-    NominalIdentityPreimage, NominalOwner, RawSemanticNodeV2 as CheckedSemanticNodeV2, ValueForm,
-    WorkMeter,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{count, node_pointer, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
-    JsonPointer,
+    CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -56,7 +54,7 @@ const FUNCTION_CALL_OPERATION: &str = "quire.op.function.call";
 /// lock stage binds it.
 #[derive(Debug)]
 pub(super) struct SuppliedDependency<'e> {
-    package_id: &'e CheckedSemanticId,
+    identity: &'e str,
     package: &'e CheckedPackageV2,
     index: BTreeMap<&'e CheckedNodeId, usize>,
 }
@@ -73,11 +71,17 @@ impl<'e> SuppliedDependencies<'e> {
         self.packages.iter().map(|entry| entry.package).collect()
     }
     /// The admitted directly selected package with this exact identity.
-    pub(super) fn selected_package(
-        &self,
-        package: &CheckedSemanticId,
-    ) -> Option<&'e CheckedPackageV2> {
+    pub(super) fn selected_package(&self, package: &str) -> Option<&'e CheckedPackageV2> {
         self.resolve(package).map(|entry| entry.package)
+    }
+
+    /// The exact node retained by a directly selected dependency package.
+    pub(super) fn selected_node(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<&'e super::CheckedSemanticNodeV2> {
+        let selected = self.resolve(&id.package)?;
+        selected.package.graph().nodes.get(*selected.index.get(id)?)
     }
     /// Index already admitted, selection-matched packages for another closed
     /// reader that shares FR-322 dependency-reference semantics.
@@ -98,7 +102,7 @@ impl<'e> SuppliedDependencies<'e> {
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
             packages.push(SuppliedDependency {
-                package_id: &selection.package_id,
+                identity: &selection.identity,
                 package,
                 index,
             });
@@ -106,11 +110,11 @@ impl<'e> SuppliedDependencies<'e> {
         Ok(Self { packages })
     }
 
-    /// The package supplied for the entry whose `package_id` is `package`.
-    fn resolve(&self, package: &CheckedSemanticId) -> Option<&SuppliedDependency<'e>> {
+    /// The package supplied for this exact dependency identity.
+    fn resolve(&self, package: &str) -> Option<&SuppliedDependency<'e>> {
         self.packages
             .iter()
-            .find(|supplied| supplied.package_id == package)
+            .find(|supplied| supplied.identity == package)
     }
 }
 
@@ -144,7 +148,7 @@ pub(super) fn check_derived_closure<'a>(
         if package
             .closure_index
             .get(&selection.identity)
-            .is_none_or(|id| id == &selection.package_id)
+            .is_none_or(|candidate| candidate.wire == package.wire)
         {
             // The admitted child already checked its closure. One new identity
             // cannot conflict when it is absent there or has the same ID.
@@ -166,24 +170,24 @@ pub(super) fn check_derived_closure<'a>(
         });
         pending.push((selection, *package, paths.len() - 1));
     }
-    let mut seen: BTreeMap<&str, (&CheckedSemanticId, usize)> = BTreeMap::new();
+    let mut seen: BTreeMap<&str, (&CheckedPackageV2, usize)> = BTreeMap::new();
     while let Some((selection, package, path)) = pending.pop() {
         meter.charge(1, || selection_pointer(&root, &paths, path))?;
-        if let Some((prior_id, prior_path)) = seen.get(selection.identity.as_ref()) {
-            if *prior_id != &selection.package_id {
+        if let Some((prior_package, prior_path)) = seen.get(selection.identity.as_ref()) {
+            if prior_package.wire != package.wire {
                 let mut refusal = ValidationFailure::refused_because(
                     CheckedPackageRefusalCode::InvalidPackage,
                     selection_pointer(&root, &paths, *prior_path),
                     CheckedPackageRefusalCause::ConflictingDefinition,
                 );
                 if let ValidationFailure::Refused(ref mut value) = refusal {
-                    value.related_path = Some(selection_pointer(&root, &paths, path));
+                    value.push_path(selection_pointer(&root, &paths, path));
                 }
                 return Err(refusal);
             }
             continue;
         }
-        seen.insert(selection.identity.as_ref(), (&selection.package_id, path));
+        seen.insert(selection.identity.as_ref(), (package, path));
         for (index, (child_selection, child_package)) in package
             .lock()
             .dependency_selections
@@ -226,18 +230,12 @@ pub(super) fn admit_dependencies<'e>(
                 CheckedPackageRefusalCause::MissingSelection,
             ));
         };
-        // A `CheckedPackageV2` exists only as the reader's admitted result,
-        // so its `package_id` is the digest the reader recomputed from its
-        // identity preimage; the binding rests on that content digest.
-        if package.package_id() != &entry.package_id {
-            return Err(ValidationFailure::Refused(Box::new(
-                crate::checked_package::shared::CheckedPackageRefusal::mismatch(
-                    at(index).key("package_id").key("digest"),
-                    CheckedPackageRefusalCause::ContentMismatch,
-                    entry.package_id.clone(),
-                    package.package_id().clone(),
-                ),
-            )));
+        if package.name() != entry.identity.as_ref() {
+            return Err(ValidationFailure::refused_because(
+                CheckedPackageRefusalCode::MissingImport,
+                at(index),
+                CheckedPackageRefusalCause::MissingSelection,
+            ));
         }
         let nodes = &package.graph().nodes;
         meter.charge(count(nodes.len()), || at(index))?;
@@ -247,7 +245,7 @@ pub(super) fn admit_dependencies<'e>(
             .map(|(position, node)| (&node.node_id, position))
             .collect();
         packages.push(SuppliedDependency {
-            package_id: &entry.package_id,
+            identity: &entry.identity,
             package,
             index: index_of,
         });
@@ -331,7 +329,8 @@ impl<'a> DependencyReferences<'a> {
                 | CheckedTerm::Frame { .. }
                 | CheckedTerm::AbstractionRelation { .. }
                 | CheckedTerm::Refinement { .. }
-                | CheckedTerm::ExtensionForm { .. } => {}
+                | CheckedTerm::ExtensionForm { .. }
+                | CheckedTerm::NominalBody(_) => {}
             }
         }
         Ok(())
@@ -340,7 +339,7 @@ impl<'a> DependencyReferences<'a> {
     fn check_parts(
         self,
         referrer: Referrer<'_>,
-        package: &CheckedSemanticId,
+        package: &str,
         node: &CheckedNodeId,
         at: &JsonPointer,
         is_callee: bool,
@@ -472,7 +471,7 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
 
 /// Whether a node is package-dependent: it carries a `declaration`, or it is
 /// keyed by a `ModelOwner` (a `model` or `relation` node, or a nominal
-/// preimage owned by a domain package).
+/// nominal declaration owned by a domain package).
 fn carries_declaration_or_owner<Body>(
     node: &super::CheckedSemanticNodeV2<Body>,
     kind: CheckedNodeKind,
@@ -480,18 +479,14 @@ fn carries_declaration_or_owner<Body>(
     node.declaration.is_some()
         || matches!(kind.tag(), CheckedNodeTag::Model | CheckedNodeTag::Relation)
         || matches!(
-            node.nominal_identity_preimage
-                .as_ref()
-                .and_then(NominalIdentityPreimage::owner),
-            Some(NominalOwner::Model { .. })
+            node.owner.as_ref(),
+            Some(super::CheckedNodeOwner::Model { .. })
         )
 }
 
 /// Selected package/key pairs retained in an admitted body's dependency
 /// references, in document pre-order.
-pub(super) fn selected_reference_targets(
-    body: &CheckedTerm,
-) -> Vec<(CheckedSemanticId, CheckedNodeId)> {
+pub(super) fn selected_reference_targets(body: &CheckedTerm) -> Vec<(Box<str>, CheckedNodeId)> {
     let mut selected = Vec::new();
     let mut pending = vec![body];
     while let Some(term) = pending.pop() {
@@ -508,7 +503,8 @@ pub(super) fn selected_reference_targets(
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
             | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. } => {}
+            | CheckedTerm::ExtensionForm { .. }
+            | CheckedTerm::NominalBody(_) => {}
         }
     }
     selected

@@ -194,7 +194,11 @@ fn tc_447_fresh_qsl_source_admits_exact_application_and_narrow_context() {
     assert_eq!(contextual.wire().semantic_graph.nodes.len(), 8);
     assert_eq!(plain.wire().feature_accounting.len(), 1);
     assert_eq!(plain.wire().semantic_graph.nodes.len(), 6);
-    assert_ne!(plain.identity(), contextual.identity());
+    let canonical_v1 = |package: &ContractPackageV1| {
+        quire_canonical::to_vec(package.wire(), quire_canonical::Limits::new(u64::MAX))
+            .expect("admitted V1 package encodes canonically")
+    };
+    assert_ne!(canonical_v1(&plain), canonical_v1(&contextual));
     let ContractResultViewV1::Lowered(plain_view) = plain
         .result_context(
             &add.node_id,

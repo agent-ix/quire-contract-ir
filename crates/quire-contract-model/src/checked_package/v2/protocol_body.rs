@@ -47,7 +47,7 @@ pub struct CheckedProtocolActivationRow {
 impl CheckedPackageV2 {
     /// Derives every local clause's activation requirements from the admitted graph.
     ///
-    /// The rows are ordered by clause and then required temporal node digest.
+    /// The rows are ordered by clause and then required temporal node identity.
     /// This read-only view does not charge reader work or change package identity.
     pub fn protocol_activation_relation(&self) -> Vec<CheckedProtocolActivationRow> {
         let mut rows = Vec::new();
@@ -83,11 +83,9 @@ impl CheckedPackageV2 {
             }
         }
         rows.sort_unstable_by(|left, right| {
-            left.clause.digest.cmp(&right.clause.digest).then_with(|| {
-                left.required_temporal
-                    .digest
-                    .cmp(&right.required_temporal.digest)
-            })
+            left.clause
+                .cmp(&right.clause)
+                .then_with(|| left.required_temporal.cmp(&right.required_temporal))
         });
         rows
     }
@@ -473,7 +471,7 @@ fn reference_set_is_ordered(term: &CheckedTerm) -> bool {
     members(term).is_some_and(|items| {
         items.windows(2).all(|pair| match pair {
             [CheckedTerm::Reference { target: left }, CheckedTerm::Reference { target: right }] => {
-                left.digest.as_bytes() < right.digest.as_bytes()
+                left < right
             }
             _ => false,
         })
@@ -484,7 +482,7 @@ fn related_records_are_ordered(term: &CheckedTerm, bytes: u64) -> bool {
     let Some(records) = members(term) else {
         return false;
     };
-    let mut previous: Option<(String, Vec<u8>, Vec<u8>)> = None;
+    let mut previous: Option<(CheckedNodeId, Vec<u8>, Vec<u8>)> = None;
     for record in records {
         let Some([relationship, from, to]) = named_fields(record, &["relationship", "from", "to"])
             .and_then(|fields| <[_; 3]>::try_from(fields).ok())
@@ -500,7 +498,7 @@ fn related_records_are_ordered(term: &CheckedTerm, bytes: u64) -> bool {
         let Ok(to) = quire_canonical::to_vec(to, quire_canonical::Limits::new(bytes)) else {
             return false;
         };
-        let key = (relationship.digest.to_string(), from, to);
+        let key = (relationship.clone(), from, to);
         if previous.as_ref().is_some_and(|previous| previous >= &key) {
             return false;
         }
@@ -1759,7 +1757,11 @@ fn check_related_types(
         {
             let term = group_value(record, end_name).expect("validated related end");
             let actual = check.term_type(term);
-            let Some(Ok(expected_key)) = owner.package.end_declaration_key(declared) else {
+            let Some(expected) = owner
+                .package
+                .end_declaration_form(declared)
+                .and_then(|form| owners.declaration_id(&owner.package.identity, declared, form))
+            else {
                 return Err(check.refuse(
                     Code::InvalidModelBinding,
                     Some(Cause::WrongExport),
@@ -1772,10 +1774,6 @@ fn check_related_types(
                         .key("value")
                         .key("target"),
                 ));
-            };
-            let expected = CheckedNodeId {
-                domain: crate::checked_package::common::NODE_DOMAIN.into(),
-                digest: expected_key.into(),
             };
             let actual_owner = actual
                 .and_then(|id| check.index.get(id))
@@ -1821,7 +1819,7 @@ fn check_related_types(
                     CheckedProtocolRefusalDetail::RelatedEndType {
                         relationship: relationship.clone(),
                         end: end_name.into(),
-                        expected,
+                        expected: expected.clone(),
                         actual: actual.cloned(),
                     },
                 ));
@@ -5155,11 +5153,15 @@ mod tests {
 
     type QSpecFrame = (ProtocolForm, &'static str, &'static [(&'static str, Shape)]);
 
+    fn id(name: char) -> Value {
+        json!({"package": "test/protocol", "path": [name.to_string()], "ordinal": 0})
+    }
+
     fn example(shape: Shape) -> Value {
-        let type_id = json!({"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)});
+        let type_id = id('b');
         match shape {
             Shape::Reference | Shape::ReferenceOrText | Shape::Term => {
-                json!({"term": "reference", "target": {"domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)}})
+                json!({"term": "reference", "target": id('a')})
             }
             Shape::Text => {
                 json!({"term": "literal", "value_kind": "text", "value": "name", "type": type_id})
@@ -5200,7 +5202,7 @@ mod tests {
                 "member": {"kind": "profile_operator", "operator": operator},
                 "leaves": []
             },
-            "result_type": {"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)},
+            "result_type": id('b'),
             "arguments": arguments
         })
     }
@@ -5212,7 +5214,7 @@ mod tests {
     fn text(value: &str) -> Value {
         json!({
             "term": "literal", "value_kind": "text", "value": value,
-            "type": {"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)}
+            "type": id('b')
         })
     }
 
@@ -5319,7 +5321,7 @@ mod tests {
     }
 
     fn boolean() -> Value {
-        json!({"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)})
+        id('b')
     }
 
     /// QSpec TC-946 covers the twenty names and seven forms in FR-464.
@@ -5716,7 +5718,7 @@ mod tests {
             validate_protocol_body(
                 ProtocolForm::Control,
                 &wrong_type,
-                &json!({"domain": "quire.checked-semantic-node/v1", "digest": "c".repeat(64)}),
+                &id('c'),
                 Some(&selected())
             ),
             Err(ProtocolBodyDefect::OperatorIneligible)
@@ -5785,8 +5787,8 @@ mod tests {
         clause["arguments"][10]["value"]["members"] = json!([]);
         let mut first = example(Shape::Reference);
         let mut second = example(Shape::Reference);
-        first["target"]["digest"] = json!("a".repeat(64));
-        second["target"]["digest"] = json!("b".repeat(64));
+        first["target"] = id('a');
+        second["target"] = id('b');
         clause["arguments"][3]["value"]["members"] = json!([first, second]);
         assert_eq!(check(&clause), Ok(()));
         clause["arguments"][3]["value"]["members"]

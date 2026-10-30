@@ -11,8 +11,8 @@ use quire_contract_model::source_obligation::{
     SourceObligationInput, SourceObligationRow, SourceSemanticOccurrenceId,
 };
 use quire_contract_model::{
-    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, SourceDocumentId, SourceIdentity,
-    SourceRevision,
+    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole,
+    SourceDocumentId, SourceIdentity, SourceRevision,
 };
 
 struct Rows {
@@ -76,8 +76,9 @@ fn default_feature_consumer_borrows_public_census_and_rows() {
     );
     let criterion = SourceAuthoredCriterionId::new("obligations", "FR-052.md", "AC-1");
     let node = CheckedNodeId {
-        domain: "quire.checked-semantic-node/v1".into(),
-        digest: "a".repeat(64).into(),
+        package: "selected".into(),
+        path: vec![CheckedNodePathSegment::Name("assertion".into())],
+        ordinal: 0,
     };
     let occurrence = SourceSemanticOccurrenceId::new(
         node.clone(),
@@ -100,8 +101,9 @@ fn default_feature_consumer_borrows_public_census_and_rows() {
             row(SourceInventoryIdentity::SemanticNode {
                 identity: node,
                 semantic_type: CheckedNodeId {
-                    domain: "quire.checked-semantic-node/v1".into(),
-                    digest: "b".repeat(64).into(),
+                    package: "selected".into(),
+                    path: vec![CheckedNodePathSegment::Name("type".into())],
+                    ordinal: 0,
                 },
             }),
             row(SourceInventoryIdentity::SemanticOccurrence(

@@ -82,7 +82,7 @@ Codegen's manifest now declares both IR packages: `quire-contract-model` for mod
 - The Kani profile carries its own identity, `kani-bounded/1` (`src/kani/mod.rs:29`), selected
   together with its capability matrix, input ABI and module revisions (AD-001, Versioned
   contracts). Codegen selects by `ProfileSelection` and IR refuses a selection it does not know.
-- The checked-package seam asserts `contract_version` and `package_id` (AD-004). Codegen does not
+- The checked-package seam asserts `contract_version`, package `name` and complete checked content (AD-004). Codegen does not
   recompute either; it reads an admitted `CheckedPackageV2`.
 - IR-605 changed `KaniOutcome.code` to the model crate's `Std001Code`; codegen compares the
   registered `Std001Code::KANI_VACUOUS_PROOF` constant. IR exports no family lowering;

@@ -4,14 +4,13 @@
 //! Exact, independent per-item lowering of admitted CheckedPackage V2 nodes.
 
 use crate::support::checked_package::{
-    self, canonical, evidence_for, mint_ungrouped_structural_keys, refresh_identity, settle,
-    sha256_hex, structural_key, typed_node_id, v2_all_families, v2_nominal,
+    self, canonical, evidence_for, refresh_identity, settle, typed_node_id, v2_all_families,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    CONTRACT_IR_SEMANTIC_DOMAIN,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -48,14 +47,9 @@ fn id(prefix: &str) -> CheckedNodeId {
     typed_node_id(&key(prefix))
 }
 
-/// FR-092 key of the namespace after `integer_typed` retypes it at Integer.
+/// Retained structural identity of the namespace after `integer_typed` retypes it.
 fn integer_typed_namespace_id() -> CheckedNodeId {
-    typed_node_id(&structural_key(
-        "model",
-        "namespace",
-        Some(&key("a3a3")),
-        &json!({"term": "aggregate", "members": []}),
-    ))
+    id("1010")
 }
 
 fn admit(value: &Value) -> CheckedPackageV2 {
@@ -99,7 +93,7 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
         .map(|(prefix, _)| id(prefix))
         .collect::<Vec<_>>();
     let result = package.lower(&requested, &profile(u64::MAX));
-    assert_eq!(result.package.source_package_id(), package.package_id());
+    assert_eq!(result.package.source_package_name(), package.name());
     assert_eq!(result.records.len(), FAMILIES.len());
     for (position, ((prefix, tag), record)) in FAMILIES.iter().zip(&result.records).enumerate() {
         let node = lowered(record);
@@ -127,15 +121,14 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             // The function node's real `application` body also argues over
             // the second function node ("8080"), so its own one-hop
             // dependency set gains that reference beside its self-typed
-            // `result_type`; digest-ascending puts "8080" before "aaaa".
+            // `result_type`; the structural order is asserted after sorting.
             "ffff" => vec![id("8080"), id("aaaa")],
             // The temporal clause reaches its `over` parameter ("a4a4") and
             // that parameter's `integer` level type ("a3a3"), the `text`
             // type of its name literal ("a1a1"), its formula ("a2a2"), the
             // formula's `holds` operand ("a5a5") and that operand's Boolean
             // literal type (the one Boolean node, "aaaa", which is also its
-            // `result_type`), in digest order (two of them are application
-            // keys).
+            // `result_type`), in structural node-id order.
             "4040" => {
                 let mut reached = vec![
                     id("a1a1"),
@@ -186,42 +179,22 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             serde_json::to_value(&node.source_map).expect("source map"),
             Value::Array(source_map)
         );
-
-        // The lowered identity is re-derivable from the wire alone.
-        let mut projection = wire.clone();
-        projection
-            .as_object_mut()
-            .expect("node")
-            .remove("occurrences");
-        let preimage = json!({
-            "version": "quire.contract-ir.lowered-node/v1",
-            "node": projection,
-            "dependencies": node.dependencies,
-            "bounds": node.bounds,
-            "claims": node.claims,
-        });
-        assert_eq!(node.ir_id.domain.as_ref(), CONTRACT_IR_SEMANTIC_DOMAIN);
-        assert_eq!(node.ir_id.algorithm.as_ref(), "sha256");
-        assert_eq!(
-            node.ir_id.digest.as_ref(),
-            sha256_hex(&canonical(&preimage))
-        );
     }
     let identities = result
         .records
         .iter()
-        .map(|record| lowered(record).ir_id.digest.clone())
+        .map(|record| lowered(record).node.node_id.clone())
         .collect::<BTreeSet<_>>();
     assert_eq!(identities.len(), FAMILIES.len());
 
-    // Nominal nodes lower with their preimages and nominal closures intact.
+    // Nominal nodes lower with their semantic bodies and closures intact.
     let nominal_value = checked_package::v2_nominal();
     let nominal = admit(&nominal_value);
     let keys = nominal_value["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .map(|node| typed_node_id(node["node_id"]["digest"].as_str().expect("key")))
+        .map(|node| serde_json::from_value(node["node_id"].clone()).expect("node id"))
         .collect::<Vec<_>>();
     let result = nominal.lower(&keys, &profile(u64::MAX));
     let [member, declaration, unit, dimension] = [0, 1, 2, 3].map(|i| lowered(&result.records[i]));
@@ -235,7 +208,6 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             serde_json::to_value(&node.node).expect("node"),
             nominal_value["semantic_graph"]["nodes"][position]
         );
-        assert!(node.node.nominal_identity_preimage.is_some());
     }
 }
 
@@ -354,19 +326,15 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
     let mut bounded = profile(u64::MAX);
     bounded.require_bounds = true;
 
-    let value_key = value["semantic_graph"]["nodes"]
+    let value_key: CheckedNodeId = value["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
         .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "literal")
-        .and_then(|node| node["node_id"]["digest"].as_str())
+        .map(|node| serde_json::from_value(node["node_id"].clone()).expect("node id"))
         .expect("value key");
     let result = package.lower(
-        &[
-            integer_typed_namespace_id(),
-            typed_node_id(value_key),
-            id("cccc"),
-        ],
+        &[integer_typed_namespace_id(), value_key, id("cccc")],
         &bounded,
     );
     assert_eq!(
@@ -409,7 +377,6 @@ fn integer_typed() -> Value {
             node["dependencies"] = json!([checked_package::node_id(&key("cccc"))]);
         }
     }
-    mint_ungrouped_structural_keys(&mut value);
     settle(&mut value);
     value
 }
@@ -434,7 +401,7 @@ fn graph_keys(value: &Value) -> Vec<CheckedNodeId> {
         .as_array()
         .expect("graph nodes")
         .iter()
-        .map(|node| typed_node_id(node["node_id"]["digest"].as_str().expect("node id digest")))
+        .map(|node| serde_json::from_value(node["node_id"].clone()).expect("node id"))
         .collect()
 }
 
@@ -613,9 +580,8 @@ fn tc_052_lowering_outcome_selection_is_a_total_order() {
 
 /// A package of one scalar node of `scalar_form`, one composite node of
 /// `composite_form` over it and one value node typed at the scalar, in place
-/// of the all-families graph. The undeclared nodes of the ten derived shapes
-/// carry their derived key and closed body (FR-038-AC-134); a form the reader
-/// does not derive carries a placeholder key.
+/// of the all-families graph. The nodes have authored structural paths and
+/// closed bodies (FR-038-AC-134).
 struct Forms {
     value: Value,
     scalar: CheckedNodeId,
@@ -640,9 +606,10 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
         })
     };
     let empty = || json!({"term": "aggregate", "members": []});
-    let scalar_key = checked_package::structural_key("scalar_type", scalar_form, None, &empty());
-    let value_key =
-        checked_package::structural_key("value", "literal", Some(&scalar_key), &empty());
+    // Producer-assigned paths keep the scalar before the composite so the
+    // least-key oracle can distinguish closure order from traversal order.
+    let scalar_key = format!("lowering/a-scalar/{scalar_form}");
+    let value_key = "lowering/value/literal".to_owned();
     let self_typed = matches!(
         composite_form,
         "option" | "reference" | "set" | "bag" | "sequence" | "ordered_set"
@@ -651,7 +618,7 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
         (composite_form == "reference").then(|| checked_package::family_key("1515"));
     let (composite_key, composite) = if self_typed {
         let body = checked_package::over_body(reference_target.as_deref().unwrap_or(&scalar_key));
-        let key = checked_package::structural_key("composite_type", composite_form, None, &body);
+        let key = format!("lowering/composite/{composite_form}");
         let composite = node(
             &key,
             "composite_type",
@@ -662,12 +629,7 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
         );
         (key, composite)
     } else {
-        let key = checked_package::structural_key(
-            "composite_type",
-            composite_form,
-            Some(&scalar_key),
-            &empty(),
-        );
+        let key = format!("lowering/composite/{composite_form}");
         let composite = node(
             &key,
             "composite_type",

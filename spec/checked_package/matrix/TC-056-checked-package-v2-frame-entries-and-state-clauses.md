@@ -93,7 +93,7 @@ selected record declaration node and never becomes an object reference.
 Compare the reader's effective field outcomes with independently authored
 selected-domain declarations, not a copy of QSpec's vector bytes. Pair a
 record name defect with a canonical-order defect, a lower-key frame defect,
-and a pre-frame graph, owner or stale-key defect to assert the specified
+and a pre-frame graph or owner defect to assert the specified
 first refusal. Read the selected owner table at the exact work limit and one
 unit less, then repeat the existing object, relationship, anchor and clause
 controls to establish their unchanged outcomes.
@@ -119,18 +119,18 @@ naming no parameter of `scaled` (X6), with the frame step admitting and the
 state step
 refusing at the frame node; two anchors of one context sharing one frame node,
 where one operation has the named parameter and the other has not; an anchor whose context is not a model declaration node, with a `parameter` entry naming no parameter, admitted in the state step; and a frame
-defect beside a failing `parameter` entry. Assert the order schema, stale key,
+defect beside a failing `parameter` entry. Assert the order of schema, graph,
 frame step (meaning-join with `conflicting-binding` last, then canonical
 order), state step.
 
 Build both an unpointed protocol anchor and point-qualified `pre` and
 `post` anchors for the same checked operation. Build invariant and constraint
 clauses with `initialization` and `handler` points and operation clauses with
-`pre` and `post` points. Recompute node keys and package identities from this
+`pre` and `post` points. Retain valid structural node ids and the package name from this
 repository's own public vocabulary, read each, then write each admitted package and round-trip the retained
 point or absence through the public writer and reader. Mutate one field at a time: point variant, required name, extra member,
 applicability to clause kind, operation name, and clause/anchor
-point agreement. Mutate identity material without rekeying.
+point agreement. Mutate valid point bodies under retained structural ids and separately test malformed or duplicate ids.
 Pair each point defect with an earlier graph-shape, frame, anchor or signature
 defect and a later operation-catalog defect to test first-refusal order.
 For source-name agreement, run a fresh QSL producer vector from its

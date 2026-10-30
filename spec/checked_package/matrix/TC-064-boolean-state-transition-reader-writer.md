@@ -25,27 +25,16 @@ inputs, clauses, dependencies, identity and `claim` occurrence. Add a second
 checked source declaration of equal transition content with a distinct source
 region and occurrence ordinal. Assert that the two `claim` occurrences point
 to one transition node, retain both distinct regions and ordinals, and leave
-the node and package identities unchanged. Write this two-occurrence package,
-read it again and compare both occurrences, the body and identities. Independently
+the structural ids and package name unchanged. Write this two-occurrence package,
+read it again and compare both occurrences, the complete body and structural ids. Independently
 admit a point-qualified pre/post clause pair whose transition uses the
 no-point anchor.
 
-Apply QSpec `XT-08` and `XT-09` as successful identity comparisons: after
-rekeying the changed operation and its dependent anchors/clauses/transition,
-assert the changed node and package identities; after moving only a source
-region, assert all those identities remain equal. Separately change only the
-subject field, one input, `pre`, `post` and the selected profile, one at a
-time. Derive each transition application preimage independently, rekey all
-affected dependent nodes and the package, and assert a changed transition
-key and package identity for each mutation. Read the rekeyed package when
-the resulting semantic joins remain valid; identity comparison itself does
-not assert that a changed semantic package is admitted. Repeat one
-body mutation while retaining its old node key and assert
-`invalid_package`/`stale-node-key` before state checks.
+Apply the current QSpec `XT-08` and `XT-09` vectors as structural body and source-correspondence controls. A valid operation edit changes the complete relevant bodies; moving only a source region changes correspondence alone.
+Separately change only the subject field, one input, `pre`, `post` and selected profile. Compare each complete transition body, structural id and package name before and after. A valid body edit under the same structural id is admitted when independent joins pass; an invalid target or clause refuses at its own state or graph check. A source-region edit changes correspondence without changing the body.
 
 Apply QSpec refusal vectors `XT-02` through `XT-07`, `XT-10` through `XT-18`
-one at a time. Rebuild exact dependencies, node keys and package identity
-unless the case specifically tests a stale key or missing dependency. Assert
+one at a time. Retain valid structural ids and rebuild exact dependencies unless a case intentionally tests a duplicate id or missing dependency. Assert
 the first refusal's code, cause and RFC 6901 locus, and add independent
 two-defect cases at the wire/graph/frame/state/operation boundaries and
 within transition checks.

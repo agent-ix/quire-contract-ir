@@ -44,18 +44,16 @@ use super::model_fields::{
     DeclarationIndex, DeclaredNode, FieldTables, RecordBinderTypes, Selected,
 };
 use super::{
-    CheckedDeclaration, CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm,
-    ValidationFailure, WorkMeter,
+    CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm, ValidationFailure,
+    WorkMeter,
 };
-use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
+use crate::checked_package::common::{pointer_from_steps, Step};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageLimit, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, JsonPointer,
 };
 use ix_trace_rs::string_edge;
-use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
-use serde::Serialize;
 use serde_json::{json, Value};
 
 /// The fixed declaration body shape in raw intake and admitted typed nodes.
@@ -77,13 +75,12 @@ impl EmptyAggregateBody for CheckedTerm {
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, Box<str>>>;
+pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, CheckedNodeId>>;
 pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/";
 
 mod intake_origin;
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
 
-const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
 const NATIVE_PREFIX: &str = "ix://quire/native/";
 
 /// FR-208 meaning ids, as the constructs table of a Semantic IR document
@@ -432,7 +429,7 @@ impl RelationshipDecl {
     pub(super) fn navigation_type(
         &self,
         forward: bool,
-        destination_key: Box<str>,
+        destination_id: CheckedNodeId,
     ) -> Result<MemberType, ModelRefusal> {
         let multiplicity = self.ends(forward).1.multiplicity;
         let Some(upper) = multiplicity.upper else {
@@ -447,7 +444,7 @@ impl RelationshipDecl {
                 CheckedPackageRefusalCause::ExpressionForm,
             ));
         }
-        let reference = MemberType::Reference(destination_key);
+        let reference = MemberType::Reference(destination_id);
         match (multiplicity.lower, upper) {
             (1, 1) => Ok(reference),
             (0, 1) => Ok(MemberType::Option(Box::new(reference))),
@@ -486,10 +483,11 @@ pub(super) enum ValueBounds {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct DomainModel {
     pub(super) identity: Box<str>,
+    /// The package containing the anonymous member type nodes read here.
+    pub(super) checked_package: Box<str>,
     /// Node position of this package's `model_root`.
     pub(super) root: usize,
-    /// The reader's byte limit, under which every key derived from this
-    /// model's declarations is hashed.
+    /// The reader's byte limit for declarations selected from this model.
     pub(super) bytes: u64,
     /// Object types and systems interfaces, by IR node identity.
     pub(super) object_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
@@ -509,9 +507,13 @@ pub(super) struct DomainModel {
     aliases: BTreeMap<Box<str>, Box<str>>,
     /// Exact semantic cases and optional payload types of selected variants.
     pub(super) variant_types: BTreeMap<Box<str>, BTreeMap<Box<str>, Option<SelectedTypeRef>>>,
+    /// Selected FCD dimension declarations by their exact identity.
+    pub(super) dimensions: BTreeMap<Box<str>, SelectedDimension>,
+    /// Selected FCD unit declarations by their exact identity.
+    pub(super) units: BTreeMap<Box<str>, SelectedUnit>,
     /// FCD sequence (`items`) and map (`values`) type definitions.
     pub(super) collection_types: BTreeMap<Box<str>, SelectedCollectionDefinition>,
-    /// Checked-package unit `typeRef` to the unit node digest.
+    /// Checked-package unit `typeRef` to the exact admitted unit node ID.
     pub(super) unit_refs: UnitRefs,
     /// Whether this selection declares its own `s`; such a declaration
     /// prevents a Duration member from falling back to the source unit.
@@ -531,8 +533,25 @@ pub(super) struct DomainModel {
     pub(super) fields: FieldTables,
 }
 
+/// An admitted FCD dimension, retained for its structural checked-node join.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct SelectedDimension {
+    pub(super) name: Box<str>,
+    pub(super) terms: Vec<(Box<str>, Box<str>)>,
+}
+
+/// An admitted FCD unit, retained for its structural checked-node join.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct SelectedUnit {
+    pub(super) name: Box<str>,
+    pub(super) dimension: Box<str>,
+    pub(super) target: Option<Box<str>>,
+    pub(super) scale: Box<str>,
+    pub(super) offset: Box<str>,
+}
+
 /// A model declaration node's `(node_tag, semantic_form)`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum DeclarationForm {
     ObjectType,
     StateMachine,
@@ -577,171 +596,18 @@ impl DeclarationForm {
     }
 }
 
-/// The `ModelDeclarationNode` key of one declaration: the JCS SHA-256 of
-/// `node-identity-preimage.schema.json`'s closed preimage, computed by
-/// `quire-canonical` under `bytes`, the reader's byte limit.
-///
-/// The owner is the content-only `ModelOwner` (`kind`, `identity`, `node`):
-/// it carries no package version, so the key is stable across a
-/// version-only change of the domain package (FR-038-AC-45).
-///
-/// # Errors
-///
-/// The encoder's refusal when the preimage's canonical bytes exceed `bytes`.
-pub(super) fn declaration_key(
-    identity: &str,
-    form: DeclarationForm,
-    node: &str,
-    bytes: u64,
-) -> Result<String, quire_canonical::Error> {
-    let owner = CheckedNodeOwner::Model {
-        identity: identity.into(),
-        node: node.into(),
-    };
-    structural_key(
-        &StructuralPreimage {
-            node_tag: form.tag(),
-            semantic_form: form.form(),
-            semantic_type: None,
-            declaration: None,
-            recursion: None,
-            owner: Some(&owner),
-            body: aggregate(Vec::new()),
-        },
-        bytes,
-    )
-}
-
-/// The SHA-256 of the one structural preimage, through `quire-canonical`.
-pub(super) fn structural_key<B: Encode>(
-    preimage: &StructuralPreimage<'_, B>,
-    bytes: u64,
-) -> Result<String, Error> {
-    quire_canonical::sha256(preimage, quire_canonical::Limits::new(bytes))
-        .map(|digest| digest.to_string())
-}
-
-/// QSL FR-092/FR-094's structural preimage, shared by member-type keys,
-/// model declaration keys and the reader's actual node keys.
-pub(super) struct StructuralPreimage<'a, B> {
-    pub(super) node_tag: &'a str,
-    pub(super) semantic_form: &'a str,
-    pub(super) semantic_type: Option<StructuralType<'a>>,
-    pub(super) declaration: Option<&'a CheckedDeclaration>,
-    pub(super) recursion: Option<StructuralRecursion<'a>>,
-    pub(super) owner: Option<&'a CheckedNodeOwner>,
-    pub(super) body: B,
-}
-
-/// A semantic type is an external identity or a group's wire ordinal.
-#[derive(Serialize, FixedShape)]
-#[serde(untagged)]
-pub(super) enum StructuralType<'a> {
-    Node { domain: &'a str, digest: &'a str },
-    Group { term: &'static str, ordinal: usize },
-}
-
-impl<'a> StructuralType<'a> {
-    pub(super) fn node(id: &'a super::CheckedNodeId) -> Self {
-        Self::Node {
-            domain: &id.domain,
-            digest: &id.digest,
-        }
+/// The structural identity a selected model declaration must carry. The
+/// owner join still checks this label against the actual graph node.
+pub(super) fn declaration_id(identity: &str, form: DeclarationForm, node: &str) -> CheckedNodeId {
+    CheckedNodeId {
+        package: identity.into(),
+        path: vec![
+            CheckedNodePathSegment::Name(form.tag().into()),
+            CheckedNodePathSegment::Name(form.form().into()),
+            CheckedNodePathSegment::Name(node.into()),
+        ],
+        ordinal: 0,
     }
-
-    pub(super) const fn group(ordinal: usize) -> Self {
-        Self::Group {
-            term: "group_reference",
-            ordinal,
-        }
-    }
-}
-
-/// The retained label is present for a node key and absent for its local digest.
-#[derive(Serialize, FixedShape)]
-pub(super) struct StructuralRecursion<'a> {
-    pub(super) size: usize,
-    pub(super) ordinal: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) group: Option<&'a str>,
-}
-
-impl<B: Encode> Encode for StructuralPreimage<'_, B> {
-    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        writer.begin_object()?;
-        super::encode::member(writer, "version", STRUCTURAL_NODE)?;
-        if let Some(owner) = self.owner {
-            super::encode::member(writer, "owner", owner)?;
-        }
-        super::encode::member(writer, "node_tag", self.node_tag)?;
-        super::encode::member(writer, "semantic_form", self.semantic_form)?;
-        super::encode::member(writer, "semantic_type", &self.semantic_type)?;
-        super::encode::member(writer, "declaration", &self.declaration)?;
-        super::encode::member(writer, "recursion", &self.recursion)?;
-        super::encode::encoded(writer, "body", &self.body)?;
-        writer.end_object()
-    }
-}
-
-/// A reference to a node by its key.
-#[derive(Serialize, FixedShape)]
-struct NodeRef<'a> {
-    domain: &'static str,
-    digest: &'a str,
-}
-
-fn node_ref(digest: &str) -> NodeRef<'_> {
-    NodeRef {
-        domain: NODE_DOMAIN,
-        digest,
-    }
-}
-
-/// A body: an `aggregate` of members.
-#[derive(Serialize, FixedShape)]
-struct AggregateBody<'a> {
-    term: &'static str,
-    members: Vec<BodyMember<'a>>,
-}
-
-fn aggregate(members: Vec<BodyMember<'_>>) -> AggregateBody<'_> {
-    AggregateBody {
-        term: "aggregate",
-        members,
-    }
-}
-
-/// A member of a structural body: a named integer bound or a reference.
-#[derive(Serialize, FixedShape)]
-#[serde(untagged)]
-enum BodyMember<'a> {
-    Binding(Binding<'a>),
-    Reference(Reference<'a>),
-}
-
-/// A `binding` term of a bound.
-#[derive(Serialize, FixedShape)]
-struct Binding<'a> {
-    term: &'static str,
-    name: &'static str,
-    value: BoundLiteral<'a>,
-}
-
-/// A bound literal typed at either Integer or Text.
-#[derive(Serialize, FixedShape)]
-struct BoundLiteral<'a> {
-    term: &'static str,
-    #[serde(rename = "type")]
-    type_node: NodeRef<'a>,
-    value: &'a str,
-    value_kind: &'static str,
-}
-
-/// A `reference` term.
-#[derive(Serialize, FixedShape)]
-struct Reference<'a> {
-    term: &'static str,
-    target: NodeRef<'a>,
 }
 
 /// The last `/` segment of an IR node identity: a member's name.
@@ -796,16 +662,16 @@ pub(super) enum MemberType {
     IntRange(IntegerBounds),
     /// `Text[min, max; profile]`.
     TextBounds(TextBounds),
-    /// `Reference<O>`, by the digest of `O`'s model declaration node.
-    Reference(Box<str>),
-    /// A value record, by its owner-bearing declaration node key.
-    Record(Box<str>),
+    /// `Reference<O>`, over `O`'s model declaration node.
+    Reference(CheckedNodeId),
+    /// A value record, by its owner-bearing declaration node ID.
+    Record(CheckedNodeId),
     /// A selected, self-typed model tuple declaration.
-    Tuple(Box<str>),
+    Tuple(CheckedNodeId),
     /// A selected, self-typed model variant declaration.
-    Variant(Box<str>),
-    /// `Quantity<u>`, by the checked unit's node digest.
-    Quantity(Box<str>),
+    Variant(CheckedNodeId),
+    /// `Quantity<u>`, by the checked unit's node ID.
+    Quantity(CheckedNodeId),
     /// `Option<X>`.
     Option(Box<MemberType>),
     /// `K<E>`, or `K<E>[l, u]` when bounded.
@@ -817,258 +683,159 @@ pub(super) enum MemberType {
 }
 
 impl MemberType {
-    /// The anonymous structural node key of this type, exactly as QSL FR-092
-    /// and FR-094 key it (`quire.structural-node/v1`, no `declaration`, no
-    /// `owner`, self-typed composite and scalar nodes, bounded domains typed
-    /// at the node they bound).
-    ///
-    /// Every key is hashed by `quire-canonical` under `bytes`, the reader's
-    /// byte limit.
-    ///
-    /// # Errors
-    ///
-    /// The encoder's refusal when a preimage's canonical bytes exceed `bytes`.
-    pub(super) fn node_key(&self, bytes: u64) -> Result<String, quire_canonical::Error> {
-        match self {
-            Self::Boolean => {
-                anonymous("scalar_type", "boolean", None, StructuralBody::Empty, bytes)
-            }
-            Self::Integer => {
-                anonymous("scalar_type", "integer", None, StructuralBody::Empty, bytes)
-            }
-            Self::Float32 => {
-                anonymous("scalar_type", "float32", None, StructuralBody::Empty, bytes)
-            }
-            Self::Float64 => {
-                anonymous("scalar_type", "float64", None, StructuralBody::Empty, bytes)
-            }
-            Self::String => anonymous("scalar_type", "string", None, StructuralBody::Empty, bytes),
-            Self::Uuid => anonymous("scalar_type", "uuid", None, StructuralBody::Empty, bytes),
-            Self::Timestamp => anonymous(
-                "scalar_type",
-                "timestamp",
-                None,
-                StructuralBody::Empty,
-                bytes,
-            ),
-            Self::Bytes => anonymous("scalar_type", "bytes", None, StructuralBody::Empty, bytes),
-            Self::JsonObject => anonymous(
-                "scalar_type",
-                "json_object",
-                None,
-                StructuralBody::Empty,
-                bytes,
-            ),
-            Self::Clock => anonymous("scalar_type", "clock", None, StructuralBody::Empty, bytes),
-            Self::IntRange(range) => {
-                let integer = Self::Integer.node_key(bytes)?;
-                anonymous(
-                    "bounded_domain",
+    /// The exact structural ID a selected member type names. A later graph
+    /// join requires this ID to exist before admitting the member use.
+    pub(super) fn node_id(&self, package: &str) -> Option<CheckedNodeId> {
+        enum Task<'a> {
+            Read(&'a MemberType),
+            Option,
+            Collection(CollectionKind, Option<(u64, u64)>),
+        }
+        let mut tasks = vec![Task::Read(self)];
+        let mut ids = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Read(Self::Clock) => return None,
+                Task::Read(Self::Option(inner)) => {
+                    tasks.push(Task::Option);
+                    tasks.push(Task::Read(inner));
+                }
+                Task::Read(Self::Collection {
+                    kind,
+                    element,
+                    bounds,
+                }) => {
+                    tasks.push(Task::Collection(*kind, *bounds));
+                    tasks.push(Task::Read(element));
+                }
+                Task::Read(Self::Reference(target)) => ids.push(derived_id(
+                    package,
+                    "composite_type",
+                    "reference",
+                    vec![CheckedNodePathSegment::Node(Box::new(target.clone()))],
+                )),
+                Task::Read(
+                    Self::Record(id) | Self::Tuple(id) | Self::Variant(id) | Self::Quantity(id),
+                ) => {
+                    ids.push(id.clone());
+                }
+                Task::Read(Self::IntRange(bounds)) => ids.push(bounded_id(
+                    package,
                     "integer_range",
-                    Some(&integer),
-                    StructuralBody::Bounds {
-                        integer: &integer,
-                        lower: &range.lower.to_string(),
-                        upper: &range.upper.to_string(),
-                    },
-                    bytes,
-                )
-            }
-            Self::TextBounds(bounds) => {
-                let text = anonymous("scalar_type", "text", None, StructuralBody::Empty, bytes)?;
-                let integer = Self::Integer.node_key(bytes)?;
-                anonymous(
-                    "bounded_domain",
+                    bounds.lower.to_string(),
+                    bounds.upper.to_string(),
+                    None,
+                )),
+                Task::Read(Self::TextBounds(bounds)) => ids.push(bounded_id(
+                    package,
                     "text_bounds",
-                    Some(&text),
-                    StructuralBody::TextBounds {
-                        integer: &integer,
-                        text: &text,
-                        lower: &bounds.lower.to_string(),
-                        upper: &bounds.upper.to_string(),
-                        profile: &bounds.profile,
-                    },
-                    bytes,
-                )
-            }
-            Self::Reference(target) => anonymous(
-                "composite_type",
-                "reference",
-                None,
-                StructuralBody::Over(target),
-                bytes,
-            ),
-            Self::Record(target) | Self::Tuple(target) | Self::Variant(target) => {
-                Ok(target.to_string())
-            }
-            Self::Quantity(target) => Ok(target.to_string()),
-            Self::Option(inner) => {
-                let inner = inner.node_key(bytes)?;
-                anonymous(
-                    "composite_type",
-                    "option",
-                    None,
-                    StructuralBody::Over(&inner),
-                    bytes,
-                )
-            }
-            Self::Collection {
-                kind,
-                element,
-                bounds: collection_bounds,
-            } => {
-                let element = element.node_key(bytes)?;
-                let collection = anonymous(
-                    "composite_type",
-                    kind.form(),
-                    None,
-                    StructuralBody::Over(&element),
-                    bytes,
-                )?;
-                match collection_bounds {
-                    None => Ok(collection),
-                    Some((lower, upper)) => {
-                        let integer = Self::Integer.node_key(bytes)?;
-                        anonymous(
-                            "bounded_domain",
+                    bounds.lower.to_string(),
+                    bounds.upper.to_string(),
+                    Some(BoundTail::Text(&bounds.profile)),
+                )),
+                Task::Read(primitive) => {
+                    let form = match primitive {
+                        Self::Boolean => "boolean",
+                        Self::Integer => "integer",
+                        Self::Float32 => "float32",
+                        Self::Float64 => "float64",
+                        Self::String => "string",
+                        Self::Uuid => "uuid",
+                        Self::Timestamp => "timestamp",
+                        Self::Bytes => "bytes",
+                        Self::JsonObject => "json_object",
+                        _ => return None,
+                    };
+                    ids.push(derived_id(package, "scalar_type", form, Vec::new()));
+                }
+                Task::Option => {
+                    let inner = ids.pop()?;
+                    ids.push(derived_id(
+                        package,
+                        "composite_type",
+                        "option",
+                        vec![CheckedNodePathSegment::Node(Box::new(inner))],
+                    ));
+                }
+                Task::Collection(kind, bounds) => {
+                    let collection = derived_id(
+                        package,
+                        "composite_type",
+                        kind.form(),
+                        vec![CheckedNodePathSegment::Node(Box::new(ids.pop()?))],
+                    );
+                    ids.push(match bounds {
+                        Some((lower, upper)) => bounded_id(
+                            package,
                             "collection_bounds",
-                            Some(&collection),
-                            StructuralBody::Bounds {
-                                integer: &integer,
-                                lower: &lower.to_string(),
-                                upper: &upper.to_string(),
-                            },
-                            bytes,
-                        )
-                    }
+                            lower.to_string(),
+                            upper.to_string(),
+                            Some(BoundTail::Collection(&collection)),
+                        ),
+                        None => collection,
+                    });
                 }
             }
         }
+        ids.pop().filter(|_| ids.is_empty())
     }
 }
 
-/// The closed body of an anonymous structural node, by the keys and strings
-/// it holds. [`MemberType::node_key`] and the reader's re-derivation of a
-/// graph node's key (FR-038-AC-123 through FR-038-AC-130) both build their
-/// preimage through this type and [`anonymous`], so there is one derivation.
-#[derive(Clone, Copy, Debug)]
-pub(super) enum StructuralBody<'a> {
-    /// `aggregate{[]}`: a `boolean` or `integer` scalar.
-    Empty,
-    /// An `aggregate` of one `reference` to this node key.
-    Over(&'a str),
-    /// An `aggregate` of the `min` and `max` bindings, each an `Integer`
-    /// literal typed at `integer`, valued by the decimal strings.
-    Bounds {
-        integer: &'a str,
-        lower: &'a str,
-        upper: &'a str,
-    },
-    TextBounds {
-        integer: &'a str,
-        text: &'a str,
-        lower: &'a str,
-        upper: &'a str,
-        profile: &'a str,
-    },
+fn derived_id(
+    package: &str,
+    tag: &str,
+    form: &str,
+    operands: Vec<CheckedNodePathSegment>,
+) -> CheckedNodeId {
+    let mut path = vec![
+        CheckedNodePathSegment::Name(tag.into()),
+        CheckedNodePathSegment::Name(form.into()),
+    ];
+    path.extend(operands);
+    CheckedNodeId {
+        package: package.into(),
+        path,
+        ordinal: 0,
+    }
 }
 
-impl<'a> StructuralBody<'a> {
-    fn aggregate(self) -> AggregateBody<'a> {
-        match self {
-            Self::Empty => aggregate(Vec::new()),
-            Self::Over(target) => over(target),
-            Self::Bounds {
-                integer,
-                lower,
-                upper,
-            } => bounds(integer, lower, upper),
-            Self::TextBounds {
-                integer,
-                text,
-                lower,
-                upper,
-                profile,
-            } => text_bounds(integer, text, lower, upper, profile),
+fn bounded_id(
+    package: &str,
+    form: &str,
+    lower: String,
+    upper: String,
+    tail: Option<BoundTail<'_>>,
+) -> CheckedNodeId {
+    let integer = derived_id(package, "scalar_type", "integer", Vec::new());
+    let mut operands = vec![
+        CheckedNodePathSegment::Name("min".into()),
+        CheckedNodePathSegment::Node(Box::new(integer)),
+        CheckedNodePathSegment::Name(lower.into()),
+        CheckedNodePathSegment::Name("max".into()),
+        CheckedNodePathSegment::Name(upper.into()),
+    ];
+    match tail {
+        Some(BoundTail::Text(profile)) => {
+            operands.push(CheckedNodePathSegment::Name("text_profile".into()));
+            operands.push(CheckedNodePathSegment::Node(Box::new(derived_id(
+                package,
+                "scalar_type",
+                "text",
+                Vec::new(),
+            ))));
+            operands.push(CheckedNodePathSegment::Name(profile.into()));
         }
+        Some(BoundTail::Collection(target)) => {
+            operands.push(CheckedNodePathSegment::Node(Box::new(target.clone())));
+        }
+        None => {}
     }
+    derived_id(package, "bounded_domain", form, operands)
 }
 
-/// The key of an anonymous structural node: no `declaration`, no `owner`.
-pub(super) fn anonymous(
-    node_tag: &str,
-    semantic_form: &str,
-    semantic_type: Option<&str>,
-    body: StructuralBody<'_>,
-    bytes: u64,
-) -> Result<String, quire_canonical::Error> {
-    structural_key(
-        &StructuralPreimage {
-            node_tag,
-            semantic_form,
-            semantic_type: semantic_type.map(|digest| StructuralType::Node {
-                domain: NODE_DOMAIN,
-                digest,
-            }),
-            declaration: None,
-            recursion: None,
-            owner: None,
-            body: body.aggregate(),
-        },
-        bytes,
-    )
-}
-
-/// An `aggregate` of one `reference` to `target`.
-fn over(target: &str) -> AggregateBody<'_> {
-    aggregate(vec![BodyMember::Reference(Reference {
-        term: "reference",
-        target: node_ref(target),
-    })])
-}
-
-/// An `aggregate` of the `min` and `max` bindings, each an `Integer` literal
-/// typed at `integer`.
-fn bounds<'a>(integer: &'a str, lower: &'a str, upper: &'a str) -> AggregateBody<'a> {
-    let binding = |name: &'static str, value: &'a str| {
-        BodyMember::Binding(Binding {
-            term: "binding",
-            name,
-            value: BoundLiteral {
-                term: "literal",
-                type_node: node_ref(integer),
-                value,
-                value_kind: "integer",
-            },
-        })
-    };
-    aggregate(vec![binding("min", lower), binding("max", upper)])
-}
-
-fn text_bounds<'a>(
-    integer: &'a str,
-    text: &'a str,
-    lower: &'a str,
-    upper: &'a str,
-    profile: &'a str,
-) -> AggregateBody<'a> {
-    let binding = |name: &'static str, type_key: &'a str, value: &'a str, value_kind| {
-        BodyMember::Binding(Binding {
-            term: "binding",
-            name,
-            value: BoundLiteral {
-                term: "literal",
-                type_node: node_ref(type_key),
-                value,
-                value_kind,
-            },
-        })
-    };
-    aggregate(vec![
-        binding("min", integer, lower, "integer"),
-        binding("max", integer, upper, "integer"),
-        binding("text_profile", text, profile, "text"),
-    ])
+enum BoundTail<'a> {
+    Text(&'a str),
+    Collection(&'a CheckedNodeId),
 }
 
 /// The member step 3 resolves.
@@ -1177,25 +944,17 @@ impl DomainModel {
         }
         SelectedTypeRef::from_admitted_name(&current)
     }
-    /// The model declaration node key of the object type or systems interface
-    /// `type_ref`: `None` when no such declaration is selected, `Err` when the
-    /// key cannot be derived under the reader's byte limit. The one derivation
-    /// of a relationship end's declared destination, shared by admission and
-    /// by the record the package retains.
-    pub(super) fn end_declaration_key(
-        &self,
-        type_ref: &str,
-    ) -> Option<Result<String, quire_canonical::Error>> {
+    /// The selected object or interface form of a relationship end.
+    pub(super) fn end_declaration_form(&self, type_ref: &str) -> Option<DeclarationForm> {
         if self.state_machines.contains(type_ref) || self.processes.contains(type_ref) {
             return None;
         }
         let declared = self.object_types.get(type_ref)?;
-        let form = if declared.interface {
+        Some(if declared.interface {
             DeclarationForm::SystemsInterface
         } else {
             DeclarationForm::ObjectType
-        };
-        Some(declaration_key(&self.identity, form, type_ref, self.bytes))
+        })
     }
 
     /// A field-bearing declaration, whether it is an object or a value record.
@@ -1459,34 +1218,25 @@ impl DomainModel {
             });
         }
         if self.record_types.contains_key(type_ref) {
-            return declaration_key(
+            return Some(MemberType::Record(declaration_id(
                 &self.identity,
                 DeclarationForm::RecordValueType,
                 type_ref,
-                self.bytes,
-            )
-            .ok()
-            .map(|key| MemberType::Record(key.into()));
+            )));
         }
         if self.tuple_types.contains_key(type_ref) {
-            return declaration_key(
+            return Some(MemberType::Tuple(declaration_id(
                 &self.identity,
                 DeclarationForm::TupleValueType,
                 type_ref,
-                self.bytes,
-            )
-            .ok()
-            .map(|key| MemberType::Tuple(key.into()));
+            )));
         }
         if self.variant_types.contains_key(type_ref) {
-            return declaration_key(
+            return Some(MemberType::Variant(declaration_id(
                 &self.identity,
                 DeclarationForm::VariantType,
                 type_ref,
-                self.bytes,
-            )
-            .ok()
-            .map(|key| MemberType::Variant(key.into()));
+            )));
         }
         let object = self.object_types.get(type_ref)?;
         if object.interface {
@@ -1504,9 +1254,11 @@ impl DomainModel {
         } else {
             DeclarationForm::ObjectType
         };
-        declaration_key(&self.identity, form, type_ref, self.bytes)
-            .ok()
-            .map(|key| MemberType::Reference(key.into()))
+        Some(MemberType::Reference(declaration_id(
+            &self.identity,
+            form,
+            type_ref,
+        )))
     }
 
     /// Render the selected field type used by a timed clock-place path.
@@ -1600,7 +1352,7 @@ impl DomainModel {
     /// Checked binder types of one record in effective field order.
     pub(super) fn record_binder_types(&self, record: &str) -> Option<RecordBinderTypes> {
         self.record_types.get(record)?;
-        self.fields.of(record)?.binder_types(self.bytes)
+        self.fields.of(record)?.binder_types(&self.checked_package)
     }
 
     /// Checked receiver, parameter and optional result binder types of the
@@ -1641,11 +1393,8 @@ impl DomainModel {
         } else {
             DeclarationForm::ObjectType
         };
-        let Some(object_key) = declaration_key(&self.identity, form, object, self.bytes).ok()
-        else {
-            return Ok(None);
-        };
-        let Some(receiver) = self.type_node_id(&MemberType::Reference(object_key.into())) else {
+        let object_id = declaration_id(&self.identity, form, object);
+        let Some(receiver) = self.type_node_id(&MemberType::Reference(object_id)) else {
             return Ok(None);
         };
         let mut types = vec![receiver];
@@ -1701,10 +1450,7 @@ impl DomainModel {
     }
 
     fn type_node_id(&self, member_type: &MemberType) -> Option<CheckedNodeId> {
-        Some(CheckedNodeId {
-            domain: NODE_DOMAIN.into(),
-            digest: member_type.node_key(self.bytes).ok()?.into(),
-        })
+        member_type.node_id(&self.checked_package)
     }
 }
 
@@ -1727,10 +1473,15 @@ pub(super) struct ModelOperationClass {
     pub(super) binder_types: Option<Vec<CheckedNodeId>>,
 }
 
+/// Selected package, declaration, and form to the authored structural node.
+type DeclarationOwners =
+    BTreeMap<Box<str>, BTreeMap<Box<str>, BTreeMap<DeclarationForm, CheckedNodeId>>>;
+
 /// Every selected declaration's model declaration node key.
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
-    by_key: BTreeMap<String, Owner<'m>>,
+    by_key: BTreeMap<CheckedNodeId, Owner<'m>>,
+    by_declaration: DeclarationOwners,
     /// The identity of every selected domain package.
     identities: BTreeSet<&'m str>,
 }
@@ -1756,7 +1507,17 @@ impl<'m> ModelOwners<'m> {
     }
 
     pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
-        self.by_key.get(key.digest.as_ref()).copied()
+        self.by_key.get(key).copied()
+    }
+
+    /// The exact admitted node for a selected model declaration.
+    pub(super) fn declaration_id(
+        &self,
+        identity: &str,
+        node: &str,
+        form: DeclarationForm,
+    ) -> Option<&CheckedNodeId> {
+        self.by_declaration.get(identity)?.get(node)?.get(&form)
     }
 
     /// Effective operation names, declaration nodes and checked binder records
@@ -1767,7 +1528,7 @@ impl<'m> ModelOwners<'m> {
         meter: &mut super::WorkMeter,
     ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
         let mut classes = Vec::new();
-        for (digest, owner) in &self.by_key {
+        for (id, owner) in &self.by_key {
             if owner.package.identity.as_ref() != identity
                 || !matches!(
                     owner.form,
@@ -1791,10 +1552,7 @@ impl<'m> ModelOwners<'m> {
                 classes.push(ModelOperationClass {
                     object: member_name(owner.node).into(),
                     operation: name,
-                    node: CheckedNodeId {
-                        domain: NODE_DOMAIN.into(),
-                        digest: digest.clone().into(),
-                    },
+                    node: id.clone(),
                     binder_types: binder,
                 });
             }
@@ -1805,7 +1563,7 @@ impl<'m> ModelOwners<'m> {
         &self,
         key: &crate::checked_package::shared::CheckedNodeId,
     ) -> Option<BTreeSet<Box<str>>> {
-        let owner = self.by_key.get(key.digest.as_ref())?;
+        let owner = self.by_key.get(key)?;
         if owner.form != DeclarationForm::ObjectType {
             return None;
         }
@@ -1813,12 +1571,23 @@ impl<'m> ModelOwners<'m> {
     }
     /// Recomputes the key of every selected model declaration
     /// of each admitted document; `charge` is called once per key.
-    pub(super) fn new(
+    pub(super) fn new<Body>(
         models: &'m [DomainModel],
+        nodes: &[CheckedSemanticNodeV2<Body>],
         mut charge: impl FnMut(usize) -> Result<(), ValidationFailure>,
     ) -> Result<Self, ValidationFailure> {
         let mut by_key = BTreeMap::new();
+        let mut by_declaration = DeclarationOwners::new();
         let mut identities = BTreeSet::new();
+        let mut authored = BTreeMap::<(&str, &str), Vec<&CheckedSemanticNodeV2<Body>>>::new();
+        for candidate in nodes {
+            if let Some(CheckedNodeOwner::Model { identity, node }) = &candidate.owner {
+                authored
+                    .entry((identity.as_ref(), node.as_ref()))
+                    .or_default()
+                    .push(candidate);
+            }
+        }
         for (index, package) in models.iter().enumerate() {
             identities.insert(package.identity.as_ref());
             let objects = package.object_types.iter().map(|(node, declared)| {
@@ -1867,29 +1636,37 @@ impl<'m> ModelOwners<'m> {
                 .chain(persistence_interfaces)
             {
                 charge(package.root)?;
-                // A key the encoder refuses (a preimage past the byte limit)
-                // refuses the read as `invalid_semantic_graph` at the
-                // selection row the declaration belongs to.
-                let key = declaration_key(&package.identity, form, node, package.bytes).map_err(
-                    |_| {
-                        ValidationFailure::refused(
-                            CheckedPackageRefusalCode::InvalidSemanticGraph,
-                            crate::checked_package::common::node_pointer(package.root).key("owner"),
-                        )
-                    },
-                )?;
-                by_key.insert(
-                    key,
-                    Owner {
-                        package,
-                        form,
-                        node,
-                        selection: index,
-                    },
-                );
+                if let Some(candidates) = authored.get(&(package.identity.as_ref(), node.as_ref()))
+                {
+                    for candidate in candidates {
+                        if candidate.node_tag.as_ref() == form.tag()
+                            && candidate.semantic_form.as_ref() == form.form()
+                        {
+                            by_declaration
+                                .entry(package.identity.clone())
+                                .or_default()
+                                .entry(node.clone())
+                                .or_default()
+                                .insert(form, candidate.node_id.clone());
+                            by_key.insert(
+                                candidate.node_id.clone(),
+                                Owner {
+                                    package,
+                                    form,
+                                    node,
+                                    selection: index,
+                                },
+                            );
+                        }
+                    }
+                }
             }
         }
-        Ok(Self { by_key, identities })
+        Ok(Self {
+            by_key,
+            by_declaration,
+            identities,
+        })
     }
 
     /// Whether `node` is a model declaration node: a `model` or `relation`
@@ -1901,8 +1678,7 @@ impl<'m> ModelOwners<'m> {
         tag: CheckedNodeTag,
     ) -> bool {
         matches!(tag, CheckedNodeTag::Model | CheckedNodeTag::Relation)
-            && (node.declaration.is_none()
-                || self.by_key.contains_key(node.node_id.digest.as_ref()))
+            && (node.declaration.is_none() || self.by_key.contains_key(&node.node_id))
     }
 
     /// FR-322 step 2 over one wire node.
@@ -1912,7 +1688,7 @@ impl<'m> ModelOwners<'m> {
     ) -> Result<Owner<'m>, ModelRefusal> {
         let owner = self
             .by_key
-            .get(node.node_id.digest.as_ref())
+            .get(&node.node_id)
             .copied()
             .ok_or_else(ModelRefusal::unselected)?;
         check_declaration_node(owner.form, node, node.body.is_empty_aggregate())?;
@@ -1921,7 +1697,7 @@ impl<'m> ModelOwners<'m> {
 
     /// Implements: FR-347. the record value type whose model declaration node key is
     /// `key`, `None` when `key` names no selected record.
-    pub(super) fn record_by_key(&self, key: &str) -> Option<Owner<'m>> {
+    pub(super) fn record_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
         self.by_key
             .get(key)
             .copied()
@@ -1953,7 +1729,7 @@ impl<'m> ModelOwners<'m> {
 /// the node's tag and form are the declaration's (`missing_declaration`/
 /// `missing-selection` otherwise), and its fixed members hold, `semantic_type`
 /// itself, no `declaration`, no `recursion_group`, an empty body
-/// (`invalid_package`/`stale-node-key` otherwise). The one statement of the
+/// (`invalid_package`/`invalid-derived-shape` otherwise). The one statement of the
 /// rule: [`ModelOwners::recover`] at admission and the field accessor of an
 /// admitted package both apply it.
 pub(super) fn check_declaration_node<Body>(
@@ -1964,7 +1740,20 @@ pub(super) fn check_declaration_node<Body>(
     if form.tag() != node.node_tag.as_ref() || form.form() != node.semantic_form.as_ref() {
         return Err(ModelRefusal::unselected());
     }
-    let fixed = node.semantic_type == node.node_id
+    let exact_owner_id = matches!(
+        &node.owner,
+        Some(CheckedNodeOwner::Model { identity, node: declaration })
+            if node.node_id.package.as_ref() == identity.as_ref()
+                && matches!(node.node_id.path.as_slice(),
+                    [CheckedNodePathSegment::Name(tag),
+                     CheckedNodePathSegment::Name(semantic_form),
+                     CheckedNodePathSegment::Name(path)]
+                        if tag.as_ref() == form.tag()
+                            && semantic_form.as_ref() == form.form()
+                            && path.as_ref() == declaration.as_ref())
+    );
+    let fixed = exact_owner_id
+        && node.semantic_type == node.node_id
         && node.declaration.is_none()
         && node.recursion_group.is_none()
         && (form != DeclarationForm::Population || node.dependencies.is_empty())
@@ -1974,7 +1763,7 @@ pub(super) fn check_declaration_node<Body>(
     } else {
         Err(ModelRefusal::new(
             CheckedPackageRefusalCode::InvalidPackage,
-            CheckedPackageRefusalCause::StaleNodeKey,
+            CheckedPackageRefusalCause::InvalidDerivedShape,
         ))
     }
 }
@@ -2534,6 +2323,7 @@ pub(super) fn semantic_ir_identity(document: &Value) -> Option<&str> {
 /// the reader's `work` limit at the identity's root.
 pub(super) fn admit_selection(
     identity: &str,
+    checked_package: &str,
     evidence: &CheckedPackageEvidence,
     budget: &mut Budget<'_>,
     unit_refs: &UnitRefs,
@@ -2544,7 +2334,7 @@ pub(super) fn admit_selection(
         semantic_ir_identity,
         budget,
     )?;
-    let model = read_semantic_ir(&document, budget, unit_refs);
+    let model = read_semantic_ir(&document, checked_package, budget, unit_refs);
     quire_canonical::drop_value(document);
     model
 }
@@ -3166,6 +2956,7 @@ fn node_size(value: &Value) -> u64 {
 /// Every node and every member read is charged to `budget`.
 pub(super) fn read_semantic_ir(
     document: &Value,
+    checked_package: &str,
     budget: &mut Budget<'_>,
     unit_refs: &UnitRefs,
 ) -> Result<DomainModel, SelectionFailure> {
@@ -3229,8 +3020,55 @@ pub(super) fn read_semantic_ir(
         }
         _ => (2, 0),
     });
+    let mut dimensions = BTreeMap::new();
+    for dimension in list(document, "dimensions")? {
+        budget.charge(node_size(dimension))?;
+        let identity = text(dimension, "identity")?;
+        let name = text(dimension, "name")?;
+        let terms = list(dimension, "terms")?
+            .iter()
+            .map(|term| {
+                Ok((
+                    text(term, "dimension")?.into(),
+                    text(term, "exponent")?.into(),
+                ))
+            })
+            .collect::<Result<Vec<_>, ModelRefusal>>()?;
+        if dimensions
+            .insert(
+                identity.into(),
+                SelectedDimension {
+                    name: name.into(),
+                    terms,
+                },
+            )
+            .is_some()
+        {
+            return Err(ModelRefusal::malformed().into());
+        }
+    }
+    let mut units = BTreeMap::new();
+    for unit in list(document, "units")? {
+        budget.charge(node_size(unit))?;
+        let identity = text(unit, "identity")?;
+        let target = unit
+            .get("target")
+            .map(|_| text(unit, "target").map(Box::<str>::from))
+            .transpose()?;
+        let selected = SelectedUnit {
+            name: text(unit, "name")?.into(),
+            dimension: text(unit, "dimension")?.into(),
+            target,
+            scale: text(unit, "scale")?.into(),
+            offset: text(unit, "offset")?.into(),
+        };
+        if units.insert(identity.into(), selected).is_some() {
+            return Err(ModelRefusal::malformed().into());
+        }
+    }
     let mut model = DomainModel {
         identity: identity.into(),
+        checked_package: checked_package.into(),
         root: budget.root,
         bytes: budget.bytes,
         object_types: BTreeMap::new(),
@@ -3242,6 +3080,8 @@ pub(super) fn read_semantic_ir(
         value_types: BTreeMap::new(),
         aliases,
         variant_types: BTreeMap::new(),
+        dimensions,
+        units,
         collection_types: BTreeMap::new(),
         unit_refs: unit_refs.clone(),
         own_seconds_declared: list(document, "units")?
@@ -4437,3 +4277,52 @@ fn items_at<'v>(
 
 #[cfg(test)]
 pub(super) mod tests;
+
+#[cfg(test)]
+mod structural_member_type_tests {
+    use super::{declaration_id, CollectionKind, DeclarationForm, IntegerBounds, MemberType};
+    use serde_json::json;
+
+    /// Trace: FR-038-AC-364, FR-322-AC-62.
+    #[test]
+    fn selected_member_types_use_structural_paths() {
+        let object = declaration_id(
+            "acme/orders",
+            DeclarationForm::ObjectType,
+            "ix://acme/orders/Order",
+        );
+        let reference = MemberType::Reference(object.clone())
+            .node_id("example")
+            .expect("reference type");
+        assert_eq!(
+            serde_json::to_value(&reference).expect("encode reference"),
+            json!({"package":"example","path":["composite_type","reference",
+                {"package":"acme/orders","path":["model","object_type","ix://acme/orders/Order"],"ordinal":0}
+            ],"ordinal":0})
+        );
+        let bounded = MemberType::Collection {
+            kind: CollectionKind::Sequence,
+            element: Box::new(MemberType::Reference(object)),
+            bounds: Some((0, 3)),
+        }
+        .node_id("example")
+        .expect("bounded sequence");
+        assert_eq!(bounded.path.len(), 8);
+        assert_eq!(
+            bounded.path[0],
+            super::CheckedNodePathSegment::Name("bounded_domain".into())
+        );
+        let integer_range = MemberType::IntRange(IntegerBounds {
+            lower: -9,
+            upper: 9,
+        })
+        .node_id("example")
+        .expect("integer range");
+        assert_eq!(
+            serde_json::to_value(&integer_range).expect("encode range")["path"],
+            json!(["bounded_domain","integer_range","min",
+                {"package":"example","path":["scalar_type","integer"],"ordinal":0},
+                "-9","max","9"])
+        );
+    }
+}

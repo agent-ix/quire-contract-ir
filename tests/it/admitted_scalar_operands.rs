@@ -6,9 +6,7 @@
 use crate::admitted_result_context::{
     admit, by_operation, fixture, package, package_with_profile, profile, sources_for,
 };
-use crate::support::checked_package::{
-    family_key, mint_ungrouped_structural_keys, node_id, refresh_identity, settle,
-};
+use crate::support::checked_package::{family_key, node_id, refresh_identity, settle};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     BoundedDomainForm, CheckedOccurrenceRole, CheckedScalarOperandError, ContractOccurrenceKeyV1,
@@ -19,7 +17,6 @@ use serde_json::{json, Value};
 
 fn revised(mut wire: Value, change: impl FnOnce(&mut Value)) -> Value {
     change(&mut wire);
-    mint_ungrouped_structural_keys(&mut wire);
     settle(&mut wire);
     wire
 }
@@ -40,7 +37,6 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
     let add = by_operation(&checked, "quire.op.integer.add");
     let admitted = package(&checked, std::slice::from_ref(&add.node_id));
     let before = admitted.wire().clone();
-    let identity = admitted.identity().clone();
     let reached = admitted
         .reached_closure(&add.node_id)
         .expect("reached before");
@@ -59,7 +55,6 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
         view.application_source,
         &sources_for(&admitted, &add.node_id)[0]
     );
-    assert_eq!(view.identity, admitted.identity());
     assert_eq!(view.provenance, &admitted.wire().package);
     assert_eq!(view.arguments.len(), 2);
     assert_eq!(
@@ -88,7 +83,6 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
         ContractScalarOwnRangeV1::Finite { lower: 1, upper: 1 }
     ));
     assert_eq!(admitted.wire(), &before);
-    assert_eq!(admitted.identity(), &identity);
     assert_eq!(
         admitted
             .reached_closure(&add.node_id)

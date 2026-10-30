@@ -25,7 +25,6 @@ fn requirement(
     node_tag: &str,
     semantic_form: &str,
     declaration: Option<&CheckedDeclaration>,
-    nominal: bool,
     body: &Value,
     self_typed: bool,
     owner: Option<&CheckedNodeOwner>,
@@ -33,11 +32,29 @@ fn requirement(
     if kind == Some(CheckedNodeKind::Model(super::ModelForm::ModelRoot)) {
         return OwnerRequirement::ModelRoot;
     }
-    if nominal || body_term(body) == Some(super::BodyTerm::Application) {
+    if body_term(body) == Some(super::BodyTerm::Application) {
         return OwnerRequirement::None;
+    }
+    if kind
+        == Some(CheckedNodeKind::ScalarType(
+            super::ScalarTypeForm::DimensionEquivalence,
+        ))
+    {
+        return OwnerRequirement::Source;
     }
     if declaration.is_some() {
         return OwnerRequirement::Source;
+    }
+    if matches!(
+        kind,
+        Some(CheckedNodeKind::ScalarType(
+            super::ScalarTypeForm::Enum
+                | super::ScalarTypeForm::Dimension
+                | super::ScalarTypeForm::Unit
+        ))
+    ) && matches!(owner, Some(CheckedNodeOwner::Model { .. }))
+    {
+        return OwnerRequirement::Model;
     }
     match (node_tag, semantic_form) {
         ("model", "record_value_type" | "tuple_value_type" | "variant_type") => {
@@ -119,10 +136,6 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
             let forbidden = [
                 ("declaration", node.declaration.is_some()),
                 ("owner", node.owner.is_some()),
-                (
-                    "nominal_identity_preimage",
-                    node.nominal_identity_preimage.is_some(),
-                ),
             ];
             if let Some((member, _)) = forbidden.into_iter().find(|(_, present)| *present) {
                 return Err(ValidationFailure::refused(
@@ -137,7 +150,6 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
                 &node.node_tag,
                 &node.semantic_form,
                 node.declaration.as_ref(),
-                node.nominal_identity_preimage.is_some(),
                 &node.body,
                 node.semantic_type == node.node_id,
                 node.owner.as_ref(),
@@ -201,6 +213,12 @@ fn model_kind_matches(
     operations: &BTreeSet<&str>,
 ) -> bool {
     match kind {
+        CheckedNodeKind::ScalarType(super::ScalarTypeForm::Dimension) => {
+            model.dimensions.contains_key(declared)
+        }
+        CheckedNodeKind::ScalarType(super::ScalarTypeForm::Unit) => {
+            model.units.contains_key(declared)
+        }
         CheckedNodeKind::Model(super::ModelForm::ObjectType) => {
             model.object_types.get(declared).is_some_and(|object| {
                 !object.interface
@@ -303,8 +321,7 @@ pub(super) fn validate_owner_joins(
     positions.sort_unstable_by(|&left, &right| {
         wire.semantic_graph.nodes[left]
             .node_id
-            .digest
-            .cmp(&wire.semantic_graph.nodes[right].node_id.digest)
+            .cmp(&wire.semantic_graph.nodes[right].node_id)
     });
     for position in positions {
         let node = &wire.semantic_graph.nodes[position];
@@ -367,6 +384,28 @@ pub(super) fn validate_owner_joins(
                     })
                 }) {
                     return Err(missing_owner(node, at));
+                }
+                // A selected model or relation declaration has a fixed,
+                // self-typed shape. Check it at the declaration before an
+                // application can report the same defect at its member.
+                if kinds.get(position).is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        CheckedNodeKind::Model(_) | CheckedNodeKind::Relation(_)
+                    )
+                }) && (node.semantic_type != node.node_id
+                    || node.declaration.is_some()
+                    || node.recursion_group.is_some()
+                    || !terms.get(position).and_then(Option::as_ref).is_some_and(
+                        |term| matches!(term, CheckedTerm::Aggregate { members } if members.is_empty()),
+                    ))
+                {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::InvalidPackage,
+                        node_pointer(position).key("node_id"),
+                        Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+                        node.node_id.clone(),
+                    ));
                 }
             }
             Some(CheckedNodeOwner::ModelRoot { .. }) | None => {}

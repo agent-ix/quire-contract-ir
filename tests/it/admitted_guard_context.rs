@@ -4,8 +4,8 @@
 //! TC-450: admitted path guards retain their checked occurrences and polarity.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, fixture_source, mint_ungrouped_structural_keys, node_id,
-    refresh_identity, settle, sha256_hex, v2_all_families,
+    canonical, evidence_for, family_key, fixture_source, node_id, refresh_identity, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -22,11 +22,8 @@ fn body_at(term: &quire_contract_model::CheckedTerm, path: &str) -> Option<Value
     serde_json::to_value(term).ok()?.pointer(path).cloned()
 }
 
-fn typed_key(digest: &str) -> CheckedNodeId {
-    CheckedNodeId {
-        domain: "quire.checked-semantic-node/v1".into(),
-        digest: digest.into(),
-    }
+fn typed_key(label: &str) -> CheckedNodeId {
+    serde_json::from_value(node_id(label)).expect("structural node id")
 }
 
 fn operation(identity: &str) -> Value {
@@ -80,7 +77,7 @@ fn guard_source() -> Value {
         .expect("fixture graph");
     let reference_guard = nodes
         .iter_mut()
-        .find(|node| node["node_id"]["digest"] == family_key("eeee"))
+        .find(|node| node["node_id"] == node_id(&family_key("eeee")))
         .expect("shared Boolean expression");
     reference_guard["body"]["target"] = node_id(&family_key("a4a4"));
     let mut reference_dependencies = [family_key("aaaa"), family_key("a4a4")];
@@ -96,19 +93,19 @@ fn guard_source() -> Value {
     ]);
     let boolean_type = nodes
         .iter_mut()
-        .find(|node| node["node_id"]["digest"] == boolean)
+        .find(|node| node["node_id"] == node_id(&boolean))
         .expect("Boolean type");
     boolean_type["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     let unrelated_value = nodes
         .iter_mut()
-        .find(|node| node["node_id"]["digest"] == family_key("a2a2"))
+        .find(|node| node["node_id"] == node_id(&family_key("a2a2")))
         .expect("unrelated temporal node");
     unrelated_value["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
 
-    let nested_guard = sha256_hex(b"ir779 provisional nested guard");
-    let application = sha256_hex(b"ir779 provisional application");
-    let integer_guard = sha256_hex(b"ir779 provisional integer guard");
-    let narrow = sha256_hex(b"ir779 provisional direct narrow");
+    let nested_guard = "guard/nested".to_owned();
+    let application = "guard/application".to_owned();
+    let integer_guard = "guard/integer".to_owned();
+    let narrow = "guard/narrow".to_owned();
     nodes.extend([
         application_node(
             &nested_guard,
@@ -169,7 +166,6 @@ fn guard_source() -> Value {
             json!([{"role": "expression", "ordinal": 0}]),
         ),
     ]);
-    mint_ungrouped_structural_keys(&mut source);
     settle(&mut source);
     let source_ref = fixture_source();
     let source_nodes = source["semantic_graph"]["nodes"].as_array().expect("nodes");
@@ -264,10 +260,7 @@ fn reference_guard_node(
         .find(|node| {
             node.node_tag.as_ref() == "expression"
                 && node.semantic_form.as_ref() == "reference"
-                && body_at(&node.body, "/target/digest")
-                    .as_ref()
-                    .and_then(Value::as_str)
-                    == Some(family_key("a4a4").as_str())
+                && body_at(&node.body, "/target") == Some(node_id(&family_key("a4a4")))
         })
         .expect("shared reference guard")
 }
@@ -320,7 +313,7 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
     let integer_occurrence = occurrence(integer_expression, 0);
     let narrow_occurrence = occurrence(direct_narrow, 0);
     let application_only = package(&source, std::slice::from_ref(&app_id));
-    let absent_application = typed_key(&sha256_hex(b"ir779 absent application"));
+    let absent_application = typed_key("guard/absent-application");
     assert!(matches!(
         application_only.guard_context(&absent_application, &app_first, &[]),
         Ok(ContractGuardContextViewV1::Absent)
@@ -419,14 +412,14 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
         record.node_id() == &guard_inner.node_id
             && record.disposition() == ContractDispositionV1::Lowered
     }));
-    assert_ne!(plain_result_roots.identity(), contextual.identity());
+    assert_ne!(plain_result_roots.wire(), contextual.wire());
     assert_eq!(
         serde_json::to_value(contextual.wire())
             .expect("wire fields")
             .as_object()
             .expect("closed wire object")
             .len(),
-        6
+        5
     );
     assert!(matches!(
         application_only.guard_context(
@@ -453,7 +446,6 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
     let then_view = lowered(&contextual, &app_id, &app_first, &then_guards);
     assert_eq!(then_view.application, app_first);
     assert_eq!(then_view.provenance, &contextual.wire().package);
-    assert_eq!(then_view.identity, contextual.identity());
     assert_eq!(then_view.guards.len(), 3);
     assert_eq!(
         then_view
@@ -544,7 +536,7 @@ fn tc_450_guard_context_refuses_first_bad_occurrence_without_a_prefix() {
         .graph()
         .nodes
         .iter()
-        .find(|node| node.node_id.digest.as_ref() == family_key("aaaa"))
+        .find(|node| node.node_id == typed_key(&family_key("aaaa")))
         .expect("Boolean scalar node");
     let app_id = app.node_id.clone();
     let app_occurrence = occurrence(app, 0);
@@ -561,7 +553,7 @@ fn tc_450_guard_context_refuses_first_bad_occurrence_without_a_prefix() {
     );
 
     let absent = ContractOccurrenceKeyV1 {
-        node_id: typed_key(&sha256_hex(b"ir779 absent guard")),
+        node_id: typed_key("guard/absent-guard"),
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
     };
@@ -699,7 +691,7 @@ fn tc_450_unrepresented_guard_key_cannot_gain_authority_from_its_body_position()
         .graph()
         .nodes
         .iter()
-        .find(|node| node.node_id.digest.as_ref() == family_key("a4a4"))
+        .find(|node| node.node_id == typed_key(&family_key("a4a4")))
         .expect("parameter in the application's ordinary forward closure");
     let app_id = app.node_id.clone();
     let app_occurrence = occurrence(app, 0);
@@ -724,7 +716,7 @@ fn tc_450_unrepresented_guard_key_cannot_gain_authority_from_its_body_position()
 
     let contextual = package(&source, &[app_id.clone(), guard_occurrence.node_id.clone()]);
     let plausible_but_unrepresented = ContractOccurrenceKeyV1 {
-        node_id: typed_key(&sha256_hex(b"ir779 plausible caller key")),
+        node_id: typed_key("guard/plausible-caller"),
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
     };
@@ -766,13 +758,6 @@ fn tc_450_reader_refuses_a_lowered_guard_root_without_its_node() {
     }) {
         entry["occurrences"] = json!([]);
     }
-    let projection = json!({
-        "contract_version": malformed["contract_version"],
-        "package": malformed["package"],
-        "semantic_graph": malformed["semantic_graph"],
-        "feature_accounting": malformed["feature_accounting"],
-    });
-    malformed["identity"]["digest"] = json!(sha256_hex(&canonical(&projection)));
     let outcome = ContractPackageWireV1::read(
         &canonical(&malformed),
         CheckedPackageReadLimits::bounded(),

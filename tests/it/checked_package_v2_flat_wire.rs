@@ -13,8 +13,8 @@
 //! every expectation is written out.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, json_depth, mint_ungrouped_structural_keys, node_id,
-    pointer, refresh_identity, settle, sha256_hex, v2_all_families, v2_reference_chain,
+    canonical, evidence_for, family_key, json_depth, node_id, pointer, refresh_identity, settle,
+    v2_all_families, v2_reference_chain,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -54,7 +54,7 @@ fn outcome(refusal: &CheckedPackageRefusal) -> (Code, Option<CheckedPackageRefus
     (
         refusal.code,
         refusal.cause,
-        refusal
+        refusal.loci[0]
             .path
             .as_ref()
             .map_or_else(|| "<none>".to_owned(), |path| path.as_str().to_owned()),
@@ -140,8 +140,6 @@ fn settled(position: impl Fn(&Value) -> usize, edit: impl FnOnce(&mut Value)) ->
     let mut package = v2_all_families();
     let position = position(&package);
     edit(&mut package["semantic_graph"]["nodes"][position]);
-    settle(&mut package);
-    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     (package, position)
 }
@@ -522,14 +520,13 @@ fn tc_048_a_misplaced_body_root_application_refuses_at_the_node() {
 }
 
 /// FR-038-AC-116: the body grammar is strict wire validation, ahead of the
-/// recomputation of `package_id` and of every node key. A package whose node
-/// keys, `identity_preimage` and `package_id` are all stale refuses at the
-/// nested application, not at an identity; the same package flattened refuses at
-/// an identity.
+/// graph identity checks. A malformed nested application wins over an
+/// independently wrong structural node package; flattening the body exposes
+/// that later graph defect.
 #[trace("TC-048", "FR-038-AC-116")]
 #[test]
 fn tc_048_the_body_grammar_is_checked_ahead_of_every_identity() {
-    // Every identity stale: the body is changed and nothing is derived again.
+    // The body and an independent structural package check are both invalid.
     let stale = |second: Value| {
         let mut package = v2_all_families();
         let call = call_position(&package);
@@ -537,7 +534,7 @@ fn tc_048_the_body_grammar_is_checked_ahead_of_every_identity() {
             .as_array_mut()
             .expect("arguments")
             .push(second);
-        package["package_id"]["digest"] = json!("0".repeat(64));
+        package["semantic_graph"]["nodes"][call]["node_id"]["package"] = json!("wrong/package");
         (package, call)
     };
     for (operator, identity) in CLASSES {
@@ -556,31 +553,16 @@ fn tc_048_the_body_grammar_is_checked_ahead_of_every_identity() {
         ))
     );
 
-    // The same body flattened (every composite subterm a `reference`), its
-    // identities left stale, refuses at an identity and not as a malformed
-    // wire: first the package id.
+    // With the body defect absent, the independent structural check wins.
     let mut flattened = v2_all_families();
     let call = call_position(&flattened);
-    flattened["package_id"]["digest"] = json!("0".repeat(64));
+    flattened["semantic_graph"]["nodes"][call]["node_id"]["package"] = json!("wrong/package");
     assert_eq!(
         outcome(&refused(&flattened)),
         (
-            Code::StaleDependency,
-            Some(CheckedPackageRefusalCause::ContentMismatch),
-            "/package_id/digest".to_owned()
-        )
-    );
-    // With the package id derived again, the node key.
-    let mut flattened = v2_all_families();
-    flattened["semantic_graph"]["nodes"][call]["body"]["result_type"] =
-        node_id(&family_key("bbbb"));
-    refresh_identity(&mut flattened);
-    assert_eq!(
-        outcome(&refused(&flattened)),
-        (
-            Code::InvalidPackage,
-            Some(CheckedPackageRefusalCause::StaleNodeKey),
-            format!("/semantic_graph/nodes/{call}/node_id")
+            Code::InvalidSemanticGraph,
+            None,
+            format!("/semantic_graph/nodes/{call}/node_id/package")
         )
     );
 }
@@ -693,8 +675,8 @@ fn nesting(bytes: &[u8]) -> usize {
     deepest
 }
 
-fn typed(digest: &str) -> CheckedNodeId {
-    serde_json::from_value(node_id(digest)).expect("node id")
+fn typed(label: &str) -> CheckedNodeId {
+    serde_json::from_value(node_id(label)).expect("node id")
 }
 
 /// FR-038-AC-117: no read limit, and no outcome of a read, names a depth. A
@@ -769,8 +751,7 @@ fn tc_048_the_v2_reader_sources_hold_no_depth_ceiling_or_growing_stack() {
 }
 
 /// The node body of a fixture with `deep` as its text in place of a marker, the
-/// package id derived again over the spliced document: canonical, with every
-/// identity current, whatever the body is. Built as text, so the test's own
+/// package remains structurally named. Built as text, so the test's own
 /// stack never recurses over the nesting.
 fn package_with_body_text(deep: &str) -> Vec<u8> {
     let marker = "\u{1}deep";
@@ -785,8 +766,6 @@ fn package_with_body_text(deep: &str) -> Vec<u8> {
             .replace(&quoted, deep)
             .into_bytes()
     };
-    let digest = sha256_hex(&splice(canonical(&package["identity_preimage"])));
-    package["package_id"]["digest"] = json!(digest);
     splice(canonical(&package))
 }
 
@@ -833,7 +812,11 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
         panic!("300 levels refuse, read {result:?}");
     };
     assert_eq!(refusal.code, Code::MalformedWire);
-    assert_eq!(refusal.path, None, "the parse names no pointer");
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        None,
+        "the parse names no pointer"
+    );
 
     // The parse comes ahead of the canonical-bytes check: the same document,
     // no longer canonical, is refused as the same malformed wire.
@@ -843,7 +826,10 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
         panic!("300 levels, not canonical, refuse, read {result:?}");
     };
-    assert_eq!((refusal.code, refusal.path), (Code::MalformedWire, None));
+    assert_eq!(
+        (refusal.code, refusal.loci[0].path.clone()),
+        (Code::MalformedWire, None)
+    );
 
     // Twenty levels read, and the first value outside the grammar refuses:
     // the body is an aggregate whose member is a Group, so that Group's own
@@ -886,48 +872,10 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
         panic!("62 levels refuse, read {result:?}");
     };
-    assert_eq!((refusal.code, refusal.path), (Code::MalformedWire, None));
-}
-
-/// A retired shipped projection nested near the strict parser's limit must
-/// refuse at the outer wire member on a 256 KiB stack, before identity work.
-#[trace("TC-048", "FR-038-AC-117")]
-#[test]
-fn deep_shipped_projection_is_refused_at_the_outer_member_on_a_small_stack() {
-    let evidence = evidence_for(&v2_all_families());
-    let marker = "\u{1}deep";
-    let quoted = serde_json::to_string(marker).expect("string");
-    let aggregates = |levels: usize, innermost: &str| {
-        format!(
-            "{}{{\"members\":{innermost},\"term\":\"aggregate\"}}{}",
-            "{\"members\":[".repeat(levels - 1),
-            "],\"term\":\"aggregate\"}".repeat(levels - 1)
-        )
-    };
-    for deep in [aggregates(61, "[]"), aggregates(61, "[[]]")] {
-        let mut package = v2_all_families();
-        let host = host_position(&package);
-        package["identity_preimage"]["identity_projection"] =
-            package["semantic_graph"]["nodes"].clone();
-        package["identity_preimage"]["identity_projection"][host]["body"] = json!(marker);
-        let splice = |text: String| text.replace(&quoted, &deep);
-        let preimage =
-            splice(String::from_utf8(canonical(&package["identity_preimage"])).expect("utf-8"));
-        package["package_id"]["digest"] = json!(sha256_hex(preimage.as_bytes()));
-        let text = splice(String::from_utf8(canonical(&package)).expect("utf-8"));
-        let result = read_on_small_stack(text.into_bytes(), evidence.clone());
-        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
-            panic!("a stale deep projection refuses, read {result:?}");
-        };
-        assert_eq!(
-            outcome(&refusal),
-            (
-                Code::MalformedWire,
-                None,
-                "/identity_preimage/identity_projection".to_owned()
-            )
-        );
-    }
+    assert_eq!(
+        (refusal.code, refusal.loci[0].path.clone()),
+        (Code::MalformedWire, None)
+    );
 }
 
 /// FR-038-AC-117: a `details` term in the window between the grammar and the
@@ -941,10 +889,6 @@ fn tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar() {
     let quoted = serde_json::to_string(marker).expect("string");
     let mut package = with_detail(json!(marker));
     refresh_identity(&mut package);
-    let digest_of =
-        |text: &str| sha256_hex(text.replace(&quoted, &nested_aggregates(50)).as_bytes());
-    let preimage = String::from_utf8(canonical(&package["identity_preimage"])).expect("utf-8");
-    package["package_id"]["digest"] = json!(digest_of(&preimage));
     let text = String::from_utf8(canonical(&package))
         .expect("utf-8")
         .replace(&quoted, &nested_aggregates(50));
@@ -981,17 +925,20 @@ fn tc_048_a_syntax_or_duplicate_defect_is_refused_before_the_parse_limit() {
             other => panic!("expected a refusal, read {other:?}"),
         };
         assert_eq!(
-            (refusal(&deep).code, refusal(&deep).path),
+            (refusal(&deep).code, refusal(&deep).loci[0].path.clone()),
             (Code::MalformedWire, None)
         );
         let broken = format!("{}x{}", "[".repeat(200), "]".repeat(200));
         assert_eq!(
-            (refusal(&broken).code, refusal(&broken).path),
+            (refusal(&broken).code, refusal(&broken).loci[0].path.clone()),
             (Code::MalformedWire, None)
         );
         let duplicate = format!("{{\"a\":{deep},\"a\":1}}");
         assert_eq!(
-            (refusal(&duplicate).code, refusal(&duplicate).path),
+            (
+                refusal(&duplicate).code,
+                refusal(&duplicate).loci[0].path.clone()
+            ),
             (Code::DuplicateMember, Some(pointer("/a")))
         );
     });
