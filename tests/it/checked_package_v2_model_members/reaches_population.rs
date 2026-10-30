@@ -552,7 +552,10 @@ fn tc_048_a_navigate_application_never_carries_a_population() {
         &[&set],
         body,
     );
-    let bounds = bounds_body("0", "9");
+    let bounds = json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "min", "value": literal(&INTEGER, "integer", "0")},
+        {"term": "binding", "name": "max", "value": literal(&INTEGER, "integer", "9")},
+    ]});
     let range = handle(&json!({"package": FIXTURE_PACKAGE,
         "path": ["bounded_domain", "integer_range", fixture_id(&INTEGER), "0", "9"],
         "ordinal": 0}));
@@ -620,10 +623,11 @@ fn tc_048_other_operations_keep_their_present_outcome_for_a_population_key() {
     let (field, evidence) = crate::checked_package_v2_model_fields::record_project_control();
     let at = position_of(&field, "quire.op.record.project");
     let field = with_member_population(field, at, key.clone());
-    assert!(matches!(
-        read(&field, &evidence),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let field_result = read(&field, &evidence);
+    assert!(
+        matches!(field_result, CheckedPackageV2ReadResult::Admitted(_)),
+        "record project control: {field_result:?}"
+    );
 
     let (operation, evidence) = model_member_control("quire.op.model.dispatch_call");
     let at = position_of(&operation, "quire.op.model.dispatch_call");
