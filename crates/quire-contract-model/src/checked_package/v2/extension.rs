@@ -416,12 +416,21 @@ fn actual_type(
             _ => "extension".into(),
         };
     }
+    let structural_id = || {
+        quire_canonical::to_vec(
+            &target.semantic_type,
+            quire_canonical::Limits::new(u64::MAX),
+        )
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .unwrap_or_else(|| "unknown structural type".into())
+    };
     let Some(&type_position) = index.get(&target.semantic_type) else {
-        return target.semantic_type.digest.to_string();
+        return structural_id();
     };
     let Some((type_node, type_kind)) = nodes.get(type_position).zip(kinds.get(type_position))
     else {
-        return target.semantic_type.digest.to_string();
+        return structural_id();
     };
     if *type_kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) {
         if let Some((lo, hi)) = terms
