@@ -84,7 +84,6 @@ enum Defect {
     SemanticType,
     Dependencies,
     RecursionGroup,
-    NominalIdentityPreimage,
     Occurrences,
     /// The node body itself.
     Body,
@@ -103,7 +102,6 @@ impl Defect {
             Self::SemanticType => node.key("semantic_type"),
             Self::Dependencies => node.key("dependencies"),
             Self::RecursionGroup => node.key("recursion_group"),
-            Self::NominalIdentityPreimage => node.key("nominal_identity_preimage"),
             Self::Occurrences => node.key("occurrences"),
             Self::Body => node.key("body"),
             Self::ClausePoint => node
@@ -387,8 +385,6 @@ pub(super) fn validate_structural_nodes(
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if node.nominal_identity_preimage.is_some() {
-                    Some(Defect::NominalIdentityPreimage)
                 } else if !node.dependencies.iter().eq(expected) {
                     Some(Defect::Dependencies)
                 } else {
@@ -419,8 +415,6 @@ pub(super) fn validate_structural_nodes(
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if node.nominal_identity_preimage.is_some() {
-                    Some(Defect::NominalIdentityPreimage)
                 } else if !node.dependencies.iter().eq(targets) {
                     Some(Defect::Dependencies)
                 } else {

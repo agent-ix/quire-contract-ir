@@ -29,9 +29,6 @@ pub(super) fn validate_shape(
         if node.recursion_group.is_some() {
             return Err(invalid(at.key("recursion_group")));
         }
-        if node.nominal_identity_preimage.is_some() {
-            return Err(invalid(at.key("nominal_identity_preimage")));
-        }
         if !node.dependencies.is_empty() {
             return Err(invalid(at.key("dependencies")));
         }
