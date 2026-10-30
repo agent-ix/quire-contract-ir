@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 pub struct CheckedPackageReadLimits {
     /// Maximum canonical wire bytes.
     ///
-    /// There is no depth limit: the closed body grammar fixes the JSON depth
-    /// of every package whatever its node count (FR-038-AC-117).
+    /// There is no fixed depth limit. Structural node paths and canonical
+    /// encoding use heap worklists bounded by this byte ceiling.
     pub bytes: u64,
     /// Maximum semantic graph nodes.
     pub nodes: u64,
