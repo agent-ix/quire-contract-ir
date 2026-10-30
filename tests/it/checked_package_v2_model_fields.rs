@@ -39,6 +39,81 @@ fn node_id(key: &str) -> Value {
             0,
         );
     }
+    if let Some(form) = key.strip_prefix("scalar_type/") {
+        return structural_id("test/families", vec![json!("scalar_type"), json!(form)], 0);
+    }
+    for form in [
+        "reference",
+        "option",
+        "set",
+        "bag",
+        "sequence",
+        "ordered_set",
+    ] {
+        if let Some(operand) = key.strip_prefix(&format!("composite_type/{form}/")) {
+            return structural_id(
+                "test/families",
+                vec![json!("composite_type"), json!(form), node_id(operand)],
+                0,
+            );
+        }
+    }
+    if let Some(bounds) = key.strip_prefix("bounded_domain/integer_range/") {
+        let (lower, upper) = bounds.split_once('/').expect("integer range bounds");
+        return structural_id(
+            "test/families",
+            vec![
+                json!("bounded_domain"),
+                json!("integer_range"),
+                json!("min"),
+                node_id("scalar_type/integer"),
+                json!(lower),
+                json!("max"),
+                json!(upper),
+            ],
+            0,
+        );
+    }
+    if let Some(bounds) = key.strip_prefix("bounded_domain/text_bounds/") {
+        let (lower, rest) = bounds.split_once('/').expect("text lower");
+        let (upper, profile) = rest.split_once('/').expect("text upper and profile");
+        return structural_id(
+            "test/families",
+            vec![
+                json!("bounded_domain"),
+                json!("text_bounds"),
+                json!("min"),
+                node_id("scalar_type/integer"),
+                json!(lower),
+                json!("max"),
+                json!(upper),
+                json!("text_profile"),
+                node_id("scalar_type/text"),
+                json!(profile),
+            ],
+            0,
+        );
+    }
+    if let Some(bounds) = key.strip_prefix("bounded_domain/collection_bounds/") {
+        let (collection_and_lower, upper) = bounds.rsplit_once('/').expect("collection upper");
+        let (collection, lower) = collection_and_lower
+            .rsplit_once('/')
+            .expect("collection lower");
+        return structural_id(
+            "test/families",
+            vec![
+                json!("bounded_domain"),
+                json!("collection_bounds"),
+                json!("min"),
+                node_id("scalar_type/integer"),
+                json!(lower),
+                json!("max"),
+                json!(upper),
+                node_id(collection),
+            ],
+            0,
+        );
+    }
     fixture_node_id(key)
 }
 
