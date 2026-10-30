@@ -1941,6 +1941,46 @@ fn terminal_condition_package() -> (Value, usize, usize) {
     (package, clause, terminal_position)
 }
 
+/// QSpec #536 TC-947 TM9: removing the terminal disposition changes the
+/// clause body while its declared identity remains stable.
+#[trace("TC-947")]
+#[test]
+fn tm9_removing_terminal_retains_declared_clause_id() {
+    let (mut package, clause, terminal) = terminal_condition_package();
+    let original_id = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
+    let original_body = package["semantic_graph"]["nodes"][clause]["body"].clone();
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "terminal-bearing clause must admit: {:?}",
+        read(&package)
+    );
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][9]["value"]["members"] =
+        json!([]);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .remove(terminal);
+    settle(&mut package);
+    assert_ne!(
+        package["semantic_graph"]["nodes"][clause]["body"],
+        original_body
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][clause]["node_id"],
+        original_id
+    );
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+        panic!(
+            "TM9 clause without terminal must admit: {:?}",
+            read(&package)
+        );
+    };
+    assert_eq!(
+        serde_json::to_value(&admitted.graph().nodes[clause].node_id).expect("retained id"),
+        original_id
+    );
+}
+
 fn activate_each(package: &mut Value, clause: usize, finish_level: usize) -> Value {
     let trigger = clause_parameter(package, "opened", "1");
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
@@ -4014,6 +4054,12 @@ fn predicate_join_protocol_cycle(mixed_carrier_cycle: bool) -> (Value, Vec<usize
         }) {
             node["declaration"]["qualified_name"][1] = json!("Flow");
         }
+        if !mixed_carrier_cycle && node["declaration"]["qualified_name"][3] == "Main" {
+            node["declaration"]["qualified_name"][3] = json!("Flow");
+        }
+        if !mixed_carrier_cycle && node["declaration"]["qualified_name"][5] == "Left" {
+            node["declaration"]["qualified_name"][5] = json!("Plain");
+        }
     }
     settle(&mut package);
     let boolean_type = node_id(&family_key("aaaa"));
@@ -4057,9 +4103,14 @@ fn predicate_join_protocol_cycle(mixed_carrier_cycle: bool) -> (Value, Vec<usize
         .position(|node| {
             node["node_tag"] == "function"
                 && node["semantic_form"] == "pure_function"
-                && node["node_id"]["path"][0] == family_key("8080")
+                && node["declaration"]["qualified_name"] == json!(["Example", "Function"])
         })
         .expect("source-owned predicate function");
+    if !mixed_carrier_cycle {
+        package["semantic_graph"]["nodes"][function_position]["declaration"]["qualified_name"] =
+            json!(["Example", "joinPred"]);
+        settle(&mut package);
+    }
     let function_id = package["semantic_graph"]["nodes"][function_position]["node_id"].clone();
     package["semantic_graph"]["nodes"][function_position]["body"] =
         json!({"term": "reference", "target": function_target});
@@ -4081,30 +4132,35 @@ fn predicate_join_protocol_cycle(mixed_carrier_cycle: bool) -> (Value, Vec<usize
         package["semantic_graph"]["nodes"][position]["recursion_group"] =
             json!("predicate-protocol-cycle");
     }
-    mint_reader_grouped_keys(&mut package, &group_positions);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     (package, group_positions)
-}
-
-fn mint_reader_grouped_keys(package: &mut Value, positions: &[usize]) {
-    let mut ordered = positions.to_vec();
-    ordered.sort_unstable();
-    for (ordinal, position) in ordered.into_iter().enumerate() {
-        let old = package["semantic_graph"]["nodes"][position]["node_id"].clone();
-        let mut fresh = old.clone();
-        fresh["ordinal"] = json!(ordinal);
-        reassign_node_id(package, &old, &fresh);
-    }
-    settle(package);
 }
 
 #[trace("FR-038-AC-241", "TC-946")]
 #[test]
 fn tc_946_predicate_join_function_cycle_uses_the_full_protocol_component() {
     let (package, positions) = predicate_join_protocol_cycle(false);
+    let paths = positions
+        .iter()
+        .map(|&position| {
+            serde_json::to_string(&package["semantic_graph"]["nodes"][position]["node_id"]["path"])
+                .expect("declared path")
+        })
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(paths.len(), 3, "K14 declared members keep distinct paths");
+    let plain = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["declaration"]["qualified_name"][5] == "Plain")
+        .expect("acyclic Plain control");
+    assert!(plain.get("recursion_group").is_none_or(Value::is_null));
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
-        panic!("the protocol predicate cycle admits: {:?}", read(&package));
+        panic!(
+            "QSpec #536 K14 distinct-path predicate cycle admits: {:?}",
+            read(&package)
+        );
     };
     assert_exact_protocol_cycle_group(admitted.graph().nodes.as_slice(), &positions);
 }
