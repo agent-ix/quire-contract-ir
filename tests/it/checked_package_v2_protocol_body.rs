@@ -261,7 +261,6 @@ fn decision_fact_fixture() -> (Value, usize, usize, usize) {
         .position(|node| node["node_id"] == old_binder)
         .expect("attempt binder");
     package["semantic_graph"]["nodes"][binder_position]["semantic_type"] = node_id(&record_key);
-    let binder_body = package["semantic_graph"]["nodes"][binder_position]["body"].clone();
     let binder_key = "fixture/protocol-body/structural_key/266".to_owned();
     rename_node(
         &mut package,
@@ -741,7 +740,6 @@ fn activation_record_field_fixture() -> (Value, Value, Value) {
         .position(|node| node["node_id"] == trigger)
         .expect("trigger");
     package["semantic_graph"]["nodes"][trigger_position]["semantic_type"] = node_id(&record_key);
-    let trigger_body = package["semantic_graph"]["nodes"][trigger_position]["body"].clone();
     let trigger_key = "fixture/protocol-body/structural_key/760".to_owned();
     package["semantic_graph"]["nodes"][trigger_position]["node_id"] = node_id(&trigger_key);
     let trigger = node_id(&trigger_key);
@@ -795,7 +793,6 @@ fn record_capture_fixture() -> (Value, Value, Value) {
     let capture = clause_parameter(&mut package, "snapshot", "2");
     let position = node_position_for_key(&package, &capture);
     package["semantic_graph"]["nodes"][position]["semantic_type"] = record.clone();
-    let body = package["semantic_graph"]["nodes"][position]["body"].clone();
     let key = "fixture/protocol-body/structural_key/819".to_owned();
     rename_node(
         &mut package,
@@ -831,7 +828,6 @@ fn activation_with_sent_field_fixture() -> (Value, usize, Value, Value) {
     let opened = clause_parameter(&mut package, "opened", "1");
     let opened_position = node_position_for_key(&package, &opened);
     package["semantic_graph"]["nodes"][opened_position]["semantic_type"] = record.clone();
-    let opened_body = package["semantic_graph"]["nodes"][opened_position]["body"].clone();
     let opened_key = "fixture/protocol-body/structural_key/860".to_owned();
     rename_node(
         &mut package,
@@ -1367,7 +1363,6 @@ fn nested_projection_exposes_its_unlisted_inner_fact() {
         .position(|node| node["node_id"] == binder)
         .expect("binder");
     package["semantic_graph"]["nodes"][binder_position]["semantic_type"] = node_id(&outer_key);
-    let binder_body = package["semantic_graph"]["nodes"][binder_position]["body"].clone();
     let binder_key = "fixture/protocol-body/structural_key/1416".to_owned();
     rename_node(
         &mut package,
@@ -1490,7 +1485,6 @@ fn event_fact_is_visible_to_its_role() {
         .clone();
     let old_binder = package["semantic_graph"]["nodes"][event_binder_position]["node_id"].clone();
     package["semantic_graph"]["nodes"][event_binder_position]["semantic_type"] = record.clone();
-    let binder_body = package["semantic_graph"]["nodes"][event_binder_position]["body"].clone();
     let binder_key = "fixture/protocol-body/structural_key/1544".to_owned();
     rename_node(
         &mut package,
@@ -1548,7 +1542,6 @@ fn commit_record_is_ineligible_at_a_decision() {
         .clone();
     let old_binder = package["semantic_graph"]["nodes"][commit_binder_position]["node_id"].clone();
     package["semantic_graph"]["nodes"][commit_binder_position]["semantic_type"] = record.clone();
-    let binder_body = package["semantic_graph"]["nodes"][commit_binder_position]["body"].clone();
     let binder_key = "fixture/protocol-body/structural_key/1607".to_owned();
     rename_node(
         &mut package,
@@ -1606,7 +1599,6 @@ fn receive_fact_fixture() -> (Value, usize, usize, Value, Value) {
     package["semantic_graph"]["nodes"][receive_binder_position]["semantic_type"] = record.clone();
     package["semantic_graph"]["nodes"][receive_binder_position]["body"]["members"][0]["value"]
         ["value"] = json!("got");
-    let binder_body = package["semantic_graph"]["nodes"][receive_binder_position]["body"].clone();
     let binder_key = "fixture/protocol-body/structural_key/1670".to_owned();
     rename_node(
         &mut package,
@@ -2768,10 +2760,6 @@ fn relevel_parameter(package: &mut Value, target: &Value, level: usize) -> Value
         .clone();
     assert_eq!(parameter["semantic_form"], "parameter");
     parameter["body"]["members"][1]["value"]["value"] = json!(level.to_string());
-    let semantic_type = parameter["semantic_type"]["path"][0]
-        .as_str()
-        .expect("parameter type")
-        .to_owned();
     let key = format!(
         "fixture/protocol-body/relevel-parameter/{}/{}",
         target["path"][0].as_str().expect("parameter path"),
@@ -5994,9 +5982,6 @@ fn attempt_admits_operation_contract_and_rejects_wrong_contract_kind_and_anchor(
         .expect("anchor position");
     let mut withdraw = wrong_anchor["semantic_graph"]["nodes"][anchor_position].clone();
     withdraw["body"]["members"][1]["value"]["value"] = json!("withdraw");
-    let context = withdraw["semantic_type"]["path"][0]
-        .as_str()
-        .expect("context key");
     let withdraw_key = "fixture/protocol-body/structural_key/6107".to_owned();
     withdraw["node_id"] = node_id(&withdraw_key);
     wrong_anchor["semantic_graph"]["nodes"]
