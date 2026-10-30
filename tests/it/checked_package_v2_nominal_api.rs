@@ -180,8 +180,11 @@ fn nominal_record_decoding_refuses_in_structural_order() {
         .expect("original unit");
     let earlier_position = members.len() - 1;
     for position in [later_position, earlier_position] {
-        package["semantic_graph"]["nodes"][position]["body"] =
-            json!({"term":"dimension","terms":[]});
+        let node = package["semantic_graph"]["nodes"][position]
+            .as_object_mut()
+            .expect("nominal node");
+        node.remove("declaration");
+        node.remove("owner");
     }
     assert!(later_position < earlier_position);
     assert!(
@@ -194,7 +197,7 @@ fn nominal_record_decoding_refuses_in_structural_order() {
         &evidence_for(&package),
     );
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
-        panic!("two wrong nominal body kinds must refuse: {result:?}");
+        panic!("two ownerless nominal nodes must refuse: {result:?}");
     };
     assert_eq!(
         refusal.code,
@@ -202,7 +205,7 @@ fn nominal_record_decoding_refuses_in_structural_order() {
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{earlier_position}/body"))
+        Some(format!("/semantic_graph/nodes/{earlier_position}/owner"))
     );
 }
 
