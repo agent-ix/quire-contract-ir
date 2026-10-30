@@ -1,13 +1,12 @@
 //! An exact, structurally shared identity index for admitted dependency closures.
 
 use super::{CheckedDependencySelection, CheckedPackageV2};
-use crate::checked_package::shared::CheckedSemanticId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[derive(Clone, Default)]
 struct Node {
-    package_id: Option<CheckedSemanticId>,
+    package: Option<Arc<CheckedPackageV2>>,
     children: BTreeMap<u8, Arc<Self>>,
 }
 
@@ -30,15 +29,15 @@ pub(super) struct ClosureIndex {
 }
 
 impl ClosureIndex {
-    pub(super) fn get(&self, identity: &str) -> Option<&CheckedSemanticId> {
+    pub(super) fn get(&self, identity: &str) -> Option<&Arc<CheckedPackageV2>> {
         let mut node = self.root.as_ref();
         for byte in identity.bytes() {
             node = node.children.get(&byte)?.as_ref();
         }
-        node.package_id.as_ref()
+        node.package.as_ref()
     }
 
-    fn insert(&mut self, identity: &str, package_id: &CheckedSemanticId) {
+    fn insert(&mut self, identity: &str, package: &Arc<CheckedPackageV2>) {
         let mut ancestors = Vec::with_capacity(identity.len());
         let mut node = Some(self.root.as_ref());
         for byte in identity.bytes() {
@@ -46,7 +45,7 @@ impl ClosureIndex {
             node = node.and_then(|parent| parent.children.get(&byte).map(AsRef::as_ref));
         }
         let mut replacement = Arc::new(Node {
-            package_id: Some(package_id.clone()),
+            package: Some(Arc::clone(package)),
             children: node.map(|leaf| leaf.children.clone()).unwrap_or_default(),
         });
         for (parent, byte) in ancestors.into_iter().rev() {
@@ -65,7 +64,7 @@ impl ClosureIndex {
     ) -> Self {
         if let (Some(selection), [package]) = (selections.first(), packages) {
             let mut index = package.closure_index.clone();
-            index.insert(&selection.identity, &selection.package_id);
+            index.insert(&selection.identity, package);
             return index;
         }
         let mut index = Self::default();
@@ -79,7 +78,7 @@ impl ClosureIndex {
             if !seen.insert(selection.identity.as_ref()) {
                 continue;
             }
-            index.insert(&selection.identity, &selection.package_id);
+            index.insert(&selection.identity, package);
             pending.extend(
                 package
                     .lock()
