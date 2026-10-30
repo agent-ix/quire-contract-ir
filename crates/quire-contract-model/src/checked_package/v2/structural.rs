@@ -1089,9 +1089,9 @@ pub(super) fn application_dependencies(
                 pending.extend(arguments);
                 let member = operation.get("member");
                 let member_id = |key: &str| {
-                    member.and_then(|member| member.get(key)).and_then(|value| {
-                        serde_json::from_value::<CheckedNodeId>(value.clone()).ok()
-                    })
+                    member
+                        .and_then(|member| member.get(key))
+                        .and_then(CheckedNodeId::from_value)
                 };
                 join.extend(member_id("declaration"));
                 // Only a relationship application names a population.
