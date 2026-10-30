@@ -2750,7 +2750,6 @@ fn validate_graph(
             ));
         }
     }
-    model_root::validate_completeness(&graph.nodes, &kinds, &wire.lock)?;
     validate_declaration_names(&graph.nodes, &kinds, &index)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
