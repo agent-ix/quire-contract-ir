@@ -14,13 +14,13 @@
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
     CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner, CheckedPackageEnvelope,
-    CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, NominalIdentityPreimage,
-    RawCheckedPackageWireV2, RawSemanticGraphV2, RawSemanticNodeV2, ValidationFailure,
+    CheckedPackageLockV2, NominalIdentityPreimage, RawCheckedPackageWireV2, RawSemanticGraphV2,
+    RawSemanticNodeV2, ValidationFailure,
 };
 use crate::checked_package::common::{decode_closed_bytes, node_pointer, strict_parse};
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRegion,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSourceMapEntry,
+    CheckedSourceRegion,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
 use serde::{Deserialize, Deserializer};
@@ -81,8 +81,7 @@ fn position_member_shape(body: &Value) -> bool {
 // member is decoded by the same public type as the admitted wire.
 type BorrowedWire<'a> = CheckedPackageEnvelope<
     Box<str>,
-    CheckedPackageIdentityPreimageV2,
-    CheckedSemanticId,
+    Box<str>,
     CheckedPackageLockV2,
     BorrowedGraph<'a>,
     Vec<CheckedSourceMapEntry>,
@@ -209,8 +208,7 @@ pub(super) fn decode_borrowed_wire(
     }
     Ok(CheckedPackageEnvelope {
         contract_version: wire.contract_version,
-        identity_preimage: wire.identity_preimage,
-        package_id: wire.package_id,
+        name: wire.name,
         lock: wire.lock,
         semantic_graph: RawSemanticGraphV2 {
             graph_version: graph.graph_version,
@@ -300,9 +298,8 @@ pub(super) fn check_lossless_source(
     compare_root(&root, "capability_report", &wire.capability_report, &[])?;
     compare_root(&root, "contract_version", &wire.contract_version, &[])?;
     compare_root(&root, "diagnostics", &wire.diagnostics, &["entries"])?;
-    compare_root(&root, "identity_preimage", &wire.identity_preimage, &[])?;
     compare_root(&root, "lock", &wire.lock, &[])?;
-    compare_root(&root, "package_id", &wire.package_id, &[])?;
+    compare_root(&root, "name", &wire.name, &[])?;
     compare_root(&root, "semantic_graph", &wire.semantic_graph, &["nodes"])?;
     compare_items(
         &["semantic_graph", "nodes"],
