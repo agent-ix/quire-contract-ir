@@ -399,7 +399,7 @@ fn lowering_components_exclude_admission_only_extension_edges() {
 /// `x`, `y` and `z` of [`package`]: a long node, a short one, and one that
 /// reaches a dependency node.
 fn requested() -> [CheckedNodeId; 3] {
-    [typed_id('b'), typed_id('c'), typed_id('d')]
+    ['b', 'c', 'd'].map(|digit| serde_json::from_value(node_id(digit)).expect("structural ID"))
 }
 
 fn lowered_ids(records: &[CompleteLoweringRecordV2]) -> Vec<&CheckedNodeId> {
