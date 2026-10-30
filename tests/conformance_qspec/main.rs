@@ -863,6 +863,12 @@ fn tc_048_qspec_positive_inputs_fail_closed() {
     assert!(malformed.contains("is not JSON"), "{malformed}");
     let package = read_json(&fixtures.join(base)).expect("published positive package");
     let mut unknown = package.clone();
+    let root_position = unknown["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("selected model root");
     for node in unknown["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -871,9 +877,19 @@ fn tc_048_qspec_positive_inputs_fail_closed() {
             node["owner"]["identity"] = json!("acme/unknown");
         }
     }
-    let refused = read_positive_package(unknown, base, &document)
-        .expect_err("unknown selected model must fail");
-    assert!(refused.contains("acme/unknown"), "{refused}");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package_with_document(&unknown, base, &document).expect("unknown selected model read")
+    else {
+        panic!("unknown selected model must refuse");
+    };
+    assert_eq!(refusal.code, Code::MissingImport);
+    assert_eq!(refusal.cause, Some(Cause::MissingSelection));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{root_position}/owner/identity"
+        ))
+    );
     for retired in ["package_id", "identity_preimage", "identity_projection"] {
         let mut changed = package.clone();
         changed[retired] = json!({});

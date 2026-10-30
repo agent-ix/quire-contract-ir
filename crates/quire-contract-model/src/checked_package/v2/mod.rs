@@ -1039,6 +1039,12 @@ impl CheckedPackageV2 {
                 ))
             }
         }
+        if intake::source_value(bytes, &member_pointer(&["name"])).is_none() {
+            return Err(refuse(
+                CheckedPackageRefusalCode::MalformedWire,
+                member_pointer(&["name"]),
+            ));
+        }
         let wire = intake::decode_borrowed_wire(bytes)
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
