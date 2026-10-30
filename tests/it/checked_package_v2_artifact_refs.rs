@@ -9,8 +9,7 @@
 //! `crates/quire-contract-model/src/checked_package/v2/`.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, refresh_identity, refusal, refusal_cause, rekey_application_node,
-    v2_all_families, v2_nominal,
+    canonical, evidence_for, refresh_identity, refusal, refusal_cause, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -85,8 +84,7 @@ fn law_definition(package: &Value) -> String {
 }
 
 /// Every definition reference of the fixtures, outside an operation law, as
-/// `(package, pointer)`: the lock sites with their `identity_preimage` mirrors
-/// and the diagnostics catalog.
+/// `(package, pointer)`: the lock sites and diagnostics catalog.
 fn definition_places() -> Vec<(Value, String)> {
     let families = v2_all_families();
     let nominal = v2_nominal();
@@ -94,16 +92,11 @@ fn definition_places() -> Vec<(Value, String)> {
     for place in [
         "/lock/edition/definition",
         "/lock/profile_selections/0/definition",
-        "/identity_preimage/edition/definition",
-        "/identity_preimage/profile_selections/0/definition",
         "/diagnostics/catalog",
     ] {
         places.push((families.clone(), place.to_owned()));
     }
-    for place in [
-        "/lock/definition_selections/0",
-        "/identity_preimage/definition_selections/0",
-    ] {
+    for place in ["/lock/definition_selections/0"] {
         places.push((nominal.clone(), place.to_owned()));
     }
     places
@@ -217,7 +210,6 @@ fn tc_048_a_definition_reference_with_a_digest_member_is_an_unknown_member() {
 #[test]
 fn tc_048_an_operation_law_definition_refuses_as_a_closed_graph_shape() {
     let base = v2_all_families();
-    let node = temporal_node(&base);
     let definition = law_definition(&base);
     type Mutation = Box<dyn Fn(&mut Value)>;
     let cases: Vec<(&str, Mutation, String)> = vec![
@@ -254,8 +246,6 @@ fn tc_048_an_operation_law_definition_refuses_as_a_closed_graph_shape() {
     for (name, mutate, path) in cases {
         let mut mutated = base.clone();
         mutate(&mut mutated);
-        rekey_application_node(&mut mutated, node);
-        refresh_identity(&mut mutated);
         expect(
             &mutated,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -314,19 +304,14 @@ fn tc_048_a_definition_reference_member_that_is_absent_empty_or_not_a_string_is_
                 &format!("{place}/{member}"),
                 &format!("{place} {member} not a string"),
             );
-            // An empty member refuses at a lock or catalog site; the preimage
-            // mirror is not a site of its own, it mirrors the lock.
-            if !place.starts_with("/identity_preimage") {
-                let mut empty = package.clone();
-                at(&mut empty, &place)[member] = json!("");
-                refresh_identity(&mut empty);
-                expect(
-                    &empty,
-                    CheckedPackageRefusalCode::MalformedWire,
-                    &format!("{place}/{member}"),
-                    &format!("{place} {member} empty"),
-                );
-            }
+            let mut empty = package.clone();
+            at(&mut empty, &place)[member] = json!("");
+            expect(
+                &empty,
+                CheckedPackageRefusalCode::MalformedWire,
+                &format!("{place}/{member}"),
+                &format!("{place} {member} empty"),
+            );
         }
     }
 }
@@ -456,8 +441,6 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
     ] {
         let mut mutated = base.clone();
         at(&mut mutated, &definition)[member] = value;
-        rekey_application_node(&mut mutated, node);
-        refresh_identity(&mut mutated);
         // The refusal also carries the calling node as its locus.
         let actual = refused(&mutated);
         let expected = refusal_cause(
@@ -473,54 +456,24 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-59")]
-#[test]
-fn tc_048_a_definition_row_that_differs_from_its_preimage_mirror_is_stale() {
-    let base = v2_nominal();
-    for member in DEFINITION_MEMBERS {
-        let mut mutated = base.clone();
-        at(&mut mutated, "/lock/definition_selections/0")[member] = json!("changed");
-        expect(
-            &mutated,
-            CheckedPackageRefusalCode::StaleDependency,
-            &format!("/lock/definition_selections/0/{member}"),
-            member,
-        );
-    }
-}
-
 #[trace("TC-048", "FR-038-AC-60")]
 #[test]
-fn tc_048_a_rederived_definition_row_edit_admits_and_the_old_package_id_is_stale() {
+fn tc_048_definition_selection_is_the_single_authoritative_row() {
     let mut base = v2_nominal();
-    // A definition row no node owns, so editing its identity breaks no join.
+    // A definition row no node owns, so changing its identity only changes
+    // the selection that the reader joins to the supplied definition.
     let mut rows = base["lock"]["definition_selections"].clone();
     rows.as_array_mut()
         .expect("rows")
         .push(json!({"authority": "agent-ix", "identity": "quire.fixture.definition.extra/v1"}));
     base["lock"]["definition_selections"] = rows;
-    refresh_identity(&mut base);
-    let recorded = admitted(&base).package_id().clone();
+    admitted(&base);
 
     let mut edited = base.clone();
     at(&mut edited, "/lock/definition_selections/1")["identity"] =
         json!("quire.fixture.definition.extra.next/v1");
-    refresh_identity(&mut edited);
-    let next = admitted(&edited).package_id().clone();
-    assert_ne!(next, recorded);
-
-    // The same edit mirrored into the preimage but kept under the old id.
-    let mut stale = edited.clone();
-    stale["package_id"]["digest"] = json!(recorded.digest);
-    assert_eq!(
-        refused(&stale),
-        refusal_cause(
-            CheckedPackageRefusalCode::StaleDependency,
-            "/package_id/digest",
-            CheckedPackageRefusalCause::ContentMismatch,
-        ),
-        "the old package id",
-    );
+    admitted(&edited);
+    assert_ne!(canonical(&base), canonical(&edited));
 }
 
 #[trace("TC-048", "FR-038-AC-61")]
