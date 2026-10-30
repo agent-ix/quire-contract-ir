@@ -6610,7 +6610,8 @@ fn refinement_catalog_reconstructs_abstract_model_operations_without_protocol() 
 #[trace("TC-048", "FR-038-AC-325", "FR-038-AC-330")]
 #[test]
 fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
-    let (base, _, _) = crate::checked_package_v2_protocol_body::package_with_present_commit();
+    let (mut base, _, _) = crate::checked_package_v2_protocol_body::package_with_present_commit();
+    derive_compensation_receiver_id(&mut base);
     let (mut package, evidence) = concrete_protocol_refinement_on(
         base,
         ProtocolStepRows::Empty,
@@ -6848,12 +6849,37 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
     );
 }
 
+fn derive_compensation_receiver_id(package: &mut Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let context = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("operation anchor")["body"]["members"][0]["value"]["target"]
+        .clone();
+    let old = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "reference" && node["body"]["members"][0]["target"] == context
+        })
+        .expect("receiver reference type")["node_id"]
+        .clone();
+    let derived = crate::support::checked_package::structural_id(
+        FAMILY_MODEL_IDENTITY,
+        vec![json!("composite_type"), json!("reference"), context],
+        0,
+    );
+    crate::support::checked_package::reassign_node_id(package, &old, &derived);
+}
+
 /// Trace: FR-038-AC-330
 #[trace("TC-048", "FR-038-AC-330")]
 #[test]
 fn refinement_catalog_rejects_cend_associated_with_another_template() {
     let (mut base, _, _) =
         crate::checked_package_v2_protocol_body::package_with_admitted_compensation();
+    derive_compensation_receiver_id(&mut base);
     let template_position = base["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -6878,10 +6904,12 @@ fn refinement_catalog_rejects_cend_associated_with_another_template() {
         .iter()
         .position(|node| node["semantic_form"] == "protocol_clause")
         .expect("clause");
-    base["semantic_graph"]["nodes"][clause]["body"]["arguments"][8]["value"]["members"]
+    let compensations = base["semantic_graph"]["nodes"][clause]["body"]["arguments"][8]["value"]
+        ["members"]
         .as_array_mut()
-        .expect("compensations")
-        .push(json!({"term":"reference", "target":second_key}));
+        .expect("compensations");
+    compensations.push(json!({"term":"reference", "target":second_key}));
+    compensations.sort_by(|left, right| node_id_order(&left["target"], &right["target"]));
     settle(&mut base);
     let (mut package, evidence) = concrete_protocol_refinement_on(
         base,
