@@ -587,6 +587,13 @@ pub(super) fn validate_derived_type_shapes(
                     }
                 })
             }
+            CheckedNodeKind::Relation(RelationForm::Population) => {
+                node.semantic_type == node.node_id
+                    && node.dependencies.is_empty()
+                    && node.declaration.is_none()
+                    && node.recursion_group.is_none()
+                    && term.and_then(typed_aggregate).is_some_and(<[_]>::is_empty)
+            }
             CheckedNodeKind::ScalarType(ScalarTypeForm::CompoundUnit) => {
                 node.semantic_type == node.node_id
                     && node.recursion_group.is_none()
