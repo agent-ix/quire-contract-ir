@@ -106,6 +106,53 @@ fn public_constructors_round_trip_all_four_nominal_forms_through_reader() {
     );
 }
 
+#[trace("TC-048", "TC-058", "FR-038-AC-375")]
+#[test]
+fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
+    let wire = v2_nominal();
+    let admitted = match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("nominal fixture must admit: {other:?}"),
+    };
+
+    let mut saw_enum = false;
+    let mut saw_other_nominal = false;
+    for (authored, checked) in wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("authored nodes")
+        .iter()
+        .zip(&admitted.graph().nodes)
+    {
+        let CheckedTerm::NominalBody(body) = &checked.body else {
+            continue;
+        };
+        if authored["body"]["term"] == "enum" {
+            let (ordered, members) = body.enum_details().expect("admitted enum details");
+            assert_eq!(
+                ordered,
+                authored["body"]["ordered"].as_bool().expect("ordered flag")
+            );
+            let authored_members = authored["body"]["members"]
+                .as_array()
+                .expect("authored enum members")
+                .iter()
+                .map(|member| member.as_str().expect("member name"))
+                .collect::<Vec<_>>();
+            let checked_members = members.iter().map(Box::as_ref).collect::<Vec<_>>();
+            assert_eq!(checked_members, authored_members);
+            saw_enum = true;
+        } else {
+            assert!(body.enum_details().is_none());
+            saw_other_nominal = true;
+        }
+    }
+    assert!(saw_enum && saw_other_nominal);
+}
+
 fn assert_malformed(
     result: Result<NominalBody, Box<quire_contract_model::CheckedPackageRefusal>>,
     at: &str,

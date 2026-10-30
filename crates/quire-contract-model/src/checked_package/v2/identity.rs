@@ -230,6 +230,17 @@ pub(super) enum NominalBodyKind {
 }
 
 impl NominalBody {
+    /// Borrow an enum's ordered flag and members in their admitted order.
+    /// Other nominal body forms have no enum view.
+    pub fn enum_details(&self) -> Option<(bool, &[Box<str>])> {
+        match &self.kind {
+            NominalBodyKind::Enum { ordered, members } => Some((*ordered, members)),
+            NominalBodyKind::Dimension { .. }
+            | NominalBodyKind::Unit { .. }
+            | NominalBodyKind::DimensionEquivalence { .. } => None,
+        }
+    }
+
     /// Construct a source enum body, retaining declared case order and refusing
     /// an empty, duplicate or nonidentifier member.
     pub fn try_enum(
