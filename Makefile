@@ -12,6 +12,7 @@ LOCKED ?= $(if $(wildcard .cargo/config.toml),,--locked)
 QUIRE ?= quire
 STRING_EDGE ?= qsl-string-edge
 QUIRE_SPEC_LANGUAGE_BIN ?= $(QUIRE_SPEC_LANGUAGE_DIR)/target/debug/quire-spec
+QSL_EMIT_CHECKED_V2_BIN ?= $(QUIRE_SPEC_LANGUAGE_DIR)/target/debug/examples/emit_checked_v2
 
 .PHONY: help
 help:
@@ -30,6 +31,7 @@ help:
 	@echo "  make conformance-qsl-ir769 - Fresh QSL scalar result context through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
 	@echo "  make conformance-qsl-ir779 - QSL FR-062 RR-13 path conditions through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
 	@echo "  make conformance-qsl-ir760 - QSL-emitted Population<T>[N] through the default-feature model consumer (needs QUIRE_SPEC_LANGUAGE_DIR)"
+	@echo "  make conformance-qsl-ir1013-ir1052 - Fresh QSL execution-point and Boolean transition V2 readback (needs QSL emitter)"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
 	@echo "  make deny             - Run all cargo-deny policy checks"
@@ -148,6 +150,12 @@ conformance-qsl-ir760:
 	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo 'QUIRE_SPEC_LANGUAGE_DIR is required' >&2; exit 1; }
 	@QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" QUIRE_SPEC_LANGUAGE_TARGET_DIR="$(CURDIR)/target/qsl-producer" CARGO_TARGET_DIR="$(CURDIR)/target" $(CARGO) test $(LOCKED) --manifest-path crates/quire-contract-model/Cargo.toml --test selected_population_public -- --nocapture
 	@QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" QUIRE_SPEC_LANGUAGE_TARGET_DIR="$(CURDIR)/target/qsl-producer" CARGO_TARGET_DIR="$(CURDIR)/target" $(CARGO) test $(LOCKED) --test conformance_qsl_ir760 -- --nocapture
+
+.PHONY: conformance-qsl-ir1013-ir1052
+conformance-qsl-ir1013-ir1052:
+	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo 'QUIRE_SPEC_LANGUAGE_DIR is required' >&2; exit 1; }
+	@test -x "$(QSL_EMIT_CHECKED_V2_BIN)" || { echo 'QSL_EMIT_CHECKED_V2_BIN must name the current QSL emit_checked_v2 example binary' >&2; exit 1; }
+	@QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" QSL_EMIT_CHECKED_V2_BIN="$(QSL_EMIT_CHECKED_V2_BIN)" $(CARGO) test $(LOCKED) --test conformance_qsl_ir1013_ir1052 -- --nocapture
 
 .PHONY: build
 build:
