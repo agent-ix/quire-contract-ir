@@ -6,8 +6,18 @@
 use super::*;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCollectionKind, CheckedMemberType, CheckedNodeId,
-    CheckedOccurrenceRole, CheckedPackageIdentityPreimageRefV2, CheckedTerm,
+    CheckedOccurrenceRole, CheckedTerm,
 };
+
+fn node_id_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
+    let left: CheckedNodeId = serde_json::from_value(left.clone()).expect("left structural id");
+    let right: CheckedNodeId = serde_json::from_value(right.clone()).expect("right structural id");
+    left.cmp(&right)
+}
+
+fn node_id_less(left: &Value, right: &Value) -> bool {
+    node_id_cmp(left, right).is_lt()
+}
 
 fn published() -> Value {
     read_json(&fixtures_dir().join("positive-timed-model-nodes.json"))
@@ -211,9 +221,9 @@ fn timed_equal_region_rational_order_charges_before_big_integer_work() {
     let numerator = format!("3{}", "0".repeat(1_000));
     package["semantic_graph"]["nodes"][77]["body"]["members"][5]["value"]["value"] =
         json!(format!("{numerator}/1"));
-    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    fixture_support::settle(&mut package);
     sort_timed_graph_dependencies(&mut package);
-    fixture_support::refresh_identity(&mut package);
+    fixture_support::settle(&mut package);
     let document = proposal.join("domain-package-acme-timed-clauses.json");
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
@@ -401,9 +411,9 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
         .as_array_mut()
         .expect("root guards")
         .swap(0, 1);
-    fixture_support::mint_ungrouped_structural_keys(&mut order_before_unlisted);
+    fixture_support::settle(&mut order_before_unlisted);
     sort_timed_graph_dependencies(&mut order_before_unlisted);
-    fixture_support::refresh_identity(&mut order_before_unlisted);
+    fixture_support::settle(&mut order_before_unlisted);
     let CheckedPackageV2ReadResult::Refused(order) =
         read_package_with_document(&order_before_unlisted, "order before unlisted", &document)
             .expect("selected package read")
@@ -425,9 +435,9 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
     let old = guard["body"]["members"][0]["value"]["target"].clone();
     guard["body"]["members"][0]["value"]["target"] = frame.clone();
     replace_dependency(guard, &old, &frame);
-    fixture_support::mint_ungrouped_structural_keys(&mut unlisted_before_join);
+    fixture_support::settle(&mut unlisted_before_join);
     sort_timed_graph_dependencies(&mut unlisted_before_join);
-    fixture_support::refresh_identity(&mut unlisted_before_join);
+    fixture_support::settle(&mut unlisted_before_join);
     let CheckedPackageV2ReadResult::Refused(unlisted) =
         read_package_with_document(&unlisted_before_join, "unlisted before join", &document)
             .expect("selected package read")
@@ -449,9 +459,9 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
     let old = guard["body"]["members"][0]["value"]["target"].clone();
     guard["body"]["members"][0]["value"]["target"] = frame.clone();
     replace_dependency(guard, &old, &frame);
-    fixture_support::mint_ungrouped_structural_keys(&mut join_before_model_wide);
+    fixture_support::settle(&mut join_before_model_wide);
     sort_timed_graph_dependencies(&mut join_before_model_wide);
-    fixture_support::refresh_identity(&mut join_before_model_wide);
+    fixture_support::settle(&mut join_before_model_wide);
     let CheckedPackageV2ReadResult::Refused(join) =
         read_package_with_document(&join_before_model_wide, "join before model-wide", &document)
             .expect("selected package read")
@@ -470,15 +480,15 @@ fn timed_clause_order_unlisted_join_and_model_wide_stages_are_distinct() {
 
 /// Trace: FR-038-AC-358, TC-048.
 #[test]
-fn timed_clause_first_of_two_unlisted_nodes_follows_node_digest_order() {
+fn timed_clause_first_of_two_unlisted_nodes_follows_structural_id_order() {
     let fixtures = fixtures_dir();
     let mut wire = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
         .expect("published clause fixture");
     let reset = wire["semantic_graph"]["nodes"][85]["node_id"].clone();
     let constraint = wire["semantic_graph"]["nodes"][76]["node_id"].clone();
     assert!(
-        reset["digest"].as_str() < constraint["digest"].as_str(),
-        "the later graph node has the earlier digest"
+        node_id_less(&reset, &constraint),
+        "the later graph node has the earlier structural id"
     );
     let root = &mut wire["semantic_graph"]["nodes"][52];
     let resets = root["body"]["members"][4]["value"]["members"]
@@ -497,9 +507,9 @@ fn timed_clause_first_of_two_unlisted_nodes_follows_node_digest_order() {
         .as_array_mut()
         .expect("root dependencies")
         .retain(|dependency| dependency != &reset && dependency != &constraint);
-    fixture_support::mint_ungrouped_structural_keys(&mut wire);
+    fixture_support::settle(&mut wire);
     sort_timed_graph_dependencies(&mut wire);
-    fixture_support::refresh_identity(&mut wire);
+    fixture_support::settle(&mut wire);
     let document = proposal_dir_of(&fixtures).join("domain-package-acme-timed-clauses.json");
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package_with_document(&wire, "two unlisted timed nodes", &document)
@@ -525,10 +535,7 @@ fn sort_timed_graph_dependencies(package: &mut Value) {
         node["dependencies"]
             .as_array_mut()
             .expect("node dependencies")
-            .sort_by(|left, right| {
-                (left["domain"].as_str(), left["digest"].as_str())
-                    .cmp(&(right["domain"].as_str(), right["digest"].as_str()))
-            });
+            .sort_by(|left, right| node_id_cmp(left, right));
     }
 }
 
@@ -638,7 +645,6 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
             node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model"
         })
         .expect("timed root");
-    let original_root_id = original["semantic_graph"]["nodes"][root_position]["node_id"].clone();
     let root_at = format!("/semantic_graph/nodes/{root_position}");
 
     let cases = vectors["aggregate_order"]["cases"]
@@ -663,7 +669,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
         assert_eq!(order_refusal.code, Code::InvalidSemanticGraph, "{id}");
         assert_eq!(order_refusal.cause, None, "{id}");
         assert_eq!(
-            order_refusal
+            order_refusal.loci[0]
                 .path
                 .as_ref()
                 .map(ToString::to_string)
@@ -674,7 +680,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
 
         let mut malformed = ordered_defect.clone();
         malformed["semantic_graph"]["nodes"][root_position]["occurrences"] = json!("not-an-array");
-        fixture_support::refresh_identity(&mut malformed);
+        fixture_support::settle(&mut malformed);
         let CheckedPackageV2ReadResult::Refused(refusal) =
             read_package_with_document(&malformed, id, &document)
                 .expect("malformed AO package read")
@@ -705,7 +711,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
             .position(|dependency| *dependency == first_place)
             .expect("referenced place dependency");
         dependencies.remove(dependency_position);
-        fixture_support::refresh_identity(&mut missing_dependency);
+        fixture_support::settle(&mut missing_dependency);
         let CheckedPackageV2ReadResult::Refused(refusal) =
             read_package_with_document(&missing_dependency, id, &document)
                 .expect("missing-dependency AO package read")
@@ -720,50 +726,6 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
         assert_eq!(
             refusal.loci[0].path.clone().unwrap().to_string(),
             format!("{root_at}/dependencies"),
-            "{id}"
-        );
-
-        let mut stale_key = ordered_defect;
-        let root = &mut stale_key["semantic_graph"]["nodes"][root_position];
-        if matches!(id, "AO-02" | "AO-03" | "AO-04") {
-            let changed_root_id = root["node_id"].clone();
-            root["node_id"] = original_root_id.clone();
-            root["semantic_type"] = original_root_id.clone();
-            let source = stale_key["source_map"]
-                .as_array_mut()
-                .expect("source map")
-                .iter_mut()
-                .find(|entry| entry["node_id"] == changed_root_id)
-                .expect("changed root source");
-            source["node_id"] = original_root_id.clone();
-        } else {
-            let last_place = root["body"]["members"][3]["value"]["members"]
-                .as_array()
-                .expect("root clock places")
-                .last()
-                .expect("last place")
-                .clone();
-            root["body"]["members"][3]["value"]["members"]
-                .as_array_mut()
-                .expect("root clock places")
-                .push(last_place);
-        }
-        fixture_support::refresh_identity(&mut stale_key);
-        let CheckedPackageV2ReadResult::Refused(refusal) =
-            read_package_with_document(&stale_key, id, &document)
-                .expect("stale-key AO package read")
-        else {
-            panic!("{id}: stale root key must refuse");
-        };
-        assert_eq!(refusal.code, Code::InvalidPackage, "{id}");
-        assert_eq!(
-            refusal.cause.map(cause_word),
-            Some("stale-node-key"),
-            "{id}"
-        );
-        assert_eq!(
-            refusal.loci[0].path.clone().unwrap().to_string(),
-            format!("{root_at}/node_id"),
             "{id}"
         );
     }
@@ -827,9 +789,9 @@ fn timed_aggregate_repeated_reference_refuses_as_order_defect() {
         .expect("root places");
     let first = places[0].clone();
     places.push(first);
-    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    fixture_support::settle(&mut package);
     sort_timed_graph_dependencies(&mut package);
-    fixture_support::refresh_identity(&mut package);
+    fixture_support::settle(&mut package);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&package).expect("repeated reference package read")
     else {
@@ -952,9 +914,9 @@ fn timed_aggregate_each_root_branch_enforces_source_order() {
         );
         assert_ne!(members[0]["target"], members[1]["target"]);
         members.swap(0, 1);
-        fixture_support::mint_ungrouped_structural_keys(&mut package);
+        fixture_support::settle(&mut package);
         sort_timed_graph_dependencies(&mut package);
-        fixture_support::refresh_identity(&mut package);
+        fixture_support::settle(&mut package);
         let CheckedPackageV2ReadResult::Refused(refusal) =
             read_package_with_document(&package, "reversed root clause aggregate", &document)
                 .expect("selected reversed package read")
@@ -1017,9 +979,9 @@ fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() 
         .as_array_mut()
         .expect("constraints");
     members.swap(0, 1);
-    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    fixture_support::settle(&mut package);
     sort_timed_graph_dependencies(&mut package);
-    fixture_support::refresh_identity(&mut package);
+    fixture_support::settle(&mut package);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package_with_document(&package, "reversed equal region clauses", &document)
             .expect("selected package read")
@@ -1053,10 +1015,7 @@ fn timed_slot_selected_package_admits_nested_and_optional_clock_places() {
         package.graph().nodes.len(),
         wire["semantic_graph"]["nodes"].as_array().unwrap().len()
     );
-    assert_eq!(
-        Some(package.package_id().digest.as_ref()),
-        wire["package_id"]["digest"].as_str()
-    );
+    assert_eq!(Some(package.name()), wire["name"].as_str());
     let order = package
         .graph()
         .nodes
@@ -1110,19 +1069,8 @@ fn timed_slot_selected_package_admits_nested_and_optional_clock_places() {
 }
 
 fn encode_package(package: &CheckedPackageV2) -> Vec<u8> {
-    let selected = package.identity_preimage();
-    let preimage = CheckedPackageIdentityPreimageRefV2 {
-        version: &selected.version,
-        edition: &selected.edition,
-        profile_selections: &selected.profile_selections,
-        definition_selections: &selected.definition_selections,
-        required_features: &selected.required_features,
-        dependency_selections: &selected.dependency_selections,
-        identity_projection: &package.graph().nodes,
-    };
     encode_checked_package_v2(
-        &preimage,
-        package.package_id(),
+        package.name(),
         package.lock(),
         package.graph(),
         quire_contract_model::CheckedPackageSourceCorrespondenceRef {
@@ -1179,15 +1127,13 @@ fn timed_model_published_tick_retains_typed_operation_anchor() {
         encoded, wire,
         "typed writer preserves the published tick package"
     );
-    assert!(encoded["identity_preimage"]
-        .get("identity_projection")
-        .is_none());
+    assert!(encoded.get("identity_preimage").is_none());
     let CheckedPackageV2ReadResult::Admitted(again) = read_package(&encoded).expect("writer read")
     else {
         panic!("typed writer's tick package must read back");
     };
     assert_eq!(again.graph(), package.graph());
-    assert_eq!(again.package_id(), package.package_id());
+    assert_eq!(again.name(), package.name());
     assert_eq!(again.term(&anchor.node_id), package.term(&anchor.node_id));
     assert_eq!(
         encode_package(&again),
@@ -1231,19 +1177,17 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
     let bytes = encode_package(&package);
     let encoded: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(encoded, wire);
-    assert!(encoded["identity_preimage"]
-        .get("identity_projection")
-        .is_none());
+    assert!(encoded.get("identity_preimage").is_none());
     let CheckedPackageV2ReadResult::Admitted(again) = read_package(&encoded).unwrap() else {
         panic!("writer output must read back");
     };
     assert_eq!(again.graph(), package.graph());
-    assert_eq!(again.package_id(), package.package_id());
+    assert_eq!(again.name(), package.name());
 }
 
 #[trace("TC-048")]
 #[test]
-fn timed_model_published_schema_vectors_precede_stale_identity() {
+fn timed_model_published_schema_vectors_refuse_before_semantic_validation() {
     let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
     let rows = vectors["schema_refusals"]
         .as_array()
@@ -1279,7 +1223,7 @@ fn timed_model_published_schema_vectors_precede_stale_identity() {
             "{}: {refusal:?}",
             row["id"]
         );
-        assert!(refusal
+        assert!(refusal.loci[0]
             .path
             .unwrap()
             .to_string()
@@ -1324,8 +1268,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                     .retain(|entry| entry["node_id"] != root_id);
             }
             "dangling-tick-operation" => {
-                let target =
-                    json!({"domain":"quire.checked-semantic-node/v1", "digest":"0".repeat(64)});
+                let target = fixture_support::node_id("missing-tick-operation");
                 let old = wire["semantic_graph"]["nodes"][44]["body"]["members"][3]["value"]
                     ["target"]
                     .clone();
@@ -1355,10 +1298,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                 last["members"][2]["value"]["value"] = json!(format!("{identity}#again"));
                 // Keep the clone distinct until the fixture helper mints its
                 // content key; otherwise it would rename both place nodes.
-                let provisional = json!({
-                    "domain": "quire.checked-semantic-node/v1",
-                    "digest": "f".repeat(64)
-                });
+                let provisional = fixture_support::node_id("second-place-forged-row");
                 assert!(wire["semantic_graph"]["nodes"]
                     .as_array()
                     .unwrap()
@@ -1458,14 +1398,14 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
             }
             other => panic!("{}: unknown semantic vector {other}", row["id"]),
         }
-        fixture_support::mint_ungrouped_structural_keys(&mut wire);
+        fixture_support::settle(&mut wire);
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
             node["dependencies"]
                 .as_array_mut()
                 .unwrap()
-                .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+                .sort_by(|left, right| node_id_cmp(left, right));
         }
-        fixture_support::refresh_identity(&mut wire);
+        fixture_support::settle(&mut wire);
         if mutation == "second-place-forged-row" {
             let places =
                 &wire["semantic_graph"]["nodes"][52]["body"]["members"][3]["value"]["members"];
@@ -1531,7 +1471,7 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                 root["dependencies"]
                     .as_array_mut()
                     .unwrap()
-                    .sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+                    .sort_by(|a, b| node_id_cmp(a, b));
             }
             "source-unit-length" | "source-unit-derived-non-time" | "source-unit-derived-time" => {
                 let mutation = row["mutation"].as_str().unwrap();
@@ -1542,18 +1482,16 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                 };
                 let time_id = wire["semantic_graph"]["nodes"][42]["node_id"].clone();
                 let mut dimension = wire["semantic_graph"]["nodes"][42].clone();
-                dimension["nominal_identity_preimage"]["qualified_declaration"] =
-                    json!(["Example", name]);
                 dimension["declaration"]["qualified_name"] = json!(["Example", name]);
                 if name == "Area" || name == "Duration" {
                     let base_id = if name == "Area" {
                         let mut length = dimension.clone();
-                        length["nominal_identity_preimage"]["qualified_declaration"] =
-                            json!(["Example", "Length"]);
                         length["declaration"]["qualified_name"] = json!(["Example", "Length"]);
-                        let id = fixture_support::node_id(&fixture_support::sha256_hex(
-                            &fixture_support::canonical(&length["nominal_identity_preimage"]),
-                        ));
+                        let id = fixture_support::structural_id(
+                            "example",
+                            vec![json!("Example"), json!("Length")],
+                            0,
+                        );
                         length["node_id"] = id.clone();
                         length["semantic_type"] = id.clone();
                         wire["semantic_graph"]["nodes"]
@@ -1564,15 +1502,17 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                     } else {
                         time_id
                     };
-                    dimension["nominal_identity_preimage"]["terms"] = json!([{
+                    dimension["body"]["terms"] = json!([{
                         "dimension_node_id": base_id,
                         "exponent": if name == "Area" { "2" } else { "1" }
                     }]);
                     dimension["dependencies"] = json!([base_id]);
                 }
-                let dimension_id = fixture_support::node_id(&fixture_support::sha256_hex(
-                    &fixture_support::canonical(&dimension["nominal_identity_preimage"]),
-                ));
+                let dimension_id = fixture_support::structural_id(
+                    "example",
+                    vec![json!("Example"), json!(name)],
+                    0,
+                );
                 dimension["node_id"] = dimension_id.clone();
                 dimension["semantic_type"] = dimension_id.clone();
                 wire["semantic_graph"]["nodes"]
@@ -1580,12 +1520,12 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                     .unwrap()
                     .push(dimension);
                 let mut unit = wire["semantic_graph"]["nodes"][43].clone();
-                unit["nominal_identity_preimage"]["qualified_declaration"] =
-                    json!(["Example", "u"]);
-                unit["nominal_identity_preimage"]["dimension_node_id"] = dimension_id.clone();
-                unit["node_id"] = fixture_support::node_id(&fixture_support::sha256_hex(
-                    &fixture_support::canonical(&unit["nominal_identity_preimage"]),
-                ));
+                unit["node_id"] = fixture_support::structural_id(
+                    "example",
+                    vec![json!("Example"), json!("u")],
+                    0,
+                );
+                unit["body"]["dimension_node_id"] = dimension_id.clone();
                 unit["semantic_type"] = dimension_id;
                 unit["dependencies"] = json!([unit["semantic_type"].clone()]);
                 unit["declaration"]["qualified_name"] = json!(["Example", "u"]);
@@ -1600,18 +1540,18 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                 let deps = source["dependencies"].as_array_mut().unwrap();
                 deps.retain(|dep| dep != &old);
                 deps.push(unit_id);
-                deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+                deps.sort_by(|a, b| node_id_cmp(a, b));
             }
             other => panic!("{id}: unknown mutation {other}"),
         }
-        fixture_support::mint_ungrouped_structural_keys(&mut wire);
+        fixture_support::settle(&mut wire);
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
             node["dependencies"]
                 .as_array_mut()
                 .unwrap()
-                .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+                .sort_by(|left, right| node_id_cmp(left, right));
         }
-        fixture_support::refresh_identity(&mut wire);
+        fixture_support::settle(&mut wire);
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{id} must refuse");
         };
@@ -1642,7 +1582,7 @@ fn replace_dependency(node: &mut Value, old: &Value, new: &Value) {
     node["dependencies"]
         .as_array_mut()
         .unwrap()
-        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        .sort_by(|left, right| node_id_cmp(left, right));
 }
 
 #[trace("TC-048")]
@@ -1664,7 +1604,7 @@ fn timed_model_missing_root_precedes_later_quantity_validation() {
         .as_array_mut()
         .unwrap()
         .retain(|entry| entry["node_id"] != root);
-    fixture_support::refresh_identity(&mut wire);
+    fixture_support::settle(&mut wire);
     let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
         panic!("a timed clause without a root must refuse");
     };
@@ -1691,8 +1631,8 @@ fn timed_model_repeated_reference_precedes_later_quantity_validation() {
         .unwrap();
     assert_eq!(places.len(), 1);
     places.push(places[0].clone());
-    fixture_support::mint_ungrouped_structural_keys(&mut wire);
-    fixture_support::refresh_identity(&mut wire);
+    fixture_support::settle(&mut wire);
+    fixture_support::settle(&mut wire);
     let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
         panic!("repeated model place must refuse");
     };
@@ -1701,8 +1641,9 @@ fn timed_model_repeated_reference_precedes_later_quantity_validation() {
         (Code::InvalidSemanticGraph, None),
         "{refusal:?}"
     );
-    assert!(refusal
+    assert!(refusal.loci[0]
         .path
+        .as_ref()
         .unwrap()
         .to_string()
         .ends_with("/body/members/3/value/members/1"));
@@ -1764,17 +1705,14 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
             }
             _ => unreachable!("test case list is closed"),
         }
-        fixture_support::mint_ungrouped_structural_keys(&mut wire);
+        fixture_support::settle(&mut wire);
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
             node["dependencies"]
                 .as_array_mut()
                 .unwrap()
-                .sort_by(|left, right| {
-                    (left["domain"].as_str(), left["digest"].as_str())
-                        .cmp(&(right["domain"].as_str(), right["digest"].as_str()))
-                });
+                .sort_by(|left, right| node_id_cmp(left, right));
         }
-        fixture_support::refresh_identity(&mut wire);
+        fixture_support::settle(&mut wire);
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{change} must refuse");
         };
@@ -1784,8 +1722,9 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
             "{change}: {refusal:?}"
         );
         assert!(
-            refusal
+            refusal.loci[0]
                 .path
+                .as_ref()
                 .unwrap()
                 .to_string()
                 .contains(&format!("/body/members/{member}/value")),
@@ -1828,8 +1767,8 @@ fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
         .as_array_mut()
         .expect("root dependencies")
         .retain(|dependency| *dependency != guard);
-    fixture_support::mint_ungrouped_structural_keys(&mut wire);
-    fixture_support::refresh_identity(&mut wire);
+    fixture_support::settle(&mut wire);
+    fixture_support::settle(&mut wire);
     let result = read_package(&wire).expect("read unlisted guard package");
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
         panic!("GD-03 must refuse, got {result:?}");
@@ -1891,9 +1830,9 @@ fn timed_root_without_guards_keeps_the_place_template() {
         .as_array_mut()
         .expect("source map")
         .retain(|entry| entry["node_id"] != guard);
-    fixture_support::mint_ungrouped_structural_keys(&mut wire);
+    fixture_support::settle(&mut wire);
     sort_timed_graph_dependencies(&mut wire);
-    fixture_support::refresh_identity(&mut wire);
+    fixture_support::settle(&mut wire);
     let retained_place = wire["semantic_graph"]["nodes"]
         .as_array()
         .expect("graph nodes")
