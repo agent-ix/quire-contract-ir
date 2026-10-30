@@ -194,7 +194,7 @@ pub use checked_package::{
     FunctionForm, HybridForm, JsonPointer, LoweringProfileRef, ModelForm, NominalIdentityPreimage,
     NominalOwner, ProtocolForm, RelationForm, ScalarTypeForm, SourceOwner, SourceOwnerKind,
     StateForm, TemporalForm, TimedModelForm, UnitPreimage, ValueForm, CHECKED_PACKAGE_V2,
-    CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION, PACKAGE_DOMAIN_V2,
+    CONTRACT_PACKAGE_VERSION, PACKAGE_DOMAIN_V2,
 };
 
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
