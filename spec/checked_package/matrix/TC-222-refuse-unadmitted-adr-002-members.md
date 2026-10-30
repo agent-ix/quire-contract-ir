@@ -68,9 +68,7 @@ mutated node's graph position.
   `CheckedSemanticNodeV2` carries `#[serde(deny_unknown_fields)]`. An extra
   top-level node member makes that one decode fail with serde's `unknown
   field` error. `decode_closed` classifies it as `unknown_member` and points
-  at the member where the decoder stopped. If the fixture also mirrors the
-  node into `identity_preimage.identity_projection`, the decoder reaches
-  that copy first and points there. The refusal precedes every graph-level
+  at the member where the decoder stopped. The removed identity projection is not mirrored; an added top-level projection member is separately refused as `unknown_member`. The refusal precedes every graph-level
   check: no node tag, form or body of any node is reached.
 - Case 4 refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{n}/body`.
   The object carries no `term` member, so `validate_term` refuses at the

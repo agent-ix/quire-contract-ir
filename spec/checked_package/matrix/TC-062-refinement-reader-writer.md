@@ -22,9 +22,7 @@ Construct an admitted V2 graph with local concrete and abstract model
 declarations, selected infinite-trace profile, one population and object
 row, operation and stutter steps, history initial and update, and weak and
 strong fairness rows. Construct separate protocol-subject, dependency-
-package abstract-subject and row-empty controls. Recompute the graph keys,
-refinement's `{version, semantic_type, body}` node id and `package_id`
-through the repository's production identity path. Read, write and reread
+package abstract-subject and row-empty controls. Assign structural ids by package, path and ordinal; retain complete authored bodies. Read, write and reread
 each positive package, checking its body, target joins, dependencies,
 canonical order of the five non-step arrays, retained `steps` declaration
 order and occurrences. Include two valid, distinct step rows in both orders;
@@ -44,7 +42,7 @@ remove its `source_map` entry and assert `/source_map`; for duplicate,
 extra-role, extra-ordinal and wrong-region entries, assert the offending
 entry's pointer. For within-node precedence, combine a retained stale
 refinement key with a valid permutation of `steps` and assert the stale-key
-refusal; with identities recomputed, combine that permutation with a
+refusal; with structural ids retained, combine that permutation with a
 wrong-kind `abstract` header and assert the `abstract` join refusal, then
 repair the header and assert admission with the received step order. Combine a
 wrong-kind `semantic_type` with wrong-kind `abstract`, optional `protocol`
@@ -55,14 +53,11 @@ repair the header and assert the row refusal. Within the canonical and row
 stages, place defects in different arrays and nested `fields`/`updates`,
 then two entries of one array and two properties of one row entry; assert
 the five non-step array/nested-array order, ascending indices and schema-declared
-entry-member order where FR-375 fixes no further tie-break. Rebuild
-identities after every body mutation except the stale-key control; keep
-the same selected packages in the identity comparisons.
+entry-member order where FR-375 fixes no further tie-break. Retain structural ids on valid body mutations and keep the same selected packages in the body comparisons.
 
 For FR-061-AC-3 and AC-7, construct IR-owned wire packages with two selected
 concrete models, each with its own canonical `model_root`, while retaining one
-abstract root and profile. Recompute the refinement and package identities
-after replacing only `semantic_type`. Admit the row-empty model-subject swap
+abstract root and profile. Retain the complete structural ids while replacing only `semantic_type`. Admit the row-empty model-subject swap
 as a distinct node, and admit the protocol-subject swap only when it has no
 concrete key and the new identity derives the same class set, including two
 empty sets. Separately refuse an absent protocol catalog at
@@ -83,8 +78,7 @@ For FR-061-AC-14 through AC-16, construct catalog-free model-only refinements
 with operation steps anchored at declaring object-type, process and state-
 machine nodes of the selected concrete model. Include an operation inherited
 by the selected type whose anchor remains at its declaring type. Keep the
-refinement `semantic_type` at the canonical concrete `model_root`, recompute
-identities and assert admission and read/write/read retention. Mutate one
+refinement `semantic_type` at the canonical concrete `model_root`, assert admission and read/write/read retention. Mutate one
 control at a time: remove `source_node`, use an unresolved or wrong-kind
 source node, change `source_class` away from the anchor's operation name, and
 use an anchor whose context belongs to a foreign model or the wrong selected
@@ -94,17 +88,15 @@ defect and make a separate combined control for **each** earlier stage:
 
 1. Add an unknown refinement-body member; assert the closed-body wire
    refusal `invalid_semantic_graph` at the body before the row mismatch.
-2. Retain a stale refinement node id after a body mutation; assert
-   `invalid_package`/`stale-node-key` at `node_id` before the row mismatch.
+2. Duplicate a structural node id after a body mutation; assert
+   `invalid_semantic_graph` at the later `node_id` before the row mismatch.
 3. Reverse two object field rows while retaining the step name mismatch;
-   after recomputing identities, assert `invalid_semantic_graph` at the first
+   under the authored structural ids, assert `invalid_semantic_graph` at the first
    out-of-order field before the row mismatch.
-4. Select a wrong profile in the refinement header; after recomputing
-   identities, assert `invalid_model_binding`/`malformed-declaration` at
+4. Select a wrong profile in the refinement header; with structural ids retained, assert `invalid_model_binding`/`malformed-declaration` at
    `body/profile` before the row mismatch.
 5. Add a closed `class_catalog` with empty `concrete` and `abstract` arrays
-   to the model-only subject that requires no catalog; after recomputing
-   identities, assert `invalid_semantic_graph` at `body/class_catalog`
+   to the model-only subject that requires no catalog; with structural ids retained, assert `invalid_semantic_graph` at `body/class_catalog`
    before the row mismatch. This control exercises the catalog-presence
    stage while the step remains catalog-free in the valid baseline.
 
@@ -112,12 +104,12 @@ For each control, assert the earlier stage, exact code, cause when defined,
 and RFC 6901 pointer; then repair only its earlier defect and assert the
 remaining row mismatch at `source_class`. Put defects in two steps
 and assert the first row in received declaration order wins. Reverse those
-two step rows, recompute identities and check the mismatch follows its row
+two step rows, retain structural ids and check the mismatch follows its row
 to the new index without an order refusal. Finally use a separate valid
 protocol refinement with a present catalog; change its row class to one
 absent from the concrete catalog, then restore the class and change its
 `source_node` away from the matching catalog entry. Confirm the existing
-missing-class and wrong-node refusals. Recompute all
+missing-class and wrong-node refusals. Retain all structural ids and update exact bodies.
 identities after each mutation except an intentional stale-key precedence
 control.
 

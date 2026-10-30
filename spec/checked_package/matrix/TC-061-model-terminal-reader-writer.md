@@ -41,5 +41,4 @@ The positive modes preserve the four-binding body, node identities,
 dependencies and claim occurrences through read/write/read. The adverse
 forms refuse with FR-476's exact code, cause and pointer, with earlier graph
 and body-step defects winning over terminal defects. The model identity
-control admits both packages, yields different terminal node ids and
-`package_id`s, and preserves each identity through read/write/read.
+control admits both packages, retains distinct complete terminal bodies under structural ids and preserves each through read/write/read.

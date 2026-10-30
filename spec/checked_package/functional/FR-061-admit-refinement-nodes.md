@@ -33,7 +33,7 @@ packages, definition selections, model evidence and limits of
 `ix://agent-ix/quire-specification/FR-375` and
 `ix://agent-ix/quire-specification/FR-322`, including the published
 `proposals/checked-package-v2/schema.json` and
-`node-identity-preimage.schema.json` at the selected QSpec source.
+`schema.json` at the selected QSpec source.
 
 ## Outputs
 
@@ -88,7 +88,7 @@ reader and writer SHALL NOT omit, infer, or default it. For each source-default
 `sc`, `tso`, or `ra` model selected by a source `parallel` in a subject, its
 catalog SHALL include `memory drain`; a source-default `tso` also contributes
 the separate `memory flush` class. A request-time memory override SHALL NOT
-change either checked-package catalog or package identity. The drain class
+change either checked-package catalog or package name. The drain class
 means that the thread's pending writes become visible according to the
 selected model's visibility rule: `sc` is a no-op, `tso` flushes the store
 buffer in FIFO order, and `ra` has no store-buffer entries to remove and
@@ -108,7 +108,7 @@ one memory entry for that model, not one entry per control.
 
 `RefinementKey` SHALL be a local `NodeRef` for a node in this graph, or the
 closed `{package, node}` `PackageNodeKey` for a node of a directly selected
-dependency package. The current package id SHALL NOT be embedded in its own
+dependency package. The current package name SHALL NOT be embedded as a dependency target in its own
 body. `abstract` names the selected abstract model's canonical `model_root`;
 optional `protocol` names the
 selected protocol clause; `profile` is the selected infinite-trace
@@ -128,8 +128,8 @@ the refinement's concrete identity; no separate concrete-selection member
 exists. Substituting an object-type or state-machine declaration for that
 root SHALL refuse `invalid_model_binding`/`malformed-declaration` at
 `semantic_type`. Replacing it with another selected model's canonical root
-and recomputing the refinement and package identities instead selects that
-other concrete identity. After the earlier closed-wire, graph-shape, key and
+instead selects that
+other concrete identity. After the earlier closed-wire, graph-shape, structural-id and
 canonical-order stages, the reader SHALL first require a concrete catalog for
 a protocol subject, refusing `invalid_semantic_graph` at
 `/body/class_catalog` when absent; it SHALL then visit concrete row keys in
@@ -140,7 +140,7 @@ protocol graph step SHALL compare the concrete catalog with classes derived
 from the new concrete identity in catalog-key order, refusing
 `invalid_semantic_graph` at an extra class entry or at
 `class_catalog/concrete` for an omitted class. If there is no concrete row
-key, a rekeyed model subject with no catalog SHALL admit as a distinct node;
+key, a distinct structural model subject with no catalog SHALL admit as a distinct node;
 a protocol subject SHALL do so when its concrete catalog equals the classes
 derived from the new identity, including two empty sets. No protocol-body
 node is compared at the row-join stage. The `abstract` key
@@ -148,7 +148,7 @@ SHALL name the selected abstract model's canonical `model_root`, locally or
 through its directly selected dependency package; `protocol`, when present,
 SHALL name the exact clause of that abstract model. A model-root key SHALL
 NOT be replaced by one of its package's object-type or state-machine
-declarations. `dependencies` SHALL be exactly the unique, digest-ascending local
+declarations. `dependencies` SHALL be exactly the unique, structurally ordered local
 keys named by `abstract`, optional `protocol`, row declarations and types,
 and expression reference targets and application member declarations and
 populations, plus local `class_catalog` class nodes and binder type keys.
@@ -159,19 +159,15 @@ unless another listed body key names the same local node. A dependency
 mismatch SHALL refuse `invalid_semantic_graph` at `/dependencies` in
 FR-322's graph-shape stage, before refinement meaning joins.
 
-The node id SHALL be the JCS SHA-256 of the closed
-`{version: "quire.refinement-node/v1", semantic_type, body}` preimage. The
-same complete body enters FR-322's package identity projection. A changed
-row, profile, abstract or protocol target, internal list, catalog class,
-source-default memory model or drain member, or concrete model
-SHALL change the node id and package id when identities are recomputed; a
-stale retained key SHALL refuse at FR-322's earlier key stage. The `steps`
+The node SHALL carry its structural id under QSpec FR-322. The complete body and ordered rows SHALL be retained. A valid body edit can retain the same structural id; the reader checks catalog, dependency, type and row meaning independently of the id.
+
+The `steps`
 array SHALL retain the producer's source declaration order, including tied
 protocol classes and memory steps. The reader and writer SHALL preserve the
 received array order without
 sorting it or refusing an otherwise valid permutation. A permutation that
 changes the `steps` array changes the complete body used by the existing
-identity rules; a source change that leaves the emitted body unchanged leaves
+structural body; a source change that leaves the emitted body unchanged leaves
 those identities unchanged. The other five row arrays SHALL retain their
 FR-375 order by first named declaration's node key and then member name.
 Object field names and history update operation keys SHALL each ascend.
@@ -190,11 +186,11 @@ FR-322's occurrence rules. After every present entry passes, a missing
 required occurrence SHALL refuse that pair at `/source_map`. These occurrences stay
 on the owner node; the reader SHALL NOT invent derived per-step nodes.
 
-The reader SHALL apply FR-322's strict wire, graph-shape, key, declaration
+The reader SHALL apply FR-322's strict wire, graph-shape, structural-id, declaration
 and source-map checks in their published order. The closed schema and body
 shape SHALL be checked before refinement meaning joins. The refinement step
-SHALL visit nodes in ascending retained node-id digest order and, within each
-node, follow FR-375's stages: recompute the dedicated refinement identity;
+SHALL visit nodes in structural node-id order and, within each
+node, follow FR-375's stages: retain the structural refinement id;
 check canonical order in `populations`, `objects` (including `fields`),
 `histories` (including `updates`), `assume`, `ensure`, then optional
 `abstract_internal` and `class_catalog` (`concrete`, then `abstract`), with
@@ -210,13 +206,11 @@ FR-375 fixes no further tie-break.
 A missing `drain`, a `drain` on `memory flush`, a wrong `drain` value, a
 wrong model for `memory flush`, or an extra class-entry member SHALL refuse
 `malformed_wire` at the offending node/member in the earlier closed-wire
-stage, before identity or catalog joins. A schema-valid but out-of-order
+stage, before graph or catalog joins. A schema-valid but out-of-order
 catalog entry SHALL refuse `invalid_semantic_graph` at the first offending
 entry; a duplicate declared class spelling or duplicate (`class`,
 `memory_model`) memory pair SHALL refuse at the later duplicate entry in the
-refinement canonical-order stage. A stale node key
-SHALL refuse `invalid_package`/`stale-node-key` at its `node_id` before
-canonical-order, header, catalog or row checks. A schema-valid but
+refinement canonical-order stage. A schema-valid but
 semantically absent or extra source-default memory class in a present catalog SHALL refuse
 `invalid_semantic_graph` at its catalog array or entry in the later protocol
 graph join of [FR-038](./FR-038-consume-checked-package-v2.md); a wrong
@@ -260,19 +254,19 @@ and its refusal order remain as specified above.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-061-AC-1 | A positive model-subject refinement with one population, object, operation-step, history and fairness row admits as one `relation`/`refinement` node with the exact nine required body members and its complete rows; empty arrays are retained, optional `protocol` and `abstract_internal` are absent, `class_catalog` is absent when neither subject has a protocol or memory class, `semantic_type` names the selected concrete package's canonical `model_root` rather than a declaration node, `abstract` names the selected abstract package's canonical `model_root`, and the public writer's output reads back to the same node and package identities. | Test |
+| FR-061-AC-1 | A positive model-subject refinement with one population, object, operation-step, history and fairness row admits as one `relation`/`refinement` node with the exact nine required body members and its complete rows; empty arrays are retained, optional `protocol` and `abstract_internal` are absent, `class_catalog` is absent when neither subject has a protocol or memory class, `semantic_type` names the selected concrete package's canonical `model_root` rather than a declaration node, `abstract` names the selected abstract package's canonical `model_root`, and the public writer's output reads back to the same structural node id and package name. | Test |
 | FR-061-AC-2 | For each of the six arrays, a missing array, extra body or entry member, wrong key shape, wrong row scalar or an out-of-grammar nested term refuses the whole package at the closed-schema/body stage; `open` is admitted only in `operation` or `protocol_step` argument arrays, while an `open` receiver, field expression, history expression or body root refuses. An unknown `relation` form still refuses `invalid_semantic_graph` at `semantic_form`. | Test |
-| FR-061-AC-3 | With zero, one or multiple concrete object-type or state-machine declarations, `semantic_type` names the unique local `model_root` identity-bound to the selected concrete model package; an object-type or state-machine declaration substituted there refuses `invalid_model_binding`/`malformed-declaration` at `semantic_type`. With two selected models, swapping to the other's canonical root and recomputing identities treats that root as the concrete identity: an absent protocol-subject catalog refuses `invalid_semantic_graph` at `/body/class_catalog`; otherwise the first foreign concrete key in `populations`, `objects`, `steps`, `histories`, `assume` row order refuses `invalid_model_binding`/`malformed-declaration` at that key before catalog comparison; otherwise an extra catalog class refuses `invalid_semantic_graph` at its entry and an omitted class at `class_catalog/concrete`, in catalog-key order. With no concrete key, a rekeyed model subject without a catalog admits as a distinct node regardless of either model's classes; a protocol subject admits when its catalog equals the new identity's derived classes, including two empty sets. A local abstract model uses its canonical `model_root` `NodeRef` and a local protocol subject additionally uses its exact clause `NodeRef`; both appear in `dependencies` even with all rows empty. The same abstract root and clause from a directly selected dependency use `PackageNodeKey`, join through that selection and are absent from local dependencies. A `PackageNodeKey` for a local target, a bare `NodeRef` for a dependency target, a key for an unselected dependency, and the current package id in its own body each refuse without admission or dropped content. | Test |
+| FR-061-AC-3 | With zero, one or multiple concrete object-type or state-machine declarations, `semantic_type` names the unique local `model_root` identity-bound to the selected concrete model package; an object-type or state-machine declaration substituted there refuses `invalid_model_binding`/`malformed-declaration` at `semantic_type`. With two selected models, swapping to the other's declared structural root treats that root as the concrete identity: an absent protocol-subject catalog refuses `invalid_semantic_graph` at `/body/class_catalog`; otherwise the first foreign concrete key in `populations`, `objects`, `steps`, `histories`, `assume` row order refuses `invalid_model_binding`/`malformed-declaration` at that key before catalog comparison; otherwise an extra catalog class refuses `invalid_semantic_graph` at its entry and an omitted class at `class_catalog/concrete`, in catalog-key order. With no concrete key, a distinct structural model subject without a catalog admits as a distinct node regardless of either model's classes; a protocol subject admits when its catalog equals the new identity's derived classes, including two empty sets. A local abstract model uses its canonical `model_root` `NodeRef` and a local protocol subject additionally uses its exact clause `NodeRef`; both appear in `dependencies` even with all rows empty. The same abstract root and clause from a directly selected dependency use `PackageNodeKey`, join through that selection and are absent from local dependencies. A `PackageNodeKey` for a local target, a bare `NodeRef` for a dependency target, a key for an unselected dependency, and the current package name as an imported target in its own body each refuse without admission or dropped content. | Test |
 | FR-061-AC-4 | The reader admits all four closed step target kinds, requires `source_node` and protocol target `node` exactly for declaration-naming classes, omits them for memory classes, and preserves tied protocol-step and memory rows in their declaration order through read/write/read, including a valid permutation of those rows. A mismatched source class/node, wrong-kind operation or protocol target, or missing declared row target refuses at the named key or entry with its typed graph/model-binding result. | Test |
 | FR-061-AC-5 | A history `initial` literal and a local history-literal reference both admit; a dependency-package history-literal reference, an application initial, duplicate history update, duplicate object field, invalid fairness kind/granularity, or unsorted `populations`, `objects`, `histories`, `assume`, `ensure`, object fields or history updates refuses, with no reordered or defaulted output. A valid permutation of `steps` admits without a sort refusal or reordered output. | Test |
-| FR-061-AC-6 | The exact local dependency set includes body header keys and every direct row declaration/type and expression/member target, excludes external keys and annotations, and is digest-ascending. An omitted, extra or misordered dependency refuses `invalid_semantic_graph` at `/dependencies` before any row-meaning defect. | Test |
-| FR-061-AC-7 | Two row-empty refinements over one abstract model and profile but distinct selected concrete model packages have equal bodies, distinct canonical `model_root` `semantic_type` keys and distinct `quire.refinement-node/v1` node ids, even when their declaration counts or shapes coincide. With identities recomputed, row-empty model subjects without concrete keys both admit regardless of their derived concrete class sets; row-empty protocol subjects with no concrete keys both admit when their concrete catalog equals each identity's derived class set. Mutating any meaning-bearing body row or optional internal list with recomputed identities changes node and package ids; retaining a stale key refuses at the earlier key stage. Permuting two valid `steps` rows changes their emitted order and the complete body; a source change that leaves the emitted body unchanged leaves the identities unchanged. | Test |
+| FR-061-AC-6 | The exact local dependency set includes body header keys and every direct row declaration/type and expression/member target, excludes external keys and annotations, and is structurally ordered. An omitted, extra or misordered dependency refuses `invalid_semantic_graph` at `/dependencies` before any row-meaning defect. | Test |
+| FR-061-AC-7 | PLANNED/UNRUN (IR-1141). Two row-empty refinements over one abstract model but different selected concrete models retain distinct structural model-root references even when their bodies and declaration counts match. Row-empty subjects admit exactly when their concrete catalog matches the selected class set. A body-row edit changes the complete retained body; a valid source edit leaving that body unchanged leaves the retained body unchanged. The reader validates dependency and catalog joins independently of the structural id. | Test |
 | FR-061-AC-8 | A proof-eligible refinement with `n` steps admits exactly its declaration occurrence 0 and generated occurrences 0 through `n`; generated ordinal `i + 1` retains the region of `steps[i]` in received declaration order, including after a valid row permutation. An owner with a hidden field, a history or an `any` step admits only declaration occurrence 0. Duplicate, extra-role, extra-ordinal or wrong-region source-map entries refuse `invalid_package`/`invalid-value` at the offending entry; a missing required occurrence refuses the same pair at `/source_map` after every present entry passes. No derived per-step node is synthesized. | Test |
 | FR-061-AC-9 | The reader reports the earlier FR-322 strict-wire, graph-shape, key, declaration or source-map defect before a later refinement meaning defect. Among two refinement nodes with separate meaning defects, the lower node id wins. Within one node, a stale dedicated refinement key precedes canonical array-order defects; canonical defects precede header-join defects; header joins run in `semantic_type`, `abstract`, optional `protocol`, `profile` order and precede catalog and row joins; canonical checks visit `populations`, `objects`/`fields`, `histories`/`updates`, `assume`, `ensure`, optional `abstract_internal`, then optional `class_catalog` (`concrete`, `abstract`) in FR-375 order. `steps` has no canonical-order refusal; row checks retain their existing six-array order and visit `steps` in declaration order. Within each array checks visit ascending index and schema-declared entry-member order where FR-375 fixes no further tie-break. An invalid body of another `relation` form never enters the refinement body path. | Test |
-| FR-061-AC-10 | An external consumer builds one typed refinement catalog over source `parallel` controls defaulting to `sc`, `tso` and `ra`. Its `concrete` array contains exactly three `{class: "memory drain", memory_model, drain: "store-buffer-flush"}` entries ordered by the (`class`, `memory_model`) key as `ra`, `sc`, `tso`, then the separate `{class: "memory flush", memory_model: "tso"}` entry. The public writer encodes each without extra members; the strict reader admits all four and retains the typed drain value and model through read/write/read with unchanged node and package identities. The typed drain variant is distinct from the TSO-only flush variant. | Test |
-| FR-061-AC-11 | Starting from an otherwise valid package, deleting `drain` from `memory drain`, changing its value or type, adding it to `memory flush`, assigning `memory flush` model `sc` or `ra`, or adding `node`, `binder_types` or another unknown entry member refuses `malformed_wire` at the closed-wire stage, with the offending node/member location and no admitted package or defaulted field. With identities recomputed, reordering the three drains, repeating a (`memory drain`, `memory_model`) pair, or repeating a declared class spelling refuses `invalid_semantic_graph` at the first out-of-order or later duplicate catalog entry after the dedicated key check. | Test |
-| FR-061-AC-12 | A protocol refinement catalog includes one `memory drain` per distinct `sc`, `tso` or `ra` source-default model selected by a `parallel` in its subject and additionally one `memory flush` for a TSO source default. Two `parallel` controls selecting the same source-default model contribute one entry per model, not one per control. In a present catalog, an omitted required drain or TSO flush, an extra memory class, or a memory class from another selected subject refuses `invalid_semantic_graph` at the catalog array or entry after the protocol-body check; a wholly absent required catalog refuses earlier in the refinement step. A request-time memory override changes neither catalog nor package id. | Test |
-| FR-061-AC-13 | With all identities recomputed, changing a schema-valid drain entry's `memory_model` changes the dedicated refinement node id and package id; retaining its old node id refuses `invalid_package`/`stale-node-key` at `node_id` before catalog joins. A local catalog class node or binder type omitted from the exact `dependencies` list refuses `invalid_semantic_graph` at `/dependencies` before the dedicated key check, while no memory entry contributes a node or binder dependency. | Test |
+| FR-061-AC-10 | An external consumer builds one typed refinement catalog over source `parallel` controls defaulting to `sc`, `tso` and `ra`. Its `concrete` array contains exactly three `{class: "memory drain", memory_model, drain: "store-buffer-flush"}` entries ordered by the (`class`, `memory_model`) key as `ra`, `sc`, `tso`, then the separate `{class: "memory flush", memory_model: "tso"}` entry. The public writer encodes each without extra members; the strict reader admits all four and retains the typed drain value and model through read/write/read with unchanged structural node id and package name. The typed drain variant is distinct from the TSO-only flush variant. | Test |
+| FR-061-AC-11 | Starting from an otherwise valid package, deleting `drain` from `memory drain`, changing its value or type, adding it to `memory flush`, assigning `memory flush` model `sc` or `ra`, or adding `node`, `binder_types` or another unknown entry member refuses `malformed_wire` at the closed-wire stage, with the offending node/member location and no admitted package or defaulted field. With structural ids retained, reordering the three drains, repeating a (`memory drain`, `memory_model`) pair, or repeating a declared class spelling refuses `invalid_semantic_graph` at the first out-of-order or later duplicate catalog entry after structural graph checks. | Test |
+| FR-061-AC-12 | A protocol refinement catalog includes one `memory drain` per distinct `sc`, `tso` or `ra` source-default model selected by a `parallel` in its subject and additionally one `memory flush` for a TSO source default. Two `parallel` controls selecting the same source-default model contribute one entry per model, not one per control. In a present catalog, an omitted required drain or TSO flush, an extra memory class, or a memory class from another selected subject refuses `invalid_semantic_graph` at the catalog array or entry after the protocol-body check; a wholly absent required catalog refuses earlier in the refinement step. A request-time memory override changes neither catalog nor package name. | Test |
+| FR-061-AC-13 | PLANNED/UNRUN (IR-1141). Changing a valid drain entry memory_model changes the complete retained refinement body, with no key recomputation. A local catalog class node or binder type omitted from the exact dependencies refuses invalid_semantic_graph at /dependencies before catalog joins; no memory entry contributes a node or binder dependency. | Test |
 | FR-061-AC-14 | In a model-only refinement without `class_catalog`, a step whose `source_class` names an operation and whose local `source_node` is that operation's anchor admits when the anchor `context` is the object type, process or state machine declaring the operation in the selected concrete model subject. The same holds when the selected type inherits the operation: the anchor stays at its declaring type, while the refinement `semantic_type` stays at the selected concrete model's canonical `model_root`. The admitted row and identities survive read/write/read. | Test |
 | FR-061-AC-15 | For a catalog-free operation step, an absent `source_node` refuses `invalid_semantic_graph` at the step entry in the earlier closed-body check; an unresolved `source_node` refuses `missing_declaration`/`missing-name` at `source_node`. A present wrong-kind node or an anchor for a foreign or wrong selected model subject refuses `invalid_model_binding`/`malformed-declaration` at `source_node`; an anchor whose operation name differs from `source_class` refuses the same pair at `source_class`. None admits a partial package. | Test |
 | FR-061-AC-16 | With a catalog-free step defect and an earlier wire, identity, canonical-order defect in another array, header or catalog defect, the earlier FR-375 stage wins; with two step-row defects, the first row in declaration order wins. A refinement with `class_catalog` continues to join a step to its concrete catalog entry, including the existing missing-class and wrong-node refusals, independently of the catalog-free anchor rule. | Test |

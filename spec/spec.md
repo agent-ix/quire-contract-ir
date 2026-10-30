@@ -154,7 +154,7 @@ typed V2 carriage, source correspondence, structural identity and refinement
 header joins.
 [FR-066](checked_package/functional/FR-066-retain-identity-bound-execution-points.md)
 defines the typed V2 body carriers for QSpec execution points and their
-reader, writer, preimage and published-vector obligations.
+reader, writer, structural-id and published-fixture obligations.
 [FR-068](checked_package/functional/FR-068-join-selected-process-and-persistence-declarations.md)
 defines selected process and persistence-interface owner joins, process
 member and reference resolution, and the selected wrong-kind clause control;
@@ -173,7 +173,7 @@ and the QSpec carrier contract must land before producer-origin cases or
 implementation can qualify.
 [NFR-006](checked_package/non-functional/NFR-006-v2-producer-memory.md) bounds
 the integrated checked-package V2 producer's emission memory while requiring
-byte-for-byte and `package_id` preservation;
+byte-for-byte and package-name preservation;
 [TC-455](checked_package/matrix/TC-455-v2-producer-memory-and-identity.md)
 defines its fresh-process measurement and identity controls.
 [FR-052](model/functional/FR-052-source-obligation-correspondence.md)

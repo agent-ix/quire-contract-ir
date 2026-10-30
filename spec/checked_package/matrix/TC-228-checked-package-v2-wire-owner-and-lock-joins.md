@@ -18,26 +18,18 @@ fixtures from its selected checkout; copy no fixture into this repository.
 ## Test Procedure
 
 1. Admit a declared record, tuple and function with each node's
-   `SourceOwner` in the node and identity projection. Admit a model declaration
+   `SourceOwner` in the node. Admit a model declaration
    and undeclared clause function with `ModelOwner`. Admit an anonymous type,
    `correspondence`/`source_locus`, a nominal node and an application-keyed
    expression without a node owner. Admit QSpec's two-owner `Point` and `List`
-   packages and compare their independently computed `Point`, `List`,
-   `Integer` and application-keyed `three` identities.
-2. For each required-owner class, omit `owner` from the node, then from its
-   projection. Separately insert `null`, the wrong owner variant, a model
+   packages and compare their published structural `Point`, `List`, `Integer` and `three` ids and complete bodies.
+2. For each required-owner class, omit `owner` from the node, and separately add a forbidden top-level identity projection. Separately insert `null`, the wrong owner variant, a model
    `version` member, and an owner on an anonymous, nominal or application
    node. Repeat an omitted-owner mutation while an occurrence and the source
-   map still name the source unit. Apply QSpec `adverse.json`'s
-   `projection_owner_mutations` entries
-   `projection-source-owner-differs-from-node` and
-   `projection-model-owner-differs-from-node` to their selected nodes in fresh
-   `positive-all-families` packages. Keep each node's owner unchanged and
-   recompute the package id over the changed projection. Check exact code,
+   map still name the source unit. Apply the current QSpec adverse owner mutations to fresh positive packages. Keep each authored structural id unchanged and compare owner joins directly. Check exact code,
    cause and RFC 6901 pointer before the owner join or a key check can run.
 3. Set a source owner pair and a model owner identity to values absent from
-   their respective lock selections. Put two unmatched owners in inverse wire
-   and digest order, and assert the reported node. Repeat with both source
+   their respective lock selections. Put two unmatched owners in inverse wire and structural node-id order, and assert the reported node. Repeat with both source
    pairs selected but with a declared node's source-map region changed to the
    other pair while its owner remains fixed. In the selected model document,
    give an otherwise valid model declaration node an absent `owner.node`,
@@ -45,9 +37,7 @@ fixtures from its selected checkout; copy no fixture into this repository.
    both object-type subkind mismatches: a `model`/`object_type` node owned by
    an object type with `interfaceFeatures`, and a
    `model`/`systems_interface` node owned by an object type without
-   `interfaceFeatures`. Key each mutated node under its own preimage and
-   refresh its identity projection and package id so a stale-key refusal
-   cannot mask the owner join.
+   `interfaceFeatures`. Retain well-formed structural ids so a malformed graph id cannot mask the owner join.
    Give an unreachable clause function an absent operation member, then a
    field as its owner node; as positive controls, use an operation member's
    clause and an object type's invariant. Place a stale key on a lower-key
@@ -59,10 +49,7 @@ fixtures from its selected checkout; copy no fixture into this repository.
 All positive packages admit. `Point` and every `List` group member differ
 between owners, while `Integer` and `three` have equal keys. Missing or
 forbidden owners refuse `malformed_wire` at the object lacking the member or
-at the present `owner`; no occurrence repairs the omission. A projection
-owner differing from its node refuses `invalid_package`/`invalid-value` at
-`/identity_preimage/identity_projection/{i}/owner` for both the source-owner
-and model-owner mutations, even after recomputing the package id.
+at the present `owner`; no occurrence repairs the omission. An added top-level identity projection refuses `unknown_member` at that member; owner mutations without it reach their exact source or model join.
 Unmatched source owners and unresolved or wrong-kind model owners, including
 both `interfaceFeatures` cross-kind mutations, refuse
 `missing_declaration`/`missing-selection` at the lowest-key offending node,

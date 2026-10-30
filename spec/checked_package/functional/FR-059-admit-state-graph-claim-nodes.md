@@ -52,11 +52,10 @@ not a predicate. The `from` reference of an `always-possible` claim written
 without `from` is the constant-true literal node, as QSpec FR-475 specifies.
 
 The node SHALL have Boolean `semantic_type`, no `declaration` or `owner`,
-exactly the unique digest-ascending set of body reference targets as
+exactly the unique structural-id-ascending set of body reference targets as
 `dependencies`, and one `claim` occurrence per checked source declaration.
 Equal checked content may share a node and is distinguished by occurrence
-ordinal. The form's node id and package identity derive from the admitted
-body under FR-322; the reader SHALL not substitute an obligation identity,
+ordinal. The form's node id is structural and the package identity is its declared name; the reader SHALL not substitute an obligation identity,
 which includes the request subject and an `over` instance and belongs to the
 request layer.
 
@@ -80,7 +79,7 @@ refuses at `/dependencies` in the earlier graph-shape step.
 | --- | --- | --- |
 | FR-059-AC-1 | The reader admits QSpec TC-960 SN-01 through SN-05 and SN-15 as `claim`/`state_graph` nodes with the exact four-binding body, form-specific `kind` and `from`, Boolean type, absent `declaration` and `owner`, exact dependency set and `claim` occurrence ordinals; a second declaration of equal content shares one node. The writer emits that complete admitted shape, and a read of its output returns the same nodes and occurrences. | Test |
 | FR-059-AC-2 | QSpec TC-960 SN-08 through SN-14 and SN-17 refuse with FR-475's exact code, cause and pointer after identities are rebuilt: binding reordering, unknown kind, wrong form fit, non-predicate target and missing dependency are separately observed. An unknown `claim` form still refuses at `semantic_form`, and no malformed node is omitted or lowered as another form. | Test |
-| FR-059-AC-3 | The reader observes FR-322's precedence: graph-shape dependency failure precedes the state-graph step; within that step the first failed check wins and nodes visit in ascending node-id digest; a state-graph defect precedes a temporal, abstraction, terminal or later body-step defect. | Test |
+| FR-059-AC-3 | The reader observes FR-322's precedence: graph-shape dependency failure precedes the state-graph step; within that step the first failed check wins and nodes visit in structural node-id order; a state-graph defect precedes a temporal, abstraction, terminal or later body-step defect. | Test |
 | FR-059-AC-4 | QSpec TC-960 SN-06, SN-07 and SN-16 retain the node-id distinctions fixed by QSpec: kind changes the node id, source respelling does not, and a subject or `over` instance change does not alter the node. The IR reader and writer preserve the checked node bytes used by the request layer to bind distinct obligation identities; IR does not compute those request identities. | Test |
 | FR-059-AC-5 | IR-owned positive and negative read/write vectors for QSpec TC-960 SN-01 through SN-17 assert the published wire shapes and refusals through the public V2 reader and writer, without copying QSpec fixture or schema files into IR. | Test |
 

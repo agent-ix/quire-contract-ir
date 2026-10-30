@@ -21,7 +21,7 @@ inputs:
 outputs:
   - immutable validated packages
   - ordered structured diagnostics
-  - canonical V1 bytes and V2 semantic identity digests
+  - canonical V1 and V2 bytes and structural V2 identities
   - dependency and coverage classifications
   - fixed public conformance registries
 invariants:
@@ -33,7 +33,7 @@ invariants:
 ## Description
 
 The `quire-contract-model` crate shall expose construction, validation, dependency derivation,
-V1 canonicalization, V2 semantic identity derivation, and coverage-classification operations
+V1 and V2 canonicalization, structural V2 identity reads, and coverage-classification operations
 without exposing mutable internal caches or downstream engine types.
 
 ## Inputs
@@ -43,7 +43,7 @@ schema/canonicalization profiles.
 
 ## Outputs
 
-Immutable validated packages, ordered diagnostics, canonical V1 bytes, V2 semantic identity digests,
+Immutable validated packages, ordered diagnostics, canonical V1 and V2 bytes, structural V2 identities,
 dependency sets, and coverage classifications.
 
 ## Behavior
@@ -102,9 +102,9 @@ need to parse display/debug/panic text.
 
 Canonical APIs require the explicit closed `CanonicalProfile`, which registers
 only `quire.contract.canonical-json/v1`. The V2 checked-package wire types
-`CheckedPackageLockV2`, `CheckedPackageIdentityPreimageV2`,
-`CheckedSemanticGraphV2`, `CheckedDiagnosticsV2`, `CheckedSourceMapEntry`,
-`CheckedCapability` and `CheckedSemanticId` implement `quire_canonical::Encode`
+`CheckedPackageLockV2`, `CheckedSemanticGraphV2`, `CheckedDiagnosticsV2`,
+`CheckedSourceMapEntry`, `CheckedCapability` and structural `CheckedNodeId`
+implement `quire_canonical::Encode`
 (the fixed-depth ones through `FixedShape`), and those implementations are part
 of the stable public surface; FR-038 owns which type takes which path and the
 bytes they produce. Coverage accepts immutable traces and returns a complete report
@@ -133,9 +133,8 @@ missing identity or mode, an empty law list, or missing member declaration remai
 fixture input; a present identity or mode value and each present definition
 authority and identity must be nonempty. The constructor refuses malformed
 fixture shape with a typed error and yields no partial operation. Because
-`CheckedNodeId` has public fields, a present member declaration must have
-domain `quire.checked-semantic-node/v1` and exactly 64 lowercase hexadecimal
-digest characters. The feature-gated `is_test_fixture` query remains true when any optional input is
+`CheckedNodeId` has public fields, a present member declaration must carry
+a non-empty package and path and an ordinal from 0 through 9007199254740991. The feature-gated `is_test_fixture` query remains true when any optional input is
 absent, and false for a value obtained by direct serde deserialization or by
 the production checked-package reader. Thus a consumer can distinguish a
 validated fixture's intentional absence from a non-admitted operation whose
@@ -213,15 +212,13 @@ operation has its own owning requirement, as listed below.
 | `code` | types `Std001Code`, `Std001CodeError`; macro `std001_code` | FR-044, STD-001 |
 | `limits` | constants `MAX_SEMANTIC_COLLECTION_ITEMS`, `MAX_SEMANTIC_DEPTH`, `MAX_SEMANTIC_NODES`, `MAX_WIRE_JSON_DEPTH` | FR-019 |
 | `output_mapping` | functions `assemble_output_package`, `map_admitted_request`, `map_admitted_request_controlled`; types `AdmittedMappingObligation`, `AdmittedMappingRequest`, `CompletedMappings`, `GeneratedOutputPackage`, `MappingCancellation`, `MappingCancellationToken`, `MappingCandidate`, `MappingCause`, `MappingCondition`, `MappingDependencyKind`, `MappingDependencyRef`, `MappingDisposition`, `MappingExecutionControl`, `MappingLimits`, `MappingRecordSource`, `MappingRequestError`, `MappingRequestErrorCode`, `MappingSourcePackageRef`, `MappingWorkBudget`, `ModelSourceSelection`, `NativeSourceSelection`, `ObservationAdequacyRef`, `ObservationAdequacyState`, `OutputByteRegion`, `OutputCapability`, `OutputGeneratorIdentity`, `OutputMappingProfile`, `OutputMappingRecord`, `OutputTargetFamily`, `ProtocolAdequacyRef`, `ProtocolAdequacyState`, `RequestedMappingObligation`, `SemanticSourceSelection`, `SourceFactState`, `StructuralObservationOutcome`, `StructuralObservationRef`, `StructuralObserverIdentity`; trait `OutputMapper`; constants `OUTPUT_MAPPING_REVISION` | FR-032 through FR-034, STD-003 |
-| `checked_package` | function `read_checked_package`; types `CheckedArtifactLocator`, `CheckedArtifactRef`, `CheckedCapability`, `CheckedNodeId`, `CheckedOccurrence`, `CheckedOccurrenceRole`, `CheckedPackageDispatchResult`, `CheckedPackageEvidence`, `CheckedPackageEvidenceInsertionError`, `CheckedPackageIncomplete`, `CheckedPackageLimit`, `CheckedPackageReadLimits`, `CheckedPackageRefusal`, `CheckedPackageRefusalCause`, `CheckedPackageRefusalCode`, `CheckedSelection`, `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedSourceRef`, `CheckedSourceRegion`, `CheckedTerminalDuplicate`, `JsonPointer` | FR-038, FR-047, FR-062 |
-| `checked_package` (V2 reader) | types `CheckedCollectionKind`, `CheckedDeclaration`, `CheckedDependencySelection`, `CheckedDiagnosticCause`, `CheckedDiagnosticCode`, `CheckedDiagnosticStage`, `CheckedDiagnosticV2`, `CheckedDiagnosticsV2`, `CheckedMemberType`, `CheckedModelField`, `CheckedModelFieldsError`, `CheckedModelObjectFields`, `CheckedNodeOwner`, `CheckedNodeProjectionV2`, `CheckedPackageIdentityPreimageV2`, `CheckedPackageLockV2`, `CheckedPackageV2`, `CheckedPackageV2ReadResult`, `CheckedProtocolActivation`, `CheckedProtocolActivationRow`, `CheckedProtocolDecisionRead`, `CheckedProtocolRefusalDetail`, `CheckedSemanticGraphV2`, `CheckedSemanticNodeV2`; constants `CHECKED_PACKAGE_V2`, `PACKAGE_DOMAIN_V2` | FR-038, FR-040, FR-065 |
+| `checked_package` | function `read_checked_package`; types `CheckedArtifactLocator`, `CheckedArtifactRef`, `CheckedCapability`, `CheckedNodeId`, `CheckedOccurrence`, `CheckedOccurrenceRole`, `CheckedPackageDispatchResult`, `CheckedPackageEvidence`, `CheckedPackageEvidenceInsertionError`, `CheckedPackageIncomplete`, `CheckedPackageLimit`, `CheckedPackageReadLimits`, `CheckedPackageRefusal`, `CheckedPackageRefusalCause`, `CheckedPackageRefusalCode`, `CheckedSelection`, `CheckedSourceMapEntry`, `CheckedSourceRef`, `CheckedSourceRegion`, `CheckedTerminalDuplicate`, `JsonPointer` | FR-038, FR-047, FR-062 |
+| `checked_package` (V2 reader) | types `CheckedCollectionKind`, `CheckedDeclaration`, `CheckedDependencySelection`, `CheckedDiagnosticCause`, `CheckedDiagnosticCode`, `CheckedDiagnosticStage`, `CheckedDiagnosticV2`, `CheckedDiagnosticsV2`, `CheckedMemberType`, `CheckedModelField`, `CheckedModelFieldsError`, `CheckedModelObjectFields`, `CheckedNodeOwner`, `CheckedPackageLockV2`, `CheckedPackageV2`, `CheckedPackageV2ReadResult`, `CheckedProtocolActivation`, `CheckedProtocolActivationRow`, `CheckedProtocolDecisionRead`, `CheckedProtocolRefusalDetail`, `CheckedSemanticGraphV2`, `CheckedSemanticNodeV2`; constant `CHECKED_PACKAGE_V2` | FR-038, FR-040, FR-065 |
 | `checked_package` (V2 typed terms) | types `ApplicationOperator`, `CheckedAbstractionField`, `CheckedAbstractionFrame`, `CheckedAbstractionObject`, `CheckedAbstractionParameter`, `CheckedAbstractionPopulation`, `CheckedFieldScope`, `CheckedFrameModification`, `CheckedScopedDeletion`, `CheckedTerm`, `LiteralKind` | FR-349 |
 | `checked_package` (V2 execution point and admitted operation views) | types `CheckedApplicationOperation`, `CheckedExecutionPointError`, `CheckedExecutionPointRefusal`, `CheckedOperationAnchorBody`, `CheckedOperationModeView`, `CheckedOperationViewError`, `OperationModeKind`, `StateClauseKind`; its NotAdmitted refusal distinguishes absent admission from admitted absence; the point accessor returns the canonical point type from the identity module; operation views are owned by FR-038 and FR-040 | FR-011, FR-038, FR-040, FR-058, FR-066 |
 | `checked_package` (V2 refinement catalog and source rows) | types `CheckedRefinementStepRowRegion`, `RefinementAbstractClass`, `RefinementClassCatalog`, `RefinementConcreteClass`, `RefinementDrain`, `RefinementMemoryClass`, `RefinementMemoryModel`, `RefinementTsoModel` | FR-061 |
 | `checked_package` (V2 extension evidence) | types `CheckedExtensionClauseSchema`, `CheckedExtensionDefinition`, `CheckedExtensionGrammarSchema`, `CheckedExtensionNodeSchema`, `CheckedExtensionProduction`, `CheckedExtensionRefusalDetail`, `CheckedExtensionTypedNodeSchema` | FR-348 |
-| `checked_package` (V2 envelope encoder) | types `CheckedPackageIdentityPreimageRefV2`, `CheckedPackageSourceCorrespondenceRef`; function `encode_checked_package_v2` | FR-051, FR-061 |
-| `checked_package` (V2 candidate application identity) | function `derive_application_node_id`; types `ApplicationNodeDraft`, `ApplicationIdentityContext`, `CandidateApplicationNodeId`, `ApplicationIdentityError` | FR-046 |
-| `checked_package` (V2 candidate structural identity) | function `derive_structural_candidates`; types `StructuralCandidates`, `CandidateStructuralNodeId`, `CandidateRecursionGroupLabel`, `StructuralCandidateError` | FR-048 |
+| `checked_package` (V2 envelope encoder) | types `CheckedPackageSourceCorrespondenceRef`; function `encode_checked_package_v2` | FR-051, FR-061 |
 | `checked_package` (V2 scalar operands) | types `CheckedScalarOperand`, `CheckedScalarOperandChild`, `CheckedScalarOperandError`, `CheckedScalarOperandRange` | FR-038 |
 | `checked_package` (V2 parameter declaration) | types `CheckedParameterDeclaration`, `CheckedParameterDeclarationError` | FR-038 |
 | `checked_package` (V2 step relation claim) | types `CheckedStepExecution`, `CheckedStepRelationBody`, `CheckedStepRelationCapability`, `CheckedStepRelationObligationIdentity` | FR-351 |
@@ -268,14 +265,12 @@ identifies a Quire-authored acceptance criterion, and
 and IR source. The neutral input retains the binding; synthetic census tests verify typed
 missing, foreign, and conflicting binding refusals under FR-052-AC-15.
 
-### Single-body V2 identity views
+### Structural V2 identities
 
-`CheckedPackageIdentityPreimageV2` exposes the seven wire selection fields,
-without `identity_projection`. `CheckedPackageIdentityPreimageRefV2` remains
-the borrowed producer hash view over selections and graph nodes. The envelope
-encoder omits the derived projection while its canonical hash encoding
-includes complete occurrence-free graph nodes, as FR-038 and FR-051 specify.
-No compatibility field or old-wire admission path is exported.
+`CheckedNodeId` is the public closed structural value `{package, path, ordinal}`.
+The package name and declared contents are read directly from the envelope. No
+identity preimage, projection, semantic digest, derived node-key helper or
+old-wire admission path is exported.
 
 ## Acceptance Criteria
 
@@ -295,7 +290,7 @@ No compatibility field or old-wire admission path is exported.
 | FR-019-AC-12 | A default-feature external API test imports `MAX_SEMANTIC_NODES: u32 = 25000`, `MAX_SEMANTIC_DEPTH: u32 = 256`, `MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10000`, and `MAX_WIRE_JSON_DEPTH: u32 = 576` from `quire_contract_model` and checks their exact values. | Test (TC-018) |
 | FR-019-AC-13 | Public-source signature inspection finds no host handle, filesystem path, mutable cache, downstream engine type, or schema-library type in the default-feature semantic API subset defined in Behavior; it excludes the conformance runner and fixture APIs and runs on stable Rust without nightly rustdoc JSON. | Inspection (TC-018) |
 | FR-019-AC-14 | With `test-support`, an external consumer constructs typed fixture operations with absent identity, mode, law definitions or member declaration, and with the identity, exact/non-exact rounding modes, foreign and conflicting division definitions, and wrong-kind/wrong-value/matching mode inputs used by the four CG FR-014-AC-18/48/50 scalar derivation controls. Typed `identity`, `mode`, `law_definitions`, and `member_declaration` reads return the authored values in order, including intentional absence; `is_test_fixture` is true in every case. No direct JSON view injection is required. | Test (TC-058) |
-| FR-019-AC-15 | The test fixture constructor rejects an empty present identity, an empty present mode value, a law definition with empty authority or identity, and a present member key with a wrong domain, wrong digest length, uppercase or nonhexadecimal digest by typed error without yielding an operation. A fixture with intentionally absent optional fields remains constructible and distinguishable through `is_test_fixture` from direct-serde non-admitted operations. A fixture operation cannot be supplied as an already admitted `ContractPackageV1` or `CheckedPackageV2`, and serializing it into a package wire does not bypass strict production admission or its typed refusal. | Test (TC-058) |
+| FR-019-AC-15 | The test fixture constructor rejects an empty present identity, an empty present mode value, a law definition with empty authority or identity, and a present member key with an empty package or path or out-of-range ordinal by typed error without yielding an operation. A fixture with intentionally absent optional fields remains constructible and distinguishable through `is_test_fixture` from direct-serde non-admitted operations. A fixture operation cannot be supplied as an already admitted `ContractPackageV1` or `CheckedPackageV2`, and serializing it into a package wire does not bypass strict production admission or its typed refusal. | Test (TC-058) |
 | FR-019-AC-16 | `test-support` is disabled by default; a default-feature external compile probe cannot import its fixture types or call its constructor or provenance query. A feature-enabled external probe can use exactly the documented fixture exports and methods; the existing default-feature inventory, the independent `fault-injection` delta, and the absence of a model API through `quire_contract_ir` remain enforced. | Test (TC-058) |
 
 ## Dependencies

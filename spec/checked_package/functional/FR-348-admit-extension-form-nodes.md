@@ -25,7 +25,7 @@ return FR-469's first applicable refusal, in FR-322's reader order, without part
 admitting the package. The extension's node kind is body data; adding a selected
 extension SHALL NOT add a node tag or semantic form to the closed reader vocabulary.
 
-QSpec FR-469 and its published V2 schema and `ExtensionFormNode` preimage define the
+QSpec FR-469 and its published V2 schema and extension-form body define the
 wire contract. This requirement states the Contract IR reader's intake, evidence and
 refusal behavior. The reader does not parse source extension syntax or infer a
 missing definition from a node kind, feature name or source text.
@@ -38,7 +38,7 @@ missing definition from a node kind, feature name or source text.
   `{authority, identity}` `DefinitionRef`, beside the package bytes. Each supplied
   definition has FR-467's `grammar_schema` and `typed_node_schema`; the reader
   consults its typed-node schema at the declaration join. The supplied definitions
-  are reader evidence, never members of the package, its identity preimage or its
+  are reader evidence, never members of the package, its structural id or its
   `required_features`.
 
 ## Outputs
@@ -63,11 +63,8 @@ of ordinal zero and the one whole-form source region. Its body SHALL carry
 `definition`, `node_kind` and ordered `clauses`; each clause SHALL be a named
 `binding` whose value is a `reference` to a separately keyed subnode. Its
 `semantic_type` SHALL equal its own node id, and its `dependencies` SHALL be
-exactly the unique clause targets in ascending node-id digest order. The node
-SHALL carry neither recursion group nor nominal preimage. The reader SHALL
-recompute the key from QSpec's closed `quire.structural-node/v1`
-`ExtensionFormNode` preimage, including the definition, node kind, declaration,
-owner and clause target keys, and SHALL keep source regions outside that key.
+exactly the unique clause targets in structural node-id order. The node
+SHALL carry neither recursion group nor nominal preimage. The reader SHALL retain the structural id and validate declaration, owner, clause references, dependencies and body independently. Source regions are outside the body.
 The node and its declaration use FR-322's types namespace, so an extension
 form and a record of the same qualified name refuse the existing
 `ambiguous_declaration`/`ambiguous-name` rule.
@@ -76,9 +73,7 @@ A body outside the published `extension_form` production, a wrong occurrence
 shape or an inline clause value SHALL refuse `malformed_wire` at strict wire
 validation. A dependency list unlike the clause targets SHALL refuse
 `invalid_semantic_graph` at `/semantic_graph/nodes/{i}/dependencies` in the
-graph-shape stage. A retained stale key SHALL refuse `invalid_package`/
-`stale-node-key` at `/semantic_graph/nodes/{i}/node_id` at the derived-shape
-key stage. The reader SHALL NOT repair any of those members.
+graph-shape stage. The reader SHALL not repair malformed or mismatched members. A valid body edit under the same structural id is judged by the applicable body and reference checks.
 
 ### Held definitions and declaration joins
 
@@ -91,7 +86,7 @@ absent from the reader evidence is not inferred from
 `lock.definition_selections`, `lock.required_features` or the graph.
 
 After the protocol-reference declaration joins and before frame checks, the
-reader SHALL visit extension nodes in ascending node-id digest order. For each
+reader SHALL visit extension nodes in structural node-id order. For each
 node it SHALL check the first failing join in this order, using FR-469's code,
 cause and pointer:
 
@@ -117,23 +112,21 @@ cause and pointer:
    node kind and actual semantic type. Both use the clause's `/value` pointer.
 
 The reader SHALL use the first refusal of the first failing node, preserving
-FR-322's earlier strict-wire, graph-shape and derived-key stages. The package's
-lock and source map SHALL remain unchanged by a refusal. The extension
-identity enters `package_id` only through the existing identity projection;
-held-definition evidence itself SHALL NOT enter that projection.
+FR-322's earlier strict-wire and graph-shape stages. The package's
+lock and source map SHALL remain unchanged by a refusal. Held-definition evidence SHALL NOT become a package member.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-348-AC-1 | With the FR-467 `retention` definition selected and held, the QSpec `retention Audit` form reads as one `extension`/`extension_form` node with the `Audit` declaration, source owner, one declaration occurrence and whole-form source region, `subject` then `days` reference clauses to Text and bounded-Integer subnodes, and exactly those dependencies in digest order; the full reader admits it. A second extension node kind uses the same closed tag and form without changing the schema or reader enum. | Test (TC-459) |
-| FR-348-AC-2 | The reader recomputes the `ExtensionFormNode` key and package identity from the definition, node kind, declared name, owner and clause target keys; changing each one with recomputed identities changes both ids, while changing only the source region changes neither. A retained old key refuses `invalid_package`/`stale-node-key` at that node. | Test (TC-459) |
+| FR-348-AC-1 | With the FR-467 `retention` definition selected and held, the QSpec `retention Audit` form reads as one `extension`/`extension_form` node with the `Audit` declaration, source owner, one declaration occurrence and whole-form source region, `subject` then `days` reference clauses to Text and bounded-Integer subnodes, and exactly those dependencies in structural-id order; the full reader admits it. A second extension node kind uses the same closed tag and form without changing the schema or reader enum. | Test (TC-459) |
+| FR-348-AC-2 | Withdrawn by the IR-1141 structural-identity decision under QSpec #517: the reader does not recompute identity from body content or refuse a retained structural id solely because a valid body changed. This id is retained and never reused. | Withdrawn |
 | FR-348-AC-3 | With no held definition, a selected extension node refuses `unknown_required_capability` with no cause, the node id as `locus` and its body definition pointer; without the matching `definition_selections` row it instead refuses `missing_declaration`/`missing-selection` there. No extension identity appears in `required_features`, and neither case is `unknown_required_feature`. Equal repeated evidence is idempotent and conflicting evidence is rejected without replacement. | Test (TC-459) |
 | FR-348-AC-4 | An undeclared node kind refuses `missing_declaration`/`missing-name` at `/body/node_kind`; reordered, unknown and repeated clause names each refuse `invalid_package`/`invalid-value` at the first offending clause, while a missing trailing clause refuses `invalid_package`/`missing-member` at `/body/clauses` naming it. | Test (TC-459) |
 | FR-348-AC-5 | A `days` reference to a Text subnode refuses `ill_typed`/`type-mismatch` naming `days`, `Int[1, 3650]` and Text; an absent target refuses `missing_declaration`/`missing-name`; and an extension-kind clause referencing another kind refuses `ill_typed`/`type-mismatch`. Each reports its clause value pointer. | Test (TC-459) |
 | FR-348-AC-6 | An inline clause value, wrong form, second or wrong-role occurrence each refuse `malformed_wire`; missing clause dependency refuses `invalid_semantic_graph` at `/dependencies`; a record of the form's name refuses `ambiguous_declaration`/`ambiguous-name` at the later node by node-id order. | Test (TC-459) |
-| FR-348-AC-7 | Two extension nodes with failures report the first node by ascending node-id digest and its first failing join; a package with an earlier strict-wire, graph-shape, structural-key or protocol-reference failure reports that stage before the extension join, and a frame failure reports after it. | Test (TC-459) |
-| FR-348-AC-8 | The reader loads QSpec's selected-checkout `positive-all-families.json` and `positive-extension-nodes.json` directly, without copying their bytes or schemas into this repository. The test constructs the X01..X17 controls described in QSpec TC-951 against those fixtures, checks X02's identity-only branches through the published preimage rule, and checks each specified reader admission or refusal by its result, code, cause, path and locus as applicable; both positive fixtures admit with held definitions. | Test (TC-459) |
+| FR-348-AC-7 | Two extension nodes with failures report the first node by structural node-id and its first failing join; a package with an earlier strict-wire, graph-shape, structural-key or protocol-reference failure reports that stage before the extension join, and a frame failure reports after it. | Test (TC-459) |
+| FR-348-AC-8 | The reader loads QSpec's selected-checkout `positive-all-families.json` and `positive-extension-nodes.json` directly, without copying their bytes or schemas into this repository. The test constructs the X01..X17 controls described in QSpec TC-951 against those fixtures, checks each specified reader admission or refusal by its result, code, cause, path and locus as applicable; both positive fixtures admit with held definitions. | Test (TC-459) |
 
 ## Dependencies
 

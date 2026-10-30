@@ -126,7 +126,7 @@ owners or a copy is a finding.
 
 | Concept | Owner (target) | Today | Finding |
 | --- | --- | --- | --- |
-| Canonical bytes and their SHA-256 | quire-canonical | IR, CG, QSL use it; IR has no encoder of its own (`digest_json` and `CanonicalWriter` are gone from IR, as FR-038 requires) | two owners: QVC has its own RFC 8785 path (`jcs_canonicalize`, `jcs_equal`, `jcs_sha256`, on `serde_json_canonicalizer`); IR and CG call none of them, QSpec's tests do (R-3) |
+| Canonical JSON bytes | quire-canonical | IR, CG and QSL use it for exact JSON bytes and byte limits; no content digest or seal is produced | QSpec owns exact JSON semantics; consumers compare complete values structurally, including array order |
 | Raw-byte digest (no canonicalization) | QSL `qsl-foundation` (`ByteDigest`) | one owner | none: byte integrity, not canonical bytes |
 | Walk (explicit-stack walker, arena) | quire-walk | IR model, `qsl-forms`, `qsl-semantics` use it | none |
 | Stack growth | no owner named | `qsl-walk-grow` (QSL, depended on by no one) and a direct `stacker` and `serde_stacker` in IR model | two sites, no shared type; recorded, not a copy (O-3) |

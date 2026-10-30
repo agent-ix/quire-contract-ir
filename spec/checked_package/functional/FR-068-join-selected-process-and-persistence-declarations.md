@@ -41,13 +41,12 @@ package.
 ## Behavior
 
 For each selected domain document, the reader SHALL classify declarations by
-their admitted Semantic IR meanings. It SHALL derive the closed
-`ModelDeclarationNode` key for a `model`/`process` node only from a declared
+their admitted Semantic IR meanings. It SHALL validate the closed structural
+`ModelDeclarationNode` id for a `model`/`process` node only from a declared
 process and for a `model`/`persistence_interface` node only from a declared
 persistence interface, using that declaration's exact IR node identity and
-the selected package identity in its `ModelOwner`. A declared state machine
-and a declared record value type SHALL continue to derive their own distinct
-keys under the same rule. The reader SHALL re-validate the form-to-meaning
+the selected package name in its `ModelOwner`. A declared state machine
+and a declared record value type SHALL retain their own distinct structural ids under the same rule. The reader SHALL re-validate the form-to-meaning
 match at the owner join even if earlier admission classified the document.
 
 The reader SHALL admit a self-typed, empty-body process declaration node
@@ -82,16 +81,16 @@ check SHALL NOT bypass or weaken the earlier owner join.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-068-AC-1 | A public read using a real selected domain document admits self-typed `model`/`process` `Flow`, `model`/`state_machine` `Gate`, `model`/`record_value_type` `Address` and `model`/`persistence_interface` `Store` declaration nodes, each keyed from its exact selected declaration and `ModelOwner`. Canonical write/read/read retains each node key and the package id. No node is admitted solely from its wire tag or semantic form. | Test |
+| FR-068-AC-1 | A public read using a real selected domain document admits self-typed `model`/`process` `Flow`, `model`/`state_machine` `Gate`, `model`/`record_value_type` `Address` and `model`/`persistence_interface` `Store` declaration nodes, each using its exact declared structural path and selected `ModelOwner`. Canonical write/read/read retains each structural node id and package name. No node is admitted solely from its wire tag or semantic form. | Test |
 | FR-068-AC-2 | The selected `Flow` process's field `n` and operation `go` resolve through QSpec's model-member step; `Reference<Flow>` and `Reference<Gate>` target their exact process and state-machine declaration nodes. The selected `Address` record has family `record`, remains the type of `Account.address`, and its field `street` resolves to `Text[0, 64; nfc]`; an invariant clause function owned by `Address` passes the owner join. | Test |
-| FR-068-AC-3 | With valid wire, graph and identity, a `process` node owned by an object type, a `state_machine` node owned by a process, a `record_value_type` node owned by an object type, and a `persistence_interface` node owned by a state machine each refuse `missing_declaration`/`missing-selection` at the owner join. Each form owned by a node absent from the selected document and each form with no selected owner also refuses there; an omitted required `owner` refuses earlier as `malformed_wire`. | Test |
+| FR-068-AC-3 | With valid wire, graph and structural ids, a `process` node owned by an object type, a `state_machine` node owned by a process, a `record_value_type` node owned by an object type, and a `persistence_interface` node owned by a state machine each refuse `missing_declaration`/`missing-selection` at the owner join. Each form owned by a node absent from the selected document and each form with no selected owner also refuses there; an omitted required `owner` refuses earlier as `malformed_wire`. | Test |
 | FR-068-AC-4 | An unknown field on a valid record node refuses `ill_typed`/`operator-ineligible`; a record field whose `typeRef` names an event type, process, state machine, persistence interface or namespace refuses `invalid_model_binding`/`malformed-declaration` at FR-154 intake before member derivation. A record node used as an object reference target refuses `invalid_package`/`invalid-derived-shape`. | Test |
 | FR-068-AC-5 | A selected `process`, `state_machine` or `record_value_type` node named as a protocol clause's local `owner_model` reaches [FR-064-AC-4](./FR-064-bind-protocol-clause-to-owner-model.md) and refuses `invalid_model_binding`/`malformed-declaration` at that clause edge; a genuinely unselected candidate still refuses at the earlier owner join. | Test |
 
 ## Dependencies
 
 - [FR-038](./FR-038-consume-checked-package-v2.md) owns strict V2 admission,
-  selected-document evidence, identity checks and check order.
+  selected-document evidence, structural-id checks and check order.
 - [FR-064](./FR-064-bind-protocol-clause-to-owner-model.md) owns the later
   clause-edge refusal and its IR-1053 selected wrong-kind controls.
 - QSpec FR-322-AC-63, FR-322-AC-65 and FR-322-AC-72 own the positive and

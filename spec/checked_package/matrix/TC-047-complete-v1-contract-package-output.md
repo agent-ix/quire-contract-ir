@@ -21,21 +21,7 @@ emitter and strict-reader controls run in
 
 ## Test Procedure
 
-Lower a mixed request with represented and refused items. Parse the emitted
-package as `quire.contract-package/v1`. Assert the six FR-330 properties,
-exactly one `semantic_graph.nodes` collection, one occurrence per typed key,
-ascending typed-key order, total `source_map` correspondence, and one
-`feature_accounting` record per requested item. Reorder equivalent request
-and graph-construction inputs, canonicalize the package and compare identity.
-Independently compute the digest from the RFC 8785 canonical projection of
-exactly `contract_version`, `package`, `semantic_graph` and
-`feature_accounting`, excluding `source_map` and `identity`, and compare it
-with the emitted identity. Change one represented node, the selected profile,
-one accounting result and a valid source-map location separately; compare the
-digest after each change. Corrupt or omit source-map correspondence and check
-admission. Remove one required property, add an independent
-type/expression/clause graph, duplicate or disorder a key, or substitute an
-out-of-domain contract version and test consumer refusal before artifact generation.
+Lower a mixed request with represented and refused items. Read the emitted package as `quire.contract-package/v1`. Assert exactly five FR-330 members, one ordered semantic graph node collection, total source correspondence and one accounting record per request. Equivalent construction orders produce equal complete canonical bytes. Change a represented node, selected profile, accounting result and valid source-map region separately; compare the corresponding typed member and complete bytes, then require strict admission or the applicable independent refusal. An extra `identity` member, missing member, extra graph partition, duplicate/disordered key and wrong version refuse before artifact generation. No digest or hash is computed.
 For the wire reader itself, change only `contract_version` to another string in
 an otherwise valid canonical package. Assert `Refused` with
 `unknown_contract_version`, path `/contract_version` and the exact supplied
@@ -71,9 +57,9 @@ plus one and `path` names that occurrence. Assert `limit_kind = Occurrences`
 and the selected limit at each stop; `/source_map` alone is never the stop
 pointer when a value was charged.
 
-For FR-035-AC-12, remove each of the six required top-level members
+For FR-035-AC-12, remove each of the five required top-level members
 (`contract_version`, `package`, `semantic_graph`, `source_map`,
-`feature_accounting`, and `identity`) separately from otherwise valid canonical
+and `feature_accounting`) separately from otherwise valid canonical
 packages and assert `Refused(invalid_package)` at root path `""` with cause
 `missing_member` for every omission. Include the separate `contract_version`
 reader branch. For FR-035-AC-13, prepend a space, tab, LF, or CR separately to
@@ -81,7 +67,7 @@ otherwise valid canonical bytes and assert `Refused(noncanonical_wire)` with no
 path or cause.
 For FR-035-AC-14, change only the first `feature_accounting.node_id` in an
 otherwise valid canonical package to a different valid requested node,
-recompute the package identity, and assert
+and assert
 `Refused(invalid_package)` at `/feature_accounting` with cause `invalid_value`.
 Each case admits no `ContractPackageV1`.
 
@@ -93,21 +79,11 @@ For FR-035-AC-17, construct an otherwise valid package with one nested
 `/refusal/cause` pointer; no package is admitted.
 
 For FR-035-AC-18, supply two admitted direct dependencies whose own locks
-select one library identity at different package ids. Require
+select one name with unequal complete package values. Require
 `Refused(invalid_package)` with cause `conflicting-definition` before graph
 references, and assert both importer-rooted selection pointers exactly.
 
-For FR-035-AC-2, change only the package's own identity digest and assert
-`Refused(invalid_package)` at `/identity/digest` with cause `invalid_value`.
-Select a dependency under `package.source.lock.dependency_selections`, then
-change its selected package digest, recompute the contract package identity,
-and supply the original dependency. Assert `Refused(stale_dependency)` at
-`/package/source/lock/dependency_selections/0` with cause `content_mismatch`.
-These two cases admit no package. The tests
-`reader_refuses_stale_own_identity_at_digest` and
-`reader_refuses_stale_selected_dependency_at_selection` carry FR-035-AC-2;
-the separate malformed-shape and dependency-selection tests retain FR-035-AC-5
-for their unrelated checks.
+For FR-035-AC-2, change the source package name, selected dependency name and an exact represented body independently. Require the normal selected-source, missing-import, graph or handoff refusal when the change breaks a join. A correctly renamed and otherwise valid package admits. There is no own-identity digest or stale-dependency content-mismatch refusal.
 
 From a genuinely admitted mixed graph, query the typed view for a lowered root
 whose local closure uses `semantic_type`, declared `dependencies`, and body
@@ -122,7 +98,7 @@ roots with empty bound and claim subsets and require both empty subsets. Include
 selected external reference and an identically keyed local node; confirm the
 view retains the selected identity and target key, and admission refuses a
 missing, stale or wrong selected package. Query refused, unrequested reached
-and absent keys, then compare all six wire properties and identity before and
+and absent keys, then compare all five wire properties and canonical bytes before and
 after the read-only queries.
 
 For FR-035-AC-27 through FR-035-AC-30, lower one admitted V2 source with
@@ -149,21 +125,12 @@ require typed absence, distinct from `NotAdmitted`. Supply a mismatched source
 identity and lock separately, and a source missing the requested root through
 a controlled test-only mutation; require a typed handoff error with no
 partially authenticated package. Also assert existing V1 reader refusal and
-limit precedence over source handoff. Compare all six wire members, canonical
-bytes and identity before and after the typed queries.
+limit precedence over source handoff. Compare all five wire members and canonical
+bytes before and after the typed queries.
 
 ## Expected Results
 
-One FR-330 package carries the exact represented node set and its reached
-local closure in key order; a refused request contributes a node only when
-reached by represented meaning. Its source map and accounting are complete.
-Equivalent construction order has the same canonical semantic identity and
-the digest equals the independently computed four-member projection. Changing
-represented meaning, profile or an accounting result changes the digest;
-changing only a valid source-map location preserves it. Corrupt or incomplete
-source correspondence refuses admission despite its exclusion from the digest.
-Missing properties, duplicate or disordered keys, extra graph partitions and
-wrong contract versions refuse before consumption.
+One FR-330 package carries the exact represented node set and its reached local closure in structural key order. Its source map and accounting are complete. Equivalent construction order yields equal complete canonical bytes; changing a represented body, profile, accounting or valid source region changes the corresponding typed member. Corrupt correspondence, missing required properties, duplicate or disordered keys, extra graph partitions and wrong versions refuse before consumption.
 The wrong-version reader refusal retains its exact typed code, path and supplied
 version. Every exhausted read limit returns the typed incomplete fields and
 admits no package. The mixed fixture admits at work limit 27 and occurrence
@@ -172,8 +139,7 @@ and 26 and occurrence stops at limits
 0 and 17 have the exact counts and pointers specified above. The
 `requested_items` occurrence stop names its first charged occurrence.
 The malformed, noncanonical and bad-accounting fixtures return the exact
-FR-035-AC-12 through FR-035-AC-14 refusal fields. Stale own identity and stale
-selected dependency return the exact FR-035-AC-2 refusal fields.
+FR-035-AC-12 through FR-035-AC-14 refusal fields. Source and dependency selection mutations return FR-035-AC-2’s applicable independent refusal fields.
 The two causeless nested reader codes admit with no cause and refuse a present
 cause as `invalid_package`/`invalid-value` at their own `/refusal/cause` pointer.
 The lowered-root view contains exactly the key-ordered local reached closure,
@@ -182,14 +148,14 @@ package boundary. Every lowered-root view exposes both bound and claim subsets,
 empty when appropriate, with the exact keys and order of IR's own lowering
 classification. Refused requests return their typed disposition;
 unrequested reached or absent roots return typed absence. No such query changes
-the six-field wire or identity.
+the five-field wire or canonical bytes.
 The unsupported requested-root-kind view distinguishes fairness, formula and
 temporal-clause roots despite their shared `temporal` tag, independently of
 which reachable node made lowering unsupported. Producer and authenticated
 reader return identical typed kinds; plain reader returns `NotAdmitted` for
 unsupported records and typed absence for other or out-of-range indices.
 Mismatched or missing source returns a handoff error without changing ordinary
-reader refusal or limit precedence. The closed wire and identity are unchanged.
+reader refusal or limit precedence. The closed wire and complete content are unchanged.
 
 For FR-035-AC-23 through FR-035-AC-25, admit V2 source operations with
 populated mode, law definitions and member declaration and with all three
@@ -197,7 +163,7 @@ legitimately absent. Lower each into an in-memory `ContractPackageV1` and
 compare the source and keyed lowered `CheckedTerm` for represented-body equality,
 then compare each fallible typed accessor's admitted value. Repeat with represented
 nodes reordered; key lookup must still return the matching operation views.
-Compare canonical V1 bytes and identity before and after view retention.
+Compare canonical V1 bytes before and after view retention.
 Construct a direct-deserialized term lacking validated views; assert its
 accessors return typed `NotAdmitted`, distinct from admitted absence. Read a
 canonical V1 package with a represented application operation through the
@@ -209,7 +175,7 @@ fallible view accessors return typed `NotAdmitted` although the corresponding
 producer accessors retain admitted populated or absent values. Read a canonical
 package without represented operations through the same reader and compare
 every represented term with the producer's term for AC-22 equality. A wrong
-dependency, identity or exhausted limit must still follow the plain reader's
+dependency, source selection or exhausted limit must still follow the plain reader's
 existing refusal or incomplete result, without a new operation-source code.
 Read the same bytes through an explicit authenticated handoff with the exact
 reader-admitted V2 source. Compare source, producer and reader terms and all
@@ -218,7 +184,7 @@ canonical V1 packages, separately supply a wrong source identity, wrong lock,
 absent represented node, changed represented operation body and changed
 represented non-operation body; each
 must return a typed handoff error and no partially authenticated package. Repeat the plain reader's
-strict wire, identity, dependency and limit probes through the authenticated
+strict wire, source selection, dependency and limit probes through the authenticated
 handoff to show it does not bypass or reorder those decisions. At a consumer
 holding only `&ContractPackageV1`, use the authenticated value to assert
 routed quantity conversion and checked-graph association, and assert a
@@ -227,23 +193,4 @@ fallback JSON parse.
 
 ## Status
 
-Implemented with focused tests in `tests/it/complete_v1_contract_package.rs`
-for the six-field FR-330 emitter, strict reader, canonical semantic identity,
-closed accounting and source-map correspondence. Aggregate gates remain pending.
-Tagged TC-047 tests cover FR-035-AC-6 through FR-035-AC-8.
-FR-035-AC-10 is backed by the tagged TC-047 test
-`reader_refuses_wrong_string_version_before_shape_identity_and_nodes`.
-The tagged `reader_incomplete_reports_each_exhausted_meter_and_pointer` test
-backs amended FR-035-AC-11 with exact failed-charge counts and pointers.
-Tagged boundary tests back FR-035-AC-15 and FR-035-AC-16, including cumulative
-work across both validation passes and occurrence and region charges in order.
-FR-035-AC-12 through FR-035-AC-14 are backed by tagged TC-047 reader tests
-covering all six missing top-level members, four leading whitespace bytes, and
-a later represented requested root in the first accounting record. The stale
-own-identity and selected-dependency refusals carry FR-035-AC-2 tags and
-assert the specified cause and path. TC-044's FR-330 status remains
-PLANNED/UNRUN.
-The tagged nested-refusal test backs FR-035-AC-17 for both reader codes.
-The tagged dependency-diamond test backs FR-035-AC-18 with both typed paths.
-FR-035-AC-23 through FR-035-AC-26 are PLANNED/UNRUN (IR-1087).
-FR-035-AC-27 through FR-035-AC-30 are PLANNED/UNRUN (IR-1104).
+PLANNED/UNRUN (IR-1141): the existing tagged V1 tests and current implementation still contain six-member and digest assertions. The structural five-member FR-330 contract requires code and test changes after QSpec #517/#518. Existing unaffected node, source-map, limit and typed-view controls retain their prior evidence only where their assertions do not depend on a removed identity field.

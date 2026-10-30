@@ -20,7 +20,7 @@ relationships:
 
 When a consumer supplies one exact QSL-checked application occurrence for a
 scalar integer expression, Contract IR SHALL project its operands from the
-reader-admitted six-field `ContractPackageV1`. The projection SHALL retain the
+reader-admitted five-member `ContractPackageV1`. The projection SHALL retain the
 authored `body.arguments` order, including repeated references, and distinguish
 a represented graph reference from an inline integer literal. It SHALL use the
 same IR-owned scalar argument interpretation as the checked-package reader;
@@ -97,12 +97,12 @@ lowering product, checked-graph fallback or compatibility alias is introduced.
 | FR-054-AC-2 | For an admitted application whose two argument positions reference the same represented child, the query returns two distinct ordered entries with positions 0 and 1 and the same authentic child key and sources; reached-closure set order and deduplication do not alter them. | Test (TC-458) |
 | FR-054-AC-3 | For admitted applications with unbounded or outside-native-range own facts, the query still returns the complete positional identity vector and distinguishes those facts from finite ranges. It supplies no inferred or result-fallback interval and does not change the interval selected by an existing consumer. | Test (TC-458) |
 | FR-054-AC-4 | A missing, foreign, non-lowered or non-application key, invalid role/ordinal/source correspondence, ineligible operation or inconsistent represented child returns typed absence, disposition, refusal or error with no selected operand list; an independently valid represented occurrence of the same node remains structurally valid and does not prove unique-original-expression ownership. | Test (TC-458) |
-| FR-054-AC-5 | A separate consumer test compiles against public owning types and reads the preceding cases from reader-admitted six-field packages without a copied schema, consumer JSON field reads or a CheckedPackageV2 generation fallback. Repeated queries leave the wire, identity, request disposition, FR-049 result context and forward closure unchanged; this accessor alone makes no full scalar replay claim. | Test (TC-458) |
+| FR-054-AC-5 | A separate consumer test compiles against public owning types and reads the preceding cases from reader-admitted five-member packages without a copied schema, consumer JSON field reads or a CheckedPackageV2 generation fallback. Repeated queries leave the wire, identity, request disposition, FR-049 result context and forward closure unchanged; this accessor alone makes no full scalar replay claim. | Test (TC-458) |
 
 ## Dependencies
 
 FR-035 owns lowering and request disposition. FR-038 owns strict checked-package
 and body admission. FR-049 owns independent result-context selection. QSpec
-FR-330 owns the six-field package wire and source correspondence. QSL owns
+FR-330 owns the five-member package wire and source correspondence. QSL owns
 the checked requirement occurrence supplied by the driver. CG owns generation
 interval choice and scalar replay settlement.

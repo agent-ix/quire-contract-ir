@@ -41,9 +41,9 @@ A typed V2 graph supplied to the public encoder of
 [FR-051](./FR-051-encode-checked-package-v2-envelope.md), or untrusted V2
 bytes, selections, evidence and limits supplied to the strict reader of
 [FR-038](./FR-038-consume-checked-package-v2.md). The authoritative edge
-shape and preimage are QSpec FR-322, FR-464 and the published
+shape and structural id are QSpec FR-322, FR-464 and the published
 `proposals/checked-package-v2/schema.json` and
-`node-identity-preimage.schema.json` at the selected QSpec source.
+`schema.json` at the selected QSpec source.
 
 ## Outputs
 
@@ -56,23 +56,13 @@ no partial admitted package.
 The public `CheckedSemanticNodeV2` SHALL carry `owner_model` as a typed local
 node reference, required exactly when `node_tag` is `protocol` and
 `semantic_form` is `protocol_clause`, and absent on every other node. Its raw
-reader form and `CheckedNodeProjectionV2` SHALL retain the same edge. The
-public V2 writer SHALL encode the edge once in the graph node and in its
-occurrence-free identity projection, without adding another envelope or a
+reader form and typed graph SHALL retain the same edge. The
+public V2 writer SHALL encode the edge once in the graph node, without adding another envelope or a
 second graph. The reader SHALL retain the admitted edge through typed
 read/write/read. The edge is distinct from the existing structural `owner`
 member and from `semantic_type`.
 
-For a clause, the closed `quire.application-node/v1` preimage SHALL include
-`owner_model` as the node id, alongside its existing version, tag, form,
-semantic type, declaration, recursion and body. Other application-node
-preimages SHALL omit the member. The clause's exact local `dependencies`
-include the edge target together with its body targets, once each in
-ascending node-id digest order. The package identity projection SHALL include
-the edge. With all dependent identities recomputed, retargeting only
-`owner_model` to a different valid local model SHALL change the clause key
-and `package_id`; retaining the old key SHALL refuse `invalid_package`/
-`stale-node-key` at that clause's `node_id` under the application-key check.
+For a clause, the closed node SHALL carry `owner_model` as a local structural node id; other application nodes omit this edge. Its exact local dependencies include the edge target and every body target once each in structural node-id order. The reader validates edge shape, selected owner, dependency membership and body semantics without computing or comparing a content-derived key. A valid edge retargeting changes the complete body but can retain the same structural id.
 
 The source producer SHALL set `owner_model` to the exact local object-type
 node of the model that the clause's source `over` type names, which is owned by a
@@ -122,12 +112,12 @@ class or default owner.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-064-AC-1 | An external consumer constructs a complete typed V2 package with two selected local model declarations and one protocol clause whose `owner_model` names the exact model over which it was declared, calls `encode_checked_package_v2`, and reads the bytes through the public strict reader. The admitted typed graph retains the edge as a local `NodeRef`, exact dependencies include it, the occurrence-free projection includes it, and canonical read/write/read retains the same clause key and package id. | Test |
-| FR-064-AC-2 | A clause's `quire.application-node/v1` preimage contains `owner_model` as its local node id; an otherwise identical non-clause application preimage omits it. Retargeting the edge to a second valid local model and recomputing dependencies, clause key, downstream keys and package id changes the clause key and package id; retaining the old clause key while recomputing the envelope identity refuses `invalid_package`/`stale-node-key` at that clause's `node_id`. | Test |
+| FR-064-AC-1 | An external consumer constructs a complete typed V2 package with two selected local model declarations and one protocol clause whose `owner_model` names the exact model over which it was declared, calls `encode_checked_package_v2`, and reads the bytes through the public strict reader. The admitted typed graph retains the edge as a local `NodeRef`, exact dependencies include it, the occurrence-free projection includes it, and canonical read/write/read retains the same structural clause id and package name. | Test |
+| FR-064-AC-2 | Withdrawn by the IR-1141 structural-identity decision under QSpec #517: the reader does not recompute identity from body content or refuse a retained structural id solely because a valid body changed. This id is retained and never reused. | Withdrawn |
 | FR-064-AC-3 | A missing `owner_model` on a protocol clause, a present `owner_model` on a non-clause node, or an external `{package, node}` value in the local-only edge refuses at closed wire validation before graph or protocol checks. A clause whose otherwise valid local edge target is omitted from, duplicated in, or out of order in `dependencies` refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{n}/dependencies` before stale-key or clause-meaning checks. | Test |
 | FR-064-AC-4 | With wire, graph and identities valid, a genuinely unselected `model`/`object_type` target refuses `missing_declaration`/`missing-selection` at the target's own `node_id` in the owner join before any body step. A local edge naming no node refuses `missing_declaration`/`missing-name` at `owner_model` in the clause step. A non-model node, a source-local declaration, a selected declaration node of another form (`state_machine`, `process`, `record_value_type` or a relation node), or the selected package's `model_root` refuses `invalid_model_binding`/`malformed-declaration` at `owner_model` as the clause's first check. An earlier wire, graph, stale-key, refinement-step or protocol member defect wins when paired with a typed edge defect; the typed edge defect wins over the same clause's activation, capture or slot defect. A source producer given a clause declared `over` model A emits the edge to A's object-type node even when selected model B exists; a candidate B edge fails producer conformance, without claiming an IR reader source-level comparison. The IR reader admits a selected B edge as a changed clause identity and does not infer or cross-check it from the `over` parameter. | Test |
 | FR-064-AC-5 | A protocol refinement whose concrete `semantic_type` is its selected package's canonical `model_root` and whose complete concrete catalog includes classes from an admitted clause whose distinct `owner_model` is the object-type node of a model owned by its selected concrete declaration is admitted even when no step row names those classes. A clause whose edge names a model owned by another declaration or an unselected package contributes no class to that catalog, regardless of similar declaration names or binder types. A catalog missing an owned clause's class or including a foreign clause's class refuses under FR-038-AC-325 after protocol-body checks; an earlier refinement-step row/catalog defect still wins. | Test |
-| FR-064-AC-6 | The public typed writer and reader carry `owner_model` through `CheckedSemanticNodeV2`, its raw form and `CheckedNodeProjectionV2` in the existing V2 graph and envelope. No other node accepts the member, and no copied QSpec schema, fixture, parallel untyped writer, compatibility reader or fallback owner inference is added. | Inspection |
+| FR-064-AC-6 | The public typed writer and reader carry `owner_model` through `CheckedSemanticNodeV2`, its raw form and typed graph in the existing V2 graph and envelope. No other node accepts the member, and no copied QSpec schema, fixture, parallel untyped writer, compatibility reader or fallback owner inference is added. | Inspection |
 
 ## Dependencies
 
@@ -139,7 +129,7 @@ class or default owner.
   require the same canonical selected `model_root` for `semantic_type` and
   `abstract`; the clause's object-type `owner_model` remains distinct.
 - QSpec FR-322-AC-130, FR-375-AC-23 and FR-464-AC-16 own the published
-  wire and preimage shapes, exact owner relation and catalog semantics.
+  wire and structural node shapes, exact owner relation and catalog semantics.
 
 ## Status
 
