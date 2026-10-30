@@ -618,6 +618,8 @@ fn record_from_node(
     node: &CheckedSemanticNodeV2,
     kind: NominalKind,
     position: usize,
+    models: &[DomainModel],
+    model_nodes: &BTreeMap<(&str, &str), &CheckedNodeId>,
 ) -> Result<NominalRecord, ValidationFailure> {
     let at = node_pointer(position);
     if kind == NominalKind::EnumMember {
@@ -631,6 +633,21 @@ fn record_from_node(
             declaration_node_id: node.semantic_type.clone(),
             case: case.into(),
         }));
+    }
+    if let Some(super::CheckedNodeOwner::Model {
+        identity,
+        node: owner_node,
+    }) = node.owner.as_ref()
+    {
+        return model_record_from_node(
+            node,
+            kind,
+            position,
+            identity,
+            owner_node,
+            models,
+            model_nodes,
+        );
     }
     let source_owner = match node.owner.as_ref() {
         Some(super::CheckedNodeOwner::Source {
@@ -715,6 +732,100 @@ fn record_from_node(
     }
 }
 
+fn model_record_from_node(
+    node: &CheckedSemanticNodeV2,
+    kind: NominalKind,
+    position: usize,
+    identity: &str,
+    owner_node: &str,
+    models: &[DomainModel],
+    model_nodes: &BTreeMap<(&str, &str), &CheckedNodeId>,
+) -> Result<NominalRecord, ValidationFailure> {
+    use crate::checked_package::shared::CheckedNodePathSegment as Segment;
+    let at = node_pointer(position);
+    let names = node
+        .node_id
+        .path
+        .iter()
+        .map(|part| match part {
+            Segment::Name(name) => Some(name.as_ref()),
+            Segment::Node(_) => None,
+        })
+        .collect::<Option<Vec<_>>>();
+    require(
+        node.declaration.is_none()
+            && node.body == json!({"term":"aggregate","members":[]})
+            && names.as_deref()
+                == Some(
+                    &[
+                        node.node_tag.as_ref(),
+                        node.semantic_form.as_ref(),
+                        owner_node,
+                    ][..],
+                ),
+        || at.clone().key("node_id").key("path"),
+    )?;
+    let model = models
+        .iter()
+        .find(|model| model.identity.as_ref() == identity)
+        .ok_or_else(|| invalid(at.clone().key("owner")))?;
+    let resolve = |fcd_identity: &str| {
+        model_nodes
+            .get(&(identity, fcd_identity))
+            .map(|id| (*id).clone())
+            .ok_or_else(|| invalid(at.clone().key("owner")))
+    };
+    let owner = NominalOwner::Model {
+        identity: identity.into(),
+        node: owner_node.into(),
+    };
+    match kind {
+        NominalKind::Dimension => {
+            let selected = model
+                .dimensions
+                .get(owner_node)
+                .ok_or_else(|| invalid(at.clone().key("owner")))?;
+            let terms = selected
+                .terms
+                .iter()
+                .map(|(target, exponent)| {
+                    Ok(DimensionTerm {
+                        dimension_node_id: resolve(target)?,
+                        exponent: exponent.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>, ValidationFailure>>()?;
+            Ok(NominalRecord::Dimension(DimensionRecord {
+                owner,
+                qualified_declaration: vec![selected.name.clone()],
+                terms,
+            }))
+        }
+        NominalKind::Unit => {
+            let selected = model
+                .units
+                .get(owner_node)
+                .ok_or_else(|| invalid(at.clone().key("owner")))?;
+            let ratio = |text: &str| {
+                let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
+                CheckedRational {
+                    numerator: numerator.into(),
+                    denominator: denominator.into(),
+                }
+            };
+            Ok(NominalRecord::Unit(UnitRecord {
+                owner,
+                qualified_declaration: vec![selected.name.clone()],
+                dimension_node_id: resolve(&selected.dimension)?,
+                target_unit_node_id: selected.target.as_deref().map(resolve).transpose()?,
+                scale: ratio(&selected.scale),
+                offset: ratio(&selected.offset),
+            }))
+        }
+        _ => Err(invalid(at.key("owner"))),
+    }
+}
+
 /// Validates every node's nominal owner join, semantic rules and cross-field
 /// joins. `kinds` holds each node's decoded kind. Equivalence refusals point
 /// at their node; other nominal refusals point at the member at fault.
@@ -727,13 +838,23 @@ pub(super) fn validate_nominal_nodes(
     meter: &mut WorkMeter,
     bytes: u64,
 ) -> Result<(), ValidationFailure> {
+    let model_nodes = nodes
+        .iter()
+        .filter_map(|node| match node.owner.as_ref() {
+            Some(super::CheckedNodeOwner::Model {
+                identity,
+                node: owner_node,
+            }) => Some(((identity.as_ref(), owner_node.as_ref()), &node.node_id)),
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
     let records = nodes
         .iter()
         .zip(kinds)
         .enumerate()
         .map(|(position, (node, kind))| {
             NominalKind::required_by(*kind)
-                .map(|required| record_from_node(node, required, position))
+                .map(|required| record_from_node(node, required, position, models, &model_nodes))
                 .transpose()
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -1100,6 +1221,87 @@ pub(super) fn duration_unit_key(
         current = (next_dimension, next_target, next_scale, next_offset);
     }
     Ok((scale == ExactRatio::one() && offset == ExactRatio::zero()).then(|| node.node_id.clone()))
+}
+
+/// Resolve a selected model's `s` after its FCD document has been admitted.
+/// The model-owned unit body is intentionally empty; conversion values come
+/// from the selected declaration and the graph supplies exact structural IDs.
+pub(super) fn model_duration_unit_key(
+    nodes: &[CheckedSemanticNodeV2],
+    model: &DomainModel,
+    meter: &mut WorkMeter,
+) -> Result<Option<CheckedNodeId>, ValidationFailure> {
+    let identity = model.identity.as_ref();
+    let Some((unit_identity, unit)) = model
+        .units
+        .iter()
+        .find(|(_, unit)| unit.name.as_ref() == "s")
+    else {
+        return Ok(None);
+    };
+    let Some(dimension) = model.dimensions.get(&unit.dimension) else {
+        return Ok(None);
+    };
+    if dimension.name.as_ref() != "Time" || !dimension.terms.is_empty() {
+        return Ok(None);
+    }
+    let node_for = |owner_node: &str| {
+        nodes.iter().find(|node| {
+            matches!(
+                node.owner.as_ref(),
+                Some(super::CheckedNodeOwner::Model { identity: package, node: declaration })
+                    if package.as_ref() == identity && declaration.as_ref() == owner_node
+            )
+        })
+    };
+    let Some(unit_node) = node_for(unit_identity) else {
+        return Ok(None);
+    };
+    let Some(dimension_node) = node_for(&unit.dimension) else {
+        return Ok(None);
+    };
+    if unit_node.semantic_type != dimension_node.node_id
+        || dimension_node.node_tag.as_ref() != "scalar_type"
+        || dimension_node.semantic_form.as_ref() != "dimension"
+    {
+        return Ok(None);
+    }
+    let at = || JsonPointer::root().key("semantic_graph").key("nodes");
+    let mut scale = ExactRatio::one();
+    let mut offset = ExactRatio::zero();
+    let mut current = unit;
+    let mut seen = BTreeSet::new();
+    loop {
+        meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
+        let ratio = |text: &str| {
+            let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
+            CheckedRational {
+                numerator: numerator.into(),
+                denominator: denominator.into(),
+            }
+        };
+        let edge_scale = ExactRatio::parse(&ratio(&current.scale), meter, &at)?;
+        let edge_offset = ExactRatio::parse(&ratio(&current.offset), meter, &at)?;
+        offset = offset
+            .multiply(&edge_scale, meter, &at)?
+            .add(&edge_offset, meter, &at)?;
+        scale = scale.multiply(&edge_scale, meter, &at)?;
+        let Some(target) = current.target.as_deref() else {
+            break;
+        };
+        if !seen.insert(target) || node_for(target).is_none() {
+            return Ok(None);
+        }
+        let Some(next) = model.units.get(target) else {
+            return Ok(None);
+        };
+        if next.dimension != unit.dimension {
+            return Ok(None);
+        }
+        current = next;
+    }
+    Ok((scale == ExactRatio::one() && offset == ExactRatio::zero())
+        .then(|| unit_node.node_id.clone()))
 }
 
 /// A dimension's canonical base component and exact root scale within it.
@@ -1694,6 +1896,72 @@ mod tests {
     use super::*;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    #[trace("TC-048", "FR-038-AC-5", "FR-063-AC-3")]
+    #[test]
+    fn model_owned_nominals_join_selected_fcd_values() {
+        let document = json!({
+            "contractVersion":"2.0.0",
+            "package":{"identity":"acme/rpc","version":"1.0.0"},
+            "constructs":[], "types":[],
+            "dimensions":[{"identity":"ix://acme/rpc/dimension/Time","name":"Time","base":true,"terms":[]}],
+            "units":[{"identity":"ix://acme/rpc/unit/ms","name":"ms",
+                "dimension":"ix://acme/rpc/dimension/Time","scale":"1/1000","offset":"0"}]
+        });
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut budget = super::super::model_members::Budget::new(&mut meter, 0, 1 << 20);
+        let unit_refs = std::sync::Arc::new(BTreeMap::new());
+        let model = super::super::model_members::read_semantic_ir(
+            &document,
+            "example",
+            &mut budget,
+            &unit_refs,
+        )
+        .expect("selected declarations");
+        let dimension: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id":{"package":"acme/rpc","path":["scalar_type","dimension","ix://acme/rpc/dimension/Time"],"ordinal":0},
+            "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"scalar_type", "semantic_form":"dimension",
+            "semantic_type":{"package":"acme/rpc","path":["scalar_type","dimension","ix://acme/rpc/dimension/Time"],"ordinal":0},
+            "dependencies":[], "occurrences":[],
+            "owner":{"kind":"model","identity":"acme/rpc","node":"ix://acme/rpc/dimension/Time"},
+            "body":{"term":"aggregate","members":[]}
+        })).expect("dimension node");
+        let unit: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id":{"package":"acme/rpc","path":["scalar_type","unit","ix://acme/rpc/unit/ms"],"ordinal":0},
+            "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"scalar_type", "semantic_form":"unit",
+            "semantic_type":dimension.node_id, "dependencies":[dimension.node_id], "occurrences":[],
+            "owner":{"kind":"model","identity":"acme/rpc","node":"ix://acme/rpc/unit/ms"},
+            "body":{"term":"aggregate","members":[]}
+        })).expect("unit node");
+        let nodes = [&dimension, &unit];
+        let model_nodes = nodes
+            .iter()
+            .map(|node| {
+                let Some(super::super::CheckedNodeOwner::Model {
+                    identity,
+                    node: owner_node,
+                }) = node.owner.as_ref()
+                else {
+                    unreachable!()
+                };
+                ((identity.as_ref(), owner_node.as_ref()), &node.node_id)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let record = record_from_node(&unit, NominalKind::Unit, 1, &[model], &model_nodes)
+            .expect("model unit join");
+        let NominalRecord::Unit(record) = record else {
+            panic!("unit record")
+        };
+        assert_eq!(record.dimension_node_id, dimension.node_id);
+        assert_eq!(
+            (&*record.scale.numerator, &*record.scale.denominator),
+            ("1", "1000")
+        );
+        assert_eq!(
+            (&*record.offset.numerator, &*record.offset.denominator),
+            ("0", "1")
+        );
+    }
 
     #[trace("TC-048", "FR-038-AC-5", "FR-063-AC-3")]
     #[test]
