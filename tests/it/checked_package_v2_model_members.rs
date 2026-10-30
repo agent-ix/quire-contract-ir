@@ -12,10 +12,10 @@
 //! with fixture-authored structural identities; nothing of QSpec is copied in.
 
 use crate::support::checked_package::{
-    bounds_body, canonical, evidence_for, evidence_with_document, node_id as fixture_node_id,
-    nominal_fixture_members, nominal_package, over_body, pointer, rebuild_source_map,
-    refresh_identity, refusal_bytes, refusal_cause, select_model, settle, ExpectedRefusal,
-    COMPLETE_VALUE_FEATURE, FIXTURE_PACKAGE,
+    canonical, evidence_for, evidence_with_document, node_id as fixture_node_id,
+    nominal_fixture_members, nominal_package, pointer, rebuild_source_map, refresh_identity,
+    refusal_bytes, refusal_cause, select_model, settle, ExpectedRefusal, COMPLETE_VALUE_FEATURE,
+    FIXTURE_PACKAGE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -63,6 +63,35 @@ fn node_id(path: &str) -> Value {
         };
         return json!({"package": FIXTURE_PACKAGE, "path": ["composite_type", "reference", target], "ordinal": 0});
     }
+    if let Some(rest) = path.strip_prefix("composite/") {
+        let (form, declared) = rest
+            .split_once('/')
+            .expect("composite form and declaration");
+        return json!({"package": FIXTURE_PACKAGE, "path": ["composite_type", form, node_id(&model_key("variant_type", IDENTITY, declared))], "ordinal": 0});
+    }
+    if let Some(target) = path.strip_prefix("option/") {
+        return json!({"package": FIXTURE_PACKAGE, "path": ["composite_type", "option", node_id(target)], "ordinal": 0});
+    }
+    if let Some(rest) = path.strip_prefix("collection/") {
+        let (form, element) = rest.split_once('/').expect("collection form and element");
+        return json!({"package": FIXTURE_PACKAGE, "path": ["composite_type", form, node_id(element)], "ordinal": 0});
+    }
+    if let Some(declared) = path.strip_prefix("bounds/ix://") {
+        let declared = format!("ix://{declared}");
+        let sequence = node_id(&format!("composite/sequence/{declared}"));
+        return json!({"package": FIXTURE_PACKAGE, "path": ["bounded_domain", "collection_bounds", "min", node_id("scalar/integer"), "0", "max", "3", sequence], "ordinal": 0});
+    }
+    if let Some(rest) = path.strip_prefix("bounds/") {
+        let (collection_and_lower, upper) = rest.rsplit_once('/').expect("collection upper bound");
+        let (collection, lower) = collection_and_lower
+            .rsplit_once('/')
+            .expect("collection lower bound");
+        let (form, element) = collection
+            .split_once('/')
+            .expect("collection form and element");
+        let collection = node_id(&format!("collection/{form}/{element}"));
+        return json!({"package": FIXTURE_PACKAGE, "path": ["bounded_domain", "collection_bounds", "min", node_id("scalar/integer"), lower, "max", upper, collection], "ordinal": 0});
+    }
     fixture_node_id(path)
 }
 
@@ -108,6 +137,17 @@ fn reference(key: &str) -> Value {
 
 fn literal(ty: &str, value_kind: &str, value: &str) -> Value {
     json!({"term": "literal", "type": node_id(ty), "value_kind": value_kind, "value": value})
+}
+
+fn over_body(target: &str) -> Value {
+    json!({"term": "aggregate", "members": [reference(target)]})
+}
+
+fn bounds_body(lower: &str, upper: &str) -> Value {
+    json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "min", "value": literal(&INTEGER, "integer", lower)},
+        {"term": "binding", "name": "max", "value": literal(&INTEGER, "integer", upper)},
+    ]})
 }
 
 fn parameter(name: &str, level: &str, ty: &str) -> (String, Value) {
