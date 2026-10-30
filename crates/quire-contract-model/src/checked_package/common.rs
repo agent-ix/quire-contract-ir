@@ -26,10 +26,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::ControlFlow;
 
-/// Identity domain shared by every checked semantic node key.
-#[cfg(test)]
-pub(super) const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
-
 /// A terminal front-end or validation outcome, before it is wrapped in a
 /// version-specific read result. It carries the public refusal or incomplete
 /// record, so every stage builds the exact value the caller sees.
