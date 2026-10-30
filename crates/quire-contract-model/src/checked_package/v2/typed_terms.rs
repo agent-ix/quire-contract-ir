@@ -884,11 +884,13 @@ impl CheckedTerm {
     /// already accepted. Public serde decoding does not provide that bound.
     pub(super) fn decode_admitted(value: &Value) -> Result<Self, TermConversionCause> {
         if value.get("term").and_then(Value::as_str) == Some("refinement") {
-            return serde_json::from_value(value.clone()).map_err(|error| {
-                TermConversionCause::MalformedMember {
-                    member: "refinement",
-                    category: error.classify(),
-                }
+            return super::refinement::decode_body(
+                value,
+                &crate::checked_package::common::Trail::Base(&[]),
+            )
+            .map_err(|_| TermConversionCause::MalformedMember {
+                member: "refinement",
+                category: Category::Data,
             });
         }
         fn field<T: DeserializeOwned>(
@@ -1759,7 +1761,7 @@ mod tests {
         );
         assert_eq!(wire["members"][1]["value"], "plain text");
 
-        let mut refinement: CheckedTerm = serde_json::from_value(json!({
+        let refinement_wire = json!({
             "term":"refinement", "abstract":old,
             "profile":{"authority":"test","identity":"trace"},
             "populations":[],"objects":[],
@@ -1768,8 +1770,9 @@ mod tests {
             "histories":[],"assume":[],"ensure":[],
             "class_catalog":{"concrete":[{"class":"finish","node":old,
                 "binder_types":[old]}],"abstract":[]}
-        }))
-        .expect("typed refinement");
+        });
+        let mut refinement = CheckedTerm::decode_admitted(&refinement_wire)
+            .expect("typed refinement through the admitted decoder");
         refinement.replace_node_id(&old, &replacement);
         let wire = serde_json::to_value(&refinement).expect("refinement serializes");
         let replacement_wire = serde_json::to_value(&replacement).expect("node serializes");
