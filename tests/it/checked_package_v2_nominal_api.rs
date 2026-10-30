@@ -3,7 +3,9 @@
 
 //! External construction and reader admission of closed V2 nominal bodies.
 
-use crate::support::checked_package::{canonical, evidence_for, v2_nominal};
+use crate::support::checked_package::{
+    canonical, evidence_for, nominal_fixture_members, nominal_package, v2_nominal,
+};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageReadLimits, CheckedPackageRefusalCode,
@@ -109,48 +111,67 @@ fn public_constructors_round_trip_all_four_nominal_forms_through_reader() {
 #[trace("TC-048", "TC-058", "FR-038-AC-375")]
 #[test]
 fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
-    let wire = v2_nominal();
-    let admitted = match CheckedPackageV2::read(
-        &canonical(&wire),
-        CheckedPackageReadLimits::bounded(),
-        &evidence_for(&wire),
-    ) {
-        CheckedPackageV2ReadResult::Admitted(package) => package,
-        other => panic!("nominal fixture must admit: {other:?}"),
-    };
-
-    let mut saw_enum = false;
-    let mut saw_other_nominal = false;
-    for (authored, checked) in wire["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("authored nodes")
-        .iter()
-        .zip(&admitted.graph().nodes)
-    {
-        let CheckedTerm::NominalBody(body) = &checked.body else {
-            continue;
+    for ordered in [false, true] {
+        let mut members = nominal_fixture_members();
+        members[1].0["ordered"] = json!(ordered);
+        members[1].0["members"] = json!(["DONE", "ACTIVE"]);
+        let wire = nominal_package(&members);
+        let admitted = match CheckedPackageV2::read(
+            &canonical(&wire),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(&wire),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("nominal fixture must admit: {other:?}"),
         };
-        if authored["body"]["term"] == "enum" {
-            let (ordered, members) = body.enum_details().expect("admitted enum details");
-            assert_eq!(
-                ordered,
-                authored["body"]["ordered"].as_bool().expect("ordered flag")
-            );
-            let authored_members = authored["body"]["members"]
-                .as_array()
-                .expect("authored enum members")
-                .iter()
-                .map(|member| member.as_str().expect("member name"))
-                .collect::<Vec<_>>();
-            let checked_members = members.iter().map(Box::as_ref).collect::<Vec<_>>();
-            assert_eq!(checked_members, authored_members);
-            saw_enum = true;
-        } else {
-            assert!(body.enum_details().is_none());
-            saw_other_nominal = true;
+        let CheckedTerm::NominalBody(body) = &admitted.graph().nodes[1].body else {
+            panic!("admitted enum must retain a typed nominal body");
+        };
+        let (actual_ordered, names) = body.enum_details().expect("admitted enum details");
+        assert_eq!(actual_ordered, ordered);
+        assert_eq!(
+            names.iter().map(Box::as_ref).collect::<Vec<_>>(),
+            ["DONE", "ACTIVE"]
+        );
+    }
+
+    let mut seen_other_forms = std::collections::BTreeSet::new();
+    for wire in [
+        v2_nominal(),
+        super::checked_package_v2_dimension_equivalence::package(),
+    ] {
+        let admitted = match CheckedPackageV2::read(
+            &canonical(&wire),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(&wire),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("nominal fixture must admit: {other:?}"),
+        };
+        for (authored, node) in wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("authored nodes")
+            .iter()
+            .zip(&admitted.graph().nodes)
+        {
+            let CheckedTerm::NominalBody(body) = &node.body else {
+                continue;
+            };
+            let term = authored["body"]["term"]
+                .as_str()
+                .expect("nominal body term");
+            if ["dimension", "unit", "dimension_equivalence"].contains(&term) {
+                assert!(body.enum_details().is_none());
+                seen_other_forms.insert(term);
+            }
         }
     }
-    assert!(saw_enum && saw_other_nominal);
+    assert_eq!(
+        seen_other_forms,
+        ["dimension", "dimension_equivalence", "unit"]
+            .into_iter()
+            .collect()
+    );
 }
 
 fn assert_malformed(
