@@ -270,9 +270,6 @@ pub struct CheckedSemanticNodeV2<Body = CheckedTerm> {
     /// Explicit recursion group when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recursion_group: Option<Box<str>>,
-    /// Nominal identity preimage; present exactly for nominal forms.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nominal_identity_preimage: Option<NominalIdentityPreimage>,
     /// Declared qualified name; present exactly per `DeclarationOccurrenceRule`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declaration: Option<CheckedDeclaration>,
@@ -300,7 +297,6 @@ impl RawSemanticNodeV2 {
             dependencies: self.dependencies,
             occurrences: self.occurrences,
             recursion_group: self.recursion_group,
-            nominal_identity_preimage: self.nominal_identity_preimage,
             declaration: self.declaration,
             owner: self.owner,
             owner_model: self.owner_model,
@@ -326,30 +322,6 @@ impl CheckedSemanticNodeV2 {
         if let Some(owner_model) = &mut self.owner_model {
             replace(owner_model, old, new);
         }
-        if let Some(preimage) = &mut self.nominal_identity_preimage {
-            match preimage {
-                NominalIdentityPreimage::EnumDeclaration(_) => {}
-                NominalIdentityPreimage::EnumMember(value) => {
-                    replace(&mut value.declaration_node_id, old, new);
-                }
-                NominalIdentityPreimage::Dimension(value) => {
-                    for term in &mut value.terms {
-                        replace(&mut term.dimension_node_id, old, new);
-                    }
-                }
-                NominalIdentityPreimage::DimensionEquivalence(value) => {
-                    for id in &mut value.dimension_node_ids {
-                        replace(id, old, new);
-                    }
-                }
-                NominalIdentityPreimage::Unit(value) => {
-                    replace(&mut value.dimension_node_id, old, new);
-                    if let Some(target) = &mut value.target_unit_node_id {
-                        replace(target, old, new);
-                    }
-                }
-            }
-        }
         self.body.replace_node_id(old, new);
     }
 
@@ -369,7 +341,6 @@ impl<Body: Serialize> CheckedSemanticNodeV2<Body> {
             dependencies: self.dependencies.clone(),
             occurrences: self.occurrences.clone(),
             recursion_group: self.recursion_group.clone(),
-            nominal_identity_preimage: self.nominal_identity_preimage.clone(),
             declaration: self.declaration.clone(),
             owner: self.owner.clone(),
             owner_model: self.owner_model.clone(),
@@ -397,9 +368,6 @@ pub struct CheckedNodeProjectionV2<Body = CheckedTerm> {
     /// Explicit recursion group when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recursion_group: Option<Box<str>>,
-    /// Nominal identity preimage when present.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nominal_identity_preimage: Option<NominalIdentityPreimage>,
     /// Declared qualified name when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declaration: Option<CheckedDeclaration>,
@@ -423,7 +391,6 @@ impl<Body: Clone> From<&CheckedSemanticNodeV2<Body>> for CheckedNodeProjectionV2
             semantic_type: node.semantic_type.clone(),
             dependencies: node.dependencies.clone(),
             recursion_group: node.recursion_group.clone(),
-            nominal_identity_preimage: node.nominal_identity_preimage.clone(),
             declaration: node.declaration.clone(),
             owner: node.owner.clone(),
             owner_model: node.owner_model.clone(),
@@ -1107,11 +1074,9 @@ impl CheckedPackageV2 {
             }
         }
         let wire = intake::decode_borrowed_wire(bytes)
-            .map_err(|failure| locate_in_preimage_bytes(failure, bytes))
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
-        identity::check_nominal_wire(&wire.semantic_graph.nodes)?;
         validate_owner_schema(&wire)?;
         let ValidatedPackage {
             kinds,
@@ -2419,10 +2384,6 @@ fn validate_graph(
         if kind == CheckedNodeKind::Relation(RelationForm::Refinement) {
             for (present, member) in [
                 (node.recursion_group.is_some(), "recursion_group"),
-                (
-                    node.nominal_identity_preimage.is_some(),
-                    "nominal_identity_preimage",
-                ),
                 (node.declaration.is_some(), "declaration"),
                 (node.owner.is_some(), "owner"),
             ] {
