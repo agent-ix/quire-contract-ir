@@ -285,12 +285,13 @@ fn equality_package(types: Vec<Typed>, root: &str, leaves: Vec<Value>) -> (Value
         .filter(|node| node.get("recursion_group").is_some())
         .map(|node| node["node_id"].clone())
         .collect::<Vec<_>>();
-    for (ordinal, old) in grouped.iter().enumerate() {
+    for (position, old) in grouped.iter().enumerate() {
         let mut fresh = old.clone();
-        // Graph order owns the member ordinal. Reverse the path labels so
-        // the round-trip also checks that readers do not sort by NodeId.
-        fresh["path"] = json!([format!("recursive/group/{}", grouped.len() - ordinal)]);
-        fresh["ordinal"] = json!(ordinal);
+        // Reverse the paths so the round trip detects a reader sorting by
+        // NodeId. These producer-assigned NodeId ordinals are deliberately
+        // distinct from the members' positions within the recursion group.
+        fresh["path"] = json!([format!("recursive/group/{}", grouped.len() - position)]);
+        fresh["ordinal"] = json!(position + 7);
         reassign_node_id(&mut package, old, &fresh);
     }
     settle(&mut package);
