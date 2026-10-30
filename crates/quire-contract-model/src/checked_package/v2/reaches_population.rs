@@ -65,7 +65,7 @@ impl CheckedPackageV2 {
             .cloned()
             .ok_or(Error::UnresolvedPopulation)?;
         Ok(Some(CheckedSelectedPopulationSelector {
-            package_id: self.package_id().clone(),
+            package_name: self.name().into(),
             binding,
             occurrence,
         }))
