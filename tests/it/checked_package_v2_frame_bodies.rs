@@ -6,8 +6,7 @@
 //! `state`/`frame` nodes.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, mint_ungrouped_structural_keys, node_id, refresh_identity,
-    v2_all_families,
+    canonical, evidence_for, node_id, refresh_identity, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -142,7 +141,6 @@ fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
     package["semantic_graph"]["nodes"][index]["body"]["modifies"] = modifies;
     package["semantic_graph"]["nodes"][index]["body"]["creates"] = Value::Array(vec![process]);
     package["semantic_graph"]["nodes"][index]["body"]["deletes"] = Value::Array(vec![object_type]);
-    mint_ungrouped_structural_keys(&mut package);
     refresh_identity(&mut package);
 
     admitted(&package);
@@ -183,7 +181,6 @@ fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
     // individually eligible for `deletes`.
     package["semantic_graph"]["nodes"][index]["body"]["deletes"] =
         Value::Array(vec![process, object_type]);
-    mint_ungrouped_structural_keys(&mut package);
     refresh_identity(&mut package);
 
     expect_refusal_at(
@@ -215,7 +212,6 @@ fn tc_053_frame_entry_outside_dependencies_refuses_as_missing_declaration() {
         let mut package = base.clone();
         package["semantic_graph"]["nodes"][index]["body"]["modifies"] =
             Value::Array(vec![relationship(entry.clone())]);
-        mint_ungrouped_structural_keys(&mut package);
         refresh_identity(&mut package);
         expect_refusal_at(
             &package,
@@ -280,7 +276,6 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
             let mut variant = package.clone();
             variant["semantic_graph"]["nodes"][index]["body"]["modifies"] =
                 Value::Array(vec![relationship(target)]);
-            mint_ungrouped_structural_keys(&mut variant);
             let lower = &variant["semantic_graph"]["nodes"][lower_index]["node_id"];
             let stronger = &variant["semantic_graph"]["nodes"][index]["node_id"];
             (id_order(lower, stronger).is_lt()).then_some(variant)
