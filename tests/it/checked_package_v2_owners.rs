@@ -574,7 +574,7 @@ fn tc_229_population_reference_requires_owner_and_selected_population() {
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
         refusal.cause,
-        Some(CheckedPackageRefusalCause::StaleNodeKey)
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
     );
 
     let mut wrong_dependencies = base.clone();
@@ -589,7 +589,7 @@ fn tc_229_population_reference_requires_owner_and_selected_population() {
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
         refusal.cause,
-        Some(CheckedPackageRefusalCause::StaleNodeKey)
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
     );
 
     for (name, node_tag, form, declared) in [
