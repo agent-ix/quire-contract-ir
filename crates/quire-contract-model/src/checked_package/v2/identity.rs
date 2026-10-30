@@ -21,13 +21,12 @@ use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, J
 use num_bigint::{BigInt, BigUint};
 use num_integer::Integer;
 use num_traits::{One, Zero};
-use quire_canonical::FixedShape;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The closed nominal identity preimage carried by a V2 node.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "version", deny_unknown_fields)]
 pub enum NominalIdentityPreimage {
     /// `quire.enum-declaration-node/v1`.
@@ -48,7 +47,7 @@ pub enum NominalIdentityPreimage {
 }
 
 /// Owner subject of a nominal declaration; joins an exact lock selection.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NominalOwner {
     /// A locked raw source, joined by authority and identity.
@@ -77,7 +76,7 @@ pub enum NominalOwner {
 }
 
 /// Enum declaration identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EnumDeclarationPreimage {
     /// Declaring owner.
@@ -91,7 +90,7 @@ pub struct EnumDeclarationPreimage {
 }
 
 /// Enum member identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EnumMemberPreimage {
     /// Declaring enum node key.
@@ -101,7 +100,7 @@ pub struct EnumMemberPreimage {
 }
 
 /// Dimension identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DimensionPreimage {
     /// Declaring owner.
@@ -113,7 +112,7 @@ pub struct DimensionPreimage {
 }
 
 /// One base-dimension power in a derived dimension.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DimensionTerm {
     /// Base dimension node key.
@@ -123,7 +122,7 @@ pub struct DimensionTerm {
 }
 
 /// Exact equivalence between a digest-ordered pair of dimensions.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DimensionEquivalencePreimage {
     /// Source containing the equivalence declaration.
@@ -135,7 +134,7 @@ pub struct DimensionEquivalencePreimage {
 }
 
 /// Source owner of a dimension equivalence.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceOwner {
     /// The only admitted owner kind.
@@ -147,7 +146,7 @@ pub struct SourceOwner {
 }
 
 /// Closed source-owner discriminant.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceOwnerKind {
     /// A locked source.
@@ -155,7 +154,7 @@ pub enum SourceOwnerKind {
 }
 
 /// Declared unit identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UnitPreimage {
     /// Declaring owner.
@@ -174,7 +173,7 @@ pub struct UnitPreimage {
 }
 
 /// A canonical decimal rational.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedRational {
     /// Canonical integer string.
@@ -586,21 +585,6 @@ impl NominalIdentityPreimage {
             Self::EnumMember(_) => None,
         }
     }
-
-    /// Lowercase SHA-256 of the canonical preimage bytes, computed by
-    /// `quire-canonical` under `limit_bytes`, the caller's byte limit. A
-    /// preimage whose canonical bytes are longer than `limit_bytes` returns the
-    /// encoder's byte-limit refusal and no digest; a length equal to it
-    /// digests.
-    ///
-    /// # Errors
-    ///
-    /// The `quire-canonical` refusal: [`quire_canonical::Error::Limit`] when
-    /// the canonical bytes exceed `limit_bytes`.
-    pub fn digest(&self, limit_bytes: u64) -> Result<String, quire_canonical::Error> {
-        quire_canonical::sha256(self, quire_canonical::Limits::new(limit_bytes))
-            .map(|digest| digest.to_string())
-    }
 }
 
 fn invalid(path: JsonPointer) -> ValidationFailure {
@@ -683,18 +667,6 @@ pub(super) fn validate_nominal_nodes(
             _ => return Err(invalid(site.preimage(&[]))),
         };
         meter.charge(1, || site.preimage(&[]))?;
-        require(
-            preimage
-                .digest(bytes)
-                .is_ok_and(|digest| digest == node.node_id.digest.as_ref()),
-            || {
-                if matches!(preimage, NominalIdentityPreimage::DimensionEquivalence(_)) {
-                    site.pointer()
-                } else {
-                    site.member("node_id")
-                }
-            },
-        )?;
         match preimage {
             NominalIdentityPreimage::EnumDeclaration(declaration) => {
                 validate_enum_declaration(declaration, &site, &graph, lock, meter)?;
@@ -736,7 +708,7 @@ fn validate_dimension_equivalence(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let ids = &equivalence.dimension_node_ids;
-    require(ids[0].digest < ids[1].digest, || site.pointer())?;
+    require(ids[0] < ids[1], || site.pointer())?;
     for (position, id) in ids.iter().enumerate() {
         meter.charge(1, || site.preimage(&["dimension_node_ids"]).index(position))?;
         require(
@@ -1476,7 +1448,7 @@ fn validate_dimension(
     graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
-    bytes: u64,
+    _bytes: u64,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
     validate_owner(&dimension.owner, lock, graph, || site.preimage(&["owner"]))?;
@@ -1487,7 +1459,6 @@ fn validate_dimension(
         site.member("semantic_type")
     })?;
     let term_at = |index: usize| site.preimage(&["terms"]).index(index);
-    let mut keys = Vec::with_capacity(dimension.terms.len());
     let mut bases = BTreeSet::new();
     for (index, term) in dimension.terms.iter().enumerate() {
         meter.charge(1, || term_at(index))?;
@@ -1502,18 +1473,11 @@ fn validate_dimension(
             return Err(invalid(base_at()));
         };
         require(base.terms.is_empty(), base_at)?;
-        // A term's place in the order is its canonical bytes under
-        // `quire-canonical`, not its `serde_json` bytes.
-        keys.push(
-            quire_canonical::to_vec(term, quire_canonical::Limits::new(bytes))
-                .map_err(|_| invalid(term_at(index)))?,
-        );
     }
-    // The later term of the first out-of-order pair is at fault.
-    if let Some(pair) = keys
-        .windows(2)
-        .position(|pair| !matches!(pair, [left, right] if left < right))
-    {
+    // The later term of the first out-of-order node ID is at fault.
+    if let Some(pair) = dimension.terms.windows(2).position(
+        |pair| !matches!(pair, [left, right] if left.dimension_node_id < right.dimension_node_id),
+    ) {
         return Err(invalid(term_at(pair.saturating_add(1))));
     }
     let mut expected = dimension
