@@ -199,7 +199,16 @@ each refusing `invalid_semantic_graph` at the recorded later `node_id`.
 Apply the vector's declared placement and compare exact code and locus.
 Also supply a negative, fractional, string or above-safe-integer ordinal
 and require `malformed_wire` at that ordinal. Keep recursion-group
-`{size,ordinal}` group-position evidence and its graph-order controls separate from producer-assigned structural `node_id.ordinal`. A valid permutation retains each structural id while updating in-group reference ordinals to the intended members' new positions. Read QSpec XP-04
+`{size,ordinal}` group-position evidence and its graph-order controls separate
+from producer-assigned structural `node_id.ordinal`. A valid permutation
+retains each structural id while updating in-group reference ordinals to the
+intended members' new positions. Read QSpec FR-322-AC-274's four positive
+group fixtures directly from the selected checkout: `positive-recursive-records`,
+`positive-two-owners-a`, `positive-two-owners-b` and
+`positive-integer-literal-references`. Assert every member, including an
+anonymous derived member, uses its group's declaration path and retains its
+producer-assigned structural ordinal; assert admission without deriving that
+ordinal from graph position. Read QSpec XP-04
 directly from its selected checkout: its second equivalence node's ordinal
 1 makes a distinct structural id, while the repeated pair still refuses
 `invalid_semantic_graph` for pair meaning, not an ordinal-shape or
