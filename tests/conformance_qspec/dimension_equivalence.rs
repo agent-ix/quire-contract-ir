@@ -269,7 +269,10 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
             retained.body["root_scale"], case["root_scale"],
             "XP-01 scale {index}"
         );
-        assert_eq!(retained.occurrences[0].ordinal, index as u64);
+        assert_eq!(
+            retained.occurrences[0].ordinal,
+            u64::try_from(index).expect("vector index")
+        );
     }
 }
 
@@ -335,7 +338,8 @@ fn xp_adverse_pairs_refuse_at_the_published_equivalence() {
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     "{id}"
                 );
-                let at = case["at"].as_u64().expect("refused equivalence") as usize;
+                let at = usize::try_from(case["at"].as_u64().expect("refused equivalence"))
+                    .expect("vector index fits usize");
                 let expected = format!("/semantic_graph/nodes/{}", graph.len() + at);
                 assert_eq!(
                     refusal.loci[0]
