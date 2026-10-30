@@ -9,18 +9,17 @@
 //! here (`ConfigVersion` with the fields `version` and `generation`, the
 //! operations `attemptUpdate(next)` and `rebase(from, to)`, a subtype
 //! `ConfigVersionDraft` that only inherits them, and `Both`, which inherits one
-//! field name and one operation name from two supertypes). Every expected
-//! `node_id` is computed here from the body, through `sha256` over the
-//! canonical bytes, and never through the reader.
+//! field name and one operation name from two supertypes). Node identities
+//! use fixture-authored structural paths independent of body content.
 
 use crate::support::checked_package::{
     canonical, evidence_with_document, node_id, nominal_package, rebuild_source_map,
-    refresh_identity, select_model, settle, sha256_hex, structural_key, typed_node_id, INTEGER_KEY,
+    refresh_identity, select_model, settle, typed_node_id, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeKind, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageReadLimits,
+    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
     CorrespondenceForm,
 };
@@ -44,20 +43,14 @@ const POPULATION_B: &str = "ix://acme/config/PopulationB";
 /// The derived key of the anonymous `Integer` node (FR-038-AC-134).
 const INTEGER: &str = INTEGER_KEY;
 fn text_key() -> String {
-    structural_key("scalar_type", "text", None, &empty())
+    "scalar/text".to_owned()
 }
 fn population_body() -> Value {
     empty()
 }
 
 fn population_key(node: &str) -> String {
-    sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "relation",
-        "semantic_form": "population", "semantic_type": null,
-        "declaration": null, "recursion": null,
-        "owner": {"kind": "model", "identity": IDENTITY, "node": node},
-        "body": population_body(),
-    })))
+    format!("population/{node}")
 }
 
 fn population_a() -> &'static str {
@@ -202,15 +195,9 @@ fn plain(
     })
 }
 
-/// The model declaration node key of `node` owned by the domain package
-/// `identity`: the SHA-256 of its structural preimage.
+/// The authored path of a model declaration in this fixture.
 fn model_key_in(identity: &str, node: &str) -> String {
-    sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": "model", "semantic_form": "object_type",
-        "semantic_type": null, "declaration": null, "recursion": null,
-        "body": empty(),
-        "owner": {"kind": "model", "identity": identity, "node": node},
-    })))
+    format!("model/{identity}/{node}")
 }
 
 fn key(node: &str) -> String {
@@ -301,11 +288,28 @@ fn nodes(package: &Value) -> &[Value] {
         .unwrap_or_default()
 }
 
-fn position(value: &Value, digest: &str) -> usize {
+fn id_label(id: &Value) -> String {
+    let path = id["path"].as_array().expect("structural path");
+    let parts = path
+        .iter()
+        .map(|part| part.as_str().expect("path segment"))
+        .collect::<Vec<_>>();
+    if parts.len() == 1 {
+        parts[0].to_owned()
+    } else {
+        format!("qualified:{}", parts.join("/"))
+    }
+}
+
+fn typed_id(id: &Value) -> CheckedNodeId {
+    serde_json::from_value(id.clone()).expect("structural node id")
+}
+
+fn position(value: &Value, label: &str) -> usize {
     nodes(value)
         .iter()
-        .position(|node| node["node_id"]["digest"] == digest)
-        .unwrap_or_else(|| panic!("node {digest}"))
+        .position(|node| id_label(&node["node_id"]) == label)
+        .unwrap_or_else(|| panic!("node {label}"))
 }
 
 fn with_nodes(mut package: Value, added: Vec<Value>) -> Value {
@@ -359,12 +363,7 @@ fn body(objects: Vec<Value>, populations: Vec<Value>, frames: Vec<Value>) -> Val
 
 /// `body` with every array in its canonical order.
 fn ordered(mut body: Value) -> Value {
-    let digest = |value: &Value, member: &str| {
-        value[member]["digest"]
-            .as_str()
-            .expect("a node key")
-            .to_owned()
-    };
+    let id = |value: &Value, member: &str| typed_id(&value[member]);
     let name = |value: &Value| value["name"].as_str().expect("a name").to_owned();
     for entry in body["objects"].as_array_mut().expect("objects").iter_mut() {
         entry["fields"]
@@ -381,17 +380,17 @@ fn ordered(mut body: Value) -> Value {
     body["objects"]
         .as_array_mut()
         .expect("objects")
-        .sort_by_key(|entry| digest(entry, "type"));
+        .sort_by_key(|entry| id(entry, "type"));
     body["populations"]
         .as_array_mut()
         .expect("populations")
-        .sort_by_key(|entry| digest(entry, "population"));
+        .sort_by_key(|entry| id(entry, "population"));
     body["frames"]
         .as_array_mut()
         .expect("frames")
         .sort_by_key(|entry| {
             (
-                digest(entry, "context"),
+                id(entry, "context"),
                 entry["operation"].as_str().expect("operation").to_owned(),
             )
         });
@@ -436,17 +435,13 @@ fn rich() -> Value {
     ))
 }
 
-/// The node key of a relation body: the SHA-256 of the canonical bytes of
-/// `{version, body}`, computed here and not by the reader.
-fn digest_of(body: &Value) -> String {
-    sha256_hex(&canonical(
-        &json!({"version": "quire.abstraction-relation-node/v1", "body": body}),
-    ))
+fn relation_key(position: usize) -> String {
+    format!("relation/{position}")
 }
 
 /// Every `type`, `population` and `context` target of `body`, unique and
 /// digest-ascending.
-fn targets(body: &Value) -> Vec<String> {
+fn targets(body: &Value) -> Vec<Value> {
     let mut keys = BTreeSet::new();
     for (array, member) in [
         ("objects", "type"),
@@ -454,44 +449,75 @@ fn targets(body: &Value) -> Vec<String> {
         ("frames", "context"),
     ] {
         for entry in body[array].as_array().into_iter().flatten() {
-            if let Some(digest) = entry[member]["digest"].as_str() {
-                keys.insert(digest.to_owned());
+            if let Ok(id) = serde_json::from_value::<CheckedNodeId>(entry[member].clone()) {
+                keys.insert(id);
             }
         }
     }
-    keys.into_iter().collect()
+    keys.into_iter()
+        .map(|id| serde_json::to_value(id).expect("node id"))
+        .collect()
+}
+
+fn relation_node_at(body: &Value, position: usize) -> Value {
+    relation_node_named(body, &relation_key(position))
+}
+
+fn relation_node_named(body: &Value, id: &str) -> Value {
+    let mut node = plain(
+        id,
+        "correspondence",
+        "abstraction_relation",
+        id,
+        &[],
+        "declaration",
+        body.clone(),
+    );
+    node["dependencies"] = json!(targets(body));
+    node
 }
 
 fn relation_node(body: &Value) -> Value {
-    let id = digest_of(body);
-    let targets = targets(body);
-    let targets = targets.iter().map(String::as_str).collect::<Vec<_>>();
-    plain(
-        &id,
-        "correspondence",
-        "abstraction_relation",
-        &id,
-        &targets,
-        "declaration",
-        body.clone(),
-    )
+    relation_node_at(body, 0)
 }
 
 /// `base()` holding one relation node per body.
 fn relations(bodies: &[Value]) -> Value {
-    with_nodes(base(), bodies.iter().map(relation_node).collect())
+    with_nodes(
+        base(),
+        bodies
+            .iter()
+            .enumerate()
+            .map(|(position, body)| relation_node_at(body, position))
+            .collect(),
+    )
+}
+
+fn relations_named(entries: &[(&str, Value)]) -> Value {
+    with_nodes(
+        base(),
+        entries
+            .iter()
+            .map(|(label, body)| relation_node_named(body, label))
+            .collect(),
+    )
 }
 
 /// The relation node of `body` in `package`.
 fn at(package: &Value, body: &Value) -> usize {
-    position(package, &digest_of(body))
+    nodes(package)
+        .iter()
+        .position(|node| node["semantic_form"] == "abstraction_relation" && node["body"] == *body)
+        .expect("relation body")
 }
 
-/// Replaces the body of the relation node at `position` and re-derives its
-/// key, type and dependencies from the new body.
+/// Replaces a relation body while retaining its structural identity.
 fn rebodied(package: Value, position: usize, new_body: Value) -> Value {
-    let fresh = relation_node(&new_body);
-    mutated(package, position, move |node| *node = fresh)
+    let targets = targets(&new_body);
+    mutated(package, position, move |node| {
+        node["body"] = new_body;
+        node["dependencies"] = json!(targets);
+    })
 }
 
 // Reading.
@@ -573,7 +599,7 @@ fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
         CheckedNodeKind::Correspondence(CorrespondenceForm::AbstractionRelation)
     );
     let node = &package.graph().nodes[position];
-    assert_eq!(node.node_id, typed_node_id(&digest_of(&minimal)));
+    assert_eq!(node.node_id, typed_node_id(&relation_key(0)));
     assert_eq!(node.semantic_type, node.node_id);
     assert_eq!(
         serde_json::to_value(&node.body).expect("typed relation body"),
@@ -687,7 +713,7 @@ fn tc_225_empty_tuple_field_and_raw_identifier_bodies_admit() {
         let package = admitted(case, &value);
         assert_eq!(
             package.graph().nodes[at(&value, &body)].node_id,
-            typed_node_id(&digest_of(&body)),
+            typed_node_id(&relation_key(0)),
             "{case}"
         );
     }
@@ -844,7 +870,7 @@ fn tc_225_a_body_off_its_closed_shape_refuses_without_a_cause() {
             Code::InvalidSemanticGraph,
             None,
             &at_node(n, suffix),
-            Some(&digest_of(&rich)),
+            Some(&relation_key(0)),
         );
     }
 }
@@ -884,7 +910,7 @@ fn tc_225_an_occurrence_role_or_another_form_off_the_relation_refuses() {
 /// A relation node whose body root is `root`, keyed and joined as an
 /// application node, and the package holding it.
 fn rooted_in(root: Value) -> (Value, usize) {
-    let id = digest_of(&root);
+    let id = "relation/m";
     let node = plain(
         &id,
         "correspondence",
@@ -938,7 +964,7 @@ fn tc_225_an_application_at_the_body_root_refuses_as_operator_ineligible() {
             Code::IllTyped,
             Some(Cause::OperatorIneligible),
             &at_node(n, suffix),
-            Some(nodes(&value)[n]["node_id"]["digest"].as_str().expect("key")),
+            Some("relation/m"),
         );
     }
 }
@@ -969,7 +995,7 @@ fn tc_225_an_application_as_a_member_value_refuses_at_strict_wire_validation() {
         Code::IllTyped,
         Some(Cause::OperatorIneligible),
         &at_node(n, "/body/objects/0/type/operator"),
-        Some(&digest_of(&minimal)),
+        Some(&relation_key(0)),
     );
     // The member that holds it is any member, not only a node key.
     let in_frame = mutated(value.clone(), n, |node| {
@@ -1029,15 +1055,6 @@ fn tc_225_a_deeply_nested_member_refuses_as_the_wrong_shape() {
         .expect("the read ran to completion");
 }
 
-/// A member-defective relation body whose node key sorts below (`lower`) or
-/// above the node key `than`.
-fn member_defect_keyed(than: &str, lower: bool) -> Value {
-    (0..256)
-        .map(|index| member_defect(&format!("missing{index}")))
-        .find(|candidate| (digest_of(candidate).as_str() < than) == lower)
-        .expect("a candidate on that side of the key")
-}
-
 /// The step that refuses a root application is told apart by node-id order:
 /// the temporal step runs before the abstraction step over every node, so a
 /// temporal-class root is reported ahead of a member defect of a lower node
@@ -1062,12 +1079,12 @@ fn tc_225_a_root_application_is_refused_by_the_step_that_places_it() {
     // The temporal class: the root is reported though a member defect sits on
     // a node of a lower key, which the abstraction step would reach first.
     let (rooted, rooted_at) = rooted_in(temporal);
-    let root_key = nodes(&rooted)[rooted_at]["node_id"]["digest"]
+    let root_key = nodes(&rooted)[rooted_at]["node_id"]["path"][0]
         .as_str()
-        .expect("key")
+        .expect("path")
         .to_owned();
-    let defect = member_defect_keyed(&root_key, true);
-    let value = with_nodes(rooted, vec![relation_node(&defect)]);
+    let defect = member_defect("missing");
+    let value = with_nodes(rooted, vec![relation_node_named(&defect, "relation/a")]);
     root_refusal(
         "a temporal root and a lower defect",
         &value,
@@ -1077,18 +1094,21 @@ fn tc_225_a_root_application_is_refused_by_the_step_that_places_it() {
     // The ordinary class: the abstraction step reports the two nodes in key
     // order, the lower first.
     let (rooted, rooted_at) = rooted_in(ordinary);
-    let root_key = nodes(&rooted)[rooted_at]["node_id"]["digest"]
+    let root_key = nodes(&rooted)[rooted_at]["node_id"]["path"][0]
         .as_str()
-        .expect("key")
+        .expect("path")
         .to_owned();
-    let below = member_defect_keyed(&root_key, true);
-    let value = with_nodes(rooted.clone(), vec![relation_node(&below)]);
+    let below = member_defect("missingBelow");
+    let value = with_nodes(
+        rooted.clone(),
+        vec![relation_node_named(&below, "relation/a")],
+    );
     assert_eq!(
         refusal_path("an ordinary root and a lower defect", &value),
         at_node(at(&value, &below), "/body/objects/0/fields/0")
     );
-    let above = member_defect_keyed(&root_key, false);
-    let value = with_nodes(rooted, vec![relation_node(&above)]);
+    let above = member_defect("missingAbove");
+    let value = with_nodes(rooted, vec![relation_node_named(&above, "relation/z")]);
     root_refusal(
         "an ordinary root and a higher defect",
         &value,
@@ -1154,7 +1174,7 @@ fn tc_225_a_malformed_structural_target_refuses_at_the_target() {
 
 fn state_frame(context: &str) -> Value {
     let body = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [], "deletes_scoped": []});
-    let key = structural_key("state", "frame", Some(context), &body);
+    let key = format!("state/frame/{context}");
     plain(
         &key,
         "state",
@@ -1167,10 +1187,7 @@ fn state_frame(context: &str) -> Value {
 }
 
 fn operation_anchor(context: &str, operation: &str, frame_context: &str) -> Value {
-    let frame = state_frame(frame_context)["node_id"]["digest"]
-        .as_str()
-        .expect("frame key")
-        .to_owned();
+    let frame = id_label(&state_frame(frame_context)["node_id"]);
     let mut dependencies = [context.to_owned(), frame.clone()];
     dependencies.sort();
     let literal = json!({"term": "literal", "type": node_id(&text_key()), "value_kind": "text", "value": operation});
@@ -1179,7 +1196,7 @@ fn operation_anchor(context: &str, operation: &str, frame_context: &str) -> Valu
         {"term": "binding", "name": "operation", "value": literal},
         {"term": "binding", "name": "frame", "value": {"term": "reference", "target": node_id(&frame)}},
     ]});
-    let key = structural_key("state", "operation_anchor", Some(context), &body);
+    let key = format!("state/anchor/{context}/{operation}/{frame_context}");
     plain(
         &key,
         "state",
@@ -1264,7 +1281,7 @@ fn tc_225_identity_members_that_do_not_hold_refuse_at_the_node() {
     let minimal = minimal();
     let value = relations(std::slice::from_ref(&minimal));
     let n = at(&value, &minimal);
-    let own = digest_of(&minimal);
+    let own = relation_key(0);
     type Edit = Box<dyn Fn(&mut Value)>;
     let cases: Vec<(&str, Edit)> = vec![
         (
@@ -1399,7 +1416,7 @@ fn tc_225_an_array_out_of_its_canonical_order_refuses_at_the_array() {
             Code::InvalidSemanticGraph,
             None,
             &at_node(at(&value, &body), suffix),
-            Some(&digest_of(&body)),
+            Some(&relation_key(0)),
         );
     }
 }
@@ -1411,10 +1428,7 @@ fn tc_225_an_array_out_of_its_canonical_order_refuses_at_the_array() {
 #[test]
 fn tc_225_a_target_of_the_wrong_kind_or_unselected_owner_refuses_at_the_target() {
     let unselected = model_key_in(OTHER_IDENTITY, CONFIG_VERSION);
-    let frame_key = state_frame(&config_version())["node_id"]["digest"]
-        .as_str()
-        .expect("frame key")
-        .to_owned();
+    let frame_key = id_label(&state_frame(&config_version())["node_id"]);
     let in_object = |ty: &str| body(vec![object(ty, &["t"], &[])], vec![], vec![]);
     let in_population = |ty: &str| body(vec![], vec![population(ty, &["p"])], vec![]);
     let in_frame = |context: &str| {
@@ -1611,9 +1625,8 @@ fn tc_225_a_field_binding_or_rust_spelling_off_its_syntax_refuses_at_the_entry()
             .map(|entry| &entry["type"])
             .or_else(|| body["frames"].get(0).map(|entry| &entry["context"]))
             .or_else(|| body["populations"].get(0).map(|entry| &entry["population"]))
-            .and_then(|id| id["digest"].as_str())
-            .expect("a key")
-            .to_owned();
+            .map(id_label)
+            .expect("a key");
         expect(
             case,
             &value,
@@ -1982,14 +1995,12 @@ fn tc_225_a_second_binding_of_one_key_refuses_at_the_second_entry() {
     ];
     for (case, first, second, suffix, locus) in pairs {
         let value = relations(&[first.clone(), second.clone()]);
-        let mut by_key = [digest_of(&first), digest_of(&second)];
-        by_key.sort();
         expect(
             case,
             &value,
             Code::InvalidModelBinding,
             conflict,
-            &at_node(position(&value, &by_key[1]), suffix),
+            &at_node(at(&value, &second), suffix),
             Some(locus),
         );
     }
@@ -2013,7 +2024,7 @@ fn with_state(value: Value, frame_context: &str, anchor_context: &str) -> Value 
 fn call_node() -> Value {
     let call = application("call", "quire.op.function.call");
     plain(
-        &digest_of(&call),
+        "expression/call",
         "expression",
         "call",
         INTEGER,
@@ -2105,7 +2116,7 @@ fn tc_225_a_defect_of_an_earlier_step_is_reported_before_the_abstraction_step() 
         None,
     );
     // A temporal placement defect: a formula node whose body is no formula.
-    let formula_key = structural_key("temporal", "formula", Some(INTEGER), &empty());
+    let formula_key = "temporal/formula/invalid".to_owned();
     let formula = plain(
         &formula_key,
         "temporal",
@@ -2226,13 +2237,12 @@ fn tc_225_nodes_report_in_node_id_order_and_collisions_only_after_every_node() {
     // Two defective nodes: the lower node_id node's own defect.
     // The nodes are placed in the graph in descending node-key order, so the
     // lower key is the later position and a walk in position order differs.
-    let (one, other) = (member_defect("missingOne"), member_defect("missingTwo"));
-    let (lower, higher) = if digest_of(&one) < digest_of(&other) {
-        (one, other)
-    } else {
-        (other, one)
-    };
-    let value = relations(&[higher.clone(), lower.clone()]);
+    let lower = member_defect("missingOne");
+    let higher = member_defect("missingTwo");
+    let value = relations_named(&[
+        ("relation/z", higher.clone()),
+        ("relation/a", lower.clone()),
+    ]);
     assert!(
         at(&value, &lower) > at(&value, &higher),
         "the lower key is the later position"
@@ -2247,11 +2257,9 @@ fn tc_225_nodes_report_in_node_id_order_and_collisions_only_after_every_node() {
     let first = body(vec![object(&cv, &["a"], &[])], vec![], vec![]);
     let second = body(vec![object(&cv, &["b"], &[])], vec![], vec![]);
     let colliding = relations(&[first.clone(), second.clone()]);
-    let mut by_key = [digest_of(&first), digest_of(&second)];
-    by_key.sort();
     assert_eq!(
         refusal_path("the collision alone", &colliding),
-        at_node(position(&colliding, &by_key[1]), "/body/objects/0"),
+        at_node(at(&colliding, &second), "/body/objects/0"),
     );
     let defect = member_defect("missing");
     let value = relations(&[first, second, defect.clone()]);
@@ -2274,7 +2282,7 @@ fn tc_225_an_admitted_relation_node_lowers_like_any_admitted_node() {
     let value = relations(std::slice::from_ref(&minimal));
     let package = admitted("the minimal body", &value);
     let n = at(&value, &minimal);
-    let id = typed_node_id(&digest_of(&minimal));
+    let id = typed_node_id(&relation_key(0));
     let profile = CompleteLoweringProfileV2 {
         reference: quire_contract_model::LoweringProfileRef {
             authority: "quire".into(),
