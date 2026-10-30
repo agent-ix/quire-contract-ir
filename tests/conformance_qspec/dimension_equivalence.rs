@@ -176,16 +176,6 @@ fn admitted(wire: &Value, imports: &[(&str, Arc<CheckedPackageV2>)]) -> Arc<Chec
     }
 }
 
-fn base_dimensions(all: &Value) -> Vec<Value> {
-    ["clock_time", "flow_time", "rpc_time"]
-        .map(|name| {
-            let row = &all[name];
-            dimension_node(row["package"].as_str().expect("package"), row, all)
-        })
-        .into_iter()
-        .collect()
-}
-
 fn dimension_packages(all: &Value) -> Vec<(String, Arc<CheckedPackageV2>)> {
     let named = |name: &str| {
         let row = &all[name];
@@ -195,8 +185,7 @@ fn dimension_packages(all: &Value) -> Vec<(String, Arc<CheckedPackageV2>)> {
     let rpc_nodes = ["rpc_time", "rpc_s", "rpc_length", "rpc_speed"].map(named);
     let rpc = admitted(&package(rpc_name, &rpc_nodes, &[]), &[]);
     let flow_name = "acme/flow";
-    let mut flow_nodes = vec![named("rpc_length")];
-    flow_nodes.extend(["flow_time", "flow_speed", "flow_accel"].map(named));
+    let flow_nodes = ["flow_time", "flow_speed", "flow_accel"].map(named);
     let flow = admitted(
         &package(flow_name, &flow_nodes, &[rpc_name]),
         &[(rpc_name, Arc::clone(&rpc))],
@@ -227,15 +216,13 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
         .iter()
         .map(|(name, value)| (name.as_str(), Arc::clone(value)))
         .collect::<Vec<_>>();
-    let base = base_dimensions(all);
     let equivalences = xp01["equivalences"].as_array().expect("equivalences");
     assert_eq!(equivalences.len(), 3);
     let mut authored = Vec::new();
     for (index, case) in equivalences.iter().enumerate() {
         let name = format!("equivalence/{index}");
         let node = equivalence_node(&name, case, index, all);
-        let mut graph = base.clone();
-        graph.push(node);
+        let graph = vec![node];
         let imports = dimensions
             .iter()
             .map(|(name, _)| name.as_str())
@@ -244,7 +231,7 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
         let read = admitted(&wire, &dimension_imports);
         authored.push((name, read));
     }
-    let mut graph = base;
+    let mut graph = Vec::new();
     for (index, case) in equivalences.iter().enumerate() {
         graph.push(equivalence_node(&authored[index].0, case, index, all));
     }
@@ -258,12 +245,12 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
         .collect::<Vec<_>>();
     let wire = package("example", &graph, &imports);
     let read = admitted(&wire, &evidence);
-    assert_eq!(read.graph().nodes.len(), 6);
+    assert_eq!(read.graph().nodes.len(), 3);
     for (index, case) in equivalences.iter().enumerate() {
-        let retained = &read.graph().nodes[3 + index];
+        let retained = &read.graph().nodes[index];
         assert_eq!(
             serde_json::to_value(&retained.node_id).expect("node id"),
-            graph[3 + index]["node_id"]
+            graph[index]["node_id"]
         );
         assert_eq!(
             serde_json::to_value(&retained.body).expect("typed equivalence body")["root_scale"],
@@ -288,29 +275,14 @@ fn xp_adverse_pairs_refuse_at_the_published_equivalence() {
         .iter()
         .map(|(name, value)| (name.as_str(), Arc::clone(value)))
         .collect::<Vec<_>>();
-    let mut graph = base_dimensions(all);
-    // The unit and derived dimensions are present so XP-05 and XP-08..10
-    // reach equivalence validation rather than fail on absent references.
-    for name in [
-        "rpc_s",
-        "rpc_length",
-        "rpc_speed",
-        "flow_speed",
-        "flow_accel",
-    ] {
-        let row = &all[name];
-        graph.push(dimension_node(
-            row["package"].as_str().expect("package"),
-            row,
-            all,
-        ));
-    }
+    // All referenced dimensions are read from their selected dependency
+    // packages, including the unit and derived dimensions in XP-05/08..10.
     for case in vectors["cases"].as_array().expect("cases") {
         let id = case["id"].as_str().expect("case id");
         if id == "XP-01" {
             continue;
         }
-        let mut nodes = graph.clone();
+        let mut nodes = Vec::new();
         for (index, equivalence) in case["equivalences"]
             .as_array()
             .expect("equivalences")
@@ -341,7 +313,7 @@ fn xp_adverse_pairs_refuse_at_the_published_equivalence() {
                 );
                 let at = usize::try_from(case["at"].as_u64().expect("refused equivalence"))
                     .expect("vector index fits usize");
-                let expected = format!("/semantic_graph/nodes/{}", graph.len() + at);
+                let expected = format!("/semantic_graph/nodes/{at}");
                 assert_eq!(
                     refusal.loci[0]
                         .path
