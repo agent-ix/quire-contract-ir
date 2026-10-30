@@ -1035,7 +1035,7 @@ fn model_owner(identity: &str, node: &str) -> Value {
     json!({"kind": "model", "identity": identity, "node": node})
 }
 
-#[trace("TC-048", "FR-038-AC-45", "FR-063-AC-5")]
+#[trace("TC-048", "FR-038-AC-45", "FR-063-AC-5", "FR-038-AC-367")]
 #[test]
 fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_document() {
     // The closed model owner `{kind, identity, node}` admits against an
@@ -1092,7 +1092,7 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_doc
 /// AC-367 selected-declaration edit slice: a retained model-owned dimension
 /// cannot silently bind to a different selected declaration under the same
 /// domain-package identity and structural node id.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-367")]
 #[test]
 fn selected_model_declaration_edit_revalidates_the_retained_owner() {
     let owner = model_owner("test/orders", "ix://test/orders/Length");
@@ -1113,7 +1113,7 @@ fn selected_model_declaration_edit_revalidates_the_retained_owner() {
 
 /// AC-367 source-meaning edit slice: the same source selection and declared
 /// structural id do not exempt an edited source-owned body from wire checks.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-367")]
 #[test]
 fn edited_source_owned_body_revalidates_without_a_stale_identity_gate() {
     let mut package = v2_nominal();
