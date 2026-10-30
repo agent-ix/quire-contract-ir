@@ -1357,40 +1357,15 @@ pub fn family_key(prefix: &str) -> String {
     match prefix {
         "aaaa" | "a6a6" => boolean_key(),
         "a3a3" => integer_key(),
-        "ffff" => application_key(
-            "function",
-            "pure_function",
-            &node_id(&family_key("aaaa")),
-            &function_call_body(),
-        ),
-        "4040" => application_key(
-            "temporal",
-            "temporal_clause",
-            &node_id(&family_key("aaaa")),
-            &temporal_clause_body(),
-        ),
-        "a2a2" => application_key(
-            "temporal",
-            "formula",
-            &node_id(&family_key("aaaa")),
-            &eventually_formula_body(),
-        ),
-        "a5a5" => application_key(
-            "temporal",
-            "formula",
-            &node_id(&family_key("aaaa")),
-            &holds_formula_body(),
-        ),
+        "ffff" => "application/function/pure_function/quire.op.function.call".into(),
+        "4040" => "application/temporal/temporal_clause/quire.op.temporal.clause".into(),
+        "a2a2" => "application/temporal/formula/quire.op.temporal.eventually".into(),
+        "a5a5" => "application/temporal/formula/quire.op.temporal.holds".into(),
         "5050" => "qualified:Example/OrderFlow".into(),
         "p-run" => "qualified:Example/OrderFlow/run/Main".into(),
         "p-finish" => "qualified:Example/OrderFlow/finish/Closed".into(),
         "p-close" => "value/parameter/closed".into(),
-        "6060" => application_key(
-            "claim",
-            "verification_claim",
-            &node_id(&family_key("aaaa")),
-            &claim_clause_body(),
-        ),
+        "6060" => "application/claim/verification_claim/quire.op.claim.clause".into(),
         "8080" => "qualified:Example/Function".into(),
         other => format!("fixture/{other}"),
     }
@@ -1750,8 +1725,8 @@ fn empty_aggregate() -> Value {
     json!({"term": "aggregate", "members": Value::Array(Vec::new())})
 }
 
-/// An application-bodied node, keyed by [`application_key`] rather than a
-/// placeholder digest. `result_type` doubles as the node's own `semantic_type`:
+/// An application-bodied node with a fixture-authored structural path.
+/// `result_type` doubles as the node's own `semantic_type`:
 /// an application node's semantic type is the type of the value it produces,
 /// the same type its own body already names as `result_type`. Every caller in
 /// `build_v2_all_families` happens to pass `"aaaa"` for both, but
@@ -1770,6 +1745,8 @@ fn application_node(
     dependencies: &[&str],
 ) -> Value {
     let semantic_type = node_id(result_type);
+    let identity = operation["identity"].as_str().expect("operation identity");
+    let key = format!("application/{node_tag}/{semantic_form}/{identity}");
     let body = json!({
         "term": "application",
         "operator": operator,
@@ -1777,9 +1754,8 @@ fn application_node(
         "result_type": node_id(result_type),
         "arguments": arguments,
     });
-    let digest = application_key(node_tag, semantic_form, &semantic_type, &body);
     json!({
-        "node_id": node_id(&digest),
+        "node_id": node_id(&key),
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": node_tag,
         "semantic_form": semantic_form,
