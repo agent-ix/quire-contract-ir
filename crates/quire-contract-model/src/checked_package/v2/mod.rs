@@ -523,16 +523,12 @@ impl<Body: Clone> From<&CheckedSemanticNodeV2<Body>> for CheckedNodeProjectionV2
     }
 }
 
-/// One selected library dependency (QSpec `DependencySelection`, FR-322
-/// `dependency_selections`): the library identity an import names, and the
-/// dependency's own semantic package identity.
+/// One selected library dependency, identified by the imported library name.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedDependencySelection {
     /// Library identity; the sort and uniqueness key of the array.
     pub identity: Box<str>,
-    /// The dependency's `quire.package.semantic/v2` package identity.
-    pub package_id: CheckedSemanticId,
 }
 
 /// The exact immutable V2 package lock.
@@ -751,7 +747,7 @@ macro_rules! checked_package_envelope {
     ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
         #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct CheckedPackageEnvelope<C, P, I, L, G, S, R, A, D> {
+        struct CheckedPackageEnvelope<C, N, L, G, S, R, A, D> {
             $($name: $parameter,)+
             #[serde(default, skip_serializing_if = "Option::is_none")]
             refinement_step_rows: Option<R>,
@@ -759,8 +755,7 @@ macro_rules! checked_package_envelope {
 
         impl<Body: quire_canonical::Encode> quire_canonical::Encode for CheckedPackageEnvelope<
             &str,
-            &encode::SelectionFields<'_>,
-            &CheckedSemanticId,
+            &str,
             &CheckedPackageLockV2,
             &CheckedSemanticGraphV2<Body>,
             &[CheckedSourceMapEntry],
@@ -783,8 +778,7 @@ macro_rules! checked_package_envelope {
 
 checked_package_envelope! {
     contract_version: C => fixed,
-    identity_preimage: P => nested,
-    package_id: I => fixed,
+    name: N => fixed,
     lock: L => fixed,
     semantic_graph: G => nested,
     source_map: S => fixed,
@@ -794,8 +788,7 @@ checked_package_envelope! {
 
 type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     Box<str>,
-    CheckedPackageIdentityPreimageV2,
-    CheckedSemanticId,
+    Box<str>,
     CheckedPackageLockV2,
     CheckedSemanticGraphV2<Body>,
     Vec<CheckedSourceMapEntry>,
@@ -816,24 +809,9 @@ pub struct CheckedPackageSourceCorrespondenceRef<'a> {
 }
 
 /// Canonically encodes a complete checked-package V2 envelope under the
-/// caller's byte limits. The graph and borrowed projection must use the same
-/// body representation; typed producers use [`CheckedTerm`]. Identity
-/// construction and admission belong to the producer and reader respectively.
-///
-/// The encoder requires the borrowed projection view; the owned reader
-/// preimage is not a producer argument.
-///
-/// ```compile_fail
-/// use quire_contract_model::{encode_checked_package_v2, CheckedPackageIdentityPreimageV2};
-/// let owned: &CheckedPackageIdentityPreimageV2 = todo!();
-/// let _ = encode_checked_package_v2(
-///     owned, todo!(), todo!(), todo!(), todo!(), todo!(), todo!(),
-///     todo!(),
-/// );
-/// ```
+/// caller's byte limits. The supplied name is the package's identity.
 pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
-    identity_preimage: &CheckedPackageIdentityPreimageRefV2<'_, Body>,
-    package_id: &CheckedSemanticId,
+    name: &str,
     lock: &CheckedPackageLockV2,
     semantic_graph: &CheckedSemanticGraphV2<Body>,
     sources: CheckedPackageSourceCorrespondenceRef<'_>,
@@ -841,11 +819,9 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
     diagnostics: &CheckedDiagnosticsV2,
     limits: quire_canonical::Limits,
 ) -> Result<Vec<u8>, quire_canonical::Error> {
-    let selection = encode::SelectionFields::from(identity_preimage);
     let envelope = CheckedPackageEnvelope {
         contract_version: CHECKED_PACKAGE_V2,
-        identity_preimage: &selection,
-        package_id,
+        name,
         lock,
         semantic_graph,
         source_map: sources.source_map,
@@ -1278,8 +1254,7 @@ impl CheckedPackageV2 {
             ClosureIndex::from_direct(&wire.lock.dependency_selections, &direct_dependencies);
         let CheckedPackageEnvelope {
             contract_version,
-            identity_preimage,
-            package_id,
+            name,
             lock,
             semantic_graph,
             source_map,
@@ -1304,8 +1279,7 @@ impl CheckedPackageV2 {
         };
         let wire = CheckedPackageEnvelope {
             contract_version,
-            identity_preimage,
-            package_id,
+            name,
             lock,
             semantic_graph,
             source_map,
@@ -1329,14 +1303,9 @@ impl CheckedPackageV2 {
         })
     }
 
-    /// The versioned semantic package identity.
-    pub fn package_id(&self) -> &CheckedSemanticId {
-        &self.wire.package_id
-    }
-
-    /// The exact identity preimage.
-    pub fn identity_preimage(&self) -> &CheckedPackageIdentityPreimageV2 {
-        &self.wire.identity_preimage
+    /// The package's exact name identity.
+    pub fn name(&self) -> &str {
+        &self.wire.name
     }
 
     /// The exact immutable lock.
@@ -1385,39 +1354,17 @@ impl CheckedPackageV2 {
     }
 }
 
-/// Checks the package's fixed wire tags: contract version, digest domain,
-/// digest algorithm and identity preimage version.
-// Intake: checks the fixed version, domain and algorithm tags of the package.
+/// Checks the contract version and nonempty package name.
 fn check_package_header(wire: &RawCheckedPackageWireV2) -> Result<(), ValidationFailure> {
     if PackageWireTag::from_wire(&wire.contract_version) != Some(PackageWireTag::ContractVersion) {
         return Err(ValidationFailure::unknown_contract_version(
             &wire.contract_version,
         ));
     }
-    if PackageWireTag::from_wire(&wire.package_id.domain) != Some(PackageWireTag::PackageDomain) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::DigestDomainMismatch,
-            member_pointer(&["package_id", "domain"]),
-        ));
-    }
-    if PackageWireTag::from_wire(&wire.package_id.algorithm) != Some(PackageWireTag::Sha256) {
+    if !is_nonempty(&wire.name) {
         return Err(refuse(
             CheckedPackageRefusalCode::MalformedWire,
-            member_pointer(&["package_id", "algorithm"]),
-        ));
-    }
-    if !is_digest(&wire.package_id.digest) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            member_pointer(&["package_id", "digest"]),
-        ));
-    }
-    if PackageWireTag::from_wire(&wire.identity_preimage.version)
-        != Some(PackageWireTag::IdentityVersion)
-    {
-        return Err(refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            member_pointer(&["identity_preimage", "version"]),
+            member_pointer(&["name"]),
         ));
     }
     Ok(())
@@ -1446,41 +1393,6 @@ fn validate(
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
     flat_wire::check(wire)?;
-    // The package id is the SHA-256 of the preimage's canonical bytes with no
-    // domain label hashed in. A document that passed intake holds only numbers
-    // `quire-canonical` encodes and a preimage no longer than the byte limit,
-    // so this refusal is not reachable from one.
-    let selections = &wire.identity_preimage;
-    let preimage = CheckedPackageIdentityPreimageRefV2 {
-        version: &selections.version,
-        edition: &selections.edition,
-        profile_selections: &selections.profile_selections,
-        definition_selections: &selections.definition_selections,
-        required_features: &selections.required_features,
-        dependency_selections: &selections.dependency_selections,
-        identity_projection: &wire.semantic_graph.nodes,
-    };
-    let computed = quire_canonical::sha256(&preimage, quire_canonical::Limits::new(limits.bytes))
-        .map_err(|_| {
-        refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            member_pointer(&["identity_preimage"]),
-        )
-    })?;
-    if computed.to_string() != wire.package_id.digest.as_ref() {
-        return Err(ValidationFailure::Refused(Box::new(
-            CheckedPackageRefusal::mismatch(
-                member_pointer(&["package_id", "digest"]),
-                CheckedPackageRefusalCause::ContentMismatch,
-                wire.package_id.clone(),
-                CheckedSemanticId {
-                    domain: PACKAGE_DOMAIN_V2.into(),
-                    algorithm: "sha256".into(),
-                    digest: computed.to_string().into(),
-                },
-            ),
-        )));
-    }
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
         models,
@@ -1632,9 +1544,6 @@ fn validate_lock<'a>(
             member_pointer(&["lock", "sources"]),
         ));
     }
-    if let Some(path) = non_graph_lock_difference(&wire.identity_preimage, lock) {
-        return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
-    }
     for (index, source) in lock.sources.iter().enumerate() {
         validate_locked_source(source, &|| {
             member_pointer(&["lock", "sources"]).index(index)
@@ -1697,38 +1606,22 @@ fn validate_lock<'a>(
     })
 }
 
-/// Checks `lock.dependency_selections` (FR-322): each entry's `package_id`
-/// domain and shape, then one entry per identity, then strictly ascending
+/// Checks `lock.dependency_selections` (FR-322): nonempty identity,
+/// uniqueness, then strictly ascending
 /// UTF-8 byte order of `identity`. Each condition sweeps the whole array
 /// before the next, so the refusal is decided by defect class and not by
 /// array position. A repeated identity refuses `invalid_package` /
 /// `conflicting-definition` at the repeating entry, the later of the two
 /// entries FR-322 names as loci; an entry not strictly after its
 /// predecessor refuses `invalid_package` / `invalid-value` at that entry.
-/// The identity preimage's copy equals the lock's (checked by the caller),
-/// so only the lock is checked.
-// Intake: checks the fixed domain and algorithm tags of each selection.
+/// Only the lock carries selections.
 fn validate_dependency_selections(
     selections: &[CheckedDependencySelection],
 ) -> Result<(), ValidationFailure> {
     let at = |index: usize| member_pointer(&["lock", "dependency_selections"]).index(index);
-    if let Some(index) = selections.iter().position(|entry| {
-        PackageWireTag::from_wire(&entry.package_id.domain) != Some(PackageWireTag::PackageDomain)
-    }) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::DigestDomainMismatch,
-            at(index).key("package_id").key("domain"),
-        ));
-    }
     let malformed = selections.iter().enumerate().find_map(|(index, entry)| {
         if !is_nonempty(&entry.identity) {
             Some(at(index).key("identity"))
-        } else if PackageWireTag::from_wire(&entry.package_id.algorithm)
-            != Some(PackageWireTag::Sha256)
-        {
-            Some(at(index).key("package_id").key("algorithm"))
-        } else if !is_digest(&entry.package_id.digest) {
-            Some(at(index).key("package_id").key("digest"))
         } else {
             None
         }
