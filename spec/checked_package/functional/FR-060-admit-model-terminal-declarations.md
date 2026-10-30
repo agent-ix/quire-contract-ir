@@ -59,7 +59,7 @@ The reader SHALL run FR-322's earlier strict-wire, graph-shape and structural-id
 before the terminal body step. The terminal step SHALL follow the state-graph,
 temporal and abstraction steps and precede the step-relation, hybrid,
 timed-model, protocol and schedulability steps. It SHALL visit terminal
-nodes by ascending node-id digest. For each node it SHALL check exact body
+nodes by ascending structural node id. For each node it SHALL check exact body
 shape; mode; mode fit of `parameters` then `condition`; targets in body order;
 and, after every node's own checks, uniqueness per model. Shape and mode-fit
 defects refuse `invalid_semantic_graph` at the body or offending binding.

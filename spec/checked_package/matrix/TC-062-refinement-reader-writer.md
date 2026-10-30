@@ -40,9 +40,7 @@ defects at the earlier/meaning stages. Do not treat a `steps` permutation as
 an order defect. For a missing generated occurrence,
 remove its `source_map` entry and assert `/source_map`; for duplicate,
 extra-role, extra-ordinal and wrong-region entries, assert the offending
-entry's pointer. For within-node precedence, combine a retained stale
-refinement key with a valid permutation of `steps` and assert the stale-key
-refusal; with structural ids retained, combine that permutation with a
+entry's pointer. For within-node precedence, combine a duplicate structural refinement id with a valid permutation of `steps` and assert the duplicate-id refusal; with distinct valid structural ids, combine that permutation with a
 wrong-kind `abstract` header and assert the `abstract` join refusal, then
 repair the header and assert admission with the received step order. Combine a
 wrong-kind `semantic_type` with wrong-kind `abstract`, optional `protocol`
@@ -110,8 +108,7 @@ protocol refinement with a present catalog; change its row class to one
 absent from the concrete catalog, then restore the class and change its
 `source_node` away from the matching catalog entry. Confirm the existing
 missing-class and wrong-node refusals. Retain all structural ids and update exact bodies.
-identities after each mutation except an intentional stale-key precedence
-control.
+structural ids and complete bodies after each mutation except the intentional duplicate-id precedence control.
 
 ## Expected Results
 

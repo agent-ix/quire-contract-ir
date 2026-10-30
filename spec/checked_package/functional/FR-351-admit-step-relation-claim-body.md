@@ -78,9 +78,9 @@ declared operation parameters. Levels shall start at zero and continue without
 reset across executions; each execution shall reference its own nodes, even
 when two executions name one operation. `preconditions` and `postconditions`
 shall be exactly the matching state clauses anchored at that operation,
-ascending by node-id digest. Each subject's `invariants` shall be exactly the
+ascending by structural node id. Each subject's `invariants` shall be exactly the
 invariant state clauses anchored at an object type, process or state machine
-of its model, ascending by node-id digest. The `body` target shall be an
+of its model, ascending by structural node id. The `body` target shall be an
 expression node with Boolean `semantic_type` and its reads of each execution's
 arguments, receiver states and result shall resolve to that execution's own
 parameter nodes. The reader shall derive the code-claim request only when
@@ -90,22 +90,11 @@ FR-402 obligation identities over the one claim occurrence.
 
 ### Identity and order
 
-The reader shall apply FR-322's existing graph, reference, dependency, owner,
-source-map and identity checks to this form. The node's dependencies shall be
-exactly the unique structural-id-ascending body reference targets; its FR-322 node
-key shall include its owner, declaration and entire body. The package's
-identity projection shall include that key and body, so a changed invariant,
-precondition, execution order, binder or implementation changes the node and
-complete package value when the producer writes them. Source whitespace and
-comments shall not change admitted semantic identity. The writer shall emit
-the same canonical body, dependencies, key-bearing data and V2 bytes from the
-retained typed package, and its output shall read back with the same typed
-claim and identity. The public reader shall also admit canonical bytes emitted
-by the external QSL producer under this QSpec contract.
+The reader shall apply FR-322's graph, reference, dependency, owner, source-map and structural-id checks to this form. The node's dependencies shall be exactly the unique structural-id-ascending body reference targets. Its id is the retained `{package,path,ordinal}` label; the reader does not rederive it from owner, declaration or body. A changed invariant, precondition, execution order, binder or implementation changes the complete typed body and package value, while the declared path and package name may remain unchanged. Source whitespace and comments do not alter the typed body. The writer shall emit the same canonical body, dependencies, structural id and V2 bytes from the retained typed package, and its output shall read back with the same typed claim. The public reader shall also admit canonical bytes emitted by the external QSL producer under this QSpec contract.
 
 The step-relation body step shall run after the terminal step and before the
 protocol step, in FR-322 body-step order. It shall visit `claim`/
-`step_relation` nodes by ascending node-id digest. Within one node the reader
+`step_relation` nodes by ascending structural node id. Within one node the reader
 shall check shape, aliases, targets in body order, premises, then Boolean body,
 reporting the first failure. Shape errors refuse `invalid_semantic_graph` at
 the first binding breaking layout. An alias with no subject refuses
@@ -115,8 +104,7 @@ operation-to-model joins, implementation frame joins and premise sets or
 binder lists refuse `invalid_model_binding`/`malformed-declaration` at the
 offending target or aggregate. A non-Boolean body target refuses
 `ill_typed`/`non-boolean-root` at that target. Earlier package stages retain
-their precedence; a stale key or wrong dependency list is refused at its
-FR-322 stage before this body's semantic joins.
+their precedence; a malformed or duplicate structural id or wrong dependency list is refused at its FR-322 stage before this body's semantic joins.
 
 ## Acceptance Criteria
 

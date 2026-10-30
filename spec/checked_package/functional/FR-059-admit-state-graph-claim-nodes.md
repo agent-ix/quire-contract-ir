@@ -62,7 +62,7 @@ request layer.
 The reader SHALL apply FR-322's earlier strict-wire, graph-shape and key
 checks before the state-graph body step. The state-graph step SHALL precede
 the temporal, abstraction, terminal and later body steps. It SHALL visit
-state-graph nodes by ascending node-id digest and check one node in this
+state-graph nodes by ascending structural node id and check one node in this
 order: exact body shape; `kind`; form fit of `over`, `from`, `target`; and
 target meanings in body order. Shape defects refuse `invalid_semantic_graph`
 at the body; an invalid `kind` refuses `invalid_package`/`invalid-value` at

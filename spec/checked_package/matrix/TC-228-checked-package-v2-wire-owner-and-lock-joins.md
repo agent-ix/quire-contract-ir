@@ -40,8 +40,7 @@ fixtures from its selected checkout; copy no fixture into this repository.
    `interfaceFeatures`. Retain well-formed structural ids so a malformed graph id cannot mask the owner join.
    Give an unreachable clause function an absent operation member, then a
    field as its owner node; as positive controls, use an operation member's
-   clause and an object type's invariant. Place a stale key on a lower-key
-   node beside an invalid owner, and measure the exact work limit around one
+   clause and an object type's invariant. Place a duplicate structural id on a lower-id node beside an invalid owner, and measure the exact work limit around one
    selected-document lookup.
 
 ## Expected Results
@@ -53,7 +52,7 @@ at the present `owner`; no occurrence repairs the omission. An added top-level i
 Unmatched source owners and unresolved or wrong-kind model owners, including
 both `interfaceFeatures` cross-kind mutations, refuse
 `missing_declaration`/`missing-selection` at the lowest-key offending node,
-even when it is unreachable and another lower-key node has a stale key. A
+even when it is unreachable and another lower-id node has a duplicate id. A
 declaration occurrence whose source differs from its owner refuses
 `invalid_package`/`invalid-value` at its source-map entry. The operation
 clause and invariant owners pass. One document lookup consumes one validation

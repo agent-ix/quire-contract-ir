@@ -169,7 +169,7 @@ represented match receives `IncompleteContext`. A bare `lower([add])` package
 cannot answer `Some(narrow)` as `Narrowed` because its narrow root and
 occurrence are absent. The add's forward `reached_closure` remains unchanged.
 
-The result SHALL retain the exact selected source package identity, lowering
+The result SHALL retain the exact selected source package name, lowering
 profile, requirement occurrence, requested key, selected conversion occurrence
 and key when present, bound key and source-map occurrences
 from the admitted package. A `dependency_reference` SHALL remain the selected
@@ -182,7 +182,7 @@ selected package or target before constructing an admitted value. The API SHALL 
 local result bound from an external target it has not resolved under that
 selection.
 
-Contract IR SHALL derive the result from the six existing FR-330 fields and its
+Contract IR SHALL derive the result from the five existing FR-330 fields and its
 admitted IR knowledge. Querying it SHALL leave those fields, their complete canonical value,
 the [FR-035](./FR-035-complete-v1-contract-package-lowering.md) forward
 `reached_closure` membership, and the reader's admission and first-refusal
@@ -214,7 +214,7 @@ which conversion occurrence belongs to which application occurrence.
 | FR-049-AC-3 | For `Some`, an absent, non-lowered or unrepresented conversion root, a conversion occurrence absent from the admitted source map (including a role or ordinal with no matching entry), a wrong operation/form, or an argument that does not directly reference the supplied expression key returns typed `IncompleteContext` with no selected bound. A different admitted ordinal that names another represented direct narrow over the same expression key is structurally valid in IR; the QSL driver supplies the occurrence belonging to this item. Distinct source regions for a valid application and its direct narrow do not cause refusal. A local consumer that fails the direct-narrow checks cannot satisfy `Some` or turn a QSL `None` into `Narrowed`. QSL `check` refuses a narrowed site with zero or multiple matching direct narrow occurrences before IR receives an admitted package. | Test |
 | FR-049-AC-4 | A non-lowered expression root returns its exact disposition, and an unrequested or absent expression key returns typed absence. A context-only root receives its own FR-035 accounting record but no additional QSL routed item or claim. An application occurrence absent from the admitted source map or naming a different expression key, a non-lowered required context root, an inconsistent post-admission edge or an exhausted work limit returns typed refusal/error without partial result context. Another represented application occurrence of the same expression key is not an IR-detectable mismatch; the QSL driver preserves the checked item's exact application occurrence. | Test |
 | FR-049-AC-5 | The result identifies the exact application and selected conversion occurrences, expression key, source package and lowering profile, with admitted source-map entries for expression, conversion and result bound. Two QSL items sharing one expression key but carrying different direct-narrow occurrences and result bounds retain distinct outcomes when the driver supplies each item's own QSL checked occurrence/context pair, even when both narrows are represented in one package. IR does not claim to detect a swap between two represented direct narrows over that shared key without an IR-visible binding witness. A selected external reference retains its package/key pair; an identically keyed local node cannot satisfy it, and an unavailable selected package or target is refused at reader admission. | Test |
-| FR-049-AC-6 | Contextual lowering emits exactly the existing six FR-330 fields, with one accounting record per expression or context root; adding a context root changes the graph, accounting and complete canonical value as FR-035 requires. A read-only query with the QSL item occurrence and optional conversion occurrence mutates none of those fields or the identity, and the add's forward closure does not grow to include its reverse consumer. CG consumes the IR result without an original checked graph or second lowering pass. | Test |
+| FR-049-AC-6 | Contextual lowering emits exactly the existing five FR-330 fields, with one accounting record per expression or context root; adding a context root changes the graph, accounting and complete canonical bytes while retaining the package name as FR-035 requires. A read-only query with the QSL item occurrence and optional conversion occurrence mutates none of those fields or the package name, and the add's forward closure does not grow to include its reverse consumer. CG consumes the IR result without an original checked graph or second lowering pass. | Test |
 
 ## Dependencies
 

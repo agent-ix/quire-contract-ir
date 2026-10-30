@@ -175,6 +175,10 @@ For AC-18, use a self-typed body-root literal and nested or other references to 
 
 For AC-45, read a model-owned declaration with owner `{kind: model, identity, node}` and no version. Its selected model-root identity and declaration node join admit; a foreign owner, missing selected document, empty owner value or extra owner member returns the exact owner or wire refusal. Replacing a selected document with a different body under the same name reaches its independent model and member validation rather than a content-key check.
 
+## IR-1141 structural owner and graph controls (FR-038-AC-343)
+
+Read one positive V2 package with declared and derived structural ids. Independently mutate it to duplicate a node id, mismatch a declared path and qualified name, break a derived body shape, select an absent or unselected owner, leave a `reference` target dangling, give a compound unit a wrong shape, and leave a frame `semantic_type` unresolved. For each mutation, keep unrelated ids and bodies valid, read through the public reader, and compare exact code, cause and RFC 6901 pointer. Pair an owner-selection defect with a dependent dangling edge and require the owner refusal; pair a graph-shape defect with an owner or body defect and require the graph refusal. No content-key or nominal-rekey vector is used.
+
 ## Expected Results
 
 Valid protocol references to clause, role and control nodes admit with exact local targets and one graph collection. Extra or unequal dependencies refuse `invalid_semantic_graph` at `/dependencies`; absent local targets refuse `missing_declaration`/`missing-name` at `/body/target`, even if a dependency package has the same id. Wrong form or type refuses `ill_typed`/`operator-ineligible`. Malformed body, group, owner and occurrence controls refuse at their own earlier stages, and no failure is attributed to a removed identity check.
@@ -1375,7 +1379,7 @@ vector or schema is copied into this repository.
     at the catalog member for missing or forbidden presence. Include an
     admitted abstract clause from a directly selected dependency and an
     owned `parallel` with separate `fork` and `join` classes so neither side
-    is reduced to step-row membership. Pair a rekeyed catalog defect with
+    is reduced to step-row membership. Pair a catalog defect in an otherwise structurally valid package with
     an independent protocol-body defect and then an earlier refinement-row
     defect: require the row defect before the body defect, and the body
     defect before the class-catalog graph join (FR-064-AC-5,
@@ -1385,7 +1389,7 @@ vector or schema is copied into this repository.
     single source defaults `sc`, `tso` and `ra`. Require a node-free, binder-free
     `memory drain` entry with `drain: store-buffer-flush` for each default;
     require `memory flush` with `memory_model: tso` only for `tso`. Keep the
-    memory class when no refinement step row names it. In separate rekeyed
+    memory class when no refinement step row names it. In separate separate structurally valid
     packages, omit a required memory class, add `memory flush` under `sc` or
     `ra`, change the drain model or drain member, and duplicate or reorder a
     memory entry. Compare the exact QSpec FR-375 code, cause and catalog
@@ -1400,7 +1404,7 @@ vector or schema is copied into this repository.
     `memory flush` entry. Require admission with the three drains in
     `ra`, `sc`, `tso` order followed by the flush, including when two
     `parallel` controls select the same default; the repeated model contributes
-    one entry. Rekey and refuse a duplicate (`memory drain`, `memory_model`)
+    one entry. In separate structurally valid packages, refuse a duplicate (`memory drain`, `memory_model`)
     pair or a declared class spelling at the later duplicate catalog entry,
     and a reordered pair at the first out-of-order entry, in the earlier
     refinement canonical-order step. Omit a distinct default or add an
@@ -1410,8 +1414,7 @@ vector or schema is copied into this repository.
     Require `activate <protocol>` to name the clause node on the concrete
     side and its clause `RefinementKey` on the abstract side, with `[T]` for
     non-record `T` and one binder type per effective record field. A clause
-    activated `on origin` contributes no activate entry. Rekey independently
-    with the trigger node substituted for the clause, another clause node,
+    activated `on origin` contributes no activate entry. In separate structurally valid packages, substitute the trigger node substituted for the clause, another clause node,
     a wrong binder type, reversed binder order, a missing activate entry
     and an extra origin entry. Require respectively
     `invalid_model_binding`/`malformed-declaration` at the entry for the
@@ -1456,8 +1459,7 @@ vector or schema is copied into this repository.
     FR-464 fixed kind segment and intervening control ancestors. Include
     QSL-authored declaration shapes `[P, finish, Done]` and
     `[P, run, Main, Par]` with classes `P::Done`, `fork P::Par` and
-    `join P::Par`; require admission with their node associations. Rekey
-    separate packages with a class spelling that drops a clause-path
+    `join P::Par`; require admission with their node associations. Construct separate structurally valid packages with a class spelling that drops a clause-path
     segment, uses the other clause's or member's name, or includes the
     fixed kind or an ancestor control name; require
     `invalid_semantic_graph` at the missing class's array or the extra
@@ -1465,7 +1467,7 @@ vector or schema is copied into this repository.
     FR-464 qualified names, FR-432 class spellings).
 17. Build an admitted compensation template with its FR-432 `cend` class
     and no step row naming that class. Require its template-node association
-    in the complete concrete catalog and admission. Rekey separate packages
+    in the complete concrete catalog and admission. Construct separate structurally valid packages
     omitting `cend`, adding it under another template node, or adding it to
     a subject with no such template; require respectively
     `invalid_semantic_graph` at the concrete catalog array,
@@ -1621,9 +1623,9 @@ flattened form is not refused `malformed_wire`; the nested `case` and the
 misplaced body root refuse `ill_typed`/`operator-ineligible` at the pointer
 AC-115 gives, the `details` and node-body cases at the first construct in document
 pre-order, and the `details` application of another class `malformed_wire`; the
-stale non-`case` package refuses `malformed_wire`, the stale nested-`case` package
-`ill_typed`/`operator-ineligible` at the `operator`, and the flattened form refuses
-at an identity check; the scan finds none of the names and no depth member or
+malformed non-`case` package refuses `malformed_wire`, the nested `case` package
+`ill_typed`/`operator-ineligible` at the `operator`, and the flattened form
+proceeds to independent graph and body checks; the scan finds none of the names and no depth member or
 variant, and the 100000-node chain is admitted and lowered with no outcome naming a
 depth and no stack overflow; the 300-level document refuses `malformed_wire` with no
 pointer at the strict parse and the 20-level one, and each one within the parse's
@@ -1717,8 +1719,8 @@ Expected: AC-119's inputs all admit. AC-120's inputs refuse
 `invalid_package`/`invalid-value` at `.../interval/lower` or `.../interval/upper`
 (the failing bound, first in member order, so `lower` for the two-failure input), in
 strict wire validation and under each profile read, the package with the later pattern
-failure refuses at that later node, and the stale-identity packages refuse
-`invalid-value` at the bound and not at an identity check. AC-121: `{2, 4}` refuses
+failure refuses at that later node, and the body-edited packages with retained structural ids refuse
+`invalid-value` at the bound before a later profile-fit defect. AC-121: `{2, 4}` refuses
 `invalid_semantic_graph` at its bound, including beside the profile-fit defect; the
 `{2, 4}` lower with a negative upper refuses `invalid-value` at `upper`, the negative
 lower with a non-reduced upper `invalid-value` at `lower`, the `{2, 4}` upper alone
@@ -2161,7 +2163,7 @@ and `{1,1}`, one whose destination end omits its role, and one whose operand 1 i
 a subtype of the receiver endpoint type, with a variant whose graph holds no node
 with the declared end type's declaration id. Derive the expected bounds, roles,
 relationship id and destination declaration node id from the domain package
-document, the application's member and the key derivation, not from the
+document, the application's member and the authored structural paths, not from the
 accessor.
 
 Expected: `relationship_end` over each application returns the supplied id, the
@@ -2202,7 +2204,7 @@ with one source-map row) and the `population` key in the application's
 Further packages: a second population node with another `max`, a reaches
 application with no key, and a package holding a population node that no
 application names. Derive the expected binding, ordinal, maximum and object
-type from the fixture and the key derivation, not from the accessor.
+type from the fixture and the authored structural paths, not from the accessor.
 
 Expected: `reaches_population` returns the selector with the supplied node id and
 ordinal 1, and `select_population` over `Admitted` with it returns `Finite` with
@@ -2253,18 +2255,17 @@ Read `hybrid-node-vectors.json` and `fixtures/positive-all-families.json` from
 the selected QSpec checkout, without copying either into this repository.
 Feed the valid `Braking`/`SlowEnough`, `Braking2`/`Slows`/`Recent` and `Tank`
 graphs through the public V2 reader. Check the admitted typed family/form,
-node and package keys, body references, semantic types and dependencies;
+structural node ids, package names, body references, semantic types and dependencies;
 `Tank` must admit a variable-to-variable rate and reset value and a
-`hybrid`-classed variable with a literal-one rate. Rekey the rate mutation
-through the reference path and check the changed and unchanged identities.
+`hybrid`-classed variable with a literal-one rate. Mutate one rate under retained structural ids and check the changed body and unaffected references.
 
-Apply QSpec TC-966's strict-wire mutations without rekeying and assert
+Apply QSpec TC-966's strict-wire mutations with retained structural ids and assert
 `malformed_wire` at strict wire validation before body checks. For each
 semantic mutation, update dependencies and references while retaining valid structural ids and package name before reading it. Assert the exact code, cause and RFC 6901 locus for repeated
 modes, wrong variable type or level, rate count and type, mode and reset
 indices, reset conflict, initial entry, foreign read, clock class, orphan
 transition, interval/profile mismatch and malformed claim read or fairness.
-In a combined-defect package, check precedence of strict wire, graph/key,
+In a combined-defect package, check precedence of strict wire, graph shape,
 temporal, model checks 1 through 6, orphan nodes, claim checks 7 through 9,
 protocol and operation. Verify that an unchanged valid hybrid node retains
 its key and that the reader never supplies a missing graph node or a second
@@ -2294,8 +2295,8 @@ not merely the selector's semantic type. Assert one place node for three
 Sequence instances; separate Set, Bag, OrderedSet and nested-Sequence paths;
 the exact Text key type node for Map; and the slot-step refusal for a literal,
 an expression or the wrong domain type node. For AC-336, admit an empty guard aggregate on a guard-free root. Add one
-root-listed guard and verify its own and the root key change while the place
-path template key does not. A place `guards` binding refuses at strict wire
+root-listed guard and verify their complete bodies change while the place
+path template and structural ids remain valid. A place `guards` binding refuses at strict wire
 validation; an otherwise ordered second place of the same path refuses at its forged
 `resolved_path` row as `invalid_package`/`malformed-clock-place`,
 and an unlisted guard refuses at its own `body`.
@@ -2361,16 +2362,14 @@ For **each** of `AO-02`, `AO-03`, `AO-04`, `AO-06` and `AO-07`, make three
 independent mutations that keep its first out-of-order pair. First replace
 the timed root's required `occurrences` array with text and require
 `malformed_wire` at `/semantic_graph/nodes/{i}/occurrences` before any
-identity or order check. Second remove one still-referenced root dependency,
-keep the rest of the complete package value-current and require
+graph or order check. Second remove one still-referenced root dependency,
+keep the rest of the complete package valid and require
 `invalid_semantic_graph` with null cause at
-`/semantic_graph/nodes/{i}/dependencies` before key or timed-body checks.
-Third create a stale root key while preserving the order defect: for
-`AO-02`, `AO-03` and `AO-04`, retain the patched root body but restore its
-pre-patch `node_id` and self `semantic_type`; for `AO-06` and `AO-07`,
-whose patches change only `source_map`, append one more reference to the
-last clock place at the end of root `clock_places`, retaining its original
-`node_id` and self `semantic_type`. That appended reference names a node already in root dependencies, so graph shape still passes. In all five cases retain the matching root source-map reference and assert the published timed-order refusal. Separately duplicate a structural node id and require `invalid_semantic_graph` at the later node before timed order. Verify each unmodified AO patch still reaches its
+`/semantic_graph/nodes/{i}/dependencies` before timed-body checks.
+Third duplicate the root's structural id on a later graph node while preserving
+the root's order defect and require `invalid_semantic_graph` at the later node
+before timed order. With distinct valid ids, retain the matching root source-map
+reference and assert the published timed-order refusal. Verify each unmodified AO patch still reaches its
 published order refusal after the three precedence probes.
 
 For AC-357, inspect each admitted form and exact binding order in `CL-01`.
@@ -2406,9 +2405,9 @@ constraints and upper-only invariant bounds. For each mutated semantic case,
 update dependent references and compare complete package values before calling the reader.
 
 For AC-362, inspect the positive dense timed-model and timed-slot fixtures
-for the same closed clause forms with current keys, then replay every `CL-01`..`CL-54`
+for the same closed clause forms with valid structural ids, then replay every `CL-01`..`CL-54`
 patch on the selected clause fixture. Independently check the staged first
-refusal order: strict wire, graph shape, stale key, aggregate order,
+refusal order: strict wire, graph shape, aggregate order,
 unlisted timed nodes, per-node joins, model-wide checks, followed by protocol
 and operation steps. Use a combined-defect case at each adjacent boundary;
 a vector's expected label alone is not evidence of stage order. Quantified

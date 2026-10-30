@@ -93,7 +93,7 @@ selected record declaration node and never becomes an object reference.
 Compare the reader's effective field outcomes with independently authored
 selected-domain declarations, not a copy of QSpec's vector bytes. Pair a
 record name defect with a canonical-order defect, a lower-key frame defect,
-and a pre-frame graph, owner or stale-key defect to assert the specified
+and a pre-frame graph or owner defect to assert the specified
 first refusal. Read the selected owner table at the exact work limit and one
 unit less, then repeat the existing object, relationship, anchor and clause
 controls to establish their unchanged outcomes.

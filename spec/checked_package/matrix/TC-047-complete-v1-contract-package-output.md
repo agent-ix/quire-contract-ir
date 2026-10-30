@@ -12,7 +12,7 @@ relationships:
 
 ## Description
 
-Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, FR-035-AC-10 through FR-035-AC-18,
+Verify FR-035-AC-2, FR-035-AC-6 through FR-035-AC-8, FR-035-AC-10 through FR-035-AC-18,
 and planned FR-035-AC-23 through FR-035-AC-30,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330

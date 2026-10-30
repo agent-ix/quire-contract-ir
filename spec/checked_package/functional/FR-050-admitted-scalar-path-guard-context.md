@@ -36,7 +36,7 @@ occurrence from the FR-330 package, a shared expression key, or source regions.
 One reader-admitted FR-330 `ContractPackageV1`; the exact QSL-checked
 application occurrence and expression key for one routed item; the exact
 ordered QSL-checked guard sequence, each mapped to IR's typed
-`ContractOccurrenceKeyV1` and Boolean `holds`; and the source package identity
+`ContractOccurrenceKeyV1` and Boolean `holds`; and the source package name
 and lowering profile selected for the application's IR lowering. Each guard
 occurrence retains its `expression` role and ordinal. The caller supplies
 guard expression nodes as additional explicit lowering roots for that same
@@ -85,7 +85,7 @@ in the one represented graph; distinct source occurrences and supplied order
 remain distinct in the query. The ordinary forward `reached_closure` of the
 application does not acquire enclosing guards as reverse consumers. Adding
 guard roots may change the represented graph, accounting and canonical
-identity, as FR-035 requires. The output remains one ordinary five-member
+bytes while retaining the package name, as FR-035 requires. The output remains one ordinary five-member
 FR-330 package, with no added field or copied QSL schema.
 
 ### Admitted query
@@ -118,7 +118,7 @@ substitute reference. A package admission failure, including a lowered root
 without a represented node, is returned before the query and is never
 repaired by a supplied guard list. A post-admission body inconsistency or
 exhausted work limit SHALL return the existing typed view error without a
-partial result. Querying SHALL leave all six FR-330 fields,
+partial result. Querying SHALL leave all five FR-330 fields,
 complete canonical value, selected profile and application forward closure unchanged.
 The optional direct-narrow rule of FR-049 remains application plus optional
 conversion only; guard roots and this guard query do not alter its selection
@@ -132,7 +132,7 @@ or result-context outcomes.
 | FR-050-AC-2 | Two checked items sharing one application expression node but carrying different ordered guard occurrences retain separate lists and polarities even when all roots are represented in one package. An item with two nested guards returns them outermost first. Repetition of a node key does not collapse distinct occurrences. The query does not infer a guard association from the shared node or source regions. | Test |
 | FR-050-AC-3 | The public guard query returns the corresponding typed located cause for the first failing guard, with no returned prefix, substitute reference or panic, for these inputs against a reader-admitted package: an absent or non-lowered guard root; a typed key, `expression` role or ordinal lacking an exact admitted source-map entry; a represented non-expression node; or a non-Boolean expression. An application-only package refuses a supplied guard key lacking its lowering root despite a plausible source key. A malformed FR-330 package claiming a lowered guard root but omitting its represented node refuses at admission; a private admitted-then-mutated body/dependency inconsistency returns the existing typed view error without a partial list. | Test |
 | FR-050-AC-4 | Mutating only the supplied guard key to one with no admitted expression cannot produce a successful IR guard reference. Mutating only `holds` on an admitted Boolean guard changes only the returned polarity; mutating its ordinal or role to an unrepresented occurrence refuses. An independently valid represented guard substituted from another item's list is structurally valid in IR, so only the QSL checked item and faithful driver mapping establish its membership. | Test |
-| FR-050-AC-5 | Every guard root has an ordinary FR-035 accounting record. The query returns references from one reader-admitted five-member FR-330 package and changes neither its wire/identity nor the application's forward closure. Added roots may change that package's graph, accounting and complete canonical value. FR-049's application plus optional direct-narrow result outcomes remain unchanged when guards are also represented. | Test |
+| FR-050-AC-5 | Every guard root has an ordinary FR-035 accounting record. The query returns references from one reader-admitted five-member FR-330 package and changes neither its wire, package name nor the application's forward closure. Added roots may change that package's graph, accounting and complete canonical value. FR-049's application plus optional direct-narrow result outcomes remain unchanged when guards are also represented. | Test |
 
 ## Dependencies
 

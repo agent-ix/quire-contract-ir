@@ -39,7 +39,7 @@ query does not establish a unique original expression by itself.
 
 The typed result SHALL distinguish a lowered application, its exact
 non-lowered feature-accounting record, and an absent request. A lowered result
-SHALL carry the admitted source package and lowering profile, package identity,
+SHALL carry the admitted source package name and lowering profile,
 the supplied authenticated application occurrence, and one entry per authored
 argument position. Each entry SHALL retain its zero-based position. A graph
 reference SHALL carry its exact represented child key and admitted child
@@ -84,8 +84,8 @@ position and child identity independently of that older all-or-error range
 policy. The two accessors SHALL share one IR-owned interpretation of scalar
 argument terms and range facts, not maintain two raw-JSON extractors.
 
-Querying SHALL not mutate any of FR-330's six fields, canonical package
-identity, request disposition, FR-049 result context or the application's
+Querying SHALL not mutate any of FR-330's five fields, package name,
+request disposition, FR-049 result context or the application's
 forward reached closure. No seventh wire field, copied schema, second
 lowering product, checked-graph fallback or compatibility alias is introduced.
 
@@ -97,7 +97,7 @@ lowering product, checked-graph fallback or compatibility alias is introduced.
 | FR-054-AC-2 | For an admitted application whose two argument positions reference the same represented child, the query returns two distinct ordered entries with positions 0 and 1 and the same authentic child key and sources; reached-closure set order and deduplication do not alter them. | Test (TC-458) |
 | FR-054-AC-3 | For admitted applications with unbounded or outside-native-range own facts, the query still returns the complete positional identity vector and distinguishes those facts from finite ranges. It supplies no inferred or result-fallback interval and does not change the interval selected by an existing consumer. | Test (TC-458) |
 | FR-054-AC-4 | A missing, foreign, non-lowered or non-application key, invalid role/ordinal/source correspondence, ineligible operation or inconsistent represented child returns typed absence, disposition, refusal or error with no selected operand list; an independently valid represented occurrence of the same node remains structurally valid and does not prove unique-original-expression ownership. | Test (TC-458) |
-| FR-054-AC-5 | A separate consumer test compiles against public owning types and reads the preceding cases from reader-admitted five-member packages without a copied schema, consumer JSON field reads or a CheckedPackageV2 generation fallback. Repeated queries leave the wire, identity, request disposition, FR-049 result context and forward closure unchanged; this accessor alone makes no full scalar replay claim. | Test (TC-458) |
+| FR-054-AC-5 | A separate consumer test compiles against public owning types and reads the preceding cases from reader-admitted five-member packages without a copied schema, consumer JSON field reads or a CheckedPackageV2 generation fallback. Repeated queries leave the wire, package name, request disposition, FR-049 result context and forward closure unchanged; this accessor alone makes no full scalar replay claim. | Test (TC-458) |
 
 ## Dependencies
 
