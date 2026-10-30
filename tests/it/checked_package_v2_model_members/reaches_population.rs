@@ -809,22 +809,34 @@ fn tc_048_reaches_population_api_is_a_closed_error_and_exports_no_selected_popul
 
 #[trace("TC-048", "FR-038-AC-279")]
 #[test]
-fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
+fn tc_048_population_maximum_is_canonical_or_explicitly_unbounded() {
     let not_a_binding = json!({"term": "literal", "name": "max", "type": fixture_id(&INTEGER),
         "value_kind": "integer", "value": "3"});
     let not_a_literal = json!({"term": "binding", "name": "max", "value": reference(&INTEGER)});
     for (label, members) in [
-        ("missing", vec![]),
         ("two max members", vec![max_of("3"), max_of("5")]),
         ("not a literal", vec![not_a_literal]),
         ("negative", vec![max_of("-1")]),
+        ("noncanonical", vec![max_of("03")]),
     ] {
         let mut scenario = Scenario::standard();
         let population = scenario.add_population(ORDER, members, &[0]);
         scenario.link(Some(fixture_id(&population)), Some(&population));
         let refusal = refused(&scenario.package, &scenario.evidence);
-        assert_eq!((refusal.code, refusal.cause), ILL_TYPED, "{label}");
-        scenario.assert_refused(ILL_TYPED, POPULATION_AT);
+        let at = scenario
+            .nodes()
+            .iter()
+            .position(|node| node["node_id"] == fixture_id(&population))
+            .expect("the population");
+        let invalid_shape = (
+            CheckedPackageRefusalCode::InvalidPackage,
+            Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+        );
+        assert_eq!((refusal.code, refusal.cause), invalid_shape, "{label}");
+        scenario.assert_refused(
+            invalid_shape,
+            &format!("/semantic_graph/nodes/{at}/node_id"),
+        );
     }
     // A `max` member that is not a `binding` is not a valid body term at all, so
     // the graph is refused at the member before any population check runs.
@@ -839,6 +851,30 @@ fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
     scenario.assert_refused(
         BAD_GRAPH,
         &format!("/semantic_graph/nodes/{at}/body/members/0"),
+    );
+
+    // An absent max is a separate admitted population, not a finite zero.
+    let mut scenario = Scenario::standard();
+    let unbounded = scenario.add_population(ORDER, vec![], &[0]);
+    scenario.link(Some(fixture_id(&unbounded)), Some(&unbounded));
+    let package = scenario.admitted();
+    let selector = package
+        .reaches_population(&reaches_id(&package))
+        .expect("unbounded reaches")
+        .expect("unbounded selector");
+    match select_population(Source::Admitted {
+        package: &package,
+        selector,
+    }) {
+        Outcome::AdmittedUnbounded(result) => {
+            assert_eq!(result.binding, typed_fixture_id(&unbounded));
+            assert_eq!(result.object_type, order_declaration_id());
+        }
+        other => panic!("expected admitted unbounded population, got {other:?}"),
+    }
+    assert_ne!(
+        typed_fixture_id(&unbounded),
+        typed_fixture_id(&linked(ORDER, "0", &[0]).1)
     );
 
     for max in ["0", "3", "18446744073709551615", "18446744073709551616"] {
