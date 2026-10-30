@@ -829,7 +829,7 @@ fn derived_shape_refusal_precedes_dependent_frame_check() {
 
 #[trace("TC-226", "FR-038-AC-127")]
 #[test]
-fn derived_shape_refusal_precedes_declaration_state_temporal_and_operation_checks() {
+fn derived_shape_refusal_precedes_declaration_state_temporal_abstraction_and_operation_checks() {
     let mut duplicate_declaration = v2_all_families();
     let function = duplicate_declaration["semantic_graph"]["nodes"]
         .as_array()
@@ -898,11 +898,41 @@ fn derived_shape_refusal_precedes_declaration_state_temporal_and_operation_check
         Some(CheckedPackageRefusalCause::OperatorIneligible)
     );
 
+    let mut invalid_abstraction = v2_all_families();
+    let name = invalid_abstraction["name"]
+        .as_str()
+        .expect("package name")
+        .to_owned();
+    let relation_id = structural_id(
+        &name,
+        vec![json!("correspondence"), json!("abstraction_relation")],
+        0,
+    );
+    let mut relation = invalid_abstraction["semantic_graph"]["nodes"][0].clone();
+    relation["node_id"] = relation_id.clone();
+    relation["node_tag"] = json!("correspondence");
+    relation["semantic_form"] = json!("abstraction_relation");
+    relation["semantic_type"] = relation_id;
+    relation["dependencies"] = json!([]);
+    relation["occurrences"] = json!([{"role":"declaration","ordinal":0}]);
+    relation["body"] = json!({"term":"aggregate","members":[]});
+    append_authored(&mut invalid_abstraction, relation);
+    settle(&mut invalid_abstraction);
+    let CheckedPackageV2ReadResult::Refused(abstraction_refusal) = read(&invalid_abstraction)
+    else {
+        panic!("empty abstraction relation must refuse");
+    };
+    assert_ne!(
+        abstraction_refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
+    );
+
     for mut package in [
         duplicate_declaration,
         unknown_operation,
         unknown_temporal,
         invalid_state_placement,
+        invalid_abstraction,
     ] {
         let boolean = index_of(&package, "scalar_type", "boolean");
         package["semantic_graph"]["nodes"][boolean]["body"]["members"] = json!([
