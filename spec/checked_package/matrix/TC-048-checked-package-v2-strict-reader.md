@@ -1,6 +1,6 @@
 ---
 id: TC-048
-title: "CheckedPackage V2 strict reader re-derives package and nominal identities"
+title: "CheckedPackage V2 strict reader validates structural identities"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -26,7 +26,7 @@ relationships:
   - target: ix://agent-ix/quire-specification/TC-367
     type: references
 ---
-# TC-048: CheckedPackage V2 strict reader re-derives package and nominal identities
+# TC-048: CheckedPackage V2 strict reader validates structural identities
 
 ## Description
 
@@ -37,12 +37,11 @@ FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
 "Model-owned members") against a self-built domain package document, and
 FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
 `DependencySelection` entries of a self-built package, and
-FR-038-AC-293 against recursively derived dependency closures with conflicting
-package ids, and
+FR-038-AC-293 against recursively derived dependency closures with conflicting complete packages under one name, and
 FR-038-AC-35 through FR-038-AC-38 (QSpec FR-322-AC-36 and FR-322-AC-37)
 against a self-built dependency package and a package that calls it, and
 FR-038-AC-45 (QSpec FR-322-AC-28) against a model-owned nominal declaration and
-a model declaration node keyed under the content-only `ModelOwner`, and
+a model declaration node with its declared structural path and `ModelOwner`, and
 FR-038-AC-46 through FR-038-AC-61 (QSpec FR-322 `lock` and `DefinitionRef`)
 against the artifact references of a self-built package and the
 operation catalog's `law_roles` entries, and FR-038-AC-62 through FR-038-AC-64
@@ -56,10 +55,7 @@ encoding through `quire-canonical` and the reader's canonical-bytes check, and
 FR-038-AC-81 through FR-038-AC-88 against the operation identity, law, mode,
 member and operand checks of a single application and the key of an application
 node, as unit tests of `crates/quire-contract-model/src/checked_package/v2/operations.rs`,
-and FR-038-AC-89 through FR-038-AC-95 against every identity digest's move to
-`quire-canonical` (node keys, lowered identities, the nominal digest's byte
-limit, the absence of an encoder of this repository's own, a selected model
-document's integer check and byte limit, and the lowering byte ceiling), and
+and FR-038-AC-89 through FR-038-AC-95 against structural node-id preservation, canonical bytes, selected model-document integer checks and the lowering byte ceiling; retired identity-only AC-92 has no test obligation, and
 FR-038-AC-96 through FR-038-AC-108 (QSpec FR-370, FR-440 and FR-250) against the
 temporal, fairness, union and `case` nodes of a self-built package, the
 temporal step's placement, clause, profile-fit and interval-bound checks, and
@@ -105,8 +101,7 @@ the catalog's three leaf-source selectors, earlier first-operand family
 refusals, nested IEEE ineligibility and result-inner sequence exception. They
 do not claim a runtime result until IR-491 implements and runs tagged tests.
 FR-038-AC-217 and FR-038-AC-218 (merged QSpec FR-272) are against the
-`content-mismatch` of a dependency entry that recomputes, and the `expected` and `actual`
-identities it carries. FR-038-AC-215 and FR-038-AC-216 are withdrawn.
+absence of content-mismatch and digest-derived expected/actual identity fields, while independent dependency selection and conflicting-definition refusals retain typed loci. FR-038-AC-215 and FR-038-AC-216 are withdrawn.
 
 ## Test Procedure
 
@@ -116,9 +111,8 @@ For FR-038-AC-294 and FR-038-AC-295 (IR-785), take that
 otherwise admitted public-reader package with one carrier occurrence of
 `expression` ordinal 0. Add a second reference to the same local target by
 adding ordinal 1 to that carrier and a distinct source-map row naming the
-second reference's own source regions. Independently derive the canonical
-structural key and package identity before and after; assert both packages
-admit, both identities are equal, there is still exactly one carrier, and
+second reference's own source regions. Retain the same structural id and package name before and after; assert both complete packages
+admit and preserve their respective occurrences, there is still exactly one carrier, and
 the admitted occurrences and source correspondence retain both references.
 Add a third distinct ordinal and source-map row to check that admission is
 not capped at two occurrences. Keep the body and its target unchanged.
@@ -135,9 +129,7 @@ insert a second actual carrier node with the same `node_id`. Check each
 exact code and concrete later-entry or member pointer stated by AC-295.
 For the repeated ordinal, retain unique source-map rows so a duplicate row
 does not mask the occurrence failure; for the repeated row, retain distinct
-occurrence ordinals. Keep canonical encoding and semantic identities valid
-in every mutation, deriving the graph identity projection anew for the
-added-node control. Do not use a stale identity refusal as evidence for
+occurrence ordinals. Keep canonical encoding and structural ids valid in every mutation, including the added-node control. Do not use an unrelated graph refusal as evidence for
 source-map or graph uniqueness. Preserve the existing target/dependency,
 closed-body, grouped-cycle and forbidden-member controls of AC-239 through
 AC-241.
@@ -172,8 +164,7 @@ and mismatches including an integer literal declared at a unit type and a
 literal in an `any_value` position so the enclosing
 operand check cannot conceal the literal defect. Finally, apply `exact` and
 `toward-zero` rounding to otherwise identical valid quantity conversion and
-sum applications. Re-derive every affected node and package identity after
-each authored change. Compare the public reader's code, cause and exact
+sum applications. Retain structurally valid node ids, update affected references and compare the complete package after each authored change. Compare the public reader's code, cause and exact
 argument, literal-type or mode-value pointer; require each positive control
 to admit. Keep `compound_unit`, enum aliases and `model_population` out of
 these admission claims until FR-322 defines their family behavior.
@@ -258,8 +249,7 @@ String payload; an uppercase, hyphenless, moved-hyphen and non-hex UUID; and
 Timestamp `-0`, `+1`, `01`, empty text, whitespace, a decimal or calendar
 form, and each signed-128 endpoint's adjacent exterior value. Admit exact
 String Unicode sequences, UUID nil/max and both signed-128 Timestamp
-endpoints. Recompute the changed node key, every dependent reference and
-package identity independently for each case, and compare typed code, cause,
+endpoints. Update every dependent reference and retain structurally valid node ids and package name for each case, and compare typed code, cause,
 pointer and node locus; no stale-key, schema or resource refusal substitutes
 for the specified operation-step outcome. An exact work-limit control also
 retains the reader's existing incomplete-before-later-defect precedence.
@@ -290,10 +280,7 @@ packages, so the separate root-mismatch rule cannot decide either case. The firs
 mutation isolates the catalog's `member` result form; the second isolates its
 `member_family` constraint. Each must refuse `ill_typed` with cause
 `operator-ineligible` at the application's `/result_type`, with its containing
-node as locus. The valid cross-width packages must still admit. Derive every
-affected node key, reference, identity projection and package id afresh through
-the public vocabulary before each read; a stale identity refusal, private
-helper result or synthetic post-admission graph does not satisfy these cases.
+node as locus. The valid cross-width packages must still admit. Update every affected reference through the public vocabulary before each read; a private helper result or synthetic post-admission graph does not satisfy these cases.
 Compare typed code, cause, pointer and locus, without parsing diagnostic prose.
 The adverse packages must be valid through earlier wire, identity and resource
 checks so they distinguish these admission failures from the existing first
@@ -306,9 +293,7 @@ and `member_family: rational` constraint. For each source width, admit the
 rational/rational member declaration and `result_type` pair. Then separately
 read float/float (the source width in both positions), float/rational and
 rational/float pairs. Match the root node's `semantic_type` to each candidate
-`result_type` so the root mismatch rule cannot decide the case. Independently
-re-derive all affected node keys, references, identity projection and package
-identity before each public read. Each adverse package must pass earlier wire,
+`result_type` so the root mismatch rule cannot decide the case. Independently update all affected references and compare each complete package value before each public read. Each adverse package must pass earlier wire,
 identity and resource checks and refuse `ill_typed`/`operator-ineligible` at
 `/semantic_graph/nodes/{i}/body/result_type`, with the application node as
 locus: float/rational and rational/float exercise equality (AC-247), while
@@ -411,7 +396,7 @@ operator vocabulary on a package application and read the package.
 Name `quire.op.control.case` under operator `unary`, and an identity the catalog
 lacks, and read each. Build two defective body-root nodes, one a
 `temporal_formula` application in a `function` node and one other operation
-defect, in both digest orders (AC-67). Put a `temporal_interval` member on
+defect, in both structural-id orders (AC-67). Put a `temporal_interval` member on
 `quire.op.boolean.not` and on `quire.op.temporal.clause`, and a `fairness`
 member on `quire.op.boolean.not` and on `quire.op.temporal.holds` (AC-69).
 
@@ -428,7 +413,7 @@ Expected: every word converts both ways and the catalog's sets equal the
 enums'; each unreadable catalog returns the typed error of FR-038-AC-58
 naming the word; the foreign operator refuses `invalid_semantic_graph` at the
 term; the `unary` case refuses `operation-class-mismatch`, the unknown identity
-`unknown-operation`; the lower digest is reported in both orders; the stray
+`unknown-operation`; the lower structural id is reported in both orders; the stray
 members on `quire.op.boolean.not`, `quire.op.temporal.holds` and
 `quire.op.temporal.clause` refuse `operation-member-mismatch` at the member; the
 clause passes in the unit and the package, the wrong counts refuse
@@ -447,7 +432,7 @@ nested and diagnostics cases), the unit tests of `operations.rs` and `temporal.r
 reachable only at the step, since the dependency join refuses it first in a
 package read) and `tests/conformance_qspec/main.rs` (AC-107, run by
 `make conformance-qspec` alone). The two-clause cases of AC-102 and AC-108 find
-the digest order they need by varying the clauses' names, and the adjacent pairs
+the structural-id order they need by varying the clauses' names, and the adjacent pairs
 of one clause are swapped where the two defects' positions can be (the
 operator order of a formula tree); `over` and the fairness argument have one
 position each.
@@ -490,15 +475,15 @@ refusal-enum assertion to be amended, not claimed as executed here. Read a
 diagnostics entry whose `code` is `unsupported_construct`, and lower the admitted
 `temporal`/`formula` and `expression`/`case` nodes under supporting and
 non-supporting profiles, comparing the lowered body and `ir_id` with the admitted
-node's (AC-101). Build a placement defect beside a lower-digest node with an
-unknown identity or a class mismatch, in both digest orders, two placement
+node's (AC-101). Build a placement defect beside a lower-structural-id node with an
+unknown identity or a class mismatch, in both structural-id orders, two placement
 defects, and, within one clause, each adjacent pair of the order `over`, fairness
 resolution, profile fit, bounds, with the two defects' positions swapped; then two
-clauses, the lower-digest one holding a profile-fit defect and the higher-digest
-one an `over` defect, in both digest orders; and a member `{lower: "1.5", upper:
+clauses, the lower-structural-id one holding a profile-fit defect and the higher-structural-id
+one an `over` defect, in both structural-id orders; and a member `{lower: "1.5", upper:
 "0"}` and a wrong-kind member under a bounded and the infinite-trace profile;
 `{0, -2}` and `{-1, -3}`, and `{-1, null}` under a bounded profile, under
-infinite-trace and beside a placement defect at a lower-digest node, each
+infinite-trace and beside a placement defect at a lower-structural-id node, each
 refused at the negative bound at schema validation (strict wire validation, the flat wire pass),
 as is `{"1.5", "0"}` at its malformed bound, none of them `operation-member-mismatch`
 (AC-102). Give a clause's
@@ -636,13 +621,10 @@ laws or leaves, and both `operation.mode` and `operation.member` explicitly
 `null`. Read it through `CheckedPackageV2::read` as the positive control.
 Starting afresh from that admitted shape for each adverse case, remove only
 `mode`, and separately only `member`, leaving the other present as `null`.
-Use the repository's owning identity helpers to re-derive the affected
-application/node identity, rewrite its references where necessary, preserve
-canonical node ordering and refresh the package identity after each mutation.
-Do not retain a stale node or package key, fabricate an identifier or use a
+Retain valid structural node ids, rewrite references where necessary, preserve canonical node ordering and compare the complete package value after each mutation. Do not fabricate an identifier or use a
 private operation-unit result as the public-reader result. Read each changed
 package through the same public reader and compare its exact code, cause and
-pointer. Restore the removed member as explicit `null` and refresh identities
+pointer. Restore the removed member as explicit `null`
 to show admission is restored. These controls concern the containing
 `operation` object only; do not change leaf-mode behavior. The public-reader
 test `operation_mode_and_member_are_required_even_when_null_is_admitted` executes
@@ -1004,11 +986,10 @@ Use the current first-party catalog from `quire-verification-contracts` and
 its current QSpec operation fixtures by reference from their authoritative
 checkouts; do not copy those files into this repository. Start each case with
 an admitted V2 package whose selected operation, lock definitions, source
-occurrences, node keys, identity projection and package id agree. Assert that
+occurrences, structural node ids, complete graph and package name agree. Assert that
 the unchanged package admits through `CheckedPackageV2::read`. For each
-mutation below, rebuild the affected node keys and package id using the
-existing production identity rules, and assert that the adverse package
-passes strict wire, graph and identity checks before its named operation
+mutation below, update affected references while retaining valid structural ids and package name, and assert that the adverse package
+passes strict wire and graph checks before its named operation
 check. Expected leaves and refusals are test-authored from the declared types
 and catalog, never computed by asking the reader twice.
 
@@ -1232,15 +1213,13 @@ declaration, and a package that selects it.
 2. For AC-237, admit an `enum_value` for each case name in a set holding a name
    with a space, a digit prefix and a non-ASCII character. Admit the same case
    under two different variant declarations and a second case under one
-   declaration, and require distinct re-derived value keys. Apply `enum.eq`
+   declaration, and require distinct declared structural value ids. Apply `enum.eq`
    and `enum.ne` to two values of the variant and require admission; apply
    `enum.lt` and `structural.eq` and require `ill_typed`/`operator-ineligible`
    at the first argument.
 3. For AC-238, declare no case and require `invalid_model_binding`/
    `malformed-declaration` at the selected model row. Name an absent case in an
-   `enum_value` and require `invalid_semantic_graph` at its `case`. Supply, under
-   the selection digest, a document with a different case set and require
-   `stale_dependency` at that digest. Read an ordinary scalar enum whose cases
+   `enum_value` and require `invalid_semantic_graph` at its `case`. Supply a selected document with a different case set and require the affected case join to refuse at its exact member; no staleness refusal is expected. Read an ordinary scalar enum whose cases
    include a non-identifier spelling and require `invalid_semantic_graph`.
 
 Expected: each outcome above holds with the stated code, cause and pointer. The
@@ -1254,8 +1233,7 @@ test controls and are not required by the criterion text.
 
 Use QSpec FR-464, FR-465 and FR-466 and the authored tables in TC-946, TC-947
 and TC-948 as the current independent expected outcomes. Build each case into
-a V2 package with fresh content-derived node keys and package identity unless
-the vector explicitly tests a stale key. Once QSpec publishes machine-readable
+a V2 package with valid structural node ids and complete bodies. Once QSpec publishes machine-readable
 protocol vectors and regenerated fixtures, run them from a
 `quire-specification` checkout named by `QUIRE_SPECIFICATION_DIR`. No fixture,
 vector or schema is copied into this repository.
@@ -1272,19 +1250,15 @@ vector or schema is copied into this repository.
 2. For each form, admit its fixed named arguments in order, including empty
    sets and absent optionals where allowed. Refuse a missing, extra,
    reordered, misspelled or wrongly shaped binding, a repeated or misordered
-   set or sorted record, and a nested protocol application. Reorder an
-   authored `sequence` and an ordered capture list and require changed keys;
-   reformat source and reorder role or other set-backed declarations and
-   require unchanged keys.
+   set or sorted record, and a nested protocol application. Reorder an authored `sequence` and an ordered capture list and require changed complete bodies; reformat source and reorder role or other set-backed declarations and require their canonical order and complete bodies to match the authored meaning.
 3. Admit valid declaration paths and one-clause membership. Refuse a wrong
    prefix, duplicate or unattached member, double-held control, missing or
    duplicate queue and wrong-clause queue. For each protocol-family form with
-   a local body target, omit one existing target from `dependencies` while
-   rebuilding the package identity; require `invalid_semantic_graph` at
+   a local body target, omit one existing target from `dependencies` while retaining its structural ids; require `invalid_semantic_graph` at
    that node's `/dependencies` in the graph stage, before a separate
    protocol-body defect. Add an extra dependency and require the same
    graph-stage refusal. Separately name a nonexistent local target in both
-   the body and `dependencies`, rebuilding identity, and require
+   the body and `dependencies`, updating references, and require
    `missing_declaration`/`missing-name` at the target. Compare full
    code, cause, pointer and node locus, using QSpec TC-946 C13/C13a,
    A8/A8a, A9/A9a and OM-09 as independent clause vectors
@@ -1335,7 +1309,7 @@ vector or schema is copied into this repository.
 6. Combine defects in state and protocol, temporal and protocol,
    abstraction and protocol, refinement and protocol, protocol and operation,
    and multiple protocol nodes. Require the FR-322 body-step order and
-   FR-464's placement-through-catalog-join order, with ascending digest order
+   FR-464's placement-through-catalog-join order, with ascending structural-id order
    within each stage. Keep the existing `protocol_reference` carrier cases
    green.
 7. From an admitted clause with `activation on each (opened)` and one required
@@ -1345,7 +1319,7 @@ vector or schema is copied into this repository.
    normalized by the producer to one canonical wire set entry, a second
    distinct requirement and an unrelated temporal clause with the same
    clock; require respectively one origin row, no row, one row, two
-   digest-ordered rows and no extra row. In a separate identity-consistent
+   structural-id-ordered rows and no extra row. In a separate identity-consistent
    wire mutation, duplicate the same `requirements` set entry; require
    `invalid_semantic_graph` under the clause's set rule and no relation.
    Omit an existing `requirements` or `each` trigger target from
@@ -1357,7 +1331,7 @@ vector or schema is copied into this repository.
    (FR-038-AC-324/327; QSpec TC-946 A8/A8a/A9/A9a).
 8. Use QSpec TC-310's `CC-01`, `CC-03` to `CC-05`, `CC-08` and `CC-11`
    catalog cases from the selected checkout, rebuilding keys, dependencies,
-   package identity and provenance carriers as each vector requires. Admit
+   complete package value and provenance carriers as each vector requires. Admit
    the complete catalog with separate `fork` and `join` classes on one
    parallel node, including a directly selected dependency's abstract
    protocol. Refuse a foreign or omitted class, wrong node association or
@@ -1365,7 +1339,7 @@ vector or schema is copied into this repository.
    cause and catalog locus. For `CC-11`, require the protocol-body defect
    before the catalog join and the refinement-row defect before both. For
    `CC-10`, two request memory choices leave the admitted catalog and
-   package identity equal (FR-038-AC-325).
+   complete package value equal (FR-038-AC-325).
 9. Build an independent positive package through the public typed writer:
    select concrete model package A with its canonical `model_root` R, owned
    object-type node O and protocol clause C whose `owner_model` is O; also
@@ -1373,10 +1347,10 @@ vector or schema is copied into this repository.
    in the refinement's concrete `semantic_type`, not O. Give C a checked
    control class and omit C from the refinement's `steps`, while placing its
    class in the complete concrete catalog. Require public strict read and
-   typed read/write/read to admit with the same keys, package identity,
+   typed read/write/read to admit with the same keys, complete package value,
    root, owner and catalog (FR-064-AC-1/AC-5, FR-038-AC-325). The vector
    SHALL fail if the reader equates R and O or reconstructs only step rows.
-10. Rebuild every affected node key, dependency and package identity after
+10. Rebuild every affected node key, dependency and complete package value after
     each owner mutation. First retarget C to selected B's object-type node:
     this is a valid reader owner edge, so require admission with a complete
     B catalog and require C's class to be absent from A's catalog. A source
@@ -1423,7 +1397,7 @@ vector or schema is copied into this repository.
     inventory mismatch. Pair a memory catalog mismatch with an independent
     protocol-body defect to require the body defect first. Two analysis
     requests with different memory overrides SHALL leave the admitted
-    catalog and package identity equal (FR-038-AC-325; QSpec TC-310).
+    catalog and complete package value equal (FR-038-AC-325; QSpec TC-310).
     Also retain QSpec TC-310 `CC-12`'s one-subject multi-default case with
     distinct `memory drain` entries for `sc`, `tso` and `ra` and a `tso`
     `memory flush` entry. Require admission with the three drains in
@@ -1725,7 +1699,7 @@ failure in a later node, and the two swapped; and a package with an independent 
 
 Lowest terms and bounds (AC-121). Read `lower` `{2, 4}`; `lower` `{2, 4}` with `upper`
 numerator `"-1"`; `lower` numerator `"-1"` with `upper` `{2, 4}`; `upper` `{2, 4}`
-alone; `lower` `{2, 4}` beside a profile-fit defect in a lower-digest node; `(3, 3]`,
+alone; `lower` `{2, 4}` beside a profile-fit defect in a lower-structural-id node; `(3, 3]`,
 `[3, 3)` and `(3, 3)` with both bounds `{3, 1}`; `lower` `{5, 2}` over `upper` `{2, 1}`;
 `lower` `{1, 2}` with `upper` `{2, 3}` and the two swapped; `lower`
 `{18446744073709551617, 3}` with `upper` `{18446744073709551616, 3}`, both ends
@@ -1740,7 +1714,7 @@ bounded profiles and under `timed/v1`; the form with valid rational bounds and
 lower_end: "closed"}` and the same with the four ends and a fifth member `extra`, both
 with integer-string bounds; the same two with the rational-object bounds of the timed
 form; and a clause holding such a member-set defect beside a profile-fit defect in a
-higher-digest clause.
+higher-structural-id clause.
 
 Expected: AC-119's inputs all admit. AC-120's inputs refuse
 `invalid_package`/`invalid-value` at `.../interval/lower` or `.../interval/upper`
@@ -1758,7 +1732,7 @@ admits; and the work-limited read returns `incomplete` naming the work limit. AC
 the closed `closed` form refuses `operation-member-mismatch` at the application under
 `infinite-trace` and the bounded profiles and admits under `timed/v1`; the two `"half"`
 inputs, the missing-end and fifth-member inputs with integer-string bounds refuse
-`operation-member-mismatch` at `operation.member`, reported after the higher-digest
+`operation-member-mismatch` at `operation.member`, reported after the higher-structural-id
 clause's profile-fit defect; and the two inputs with rational-object bounds refuse
 `invalid-value` at `.../interval/lower`.
 
@@ -1782,7 +1756,7 @@ results.
    authored multiplicity and the FCD-shaped category, composite, direction and
    origin members. Keep fields and an operation on `Order` owner-nested, and
    the operation's parameter nested under the operation. Derive the selection
-   evidence and package identities through the authoritative canonical encoder
+   evidence and complete package values through the authoritative canonical encoder
    after every document edit. Admit the document and a correctly owned
    `relation`/`relationship` graph declaration. Independently change only the
    relationship identity to an owner-nested, foreign-package and wrong-slot
@@ -2290,7 +2264,7 @@ through the reference path and check the changed and unchanged identities.
 
 Apply QSpec TC-966's strict-wire mutations without rekeying and assert
 `malformed_wire` at strict wire validation before body checks. For each
-semantic mutation, rebuild dependencies, node keys and package id before
+semantic mutation, rebuild dependencies, node keys and package name before
 reading it. Assert the exact code, cause and RFC 6901 locus for repeated
 modes, wrong variable type or level, rate count and type, mode and reset
 indices, reset conflict, initial entry, foreign read, clock class, orphan
@@ -2359,7 +2333,7 @@ assert all published reverse-order and equal-key cases refuse
 For AC-342 and AC-359, test all six root aggregates, guard-part constraint
 lists and invariant bound lists with source-region minimum first and QSpec
 FR-322-AC-265 structural tie-break second. `AO-02`..`AO-07` distinguish
-reversed references, digest order, tied starts and an earlier extra region.
+reversed references, structural-id order, tied starts and an earlier extra region.
 `AO-08`..`AO-10` distinguish ordered, reversed and equal place-path keys on
 one region. `CL-29`..`CL-53` distinguish constraint, reset and invariant
 keys, including comparison rank, rational numeric bound, owner and slot
@@ -2377,7 +2351,7 @@ For each remaining root branch—`resets` (binding 4), `guards` (5),
 `invariants` (6) and `constraints` (8)—build an admissible two-reference
 control with distinct member nodes and strictly increasing full order keys.
 For each, reverse the references, rebuild the root key, its source-map entry
-and the package identity, and require `invalid_semantic_graph` with null
+and the complete package value, and require `invalid_semantic_graph` with null
 cause at `/semantic_graph/nodes/{i}/body/members/{b}/value/members/1`,
 using that control's actual graph index `i` and branch index `b`. Retain
 the admitted original and verify its exact dependencies, selected
@@ -2394,7 +2368,7 @@ independent mutations that keep its first out-of-order pair. First replace
 the timed root's required `occurrences` array with text and require
 `malformed_wire` at `/semantic_graph/nodes/{i}/occurrences` before any
 identity or order check. Second remove one still-referenced root dependency,
-keep the rest of the package identity-current and require
+keep the rest of the complete package value-current and require
 `invalid_semantic_graph` with null cause at
 `/semantic_graph/nodes/{i}/dependencies` before key or timed-body checks.
 Third create a stale root key while preserving the order defect: for
@@ -2435,7 +2409,7 @@ refuses `invalid_model_binding`/`malformed-declaration` at
 place owner and selector-domain terms, binder order, frame writes, Boolean
 conditions/predicates, Clock parameter declarations, same-operation guard
 constraints and upper-only invariant bounds. For each mutated semantic case,
-rebuild dependent node and package identities before calling the reader.
+rebuild dependent node and complete package values before calling the reader.
 
 For AC-362, inspect the positive dense timed-model and timed-slot fixtures
 for the same closed clause forms with current keys, then replay every `CL-01`..`CL-54`

@@ -41,9 +41,9 @@ failure as a V2 accessor refusal.
    version and command at run time.
 2. For invariant and constraint, produce equal conditions and body anchors
    with initialization and handler points. Assert that each point produces a
-   distinct rederived node id and package id; each node's authentic claims
+   distinct structural node id and complete package value; each node's authentic claims
    return only that node's exact point. Change only the handler name and
-   rekey, then assert the changed result and identity. Do not assert that
+   update references, then assert the changed result and identity. Do not assert that
    different points can live on one clause node (SUPERSEDED AC-2). Separately,
    construct an otherwise admissible V2 reader control with a nonempty point
    name outside FR-011's identifier grammar, such as `tick now`, and verify
@@ -63,7 +63,7 @@ failure as a V2 accessor refusal.
    claims of one pointed node: both return its one retained point. An
    unpointed node returns `MissingExecutionPoint` for every authentic claim.
 4. Duplicate the point JSON member, add a malformed/extra member or put a
-   point on another operation member, rekeying where needed. Check the
+   point on another operation member, updating references where needed. Check the
    strict-wire duplicate and FR-040 schema refusals, exact code/cause/locus,
    no admitted package or first-wins point. A non-claim or other-node claim
    refuses at accessor authenticity, not a fictional point-entry target

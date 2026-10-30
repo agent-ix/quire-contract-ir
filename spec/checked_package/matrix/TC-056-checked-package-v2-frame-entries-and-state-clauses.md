@@ -126,11 +126,11 @@ order), state step.
 Build both an unpointed protocol anchor and point-qualified `pre` and
 `post` anchors for the same checked operation. Build invariant and constraint
 clauses with `initialization` and `handler` points and operation clauses with
-`pre` and `post` points. Recompute node keys and package identities from this
+`pre` and `post` points. Recompute node keys and package nameentities from this
 repository's own public vocabulary, read each, then write each admitted package and round-trip the retained
 point or absence through the public writer and reader. Mutate one field at a time: point variant, required name, extra member,
 applicability to clause kind, operation name, and clause/anchor
-point agreement. Mutate identity material without rekeying.
+point agreement. Mutate identity material without changing structural ids.
 Pair each point defect with an earlier graph-shape, frame, anchor or signature
 defect and a later operation-catalog defect to test first-refusal order.
 For source-name agreement, run a fresh QSL producer vector from its

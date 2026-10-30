@@ -27,7 +27,7 @@ Check and emit the QSL function in FR-049-AC-1, admit its checked package,
 and record the driver's item occurrence, add key and
 `conversion_context() -> Option<&OccurrenceKey>`. Require `Some` of the
 direct narrow occurrence and retain its role and ordinal. First lower only
-`[add]`: read the ordinary six-field FR-330 package and assert that its add
+`[add]`: read the ordinary five-member FR-330 package and assert that its add
 forward closure has six nodes, operand `[0, 9]`, and neither the narrow nor
 result `[0, 10]`. Then lower explicit roots `[add, narrow]` together: read the
 ordinary FR-330 package, assert two exact feature-accounting records, eight
@@ -71,8 +71,8 @@ reference, an identically keyed local node, and missing, stale and wrong
 selected dependencies; assert reader refusal before any result-context query
 for unavailable selection.
 
-Before and after every query, compare the complete six-field wire and
-canonical identity. Compare the add-only package to the contextual package
+Before and after every query, compare the complete five-member wire and
+complete canonical value. Compare the add-only package to the contextual package
 separately: the extra root changes represented nodes, accounting and identity
 as FR-035 requires. Independently enumerate the preexisting add forward
 closure and confirm the reverse conversion remains outside it. Compile an
@@ -92,6 +92,6 @@ non-lowered, absent or typed error outcomes in FR-049, without a partial or
 guessed bound. Selected external
 references retain their package/key identity and never resolve through a
 local collision. Source/provenance is exact. Each FR-330 package has the
-ordinary six-field wire; the contextual package has different accounting and
+ordinary five-member wire; the contextual package has different accounting and
 identity from add-only. The wire, identity and add forward closure are
 unchanged by each query.

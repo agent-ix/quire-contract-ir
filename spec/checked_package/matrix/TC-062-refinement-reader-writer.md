@@ -116,7 +116,7 @@ control.
 ## Expected Results
 
 Each positive vector admits and round-trips with the same complete node,
-node id and package id. Every adverse vector refuses the entire package with
+node id and package name. Every adverse vector refuses the entire package with
 FR-061's code, cause and pointer; no row is defaulted, reordered, omitted or
 interpreted under another form. The two concrete subjects produce distinct
 node ids despite equal bodies; a changed received `steps` order changes the

@@ -12,7 +12,7 @@ relationships:
 
 Exercise the public typed operand query on reader-admitted
 `ContractPackageV1` values. Build the positive through the existing QSL
-increment source and ordinary FR-035 lowering, then read that same six-field
+increment source and ordinary FR-035 lowering, then read that same five-member
 package. Other cases use the repository's admitted package fixtures and
 reader, without copied schemas or a raw-JSON consumer extractor.
 
@@ -22,7 +22,7 @@ represents the authored integer literal as a graph reference in the scalar
 application, while QSL FR-357/FR-358 and ADR-013 require an inline literal in
 that operand identity. The reader-admitted fixture exercises the specified
 graph-reference plus inline-integer shape now. Do not count a QSL producer
-trace for this case until that emission is corrected and the six-field
+trace for this case until that emission is corrected and the five-member
 package is read through the public typed query.
 
 ## Test Procedure
@@ -49,7 +49,7 @@ represented occurrence of the same application and observe structural
 admission without asserting which QSL requirement owns it.
 
 Compile an external consumer against the public model API and query a
-reader-admitted six-field package. Check that it needs no checked graph or
+reader-admitted five-member package. Check that it needs no checked graph or
 `serde_json::Value` field reads. Compare the complete wire, canonical
 identity, feature accounting, result context and reached closure before and
 after repeated queries. Preserve the existing checked-package scalar operand
