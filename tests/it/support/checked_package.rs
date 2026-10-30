@@ -825,7 +825,11 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                     "enum",
                     id.clone(),
                     json!([]),
-                    json!({"term":"aggregate","members":[]}),
+                    json!({
+                        "term": "enum",
+                        "ordered": preimage["ordered"],
+                        "members": preimage["members"],
+                    }),
                     Some(json!({"qualified_name": declaration_name})),
                 ),
                 "quire.enum-member-node/v1" => (
@@ -853,7 +857,7 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                             .map(|term| term["dimension_node_id"].clone())
                             .collect(),
                     ),
-                    json!({"term":"aggregate","members":[]}),
+                    json!({"term": "dimension", "terms": preimage["terms"]}),
                     Some(json!({"qualified_name": declaration_name})),
                 ),
                 "quire.dimension-equivalence-node/v1" => (
@@ -861,7 +865,11 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                     "dimension_equivalence",
                     id.clone(),
                     preimage["dimension_node_ids"].clone(),
-                    json!({"term":"aggregate","members":[]}),
+                    json!({
+                        "term": "dimension_equivalence",
+                        "dimension_node_ids": preimage["dimension_node_ids"],
+                        "root_scale": preimage["root_scale"],
+                    }),
                     None,
                 ),
                 "quire.unit-node/v1" => {
@@ -874,7 +882,13 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                         "unit",
                         preimage["dimension_node_id"].clone(),
                         Value::Array(dependencies),
-                        json!({"term":"aggregate","members":[]}),
+                        json!({
+                            "term": "unit",
+                            "dimension_node_id": preimage["dimension_node_id"],
+                            "target_unit_node_id": preimage["target_unit_node_id"],
+                            "scale": preimage["scale"],
+                            "offset": preimage["offset"],
+                        }),
                         Some(json!({"qualified_name": declaration_name})),
                     )
                 }
@@ -901,9 +915,11 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
             "semantic_type": semantic_type,
             "dependencies": dependencies,
             "occurrences": [{"role":role,"ordinal":ordinal}],
-            "nominal_identity_preimage": preimage,
             "body": body,
         });
+        if let Some(owner) = preimage.get("owner") {
+            node["owner"] = owner.clone();
+        }
         if let Some(declaration) = declaration {
             node.as_object_mut()
                 .expect("node object")
@@ -2011,19 +2027,6 @@ pub fn nominal_fixture_members() -> Vec<(Value, String)> {
         "authority": FIXTURE_SOURCE_AUTHORITY,
         "identity": FIXTURE_SOURCE_IDENTITY,
     });
-    // The dimension is owned by the locked definition selection, not the
-    // locked source, so `tc_048_nominal_cross_field_contradictions_refuse`'s
-    // "owner outside lock" case — which mutates
-    // `lock.definition_selections[0].identity` — has a real
-    // `NominalOwner::Definition` join to break; the declaration and unit stay
-    // source-owned, matching `validate_owner`'s other join arm.
-    let definition = fixture_definition_selection();
-    let definition_owner = json!({
-        "kind": "definition",
-        "authority": definition["authority"],
-        "identity": definition["identity"],
-    });
-
     let declaration_preimage = json!({
         "version": "quire.enum-declaration-node/v1",
         "owner": owner,
@@ -2042,7 +2045,7 @@ pub fn nominal_fixture_members() -> Vec<(Value, String)> {
 
     let dimension_preimage = json!({
         "version": "quire.dimension-node/v1",
-        "owner": definition_owner,
+        "owner": owner,
         "qualified_declaration": ["Example", "Length"],
         "terms": Value::Array(Vec::new()),
     });
