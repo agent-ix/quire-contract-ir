@@ -4,6 +4,7 @@
 //! FR-053 public projection for source-backed selected model populations.
 
 pub use crate::checked_package::{
-    select_population, CheckedSelectedPopulation, CheckedSelectedPopulationOutcome,
-    CheckedSelectedPopulationSelector, CheckedSelectedPopulationSource,
+    select_population, CheckedAdmittedUnboundedPopulation, CheckedPopulationMaximum,
+    CheckedSelectedPopulation, CheckedSelectedPopulationOutcome, CheckedSelectedPopulationSelector,
+    CheckedSelectedPopulationSource,
 };
