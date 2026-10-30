@@ -1736,7 +1736,8 @@ pub(super) struct ModelOperationClass {
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
     by_key: BTreeMap<CheckedNodeId, Owner<'m>>,
-    by_declaration: BTreeMap<(&'m str, &'m str, DeclarationForm), CheckedNodeId>,
+    by_declaration:
+        BTreeMap<Box<str>, BTreeMap<Box<str>, BTreeMap<DeclarationForm, CheckedNodeId>>>,
     /// The identity of every selected domain package.
     identities: BTreeSet<&'m str>,
 }
@@ -1772,7 +1773,7 @@ impl<'m> ModelOwners<'m> {
         node: &str,
         form: DeclarationForm,
     ) -> Option<&CheckedNodeId> {
-        self.by_declaration.get(&(identity, node, form))
+        self.by_declaration.get(identity)?.get(node)?.get(&form)
     }
 
     /// Effective operation names, declaration nodes and checked binder records
@@ -1832,7 +1833,10 @@ impl<'m> ModelOwners<'m> {
         mut charge: impl FnMut(usize) -> Result<(), ValidationFailure>,
     ) -> Result<Self, ValidationFailure> {
         let mut by_key = BTreeMap::new();
-        let mut by_declaration = BTreeMap::new();
+        let mut by_declaration = BTreeMap::<
+            Box<str>,
+            BTreeMap<Box<str>, BTreeMap<DeclarationForm, CheckedNodeId>>,
+        >::new();
         let mut identities = BTreeSet::new();
         let mut authored = BTreeMap::<(&str, &str), Vec<&CheckedSemanticNodeV2<Body>>>::new();
         for candidate in nodes {
@@ -1897,10 +1901,12 @@ impl<'m> ModelOwners<'m> {
                         if candidate.node_tag.as_ref() == form.tag()
                             && candidate.semantic_form.as_ref() == form.form()
                         {
-                            by_declaration.insert(
-                                (package.identity.as_ref(), node.as_ref(), form),
-                                candidate.node_id.clone(),
-                            );
+                            by_declaration
+                                .entry(package.identity.clone())
+                                .or_default()
+                                .entry(node.clone())
+                                .or_default()
+                                .insert(form, candidate.node_id.clone());
                             by_key.insert(
                                 candidate.node_id.clone(),
                                 Owner {
