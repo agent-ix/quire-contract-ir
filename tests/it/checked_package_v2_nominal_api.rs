@@ -78,7 +78,7 @@ fn public_constructors_round_trip_all_four_nominal_forms_through_reader() {
                 if !["enum", "dimension", "unit", "dimension_equivalence"].contains(&term) {
                     return None;
                 }
-                seen.insert(term);
+                seen.insert(term.to_owned());
                 let typed = CheckedTerm::NominalBody(Box::new(constructor(body)));
                 assert_eq!(serde_json::to_value(&typed).expect("closed body"), *body);
                 Some((position, typed))
@@ -98,7 +98,10 @@ fn public_constructors_round_trip_all_four_nominal_forms_through_reader() {
     }
     assert_eq!(
         seen,
-        ["dimension", "dimension_equivalence", "enum", "unit"].into()
+        ["dimension", "dimension_equivalence", "enum", "unit"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
     );
 }
 
