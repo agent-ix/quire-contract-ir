@@ -309,10 +309,13 @@ fn selected_native_parameters_and_results_keep_their_type_nodes() {
                 read(&package, &evidence)
             );
         };
-        assert_eq!(admitted.graph().nodes[5].semantic_type.digest.as_ref(), key);
         assert_eq!(
-            admitted.graph().nodes[CALL].semantic_type.digest.as_ref(),
-            key
+            serde_json::to_value(&admitted.graph().nodes[5].semantic_type).expect("node id"),
+            node_id(&key)
+        );
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[CALL].semantic_type).expect("node id"),
+            node_id(&key)
         );
         assert_eq!(
             serde_json::to_value(&admitted.graph().nodes[CALL].body).expect("typed body")
@@ -694,17 +697,17 @@ fn selected_variant_types_field_parameter_and_result() {
         .expect("Order fields");
     assert!(matches!(
         fields.field("tier").and_then(|field| field.member_type()),
-        Some(CheckedMemberType::Variant(id)) if id.digest.as_ref() == tier
+        Some(CheckedMemberType::Variant(id)) if serde_json::to_value(id).expect("variant id") == node_id(&tier)
     ));
     assert!(matches!(
         fields.field("maybeTier").and_then(|field| field.member_type()),
         Some(CheckedMemberType::Option(inner))
-            if matches!(inner.as_ref(), CheckedMemberType::Variant(id) if id.digest.as_ref() == tier)
+            if matches!(inner.as_ref(), CheckedMemberType::Variant(id) if serde_json::to_value(id).expect("variant id") == node_id(&tier))
     ));
     assert!(matches!(
         fields.field("tiers").and_then(|field| field.member_type()),
         Some(CheckedMemberType::Collection { kind: CheckedCollectionKind::Sequence, element, bounds: Some((0, 3)) })
-            if matches!(element.as_ref(), CheckedMemberType::Variant(id) if id.digest.as_ref() == tier)
+            if matches!(element.as_ref(), CheckedMemberType::Variant(id) if serde_json::to_value(id).expect("variant id") == node_id(&tier))
     ));
 }
 
@@ -2077,20 +2080,19 @@ fn tc_048_selected_model_declaration_shape_refuses_at_its_node_before_the_call()
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("selected model declaration must refuse: {other:?}"),
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
-        refusal.cause,
-        Some(CheckedPackageRefusalCause::StaleNodeKey)
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{position}/node_id"))
+        Some(format!("/semantic_graph/nodes/{position}/semantic_type"))
     );
     assert_eq!(
-        refusal.locus.as_ref().expect("node locus").digest.as_ref(),
-        original["digest"].as_str().expect("original digest")
+        serde_json::to_value(refusal.locus.as_ref().expect("node locus"))
+            .expect("structural node locus"),
+        original
     );
-    assert_eq!(refusal.expected_node_id(), None);
 }
 
 #[trace("TC-048", "FR-038-AC-45")]
@@ -3410,19 +3412,18 @@ fn tc_048_relationship_end_returns_the_declared_bounds_role_and_derived_type() {
     let nodes = missing["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
-    let mut removed = vec![order.digest.to_string()];
+    let mut removed = vec![serde_json::to_value(&order).expect("structural order id")];
     loop {
         let before = nodes.len();
         nodes.retain(|node| {
-            let key = node["node_id"]["digest"].as_str().expect("key").to_owned();
-            let gone = |id: &Value| removed.iter().any(|known| id["digest"] == json!(known));
+            let key = node["node_id"].clone();
+            let gone = |id: &Value| removed.contains(id);
             let depends = node["dependencies"]
                 .as_array()
                 .expect("dependencies")
                 .iter()
                 .any(gone);
-            let typed_at_removed =
-                gone(&node["semantic_type"]) && node["semantic_type"]["digest"] != json!(key);
+            let typed_at_removed = gone(&node["semantic_type"]) && node["semantic_type"] != key;
             if depends || typed_at_removed || removed.contains(&key) {
                 removed.push(key);
                 false
