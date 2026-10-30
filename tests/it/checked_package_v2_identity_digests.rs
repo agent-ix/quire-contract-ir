@@ -277,7 +277,7 @@ fn structural_id_and_complete_body_survive_reading() {
     assert_eq!(retained["owner"], nodes[0]["owner"]);
 }
 
-#[trace("TC-048", "FR-038-AC-4")]
+#[trace("TC-048", "FR-038-AC-4", "FR-038-AC-367")]
 #[test]
 fn package_name_is_stable_while_complete_admitted_value_changes() {
     let mut original = local_package();

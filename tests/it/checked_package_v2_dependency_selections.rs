@@ -86,7 +86,7 @@ fn expect_refusal(package: &Value, code: Code, path: &str, cause: Option<Cause>)
 
 /// FR-038-AC-31/218: two selected packages bind by their admitted names, and
 /// the exact structural entries survive reading without an identity preimage.
-#[trace("TC-048", "FR-038-AC-31", "FR-038-AC-218")]
+#[trace("TC-048", "FR-038-AC-31", "FR-038-AC-218", "FR-038-AC-366")]
 #[test]
 fn ascending_dependency_names_admit_and_are_retained() {
     let geometry_wire = empty_package("test/geometry");
@@ -112,7 +112,7 @@ fn ascending_dependency_names_admit_and_are_retained() {
 
 /// FR-038-AC-32/63: `{identity}` is the complete selection entry. An absent
 /// or empty identity is malformed, and every removed legacy member is refused.
-#[trace("TC-048", "FR-038-AC-32", "FR-038-AC-63")]
+#[trace("TC-048", "FR-038-AC-32", "FR-038-AC-63", "FR-038-AC-366")]
 #[test]
 fn selection_shape_is_closed() {
     let base = empty_package("test/importer");
@@ -144,7 +144,7 @@ fn selection_shape_is_closed() {
 
 /// FR-038-AC-33: duplicate detection precedes monotonicity for an identity
 /// repeated at any position; distinct entries use UTF-8 byte order.
-#[trace("TC-048", "FR-038-AC-33")]
+#[trace("TC-048", "FR-038-AC-33", "FR-038-AC-366")]
 #[test]
 fn duplicate_and_misordered_names_refuse_at_the_repeating_entry() {
     let base = empty_package("test/importer");
@@ -188,7 +188,13 @@ fn duplicate_and_misordered_names_refuse_at_the_repeating_entry() {
 
 /// FR-038-AC-64/217/218: selection binding uses package name; a selected
 /// name without an identically named admitted package is a typed missing import.
-#[trace("TC-048", "FR-038-AC-64", "FR-038-AC-217", "FR-038-AC-218")]
+#[trace(
+    "TC-048",
+    "FR-038-AC-64",
+    "FR-038-AC-217",
+    "FR-038-AC-218",
+    "FR-038-AC-366"
+)]
 #[test]
 fn selection_binds_by_exact_package_name() {
     let wire = empty_package("test/geometry");
@@ -218,7 +224,7 @@ fn selection_binds_by_exact_package_name() {
 
 /// FR-038-AC-293: the same name reached through a diamond must bind one
 /// complete package value; the two importer-rooted loci remain ordered.
-#[trace("TC-048", "FR-038-AC-293")]
+#[trace("TC-048", "FR-038-AC-293", "FR-038-AC-366")]
 #[test]
 fn diamond_with_unequal_complete_leaf_packages_refuses() {
     let first_wire = empty_package("test/families");
@@ -268,7 +274,7 @@ fn diamond_with_unequal_complete_leaf_packages_refuses() {
 
 /// AC-366 equal-value diamond and direct-lock-only projection slice. Both
 /// branches supply the same admitted leaf value under one selected name.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-366")]
 #[test]
 fn equal_complete_leaf_diamond_admits_without_a_transitive_lock_row() {
     let leaf_wire = empty_package("test/leaf");
@@ -301,7 +307,7 @@ fn equal_complete_leaf_diamond_admits_without_a_transitive_lock_row() {
 
 /// An explicit direct claim for a name already reached transitively is valid
 /// when it supplies the identical complete admitted package value.
-#[trace("TC-048", "FR-038-AC-31", "FR-038-AC-217")]
+#[trace("TC-048", "FR-038-AC-31", "FR-038-AC-217", "FR-038-AC-366")]
 #[test]
 fn overlisted_transitive_selection_admits_when_values_agree() {
     let leaf_wire = empty_package("test/leaf");
