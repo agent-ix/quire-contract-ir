@@ -266,7 +266,8 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
             graph[3 + index]["node_id"]
         );
         assert_eq!(
-            retained.body["root_scale"], case["root_scale"],
+            serde_json::to_value(&retained.body).expect("typed equivalence body")["root_scale"],
+            case["root_scale"],
             "XP-01 scale {index}"
         );
         assert_eq!(

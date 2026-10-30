@@ -4,6 +4,7 @@
 //! Timed-model wire evidence read from the owning QSpec checkout.
 //! Clause and aggregate-order controls exercise the public V2 reader.
 use super::*;
+use quire_canonical::Limits;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCollectionKind, CheckedMemberType, CheckedNodeId,
     CheckedOccurrenceRole, CheckedTerm,
@@ -1225,6 +1226,7 @@ fn timed_model_published_schema_vectors_refuse_before_semantic_validation() {
         );
         assert!(refusal.loci[0]
             .path
+            .as_ref()
             .unwrap()
             .to_string()
             .starts_with(&format!("/semantic_graph/nodes/{index}/body")));
