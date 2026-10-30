@@ -216,9 +216,9 @@ fn tc_048_qspec_reaches_population_cases_match_the_reader() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-343")]
+#[trace("TC-048", "FR-038-AC-279")]
 #[test]
-fn tc_048_qspec_unbounded_population_shapes_match_the_reader() {
+fn tc_048_population_shape_rows_follow_finite_reaches_rule() {
     let dir = fixtures_dir();
     let adverse = read_json(&dir.join(ADVERSE)).expect("QSpec adverse fixture");
     let rows = mutations(&adverse, "unbounded_population_cases").expect("published cases");
@@ -228,31 +228,42 @@ fn tc_048_qspec_unbounded_population_shapes_match_the_reader() {
         let id = text_of(row, "id").expect("case id");
         assert!(seen.insert(id), "duplicate case {id}");
         let base = text_of(row, "base").expect("base");
-        let package = read_json(&dir.join(format!("{base}.json"))).expect("published base");
-        let descriptor = json!({
-            "model_population_over": "ix://acme/orders/Order",
-            "max": row["max"],
-            "extra_member": row["extra_member"] == true,
-        });
-        let case = json!({"population": descriptor});
-        let package = candidate(&package, &case);
-        let application = package["semantic_graph"]["nodes"]
+        let base = read_json(&dir.join(format!("{base}.json"))).expect("published base");
+        let package = candidate(
+            &base,
+            &json!({"population": {
+                "model_population_over": "ix://acme/orders/Order",
+                "max": row["max"],
+                "extra_member": row["extra_member"] == true,
+            }}),
+        );
+        let linked_id = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
             .iter()
             .find(|node| node["body"]["operation"]["identity"] == "quire.op.model.reaches")
-            .expect("reaches application");
-        let linked_id = &application["body"]["operation"]["member"]["population"];
-        let population_position = package["semantic_graph"]["nodes"]
+            .expect("reaches application")["body"]["operation"]["member"]["population"]
+            .clone();
+        let position = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
             .iter()
-            .position(|node| node["node_id"] == *linked_id)
+            .position(|node| node["node_id"] == linked_id)
             .expect("linked population node");
-        let population_id =
-            package["semantic_graph"]["nodes"][population_position]["node_id"].clone();
         let result = read_package(&package).unwrap_or_else(|why| panic!("{id}: {why}"));
-        if row["outcome"] == "admitted" {
+        if id == "population-without-max-is-unbounded" {
+            let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+                panic!("{id}: unbounded reaches link must refuse: {result:?}");
+            };
+            assert_eq!(refusal.code, Code::IllTyped, "{id}");
+            assert_eq!(refusal.cause, Some(Cause::OperatorIneligible), "{id}");
+            assert!(
+                refusal.path.as_ref().is_some_and(|path| path
+                    .as_str()
+                    .ends_with("/body/operation/member/population")),
+                "{id}: {refusal:?}"
+            );
+        } else if row["outcome"] == "admitted" {
             assert!(
                 matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
                 "{id}: {result:?}"
@@ -272,17 +283,78 @@ fn tc_048_qspec_unbounded_population_shapes_match_the_reader() {
                 "{id}"
             );
             assert_eq!(
-                refusal.path.as_ref().map(ToString::to_string).as_deref(),
-                Some(format!("/semantic_graph/nodes/{population_position}/node_id").as_str()),
+                refusal.path.as_ref().map(ToString::to_string),
+                Some(format!("/semantic_graph/nodes/{position}/node_id")),
                 "{id}"
             );
             assert_eq!(
-                refusal.locus.as_ref().map(|locus| locus.digest.as_ref()),
-                population_id["digest"].as_str(),
+                refusal.locus.as_ref().map(|node| node.digest.as_ref()),
+                linked_id["digest"].as_str(),
                 "{id}"
             );
         }
     }
+}
+
+#[trace("TC-048", "FR-038-AC-279")]
+#[test]
+fn tc_048_unbounded_population_node_and_reaches_link_have_distinct_outcomes() {
+    let dir = fixtures_dir();
+    let base = read_json(&dir.join("positive-operation-identities.json"))
+        .expect("published reaches package");
+    let mut linked = candidate(
+        &base,
+        &json!({"population": {
+            "model_population_over": "ix://acme/orders/Order",
+            "max": null,
+        }}),
+    );
+    let application = linked["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["operation"]["identity"] == "quire.op.model.reaches")
+        .expect("reaches application");
+    let linked_id = linked["semantic_graph"]["nodes"][application]["body"]["operation"]["member"]
+        ["population"]
+        .clone();
+    let linked_result = read_package(&linked).expect("linked reader result");
+    let CheckedPackageV2ReadResult::Refused(refusal) = linked_result else {
+        panic!("unbounded reaches link must refuse: {linked_result:?}");
+    };
+    assert_eq!(refusal.code, Code::IllTyped);
+    assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
+    assert!(
+        refusal
+            .path
+            .as_ref()
+            .is_some_and(|path| path.as_str().ends_with("/body/operation/member/population")),
+        "{refusal:?}"
+    );
+
+    let node = &mut linked["semantic_graph"]["nodes"][application];
+    node["body"]["operation"]["member"]
+        .as_object_mut()
+        .expect("member")
+        .remove("population");
+    node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .retain(|dependency| dependency != &linked_id);
+    let old = node["node_id"]["digest"]
+        .as_str()
+        .expect("old id")
+        .to_owned();
+    let new = canonical_digest(&union_value_preimage(node));
+    rewrite_digest(&mut linked, &old, &new);
+    linked["package_id"]["digest"] = json!(derived_with(&linked, None).expect("package identity"));
+    assert!(
+        matches!(
+            read_package(&linked).expect("node-only reader result"),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "unbounded population node must admit without a reaches link"
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-343")]
