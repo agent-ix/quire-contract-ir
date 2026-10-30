@@ -255,15 +255,20 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 pub fn node_id(path_label: &str) -> Value {
-    let package = match path_label {
-        "fixture/1515" | "fixture/1616" | "fixture/2020" => FAMILY_MODEL_IDENTITY,
-        _ => FIXTURE_PACKAGE,
+    let model_path = match path_label {
+        "fixture/1515" => Some(json!(["model", "object_type", FAMILY_OBJECT])),
+        "fixture/1616" => Some(json!(["model", "process", FAMILY_PROCESS])),
+        "fixture/2020" => Some(json!(["relation", "relationship", FAMILY_RELATIONSHIP])),
+        _ => None,
     };
+    if let Some(path) = model_path {
+        return json!({"package": FAMILY_MODEL_IDENTITY, "path": path, "ordinal": 0});
+    }
     let path = path_label.strip_prefix("qualified:").map_or_else(
         || vec![path_label],
         |qualified| qualified.split('/').collect(),
     );
-    json!({"package": package, "path": path, "ordinal": 0})
+    json!({"package": FIXTURE_PACKAGE, "path": path, "ordinal": 0})
 }
 
 /// A structural fixture identity with an explicit package, path and ordinal.
@@ -2106,8 +2111,9 @@ fn build_v2_all_families() -> Value {
     let f8080 = family_key("8080");
     let f1515 = family_key("1515");
     let f1616 = family_key("1616");
-    // FR-340 orders frame modifications by declaration digest, then field
-    // name. The model declaration digests can change with their preimages.
+    // FR-340 orders frame modifications by structural declaration node id,
+    // then field name. These two model paths place the object before the
+    // relationship.
     let mut modifies = [
         (
             &f1515,
@@ -2126,7 +2132,7 @@ fn build_v2_all_families() -> Value {
         "deletes": [node_id(&f1616)],
         "deletes_scoped": [],
     });
-    let frame_key = structural_key("state", "frame", Some(&f1515), &frame_body);
+    let frame_key = "state/frame".to_owned();
 
     let nodes = vec![
         plain_node(
@@ -2400,7 +2406,7 @@ fn build_v2_all_families() -> Value {
         .clone();
     package["source_map"] = source_map_for(&nodes_array, &source);
     select_model(&mut package, FAMILY_MODEL_IDENTITY);
-    refresh_identity(&mut package);
+    settle(&mut package);
     package
 }
 
