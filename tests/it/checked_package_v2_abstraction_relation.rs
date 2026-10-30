@@ -511,15 +511,6 @@ fn at(package: &Value, body: &Value) -> usize {
         .expect("relation body")
 }
 
-/// Replaces a relation body while retaining its structural identity.
-fn rebodied(package: Value, position: usize, new_body: Value) -> Value {
-    let targets = targets(&new_body);
-    mutated(package, position, move |node| {
-        node["body"] = new_body;
-        node["dependencies"] = json!(targets);
-    })
-}
-
 // Reading.
 
 fn read(value: &Value) -> CheckedPackageV2ReadResult {
