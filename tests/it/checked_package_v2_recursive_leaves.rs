@@ -12,9 +12,8 @@
 //! cycle's members share one `recursion_group`.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, mint_grouped_structural_keys, mint_ungrouped_structural_keys, node_id,
-    nominal_package, pointer, refusal_at, rekey_application_node, rename_node, settle, sha256_hex,
-    structural_key, BOOLEAN_KEY, INTEGER_KEY,
+    canonical, evidence_for, node_id, nominal_package, pointer, reassign_node_id, refusal_at,
+    settle, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -28,23 +27,12 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 type Typed = (String, Value);
 
-/// The key of the node called `name`: the derived key (FR-038-AC-134) for
-/// the anonymous `integer` and `boolean` nodes, the digest of the name
-/// otherwise.
+/// The authored structural path of the node called `name`.
 fn key(name: &str) -> String {
     match name {
         "integer" => INTEGER_KEY.to_owned(),
         "boolean" => BOOLEAN_KEY.to_owned(),
-        "text" => structural_key("scalar_type", "text", None, &empty()),
-        "nfc" => structural_key(
-            "bounded_domain",
-            "text_bounds",
-            Some(&key("text")),
-            &json!({"term": "aggregate", "members": [
-                binding("text_profile", literal("text", "text", "nfc")),
-            ]}),
-        ),
-        _ => sha256_hex(name.as_bytes()),
+        _ => format!("recursive/{name}"),
     }
 }
 
@@ -122,7 +110,7 @@ fn parameter(name: &str, ty: &str) -> Typed {
         binding("name", literal("text", "text", name)),
         binding("level", literal("integer", "integer", "0")),
     ]});
-    let (_, mut parameter) = node(
+    let (_, parameter) = node(
         name,
         "value",
         "parameter",
@@ -131,9 +119,7 @@ fn parameter(name: &str, ty: &str) -> Typed {
         "expression",
         body,
     );
-    let id = structural_key("value", "parameter", Some(&key(ty)), &parameter["body"]);
-    parameter["node_id"] = node_id(&id);
-    (id, parameter)
+    (key(name), parameter)
 }
 
 /// A record type named `name`, one field per `(field, type name)`.
@@ -263,16 +249,7 @@ fn equality_package(types: Vec<Typed>, root: &str, leaves: Vec<Value>) -> (Value
         "result_type": node_id(&key("boolean")),
         "arguments": [reference("p"), reference("p")],
     });
-    // FR-322 application key: the reader re-derives it.
-    let id = sha256_hex(&canonical(&json!({
-        "version": "quire.application-node/v1",
-        "node_tag": "expression",
-        "semantic_form": "binary",
-        "semantic_type": node_id(&key("boolean")),
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    })));
+    let id = key("equality");
     let (_, mut application) = node(
         "equality",
         "expression",
@@ -301,34 +278,22 @@ fn equality_package(types: Vec<Typed>, root: &str, leaves: Vec<Value>) -> (Value
         .as_array_mut()
         .expect("definition selections")
         .push(text_law());
-    let parameter_id = package["semantic_graph"]["nodes"]
+    let grouped = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
-        .and_then(|node| node["node_id"]["digest"].as_str())
-        .expect("parameter key")
-        .to_owned();
-    rename_node(&mut package, &key("p"), &parameter_id);
-    mint_ungrouped_structural_keys(&mut package);
-    mint_grouped_structural_keys(&mut package);
-    mint_ungrouped_structural_keys(&mut package);
-    let application = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["node_tag"] == "expression" && node["semantic_form"] == "binary")
-        .expect("application");
-    rekey_application_node(&mut package, application);
+        .filter(|node| node.get("recursion_group").is_some())
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+    for (ordinal, old) in grouped.iter().enumerate() {
+        let mut fresh = old.clone();
+        // Graph order owns the member ordinal. Reverse the path labels so
+        // the round-trip also checks that readers do not sort by NodeId.
+        fresh["path"] = json!([format!("recursive/group/{}", grouped.len() - ordinal)]);
+        fresh["ordinal"] = json!(ordinal);
+        reassign_node_id(&mut package, old, &fresh);
+    }
     settle(&mut package);
-    let id = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "binary")
-        .and_then(|node| node["node_id"]["digest"].as_str())
-        .expect("application key")
-        .to_owned();
     (package, id)
 }
 
@@ -342,7 +307,7 @@ fn leaves_pointer(package: &Value, id: &str) -> String {
         .as_array()
         .expect("nodes")
         .iter()
-        .position(|node| node["node_id"]["digest"] == id)
+        .position(|node| node["node_id"] == node_id(id))
         .expect("the application node");
     format!("/semantic_graph/nodes/{position}/body/operation/leaves")
 }
@@ -358,9 +323,9 @@ fn edit_application(package: &mut Value, edit: impl FnOnce(&mut Value)) -> Strin
         .expect("application");
     edit(&mut package["semantic_graph"]["nodes"][position]);
     settle(package);
-    package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+    package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
         .as_str()
-        .expect("derived application key")
+        .expect("application path")
         .to_owned()
 }
 
@@ -463,10 +428,13 @@ fn residual_operand_source_reads_value_type_and_direct_type_references() {
             }
             selected.push((record_id, value_application));
         }
-        assert_ne!(selected[0].0, selected[1].0, "declared type rekeys record");
-        assert_ne!(
+        assert_eq!(
+            selected[0].0, selected[1].0,
+            "the record keeps its structural id"
+        );
+        assert_eq!(
             selected[0].1, selected[1].1,
-            "declared type rekeys comparison"
+            "the comparison keeps its structural id"
         );
     }
 }
@@ -1122,7 +1090,7 @@ fn residual_compared_operand_rejects_binder_and_aggregate_families_first() {
             .as_array()
             .expect("nodes")
             .iter()
-            .position(|node| node["node_id"]["digest"] == application)
+            .position(|node| node["node_id"] == node_id(&application))
             .expect("application");
         assert_eq!(
             read(&package, CheckedPackageReadLimits::bounded()),
@@ -1153,7 +1121,7 @@ fn residual_non_member_terms_refuse_before_operand_family_and_leaves() {
             .as_array()
             .expect("nodes")
             .iter()
-            .position(|node| node["node_id"]["digest"] == application)
+            .position(|node| node["node_id"] == node_id(&application))
             .expect("application");
         let CheckedPackageV2ReadResult::Refused(refusal) =
             read(&package, CheckedPackageReadLimits::bounded())
@@ -1179,7 +1147,7 @@ fn residual_non_member_terms_refuse_before_operand_family_and_leaves() {
 #[test]
 fn residual_dependency_reference_cannot_be_a_comparison_operand() {
     let (mut package, _) = equality_package(vec![record("r", &[("n", "integer")])], "r", vec![]);
-    let package_id = package["package_id"].clone();
+    let package_name = package["name"].clone();
     let parameter_id = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -1189,14 +1157,14 @@ fn residual_dependency_reference_cannot_be_a_comparison_operand() {
         .clone();
     let application = edit_application(&mut package, |node| {
         node["body"]["arguments"][0] = json!({
-            "term":"dependency_reference", "package":package_id, "node":parameter_id
+            "term":"dependency_reference", "package":package_name, "node":parameter_id
         });
     });
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .position(|node| node["node_id"]["digest"] == application)
+        .position(|node| node["node_id"] == node_id(&application))
         .expect("application");
     let outcome = read(&package, CheckedPackageReadLimits::bounded());
     assert_eq!(
@@ -1818,9 +1786,9 @@ fn forwarding_operation_package(route: &str) -> (Value, String) {
         }
         settle(&mut package);
     }
-    let id = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+    let id = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
         .as_str()
-        .expect("application key")
+        .expect("application path")
         .to_owned();
     (package, id)
 }
