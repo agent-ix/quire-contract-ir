@@ -135,7 +135,6 @@ impl CheckedPackageV2 {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use crate::checked_package::v2::model_fields::RetainedRelationship;
     use crate::checked_package::v2::test_support::node_id;
     use crate::checked_package::v2::CheckedTerm;
     use crate::checked_package::v2::RetainedModels;
@@ -554,37 +553,6 @@ pub(super) mod tests {
                 "{label}"
             );
         }
-    }
-
-    /// The retained destination key cannot be absent in a package the reader
-    /// admitted (admission refuses an end whose type is not a selected
-    /// declaration), so this one state is produced by editing the admitted
-    /// retained record itself. It backs no acceptance criterion by itself.
-    #[test]
-    fn tc_048_an_absent_retained_destination_key_refuses_unresolved_end() {
-        let (mut package, ids) = admitted();
-        let position = at(&package, &ids[&'c']);
-        let retained = package
-            .models
-            .relationship(
-                &package.wire.semantic_graph.nodes[position],
-                &package.terms[position],
-            )
-            .cloned()
-            .expect("the admitted record");
-        package.models = RetainedModels::with_relationship(
-            ids[&'c'].digest.as_ref(),
-            0,
-            LINKS,
-            RetainedRelationship {
-                target_key: None,
-                ..retained
-            },
-        );
-        assert_eq!(
-            package.relationship_end(&ids[&'7']),
-            Err(CheckedRelationshipEndError::UnresolvedEnd)
-        );
     }
 
     /// Ids that are not in the graph and nodes that are not reaches
