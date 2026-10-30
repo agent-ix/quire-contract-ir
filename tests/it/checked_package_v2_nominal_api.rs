@@ -63,39 +63,43 @@ fn constructor(body: &Value) -> NominalBody {
 #[trace("TC-048", "TC-058", "FR-038-AC-374")]
 #[test]
 fn public_constructors_round_trip_all_four_nominal_forms_through_reader() {
-    let wire = v2_nominal();
-    let nodes = wire["semantic_graph"]["nodes"].as_array().expect("nodes");
     let mut seen = std::collections::BTreeSet::new();
-    let constructed = nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(position, node)| {
-            let body = &node["body"];
-            let term = body["term"].as_str()?;
-            if !["enum", "dimension", "unit", "dimension_equivalence"].contains(&term) {
-                return None;
-            }
-            seen.insert(term);
-            let typed = CheckedTerm::NominalBody(Box::new(constructor(body)));
-            assert_eq!(serde_json::to_value(&typed).expect("closed body"), *body);
-            Some((position, typed))
-        })
-        .collect::<Vec<_>>();
+    for wire in [
+        v2_nominal(),
+        super::checked_package_v2_dimension_equivalence::package(),
+    ] {
+        let nodes = wire["semantic_graph"]["nodes"].as_array().expect("nodes");
+        let constructed = nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(position, node)| {
+                let body = &node["body"];
+                let term = body["term"].as_str()?;
+                if !["enum", "dimension", "unit", "dimension_equivalence"].contains(&term) {
+                    return None;
+                }
+                seen.insert(term);
+                let typed = CheckedTerm::NominalBody(Box::new(constructor(body)));
+                assert_eq!(serde_json::to_value(&typed).expect("closed body"), *body);
+                Some((position, typed))
+            })
+            .collect::<Vec<_>>();
+        let admitted = match CheckedPackageV2::read(
+            &canonical(&wire),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(&wire),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("nominal fixture must admit: {other:?}"),
+        };
+        for (position, expected) in constructed {
+            assert_eq!(&admitted.graph().nodes[position].body, &expected);
+        }
+    }
     assert_eq!(
         seen,
         ["dimension", "dimension_equivalence", "enum", "unit"].into()
     );
-    let admitted = match CheckedPackageV2::read(
-        &canonical(&wire),
-        CheckedPackageReadLimits::bounded(),
-        &evidence_for(&wire),
-    ) {
-        CheckedPackageV2ReadResult::Admitted(package) => package,
-        other => panic!("nominal fixture must admit: {other:?}"),
-    };
-    for (position, expected) in constructed {
-        assert_eq!(&admitted.graph().nodes[position].body, &expected);
-    }
 }
 
 fn assert_malformed(

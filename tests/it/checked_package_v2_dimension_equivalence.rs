@@ -46,7 +46,7 @@ fn equivalence(left: &Value, right: &Value, source: &Value) -> Value {
     })
 }
 
-fn package() -> Value {
+pub(super) fn package() -> Value {
     let mut package = v2_all_families();
     let source = fixture_source();
     let scalar = package["semantic_graph"]["nodes"][0].clone();
