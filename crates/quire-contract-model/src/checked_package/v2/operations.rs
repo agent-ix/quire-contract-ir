@@ -4400,7 +4400,6 @@ mod tests {
         DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners, StructuralTypes,
         SuppliedDependencies, TemporalForm, ValidationFailure, WorkMeter,
     };
-    use crate::checked_package::common::NODE_DOMAIN;
     use crate::checked_package::shared::{
         CheckedArtifactRef, CheckedPackageLimit, CheckedSelection, JsonPointer,
     };
@@ -4912,10 +4911,6 @@ mod tests {
     /// no member.
     const STRUCTURAL_EQ_IDENTITY: &str = "quire.op.structural.eq";
 
-    fn dummy_digest(byte: char) -> String {
-        std::iter::repeat_n(byte, 64).collect()
-    }
-
     fn node_id(byte: char) -> CheckedNodeId {
         CheckedNodeId {
             package: "checked".into(),
@@ -5259,12 +5254,8 @@ mod tests {
         (result, meter.consumed())
     }
 
-    fn key(fill: u8) -> String {
-        format!("{fill:02x}").repeat(32)
-    }
-
     fn node_ref(fill: u8) -> serde_json::Value {
-        json!({ "domain": "quire.checked-semantic-node/v1", "digest": key(fill) })
+        json!({ "package": "checked", "path": [format!("{fill:02x}")], "ordinal": 0 })
     }
 
     /// The family of a type reached through a chain of `bounded_domain` nodes
@@ -5276,8 +5267,7 @@ mod tests {
     #[test]
     fn tc_048_a_bounded_domain_chain_resolves_whatever_its_length() {
         const CHAIN: usize = 300;
-        let digest = |position: usize| format!("{position:064x}");
-        let id = |position: usize| json!({"domain": NODE_DOMAIN, "digest": digest(position)});
+        let id = |position: usize| json!({"package":"checked", "path":[position.to_string()], "ordinal":0});
         let node = |position: usize,
                     tag: &str,
                     form: &str,
@@ -6004,7 +5994,7 @@ mod tests {
                         "name": "other_field",
                         "value": {
                             "term": "reference",
-                            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('9') },
+                            "target": node_ref_of('9'),
                         },
                     },
                 ],
@@ -6072,7 +6062,7 @@ mod tests {
             vec![
                 json!({
                     "term": "reference",
-                    "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('4') },
+                    "target": node_ref_of('4'),
                 }),
                 json!({ "term": "literal", "value": 0 }),
             ],
@@ -6117,7 +6107,7 @@ mod tests {
                         "name": "name",
                         "value": {
                             "term": "reference",
-                            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('f') },
+                            "target": node_ref_of('f'),
                         },
                     },
                 ],
@@ -6154,7 +6144,7 @@ mod tests {
             vec![
                 json!({
                     "term": "reference",
-                    "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('r') },
+                    "target": node_ref_of('r'),
                 }),
                 reference_to('p'),
             ],
@@ -6222,7 +6212,7 @@ mod tests {
     fn reference_to(id_byte: char) -> Value {
         json!({
             "term": "reference",
-            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
+            "target": node_ref_of(id_byte),
         })
     }
 
@@ -6341,10 +6331,7 @@ mod tests {
             operands.into_iter().map(reference_to).collect(),
         );
         if let Some(result) = result {
-            root.body["result_type"] = json!({
-                "domain": NODE_DOMAIN,
-                "digest": dummy_digest(result),
-            });
+            root.body["result_type"] = json!(node_ref_of(result));
         }
         let locus = root.node_id.clone();
         let mut graph = vec![root];
@@ -8925,7 +8912,7 @@ mod tests {
                         "name": field,
                         "value": {
                             "term": "reference",
-                            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('i') },
+                            "target": node_ref_of('i'),
                         },
                     }],
                 }),
@@ -8943,7 +8930,7 @@ mod tests {
         let operand = |id_byte: char| {
             json!({
                 "term": "reference",
-                "target": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
+                "target": node_ref_of(id_byte),
             })
         };
         let operation = plain_operation(STRUCTURAL_EQ_IDENTITY);
@@ -8998,7 +8985,7 @@ mod tests {
         let literal = |type_byte: char| {
             json!({
                 "term": "literal",
-                "type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
+                "type": node_ref_of(type_byte),
                 "value_kind": "none",
                 "value": null,
             })
@@ -9008,7 +8995,7 @@ mod tests {
                 "term": "application",
                 "operator": "binary",
                 "operation": plain_operation(CATALOGUED_IDENTITY),
-                "result_type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
+                "result_type": node_ref_of(type_byte),
                 "arguments": [],
             })
         };
@@ -9066,7 +9053,7 @@ mod tests {
             };
             json!({
                 "term": "literal",
-                "type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
+                "type": node_ref_of(type_byte),
                 "value_kind": kind,
                 "value": value,
             })
@@ -9151,7 +9138,7 @@ mod tests {
             "term": "application",
             "operator": "state_clause",
             "operation": plain_operation("quire.op.state.clause"),
-            "result_type": { "domain": NODE_DOMAIN, "digest": dummy_digest('b') },
+            "result_type": node_ref_of('b'),
             "arguments": [],
         });
         let root = custom_application_node(
@@ -9236,7 +9223,7 @@ mod tests {
                 "kind": "fairness",
                 "fairness_kind": "weak",
                 "granularity": "whole",
-                "declaration": { "domain": NODE_DOMAIN, "digest": dummy_digest('f') },
+                "declaration": node_ref_of('f'),
                 "name": "Step",
             }),
         }
@@ -9336,7 +9323,7 @@ mod tests {
 
     /// FR-038-AC-67: an unknown identity and a class mismatch refuse ahead of
     /// every other check of the entry, and of two defective root nodes the
-    /// lower `node_id` digest is reported.
+    /// lower structural `node_id` is reported.
     #[trace("TC-048", "FR-038-AC-67")]
     #[test]
     fn tc_048_identity_and_class_refuse_first_and_the_lowest_node_is_reported() {
@@ -9369,7 +9356,7 @@ mod tests {
             )))
         );
 
-        // Two defective roots, in both digest orders: the lower digest wins,
+        // Two defective roots, in both structural ID orders: the lower ID wins,
         // whichever of the two operation defects it carries.
         let unknown_identity = |digest: char| {
             // Under `unary`: a `case` root in an `expression`/`call` node is
@@ -9475,8 +9462,8 @@ mod tests {
         ]
     }
 
-    fn node_ref_of(digest: char) -> Value {
-        json!({ "domain": NODE_DOMAIN, "digest": dummy_digest(digest) })
+    fn node_ref_of(name: char) -> Value {
+        json!({ "package": "checked", "path": [name.to_string()], "ordinal": 0 })
     }
 
     fn clause_arguments(first: Value, sixth: Value) -> Vec<Value> {
@@ -9604,14 +9591,8 @@ mod tests {
         let presence = &vectors["presence"];
         let model =
             presence["places"]["v"]["node"]["body"]["members"][0]["value"]["target"].clone();
-        let integer = json!({
-            "domain": NODE_DOMAIN,
-            "digest": vectors["type_nodes"]["integer"],
-        });
-        let reference_type = json!({
-            "domain": NODE_DOMAIN,
-            "digest": vectors["type_nodes"]["owner_reference_type"],
-        });
+        let integer = vectors["type_nodes"]["integer"].clone();
+        let reference_type = vectors["type_nodes"]["owner_reference_type"].clone();
         let boolean = presence["cases"][0]["node"]["semantic_type"].clone();
         let support = |id: Value, tag: &str, form: &str, ty: Value, body: Value| {
             serde_json::from_value::<CheckedSemanticNodeV2>(json!({
