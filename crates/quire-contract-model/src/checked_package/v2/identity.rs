@@ -847,10 +847,120 @@ impl Site<'_> {
     }
 
     fn preimage(&self, members: &[&str]) -> JsonPointer {
-        members.iter().fold(
-            self.member("nominal_identity_preimage"),
-            |pointer, member| pointer.key(member),
-        )
+        let (base, rest) = match members.split_first() {
+            Some((first, rest)) if *first == "owner" => (self.member("owner"), rest),
+            Some((first, rest)) if *first == "qualified_declaration" => {
+                (self.member("declaration").key("qualified_name"), rest)
+            }
+            Some((first, rest)) if *first == "case" => (self.member("body").key("value"), rest),
+            Some((first, rest)) if *first == "declaration_node_id" => {
+                (self.member("semantic_type"), rest)
+            }
+            _ => (self.member("body"), members),
+        };
+        rest.iter()
+            .fold(base, |pointer, member| pointer.key(member))
+    }
+}
+
+fn record_from_node(
+    node: &CheckedSemanticNodeV2,
+    kind: NominalKind,
+    position: usize,
+) -> Result<NominalIdentityPreimage, ValidationFailure> {
+    let at = node_pointer(position);
+    if kind == NominalKind::EnumMember {
+        let case = node
+            .body
+            .as_object()
+            .and_then(|body| body.get("value"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| invalid(at.clone().key("body").key("value")))?;
+        return Ok(NominalIdentityPreimage::EnumMember(EnumMemberPreimage {
+            declaration_node_id: node.semantic_type.clone(),
+            case: case.into(),
+        }));
+    }
+    let source_owner = match node.owner.as_ref() {
+        Some(super::CheckedNodeOwner::Source {
+            authority,
+            identity,
+        }) => NominalOwner::Source {
+            authority: authority.clone(),
+            identity: identity.clone(),
+        },
+        Some(super::CheckedNodeOwner::Model { identity, node }) => NominalOwner::Model {
+            identity: identity.clone(),
+            node: node.clone(),
+        },
+        _ => return Err(invalid(at.key("owner"))),
+    };
+    let declared = || {
+        node.declaration
+            .as_ref()
+            .map(|declaration| declaration.qualified_name.clone())
+            .ok_or_else(|| invalid(at.clone().key("declaration")))
+    };
+    let body = || NominalBody::from_value(&node.body, at.clone().key("body"));
+    match (kind, body()?) {
+        (NominalKind::EnumDeclaration, NominalBody::Enum { ordered, members }) => Ok(
+            NominalIdentityPreimage::EnumDeclaration(EnumDeclarationPreimage {
+                owner: source_owner,
+                qualified_declaration: declared()?,
+                ordered,
+                members,
+            }),
+        ),
+        (NominalKind::Dimension, NominalBody::Dimension { terms }) => {
+            Ok(NominalIdentityPreimage::Dimension(DimensionPreimage {
+                owner: source_owner,
+                qualified_declaration: declared()?,
+                terms,
+            }))
+        }
+        (
+            NominalKind::Unit,
+            NominalBody::Unit {
+                dimension_node_id,
+                target_unit_node_id,
+                scale,
+                offset,
+            },
+        ) => Ok(NominalIdentityPreimage::Unit(UnitPreimage {
+            owner: source_owner,
+            qualified_declaration: declared()?,
+            dimension_node_id,
+            target_unit_node_id,
+            scale,
+            offset,
+        })),
+        (
+            NominalKind::DimensionEquivalence,
+            NominalBody::DimensionEquivalence {
+                dimension_node_ids,
+                root_scale,
+            },
+        ) => {
+            let NominalOwner::Source {
+                authority,
+                identity,
+            } = source_owner
+            else {
+                return Err(invalid(at.key("owner")));
+            };
+            Ok(NominalIdentityPreimage::DimensionEquivalence(
+                DimensionEquivalencePreimage {
+                    owner: SourceOwner {
+                        kind: SourceOwnerKind::Source,
+                        authority,
+                        identity,
+                    },
+                    dimension_node_ids,
+                    root_scale,
+                },
+            ))
+        }
+        _ => Err(invalid(at.key("body"))),
     }
 }
 
@@ -870,6 +980,16 @@ pub(super) fn validate_nominal_nodes(
     meter: &mut WorkMeter,
     bytes: u64,
 ) -> Result<(), ValidationFailure> {
+    let records = nodes
+        .iter()
+        .zip(kinds)
+        .enumerate()
+        .map(|(position, (node, kind))| {
+            NominalKind::required_by(*kind)
+                .map(|required| record_from_node(node, required, position))
+                .transpose()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let selected_models = models
         .iter()
         .map(|model| (model.identity.as_ref(), model))
@@ -878,6 +998,7 @@ pub(super) fn validate_nominal_nodes(
         nodes,
         kinds,
         index,
+        records: &records,
         selected_models,
     };
     let mut roots = BTreeSet::new();
@@ -886,7 +1007,7 @@ pub(super) fn validate_nominal_nodes(
     for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
         let site = Site { node, position };
         let required = NominalKind::required_by(*kind);
-        let preimage = match (required, &node.nominal_identity_preimage) {
+        let preimage = match (required, records[position].as_ref()) {
             (None, None) => continue,
             (Some(kind), Some(preimage)) if NominalKind::of(preimage) == kind => preimage,
             // Required and absent: the node lacks the member.
@@ -1122,8 +1243,8 @@ impl ExactRatio {
 }
 
 /// Whether the named unit is its owner's one-second unit of its own base
-/// Time dimension. The graph's nominal checks subsequently authenticate all
-/// preimages and paths; this projection only resolves the member's type.
+/// Time dimension. The graph's nominal checks subsequently authenticate the
+/// body, owner, and path; this projection only resolves the member's type.
 #[ix_trace_rs::string_edge]
 pub(super) fn duration_unit_key(
     nodes: &[CheckedSemanticNodeV2],
@@ -1142,20 +1263,26 @@ pub(super) fn duration_unit_key(
                 .collect::<Vec<&str>>()
                 .join("/");
             format!("ix://quire/unit/{declared}") == name
-        }) && matches!(
-            node.nominal_identity_preimage,
-            Some(NominalIdentityPreimage::Unit(_))
-        )
+        }) && node.node_tag.as_ref() == "scalar_type"
+            && node.semantic_form.as_ref() == "unit"
     }) else {
         return Ok(None);
     };
-    let Some(NominalIdentityPreimage::Unit(unit)) = &node.nominal_identity_preimage else {
+    let Ok(NominalBody::Unit {
+        dimension_node_id,
+        target_unit_node_id,
+        scale: unit_scale,
+        offset: unit_offset,
+    }) = NominalBody::from_value(&node.body, node_pointer(position).key("body"))
+    else {
         return Ok(None);
     };
-    let owner_matches = match &unit.owner {
-        NominalOwner::Source { .. } => name == "ix://quire/unit/s",
-        NominalOwner::Model { identity, .. } => name == format!("ix://quire/unit/{identity}/s"),
-        NominalOwner::Definition { .. } => false,
+    let owner_matches = match node.owner.as_ref() {
+        Some(super::CheckedNodeOwner::Source { .. }) => name == "ix://quire/unit/s",
+        Some(super::CheckedNodeOwner::Model { identity, .. }) => {
+            name == format!("ix://quire/unit/{identity}/s")
+        }
+        _ => false,
     };
     if !owner_matches {
         return Ok(None);
@@ -1164,55 +1291,67 @@ pub(super) fn duration_unit_key(
     meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
     let Some(dimension) = nodes
         .iter()
-        .find(|candidate| candidate.node_id == unit.dimension_node_id)
-        .and_then(|candidate| match &candidate.nominal_identity_preimage {
-            Some(NominalIdentityPreimage::Dimension(dimension)) => Some(dimension),
-            _ => None,
-        })
+        .find(|candidate| candidate.node_id == dimension_node_id)
     else {
         return Ok(None);
     };
-    if dimension.owner != unit.owner
+    let Ok(NominalBody::Dimension { terms }) =
+        NominalBody::from_value(&dimension.body, node_pointer(position).key("body"))
+    else {
+        return Ok(None);
+    };
+    if dimension.owner != node.owner
         || dimension
-            .qualified_declaration
+            .declaration
+            .as_ref()
+            .map(|value| &value.qualified_name)
+            .into_iter()
+            .flatten()
             .last()
             .is_none_or(|name| name.as_ref() != "Time")
-        || !dimension.terms.is_empty()
+        || !terms.is_empty()
     {
         return Ok(None);
     }
     let mut scale = ExactRatio::one();
     let mut offset = ExactRatio::zero();
-    let mut current = unit;
+    let mut current = (
+        dimension_node_id,
+        target_unit_node_id,
+        unit_scale,
+        unit_offset,
+    );
     let mut seen = BTreeSet::new();
     loop {
         meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
-        let edge_scale = ExactRatio::parse(&current.scale, meter, &at)?;
-        let edge_offset = ExactRatio::parse(&current.offset, meter, &at)?;
+        let edge_scale = ExactRatio::parse(&current.2, meter, &at)?;
+        let edge_offset = ExactRatio::parse(&current.3, meter, &at)?;
         offset = offset
             .multiply(&edge_scale, meter, &at)?
             .add(&edge_offset, meter, &at)?;
         scale = scale.multiply(&edge_scale, meter, &at)?;
-        let Some(target) = &current.target_unit_node_id else {
+        let Some(target) = current.1.clone() else {
             break;
         };
-        if !seen.insert(target) {
+        if !seen.insert(target.clone()) {
             return Ok(None);
         }
-        let Some(next) = nodes
-            .iter()
-            .find(|candidate| candidate.node_id == *target)
-            .and_then(|candidate| match &candidate.nominal_identity_preimage {
-                Some(NominalIdentityPreimage::Unit(next)) => Some(next),
-                _ => None,
-            })
+        let Some(next) = nodes.iter().find(|candidate| candidate.node_id == target) else {
+            return Ok(None);
+        };
+        let Ok(NominalBody::Unit {
+            dimension_node_id: next_dimension,
+            target_unit_node_id: next_target,
+            scale: next_scale,
+            offset: next_offset,
+        }) = NominalBody::from_value(&next.body, at().key("body"))
         else {
             return Ok(None);
         };
-        if next.owner != unit.owner || next.dimension_node_id != unit.dimension_node_id {
+        if next.owner != node.owner || next_dimension != current.0 {
             return Ok(None);
         }
-        current = next;
+        current = (next_dimension, next_target, next_scale, next_offset);
     }
     Ok((scale == ExactRatio::one() && offset == ExactRatio::zero()).then(|| node.node_id.clone()))
 }
@@ -1390,10 +1529,12 @@ pub(super) fn validate_equivalence_occurrences(
         if *kind != CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence) {
             continue;
         }
-        let Some(NominalIdentityPreimage::DimensionEquivalence(edge)) =
-            &node.nominal_identity_preimage
+        let Some(super::CheckedNodeOwner::Source {
+            authority,
+            identity,
+        }) = node.owner.as_ref()
         else {
-            continue;
+            return Err(invalid(node_pointer(position).key("owner")));
         };
         meter.charge(1, || node_pointer(position).key("occurrences"))?;
         let Some(entry) = anchors.get(&node.node_id) else {
@@ -1403,8 +1544,7 @@ pub(super) fn validate_equivalence_occurrences(
             .regions
             .iter()
             .filter(|region| {
-                region.source.authority == edge.owner.authority
-                    && region.source.identity == edge.owner.identity
+                region.source.authority == *authority && region.source.identity == *identity
             })
             .map(|region| region.start)
             .min()
@@ -1412,7 +1552,7 @@ pub(super) fn validate_equivalence_occurrences(
             return Err(invalid(node_pointer(position).key("occurrences")));
         };
         by_source
-            .entry((&edge.owner.authority, &edge.owner.identity))
+            .entry((authority, identity))
             .or_default()
             .push((start, position, entry.ordinal));
     }
@@ -1432,6 +1572,7 @@ struct NominalGraph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    records: &'a [Option<NominalIdentityPreimage>],
     selected_models: BTreeMap<&'a str, &'a DomainModel>,
 }
 
@@ -1439,8 +1580,8 @@ impl NominalGraph<'_> {
     fn preimage(&self, id: &CheckedNodeId) -> Option<&NominalIdentityPreimage> {
         self.index
             .get(id)
-            .and_then(|position| self.nodes.get(*position))
-            .and_then(|node| node.nominal_identity_preimage.as_ref())
+            .and_then(|position| self.records.get(*position))
+            .and_then(Option::as_ref)
     }
 
     fn model_variant_cases(
@@ -1813,6 +1954,33 @@ mod tests {
     use super::*;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    #[trace("TC-048", "FR-038-AC-5", "FR-063-AC-3")]
+    #[test]
+    fn merged_qspec_structural_nominal_fixture_reads() {
+        let Some(root) = std::env::var_os("QUIRE_SPECIFICATION_DIR") else {
+            return;
+        };
+        let path = std::path::Path::new(&root)
+            .join("proposals/checked-package-v2/fixtures/positive-nominal-identities.json");
+        let source = std::fs::read(path).expect("authoritative QSpec nominal fixture");
+        let fixture: Value = serde_json::from_slice(&source).expect("QSpec JSON");
+        let bytes = serde_json::to_vec(&fixture).expect("canonical test JSON");
+        let mut evidence = crate::CheckedPackageEvidence::new();
+        evidence.support_feature("quire.value.complete/v1");
+        let result = super::super::CheckedPackageV2::read(
+            &bytes,
+            crate::CheckedPackageReadLimits::bounded(),
+            &evidence,
+        );
+        assert!(
+            matches!(
+                result,
+                super::super::CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "{result:?}"
+        );
+    }
 
     #[trace("TC-048", "FR-038-AC-5", "FR-063-AC-3")]
     #[test]

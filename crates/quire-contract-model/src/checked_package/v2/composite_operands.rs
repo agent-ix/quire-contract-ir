@@ -747,19 +747,23 @@ fn descriptor(
             if inherited != Suppression::None {
                 return Err(malformed());
             }
-            let Some(NominalIdentityPreimage::EnumDeclaration(preimage)) =
-                &node.nominal_identity_preimage
+            let CheckedTerm::NominalBody(body) = &node.body else {
+                return Err(malformed());
+            };
+            let super::identity::NominalBody::Enum {
+                ordered,
+                members: names,
+            } = body.as_ref()
             else {
                 return Err(malformed());
             };
-            let members = preimage
-                .members
+            let members = names
                 .iter()
                 .map(|member| meter.text(member))
                 .collect::<Result<Vec<_>>>()?;
             (
                 Some(D::Enum {
-                    ordered: preimage.ordered,
+                    ordered: *ordered,
                     members,
                 }),
                 Suppression::None,
