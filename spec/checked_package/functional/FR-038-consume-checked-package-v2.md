@@ -534,6 +534,25 @@ standing in either is refused as below. It is strict wire validation: it is deci
 pre-order, after the closed-schema decode and before structural graph validation
 (the order of checks above).
 
+Under QSpec FR-322 "Nominal nodes" and FR-322-AC-269, a source-owned
+`enum`, `dimension` or `unit` node is an exception to the empty-aggregate
+nominal body: its closed body holds the source values. An `enum` body is
+`{term: "enum", ordered, members}` with boolean `ordered` and a non-empty
+declared-order list of unique identifier members; `ordered: true` denotes
+`ordered_enum`. A `dimension` body is `{term: "dimension", terms}` with a
+list of `{dimension_node_id, exponent}` entries, where each exponent is an
+integer string; a base dimension has an empty list. A `unit` body is
+`{term: "unit", dimension_node_id, target_unit_node_id, scale, offset}`:
+the first id names its dimension, the target is a node id or `null` for a
+canonical root, and each rational has integer-string `numerator` and
+positive-integer-string `denominator`. A model-owned nominal still has
+`{term: "aggregate", members: []}` and takes its values from the selected
+document. A source nominal with an empty aggregate, a missing or extra body
+member, or a member of the wrong wire type refuses `malformed_wire` at the
+closed-schema step before graph and semantic joins. A schema-valid body with
+an incorrect owner, declaration, semantic type, dependency, case or unit join
+refuses under the applicable semantic rule, not as a wire-shape defect.
+
 - An application of any operator class other than `case` nested inside a node
   body or inside another term (an application's `arguments`, an `aggregate`'s
   members, a `binding` value) refuses `malformed_wire` at the nested
@@ -4359,7 +4378,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-2 | PLANNED/UNRUN (IR-1141). The reader refuses malformed, duplicate-member, unknown-member, noncanonical, missing dependency, conflicting definition, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with their exact applicable codes and loci before exposing a package; every authored adverse structural mutation returns its declared outcome. No content digest or stale-node-key refusal exists. | Test (TC-048) |
 | FR-038-AC-3 | Exact byte, node, edge, occurrence, diagnostic and work limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package; no limit kind is a depth (FR-038-AC-117). | Test (TC-048) |
 | FR-038-AC-4 | A V2 package has a required non-empty `name`, and two admitted packages with that name are structurally equal only when every JSON member and ordered array element equals. Changing a node body or node order changes the complete package value without changing its name; no stale-content refusal or content-derived package identity is computed. | Test |
-| FR-038-AC-5 | Each nominal node carries a structural `{package, path, ordinal}` id. The reader validates its owner, declaration, semantic type, dependencies, enum case and unit rules independently; malformed nominal content refuses `invalid_semantic_graph`. A model owner admits when its identity names a selected domain package and refuses when it names none or carries an empty node. | Test (TC-048) |
+| FR-038-AC-5 | Each nominal node carries a structural `{package, path, ordinal}` id. A source `enum`, `dimension` or `unit` has the closed typed body stated in "The flat wire"; an empty aggregate on one, an empty enum member list, a missing unit scale, an extra unit body member or a non-integer dimension exponent refuses `malformed_wire` at the schema step (QSpec FR-322-AC-269, NB-01..NB-05). An enum with `ordered: true` admits as `ordered_enum` (NB-06). After valid wire shape, the reader validates owner, declaration, semantic type, dependencies, enum case and unit rules independently; a semantic mismatch refuses under its applicable `invalid_semantic_graph` or more specific typed rule. A model-owned nominal retains an empty aggregate body; a model owner admits when its identity names a selected domain package and refuses when it names none or carries an empty node. | Test (TC-048) |
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-050) |
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those six finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
