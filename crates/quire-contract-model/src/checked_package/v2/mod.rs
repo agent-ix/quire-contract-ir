@@ -2577,7 +2577,7 @@ fn validate_graph(
         &wire.diagnostics.entries,
         meter,
     )?;
-    abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
+    abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, meter)?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     refinement::validate_step_rows(
