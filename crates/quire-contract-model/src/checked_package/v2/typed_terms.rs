@@ -525,7 +525,7 @@ pub enum CheckedTerm {
     /// A reference to a selected dependency package node.
     DependencyReference {
         /// Dependency package identity.
-        package: CheckedSemanticId,
+        package: Box<str>,
         /// The dependency's node key.
         node: CheckedNodeId,
     },

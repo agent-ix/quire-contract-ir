@@ -126,10 +126,11 @@ use super::common::{
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole,
-    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, JsonPointer,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedNodePathSegment,
+    CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId, CheckedSourceMapEntry,
+    CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
@@ -1038,7 +1039,7 @@ fn locate_in_preimage_with(
 }
 
 /// Members every `dependency_selections` entry requires.
-const DEPENDENCY_SELECTION_MEMBERS: [&str; 2] = ["identity", "package_id"];
+const DEPENDENCY_SELECTION_MEMBERS: [&str; 1] = ["identity"];
 
 /// An entry of `dependency_selections` that both lacks a required member and
 /// carries a member outside the closed shape (a `Selection` or a
@@ -1733,24 +1734,39 @@ fn validate_domain_packages(
         .collect()
 }
 
-/// Requires a node key in the node domain with a lowercase digest; `at`
-/// names the key.
-// Intake: checks the fixed domain tag of a node id.
+/// Checks a structural node identity and all nested operand identities.
 fn validate_node_id(
     id: &CheckedNodeId,
     at: impl FnOnce() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
-    let member = if PackageWireTag::from_wire(&id.domain) != Some(PackageWireTag::NodeDomain) {
-        "domain"
-    } else if !is_digest(&id.digest) {
-        "digest"
-    } else {
-        return Ok(());
-    };
-    Err(refuse(
-        CheckedPackageRefusalCode::DigestDomainMismatch,
-        at().key(member),
-    ))
+    const MAX_ORDINAL: u64 = 9_007_199_254_740_991;
+    let mut pending = vec![(id, at())];
+    while let Some((candidate, pointer)) = pending.pop() {
+        if !is_nonempty(&candidate.package) {
+            return Err(refuse(
+                CheckedPackageRefusalCode::MalformedWire,
+                pointer.key("package"),
+            ));
+        }
+        if candidate.path.is_empty() {
+            return Err(refuse(
+                CheckedPackageRefusalCode::MalformedWire,
+                pointer.key("path"),
+            ));
+        }
+        if candidate.ordinal > MAX_ORDINAL {
+            return Err(refuse(
+                CheckedPackageRefusalCode::MalformedWire,
+                pointer.key("ordinal"),
+            ));
+        }
+        for (index, segment) in candidate.path.iter().enumerate().rev() {
+            if let CheckedNodePathSegment::Node(child) = segment {
+                pending.push((child.as_ref(), pointer.clone().key("path").index(index)));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Enforces the schema's `DeclarationTagRules` and `DeclarationOccurrenceRule`
@@ -2201,18 +2217,20 @@ fn validate_declaration_names(
     };
     for (&node_id, &position) in index {
         let node = &nodes[position];
-        let (Some(declaration), Some(preimage)) =
-            (&node.declaration, &node.nominal_identity_preimage)
-        else {
+        let Some(declaration) = &node.declaration else {
             continue;
         };
-        if preimage
-            .qualified_declaration()
-            .is_some_and(|name| name != declaration.qualified_name.as_slice())
-        {
+        let path_matches = node.node_id.path.len() == declaration.qualified_name.len()
+            && node
+                .node_id
+                .path
+                .iter()
+                .zip(&declaration.qualified_name)
+                .all(|(part, name)| matches!(part, CheckedNodePathSegment::Name(value) if value == name));
+        if !path_matches {
             return Err(refuse_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                name_pointer(position),
+                node_pointer(position).key("node_id").key("path"),
                 Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
                 node_id.clone(),
             ));
@@ -2392,9 +2410,37 @@ fn validate_graph(
     // Each frame node's typed body, read once here and joined by the frame step.
     let mut frames = Vec::new();
     let mut edges = 0_u64;
+    let mut group_ordinals: BTreeMap<&str, u64> = BTreeMap::new();
     for (position, node) in graph.nodes.iter().enumerate() {
         let at = |member: &str| node_pointer(position).key(member);
         validate_node_id(&node.node_id, || at("node_id"))?;
+        let expected_package = match node.owner.as_ref() {
+            Some(
+                CheckedNodeOwner::ModelRoot { identity } | CheckedNodeOwner::Model { identity, .. },
+            ) => identity.as_ref(),
+            _ => wire.name.as_ref(),
+        };
+        if node.node_id.package.as_ref() != expected_package {
+            return Err(refuse(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                at("node_id").key("package"),
+            ));
+        }
+        let expected_ordinal = match node.recursion_group.as_deref() {
+            Some(label) => {
+                let next = group_ordinals.entry(label).or_default();
+                let ordinal = *next;
+                *next = next.saturating_add(1);
+                ordinal
+            }
+            None => 0,
+        };
+        if node.node_id.ordinal != expected_ordinal {
+            return Err(refuse(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                at("node_id").key("ordinal"),
+            ));
+        }
         if index.insert(&node.node_id, position).is_some() {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -2687,7 +2733,7 @@ fn validate_graph(
             &terms,
             &index,
             dependencies,
-            &wire.package_id,
+            &wire.name,
         ),
         &wire.lock,
         &owners,
@@ -2722,7 +2768,7 @@ fn validate_graph(
             &terms,
             &index,
             dependencies,
-            &wire.package_id,
+            &wire.name,
         ),
         &owners,
         meter,
