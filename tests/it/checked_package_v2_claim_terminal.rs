@@ -11,10 +11,9 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedNodeId,
-    CheckedOccurrence, CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2,
-    CheckedPackageLimit, CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedSemanticGraphV2, CheckedSemanticId, CheckedSourceMapEntry,
+    CheckedOccurrence, CheckedPackageLimit, CheckedPackageLockV2, CheckedPackageReadLimits,
+    CheckedPackageRefusal, CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticGraphV2, CheckedSourceMapEntry,
     CheckedTerminalDuplicate,
 };
 use serde::de::DeserializeOwned;
@@ -387,8 +386,6 @@ fn duplicate_parties(refusal: &CheckedPackageRefusal) -> (CheckedNodeId, Checked
     assert_eq!(refusal.cause, Some(Cause::AmbiguousName));
     assert_eq!(refusal.document_pointer, None);
     assert_eq!(refusal.loci.len(), 1);
-    assert_eq!(refusal.expected, None);
-    assert_eq!(refusal.actual, None);
     assert_eq!(refusal.extension_detail, None);
     let Some(CheckedTerminalDuplicate::Nodes { first, second }) = &refusal.terminal_duplicate
     else {
@@ -410,25 +407,13 @@ fn typed<T: DeserializeOwned>(value: &Value) -> T {
 }
 
 fn encoded(package: &Value) -> Vec<u8> {
-    let preimage: CheckedPackageIdentityPreimageV2 = typed(&package["identity_preimage"]);
-    let package_id: CheckedSemanticId = typed(&package["package_id"]);
     let lock: CheckedPackageLockV2 = typed(&package["lock"]);
     let graph: CheckedSemanticGraphV2<Value> = typed(&package["semantic_graph"]);
     let source_map: Vec<CheckedSourceMapEntry> = typed(&package["source_map"]);
     let capabilities: Vec<CheckedCapability> = typed(&package["capability_report"]);
     let diagnostics: CheckedDiagnosticsV2 = typed(&package["diagnostics"]);
-    let borrowed = CheckedPackageIdentityPreimageRefV2 {
-        version: &preimage.version,
-        edition: &preimage.edition,
-        profile_selections: &preimage.profile_selections,
-        definition_selections: &preimage.definition_selections,
-        required_features: &preimage.required_features,
-        dependency_selections: &preimage.dependency_selections,
-        identity_projection: &graph.nodes,
-    };
     encode_checked_package_v2(
-        &borrowed,
-        &package_id,
+        package["name"].as_str().expect("package name"),
         &lock,
         &graph,
         quire_contract_model::CheckedPackageSourceCorrespondenceRef {
@@ -651,7 +636,7 @@ fn state_graph_refuses_kind_fit_and_target_meaning() {
         .expect("nodes")
         .iter()
         .find(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "temporal_clause")
-        .expect("temporal clause")["node_id"]["digest"]
+        .expect("temporal clause")["node_id"]["path"][0]
         .as_str()
         .expect("digest")
         .to_owned();
@@ -834,13 +819,13 @@ fn state_graph_identity_and_shared_occurrences() {
         possible["semantic_graph"]["nodes"][base_node_index()]["node_id"],
         always["semantic_graph"]["nodes"][base_node_index()]["node_id"]
     );
-    assert_ne!(possible["package_id"], always["package_id"]);
+    assert_ne!(encoded(&possible), encoded(&always));
     let moved = source_correspondence(&possible, base_node_index(), 100);
     assert_eq!(
         possible["semantic_graph"]["nodes"][base_node_index()],
         moved["semantic_graph"]["nodes"][base_node_index()]
     );
-    assert_eq!(possible["package_id"], moved["package_id"]);
+    assert_eq!(possible["name"], moved["name"]);
     assert_ne!(possible["source_map"], moved["source_map"]);
     let moved_read = admitted(&moved);
     let moved_reread = reread_written(&moved);
@@ -864,7 +849,7 @@ fn state_graph_identity_and_shared_occurrences() {
             read.graph().nodes[base_node_index()].node_id,
             admitted(&possible).graph().nodes[base_node_index()].node_id
         );
-        assert_eq!(read.package_id(), admitted(&possible).package_id());
+        assert_eq!(read.name(), admitted(&possible).name());
         assert_eq!(written.source_map(), read.source_map());
         assert_eq!(
             written.graph().nodes[base_node_index()],
@@ -889,7 +874,7 @@ fn state_graph_identity_and_shared_occurrences() {
             .count(),
         2
     );
-    assert_eq!(possible["package_id"], shared["package_id"]);
+    assert_eq!(possible["name"], shared["name"]);
     assert!(matches!(
         CheckedPackageV2::read(
             &encoded(&shared),
@@ -978,14 +963,14 @@ fn terminal_identity_and_uniqueness_per_model() {
         any["semantic_graph"]["nodes"][base_node_index()]["semantic_form"],
         when["semantic_graph"]["nodes"][base_node_index()]["semantic_form"]
     );
-    assert_ne!(any["package_id"], when["package_id"]);
+    assert_ne!(encoded(&any), encoded(&when));
     let done = source_correspondence(&any, base_node_index(), 100);
     let stop = source_correspondence(&any, base_node_index(), 200);
     assert_eq!(
         done["semantic_graph"]["nodes"][base_node_index()],
         stop["semantic_graph"]["nodes"][base_node_index()]
     );
-    assert_eq!(done["package_id"], stop["package_id"]);
+    assert_eq!(done["name"], stop["name"]);
     assert_ne!(done["source_map"], stop["source_map"]);
     for named in [&done, &stop] {
         let read = admitted(named);
@@ -994,14 +979,14 @@ fn terminal_identity_and_uniqueness_per_model() {
             read.graph().nodes[base_node_index()].node_id,
             admitted(&any).graph().nodes[base_node_index()].node_id
         );
-        assert_eq!(read.package_id(), admitted(&any).package_id());
+        assert_eq!(read.name(), admitted(&any).name());
         assert_eq!(written.source_map(), read.source_map());
         assert_eq!(
             written.graph().nodes[base_node_index()],
             read.graph().nodes[base_node_index()]
         );
     }
-    assert_ne!(any["package_id"], v2_all_families()["package_id"]);
+    assert_ne!(encoded(&any), encoded(&v2_all_families()));
     let changed_body = reference(&predicate);
     let changed_condition = structural_key(
         "expression",
@@ -1032,7 +1017,7 @@ fn terminal_identity_and_uniqueness_per_model() {
         when["semantic_graph"]["nodes"][base_node_index()]["node_id"],
         changed["semantic_graph"]["nodes"][base_node_index() + 1]["node_id"]
     );
-    assert_ne!(when["package_id"], changed["package_id"]);
+    assert_ne!(encoded(&when), encoded(&changed));
     let mut duplicate = any.clone();
     duplicate["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -1113,8 +1098,6 @@ fn terminal_identity_and_uniqueness_per_model() {
     );
     assert_eq!(repeated_result.document_pointer, None);
     assert_eq!(repeated_result.loci.len(), 1);
-    assert_eq!(repeated_result.expected, None);
-    assert_eq!(repeated_result.actual, None);
     assert_eq!(repeated_result.extension_detail, None);
     let repeated_id: CheckedNodeId =
         typed(&repeated["semantic_graph"]["nodes"][base_node_index()]["node_id"]);
@@ -1178,7 +1161,7 @@ fn terminal_identity_and_uniqueness_per_model() {
             .find(|node| node["semantic_form"] == "terminal")
             .expect("second terminal")["node_id"]
     );
-    assert_ne!(first_model["package_id"], second_model["package_id"]);
+    assert_ne!(encoded(&first_model), encoded(&second_model));
 }
 
 #[trace("FR-060-AC-1", "FR-060-AC-2", "FR-060-AC-5")]
@@ -1344,11 +1327,11 @@ fn graph_shape_then_state_graph_then_terminal_order() {
         reference(&predicate),
         &[over.clone(), predicate.clone()],
     );
-    let first_digest = bad_claim["node_id"]["digest"]
+    let first_digest = bad_claim["node_id"]["path"][0]
         .as_str()
         .expect("digest")
         .to_owned();
-    let second_digest = second_bad_claim["node_id"]["digest"]
+    let second_digest = second_bad_claim["node_id"]["path"][0]
         .as_str()
         .expect("digest")
         .to_owned();
