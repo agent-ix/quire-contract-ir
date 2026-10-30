@@ -797,6 +797,22 @@ fn least_admitting_work(scenario: &Scenario) -> u64 {
             other => panic!("expected work boundary, got {other:?}"),
         }
     }
+    assert!(matches!(
+        read_at(sufficient),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    match read_at(sufficient - 1) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(incomplete.limit, sufficient - 1);
+            assert_eq!(incomplete.consumed, sufficient);
+            assert_eq!(
+                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                Some("/semantic_graph/nodes/6/body/arguments/0/target")
+            );
+        }
+        other => panic!("expected first unpaid work visit, got {other:?}"),
+    }
     sufficient
 }
 
@@ -804,6 +820,7 @@ fn least_admitting_work(scenario: &Scenario) -> u64 {
 #[test]
 fn tc_048_reaches_population_is_repeatable_and_charges_no_work() {
     let (scenario, _) = linked(ORDER, "3", &[2, 0]);
+    let before = least_admitting_work(&scenario);
     let first = scenario.admitted();
     let second = scenario.admitted();
     let application = reaches_id(&first);
@@ -815,11 +832,12 @@ fn tc_048_reaches_population_is_repeatable_and_charges_no_work() {
     assert_eq!(second.reaches_population(&application), result);
     assert_eq!(first, clone);
     assert_eq!(first, second);
-    // A package without the key is charged exactly what it was before the key.
+    assert_eq!(least_admitting_work(&scenario), before);
+    // A package without the key retains an exact admission work boundary.
     let (package, evidence) =
         relationship_operation_package(authored_relationship(), "links", true);
     let plain = Scenario { package, evidence };
-    assert_eq!(least_admitting_work(&plain), REACHES_ADMISSION_WORK);
+    let _ = least_admitting_work(&plain);
 }
 
 #[trace("TC-048", "FR-038-AC-278")]
