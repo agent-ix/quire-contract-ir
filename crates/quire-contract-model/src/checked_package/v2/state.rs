@@ -501,9 +501,7 @@ fn check_clause(
         let Some(slot_type) = owner.package.slot_type(slot) else {
             return Err(signature_refusal());
         };
-        // A key the encoder refuses (a preimage past the byte limit) is
-        // `invalid_semantic_graph` at the clause, as a refused node key is.
-        let key = slot_type.node_key(owner.package.bytes).map_err(|_| {
+        let expected = slot_type.node_id(&clause.node_id.package).ok_or_else(|| {
             ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 arguments_at.clone().index(0),
@@ -511,7 +509,7 @@ fn check_clause(
                 clause.node_id.clone(),
             )
         })?;
-        if key.as_str() != &*parameter.semantic_type.digest {
+        if expected != parameter.semantic_type {
             return Err(signature_refusal());
         }
     }
