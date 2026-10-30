@@ -427,16 +427,20 @@ fn pregraph_refusal_invents_no_structural_node_locus() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(refusal.locus, None);
-    let debug = format!("{refusal:?}");
-    assert!(!debug.contains("expected_node_id"));
+    let display = refusal.to_string();
+    assert!(!display.contains("expected_node_id"));
+    let serialized = serde_json::to_value(&refusal).expect("public refusal serialization");
+    assert!(serialized["locus"].is_null());
+    assert!(serialized.get("expected_node_id").is_none());
 }
 
-fn self_option_group() -> (Value, usize) {
+fn self_option_group(ordinal: u64) -> (Value, usize) {
     let mut package = local_package();
     let mut option = package["semantic_graph"]["nodes"][0].clone();
     option["body"] = json!({"term":"aggregate","members":[]});
     option["recursion_group"] = json!("self-option");
     let position = append_shape(&mut package, "composite_type", "option", option);
+    package["semantic_graph"]["nodes"][position]["node_id"]["ordinal"] = json!(ordinal);
     let self_id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     package["semantic_graph"]["nodes"][position]["semantic_type"] = self_id.clone();
     package["semantic_graph"]["nodes"][position]["dependencies"] = json!([self_id]);
@@ -449,7 +453,7 @@ fn self_option_group() -> (Value, usize) {
 #[trace("TC-226", "FR-038-AC-145", "FR-038-AC-146")]
 #[test]
 fn owner_free_self_option_group_obeys_closed_shape_checks() {
-    let (package, position) = self_option_group();
+    let (package, position) = self_option_group(7);
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "valid self-option group: {:?}",
