@@ -282,10 +282,18 @@ fn refused(value: &Value) -> CheckedPackageRefusal {
 }
 
 fn node_key(package: &Value, position: usize) -> String {
-    package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("node path")
-        .to_owned()
+    let path = package["semantic_graph"]["nodes"][position]["node_id"]["path"]
+        .as_array()
+        .expect("node path");
+    let names = path
+        .iter()
+        .map(|segment| segment.as_str().expect("name segment"))
+        .collect::<Vec<_>>();
+    if names.len() == 1 {
+        names[0].to_owned()
+    } else {
+        format!("qualified:{}", names.join("/"))
+    }
 }
 
 /// Applies `mutate` to the node at `position`, then rebuilds its source map
