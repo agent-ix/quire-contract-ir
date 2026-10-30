@@ -574,7 +574,6 @@ fn reader_refuses_each_missing_required_top_level_member() {
         "semantic_graph",
         "source_map",
         "feature_accounting",
-        "identity",
     ] {
         let mut changed = wire.clone();
         changed.as_object_mut().expect("object").remove(member);

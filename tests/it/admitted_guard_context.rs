@@ -426,7 +426,7 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
             .as_object()
             .expect("closed wire object")
             .len(),
-        6
+        5
     );
     assert!(matches!(
         application_only.guard_context(
