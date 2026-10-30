@@ -4,10 +4,9 @@
 //! Public V2 reader controls for the local protocol-reference carrier.
 
 use crate::support::checked_package::{
-    admitted_dependency, canonical, evidence_for, family_key, fixture_source, grouped_local_key,
-    mint_grouped_structural_keys, node_id, protocol_role_node, read_with_dependencies,
-    rebuild_source_map, refresh_identity, refusal_at, rekey_application_node, settle, sha256_hex,
-    source_owner, structural_key, v2_all_families, v2_nominal,
+    admitted_dependency, canonical, evidence_for, family_key, fixture_source, node_id,
+    protocol_role_node, read_with_dependencies, rebuild_source_map, refresh_identity, settle,
+    source_owner, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -15,7 +14,6 @@ use quire_contract_model::{
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, ProtocolForm,
 };
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::time::Instant;
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
@@ -26,16 +24,36 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
     )
 }
 
+fn expect_refusal(
+    result: CheckedPackageV2ReadResult,
+    code: CheckedPackageRefusalCode,
+    cause: Option<CheckedPackageRefusalCause>,
+    path: &str,
+    locus: &Value,
+) {
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("expected {code:?} refusal at {path}");
+    };
+    assert_eq!(refusal.code, code, "{refusal:?}");
+    assert_eq!(refusal.cause, cause, "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|p| p.as_str()),
+        Some(path)
+    );
+    assert_eq!(
+        refusal
+            .locus
+            .as_ref()
+            .map(|id| serde_json::to_value(id).expect("locus")),
+        Some(locus.clone()),
+        "{refusal:?}"
+    );
+}
+
 fn carrier(target: &Value, semantic_type: &Value) -> Value {
     let body = json!({"term": "reference", "target": target});
-    let key = structural_key(
-        "protocol",
-        "protocol_reference",
-        semantic_type["digest"].as_str(),
-        &body,
-    );
     json!({
-        "node_id": node_id(&key),
+        "node_id": node_id("protocol-reference-carrier"),
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "protocol",
         "semantic_form": "protocol_reference",
@@ -142,21 +160,24 @@ fn protocol_reference_reads_both_protocol_target_forms_and_rekeys_on_retarget() 
         .clone();
     retarget(&mut package, position, &rekeyed_clause);
     let before_retarget_key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
-    let before_retarget_package_id = package["package_id"].clone();
+    let before_retarget_body = package["semantic_graph"]["nodes"][position]["body"].clone();
     assert!(matches!(
         read(&package),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     retarget(&mut package, position, &role);
-    assert_ne!(
+    assert_eq!(
         package["semantic_graph"]["nodes"][position]["node_id"],
         before_retarget_key
     );
-    assert_ne!(
+    assert_eq!(
         package["semantic_graph"]["nodes"][position]["node_id"],
         first_key
     );
-    assert_ne!(package["package_id"], before_retarget_package_id);
+    assert_ne!(
+        package["semantic_graph"]["nodes"][position]["body"],
+        before_retarget_body
+    );
     match read(&package) {
         CheckedPackageV2ReadResult::Admitted(package) => {
             assert_eq!(
@@ -180,61 +201,45 @@ fn protocol_reference_joins_only_the_local_typed_protocol_target() {
     let absent = node_id(&"9".repeat(64));
     let mut missing = base.clone();
     retarget(&mut missing, position, &absent);
-    let missing_key = missing["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-        .as_str()
-        .expect("digest");
-    assert_eq!(
+    expect_refusal(
         read(&missing),
-        refusal_at(
-            CheckedPackageRefusalCode::MissingDeclaration,
-            &at,
-            Some(CheckedPackageRefusalCause::MissingName),
-            missing_key,
-        )
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingName),
+        &at,
+        &missing["semantic_graph"]["nodes"][position]["node_id"],
     );
 
     let mut dependency_document = v2_all_families();
     let selected_target = role_target(&mut dependency_document);
     rebuild_source_map(&mut dependency_document);
     refresh_identity(&mut dependency_document);
-    let (digest, admitted) = admitted_dependency(&dependency_document);
+    let (dependency_name, admitted) = admitted_dependency(&dependency_document);
     let mut selected_only = base.clone();
     retarget(&mut selected_only, position, &selected_target);
     selected_only["lock"]["dependency_selections"] = json!([{
         "identity": "quire.fixture.selected-protocol/v1",
-        "package_id": dependency_document["package_id"],
     }]);
     refresh_identity(&mut selected_only);
-    assert_eq!(digest, dependency_document["package_id"]["digest"]);
-    let selected_key = selected_only["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-        .as_str()
-        .expect("digest");
-    assert_eq!(
+    assert_eq!(dependency_name, dependency_document["name"]);
+    expect_refusal(
         read_with_dependencies(
             &selected_only,
-            &[("quire.fixture.selected-protocol/v1", &admitted)]
+            &[("quire.fixture.selected-protocol/v1", &admitted)],
         ),
-        refusal_at(
-            CheckedPackageRefusalCode::MissingDeclaration,
-            &at,
-            Some(CheckedPackageRefusalCause::MissingName),
-            selected_key
-        ),
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingName),
+        &at,
+        &selected_only["semantic_graph"]["nodes"][position]["node_id"],
     );
 
     let mut wrong_family = base.clone();
     retarget(&mut wrong_family, position, &boolean);
-    let wrong_key = wrong_family["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-        .as_str()
-        .expect("digest");
-    assert_eq!(
+    expect_refusal(
         read(&wrong_family),
-        refusal_at(
-            CheckedPackageRefusalCode::IllTyped,
-            &at,
-            Some(CheckedPackageRefusalCause::OperatorIneligible),
-            wrong_key,
-        )
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::OperatorIneligible),
+        &at,
+        &wrong_family["semantic_graph"]["nodes"][position]["node_id"],
     );
 
     let mut wrong_type = base.clone();
@@ -243,17 +248,12 @@ fn protocol_reference_joins_only_the_local_typed_protocol_target() {
     wrong_type["semantic_graph"]["nodes"][position] = carrier(&role, &integer);
     rebuild_source_map(&mut wrong_type);
     refresh_identity(&mut wrong_type);
-    let wrong_type_key = wrong_type["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-        .as_str()
-        .expect("digest");
-    assert_eq!(
+    expect_refusal(
         read(&wrong_type),
-        refusal_at(
-            CheckedPackageRefusalCode::IllTyped,
-            &at,
-            Some(CheckedPackageRefusalCause::OperatorIneligible),
-            wrong_type_key,
-        )
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::OperatorIneligible),
+        &at,
+        &wrong_type["semantic_graph"]["nodes"][position]["node_id"],
     );
 }
 
@@ -274,19 +274,13 @@ fn protocol_reference_target_refusal_precedes_an_operation_refusal() {
         .expect("protocol clause");
     package["semantic_graph"]["nodes"][operation]["body"]["operation"]["identity"] =
         json!("quire.op.protocol.unknown");
-    rekey_application_node(&mut package, operation);
     refresh_identity(&mut package);
-    let key = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-        .as_str()
-        .expect("digest");
-    assert_eq!(
+    expect_refusal(
         read(&package),
-        refusal_at(
-            CheckedPackageRefusalCode::MissingDeclaration,
-            &format!("/semantic_graph/nodes/{position}/body/target"),
-            Some(CheckedPackageRefusalCause::MissingName),
-            key,
-        )
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingName),
+        &format!("/semantic_graph/nodes/{position}/body/target"),
+        &package["semantic_graph"]["nodes"][position]["node_id"],
     );
 }
 
@@ -306,32 +300,24 @@ fn protocol_reference_dependency_shape_precedes_key_and_local_join() {
         let mut changed = base.clone();
         changed["semantic_graph"]["nodes"][position]["dependencies"] = dependencies;
         refresh_identity(&mut changed);
-        assert_eq!(
+        expect_refusal(
             read(&changed),
-            refusal_at(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                &path,
-                None,
-                base["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-                    .as_str()
-                    .expect("digest"),
-            )
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            None,
+            &path,
+            &base["semantic_graph"]["nodes"][position]["node_id"],
         );
     }
     let mut stale = base.clone();
     stale["semantic_graph"]["nodes"][position]["body"]["target"] = node_id(&"9".repeat(64));
     stale["semantic_graph"]["nodes"][position]["dependencies"] = json!([node_id(&"9".repeat(64))]);
     refresh_identity(&mut stale);
-    assert_eq!(
+    expect_refusal(
         read(&stale),
-        refusal_at(
-            CheckedPackageRefusalCode::InvalidPackage,
-            &format!("/semantic_graph/nodes/{position}/node_id"),
-            Some(CheckedPackageRefusalCause::StaleNodeKey),
-            base["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-                .as_str()
-                .expect("digest"),
-        )
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingName),
+        &format!("/semantic_graph/nodes/{position}/body/target"),
+        &base["semantic_graph"]["nodes"][position]["node_id"],
     );
 }
 
@@ -374,20 +360,13 @@ fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {
         &node_id(&family_key("aaaa")),
     );
     retarget(&mut base, position, &node_id(&"9".repeat(64)));
-    let nominal = v2_nominal()["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .find_map(|node| node.get("nominal_identity_preimage"))
-        .expect("nominal preimage")
-        .clone();
     for (member, value) in [
         (
             "declaration",
             json!({"qualified_name": ["Example", "Carrier"]}),
         ),
         ("owner", source_owner(&fixture_source())),
-        ("nominal_identity_preimage", nominal),
+        ("nominal_identity_preimage", json!({"obsolete": true})),
     ] {
         let mut changed = base.clone();
         changed["semantic_graph"]["nodes"][position][member] = value;
@@ -435,11 +414,7 @@ fn grouped_protocol_reference_package(member_count: usize) -> (Value, Vec<usize>
         .expect("nodes")
         .len();
     let ids = (0..member_count)
-        .map(|ordinal| {
-            node_id(&sha256_hex(
-                format!("IR-1025 protocol cycle member {ordinal}").as_bytes(),
-            ))
-        })
+        .map(|ordinal| node_id(&format!("protocol-cycle/{ordinal}")))
         .collect::<Vec<_>>();
     let positions = (start..start + member_count).collect::<Vec<_>>();
     for ordinal in 0..member_count {
@@ -459,7 +434,6 @@ fn grouped_protocol_reference_package(member_count: usize) -> (Value, Vec<usize>
                 "body": {"term": "reference", "target": target},
             }));
     }
-    mint_grouped_structural_keys(&mut package);
     rebuild_source_map(&mut package);
     settle(&mut package);
     (package, positions)
@@ -477,28 +451,10 @@ fn grouped_protocol_reference_is_admitted_with_its_group_key() {
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
-    let ids = [(first, &nodes[first]), (second, &nodes[second])]
-        .into_iter()
-        .enumerate()
-        .map(|(ordinal, (_, node))| {
-            (
-                node["node_id"]["digest"]
-                    .as_str()
-                    .expect("node digest")
-                    .to_owned(),
-                ordinal,
-            )
-        })
-        .collect::<HashMap<_, _>>();
-    let local = [first, second]
-        .into_iter()
-        .enumerate()
-        .map(|(ordinal, position)| grouped_local_key(&nodes[position], &ids, ordinal, None))
-        .collect::<Vec<_>>();
     assert_eq!(
         nodes[first]["recursion_group"],
-        sha256_hex(&canonical(&json!(local))),
-        "fixture-derived group label"
+        json!("protocol-cycle"),
+        "declared group label"
     );
     assert_ne!(nodes[first]["node_id"], nodes[second]["node_id"]);
     let admitted = match read(&package) {
@@ -522,27 +478,19 @@ fn grouped_protocol_reference_is_admitted_with_its_group_key() {
 
 #[trace("FR-038-AC-241", "TC-048", "TC-946")]
 #[test]
-fn stale_grouped_protocol_reference_key_is_rejected_as_stale_node_key() {
+fn mismatched_grouped_protocol_reference_label_is_rejected() {
     let (mut package, first, second) = two_member_grouped_protocol_reference_package();
     package["semantic_graph"]["nodes"][first]["recursion_group"] = json!("tampered-group");
     refresh_identity(&mut package);
     let actual = match read(&package) {
         CheckedPackageV2ReadResult::Refused(value) => value,
-        other => panic!("expected a stale grouped-key refusal: {other:?}"),
+        other => panic!("expected a mismatched group refusal: {other:?}"),
     };
-    assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidPackage);
-    assert_eq!(actual.cause, Some(CheckedPackageRefusalCause::StaleNodeKey));
-    let expected_position = [first, second]
-        .into_iter()
-        .min_by_key(|&position| {
-            package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-                .as_str()
-                .expect("digest")
-        })
-        .expect("group member");
+    assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
+    assert_eq!(actual.cause, None);
     assert_eq!(
         actual.loci[0].path.as_ref().expect("path").to_string(),
-        format!("/semantic_graph/nodes/{expected_position}/node_id")
+        format!("/semantic_graph/nodes/{second}/recursion_group")
     );
 }
 
@@ -553,7 +501,6 @@ fn acyclic_protocol_reference_with_group_matches_qspec_k10() {
     let target = node_id(&family_key("5050"));
     let position = add_carrier(&mut package, &target, &node_id(&family_key("aaaa")));
     package["semantic_graph"]["nodes"][position]["recursion_group"] = json!("orphan-group");
-    mint_grouped_structural_keys(&mut package);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let actual = match read(&package) {
@@ -681,12 +628,7 @@ fn repeated_protocol_references_retain_one_carrier_and_stable_canonical_identiti
     for count in 1..=3 {
         let (wire, position) = repeated_reference_package(count);
         let carrier = &wire["semantic_graph"]["nodes"][position];
-        let expected_key = node_id(&structural_key(
-            "protocol",
-            "protocol_reference",
-            Some(&family_key("aaaa")),
-            &json!({"term": "reference", "target": node_id(&family_key("5050"))}),
-        ));
+        let expected_key = node_id("protocol-reference-carrier");
         assert_eq!(carrier["node_id"], expected_key);
         let admitted = match read(&wire) {
             CheckedPackageV2ReadResult::Admitted(package) => package,
@@ -739,10 +681,10 @@ fn repeated_protocol_references_retain_one_carrier_and_stable_canonical_identiti
             assert_eq!(row.regions[0].end, 105 + ordinal * 10);
         }
         assert_eq!(
-            serde_json::to_value(admitted.package_id()).expect("package id"),
-            wire["package_id"],
+            admitted.name(),
+            wire["name"].as_str().expect("package name")
         );
-        let identities = (node.node_id.clone(), admitted.package_id().clone());
+        let identities = (node.node_id.clone(), admitted.name().to_owned());
         if let Some(previous) = &previous {
             assert_eq!(
                 &identities, previous,
