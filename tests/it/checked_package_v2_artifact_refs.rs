@@ -96,9 +96,7 @@ fn definition_places() -> Vec<(Value, String)> {
     ] {
         places.push((families.clone(), place.to_owned()));
     }
-    for place in ["/lock/definition_selections/0"] {
-        places.push((nominal.clone(), place.to_owned()));
-    }
+    places.push((nominal, "/lock/definition_selections/0".to_owned()));
     places
 }
 

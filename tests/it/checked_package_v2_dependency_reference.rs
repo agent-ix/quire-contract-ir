@@ -568,7 +568,7 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
     let mut root = importing(vec![selection(&dependency.name)], term.clone());
     let expression_key = "expression/remote-root";
     let mut expression = node(
-        &expression_key,
+        expression_key,
         "expression",
         "reference",
         &boolean_key(),
@@ -939,11 +939,11 @@ fn unbound_parameter_dependency(listed: bool, referenced: bool) -> Dependency {
             .expect("the function");
         if referenced {
             function["body"] = json!({
-                "term": "aggregate", "members": [reference_to(&parameter_key)],
+                "term": "aggregate", "members": [reference_to(parameter_key)],
             });
         }
         if listed {
-            function["dependencies"] = json!([node_id(&parameter_key)]);
+            function["dependencies"] = json!([node_id(parameter_key)]);
         }
     })
 }
