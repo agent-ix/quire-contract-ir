@@ -1757,7 +1757,11 @@ fn check_related_types(
         {
             let term = group_value(record, end_name).expect("validated related end");
             let actual = check.term_type(term);
-            let Some(Ok(expected_key)) = owner.package.end_declaration_key(declared) else {
+            let Some(expected) = owner
+                .package
+                .end_declaration_form(declared)
+                .and_then(|form| owners.declaration_id(&owner.package.identity, declared, form))
+            else {
                 return Err(check.refuse(
                     Code::InvalidModelBinding,
                     Some(Cause::WrongExport),
@@ -1770,10 +1774,6 @@ fn check_related_types(
                         .key("value")
                         .key("target"),
                 ));
-            };
-            let expected = CheckedNodeId {
-                domain: crate::checked_package::common::NODE_DOMAIN.into(),
-                digest: expected_key.into(),
             };
             let actual_owner = actual
                 .and_then(|id| check.index.get(id))
@@ -1819,7 +1819,7 @@ fn check_related_types(
                     CheckedProtocolRefusalDetail::RelatedEndType {
                         relationship: relationship.clone(),
                         end: end_name.into(),
-                        expected,
+                        expected: expected.clone(),
                         actual: actual.cloned(),
                     },
                 ));
