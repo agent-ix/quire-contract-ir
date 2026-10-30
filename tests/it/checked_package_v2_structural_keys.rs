@@ -13,7 +13,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedMemberType, CheckedNodeId, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult, ContractBodyRefusalV1, ContractFeatureRecordV1,
 };
 use serde_json::{json, Value};
 
@@ -782,6 +782,64 @@ fn pregraph_refusal_invents_no_structural_node_locus() {
     let serialized = serde_json::to_value(&refusal).expect("public refusal serialization");
     assert!(serialized["locus"].is_null());
     assert!(serialized.get("expected_node_id").is_none());
+}
+
+#[trace("TC-048", "FR-038-AC-185")]
+#[test]
+fn public_refusal_projection_retains_typed_fields_and_authentic_locus() {
+    let (mut package, _) = all_ten_shapes();
+    let set = index_of(&package, "composite_type", "set");
+    package["semantic_graph"]["nodes"][set]["body"]["members"] = json!([]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("malformed Set must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(
+            serde_json::from_value(package["semantic_graph"]["nodes"][set]["node_id"].clone())
+                .expect("authored Set id")
+        )
+    );
+    let projection = ContractBodyRefusalV1::from(&refusal);
+    assert_eq!(projection.code, refusal.code);
+    assert_eq!(projection.path, refusal.loci[0].path);
+    assert_eq!(projection.cause, refusal.cause);
+    assert_eq!(projection.locus, refusal.locus);
+    assert_eq!(projection.contract_version, refusal.contract_version);
+    assert_eq!(projection.document_pointer, refusal.document_pointer);
+    let serialized = serde_json::to_value(&projection).expect("public refusal projection");
+    assert!(serialized.get("expected_node_id").is_none());
+    assert!(serialized.get("actual_digest").is_none());
+    assert!(refusal.to_string().contains("InvalidDerivedShape"));
+    let id = refusal.locus.clone().expect("authentic Set locus");
+    let record = ContractFeatureRecordV1::InvalidBody {
+        node_id: id.clone(),
+        body_node_id: id,
+        refusal: projection,
+    };
+    let wire = serde_json::to_value(&record).expect("contract feature record");
+    let decoded: ContractFeatureRecordV1 =
+        serde_json::from_value(wire).expect("contract feature readback");
+    assert_eq!(decoded, record);
+
+    package["contract_version"] = json!("quire.checked-package/v3");
+    let CheckedPackageV2ReadResult::Refused(version) = read(&package) else {
+        panic!("unknown contract version must refuse before graph admission");
+    };
+    assert_eq!(
+        version.code,
+        CheckedPackageRefusalCode::UnknownContractVersion
+    );
+    assert!(version.locus.is_none());
+    let forwarded = ContractBodyRefusalV1::from(&version);
+    assert_eq!(forwarded.contract_version, version.contract_version);
+    assert_eq!(forwarded.path, version.loci[0].path);
+    assert!(forwarded.locus.is_none());
 }
 
 fn self_option_group(ordinal: u64) -> (Value, usize) {
