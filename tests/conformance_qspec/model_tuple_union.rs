@@ -480,7 +480,7 @@ fn duration_projection_control(scenario: DurationCase) {
             "base":true, "terms":[], "origin":origin
         }]);
         selected["units"] = json!([{
-            "identity":"ix://acme/shapes/s", "name":"s",
+            "identity":"ix://acme/shapes/unit/s", "name":"s",
             "dimension":format!("ix://acme/shapes/{dimension}"), "scale":"1", "offset":"0",
             "origin":origin
         }]);
@@ -616,9 +616,11 @@ fn duration_nominal_pair(
     let (id_package, qualified_prefix) = if selected {
         ("acme/shapes", vec!["acme", "shapes"])
     } else {
-        ("example", vec!["Example"])
+        // The source-owned implicit second is the unqualified `s`.
+        ("example", Vec::new())
     };
     let dimension_name = if valid { "Time" } else { "Length" };
+    let dimension_identity = format!("ix://acme/shapes/{dimension_name}");
     let dimension_name = qualified_prefix
         .iter()
         .copied()
@@ -627,12 +629,30 @@ fn duration_nominal_pair(
     let old_dimension = timed["semantic_graph"]["nodes"][dimension]["node_id"].clone();
     let new_dimension = super::fixture_support::structural_id(
         id_package,
-        dimension_name.iter().map(|part| json!(part)).collect(),
+        if selected {
+            vec![
+                json!("scalar_type"),
+                json!("dimension"),
+                json!(dimension_identity),
+            ]
+        } else {
+            dimension_name.iter().map(|part| json!(part)).collect()
+        },
         0,
     );
     super::fixture_support::reassign_node_id(&mut timed, &old_dimension, &new_dimension);
-    timed["semantic_graph"]["nodes"][dimension]["declaration"]["qualified_name"] =
-        json!(dimension_name);
+    if selected {
+        let node = &mut timed["semantic_graph"]["nodes"][dimension];
+        node.as_object_mut()
+            .expect("dimension node")
+            .remove("declaration");
+        node["owner"] = json!({"kind":"model","identity":"acme/shapes","node":dimension_identity});
+        node["body"] = json!({"term":"aggregate","members":[]});
+        node["occurrences"] = json!([{"role":"generated","ordinal":0}]);
+    } else {
+        timed["semantic_graph"]["nodes"][dimension]["declaration"]["qualified_name"] =
+            json!(dimension_name);
+    }
     let unit_name = qualified_prefix
         .into_iter()
         .chain(std::iter::once("s"))
@@ -640,11 +660,32 @@ fn duration_nominal_pair(
     let old_unit = timed["semantic_graph"]["nodes"][unit]["node_id"].clone();
     let new_unit = super::fixture_support::structural_id(
         id_package,
-        unit_name.iter().map(|part| json!(part)).collect(),
+        if selected {
+            vec![
+                json!("scalar_type"),
+                json!("unit"),
+                json!("ix://acme/shapes/unit/s"),
+            ]
+        } else {
+            unit_name.iter().map(|part| json!(part)).collect()
+        },
         0,
     );
     super::fixture_support::reassign_node_id(&mut timed, &old_unit, &new_unit);
-    timed["semantic_graph"]["nodes"][unit]["declaration"]["qualified_name"] = json!(unit_name);
+    if selected {
+        let node = &mut timed["semantic_graph"]["nodes"][unit];
+        node.as_object_mut()
+            .expect("unit node")
+            .remove("declaration");
+        node["owner"] =
+            json!({"kind":"model","identity":"acme/shapes","node":"ix://acme/shapes/unit/s"});
+        node["body"] = json!({"term":"aggregate","members":[]});
+        node["dependencies"] = json!([new_dimension]);
+        node["occurrences"] = json!([{"role":"generated","ordinal":0}]);
+        assert_eq!(node["semantic_type"], new_dimension);
+    } else {
+        timed["semantic_graph"]["nodes"][unit]["declaration"]["qualified_name"] = json!(unit_name);
+    }
     let nodes: Vec<_> = [dimension, unit]
         .iter()
         .map(|index| timed["semantic_graph"]["nodes"][*index].clone())
@@ -659,6 +700,12 @@ fn duration_nominal_pair(
                 .find(|entry| entry["node_id"] == node["node_id"])
                 .expect("nominal source map")
                 .clone()
+        })
+        .map(|mut entry| {
+            if selected {
+                entry["role"] = json!("generated");
+            }
+            entry
         })
         .collect();
     (
