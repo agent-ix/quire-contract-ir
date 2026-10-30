@@ -35,8 +35,8 @@ child `ExpressOrderPlaced` adding `promised_by`, and grandchild
 a `function` node with `semantic_type` `Money`; and callee `function` nodes whose body binds `parameters` to `reference`s to
 `value`/`parameter` nodes typed `[Money, Integer]` (one variant with a third,
 unread parameter, one with no `parameters` binding). Build a checked package for each call below,
-computing every expected node id through `quire-canonical`, not through the
-reader, and read each.
+assigning every expected `{package,path,ordinal}` node id from the owning
+package name and authored path, not through the reader, and read each.
 
 Positive: `charge` with `Money`, `TaxedMoney` and `GiftTaxedMoney` arguments;
 `settle` with `TaxedMoney` and `GiftTaxedMoney`; `grandsettle` with
@@ -76,7 +76,6 @@ admits and one less returns `incomplete` for `work`.
 
 ## Status
 
-IMPLEMENTED (QSL-737): `tests/it/checked_package_v2_operation_arguments.rs`
-holds one tagged test per criterion, FR-347-AC-1 through FR-347-AC-14. Each
-package is built in the test from the preimages, every key through
-`quire-canonical`, over a Semantic IR 2.0.0 document the lock selects.
+PLANNED/UNRUN (IR-1141 structural identity migration; existing QSL-737 semantic controls retain their evidence): `tests/it/checked_package_v2_operation_arguments.rs`
+holds one tagged test per criterion, FR-347-AC-1 through FR-347-AC-14. Each package must be built with structural node ids over the selected Semantic
+IR 2.0.0 document before this procedure can claim full current-contract coverage.

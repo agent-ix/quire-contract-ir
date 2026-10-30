@@ -76,7 +76,7 @@ failure as a V2 accessor refusal.
    reference and one owner-bound claim tuple argument, using only public
    `&CheckedPackageV2`, `&CheckedNodeId` and `&CheckedOccurrence` references.
    Repeat calls, clone the
-   package and compare values, package equality and canonical identity.
+   package and compare values, package equality and complete canonical bytes.
    Drop source bytes and repeat. Verify the crate root exports exactly one
    public four-variant `ExecutionPoint` and no public `CheckedExecutionPoint`.
    Pass a canonical point with `tick now` and then an empty name to an authored

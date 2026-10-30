@@ -73,8 +73,8 @@ for unavailable selection.
 
 Before and after every query, compare the complete five-member wire and
 complete canonical value. Compare the add-only package to the contextual package
-separately: the extra root changes represented nodes, accounting and identity
-as FR-035 requires. Independently enumerate the preexisting add forward
+separately: the extra root changes represented nodes, accounting and complete canonical bytes
+while retaining the selected package name, as FR-035 requires. Independently enumerate the preexisting add forward
 closure and confirm the reverse conversion remains outside it. Compile an
 external consumer that obtains the typed result from the admitted FR-330
 package and the checked request's application occurrence plus
@@ -90,8 +90,8 @@ cannot satisfy the same `Some` context. The other cases produce the exact
 `DirectBounded`, `Unnarrowed`, `Narrowed`, `MissingBound`, `IncompleteContext`,
 non-lowered, absent or typed error outcomes in FR-049, without a partial or
 guessed bound. Selected external
-references retain their package/key identity and never resolve through a
+references retain their selected dependency name and target structural id and never resolve through a
 local collision. Source/provenance is exact. Each FR-330 package has the
-ordinary five-member wire; the contextual package has different accounting and
-identity from add-only. The wire, identity and add forward closure are
-unchanged by each query.
+ordinary five-member wire; the contextual package has different accounting and complete canonical bytes
+from add-only. Each query leaves the wire, package name and add forward closure
+unchanged.

@@ -286,7 +286,7 @@ mutation isolates the catalog's `member` result form; the second isolates its
 `operator-ineligible` at the application's `/result_type`, with its containing
 node as locus. The valid cross-width packages must still admit. Update every affected reference through the public vocabulary before each read; a private helper result or synthetic post-admission graph does not satisfy these cases.
 Compare typed code, cause, pointer and locus, without parsing diagnostic prose.
-The adverse packages must be valid through earlier wire, identity and resource
+The adverse packages must be valid through earlier wire, structural graph and resource
 checks so they distinguish these admission failures from the existing first
 refusal order. These cases do not assert an admitted same-width IEEE operation.
 

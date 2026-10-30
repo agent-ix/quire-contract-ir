@@ -50,8 +50,7 @@ admission without asserting which QSL requirement owns it.
 
 Compile an external consumer against the public model API and query a
 reader-admitted five-member package. Check that it needs no checked graph or
-`serde_json::Value` field reads. Compare the complete wire, canonical
-identity, feature accounting, result context and reached closure before and
+`serde_json::Value` field reads. Compare the complete wire, canonical bytes and package name, feature accounting, result context and reached closure before and
 after repeated queries. Preserve the existing checked-package scalar operand
 accessor's finite-range and all-or-error behavior.
 
