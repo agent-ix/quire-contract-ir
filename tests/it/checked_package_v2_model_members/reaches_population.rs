@@ -905,7 +905,7 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
     // is refused at the semantic-edge stage first.
     let mode = json!({"kind": "rounding", "value": "exact"});
     let leaf = json!({"path": [], "laws": [], "mode": null});
-    for (label, field, value, cause, at) in [
+    for (_label, field, value, cause, at) in [
         (
             "mode",
             "mode",
