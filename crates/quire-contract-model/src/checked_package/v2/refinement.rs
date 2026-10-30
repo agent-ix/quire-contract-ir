@@ -45,7 +45,7 @@ fn node_at(position: usize) -> crate::checked_package::shared::JsonPointer {
 }
 
 /// A refinement target is either a local node or a node in a directly selected package.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RefinementKey {
     /// A declaration in this graph.
@@ -55,7 +55,7 @@ pub enum RefinementKey {
 }
 
 /// A node of a directly selected dependency package.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementPackageNodeKey {
     /// The selected package identity.
@@ -65,7 +65,7 @@ pub struct RefinementPackageNodeKey {
 }
 
 /// One abstract and concrete population pair.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementPopulation {
     /// Abstract population.
@@ -164,7 +164,7 @@ pub struct RefinementStep {
 }
 
 /// Checked classes of the selected concrete and abstract subjects.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementClassCatalog {
     /// Concrete operation, protocol and memory classes.
@@ -174,7 +174,7 @@ pub struct RefinementClassCatalog {
 }
 
 /// A concrete class with a declaration or a source-default memory step.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum RefinementConcreteClass {
     /// A class backed by a local declaration node.
@@ -191,7 +191,7 @@ pub enum RefinementConcreteClass {
 }
 
 /// An abstract class with a declaration or a source-default memory step.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum RefinementAbstractClass {
     /// A class backed by a selected declaration node.
@@ -367,7 +367,7 @@ pub enum RefinementGranularity {
 }
 
 /// One concrete fairness assumption.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementAssume {
     /// Concrete operation.
@@ -379,7 +379,7 @@ pub struct RefinementAssume {
 }
 
 /// One abstract fairness guarantee.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementEnsure {
     /// Abstract operation.
@@ -403,6 +403,100 @@ pub(super) fn encode_rows<T: Encode, S: Sink + ?Sized>(
     writer.end_array()
 }
 
+impl Encode for RefinementKey {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        match self {
+            Self::Local(node) => node.encode_into(writer),
+            Self::External(external) => external.encode_into(writer),
+        }
+    }
+}
+
+impl Encode for RefinementPackageNodeKey {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::member(writer, "package", &self.package)?;
+        super::encode::encoded(writer, "node", &self.node)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementPopulation {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::encoded(writer, "abstract", &self.r#abstract)?;
+        super::encode::encoded(writer, "concrete", &self.concrete)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementConcreteClass {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        match self {
+            Self::Memory(memory) => writer.serialize(memory),
+            Self::Declared {
+                class,
+                node,
+                binder_types,
+            } => {
+                writer.begin_object()?;
+                super::encode::member(writer, "class", class)?;
+                super::encode::encoded(writer, "node", node)?;
+                super::encode::elements(writer, "binder_types", binder_types)?;
+                writer.end_object()
+            }
+        }
+    }
+}
+
+impl Encode for RefinementAbstractClass {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        match self {
+            Self::Memory(memory) => writer.serialize(memory),
+            Self::Declared {
+                class,
+                node,
+                binder_types,
+            } => {
+                writer.begin_object()?;
+                super::encode::member(writer, "class", class)?;
+                super::encode::encoded(writer, "node", node)?;
+                super::encode::elements(writer, "binder_types", binder_types)?;
+                writer.end_object()
+            }
+        }
+    }
+}
+
+impl Encode for RefinementClassCatalog {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::elements(writer, "concrete", &self.concrete)?;
+        super::encode::elements(writer, "abstract", &self.r#abstract)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementAssume {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::encoded(writer, "operation", &self.operation)?;
+        super::encode::member(writer, "kind", &self.kind)?;
+        super::encode::member(writer, "granularity", &self.granularity)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementEnsure {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::encoded(writer, "operation", &self.operation)?;
+        super::encode::member(writer, "kind", &self.kind)?;
+        super::encode::member(writer, "granularity", &self.granularity)?;
+        writer.end_object()
+    }
+}
+
 impl Encode for RefinementField {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
@@ -418,9 +512,9 @@ impl Encode for RefinementObject {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         writer.name("abstract_type")?;
-        writer.serialize(&self.abstract_type)?;
+        self.abstract_type.encode_into(writer)?;
         writer.name("concrete_type")?;
-        writer.serialize(&self.concrete_type)?;
+        self.concrete_type.encode_into(writer)?;
         writer.name("fields")?;
         encode_rows(&self.fields, writer)?;
         writer.end_object()
@@ -448,7 +542,7 @@ impl Encode for RefinementStepTarget {
             } => {
                 writer.string("operation")?;
                 writer.name("operation")?;
-                writer.serialize(operation)?;
+                operation.encode_into(writer)?;
                 writer.name("receiver")?;
                 receiver.encode_into(writer)?;
                 writer.name("arguments")?;
@@ -464,7 +558,7 @@ impl Encode for RefinementStepTarget {
                 writer.string(class)?;
                 if let Some(node) = node {
                     writer.name("node")?;
-                    writer.serialize(node)?;
+                    node.encode_into(writer)?;
                 }
                 writer.name("arguments")?;
                 encode_rows(arguments, writer)?;
@@ -483,7 +577,7 @@ impl Encode for RefinementStep {
         writer.string(&self.source_class)?;
         if let Some(node) = &self.source_node {
             writer.name("source_node")?;
-            writer.serialize(node)?;
+            node.encode_into(writer)?;
         }
         writer.name("target")?;
         self.target.encode_into(writer)?;
@@ -495,7 +589,7 @@ impl Encode for RefinementHistoryUpdate {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         writer.name("operation")?;
-        writer.serialize(&self.operation)?;
+        self.operation.encode_into(writer)?;
         writer.name("expression")?;
         self.expression.encode_into(writer)?;
         writer.end_object()
@@ -506,11 +600,11 @@ impl Encode for RefinementHistory {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         writer.name("concrete_type")?;
-        writer.serialize(&self.concrete_type)?;
+        self.concrete_type.encode_into(writer)?;
         writer.name("name")?;
         writer.string(&self.name)?;
         writer.name("type")?;
-        writer.serialize(&self.type_id)?;
+        self.type_id.encode_into(writer)?;
         writer.name("initial")?;
         self.initial.encode_into(writer)?;
         writer.name("updates")?;
