@@ -4,8 +4,8 @@
 //! TC-447: admitted, occurrence-scoped scalar result context.
 
 use crate::support::checked_package::{
-    bounds_body, canonical, evidence_for, family_key, mint_ungrouped_structural_keys, node_id,
-    refresh_identity, settle, sha256_hex, v2_all_families,
+    bounds_body, canonical, evidence_for, family_key, node_id, refresh_identity, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -23,7 +23,7 @@ fn body_at(term: &quire_contract_model::CheckedTerm, path: &str) -> Option<Value
 }
 
 fn provisional(letter: char) -> String {
-    sha256_hex(format!("ir769/provisional/{letter}").as_bytes())
+    format!("result/{letter}")
 }
 
 fn node(digest: &str, tag: &str, form: &str, ty: &str, body: Value) -> Value {
@@ -130,7 +130,6 @@ pub(crate) fn fixture() -> Value {
         .as_array_mut()
         .expect("fixture graph")
         .extend([input, result, parameter_node, add_node, narrow_node]);
-    mint_ungrouped_structural_keys(&mut value);
     settle(&mut value);
     value
 }
@@ -503,10 +502,8 @@ fn tc_447_none_and_invalid_occurrences_have_distinct_typed_outcomes() {
         Ok(ContractResultViewV1::Absent),
         "a key in the add closure is not a requested root"
     );
-    let absent = CheckedNodeId {
-        domain: "quire.checked-semantic-node/v1".into(),
-        digest: provisional('f').into(),
-    };
+    let absent: CheckedNodeId =
+        serde_json::from_value(node_id(&provisional('f'))).expect("absent structural node id");
     let with_refusal = package(&input, &[add.node_id.clone(), absent.clone()]);
     assert!(matches!(
         with_refusal.result_context(&absent, &add, None, BoundedDomainForm::IntegerRange),
@@ -523,7 +520,7 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
     let add_key = nodes
         .iter()
         .find(|node| node["body"]["operation"]["identity"] == "quire.op.integer.add")
-        .expect("add")["node_id"]["digest"]
+        .expect("add")["node_id"]["path"][0]
         .as_str()
         .expect("add key")
         .to_owned();
@@ -533,14 +530,14 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
             node["semantic_form"] == "parameter"
                 && node["body"]["members"][0]["value"]["value"] == "a"
         })
-        .expect("authored integer parameter")["node_id"]["digest"]
+        .expect("authored integer parameter")["node_id"]["path"][0]
         .as_str()
         .expect("parameter key")
         .to_owned();
     let result_bound = nodes
         .iter()
         .find(|node| node["body"]["operation"]["identity"] == "quire.op.numeric.narrow")
-        .expect("narrow")["semantic_type"]["digest"]
+        .expect("narrow")["semantic_type"]["path"][0]
         .as_str()
         .expect("result key")
         .to_owned();
@@ -604,7 +601,6 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
         .as_array_mut()
         .expect("nodes")
         .extend([rational_type, other_add, other_narrow, wrong_operation]);
-    mint_ungrouped_structural_keys(&mut wire);
     settle(&mut wire);
 
     let input = admit(&wire);
@@ -763,11 +759,11 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
                 && node["body"]["members"][0]["value"]["value"] == "a"
         })
         .expect("authored parameter");
-    let parameter_key = parameter["node_id"]["digest"]
+    let parameter_key = parameter["node_id"]["path"][0]
         .as_str()
         .expect("parameter key")
         .to_owned();
-    let input_bound = parameter["semantic_type"]["digest"]
+    let input_bound = parameter["semantic_type"]["path"][0]
         .as_str()
         .expect("input bound key")
         .to_owned();
@@ -776,7 +772,7 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
         .expect("nodes")
         .iter()
         .find(|node| node["body"]["operation"]["identity"] == "quire.op.numeric.narrow")
-        .expect("authored result narrow")["semantic_type"]["digest"]
+        .expect("authored result narrow")["semantic_type"]["path"][0]
         .as_str()
         .expect("result bound key")
         .to_owned();
@@ -816,7 +812,6 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
         .as_array_mut()
         .expect("nodes")
         .extend([expression, narrow]);
-    mint_ungrouped_structural_keys(&mut wire);
     settle(&mut wire);
 
     let input = admit(&wire);
@@ -827,7 +822,8 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
         .find(|node| {
             node.node_tag.as_ref() == "expression"
                 && node.semantic_form.as_ref() == "binary"
-                && node.semantic_type.digest.as_ref() == input_bound.as_str()
+                && node.semantic_type
+                    == serde_json::from_value(node_id(&input_bound)).expect("bound id")
                 && body_at(&node.body, "/arguments/0/target") == Some(node_id(&parameter_key))
         })
         .expect("own-bounded expression");
@@ -869,7 +865,10 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
     else {
         panic!("QSL None selects the expression's own bound");
     };
-    assert_eq!(bound.node.node_id.digest.as_ref(), input_bound.as_str());
+    assert_eq!(
+        bound.node.node_id,
+        serde_json::from_value::<CheckedNodeId>(node_id(&input_bound)).expect("bound id")
+    );
     assert_eq!(bound.node.body, bounds_body("0", "9"));
     assert!(matches!(
         outcome(None, BoundedDomainForm::RationalRange),
@@ -881,7 +880,10 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
     else {
         panic!("QSL Some selects the direct narrow even over an own-bounded expression");
     };
-    assert_eq!(bound.node.node_id.digest.as_ref(), result_bound.as_str());
+    assert_eq!(
+        bound.node.node_id,
+        serde_json::from_value::<CheckedNodeId>(node_id(&result_bound)).expect("bound id")
+    );
     assert_eq!(bound.node.body, bounds_body("0", "10"));
 }
 
@@ -894,7 +896,7 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
         .expect("nodes")
         .iter()
         .find(|node| node["body"]["operation"]["identity"] == "quire.op.integer.add")
-        .expect("add")["node_id"]["digest"]
+        .expect("add")["node_id"]["path"][0]
         .as_str()
         .expect("add digest")
         .to_owned();
