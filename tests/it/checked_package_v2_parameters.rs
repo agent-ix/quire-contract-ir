@@ -12,7 +12,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, fixture_source, node_id, nominal_fixture_members, nominal_package,
-    rebuild_source_map, refusal, refusal_at, source_owner, ExpectedRefusal,
+    rebuild_source_map, refusal, refusal_at_id, source_owner, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -109,6 +109,21 @@ fn compound_unit_body(unit: &str, exponent: &str) -> Value {
             binding("exponent", literal(&INTEGER, "integer", exponent)),
         ]},
     ]})
+}
+
+fn set_compound_id(node: &mut Value, terms: &[(&str, &str)]) {
+    let mut path = vec![json!("scalar_type"), json!("compound_unit")];
+    for &(unit, exponent) in terms {
+        path.push(node_id(unit));
+        path.push(json!(exponent));
+    }
+    let id = json!({
+        "package": node["node_id"]["package"],
+        "path": path,
+        "ordinal": node["node_id"]["ordinal"],
+    });
+    node["node_id"] = id.clone();
+    node["semantic_type"] = id;
 }
 
 /// Positions of the QSL-shaped nodes in [`parameters_package`]'s graph.
@@ -225,7 +240,7 @@ fn parameters_package() -> Value {
 
     let compound_body = compound_unit_body(&metre, "2");
     let compound = "scalar_type/compound_unit/metre_squared".to_owned();
-    let compound_node = wire_node(
+    let mut compound_node = wire_node(
         &compound,
         "scalar_type",
         "compound_unit",
@@ -234,6 +249,7 @@ fn parameters_package() -> Value {
         "type",
         compound_body,
     );
+    set_compound_id(&mut compound_node, &[(metre.as_str(), "2")]);
 
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -286,11 +302,11 @@ fn mutated(position: usize, mutate: impl Fn(&mut Value)) -> Value {
 /// `invalid_semantic_graph` at the node at `position`, pointing at `member`
 /// (a pointer suffix below that node).
 fn invalid_at(package: &Value, position: usize, member: &str) -> ExpectedRefusal {
-    refusal_at(
+    refusal_at_id(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         &format!("/semantic_graph/nodes/{position}{member}"),
         None,
-        &node_key(package, position),
+        &package["semantic_graph"]["nodes"][position]["node_id"],
     )
 }
 
@@ -318,6 +334,7 @@ fn compound_unit_references_and_exponents_are_validated() {
     let dimensionless = mutated(COMPOUND, |node| {
         node["body"] = json!({"term": "aggregate", "members": []});
         node["dependencies"] = json!([]);
+        set_compound_id(node, &[]);
     });
     assert!(matches!(
         read(&dimensionless),
@@ -559,6 +576,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     let ascending = mutated(COMPOUND, |node| {
         node["body"] = two_terms(&low, &high);
         node["dependencies"] = json!([node_id(&low), node_id(&high)]);
+        set_compound_id(node, &[(low.as_str(), "1"), (high.as_str(), "-1")]);
     });
     assert!(matches!(
         read(&ascending),
@@ -567,6 +585,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     let descending = mutated(COMPOUND, |node| {
         node["body"] = two_terms(&high, &low);
         node["dependencies"] = json!([node_id(&high), node_id(&low)]);
+        set_compound_id(node, &[(high.as_str(), "1"), (low.as_str(), "-1")]);
     });
     assert_eq!(
         refused(&descending),
@@ -588,6 +607,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     let dimensionless = mutated(COMPOUND, |node| {
         node["body"] = json!({"term": "aggregate", "members": []});
         node["dependencies"] = json!([]);
+        set_compound_id(node, &[]);
     });
     assert!(matches!(
         read(&dimensionless),

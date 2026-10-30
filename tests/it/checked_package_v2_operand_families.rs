@@ -117,41 +117,47 @@ fn append_literal(package: &mut Value, ty: &str, kind: &str, value: Value) -> us
     position
 }
 
-fn same_named_unit_and_dimension() -> Vec<(Value, String)> {
-    let mut members = nominal_fixture_members();
-    let dimension = members
-        .iter_mut()
-        .find(|(preimage, _)| preimage["version"] == "quire.dimension-node/v1")
-        .expect("dimension");
-    dimension.0["qualified_declaration"] = json!(["Example", "Metre"]);
-    dimension.1 = "nominal/dimension/Example/Metre".to_owned();
-    let dimension_id = node_id(&dimension.1);
-    let unit = members
-        .iter_mut()
-        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+fn same_named_unit_and_dimension() -> Value {
+    let mut package = nominal_package(&nominal_fixture_members());
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let unit = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "unit")
         .expect("unit");
-    unit.0["dimension_node_id"] = dimension_id;
-    unit.1 = "qualified:Example/Metre".to_owned();
-    members
+    let dimension = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "dimension")
+        .expect("dimension");
+    // Both declarations keep their authored path. Their distinct ordinals
+    // distinguish the two structural node ids in the same package.
+    nodes[unit]["node_id"]["ordinal"] = json!(1);
+    nodes[dimension]["declaration"]["qualified_name"] = json!(["Example", "Metre"]);
+    refresh_identity(&mut package);
+    rebuild_source_map(&mut package);
+    package
 }
 
 #[trace("TC-230", "FR-038-AC-301", "FR-038-AC-302")]
 #[test]
 fn tc_230_declaration_names_are_scoped_to_unit_dimension_and_type() {
-    let mut package = nominal_package(&same_named_unit_and_dimension());
+    let mut package = same_named_unit_and_dimension();
     let source = &package["lock"]["sources"][0];
     let owner = json!({
         "kind": "source", "authority": source["authority"], "identity": source["identity"],
     });
     let body = json!({"term": "aggregate", "members": []});
-    let key = "nominal/type/Example/Metre";
+    let key = "qualified:Example/Metre";
+    let mut id = node_id(key);
+    id["ordinal"] = json!(2);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .unwrap()
         .push(json!({
-            "node_id": node_id(key), "schema_version": "quire.checked-semantic-graph/v2",
+            "node_id": id, "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "composite_type", "semantic_form": "record",
-            "semantic_type": node_id(key), "dependencies": [],
+            "semantic_type": id, "dependencies": [],
             "occurrences": [{"role": "declaration", "ordinal": 0}],
             "declaration": {"qualified_name": ["Example", "Metre"]},
             "owner": owner, "body": body,
@@ -164,32 +170,21 @@ fn tc_230_declaration_names_are_scoped_to_unit_dimension_and_type() {
 #[trace("TC-230", "FR-038-AC-301")]
 #[test]
 fn tc_230_repeated_unit_name_refuses_at_later_node() {
-    let mut members = same_named_unit_and_dimension();
-    let mut repeated = members
-        .iter()
-        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
-        .expect("unit")
-        .0
-        .clone();
-    repeated["target_unit_node_id"] = node_id(
-        &members
-            .iter()
-            .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
-            .expect("unit")
-            .1,
-    );
-    repeated["scale"]["numerator"] = json!("2");
-    let key = "qualified:Example/Metre".to_owned();
-    members.push((repeated, key));
-    let mut package = nominal_package(&members);
-    let later_position = package["semantic_graph"]["nodes"]
+    let mut package = same_named_unit_and_dimension();
+    let mut repeated = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .rposition(|node| node["semantic_form"] == "unit")
-        .expect("repeated unit");
-    package["semantic_graph"]["nodes"][later_position]["node_id"]["ordinal"] = json!(1);
+        .find(|node| node["semantic_form"] == "unit")
+        .expect("unit")
+        .clone();
+    repeated["node_id"]["ordinal"] = json!(2);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(repeated);
     rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
     let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
     let unit_positions: Vec<_> = nodes
         .iter()
