@@ -23,7 +23,6 @@ use super::{
 };
 use crate::checked_package::shared::CheckedNodeId;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
-use serde_json::Value;
 
 /// Writes the member `name` whose value has a depth fixed by its type.
 pub(super) fn member<S, T>(writer: &mut Writer<'_, S>, name: &str, value: &T) -> Result<(), Error>
@@ -94,16 +93,6 @@ where
 {
     writer.name(name)?;
     item.encode_into(writer)
-}
-
-/// Writes the member `name` as `body`, a JSON value of any depth, through
-/// `quire-canonical`'s `Encode` for `serde_json::Value`.
-pub(super) fn value<S>(writer: &mut Writer<'_, S>, name: &str, body: &Value) -> Result<(), Error>
-where
-    S: Sink + ?Sized,
-{
-    writer.name(name)?;
-    body.encode_into(writer)
 }
 
 /// The fields of one retained graph-node view used by lowering.

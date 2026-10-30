@@ -291,10 +291,6 @@ pub(super) mod tests {
         }
         let mut ids: BTreeMap<char, CheckedNodeId> = BTreeMap::new();
         for digit in ['1', '2', '3', 'a', 'b', '5', '8', 'c', 'd', '7'] {
-            let at = nodes
-                .iter()
-                .position(|n| n["node_id"] == raw_id(digit))
-                .expect("node");
             let fresh = match digit {
                 '1' => {
                     json!({"package":"relationship-end", "path":["scalar_type","boolean"],"ordinal":0})
