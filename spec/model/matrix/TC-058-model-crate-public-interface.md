@@ -27,7 +27,8 @@ Read `crates/quire-contract-model/src/lib.rs` and fail on any `pub use` whose
 path ends in `*`. Inventory every public item the `quire_contract_model` crate
 root exports in a default-feature build, grouped by defining module, and
 compare the set with FR-019's implemented Public items table entries, excluding
-entries explicitly marked planned until their owning code lands. Build the same inventory
+entries explicitly marked planned until their owning code lands. Fail if a
+planned item is exported before its row is marked implemented. Build the same inventory
 with the `fault-injection` feature and confirm the only added item is
 `MappingAllocationPoint`. Compile one probe that names a table item through
 `quire_contract_model` and expect it to build, and one that names the same
@@ -39,8 +40,7 @@ probe), not here.
 ## Expected Results
 
 `lib.rs` has no glob re-export. The default-feature inventory equals the table's
-implemented entries
-with no extra or missing item, and the `fault-injection` inventory adds
+implemented entries with no extra or missing item, and the `fault-injection` inventory adds
 `MappingAllocationPoint` alone. The `quire_contract_model` probe builds and
 the `quire_contract_ir` probe fails to compile.
 
@@ -98,6 +98,9 @@ uses the typed V2 encoder and reader, and reads the same id after admission.
 Negative compile probes cannot import `derive_application_node_id`,
 `derive_structural_candidates`, the candidate result/context/error types,
 `CheckedSemanticId`, the retired identity-preimage types or `PACKAGE_DOMAIN_V2`.
+Each forbidden import fails independently, including `PACKAGE_DOMAIN_V2`; the
+source inventory also confirms that the constant is not re-exported from the
+model crate root.
 The model crate's named public inventory and the absence of root-crate reexports
 remain enforced. A raw structural id does not assert admission; only the
 strict reader returns an admitted `CheckedPackageV2`.
@@ -105,9 +108,9 @@ strict reader returns an admitted `CheckedPackageV2`.
 ## Nominal body public boundary (FR-038-AC-374)
 
 PLANNED/UNRUN (IR-1141). The default-feature consumer imports `NominalBody`
-and its four fallible constructors from `quire_contract_model` after the
-owning code lands. Compile-fail probes reject construction of a raw nominal
+and its four fallible constructors from `quire_contract_model`. Compile-fail
+probes reject construction of a raw nominal
 variant, mutation of an opaque body, unchecked conversion and direct
 deserialization into `NominalBody`; the root `quire_contract_ir` crate does not
-export it. Re-run FR-019-AC-5's exact named inventory with this planned entry
-included only after it is implemented.
+export it. Re-run FR-019-AC-5's exact named inventory with this implemented
+entry included; a missing export fails.
