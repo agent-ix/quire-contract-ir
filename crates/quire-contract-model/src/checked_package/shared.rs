@@ -645,23 +645,35 @@ pub struct CheckedSemanticId {
     pub digest: Box<str>,
 }
 
+/// One segment of a checked node's structural path.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
+#[serde(untagged)]
+pub enum CheckedNodePathSegment {
+    /// An authored or derived path spelling.
+    Name(Box<str>),
+    /// An operand node's structural identity.
+    Node(Box<CheckedNodeId>),
+}
+
 /// A checked semantic graph node identity.
 #[derive(Clone, Debug, Serialize, Deserialize, FixedShape)]
 #[cfg_attr(not(test), derive(Eq, PartialEq, Ord, PartialOrd))]
 #[cfg_attr(test, derive(Eq))]
 #[serde(deny_unknown_fields)]
 pub struct CheckedNodeId {
-    /// Must be `quire.checked-semantic-node/v1`.
-    pub domain: Box<str>,
-    /// Lowercase SHA-256 digest.
-    pub digest: Box<str>,
+    /// The name of the owning package.
+    pub package: Box<str>,
+    /// Nonempty declared or derived path.
+    pub path: Vec<CheckedNodePathSegment>,
+    /// Position among nodes sharing the package and path.
+    pub ordinal: u64,
 }
 
 #[cfg(test)]
 impl PartialEq for CheckedNodeId {
     fn eq(&self, other: &Self) -> bool {
         checked_node_comparisons::visited();
-        self.domain == other.domain && self.digest == other.digest
+        self.package == other.package && self.path == other.path && self.ordinal == other.ordinal
     }
 }
 
@@ -676,7 +688,7 @@ impl PartialOrd for CheckedNodeId {
 impl Ord for CheckedNodeId {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         checked_node_comparisons::visited();
-        (&self.domain, &self.digest).cmp(&(&other.domain, &other.digest))
+        (&self.package, &self.path, self.ordinal).cmp(&(&other.package, &other.path, other.ordinal))
     }
 }
 
