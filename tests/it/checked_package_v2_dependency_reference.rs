@@ -4,7 +4,7 @@
 //! IR-289: the `dependency_reference` term (QSpec FR-322-AC-36 and
 //! FR-322-AC-37, native-diagnostics step 7). A call to a function a
 //! dependency package declares carries `{term: "dependency_reference",
-//! package, node}` as its callee; the term enters the calling node's id, is
+//! package, node}` as its callee; the term names a structural target, is
 //! never listed in `dependencies`, and resolves against the dependency
 //! package the caller supplies.
 //!
@@ -12,10 +12,9 @@
 //! fixture.
 
 use crate::support::checked_package::{
-    admitted_dependency, canonical, family_key, mint_ungrouped_structural_keys, node_id,
-    nominal_package, over_body, pointer, read_with_dependencies, rebuild_source_map,
-    refresh_identity, rekey, rekey_application_node, rename_node, select_model, settle, sha256_hex,
-    source_owner, structural_key, v2_all_families, v2_nominal,
+    admitted_dependency, canonical, family_key, node_id, over_body, pointer,
+    read_with_dependencies, reassign_node_id, rebuild_source_map, refresh_identity, settle,
+    v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -28,15 +27,15 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 
-const LIBRARY: &str = "test/geometry";
+const LIBRARY: &str = "test/families";
 /// The `node` a well-formed callee names when no test says otherwise.
-const OTHER_NODE: &str = "5353535353535353535353535353535353535353535353535353535353535353";
+const OTHER_NODE: &str = "missing-node";
 
 /// One dependency package: its document, the admitted package the reader
-/// hands back and the digest of its `package_id`.
+/// hands back and its structural name.
 struct Dependency {
     package: CheckedPackageV2,
-    digest: String,
+    name: String,
     function_key: String,
 }
 
@@ -91,19 +90,15 @@ fn record_key() -> String {
 }
 
 fn declared_key(tag: &str, form: &str, semantic_type: &str, name: &str) -> String {
-    sha256_hex(&canonical(&json!({
-        "version": "quire.structural-node/v1", "node_tag": tag,
-        "semantic_form": form, "semantic_type": node_id(semantic_type),
-        "declaration": {"qualified_name": [name]}, "owner": source_owner(&crate::support::checked_package::fixture_source()),
-        "recursion": null, "body": {"term": "aggregate", "members": []},
-    })))
+    let _ = (tag, form, semantic_type);
+    format!("qualified:{name}")
 }
 
 /// The anonymous `composite_type` node of `form` over `element`, self-typed,
-/// its body the one `reference` and its key the derived one (FR-038-AC-134).
+/// its body the one `reference` and its authored structural identity.
 fn collection(form: &str, element: &str, dependencies: &[&str]) -> (String, Value) {
     let body = over_body(element);
-    let key = structural_key("composite_type", form, None, &body);
+    let key = format!("collection/{form}/{element}");
     let collection = with_body(
         node(&key, "composite_type", form, &key, dependencies, None),
         body,
@@ -122,7 +117,7 @@ fn dependency_document(edit: impl FnOnce(&mut Vec<Value>)) -> Value {
         .clone();
     let function = nodes
         .iter_mut()
-        .find(|node| node["node_id"]["digest"] == family_key("8080"))
+        .find(|node| node["node_id"] == node_id(&family_key("8080")))
         .expect("the fixture's function node");
     *function = node(
         &function_key(),
@@ -134,9 +129,11 @@ fn dependency_document(edit: impl FnOnce(&mut Vec<Value>)) -> Value {
     );
     edit(&mut nodes);
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
-    rename_node(&mut package, &family_key("8080"), &function_key());
-    mint_ungrouped_structural_keys(&mut package);
-    mint_ungrouped_structural_keys(&mut package);
+    reassign_node_id(
+        &mut package,
+        &node_id(&family_key("8080")),
+        &node_id(&function_key()),
+    );
     settle(&mut package);
     package
 }
@@ -144,10 +141,10 @@ fn dependency_document(edit: impl FnOnce(&mut Vec<Value>)) -> Value {
 fn build_dependency(edit: impl FnOnce(&mut Vec<Value>)) -> Dependency {
     let document = dependency_document(edit);
     let function_key = declared_function_key(&document);
-    let (digest, package) = admitted_dependency(&document);
+    let (name, package) = admitted_dependency(&document);
     Dependency {
         package,
-        digest,
+        name,
         function_key,
     }
 }
@@ -158,29 +155,28 @@ fn declared_function_key(package: &Value) -> String {
         .expect("nodes")
         .iter()
         .find(|node| node["declaration"]["qualified_name"] == json!(["twice"]))
-        .expect("twice declaration")["node_id"]["digest"]
+        .expect("twice declaration")["node_id"]["path"][0]
         .as_str()
-        .expect("function digest")
+        .expect("function path")
         .to_owned()
 }
 
-fn dependency_term(package_digest: &str, node_digest: &str) -> Value {
+fn dependency_term(package_name: &str, node_path: &str) -> Value {
     json!({
         "term": "dependency_reference",
-        "package": {
-            "domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": package_digest,
-        },
-        "node": node_id(node_digest),
+        "package": package_name,
+        "node": node_id(node_path),
     })
 }
 
-fn selection(digest: &str) -> Value {
-    json!({
-        "identity": LIBRARY,
-        "package_id": {
-            "domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": digest,
-        },
-    })
+fn selection(identity: &str) -> Value {
+    json!({"identity": identity})
+}
+
+fn importer_node_id(path: &str) -> Value {
+    let mut id = node_id(path);
+    id["package"] = json!("test/importer");
+    id
 }
 
 /// The position of the fixture's `function` call node.
@@ -202,6 +198,8 @@ fn importing(entries: Vec<Value>, callee: Value) -> Value {
 
 fn importing_with(entries: Vec<Value>, edit: impl FnOnce(&mut Vec<Value>)) -> Value {
     let mut package = v2_all_families();
+    package["name"] = json!("test/importer");
+    refresh_identity(&mut package);
     package["lock"]["dependency_selections"] = Value::Array(entries);
     let position = call_position(&package);
     let call = &mut package["semantic_graph"]["nodes"][position];
@@ -213,7 +211,6 @@ fn importing_with(entries: Vec<Value>, edit: impl FnOnce(&mut Vec<Value>)) -> Va
     call["body"]["arguments"] = Value::Array(arguments);
     // Implements: FR-322. The term is no `reference`, so it contributes no dependency.
     call["dependencies"] = json!([]);
-    rekey_application_node(&mut package, position);
     refresh_identity(&mut package);
     package
 }
@@ -254,8 +251,8 @@ fn call_path(package: &Value, tail: &str) -> String {
 /// The importing package calling the dependency's `twice`.
 fn calling(dependency: &Dependency, callee_node: &str) -> Value {
     importing(
-        vec![selection(&dependency.digest)],
-        dependency_term(&dependency.digest, callee_node),
+        vec![selection(&dependency.name)],
+        dependency_term(&dependency.name, callee_node),
     )
 }
 
@@ -268,8 +265,9 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
         .as_array()
         .expect("nodes")
         .iter()
-        .position(|entry| entry["node_id"]["digest"] == family_key("8080"))
+        .position(|entry| entry["node_id"]["path"] == node_id(&family_key("8080"))["path"])
         .expect("local function");
+    let old_local = package["semantic_graph"]["nodes"][local_position]["node_id"].clone();
     package["semantic_graph"]["nodes"][local_position] = node(
         &dependency.function_key,
         "function",
@@ -278,10 +276,17 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
         &[],
         Some(&["twice"]),
     );
-    rename_node(&mut package, &family_key("8080"), &dependency.function_key);
+    package["semantic_graph"]["nodes"][local_position]["node_id"] =
+        importer_node_id(&dependency.function_key);
+    package["semantic_graph"]["nodes"][local_position]["semantic_type"] =
+        importer_node_id(&boolean_key());
+    reassign_node_id(
+        &mut package,
+        &old_local,
+        &importer_node_id(&dependency.function_key),
+    );
     let call = call_position(&package);
     package["semantic_graph"]["nodes"][call]["occurrences"][0]["role"] = json!("expression");
-    rekey_application_node(&mut package, call);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let admitted = match read(&package, &dependency) {
@@ -309,14 +314,14 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
     };
     assert_eq!(view.selected_references.len(), 1);
     assert_eq!(
-        view.selected_references[0].package,
-        *dependency.package.package_id()
+        view.selected_references[0].package.as_ref(),
+        dependency.package.name()
     );
     assert_eq!(
         view.selected_references[0].node,
         serde_json::from_value(node_id(&dependency.function_key)).expect("target key")
     );
-    assert!(admitted
+    assert!(!admitted
         .graph()
         .nodes
         .iter()
@@ -385,8 +390,10 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
         ),
         ContractPackageReadResult::Refused(refusal) if refusal.code == CheckedPackageRefusalCode::MissingImport
     ));
-    let (_, other) =
-        admitted_dependency(&crate::support::checked_package::positive_operation_identities());
+    let mut other_wire = crate::support::checked_package::positive_operation_identities();
+    other_wire["name"] = json!("test/other");
+    refresh_identity(&mut other_wire);
+    let (_, other) = admitted_dependency(&other_wire);
     let mut stale = ContractDependencies::new();
     stale.insert(
         LIBRARY,
@@ -401,7 +408,7 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
             CheckedPackageReadLimits::bounded(),
             &stale,
         ),
-        ContractPackageReadResult::Refused(refusal) if refusal.code == CheckedPackageRefusalCode::StaleDependency
+        ContractPackageReadResult::Refused(refusal) if refusal.code == CheckedPackageRefusalCode::MissingImport
     ));
 }
 
@@ -425,7 +432,7 @@ fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
     assert!(call.dependencies.is_empty());
     assert_eq!(
         serde_json::to_value(&call.body).expect("body")["arguments"][0],
-        dependency_term(&dependency.digest, &function_key())
+        dependency_term(&dependency.name, &function_key())
     );
     let CheckedTerm::Application { arguments, .. } = admitted
         .term(&call.node_id)
@@ -436,8 +443,8 @@ fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
     assert!(matches!(
         arguments.first(),
         Some(CheckedTerm::DependencyReference { package, node })
-            if package.digest.as_ref() == dependency.digest.as_str()
-                && node.digest.as_ref() == function_key().as_str()
+            if package.as_ref() == dependency.name.as_str()
+                && node == &serde_json::from_value::<CheckedNodeId>(node_id(&function_key())).expect("function identity")
     ));
 
     // Listing the target as a dependency of the calling node refuses.
@@ -458,7 +465,8 @@ fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
 fn transitive_only_dependency_reference_refuses_missing_selection() {
     let leaf = build_dependency(|_| {});
     let mut direct_wire = dependency_document(|_| {});
-    direct_wire["lock"]["dependency_selections"] = json!([selection(&leaf.digest)]);
+    direct_wire["name"] = json!("test/direct");
+    direct_wire["lock"]["dependency_selections"] = json!([selection(&leaf.name)]);
     refresh_identity(&mut direct_wire);
     let CheckedPackageV2ReadResult::Admitted(direct) =
         read_with_dependencies(&direct_wire, &[(LIBRARY, &leaf.package)])
@@ -466,8 +474,8 @@ fn transitive_only_dependency_reference_refuses_missing_selection() {
         panic!("direct library with a leaf dependency admits");
     };
     let root = importing(
-        vec![json!({"identity": "test/direct", "package_id": direct.package_id()})],
-        dependency_term(&leaf.digest, &leaf.function_key),
+        vec![selection("test/direct")],
+        dependency_term(&leaf.name, &leaf.function_key),
     );
     let refusal = refused(read_with_dependencies(&root, &[("test/direct", &direct)]));
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
@@ -480,43 +488,43 @@ fn transitive_only_dependency_reference_refuses_missing_selection() {
 /// ACs: FR-038-AC-35
 #[trace("TC-048", "FR-038-AC-35")]
 #[test]
-fn tc_048_the_term_enters_the_application_node_identity() {
+fn tc_048_changed_dependency_target_is_checked_by_normal_joins() {
     let dependency = build_dependency(|_| {});
     let package = calling(&dependency, &dependency.function_key);
     let position = call_position(&package);
-    // Changing only the term's `node` or only its `package`, with the key
-    // left as it was, is a stale key: both enter the preimage.
+    let unchanged_id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    // A structural node id remains stable when its body changes. The new
+    // target is checked by the ordinary dependency and declaration joins.
     let mut renoded = package.clone();
-    renoded["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["node"]["digest"] =
-        json!(OTHER_NODE);
+    renoded["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["node"] =
+        node_id(OTHER_NODE);
     refresh_identity(&mut renoded);
+    assert_eq!(
+        renoded["semantic_graph"]["nodes"][position]["node_id"],
+        unchanged_id
+    );
     let refusal = refused(read(&renoded, &dependency));
     expect_refusal(
         &refusal,
-        CheckedPackageRefusalCode::InvalidPackage,
-        Some(CheckedPackageRefusalCause::StaleNodeKey),
-        &format!("/semantic_graph/nodes/{position}/node_id"),
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingName),
+        &call_path(&renoded, "/arguments/0/node"),
     );
     let mut repackaged = package.clone();
-    repackaged["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["package"]["digest"] =
-        json!("5555555555555555555555555555555555555555555555555555555555555555");
+    repackaged["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["package"] =
+        json!("test/other");
     refresh_identity(&mut repackaged);
+    assert_eq!(
+        repackaged["semantic_graph"]["nodes"][position]["node_id"],
+        unchanged_id
+    );
     let refusal = refused(read(&repackaged, &dependency));
     expect_refusal(
         &refusal,
-        CheckedPackageRefusalCode::InvalidPackage,
-        Some(CheckedPackageRefusalCause::StaleNodeKey),
-        &format!("/semantic_graph/nodes/{position}/node_id"),
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingSelection),
+        &call_path(&repackaged, "/arguments/0/package"),
     );
-    // Rekeying each gives the node a different id, and distinct ones.
-    let id = |package: &Value| package["semantic_graph"]["nodes"][position]["node_id"].clone();
-    let mut node_rekeyed = renoded.clone();
-    rekey_application_node(&mut node_rekeyed, position);
-    let mut package_rekeyed = repackaged.clone();
-    rekey_application_node(&mut package_rekeyed, position);
-    assert_ne!(id(&node_rekeyed), id(&package));
-    assert_ne!(id(&package_rekeyed), id(&package));
-    assert_ne!(id(&node_rekeyed), id(&package_rekeyed));
 }
 
 /// ACs: FR-038-AC-36
@@ -524,9 +532,9 @@ fn tc_048_the_term_enters_the_application_node_identity() {
 #[test]
 fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
     let dependency = build_dependency(|_| {});
-    let term = dependency_term(&dependency.digest, &function_key());
+    let term = dependency_term(&dependency.name, &function_key());
     // As a non-callee argument of the call.
-    let extra = importing_with(vec![selection(&dependency.digest)], |arguments| {
+    let extra = importing_with(vec![selection(&dependency.name)], |arguments| {
         arguments[0] = term.clone();
         arguments.push(term.clone());
     });
@@ -538,7 +546,7 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
     );
     // As the only argument of a call of a local function: not a callee of a
     // dependency call... argument 0 of another operation.
-    let mut other_operation = importing(vec![selection(&dependency.digest)], term.clone());
+    let mut other_operation = importing(vec![selection(&dependency.name)], term.clone());
     let position = call_position(&other_operation);
     let temporal = other_operation["semantic_graph"]["nodes"]
         .as_array()
@@ -551,10 +559,6 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
     other_operation["semantic_graph"]["nodes"][temporal]["dependencies"] = json!([]);
     refresh_identity(&mut other_operation);
     assert_ne!(temporal, position);
-    // The temporal clause's key covers its arguments; the stale key is the
-    // earlier refusal, so re-derive it.
-    rekey_application_node(&mut other_operation, temporal);
-    refresh_identity(&mut other_operation);
     expect_refusal(
         &refused(read(&other_operation, &dependency)),
         CheckedPackageRefusalCode::IllTyped,
@@ -562,8 +566,8 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
         &format!("/semantic_graph/nodes/{temporal}/body/arguments/0"),
     );
     // As a node body root and inside an aggregate.
-    let mut root = importing(vec![selection(&dependency.digest)], term.clone());
-    let expression_key = structural_key("expression", "reference", Some(&boolean_key()), &term);
+    let mut root = importing(vec![selection(&dependency.name)], term.clone());
+    let expression_key = "expression/remote-root";
     let mut expression = node(
         &expression_key,
         "expression",
@@ -592,13 +596,6 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
     let mut aggregate = root.clone();
     aggregate["semantic_graph"]["nodes"][count]["body"] =
         json!({"term": "aggregate", "members": [term]});
-    let aggregate_key = structural_key(
-        "expression",
-        "reference",
-        Some(&boolean_key()),
-        &aggregate["semantic_graph"]["nodes"][count]["body"],
-    );
-    rename_node(&mut aggregate, &expression_key, &aggregate_key);
     refresh_identity(&mut aggregate);
     expect_refusal(
         &refused(read(&aggregate, &dependency)),
@@ -613,35 +610,31 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
 #[test]
 fn tc_048_a_malformed_term_refuses_at_the_member_at_fault() {
     let dependency = build_dependency(|_| {});
-    let good = dependency_term(&dependency.digest, &function_key());
-    let mut bare = good.clone();
-    bare["package"] = json!(dependency.digest);
-    let mut other_domain = good.clone();
-    other_domain["package"]["domain"] = json!("quire.source.bytes/v1");
-    let mut short_digest = good.clone();
-    short_digest["package"]["digest"] = json!("abc");
+    let good = dependency_term(&dependency.name, &function_key());
+    let mut wrong_kind = good.clone();
+    wrong_kind["package"] = json!(7);
+    let mut empty_package = good.clone();
+    empty_package["package"] = json!("");
     let mut no_node = good.clone();
     no_node.as_object_mut().expect("term").remove("node");
     let mut extra = good.clone();
     extra["target"] = good["node"].clone();
-    let mut node_domain = good.clone();
-    node_domain["node"]["domain"] = json!("quire.package.semantic/v2");
-    for (name, term, at) in [
-        ("bare package", bare, "/arguments/0/package"),
-        ("other domain", other_domain, "/arguments/0/package"),
-        ("short digest", short_digest, "/arguments/0/package"),
+    let mut malformed_node = good.clone();
+    malformed_node["node"]["path"] = json!([7]);
+    for (_case, term, at) in [
+        ("wrong package kind", wrong_kind, "/arguments/0/package"),
+        ("empty package", empty_package, "/arguments/0/package"),
         ("missing node", no_node, "/arguments/0"),
         ("extra member", extra, "/arguments/0"),
-        ("node in another domain", node_domain, "/arguments/0/node"),
+        ("malformed node path", malformed_node, "/arguments/0/node"),
     ] {
-        let package = importing(vec![selection(&dependency.digest)], term);
+        let package = importing(vec![selection(&dependency.name)], term);
         expect_refusal(
             &refused(read(&package, &dependency)),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             None,
             &call_path(&package, at),
         );
-        assert!(!name.is_empty());
     }
 }
 
@@ -670,15 +663,17 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
         Some(CheckedPackageRefusalCause::MissingSelection),
         "/lock/dependency_selections/0",
     );
-    // A package whose own package_id is not the entry's.
-    let other = crate::support::checked_package::positive_operation_identities();
+    // A package supplied at this slot but carrying another name cannot bind.
+    let mut other = dependency_document(|_| {});
+    other["name"] = json!("test/other");
+    refresh_identity(&mut other);
     let (_, other) = admitted_dependency(&other);
     let refusal = refused(read_with_dependencies(&package, &[(LIBRARY, &other)]));
     expect_refusal(
         &refusal,
-        CheckedPackageRefusalCode::StaleDependency,
-        Some(CheckedPackageRefusalCause::ContentMismatch),
-        "/lock/dependency_selections/0/package_id/digest",
+        CheckedPackageRefusalCode::MissingImport,
+        Some(CheckedPackageRefusalCause::MissingSelection),
+        "/lock/dependency_selections/0",
     );
 }
 
@@ -686,11 +681,10 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
 #[test]
 fn dependency_selection_checks_presence_then_binding_in_lock_order() {
     let dependency = build_dependency(|_| {});
-    let mut second = selection(&"f".repeat(64));
-    second["identity"] = json!("test/other");
+    let second = selection("test/other");
     let package = importing(
-        vec![selection(&dependency.digest), second],
-        dependency_term(&dependency.digest, &dependency.function_key),
+        vec![selection(&dependency.name), second],
+        dependency_term(&dependency.name, &dependency.function_key),
     );
     for (supplied, code, cause, path) in [
         (
@@ -714,13 +708,15 @@ fn dependency_selection_checks_presence_then_binding_in_lock_order() {
             path,
         );
     }
-    let (_, stale) =
-        admitted_dependency(&crate::support::checked_package::positive_operation_identities());
+    let mut wrong_name = dependency_document(|_| {});
+    wrong_name["name"] = json!("test/other");
+    refresh_identity(&mut wrong_name);
+    let (_, stale) = admitted_dependency(&wrong_name);
     expect_refusal(
         &refused(read_with_dependencies(&package, &[(LIBRARY, &stale)])),
-        CheckedPackageRefusalCode::StaleDependency,
-        Some(CheckedPackageRefusalCause::ContentMismatch),
-        "/lock/dependency_selections/0/package_id/digest",
+        CheckedPackageRefusalCode::MissingImport,
+        Some(CheckedPackageRefusalCause::MissingSelection),
+        "/lock/dependency_selections/0",
     );
 }
 
@@ -729,12 +725,12 @@ fn dependency_selection_checks_presence_then_binding_in_lock_order() {
 #[test]
 fn tc_048_a_reference_resolves_in_the_order_selection_name_operator() {
     let dependency = build_dependency(|_| {});
-    let entries = || vec![selection(&dependency.digest)];
+    let entries = || vec![selection(&dependency.name)];
     let term_at =
         |package: &Value, member: &str| call_path(package, &format!("/arguments/0{member}"));
 
     // A `package` no selection names.
-    let package = importing(entries(), dependency_term(&"6".repeat(64), &function_key()));
+    let package = importing(entries(), dependency_term("test/missing", &function_key()));
     let refusal = refused(read(&package, &dependency));
     expect_refusal(
         &refusal,
@@ -791,17 +787,16 @@ fn signature(signature: &[&str], result: &str, edit: impl FnOnce(&mut Vec<Value>
         edit(nodes);
         let function = nodes
             .iter_mut()
-            .find(|node| node["node_id"]["digest"] == function_key())
+            .find(|node| node["node_id"] == node_id(&function_key()))
             .expect("the function");
         function["semantic_type"] = node_id(result);
         let parameter_keys: Vec<_> = signature
             .iter()
-            .map(|type_key| {
-                let parameter = parameter(type_key, &family_key("a1a1"), &family_key("a3a3"));
-                let key = parameter["node_id"]["digest"]
-                    .as_str()
-                    .expect("parameter key")
-                    .to_owned();
+            .enumerate()
+            .map(|(ordinal, type_key)| {
+                let parameter =
+                    parameter(type_key, &family_key("a1a1"), &family_key("a3a3"), ordinal);
+                let key = format!("parameter/{ordinal}");
                 nodes.push(parameter);
                 key
             })
@@ -815,7 +810,7 @@ fn signature(signature: &[&str], result: &str, edit: impl FnOnce(&mut Vec<Value>
             arguments.extend(parameter_keys.iter().map(|key| reference_to(key)));
             let function = nodes
                 .iter_mut()
-                .find(|node| node["node_id"]["digest"] == function_key())
+                .find(|node| node["node_id"] == node_id(&function_key()))
                 .expect("the function");
             function["body"] = json!({"term": "aggregate", "members": [{
                 "term": "binding", "name": "parameters", "value": {
@@ -831,12 +826,7 @@ fn signature(signature: &[&str], result: &str, edit: impl FnOnce(&mut Vec<Value>
 #[test]
 fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
     let (set_key, set_node) = collection("set", &record_key(), &[&record_key()]);
-    let tuple_key = structural_key(
-        "composite_type",
-        "tuple",
-        Some(&boolean_key()),
-        &json!({"term": "aggregate", "members": []}),
-    );
+    let tuple_key = "composite/tuple/declared-record".to_owned();
     let model = family_key("1515");
     let (reference_key, reference_node) = collection("reference", &model, &[&model]);
     let cases: Vec<(&str, Dependency)> = vec![
@@ -915,13 +905,13 @@ fn reference_to(key: &str) -> Value {
 /// A `value`/`parameter` node typed at `semantic_type`, with the closed
 /// parameter body (a text name and an integer level, each typed at a scalar
 /// node the caller adds).
-fn parameter(semantic_type: &str, text: &str, integer: &str) -> Value {
+fn parameter(semantic_type: &str, text: &str, integer: &str, ordinal: usize) -> Value {
     let literal = |type_key: &str, kind: &str, value: &str| json!({"term": "literal", "type": node_id(type_key), "value_kind": kind, "value": value});
     let body = json!({"term": "aggregate", "members": [
         {"term": "binding", "name": "name", "value": literal(text, "text", "x")},
         {"term": "binding", "name": "level", "value": literal(integer, "integer", "0")},
     ]});
-    let key = structural_key("value", "parameter", Some(semantic_type), &body);
+    let key = format!("parameter/{ordinal}");
     let mut node = node(&key, "value", "parameter", semantic_type, &[], None);
     node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     with_body(node, body)
@@ -932,11 +922,8 @@ fn parameter(semantic_type: &str, text: &str, integer: &str) -> Value {
 fn unbound_parameter_dependency(listed: bool, referenced: bool) -> Dependency {
     // The fixture already holds the anonymous `Text` and `Integer` nodes.
     let (text, integer) = (family_key("a1a1"), family_key("a3a3"));
-    let parameter = parameter(&record_key(), &text, &integer);
-    let parameter_key = parameter["node_id"]["digest"]
-        .as_str()
-        .expect("parameter key")
-        .to_owned();
+    let parameter = parameter(&record_key(), &text, &integer, 0);
+    let parameter_key = "parameter/0";
     build_dependency(|nodes| {
         nodes.push(node(
             &record_key(),
@@ -949,7 +936,7 @@ fn unbound_parameter_dependency(listed: bool, referenced: bool) -> Dependency {
         nodes.push(parameter);
         let function = nodes
             .iter_mut()
-            .find(|node| node["node_id"]["digest"] == function_key())
+            .find(|node| node["node_id"] == node_id(&function_key()))
             .expect("the function");
         if referenced {
             function["body"] = json!({
@@ -981,12 +968,7 @@ fn unbound_parameter_type_is_outside_the_signature() {
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
 fn signature_type_closure_follows_dependencies_only() {
-    let by_type = structural_key(
-        "composite_type",
-        "tuple",
-        Some(&record_key()),
-        &json!({"term": "aggregate", "members": []}),
-    );
+    let by_type = "composite/tuple/by-semantic-type".to_owned();
     // A set no `dependencies` entry ties to the record: its body references
     // it.
     let (by_body, by_body_node) = collection("set", &record_key(), &[]);
@@ -1032,7 +1014,7 @@ fn dependency_function_body_reference_outside_signature_is_eligible() {
         ));
         let function = nodes
             .iter_mut()
-            .find(|node| node["node_id"]["digest"] == function_key())
+            .find(|node| node["node_id"] == node_id(&function_key()))
             .expect("the function");
         function["dependencies"] = json!([node_id(&record_key())]);
         function["body"] = json!({
@@ -1069,23 +1051,30 @@ fn nominal_dependency(
     ));
     edit(&mut nodes);
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
-    mint_ungrouped_structural_keys(&mut package);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let function_key = declared_function_key(&package);
-    let (digest, admitted) = admitted_dependency(&package);
+    let (name, admitted) = admitted_dependency(&package);
     Dependency {
         package: admitted,
-        digest,
+        name,
         function_key,
     }
 }
 
 fn node_key(package: &Value, position: usize) -> String {
-    package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
-        .as_str()
-        .expect("key")
-        .to_owned()
+    let path = package["semantic_graph"]["nodes"][position]["node_id"]["path"]
+        .as_array()
+        .expect("node path");
+    let names = path
+        .iter()
+        .map(|part| part.as_str().expect("declared name"))
+        .collect::<Vec<_>>();
+    if names.len() == 1 {
+        names[0].to_owned()
+    } else {
+        format!("qualified:{}", names.join("/"))
+    }
 }
 
 /// ACs: FR-038-AC-38
@@ -1110,38 +1099,14 @@ fn tc_048_a_quantity_over_a_declared_unit_refuses() {
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
 fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
-    // The recorded nominal package with its enum owned by a domain package
-    // and carrying no `declaration`: only its owner makes it
-    // package-dependent.
-    let owner = json!({"kind": "model", "identity": "test/orders",
-        "node": "ix://test/orders/Status"});
-    let recorded = v2_nominal();
-    let nodes = recorded["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes");
-    let order = [1, 0, 3, 2];
-    let mut preimages = order
-        .iter()
-        .map(|position| nodes[*position]["nominal_identity_preimage"].clone())
-        .collect::<Vec<_>>();
-    let keys = order
-        .iter()
-        .map(|position| node_key(&recorded, *position))
-        .collect::<Vec<_>>();
-    preimages[0]["owner"] = owner;
-    let fresh = rekey(&mut preimages, &keys);
-    let members = preimages.into_iter().zip(fresh).collect::<Vec<_>>();
-    let mut owned = nominal_package(&members);
-    select_model(&mut owned, "test/orders");
-    refresh_identity(&mut owned);
-    let enum_key = node_key(&owned, 0);
-    let dependency = nominal_dependency(owned, &enum_key, |nodes| {
-        let declaration = &mut nodes[0];
-        declaration["occurrences"] = json!([{"role": "generated", "ordinal": 0}]);
-        declaration
-            .as_object_mut()
-            .expect("node")
-            .remove("declaration");
+    // The selected all-family model object has a ModelOwner and no source
+    // declaration, so the function's result depends on a model selection.
+    let dependency = build_dependency(|nodes| {
+        let function = nodes
+            .iter_mut()
+            .find(|node| node["node_id"] == node_id(&function_key()))
+            .expect("the function");
+        function["semantic_type"] = node_id(&family_key("1515"));
     });
     let package = calling(&dependency, &dependency.function_key);
     expect_refusal(
@@ -1160,8 +1125,8 @@ fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
 #[test]
 fn tc_048_a_binding_value_refuses_and_a_nested_call_is_outside_the_grammar() {
     let dependency = build_dependency(|_| {});
-    let term = dependency_term(&dependency.digest, &function_key());
-    let entries = || vec![selection(&dependency.digest)];
+    let term = dependency_term(&dependency.name, &function_key());
+    let entries = || vec![selection(&dependency.name)];
     // A binding's value is no callee.
     let bound = importing_with(entries(), |arguments| {
         arguments[0] = term.clone();
