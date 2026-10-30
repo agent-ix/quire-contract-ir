@@ -6,8 +6,8 @@ use crate::checked_package::common::{
     Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
-    CheckedSourceRef, CheckedSourceRegion,
+    CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry, CheckedSourceRef,
+    CheckedSourceRegion,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -2712,7 +2712,7 @@ fn protocol_classes(
     nodes: &[ProtocolCatalogNode<'_>],
     model: &CheckedNodeId,
     selected_clause: Option<&CheckedNodeId>,
-    package: Option<&CheckedSemanticId>,
+    package: Option<&str>,
     signatures: CatalogSignatures<'_, '_>,
     at: &JsonPointer,
     meter: &mut super::WorkMeter,
@@ -2727,7 +2727,7 @@ fn protocol_classes(
     });
     let key = |id: &CheckedNodeId| match package {
         Some(package) => RefinementKey::External(RefinementPackageNodeKey {
-            package: package.clone(),
+            package: package.into(),
             node: id.clone(),
         }),
         None => RefinementKey::Local(id.clone()),
