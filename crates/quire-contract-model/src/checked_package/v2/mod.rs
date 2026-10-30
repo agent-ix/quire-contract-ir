@@ -7,7 +7,6 @@
 //! definition selections retain the owning names and exact structure.
 
 mod abstraction;
-mod application_identity;
 mod claim_terminal;
 mod closure_index;
 mod comparison_operands;
@@ -47,10 +46,6 @@ mod timed_model;
 mod typed_terms;
 mod vocabulary;
 
-pub use application_identity::{
-    derive_application_node_id, ApplicationIdentityContext, ApplicationIdentityError,
-    ApplicationNodeDraft, CandidateApplicationNodeId,
-};
 pub use comparison_operands::{
     CheckedClauseComparison, CheckedComparisonClauseKind, CheckedComparisonError,
     CheckedComparisonObservation, CheckedComparisonOperand, CheckedComparisonOperandIdentity,
@@ -293,53 +288,6 @@ pub struct CheckedSemanticNodeV2<Body = CheckedTerm> {
 }
 
 type RawSemanticNodeV2 = CheckedSemanticNodeV2<Value>;
-
-/// Body representations accepted by the pre-read candidate APIs. Raw draft
-/// nodes borrow their JSON; admitted typed nodes use a temporary projection
-/// through the same identity derivation implementation.
-pub trait CandidateBody: Serialize {
-    /// Borrow or project one node for the pre-read identity calculation.
-    fn candidate_node<'a>(
-        node: &'a CheckedSemanticNodeV2<Self>,
-    ) -> std::borrow::Cow<'a, CheckedSemanticNodeV2<Value>>
-    where
-        Self: Sized;
-
-    /// Borrow or project an ordered graph for grouped candidate derivation.
-    fn candidate_nodes<'a>(
-        nodes: &'a [CheckedSemanticNodeV2<Self>],
-    ) -> std::borrow::Cow<'a, [CheckedSemanticNodeV2<Value>]>
-    where
-        Self: Sized;
-}
-
-impl CandidateBody for Value {
-    fn candidate_node<'a>(
-        node: &'a CheckedSemanticNodeV2<Self>,
-    ) -> std::borrow::Cow<'a, CheckedSemanticNodeV2<Value>> {
-        std::borrow::Cow::Borrowed(node)
-    }
-
-    fn candidate_nodes<'a>(
-        nodes: &'a [CheckedSemanticNodeV2<Self>],
-    ) -> std::borrow::Cow<'a, [CheckedSemanticNodeV2<Value>]> {
-        std::borrow::Cow::Borrowed(nodes)
-    }
-}
-
-impl CandidateBody for CheckedTerm {
-    fn candidate_node<'a>(
-        node: &'a CheckedSemanticNodeV2<Self>,
-    ) -> std::borrow::Cow<'a, CheckedSemanticNodeV2<Value>> {
-        std::borrow::Cow::Owned(node.to_raw())
-    }
-
-    fn candidate_nodes<'a>(
-        nodes: &'a [CheckedSemanticNodeV2<Self>],
-    ) -> std::borrow::Cow<'a, [CheckedSemanticNodeV2<Value>]> {
-        std::borrow::Cow::Owned(nodes.iter().map(CheckedSemanticNodeV2::to_raw).collect())
-    }
-}
 
 impl RawSemanticNodeV2 {
     fn into_typed(mut self, body: CheckedTerm) -> CheckedSemanticNodeV2 {
