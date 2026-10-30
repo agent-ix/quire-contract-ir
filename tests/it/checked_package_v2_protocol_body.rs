@@ -4,10 +4,11 @@
 //! Public reader checks for the first protocol validation passes.
 
 use crate::support::checked_package::{
-    admitted_protocol_families, canonical, evidence_for, evidence_with_document, family_key,
-    family_model_document, node_id, protocol_named_node, protocol_role_node, reassign_node_id,
-    rebuild_source_map, refresh_identity, refusal, refusal_at, refusal_at_id, rename_node,
-    select_model, selected_interface_model_node, settle, v2_all_families,
+    admitted_protocol_families, application_node_key, canonical, evidence_for,
+    evidence_with_document, family_key, family_model_document, node_id, protocol_named_node,
+    protocol_role_node, reassign_node_id, rebuild_source_map, refresh_identity, refusal,
+    refusal_at_id, rename_node, select_model, selected_interface_model_node, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -24,6 +25,13 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
     )
+}
+
+fn settle_after_structural_rekey(package: &mut Value) {
+    // The first pass rekeys declared nodes after joining dependencies; the second
+    // joins and sorts those dependencies using the new structural identities.
+    settle(package);
+    settle(package);
 }
 
 fn read_at_work(package: &Value, work: u64) -> CheckedPackageV2ReadResult {
@@ -448,7 +456,7 @@ fn decision_conjunction(package: &mut Value, left: &Value, right: &Value) -> Val
     });
     expression["node_id"] = node_id("fixture/protocol-body/application_node_key/455");
     let mut dependencies = vec![left.clone(), right.clone()];
-    dependencies.sort_by(|a, b| a["path"][0].as_str().cmp(&b["path"][0].as_str()));
+    dependencies.sort_by_key(checked_node_id);
     expression["dependencies"] = json!(dependencies);
     let target = expression["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -862,7 +870,12 @@ fn activation_with_sent_field_fixture() -> (Value, usize, Value, Value) {
         package["semantic_graph"]["nodes"][send]["body"]["arguments"][1]["value"]["target"].clone();
     let mut sent_field = package["semantic_graph"]["nodes"][field].clone();
     sent_field["body"]["arguments"][0]["target"] = sent.clone();
-    sent_field["node_id"] = node_id("fixture/protocol-body/application_node_key/899");
+    sent_field["node_id"] = node_id(&application_node_key(
+        "expression",
+        "query",
+        &family_key("aaaa"),
+        &sent_field["body"],
+    ));
     sent_field["dependencies"] = json!([sent]);
     let sent_field_key = sent_field["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -877,7 +890,11 @@ fn rename_parameter_level(package: &mut Value, old: &Value, level: usize) {
     let position = node_position_for_key(package, old);
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["members"][1]["value"]["value"] = json!(level.to_string());
-    let key = "fixture/protocol-body/structural_key/919".to_owned();
+    let key = format!(
+        "fixture/protocol-body/parameter-level/{}/{}",
+        old["path"][0].as_str().expect("old parameter key"),
+        level
+    );
     rename_node(
         package,
         old["path"][0].as_str().expect("old parameter key"),
@@ -1272,9 +1289,7 @@ fn decision_fact_other_role_and_composite_entry_do_not_grant_observation() {
         .expect("roles");
     roles.push(json!({"term": "reference", "target": other_target}));
     roles.sort_by(|left, right| {
-        left["target"]["path"][0]
-            .as_str()
-            .cmp(&right["target"]["path"][0].as_str())
+        checked_node_id(&left["target"]).cmp(&checked_node_id(&right["target"]))
     });
     other_role["semantic_graph"]["nodes"][decision]["body"]["arguments"][0]["value"] =
         json!({"term": "reference", "target": other_target});
@@ -1722,9 +1737,7 @@ fn receive_fact_is_visible_to_its_channels_to_role() {
         .expect("roles");
     roles.push(json!({"term": "reference", "target": other_target}));
     roles.sort_by(|left, right| {
-        left["target"]["path"][0]
-            .as_str()
-            .cmp(&right["target"]["path"][0].as_str())
+        checked_node_id(&left["target"]).cmp(&checked_node_id(&right["target"]))
     });
     other_role["semantic_graph"]["nodes"][decision]["body"]["arguments"][0]["value"] =
         json!({"term": "reference", "target": other_target});
@@ -2423,8 +2436,7 @@ fn protocol_owner_or_extra_dependency_refuses_at_graph_join() {
             dependencies.retain(|id| id != &owner);
         } else {
             dependencies.push(extra);
-            dependencies
-                .sort_by(|left, right| left["path"][0].as_str().cmp(&right["path"][0].as_str()));
+            dependencies.sort_by_key(checked_node_id);
         }
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
             panic!("owner or extra dependency must refuse at the graph join");
@@ -2613,12 +2625,16 @@ fn protocol_owner_unselected_object_refuses_at_target_before_clause() {
         .expect("nodes")
         .push(unselected.clone());
     package["semantic_graph"]["nodes"][clause]["owner_model"] = unselected["node_id"].clone();
-    settle(&mut package);
+    settle_after_structural_rekey(&mut package);
 
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
         panic!("unselected object target must refuse in graph owner join");
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::MissingDeclaration,
+        "{refusal:?}"
+    );
     assert_eq!(
         refusal.cause,
         Some(CheckedPackageRefusalCause::MissingSelection)
@@ -2629,7 +2645,12 @@ fn protocol_owner_unselected_object_refuses_at_target_before_clause() {
     );
     assert_eq!(
         refusal.locus.as_ref(),
-        Some(&serde_json::from_value(unselected["node_id"].clone()).expect("target node id"))
+        Some(
+            &serde_json::from_value(
+                package["semantic_graph"]["nodes"][unselected_position]["node_id"].clone()
+            )
+            .expect("target node id")
+        )
     );
 }
 
@@ -2734,7 +2755,7 @@ fn protocol_role_member_defect_precedes_wrong_clause_owner() {
     );
 }
 
-fn append_duplicate_clause(package: &mut Value, body: Value) -> (usize, String) {
+fn append_duplicate_clause(package: &mut Value, body: Value) -> (usize, Value) {
     let original = clause_position(package);
     let dependencies = package["semantic_graph"]["nodes"][original]["dependencies"]
         .as_array()
@@ -2742,16 +2763,14 @@ fn append_duplicate_clause(package: &mut Value, body: Value) -> (usize, String) 
         .iter()
         .map(|id| id["path"][0].as_str().expect("digest").to_owned())
         .collect::<Vec<_>>();
-    let duplicate = protocol_named_node(
+    let mut duplicate = protocol_named_node(
         "protocol_clause",
         &["Example", "OrderFlow"],
         body,
         &dependencies,
     );
-    let key = duplicate["node_id"]["path"][0]
-        .as_str()
-        .expect("digest")
-        .to_owned();
+    duplicate["node_id"]["ordinal"] = json!(1);
+    let key = duplicate["node_id"].clone();
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -2760,8 +2779,7 @@ fn append_duplicate_clause(package: &mut Value, body: Value) -> (usize, String) 
         .as_array_mut()
         .expect("nodes")
         .push(duplicate);
-    rebuild_source_map(package);
-    refresh_identity(package);
+    settle(package);
     (position, key)
 }
 
@@ -2867,11 +2885,9 @@ fn activation_relation_has_exact_origin_and_each_rows_without_extras() {
     assert!(empty.protocol_activation_relation().is_empty());
 
     require_temporal(&mut package, std::slice::from_ref(&temporal));
-    let clause_key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let clause_key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     let expected = vec![CheckedProtocolActivationRow {
-        clause: serde_json::from_value(node_id(clause_key)).expect("clause key"),
+        clause: serde_json::from_value(clause_key).expect("clause key"),
         activation: CheckedProtocolActivation::Origin,
         required_temporal: serde_json::from_value(temporal.clone()).expect("temporal key"),
     }];
@@ -2944,7 +2960,7 @@ fn activation_relation_orders_distinct_requirements_and_ignores_other_temporal_c
     );
 
     let mut keys = [first, second_id];
-    keys.sort_by(|left, right| left["path"][0].as_str().cmp(&right["path"][0].as_str()));
+    keys.sort_by_key(checked_node_id);
     require_temporal(&mut package, &keys);
     let admitted = match read(&package) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
@@ -3067,16 +3083,14 @@ fn clause_references_check_dependencies_before_target_forms() {
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][4]["value"]["members"] =
         json!([{"term": "reference", "target": wrong_relationship}]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{clause}/body/arguments/0/value/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key,
+            &key,
         )
     );
 }
@@ -3093,16 +3107,14 @@ fn clause_relationship_wrong_export_has_distinct_cause() {
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][4]["value"]["members"] =
         json!([{"term": "reference", "target": over}]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{clause}/body/arguments/4/value/members/0/target"),
             Some(CheckedPackageRefusalCause::WrongExport),
-            key,
+            &key,
         )
     );
 }
@@ -3137,16 +3149,14 @@ fn clause_each_trigger_admits_and_checks_parameter_level() {
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"][1]
         ["value"]["target"] = node_id(&wrong_key);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][trigger_position]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let key = package["semantic_graph"]["nodes"][trigger_position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{trigger_position}"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -3168,16 +3178,14 @@ fn clause_each_trigger_requires_declared_dependency() {
         .expect("dependencies")
         .retain(|dependency| dependency != &trigger);
     refresh_identity(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{clause}/dependencies"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -3195,16 +3203,14 @@ fn clause_each_guard_requires_boolean_root() {
         {"term": "binding", "name": "guard", "value": {"term": "reference", "target": node_id(&family_key("a1a1"))}},
     ]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{clause}/body/arguments/1/value/members/2/value"),
             Some(CheckedPackageRefusalCause::NonBooleanRoot),
-            key,
+            &key,
         )
     );
 }
@@ -3232,18 +3238,15 @@ fn clause_capture_checks_binder_form_and_ordered_level() {
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"][0]
         ["members"][0]["value"]["target"] = root;
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!(
                 "/semantic_graph/nodes/{clause}/body/arguments/2/value/members/0/members/0/value/target"
             ),
-            Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration), &key,
         )
     );
 }
@@ -3291,16 +3294,14 @@ fn clause_capture_order_sets_each_binder_level() {
         .iter()
         .position(|node| node["body"]["members"][0]["value"]["value"] == "second")
         .expect("second binder");
-    let key = package["semantic_graph"]["nodes"][second_position]["node_id"]["path"][0]
-        .as_str()
-        .expect("second binder key");
+    let key = package["semantic_graph"]["nodes"][second_position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{second_position}"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -3327,16 +3328,14 @@ fn clause_rejects_second_capture_with_readable_name() {
         .expect("nodes")
         .len()
         - 1;
-    let key = package["semantic_graph"]["nodes"][second_position]["node_id"]["path"][0]
-        .as_str()
-        .expect("second binder key");
+    let key = package["semantic_graph"]["nodes"][second_position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
             &format!("/semantic_graph/nodes/{second_position}"),
             Some(CheckedPackageRefusalCause::AmbiguousName),
-            key,
+            &key,
         )
     );
 }
@@ -3366,16 +3365,14 @@ fn clause_required_temporal_target_checks_membership_then_dependencies() {
         {"term": "reference", "target": temporal},
     ]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{clause}"),
             None,
-            key,
+            &key,
         )
     );
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][7]["value"]["members"] =
@@ -3386,16 +3383,14 @@ fn clause_required_temporal_target_checks_membership_then_dependencies() {
         .expect("dependencies")
         .retain(|dependency| dependency != &temporal);
     refresh_identity(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{clause}/dependencies"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -3441,19 +3436,16 @@ fn protocol_member_body_targets_require_exact_dependencies() {
             .as_array_mut()
             .expect("dependencies");
         dependencies.push(extra);
-        dependencies
-            .sort_by(|left, right| left["path"][0].as_str().cmp(&right["path"][0].as_str()));
+        dependencies.sort_by_key(checked_node_id);
         refresh_identity(&mut extra_package);
-        let key = extra_package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-            .as_str()
-            .expect("node key");
+        let key = extra_package["semantic_graph"]["nodes"][position]["node_id"].clone();
         assert_eq!(
             read(&extra_package),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 &format!("/semantic_graph/nodes/{position}/dependencies"),
                 None,
-                key,
+                &key,
             ),
             "extra dependency on {form}"
         );
@@ -3469,16 +3461,14 @@ fn protocol_member_body_targets_require_exact_dependencies() {
             .expect("dependencies")
             .retain(|dependency| dependency != &omitted);
         refresh_identity(&mut package);
-        let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-            .as_str()
-            .expect("node key");
+        let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
         assert_eq!(
             read(&package),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 &format!("/semantic_graph/nodes/{position}/dependencies"),
                 None,
-                key,
+                &key,
             ),
             "{form}"
         );
@@ -3498,16 +3488,14 @@ fn listed_protocol_body_target_missing_from_graph_reaches_body_join() {
         .as_array()
         .expect("dependencies")
         .contains(&missing));
-    let key = package["semantic_graph"]["nodes"][role]["node_id"]["path"][0]
-        .as_str()
-        .expect("role key");
+    let key = package["semantic_graph"]["nodes"][role]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::MissingDeclaration,
             &format!("/semantic_graph/nodes/{role}/body/arguments/0/value/target"),
             Some(CheckedPackageRefusalCause::MissingName),
-            key,
+            &key,
         )
     );
 }
@@ -3529,18 +3517,16 @@ fn listed_clause_targets_missing_from_graph_reach_their_body_joins() {
             .as_array()
             .expect("dependencies")
             .contains(&missing));
-        let key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-            .as_str()
-            .expect("clause key");
+        let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
         assert_eq!(
             read(&package),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::MissingDeclaration,
                 &format!(
                     "/semantic_graph/nodes/{clause}/body/arguments/{ordinal}/value/members/0/target"
                 ),
                 Some(CheckedPackageRefusalCause::MissingName),
-                key,
+                &key,
             ),
             "{label}"
         );
@@ -3560,18 +3546,16 @@ fn listed_clause_targets_missing_from_graph_reach_their_body_joins() {
         .as_array()
         .expect("dependencies")
         .contains(&missing));
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["path"][0]
-        .as_str()
-        .expect("clause key");
+    let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::MissingDeclaration,
             &format!(
                 "/semantic_graph/nodes/{clause}/body/arguments/1/value/members/1/value/target"
             ),
             Some(CheckedPackageRefusalCause::MissingName),
-            key,
+            &key,
         ),
         "A9a trigger"
     );
@@ -3585,16 +3569,14 @@ fn protocol_clause_requires_the_selected_profile_law_in_the_public_reader() {
     package["semantic_graph"]["nodes"][position]["body"]["operation"]["laws"] = json!([]);
     settle(&mut package);
     refresh_identity(&mut package);
-    let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidPackage,
             &format!("/semantic_graph/nodes/{position}/body/operation/laws"),
             Some(CheckedPackageRefusalCause::OperationLawMissing),
-            key,
+            &key,
         )
     );
 }
@@ -3639,7 +3621,7 @@ fn protocol_operator_refusal_precedes_duplicate_declaration() {
     let (position, key) = append_duplicate_clause(&mut package, body);
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{position}/body"),
             Some(CheckedPackageRefusalCause::OperatorIneligible),
@@ -3653,10 +3635,6 @@ fn protocol_operator_refusal_precedes_duplicate_declaration() {
 fn valid_protocol_operators_still_refuse_duplicate_declarations() {
     let mut package = v2_all_families();
     let original = clause_position(&package);
-    let original_key = package["semantic_graph"]["nodes"][original]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest")
-        .to_owned();
     let mut body = package["semantic_graph"]["nodes"][original]["body"].clone();
     let semantic_type = package["semantic_graph"]["nodes"][original]["semantic_type"].clone();
     body["arguments"][10]["value"]["members"] = json!([{
@@ -3664,18 +3642,13 @@ fn valid_protocol_operators_still_refuse_duplicate_declarations() {
         "value_kind": "text", "value": "adversarial"
     }]);
     let (duplicate_position, duplicate_key) = append_duplicate_clause(&mut package, body);
-    let (position, key) = if original_key < duplicate_key {
-        (duplicate_position, duplicate_key)
-    } else {
-        (original, original_key)
-    };
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
-            &format!("/semantic_graph/nodes/{position}/declaration/qualified_name"),
+            &format!("/semantic_graph/nodes/{duplicate_position}/declaration/qualified_name"),
             Some(CheckedPackageRefusalCause::AmbiguousName),
-            &key,
+            &duplicate_key,
         )
     );
 }
@@ -3720,7 +3693,8 @@ fn protocol_listed_role_must_use_its_clause_and_fixed_segment() {
     ] {
         let mut package = v2_all_families();
         let mut role = protocol_role_node();
-        role["declaration"]["qualified_name"] = declaration;
+        role["declaration"]["qualified_name"] = declaration.clone();
+        role["node_id"]["path"] = declaration;
         let key = role["node_id"].clone();
         let position = package["semantic_graph"]["nodes"]
             .as_array()
@@ -3734,16 +3708,14 @@ fn protocol_listed_role_must_use_its_clause_and_fixed_segment() {
         package["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]["members"] =
             json!([{"term": "reference", "target": key}]);
         settle(&mut package);
-        let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-            .as_str()
-            .expect("digest");
+        let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
         assert_eq!(
             read(&package),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 &format!("/semantic_graph/nodes/{position}"),
                 None,
-                key,
+                &key,
             )
         );
     }
@@ -3774,32 +3746,28 @@ fn nested_control_uses_its_holder_path() {
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"] =
         json!([{"term": "reference", "target": child_key}]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{position}"),
             None,
-            key,
+            &key,
         )
     );
 
     package["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"] =
         json!(["Other", "Protocol", "run", "Main", "Done"]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{position}"),
             None,
-            key,
+            &key,
         )
     );
 
@@ -4204,16 +4172,14 @@ fn holder_refusal(
     path: &str,
 ) {
     let position = holder_position(package);
-    let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(package),
-        refusal_at(
+        refusal_at_id(
             code,
             &format!("/semantic_graph/nodes/{position}{path}"),
             cause,
-            key
+            &key
         )
     );
 }
@@ -4527,17 +4493,15 @@ fn choice_parallel_repeat_and_await_hold_controls_at_their_own_paths() {
                 .clone();
             wrong["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"] =
                 json!(["Example", "OrderFlow", "run", "Main", name]);
-            settle(&mut wrong);
-            let key = wrong["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-                .as_str()
-                .expect("digest");
+            settle_after_structural_rekey(&mut wrong);
+            let key = wrong["semantic_graph"]["nodes"][position]["node_id"].clone();
             assert_eq!(
                 read(&wrong),
-                refusal_at(
+                refusal_at_id(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     &format!("/semantic_graph/nodes/{position}"),
                     None,
-                    key,
+                    &key,
                 ),
                 "{operator} child {child_index} must use its holder path"
             );
@@ -4800,19 +4764,17 @@ fn await_effect_event_requires_an_attempt_source() {
         json!("effect");
     package["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = arguments;
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][children[0]]["node_id"]["path"][0]
-        .as_str()
-        .expect("effect key");
+    let key = package["semantic_graph"]["nodes"][children[0]]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!(
                 "/semantic_graph/nodes/{}/body/arguments/0/value/target",
                 children[0]
             ),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key
+            &key
         )
     );
 }
@@ -4821,8 +4783,28 @@ fn await_effect_event_requires_an_attempt_source() {
 #[trace("TC-048")]
 #[test]
 fn await_admits_compensation_anchor_form() {
-    let (state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
+    let (mut state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
+    let object = state["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+        .expect("selected object type")["node_id"]
+        .clone();
+    let stale = state["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "composite_type" && node["semantic_form"] == "reference")
+        .expect("reference type")["body"]["members"][0]["target"]
+        .clone();
+    reassign_node_id(&mut state, &stale, &object);
     let (mut package, children) = protocol_holder_case_on(state, "await");
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "await baseline: {:?}",
+        read(&package)
+    );
     let holder = holder_position(&package);
     let compensation = compensation_template(
         &mut package,
@@ -4854,7 +4836,8 @@ fn await_admits_compensation_anchor_form() {
     settle(&mut package);
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-        "compensation anchor must admit"
+        "compensation anchor must admit: {:?}",
+        read(&package)
     );
 
     let mut late_forward = package;
@@ -5134,13 +5117,11 @@ fn repeat_maximum_and_await_interval_reject_negative_bounds_at_wire() {
         ["value"] = json!("-1");
     assert_eq!(
         read(&repeated),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidPackage,
             &format!("/semantic_graph/nodes/{holder}/body/arguments/2/value/members/0"),
             Some(CheckedPackageRefusalCause::InvalidValue),
-            repeated["semantic_graph"]["nodes"][holder]["node_id"]["path"][0]
-                .as_str()
-                .expect("id"),
+            &repeated["semantic_graph"]["nodes"][holder]["node_id"],
         )
     );
 
@@ -5150,13 +5131,11 @@ fn repeat_maximum_and_await_interval_reject_negative_bounds_at_wire() {
         ["value"]["value"] = json!("-1");
     assert_eq!(
         read(&awaited),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidPackage,
             &format!("/semantic_graph/nodes/{holder}/body/arguments/2/value/members/1/value"),
             Some(CheckedPackageRefusalCause::InvalidValue),
-            awaited["semantic_graph"]["nodes"][holder]["node_id"]["path"][0]
-                .as_str()
-                .expect("id"),
+            &awaited["semantic_graph"]["nodes"][holder]["node_id"],
         )
     );
 }
@@ -5269,7 +5248,7 @@ fn reordered_role_declaration_sources_preserve_set_backed_identities() {
         .push(second_node);
     let first_key = package["semantic_graph"]["nodes"][first]["node_id"].clone();
     let mut role_keys = [first_key.clone(), second_key.clone()];
-    role_keys.sort_by(|left, right| left["path"][0].as_str().cmp(&right["path"][0].as_str()));
+    role_keys.sort_by_key(checked_node_id);
     let clause = clause_position(&package);
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]["members"] =
         json!(role_keys
@@ -5281,10 +5260,11 @@ fn reordered_role_declaration_sources_preserve_set_backed_identities() {
     let second_key = package["semantic_graph"]["nodes"][second]["node_id"].clone();
     let clause_key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     let package_name = package["name"].clone();
-    assert!(matches!(
-        read(&package),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "source-reorder baseline: {:?}",
+        read(&package)
+    );
 
     let rows = package["source_map"].as_array_mut().expect("source map");
     let first_row = rows
@@ -5350,22 +5330,20 @@ fn wrong_role_path_rekeys_but_refuses_at_declaration() {
     let package_name = package["name"].clone();
     package["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"][2] =
         json!("channel");
-    settle(&mut package);
+    settle_after_structural_rekey(&mut package);
     assert_ne!(
         package["semantic_graph"]["nodes"][position]["node_id"],
         original_key
     );
     assert_eq!(package["name"], package_name);
-    let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("role key");
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{position}"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -5375,16 +5353,12 @@ fn wrong_role_path_rekeys_but_refuses_at_declaration() {
 #[test]
 fn changed_role_name_with_retained_structural_path_refuses() {
     let (mut package, position) = package_with_member_role();
-    let retained_key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("role key")
-        .to_owned();
+    let retained_key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     package["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"][3] =
         json!("Other");
-    refresh_identity(&mut package);
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidPackage,
             &format!("/semantic_graph/nodes/{position}/node_id/path"),
             Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
@@ -5509,12 +5483,13 @@ fn duplicate_role_name_precedes_its_member_target_defect() {
     let target = package["semantic_graph"]["nodes"][0]["node_id"].clone();
     let mut second_body = first["body"].clone();
     second_body["arguments"][0]["value"]["target"] = target.clone();
-    let second = protocol_named_node(
+    let mut second = protocol_named_node(
         "role",
         &["Example", "OrderFlow", "role", "Worker"],
         second_body,
         &[target["path"][0].as_str().expect("digest").to_owned()],
     );
+    second["node_id"]["ordinal"] = json!(1);
     let first_key = first["node_id"].clone();
     let second_key = second["node_id"].clone();
     let base = package["semantic_graph"]["nodes"]
@@ -5531,31 +5506,22 @@ fn duplicate_role_name_precedes_its_member_target_defect() {
         {"term": "reference", "target": second_key},
     ]);
     settle(&mut package);
-    let first_key = package["semantic_graph"]["nodes"][base]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
-    let second_key = package["semantic_graph"]["nodes"][base + 1]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
-    let (position, key) = if first_key < second_key {
-        (base + 1, second_key)
-    } else {
-        (base, first_key)
-    };
+    let position = base + 1;
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
             &format!("/semantic_graph/nodes/{position}/declaration/qualified_name"),
             Some(CheckedPackageRefusalCause::AmbiguousName),
-            key,
+            &key,
         )
     );
 }
 
 #[trace("TC-048")]
 #[test]
-fn duplicate_control_names_under_one_holder_refuse_in_digest_order() {
+fn duplicate_control_names_under_one_holder_refuse_in_structural_order() {
     let mut package = v2_all_families();
     let root = protocol_position(&package, "control");
     let first_body = package["semantic_graph"]["nodes"][root]["body"].clone();
@@ -5569,7 +5535,8 @@ fn duplicate_control_names_under_one_holder_refuse_in_digest_order() {
     }]);
     let path = &["Example", "OrderFlow", "run", "Main", "Done"];
     let first = protocol_named_node("control", path, first_body, &[]);
-    let second = protocol_named_node("control", path, second_body, &[]);
+    let mut second = protocol_named_node("control", path, second_body, &[]);
+    second["node_id"]["ordinal"] = json!(1);
     let first_key = first["node_id"].clone();
     let second_key = second["node_id"].clone();
     let base = package["semantic_graph"]["nodes"]
@@ -5585,24 +5552,15 @@ fn duplicate_control_names_under_one_holder_refuse_in_digest_order() {
         {"term": "reference", "target": second_key}
     ]);
     settle(&mut package);
-    let first_key = package["semantic_graph"]["nodes"][base]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
-    let second_key = package["semantic_graph"]["nodes"][base + 1]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
-    let (position, key) = if first_key < second_key {
-        (base + 1, second_key)
-    } else {
-        (base, first_key)
-    };
+    let position = base + 1;
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
             &format!("/semantic_graph/nodes/{position}/declaration/qualified_name"),
             Some(CheckedPackageRefusalCause::AmbiguousName),
-            key,
+            &key,
         )
     );
 }
@@ -5632,16 +5590,14 @@ fn protocol_application_placement_precedes_duplicate_declaration() {
     package["semantic_graph"]["nodes"][function]["body"] =
         package["semantic_graph"]["nodes"][clause]["body"].clone();
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][function]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][function]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{function}/body"),
             Some(CheckedPackageRefusalCause::OperatorIneligible),
-            key,
+            &key,
         )
     );
 }
@@ -5960,16 +5916,14 @@ fn event_and_commit_check_local_references_and_boolean_constraints() {
         package["semantic_graph"]["nodes"][root]["body"]["arguments"][ordinal]["value"] = json!({"term": "literal", "type": node_id(&family_key("a1a1")),
                 "value_kind": "text", "value": "wrong"});
         settle(&mut package);
-        let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-            .as_str()
-            .expect("control key");
+        let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
         assert_eq!(
             read(&package),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::IllTyped,
                 &format!("/semantic_graph/nodes/{root}/body/arguments/{ordinal}/value"),
                 Some(CheckedPackageRefusalCause::NonBooleanRoot),
-                key
+                &key
             )
         );
     }
@@ -5980,16 +5934,14 @@ fn event_and_commit_check_local_references_and_boolean_constraints() {
 #[test]
 fn attempt_requires_a_state_operation_anchor() {
     let (package, root) = package_with_step_control("attempt");
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("attempt key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{root}/body/arguments/1/value/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key
+            &key
         )
     );
 }
@@ -6046,16 +5998,14 @@ fn attempt_admits_operation_contract_and_rejects_wrong_contract_kind_and_anchor(
     wrong_kind["semantic_graph"]["nodes"][root]["body"]["arguments"][3]["value"]["members"][0]
         ["target"] = invariant;
     settle(&mut wrong_kind);
-    let key = wrong_kind["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("attempt key");
+    let key = wrong_kind["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&wrong_kind),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{root}/body/arguments/3/value/members/0/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key
+            &key
         )
     );
 
@@ -6077,16 +6027,14 @@ fn attempt_admits_operation_contract_and_rejects_wrong_contract_kind_and_anchor(
     wrong_anchor["semantic_graph"]["nodes"][root]["body"]["arguments"][1]["value"]["target"] =
         node_id(&withdraw_key);
     settle(&mut wrong_anchor);
-    let key = wrong_anchor["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("attempt key");
+    let key = wrong_anchor["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&wrong_anchor),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{root}/body/arguments/3/value/members/0/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key
+            &key
         )
     );
 }
@@ -6224,16 +6172,14 @@ fn effect_retarget_from_attempt_to_sequence_control_refuses() {
 #[test]
 fn effect_requires_an_attempt_target() {
     let (package, root) = package_with_step_control("effect");
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("effect key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{root}/body/arguments/0/value/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key
+            &key
         )
     );
 }
@@ -6352,16 +6298,14 @@ fn compensation_admits_local_bindings_and_rejects_wrong_target_forms() {
                 ["members"] = json!([{"term": "reference", "target": role}]);
         }
         settle(&mut wrong);
-        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["path"][0]
-            .as_str()
-            .expect("compensation key");
+        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"].clone();
         assert_eq!(
             read(&wrong),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::InvalidModelBinding,
                 &pointer,
                 Some(CheckedPackageRefusalCause::MalformedDeclaration),
-                key,
+                &key,
             ),
             "argument {ordinal}"
         );
@@ -6396,16 +6340,13 @@ fn compensation_nonempty_captures_admit_and_check_record_binders() {
         wrong_target["semantic_graph"]["nodes"][compensation]["body"]["arguments"][ordinal]
             ["value"]["members"][0]["members"][0]["value"]["target"] = role.clone();
         settle(&mut wrong_target);
-        let key = wrong_target["semantic_graph"]["nodes"][compensation]["node_id"]["path"][0]
-            .as_str()
-            .expect("compensation key");
+        let key = wrong_target["semantic_graph"]["nodes"][compensation]["node_id"].clone();
         assert_eq!(
             read(&wrong_target),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::InvalidModelBinding,
                 &format!("/semantic_graph/nodes/{compensation}/body/arguments/{ordinal}/value/members/0/members/0/value/target"),
-                Some(CheckedPackageRefusalCause::MalformedDeclaration),
-                key,
+                Some(CheckedPackageRefusalCause::MalformedDeclaration), &key,
             ),
             "capture binder at argument {ordinal}"
         );
@@ -6457,10 +6398,8 @@ fn compensation_rejects_zero_attempts_inverted_window_and_non_boolean_guard() {
         } else {
             format!("/semantic_graph/nodes/{compensation}/body/arguments/8/value")
         };
-        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["path"][0]
-            .as_str()
-            .expect("compensation key");
-        assert_eq!(read(&wrong), refusal_at(code, &path, Some(cause), key));
+        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"].clone();
+        assert_eq!(read(&wrong), refusal_at_id(code, &path, Some(cause), &key));
     }
     let mut wrong = package;
     wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"][6]["value"]["members"][1]
@@ -6469,16 +6408,14 @@ fn compensation_rejects_zero_attempts_inverted_window_and_non_boolean_guard() {
         "value_kind": "integer", "value": "1"
     });
     settle(&mut wrong);
-    let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["path"][0]
-        .as_str()
-        .expect("compensation key");
+    let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"].clone();
     assert_eq!(
         read(&wrong),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{compensation}/body/arguments/6/value/members/1/value"),
             Some(CheckedPackageRefusalCause::NonBooleanRoot),
-            key,
+            &key,
         )
     );
 }
@@ -6490,16 +6427,14 @@ fn compensation_negative_window_bound_refuses_at_strict_wire() {
     let (mut package, _, compensation) = package_with_admitted_compensation();
     package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][8]["value"]["members"]
         [0]["value"]["value"] = json!("-1");
-    let key = package["semantic_graph"]["nodes"][compensation]["node_id"]["path"][0]
-        .as_str()
-        .expect("compensation key");
+    let key = package["semantic_graph"]["nodes"][compensation]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidPackage,
             &format!("/semantic_graph/nodes/{compensation}/body/arguments/8/value/members/0/value"),
             Some(CheckedPackageRefusalCause::InvalidValue),
-            key,
+            &key,
         )
     );
 }
@@ -6512,16 +6447,14 @@ fn compensation_malformed_attempt_count_refuses_without_panicking() {
     package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][9]["value"]["members"]
         [0]["value"]["value"] = json!("not-an-integer");
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][compensation]["node_id"]["path"][0]
-        .as_str()
-        .expect("compensation key");
+    let key = package["semantic_graph"]["nodes"][compensation]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::MalformedWire,
             &format!("/semantic_graph/nodes/{compensation}/body/arguments/9/value/members/0/value"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -6558,16 +6491,14 @@ fn compensation_text_and_integer_literals_require_their_scalar_types() {
             literal["type"] = node_id(&family_key("aaaa"));
         }
         settle(&mut wrong);
-        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["path"][0]
-            .as_str()
-            .expect("compensation key");
+        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"].clone();
         assert_eq!(
             read(&wrong),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::IllTyped,
                 &path,
                 Some(CheckedPackageRefusalCause::TypeMismatch),
-                key,
+                &key,
             ),
             "literal at argument {ordinal}"
         );
@@ -6595,16 +6526,14 @@ fn compensation_requires_forward_and_retry_binder_types() {
                 ["members"][0]["value"]["target"] = replacement;
         }
         settle(&mut wrong);
-        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["path"][0]
-            .as_str()
-            .expect("compensation key");
+        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"].clone();
         assert_eq!(
             read(&wrong),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::IllTyped,
                 &format!("/semantic_graph/nodes/{compensation}"),
                 Some(CheckedPackageRefusalCause::TypeMismatch),
-                key,
+                &key,
             ),
             "binder at argument {ordinal}"
         );
@@ -6683,16 +6612,13 @@ fn compensation_admits_present_commit_and_refuses_wrong_record_type() {
     wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"][9]["value"]["members"][1]
         ["value"]["target"] = role;
     settle(&mut wrong);
-    let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["path"][0]
-        .as_str()
-        .expect("compensation key");
+    let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"].clone();
     assert_eq!(
         read(&wrong),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{compensation}/body/arguments/9/value/members/1/value/target"),
-            Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration), &key,
         )
     );
 }
@@ -6867,7 +6793,7 @@ fn compensation_with_branch_before_effect(operator: &str, policy: &str) -> (Valu
     package["semantic_graph"]["nodes"][event_position]["body"]["arguments"][2]["value"]["target"] =
         event_binder;
     relevel_finish_binder(&mut package, 3);
-    settle(&mut package);
+    settle_after_structural_rekey(&mut package);
     (package, compensation)
 }
 
@@ -7017,27 +6943,16 @@ fn compensation_first_template_dominance_precedes_later_template_bounds() {
     children.insert(1, commit);
     settle(&mut package);
     let first = package["semantic_graph"]["nodes"][compensation]["node_id"].clone();
-    let first_digest = first["path"][0].as_str().expect("first digest");
-    let mut later = None;
-    for ordinal in 0..32 {
-        let mut body = package["semantic_graph"]["nodes"][compensation]["body"].clone();
-        body["arguments"][9]["value"]["members"][0]["value"]["value"] = json!("0");
-        body["arguments"][4]["value"]["value"] = json!(format!("later-{ordinal}"));
-        let candidate = protocol_named_node(
-            "compensation",
-            &["Example", "OrderFlow", "compensate", "Later"],
-            body,
-            &[],
-        );
-        if candidate["node_id"]["path"][0]
-            .as_str()
-            .is_some_and(|digest| digest > first_digest)
-        {
-            later = Some(candidate);
-            break;
-        }
-    }
-    let later = later.expect("a later digest candidate");
+    let mut later_body = package["semantic_graph"]["nodes"][compensation]["body"].clone();
+    later_body["arguments"][9]["value"]["members"][0]["value"]["value"] = json!("0");
+    later_body["arguments"][4]["value"]["value"] = json!("later");
+    let later = protocol_named_node(
+        "compensation",
+        &["Example", "OrderFlow", "compensate", "ZLater"],
+        later_body,
+        &[],
+    );
+    assert!(checked_node_id(&first) < checked_node_id(&later["node_id"]));
     let later_target = later["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -7124,7 +7039,7 @@ fn compensation_commit_in_a_sibling_branch_is_unordered_against_effect() {
     package["semantic_graph"]["nodes"][event_position]["body"]["arguments"][2]["value"]["target"] =
         event_binder;
     relevel_finish_binder(&mut package, 5);
-    settle(&mut package);
+    settle_after_structural_rekey(&mut package);
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "{:?}",
@@ -7169,16 +7084,14 @@ fn check_condition_refuses_non_boolean_at_its_slot_and_fence_rejects_relaxed() {
         "term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "yes"
     });
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("check key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{root}/body/arguments/0/value"),
             Some(CheckedPackageRefusalCause::NonBooleanRoot),
-            key,
+            &key,
         )
     );
 
@@ -7219,16 +7132,14 @@ fn send_admits_channel_payload_and_checks_binder_type_and_condition() {
             ["node_id"]
             .clone();
     settle(&mut wrong_channel);
-    let key = wrong_channel["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("send key");
+    let key = wrong_channel["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&wrong_channel),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{root}/body/arguments/0/value/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key,
+            &key,
         )
     );
 
@@ -7236,16 +7147,14 @@ fn send_admits_channel_payload_and_checks_binder_type_and_condition() {
     wrong_type["semantic_graph"]["nodes"][channel]["body"]["arguments"][2]["value"]["target"] =
         node_id(&family_key("a1a1"));
     settle(&mut wrong_type);
-    let key = wrong_type["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("send key");
+    let key = wrong_type["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&wrong_type),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{root}"),
             Some(CheckedPackageRefusalCause::TypeMismatch),
-            key,
+            &key,
         )
     );
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_type) else {
@@ -7264,16 +7173,14 @@ fn send_admits_channel_payload_and_checks_binder_type_and_condition() {
         "term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "yes"
     });
     settle(&mut non_boolean);
-    let key = non_boolean["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("send key");
+    let key = non_boolean["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&non_boolean),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{root}/body/arguments/3/value"),
             Some(CheckedPackageRefusalCause::NonBooleanRoot),
-            key,
+            &key,
         )
     );
 }
@@ -7295,16 +7202,14 @@ fn receive_requires_a_send_target_before_payload_type_checks() {
         }),
     );
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("receive key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{root}/body/arguments/1/value/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key,
+            &key,
         )
     );
 }
@@ -7505,9 +7410,7 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
         .expect("channels");
     channels.push(json!({"term": "reference", "target": other_key}));
     channels.sort_by(|left, right| {
-        left["target"]["path"][0]
-            .as_str()
-            .cmp(&right["target"]["path"][0].as_str())
+        checked_node_id(&left["target"]).cmp(&checked_node_id(&right["target"]))
     });
     package["semantic_graph"]["nodes"][receive_position]["body"]["arguments"][0]["value"]
         ["target"] = other_key;
@@ -7547,16 +7450,14 @@ fn send_related_records_require_exact_shape_and_canonical_order() {
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
         json!([record.clone(), record]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("send key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{root}"),
             None,
-            key,
+            &key,
         )
     );
 
@@ -7595,43 +7496,37 @@ fn send_related_requires_listed_relationship_and_typed_ends() {
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
         json!([record(role)]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("send key");
-    assert_eq!(read(&package), refusal_at(
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
+    assert_eq!(read(&package), refusal_at_id(
         CheckedPackageRefusalCode::InvalidModelBinding,
         &format!("/semantic_graph/nodes/{root}/body/arguments/2/value/members/0/members/0/value/target"),
-        Some(CheckedPackageRefusalCause::WrongExport), key,
+        Some(CheckedPackageRefusalCause::WrongExport), &key,
     ));
 
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
         json!([record(relationship.clone())]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("send key");
-    assert_eq!(read(&package), refusal_at(
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
+    assert_eq!(read(&package), refusal_at_id(
         CheckedPackageRefusalCode::MissingDeclaration,
         &format!("/semantic_graph/nodes/{root}/body/arguments/2/value/members/0/members/0/value/target"),
-        Some(CheckedPackageRefusalCause::MissingName), key,
+        Some(CheckedPackageRefusalCause::MissingName), &key,
     ));
 
     let clause = clause_position(&package);
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][4]["value"]["members"] =
         json!([{"term": "reference", "target": relationship.clone()}]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("send key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!(
                 "/semantic_graph/nodes/{root}/body/arguments/2/value/members/0/members/1/value"
             ),
             Some(CheckedPackageRefusalCause::TypeMismatch),
-            key,
+            &key,
         )
     );
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
@@ -7735,9 +7630,12 @@ fn send_related_accepts_selected_relationship_reference_ends() {
         &[],
     );
     let event_key = event["node_id"].clone();
-    let send_key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
+    let old_send_key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
+    let mut send_key = old_send_key.clone();
+    send_key["path"] = json!(["Example", "OrderFlow", "run", "Main", "Send"]);
     package["semantic_graph"]["nodes"][root]["declaration"]["qualified_name"] =
         json!(["Example", "OrderFlow", "run", "Main", "Send"]);
+    reassign_node_id(&mut package, &old_send_key, &send_key);
     let mut sequence_body = package["semantic_graph"]["nodes"][root]["body"].clone();
     sequence_body["operation"]["member"]["operator"] = json!("sequence");
     sequence_body["arguments"] = json!([{"term": "binding", "name": "children", "value": {
@@ -7790,16 +7688,14 @@ fn send_related_accepts_selected_relationship_reference_ends() {
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
         json!([second, first.clone()]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("send key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{root}"),
             None,
-            key,
+            &key,
         )
     );
 
@@ -7811,21 +7707,19 @@ fn send_related_accepts_selected_relationship_reference_ends() {
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
         json!([bad_to]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][root]["node_id"]["path"][0]
-        .as_str()
-        .expect("send key");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
         panic!("wrong to endpoint must refuse");
     };
     assert_eq!(
         refusal,
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!(
                 "/semantic_graph/nodes/{root}/body/arguments/2/value/members/0/members/2/value"
             ),
             Some(CheckedPackageRefusalCause::TypeMismatch),
-            key,
+            &key,
         )
     );
     assert_eq!(
@@ -7854,16 +7748,14 @@ fn protocol_queue_checks_channel_form() {
     package["semantic_graph"]["nodes"][queue]["body"]["arguments"][0]["value"]["target"] =
         node_id(&family_key("a4a4"));
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][queue]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][queue]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{queue}/body/arguments/0/value/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key,
+            &key,
         )
     );
 }
@@ -7876,16 +7768,14 @@ fn protocol_queue_rejects_negative_literal_capacity() {
     package["semantic_graph"]["nodes"][queue]["body"]["arguments"][1]["value"]["members"][1]
         ["value"]["value"] = json!("-1");
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][queue]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][queue]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidPackage,
             &format!("/semantic_graph/nodes/{queue}/body/arguments/1/value/members/1/value"),
             Some(CheckedPackageRefusalCause::InvalidValue),
-            key,
+            &key,
         )
     );
 }
@@ -7901,16 +7791,14 @@ fn protocol_finish_constraint_must_be_boolean() {
         "value_kind": "integer", "value": "1"
     });
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][finish]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][finish]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{finish}"),
             Some(CheckedPackageRefusalCause::NonBooleanRoot),
-            key,
+            &key,
         )
     );
 }
@@ -7958,16 +7846,14 @@ fn protocol_terminal_when_requires_boolean_condition() {
     package["semantic_graph"]["nodes"][position]["body"]["arguments"][1]["value"]["members"] = json!([{"term": "literal", "type": node_id(&family_key("a3a3")),
             "value_kind": "integer", "value": "1"}]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{position}"),
             Some(CheckedPackageRefusalCause::NonBooleanRoot),
-            key,
+            &key,
         )
     );
 }
@@ -7985,16 +7871,14 @@ fn protocol_channel_checks_endpoint_and_message_type() {
     package["semantic_graph"]["nodes"][channel]["body"]["arguments"][2]["value"]["target"] =
         node_id(&family_key("a4a4"));
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][channel]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][channel]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{channel}/body/arguments/2/value/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key,
+            &key,
         )
     );
 }
@@ -8052,16 +7936,14 @@ fn protocol_channel_fifo_refuses_float_key() {
             "value_kind": "float32_bits", "value": "3f800000"}},
     ]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][channel]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][channel]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{channel}/body/arguments/3/value/members/2/value"),
             Some(CheckedPackageRefusalCause::OperatorIneligible),
-            key,
+            &key,
         )
     );
 }
@@ -8078,16 +7960,14 @@ fn protocol_role_checks_model_form_at_target() {
     let wrong = node_id(&family_key("a4a4"));
     package["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["value"]["target"] = wrong;
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{position}/body/arguments/0/value/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key,
+            &key,
         )
     );
 }
@@ -8177,7 +8057,7 @@ fn protocol_clause_admits_two_whole_model_roles_across_over_types() {
             .expect("nodes")
             .push(second_node);
         let mut role_keys = [first_key.clone(), second_key.clone()];
-        role_keys.sort_by(|a, b| a["path"][0].as_str().cmp(&b["path"][0].as_str()));
+        role_keys.sort_by_key(checked_node_id);
         let clause = clause_position(&package);
         package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"] =
             json!({"term": "reference", "target": node_id(&over_key)});
@@ -8189,7 +8069,7 @@ fn protocol_clause_admits_two_whole_model_roles_across_over_types() {
         settle(&mut package);
 
         assert_ne!(first_key, second_key);
-        assert_ne!(first_key, protocol_role_node()["node_id"]);
+        assert_eq!(first_key, protocol_role_node()["node_id"]);
         assert_eq!(
             package["semantic_graph"]["nodes"][first]["dependencies"],
             json!([])
@@ -8218,14 +8098,14 @@ fn protocol_clause_admits_two_whole_model_roles_across_over_types() {
             .iter()
             .position(|node| node["node_id"] == second_key)
             .expect("second role");
-        let key = second_key["path"][0].as_str().expect("role key");
+        let key = second_key.clone();
         assert_eq!(
             read(&package),
-            refusal_at(
+            refusal_at_id(
                 CheckedPackageRefusalCode::MissingDeclaration,
                 &format!("/semantic_graph/nodes/{second}"),
                 Some(CheckedPackageRefusalCause::MissingSelection),
-                key,
+                &key,
             )
         );
     }
@@ -8241,32 +8121,28 @@ fn protocol_whole_model_role_checks_selection_before_replication() {
         "value_kind": "text", "value": "test/missing",
     });
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][role]["node_id"]["path"][0]
-        .as_str()
-        .expect("role key");
+    let key = package["semantic_graph"]["nodes"][role]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::MissingDeclaration,
             &format!("/semantic_graph/nodes/{role}"),
             Some(CheckedPackageRefusalCause::MissingSelection),
-            key,
+            &key,
         )
     );
 
     package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"]["value"] =
         json!("test/families");
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][role]["node_id"]["path"][0]
-        .as_str()
-        .expect("role key");
+    let key = package["semantic_graph"]["nodes"][role]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{role}"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
-            key,
+            &key,
         )
     );
 }
@@ -8300,16 +8176,14 @@ fn protocol_role_dependency_join_precedes_wrong_model_form() {
     settle(&mut package);
     package["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
     refresh_identity(&mut package);
-    let key = package["semantic_graph"]["nodes"][position]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{position}/dependencies"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -8335,16 +8209,14 @@ fn protocol_role_max_precedes_wrong_replication_binder_type() {
         {"term": "binding", "name": "lifetime", "value": text("workflow")},
     ]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][role]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][role]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{role}/body/arguments/1/value/members/1/value"),
             Some(CheckedPackageRefusalCause::TypeMismatch),
-            key,
+            &key,
         )
     );
 }
@@ -8368,16 +8240,14 @@ fn protocol_replicated_role_rejects_wrong_binder_type_after_positive_max() {
     package["semantic_graph"]["nodes"][role]["body"]["arguments"][1]["value"]["members"][2]
         ["value"]["target"] = node_id(&family_key("p-close"));
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][role]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest");
+    let key = package["semantic_graph"]["nodes"][role]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{role}"),
             Some(CheckedPackageRefusalCause::TypeMismatch),
-            key,
+            &key,
         )
     );
 }
@@ -8476,9 +8346,7 @@ fn protocol_queue_rejects_foreign_clause_channel() {
         .as_array_mut()
         .expect("queues")
         .sort_by(|left, right| {
-            left["target"]["path"][0]
-                .as_str()
-                .cmp(&right["target"]["path"][0].as_str())
+            checked_node_id(&left["target"]).cmp(&checked_node_id(&right["target"]))
         });
     package["semantic_graph"]["nodes"][queue]["body"]["arguments"][0]["value"]["target"] =
         foreign_channel_key;
@@ -8487,21 +8355,17 @@ fn protocol_queue_rejects_foreign_clause_channel() {
         .as_array_mut()
         .expect("queues")
         .sort_by(|left, right| {
-            left["target"]["path"][0]
-                .as_str()
-                .cmp(&right["target"]["path"][0].as_str())
+            checked_node_id(&left["target"]).cmp(&checked_node_id(&right["target"]))
         });
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][queue]["node_id"]["path"][0]
-        .as_str()
-        .expect("queue key");
+    let key = package["semantic_graph"]["nodes"][queue]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{queue}"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -8515,16 +8379,14 @@ fn protocol_membership_refuses_unlisted_role_and_repeated_control_holder() {
     unlisted["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]["members"] =
         json!([]);
     settle(&mut unlisted);
-    let key = unlisted["semantic_graph"]["nodes"][role]["node_id"]["path"][0]
-        .as_str()
-        .expect("role key");
+    let key = unlisted["semantic_graph"]["nodes"][role]["node_id"].clone();
     assert_eq!(
         read(&unlisted),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{role}"),
             None,
-            key,
+            &key,
         )
     );
 
@@ -8537,16 +8399,14 @@ fn protocol_membership_refuses_unlisted_role_and_repeated_control_holder() {
         {"term": "reference", "target": role_target}
     ]);
     settle(&mut repeated_listing);
-    let key = repeated_listing["semantic_graph"]["nodes"][listed_role]["node_id"]["path"][0]
-        .as_str()
-        .expect("role key");
+    let key = repeated_listing["semantic_graph"]["nodes"][listed_role]["node_id"].clone();
     assert_eq!(
         read(&repeated_listing),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{listed_role}"),
             None,
-            key,
+            &key,
         )
     );
 
@@ -8576,16 +8436,14 @@ fn protocol_membership_refuses_unlisted_role_and_repeated_control_holder() {
         ]
     }}]);
     settle(&mut repeated);
-    let key = repeated["semantic_graph"]["nodes"][child_position]["node_id"]["path"][0]
-        .as_str()
-        .expect("child key");
+    let key = repeated["semantic_graph"]["nodes"][child_position]["node_id"].clone();
     assert_eq!(
         read(&repeated),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{child_position}"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -8595,16 +8453,14 @@ fn protocol_membership_refuses_unlisted_role_and_repeated_control_holder() {
 #[test]
 fn protocol_membership_requires_exactly_one_queue_per_channel() {
     let (without_queue, _, channel) = package_with_member_channel();
-    let key = without_queue["semantic_graph"]["nodes"][channel]["node_id"]["path"][0]
-        .as_str()
-        .expect("channel key");
+    let key = without_queue["semantic_graph"]["nodes"][channel]["node_id"].clone();
     assert_eq!(
         read(&without_queue),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{channel}"),
             None,
-            key,
+            &key,
         )
     );
 
@@ -8631,22 +8487,18 @@ fn protocol_membership_requires_exactly_one_queue_per_channel() {
         .as_array_mut()
         .expect("queue list")
         .sort_by(|left, right| {
-            left["target"]["path"][0]
-                .as_str()
-                .cmp(&right["target"]["path"][0].as_str())
+            checked_node_id(&left["target"]).cmp(&checked_node_id(&right["target"]))
         });
     settle(&mut two_queues);
     let channel = protocol_position(&two_queues, "channel");
-    let key = two_queues["semantic_graph"]["nodes"][channel]["node_id"]["path"][0]
-        .as_str()
-        .expect("channel key");
+    let key = two_queues["semantic_graph"]["nodes"][channel]["node_id"].clone();
     assert_eq!(
         read(&two_queues),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{channel}"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -8676,16 +8528,14 @@ fn await_anchor_reference_does_not_hold_an_unattached_control() {
     package["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"][1]
         ["value"]["target"] = orphan_target;
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][orphan_position]["node_id"]["path"][0]
-        .as_str()
-        .expect("orphan key");
+    let key = package["semantic_graph"]["nodes"][orphan_position]["node_id"].clone();
     assert_eq!(
         read(&package),
-        refusal_at(
+        refusal_at_id(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &format!("/semantic_graph/nodes/{orphan_position}"),
             None,
-            key,
+            &key,
         )
     );
 }
@@ -8705,9 +8555,7 @@ fn repeat_body_without_necessary_step_refuses_after_local_checks() {
     }]);
     settle(&mut package);
     let holder = holder_position(&package);
-    let key = package["semantic_graph"]["nodes"][holder]["node_id"]["path"][0]
-        .as_str()
-        .expect("repeat key");
+    let key = package["semantic_graph"]["nodes"][holder]["node_id"].clone();
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
         panic!("repeat without progress must refuse");
     };
@@ -8728,7 +8576,7 @@ fn repeat_body_without_necessary_step_refuses_after_local_checks() {
             .locus
             .as_ref()
             .map(|id| serde_json::to_value(id).expect("locus")),
-        Some(node_id(key))
+        Some(key)
     );
     assert!(matches!(
         refusal.protocol_detail.as_deref(),
@@ -8809,7 +8657,7 @@ fn boolean_expression(package: &mut Value, identity: &str, operands: &[Value]) -
             .len()
     ));
     let mut dependencies = operands.to_vec();
-    dependencies.sort_by(|left, right| left["path"][0].as_str().cmp(&right["path"][0].as_str()));
+    dependencies.sort_by_key(checked_node_id);
     dependencies.dedup();
     expression["dependencies"] = json!(dependencies);
     let target = expression["node_id"].clone();
@@ -9008,7 +8856,7 @@ fn nested_repeat_exhausted_step_cannot_supply_outer_progress() {
 
 fn set_nested_guard(package: &mut Value, nested: usize, guard: &Value, visible: &[Value]) {
     let mut visible = visible.to_vec();
-    visible.sort_by(|left, right| left["path"][0].as_str().cmp(&right["path"][0].as_str()));
+    visible.sort_by_key(checked_node_id);
     package["semantic_graph"]["nodes"][nested]["body"]["arguments"][1]["value"]["members"] =
         json!(visible
             .into_iter()
