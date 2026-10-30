@@ -69,11 +69,7 @@ impl ClosureIndex {
         }
         let mut index = Self::default();
         let mut seen = BTreeSet::new();
-        let mut pending: Vec<_> = selections
-            .iter()
-            .zip(packages)
-            .map(|(selection, package)| (selection, package.as_ref()))
-            .collect();
+        let mut pending: Vec<_> = selections.iter().zip(packages).collect();
         while let Some((selection, package)) = pending.pop() {
             if !seen.insert(selection.identity.as_ref()) {
                 continue;
@@ -85,7 +81,7 @@ impl ClosureIndex {
                     .dependency_selections
                     .iter()
                     .zip(&package.direct_dependencies)
-                    .map(|(entry, child)| (entry, child.as_ref())),
+                    .map(|(entry, child)| (entry, child)),
             );
         }
         index

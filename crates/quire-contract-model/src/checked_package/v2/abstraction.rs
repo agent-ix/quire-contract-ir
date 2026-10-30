@@ -457,7 +457,9 @@ fn check_order(site: &Site<'_>, body: &AbstractionBody) -> Result<(), Validation
         return out_of_order(body_at.key("populations"));
     }
     let frames_at = body_at.key("frames");
-    let frame_key = |entry: &FrameEntry| (&entry.context, entry.operation.as_ref());
+    fn frame_key(entry: &FrameEntry) -> (&CheckedNodeId, &str) {
+        (&entry.context, entry.operation.as_ref())
+    }
     if !ascending(body.frames.iter().map(frame_key)) {
         return out_of_order(frames_at);
     }
