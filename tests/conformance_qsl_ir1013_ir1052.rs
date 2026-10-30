@@ -6,6 +6,7 @@
 //! then set `QUIRE_SPEC_LANGUAGE_DIR` and `QSL_EMIT_CHECKED_V2_BIN`.
 
 use ix_trace_rs::trace;
+use quire_canonical::Limits;
 use quire_contract_model::{
     ApplicationOperator, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageEvidence,
     CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
@@ -50,14 +51,13 @@ fn producer() -> (PathBuf, PathBuf) {
     let qsl = PathBuf::from(std::env::var_os("QUIRE_SPEC_LANGUAGE_DIR").expect("QSL checkout"));
     let binary = PathBuf::from(std::env::var_os("QSL_EMIT_CHECKED_V2_BIN").expect("QSL binary"));
     assert!(qsl
-        .join("examples/switch-transition/switch.native.in")
+        .join("examples/switch-transition/switch.native")
         .is_file());
     assert!(binary.is_file());
     (qsl, binary)
 }
 
-fn emit(qsl: &Path, binary: &Path, source: &Path, points: Option<&Path>) -> Vec<u8> {
-    let model = Path::new("examples/switch-transition/switch.semantic-ir.json");
+fn emit(qsl: &Path, binary: &Path, source: &Path, model: &Path, points: Option<&Path>) -> Vec<u8> {
     let mut command = Command::new(binary);
     command.current_dir(qsl).arg("--model").arg(model);
     if let Some(points) = points {
@@ -73,18 +73,16 @@ fn emit(qsl: &Path, binary: &Path, source: &Path, points: Option<&Path>) -> Vec<
     output.stdout
 }
 
-fn admit(qsl: &Path, bytes: &[u8]) -> CheckedPackageV2 {
+fn admit(bytes: &[u8], model: &[u8]) -> CheckedPackageV2 {
     let wire: Value = serde_json::from_slice(bytes).expect("QSL checked-package JSON");
-    let model = std::fs::read(qsl.join("examples/switch-transition/switch.semantic-ir.json"))
-        .expect("authoritative QSL model");
-    let identity = serde_json::from_slice::<Value>(&model).expect("model JSON")["package"]
+    let identity = serde_json::from_slice::<Value>(model).expect("model JSON")["package"]
         ["identity"]
         .as_str()
         .expect("model package identity")
         .to_owned();
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(identity, model)
+        .insert_domain_package_document(identity, model.to_vec())
         .expect("selected model evidence");
     for feature in wire["lock"]["required_features"]
         .as_array()
@@ -96,6 +94,46 @@ fn admit(qsl: &Path, bytes: &[u8]) -> CheckedPackageV2 {
         CheckedPackageV2ReadResult::Admitted(package) => *package,
         other => panic!("fresh QSL package must admit: {other:?}"),
     }
+}
+
+fn rename_operation(value: &mut Value) {
+    match value {
+        Value::String(text) if text == "set" => *text = "adjust".to_owned(),
+        Value::String(text) => *text = text.replace("/Switch/set", "/Switch/adjust"),
+        Value::Array(items) => items.iter_mut().for_each(rename_operation),
+        Value::Object(members) => members.values_mut().for_each(rename_operation),
+        _ => {}
+    }
+}
+
+fn adjusted_switch_model(source: &str, model_bytes: &[u8]) -> (String, Vec<u8>) {
+    let mut model: Value = serde_json::from_slice(model_bytes).expect("QSL Switch model");
+    let switch = model["types"]
+        .as_array_mut()
+        .expect("model types")
+        .iter_mut()
+        .find(|kind| kind["displayName"] == "Switch")
+        .expect("Switch type");
+    let operation = switch["operations"]
+        .as_array_mut()
+        .expect("Switch operations")
+        .iter_mut()
+        .find(|operation| operation["name"] == "set")
+        .expect("Switch.set");
+    rename_operation(operation);
+    let digest = quire_canonical::sha256(&model, Limits::new(1 << 24))
+        .expect("adjusted model canonical digest");
+    let old_digest = source
+        .split_once("digest \"sha256-jcs:")
+        .and_then(|(_, suffix)| suffix.split_once('"'))
+        .map(|(digest, _)| digest)
+        .expect("QSL model selection digest");
+    let source = source
+        .replacen(old_digest, &digest.to_string(), 1)
+        .replace("::set", "::adjust");
+    let model_bytes = quire_canonical::to_vec(&model, Limits::new(1 << 24))
+        .expect("adjusted model canonical bytes");
+    (source, model_bytes)
 }
 
 fn target(term: &CheckedTerm) -> &CheckedNodeId {
@@ -124,21 +162,26 @@ fn node<'a>(
 fn qsl_four_execution_points_read_back_through_public_accessor() {
     let (qsl, binary) = producer();
     let scratch = Scratch::new(&qsl);
-    let original = std::fs::read_to_string(qsl.join("examples/switch-transition/switch.native.in"))
+    let original = std::fs::read_to_string(qsl.join("examples/switch-transition/switch.native"))
         .expect("QSL source template");
+    let original_model =
+        std::fs::read(qsl.join("examples/switch-transition/switch.semantic-ir.json"))
+            .expect("QSL Switch model");
+    let (adjusted, model_bytes) = adjusted_switch_model(&original, &original_model);
     let source = format!(
-        "{original}\ninvariant Init using v on M::Switch at current {{ true }}\n\
+        "{adjusted}\ninvariant Init using v on M::Switch at current {{ true }}\n\
          constraint Handle using v on M::Switch at current {{ true }}\n\
-         pre Q0 using v on M::Switch::set {{ true }}\n"
+         pre Q0 using v on M::Switch::adjust {{ true }}\n"
     );
     let source_path = scratch.write("four-points.native", source);
+    let model_path = scratch.write("adjusted-switch.semantic-ir.json", &model_bytes);
     let points = scratch.write(
         "points.json",
         serde_json::to_vec(&json!({
             "Init": {"kind": "initialization", "name": "startup"},
             "Handle": {"kind": "handler", "name": "tick"},
-            "Q0": {"kind": "pre", "operation": "set"},
-            "Q1": {"kind": "post", "operation": "set"},
+            "Q0": {"kind": "pre", "operation": "adjust"},
+            "Q1": {"kind": "post", "operation": "adjust"},
         }))
         .expect("points JSON"),
     );
@@ -146,8 +189,11 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
         .strip_prefix(&qsl)
         .expect("QSL-relative source path");
     let points_arg = points.strip_prefix(&qsl).expect("QSL-relative points path");
-    let bytes = emit(&qsl, &binary, source_arg, Some(points_arg));
-    let package = admit(&qsl, &bytes);
+    let model_arg = model_path
+        .strip_prefix(&qsl)
+        .expect("QSL-relative model path");
+    let bytes = emit(&qsl, &binary, source_arg, model_arg, Some(points_arg));
+    let package = admit(&bytes, &model_bytes);
     drop(bytes);
 
     let expected = [
@@ -158,10 +204,10 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
             name: ExecutionPointName::new("tick").expect("point name"),
         },
         ExecutionPoint::Pre {
-            operation: ExecutionPointName::new("set").expect("operation name"),
+            operation: ExecutionPointName::new("adjust").expect("operation name"),
         },
         ExecutionPoint::Post {
-            operation: ExecutionPointName::new("set").expect("operation name"),
+            operation: ExecutionPointName::new("adjust").expect("operation name"),
         },
     ];
     let mut observed = Vec::new();
@@ -195,9 +241,11 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
 #[test]
 fn qsl_boolean_transition_readback_retains_typed_subject_inputs_and_result() {
     let (qsl, binary) = producer();
-    let source = Path::new("examples/switch-transition/switch.native.in");
-    let bytes = emit(&qsl, &binary, source, None);
-    let package = admit(&qsl, &bytes);
+    let source = Path::new("examples/switch-transition/switch.native");
+    let model = Path::new("examples/switch-transition/switch.semantic-ir.json");
+    let model_bytes = std::fs::read(qsl.join(model)).expect("QSL Switch model");
+    let bytes = emit(&qsl, &binary, source, model, None);
+    let package = admit(&bytes, &model_bytes);
     let transitions: Vec<_> = package
         .graph()
         .nodes
