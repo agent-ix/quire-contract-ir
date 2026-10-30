@@ -120,15 +120,22 @@ fn crafted_diagnostics(package: &Value) -> CheckedDiagnosticsV2 {
                 "loci": [first_region(package), first_region(package)],
             },
             {
-                "stage": "package_read", "code": "stale_dependency",
-                "cause_tag": "byte-digest-mismatch", "details": [], "loci": [],
+                "stage": "package_read", "code": "wrong_snapshot",
+                "cause_tag": "revision-mismatch", "details": [], "loci": [],
             },
         ],
     }))
 }
 
 fn graph_of(package: &Value) -> CheckedSemanticGraphV2 {
-    typed(&package["semantic_graph"])
+    match CheckedPackageV2::read(
+        &canonical(package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(package),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => admitted.graph().clone(),
+        other => panic!("fixture must admit before its typed graph can be encoded: {other:?}"),
+    }
 }
 
 fn raw_graph_of(package: &Value) -> CheckedSemanticGraphV2<Value> {
@@ -361,8 +368,8 @@ impl Carrier for CheckedDiagnosticsV2 {
         typed(&json!({
             "catalog": package["diagnostics"]["catalog"],
             "entries": [{
-                "stage": "package_read", "code": "stale_dependency",
-                "cause_tag": "byte-digest-mismatch", "details": [null],
+                "stage": "package_read", "code": "wrong_snapshot",
+                "cause_tag": "revision-mismatch", "details": [null],
                 "loci": [first_region(&package)],
             }],
         }))
@@ -1160,7 +1167,6 @@ fn tc_048_fixed_depth_types_derive_and_value_holding_types_implement_encode() {
         "CheckedSemanticId",
         "CheckedPackageIdentityPreimageV2",
         "CheckedPackageIdentityPreimageRefV2",
-        "CheckedNodeProjectionV2",
     ] {
         assert!(!derived.contains(retired), "{retired} is retired");
         assert!(!encoded.contains(retired), "{retired} is retired");
