@@ -567,9 +567,9 @@ fn tc_048_a_union_value_must_construct_a_member_of_its_union() {
     admitted("Shape::Empty", &package);
 }
 
-#[trace("TC-048", "FR-038-AC-227")]
+#[trace("TC-048", "FR-038-AC-227", "FR-038-AC-364")]
 #[test]
-fn tc_048_a_grouped_union_value_uses_graph_ordinals_and_refuses_bad_ordinal() {
+fn tc_048_a_grouped_union_value_preserves_assigned_ordinals_and_refuses_malformed_ordinal() {
     let package = grouped_union_value_package();
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
@@ -591,15 +591,22 @@ fn tc_048_a_grouped_union_value_uses_graph_ordinals_and_refuses_bad_ordinal() {
     assert_eq!(group[0]["ordinal"], 0);
     assert_eq!(group[1]["ordinal"], 1);
     admitted("grouped union value", &package);
+    let mut reassigned = package.clone();
+    let old_id = reassigned["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let mut assigned_id = old_id.clone();
+    assigned_id["ordinal"] = json!(3);
+    reassign_node_id(&mut reassigned, &old_id, &assigned_id);
+    rebuild_source_map(&mut reassigned);
+    refresh_identity(&mut reassigned);
+    let admitted_package = admitted("producer-assigned grouped ordinal", &reassigned);
+    assert_eq!(admitted_package.graph().nodes[position].node_id.ordinal, 3);
     let mut invalid = package.clone();
-    invalid["semantic_graph"]["nodes"][position]["node_id"]["ordinal"] = json!(3);
+    invalid["semantic_graph"]["nodes"][position]["node_id"]["ordinal"] =
+        json!(9007199254740992_u64);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&invalid) else {
-        panic!("invalid grouped ordinal admitted");
+        panic!("out-of-range grouped ordinal admitted");
     };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidSemanticGraph, None)
-    );
+    assert_eq!((refusal.code, refusal.cause), (Code::MalformedWire, None));
     assert_eq!(
         refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/node_id/ordinal").as_str())
@@ -639,7 +646,7 @@ fn grouped_union_value_package() -> Value {
     })
 }
 
-#[trace("TC-048", "FR-038-AC-227")]
+#[trace("TC-048", "FR-038-AC-227", "FR-038-AC-364")]
 #[test]
 fn tc_048_a_grouped_union_has_public_reader_stage_controls() {
     let base = grouped_union_value_package();
@@ -688,6 +695,11 @@ fn tc_048_a_grouped_union_has_public_reader_stage_controls() {
             }
             "declaration" => {
                 let mut duplicate = union_type("other", &[("Other", &[])]);
+                let old_id = duplicate["node_id"].clone();
+                let mut assigned_id = old_id.clone();
+                assigned_id["path"] = json!(["shape"]);
+                assigned_id["ordinal"] = json!(7);
+                reassign_node_id(&mut duplicate, &old_id, &assigned_id);
                 duplicate["declaration"]["qualified_name"] = json!(["shape"]);
                 let later = control["semantic_graph"]["nodes"]
                     .as_array()
@@ -741,16 +753,17 @@ fn tc_048_a_grouped_union_has_public_reader_stage_controls() {
                 )
             }
             "ordinal" => {
-                control["semantic_graph"]["nodes"][union]["node_id"]["ordinal"] = json!(7);
+                control["semantic_graph"]["nodes"][union]["node_id"]["ordinal"] =
+                    json!(9007199254740992_u64);
                 (
-                    Code::InvalidSemanticGraph,
+                    Code::MalformedWire,
                     None,
                     format!("/semantic_graph/nodes/{union}/node_id/ordinal"),
                 )
             }
             _ => unreachable!(),
         };
-        if case != "wire" {
+        if !matches!(case, "wire" | "ordinal") {
             rebuild_source_map(&mut control);
             refresh_identity(&mut control);
         }
