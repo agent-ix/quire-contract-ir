@@ -1725,11 +1725,9 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::OperationModeMismatch
         | Cause::OperationMemberMismatch
         | Cause::OperationModeTypeMismatch
-        | Cause::StaleNodeKey
         | Cause::InvalidDerivedShape
         | Cause::DeclarationNominalMismatch => code == Code::InvalidPackage,
         Cause::AmbiguousName => code == Code::AmbiguousDeclaration,
-        Cause::ContentMismatch => code == Code::StaleDependency,
         Cause::InsufficientNextCharge => false,
         Cause::OperatorIneligible
         | Cause::TypeMismatch
@@ -2317,9 +2315,9 @@ impl ContractPackageWireV1 {
             }
             if input.package.name() != selection.identity.as_ref() {
                 return Err(ValidationFailure::refused_because(
-                    CheckedPackageRefusalCode::StaleDependency,
-                    at.key("identity"),
-                    CheckedPackageRefusalCause::ContentMismatch,
+                    CheckedPackageRefusalCode::MissingImport,
+                    at,
+                    CheckedPackageRefusalCause::MissingSelection,
                 ));
             }
             packages.push(input.package);
