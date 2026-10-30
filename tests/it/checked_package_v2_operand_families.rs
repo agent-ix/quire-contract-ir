@@ -5,8 +5,7 @@
 
 use crate::support::checked_package::{
     add_family_reference_target, canonical, evidence_for, node_id, nominal_fixture_members,
-    nominal_package, rebuild_source_map, refresh_identity, settle, sha256_hex, structural_key,
-    v2_all_families,
+    nominal_package, rebuild_source_map, refresh_identity, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -125,14 +124,14 @@ fn same_named_unit_and_dimension() -> Vec<(Value, String)> {
         .find(|(preimage, _)| preimage["version"] == "quire.dimension-node/v1")
         .expect("dimension");
     dimension.0["qualified_declaration"] = json!(["Example", "Metre"]);
-    dimension.1 = sha256_hex(&canonical(&dimension.0));
+    dimension.1 = "nominal/dimension/Example/Metre".to_owned();
     let dimension_id = node_id(&dimension.1);
     let unit = members
         .iter_mut()
         .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
         .expect("unit");
     unit.0["dimension_node_id"] = dimension_id;
-    unit.1 = sha256_hex(&canonical(&unit.0));
+    unit.1 = "qualified:Example/Metre".to_owned();
     members
 }
 
@@ -145,13 +144,7 @@ fn tc_230_declaration_names_are_scoped_to_unit_dimension_and_type() {
         "kind": "source", "authority": source["authority"], "identity": source["identity"],
     });
     let body = json!({"term": "aggregate", "members": []});
-    let preimage = json!({
-        "version": "quire.structural-node/v1", "node_tag": "composite_type",
-        "semantic_form": "record", "semantic_type": null,
-        "declaration": {"qualified_name": ["Example", "Metre"]},
-        "recursion": null, "owner": owner, "body": body,
-    });
-    let key = sha256_hex(&canonical(&preimage));
+    let key = "nominal/type/Example/Metre";
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .unwrap()
@@ -186,19 +179,24 @@ fn tc_230_repeated_unit_name_refuses_at_later_node() {
             .1,
     );
     repeated["scale"]["numerator"] = json!("2");
-    let key = sha256_hex(&canonical(&repeated));
+    let key = "qualified:Example/Metre".to_owned();
     members.push((repeated, key));
-    let package = nominal_package(&members);
+    let mut package = nominal_package(&members);
+    let later_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .rposition(|node| node["semantic_form"] == "unit")
+        .expect("repeated unit");
+    package["semantic_graph"]["nodes"][later_position]["node_id"]["ordinal"] = json!(1);
+    rebuild_source_map(&mut package);
     let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
     let unit_positions: Vec<_> = nodes
         .iter()
         .enumerate()
         .filter(|(_, node)| node["semantic_form"] == "unit")
         .collect();
-    let (position, later) = unit_positions
-        .into_iter()
-        .max_by_key(|(_, node)| node["node_id"]["digest"].as_str().unwrap())
-        .unwrap();
+    let (position, later) = unit_positions.into_iter().last().expect("later unit");
     refuses(
         &package,
         CheckedPackageRefusalCode::AmbiguousDeclaration,
@@ -246,12 +244,7 @@ fn tc_230_quantity_literal_refuses_noncanonical_magnitude_and_other_family() {
         ("integer", "unit"),
     ] {
         let (mut package, unit, boolean, integer, _, _) = fixture();
-        let string = structural_key(
-            "scalar_type",
-            "string",
-            None,
-            &json!({"term": "aggregate", "members": []}),
-        );
+        let string = "operand/scalar/string".to_owned();
         if family == "string" {
             add_node(
                 &mut package,
@@ -284,15 +277,11 @@ fn tc_230_quantity_literal_refuses_noncanonical_magnitude_and_other_family() {
 #[test]
 fn tc_230_quantity_literal_refuses_dimension_type_without_operand_family() {
     let (mut package, _, _, _, _, _) = fixture();
-    let dimension = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .find(|node| node["semantic_form"] == "dimension")
-        .expect("dimension node")["node_id"]["digest"]
-        .as_str()
-        .expect("dimension digest")
-        .to_owned();
+    let dimension = nominal_fixture_members()
+        .into_iter()
+        .find(|(preimage, _)| preimage["version"] == "quire.dimension-node/v1")
+        .expect("dimension fixture")
+        .1;
     let at = append_literal(&mut package, &dimension, "quantity", json!("3"));
     refuses(
         &package,
@@ -545,12 +534,6 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
 fn change_native_literal_value(package: &mut Value, position: usize, value: Value) {
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["value"] = value;
-    let own_type = node["semantic_type"]["digest"]
-        .as_str()
-        .expect("type")
-        .to_owned();
-    let key = structural_key("value", "literal", Some(&own_type), &node["body"]);
-    node["node_id"] = node_id(&key);
     settle(package);
 }
 
@@ -821,8 +804,7 @@ fn text_comparison_rejects_string_at_its_mode_value() {
 #[test]
 fn text_comparison_checks_arity_and_other_families_before_string_mode() {
     let (mut package, boolean, native, text) = native_fixture();
-    let empty = json!({"term": "aggregate", "members": []});
-    let integer = structural_key("scalar_type", "integer", None, &empty);
+    let integer = "operand/scalar/integer".to_owned();
     let catalog: Value = serde_json::from_str(
         quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
     )
@@ -1061,7 +1043,7 @@ fn literal_kind_is_checked_at_its_own_type_even_outside_family_operands() {
         .clone();
     let mut with_option = base.clone();
     let option_body = json!({"term": "aggregate", "members": [reference(&integer)]});
-    let option = structural_key("composite_type", "option", None, &option_body);
+    let option = "operand/type/option".to_owned();
     add_node(
         &mut with_option,
         &option,
@@ -1128,14 +1110,12 @@ fn literal_kind_is_checked_at_its_own_type_even_outside_family_operands() {
         .position(|(preimage, _)| preimage["version"] == "quire.enum-declaration-node/v1")
         .expect("declaration");
     ordered_members[declaration].0["ordered"] = json!(true);
-    let ordered_key = sha256_hex(&canonical(&ordered_members[declaration].0));
-    ordered_members[declaration].1 = ordered_key.clone();
+    let ordered_key = ordered_members[declaration].1.clone();
     let member = ordered_members
         .iter()
         .position(|(preimage, _)| preimage["version"] == "quire.enum-member-node/v1")
         .expect("member");
     ordered_members[member].0["declaration_node_id"] = node_id(&ordered_key);
-    ordered_members[member].1 = sha256_hex(&canonical(&ordered_members[member].0));
     let mut ordered = nominal_package(&ordered_members);
     let at = append_literal(&mut ordered, &ordered_key, "enum", json!("ACTIVE"));
     admits(&ordered);
@@ -1273,7 +1253,7 @@ fn quantity_convert_checks_member_result_before_rounding_type() {
 fn position_and_element_member_results_do_not_require_declaration_equality() {
     let (mut tuple_package, _, _, integer, _, _) = fixture();
     let tuple_body = json!({"term": "aggregate", "members": [reference(&integer)]});
-    let tuple = structural_key("composite_type", "tuple", None, &tuple_body);
+    let tuple = "operand/type/tuple".to_owned();
     add_node(
         &mut tuple_package,
         &tuple,
@@ -1298,7 +1278,7 @@ fn position_and_element_member_results_do_not_require_declaration_equality() {
 
     let (mut index_package, _, _, integer, _, _) = fixture();
     let set_body = json!({"term": "aggregate", "members": [reference(&integer)]});
-    let set = structural_key("composite_type", "set", None, &set_body);
+    let set = "operand/type/set".to_owned();
     add_node(
         &mut index_package,
         &set,
@@ -1333,7 +1313,7 @@ fn quantity_convert_admits_equal_compound_unit_result() {
         {"term":"binding","name":"unit","value":reference(&unit)},
         {"term":"binding","name":"exponent","value":{"term":"literal","type":node_id(&integer),"value_kind":"integer","value":"2"}}
     ]}]});
-    let compound = structural_key("scalar_type", "compound_unit", None, &body);
+    let compound = "operand/type/compound_unit".to_owned();
     add_node(
         &mut package,
         &compound,
@@ -1378,7 +1358,7 @@ fn collection_size_admits_equal_model_population_result() {
     let (mut package, _, _, integer, _, _) = fixture();
     let target = add_family_reference_target(&mut package);
     let reference_body = json!({"term":"aggregate","members":[reference(&target)]});
-    let reference_type = structural_key("composite_type", "reference", None, &reference_body);
+    let reference_type = "operand/type/reference".to_owned();
     add_node(
         &mut package,
         &reference_type,
@@ -1388,15 +1368,10 @@ fn collection_size_admits_equal_model_population_result() {
         reference_body,
     );
     let set_body = json!({"term":"aggregate","members":[reference(&reference_type)]});
-    let set = structural_key("composite_type", "set", None, &set_body);
+    let set = "operand/type/set".to_owned();
     add_node(&mut package, &set, "composite_type", "set", &set, set_body);
     let population_body = json!({"term":"aggregate","members":[]});
-    let population = structural_key(
-        "bounded_domain",
-        "model_population",
-        Some(&set),
-        &population_body,
-    );
+    let population = "operand/type/model_population".to_owned();
     add_node(
         &mut package,
         &population,
@@ -1435,7 +1410,7 @@ fn fold_and_reduce_admit_without_member_family_and_refuse_unequal_result() {
     for identity in ["quire.op.collection.fold", "quire.op.collection.reduce"] {
         let (mut package, _, boolean, integer, _, _) = fixture();
         let set_body = json!({"term":"aggregate","members":[reference(&integer)]});
-        let set = structural_key("composite_type", "set", None, &set_body);
+        let set = "operand/type/set".to_owned();
         add_node(&mut package, &set, "composite_type", "set", &set, set_body);
         let value =
             json!({"term":"literal","type":node_id(&integer),"value_kind":"integer","value":"1"});
@@ -1478,7 +1453,7 @@ fn non_member_model_results_remain_admitted() {
         let (mut package, unit, _, integer, left, _) = fixture();
         let target = add_family_reference_target(&mut package);
         let reference_body = json!({"term":"aggregate","members":[reference(&target)]});
-        let reference_type = structural_key("composite_type", "reference", None, &reference_body);
+        let reference_type = "operand/query/type/reference".to_owned();
         add_node(
             &mut package,
             &reference_type,
@@ -1489,7 +1464,7 @@ fn non_member_model_results_remain_admitted() {
         );
         let result_form = if lookup { "option" } else { "set" };
         let result_body = json!({"term":"aggregate","members":[reference(if lookup { &unit } else { &reference_type })]});
-        let result = structural_key("composite_type", result_form, None, &result_body);
+        let result = format!("operand/query/result/{result_form}");
         add_node(
             &mut package,
             &result,
@@ -1498,24 +1473,18 @@ fn non_member_model_results_remain_admitted() {
             &result,
             result_body,
         );
-        let text = structural_key(
-            "scalar_type",
-            "text",
-            None,
-            &json!({"term":"aggregate","members":[]}),
-        );
+        let text = "operand/scalar/text".to_owned();
         let set_body = json!({"term":"aggregate","members":[reference(&reference_type)]});
-        let set = structural_key("composite_type", "set", None, &set_body);
+        let set = if lookup {
+            "operand/query/type/input_set".to_owned()
+        } else {
+            result.clone()
+        };
         if lookup {
             add_node(&mut package, &set, "composite_type", "set", &set, set_body);
         }
         let population_body = json!({"term":"aggregate","members":[]});
-        let population_type = structural_key(
-            "bounded_domain",
-            "model_population",
-            Some(&set),
-            &population_body,
-        );
+        let population_type = "operand/query/type/model_population".to_owned();
         add_node(
             &mut package,
             &population_type,
@@ -1530,12 +1499,7 @@ fn non_member_model_results_remain_admitted() {
             {"term":"binding","name":"level","value":{
                 "term":"literal","type":node_id(&integer),"value_kind":"integer","value":"0"}}
         ]});
-        let population = structural_key(
-            "value",
-            "parameter",
-            Some(&population_type),
-            &parameter_body,
-        );
+        let population = "operand/query/parameter/population_a".to_owned();
         add_node(
             &mut package,
             &population,
@@ -1547,8 +1511,7 @@ fn non_member_model_results_remain_admitted() {
         let mut arguments = vec![reference(&population)];
         if lookup {
             let body = reference(&left);
-            let expression =
-                structural_key("expression", "reference", Some(&reference_type), &body);
+            let expression = "operand/query/expression/object".to_owned();
             add_node(
                 &mut package,
                 &expression,
@@ -1586,7 +1549,7 @@ fn non_member_model_results_remain_admitted() {
 pub(crate) fn quantity_sum_control() -> (Value, usize) {
     let (mut package, unit, _, _, left, _) = fixture();
     let set_body = json!({"term": "aggregate", "members": [reference(&unit)]});
-    let set = structural_key("composite_type", "set", None, &set_body);
+    let set = "operand/type/set".to_owned();
     add_node(&mut package, &set, "composite_type", "set", &set, set_body);
     let at = append_application(
         &mut package,
