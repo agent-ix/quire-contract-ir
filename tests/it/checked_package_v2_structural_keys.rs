@@ -1238,6 +1238,27 @@ fn mismatched_cycle_label_refuses_at_the_member() {
     );
 }
 
+#[trace("TC-226", "FR-038-AC-147", "FR-038-AC-150")]
+#[test]
+fn duplicate_group_member_structural_id_refuses_at_the_second_member() {
+    let (mut package, option, _) = list_group();
+    let duplicate = package["semantic_graph"]["nodes"][option].clone();
+    let position = append_authored(&mut package, duplicate);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("duplicate List member id must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{position}/node_id")),
+        "{refusal:?}"
+    );
+}
+
 fn large_cyclic_component() -> Value {
     const MEMBERS: usize = 512;
     let (mut package, option, record) = list_group();
