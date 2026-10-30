@@ -119,7 +119,7 @@ outcome map to `qsl_replay::TerminalValue` is not here; codegen owns it.
 ```text
 JSON bytes -> wire model -> schema validation -> semantic validation
                                          |-> ordered diagnostics
-validated package -> dependency walk -> canonical encoder -> SHA-256 identities
+validated package -> dependency walk -> canonical encoder -> structural names and node ids
 validated package + artifact traces -> shallow/deep/uncovered/orphaned coverage
 checked-package/v2 bytes -> strict reader -> admitted package -> per-item lowering -> FR-330 ContractPackage v1
 output-mapping request -> mapper seam -> per-obligation records -> atomic package

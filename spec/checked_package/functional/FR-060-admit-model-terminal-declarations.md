@@ -50,18 +50,16 @@ for `any`. `condition` is a reference to a Boolean `expression` for `when`
 and the empty aggregate for `any`.
 
 The node SHALL have Boolean `semantic_type`, no `declaration`, one `claim`
-occurrence per source declaration, and exactly the unique digest-ascending
+occurrence per source declaration, and exactly the unique structural-id-ascending
 set of body reference targets as `dependencies`. The written terminal name
-exists only in its source occurrence; renaming it changes no node or package
-identity. A change to model, mode or condition changes the node id and
-package identity under FR-322. The node, not a separate request field, is the
+exists only in its source occurrence; renaming it changes neither the structural node id nor package name. A valid change to model, mode or condition changes the complete body; the reader validates its dependencies and meaning without re-deriving an id. The node, not a separate request field, is the
 carrier used by the deadlock-freedom subject.
 
-The reader SHALL run FR-322's earlier strict-wire, graph-shape and key checks
+The reader SHALL run FR-322's earlier strict-wire, graph-shape and structural-id checks
 before the terminal body step. The terminal step SHALL follow the state-graph,
 temporal and abstraction steps and precede the step-relation, hybrid,
 timed-model, protocol and schedulability steps. It SHALL visit terminal
-nodes by ascending node-id digest. For each node it SHALL check exact body
+nodes by ascending structural node id. For each node it SHALL check exact body
 shape; mode; mode fit of `parameters` then `condition`; targets in body order;
 and, after every node's own checks, uniqueness per model. Shape and mode-fit
 defects refuse `invalid_semantic_graph` at the body or offending binding.
@@ -71,7 +69,7 @@ A non-model `model` target refuses `invalid_model_binding`/
 refuses `ill_typed`/`operator-ineligible`; a non-Boolean expression condition
 refuses `ill_typed`/`non-boolean-root`, each at the target. A second terminal
 node for one model refuses `ambiguous_declaration`/`ambiguous-name` at the
-second node in digest order, naming both; two `claim` occurrences on one
+second node in structural-id order, naming both; two `claim` occurrences on one
 terminal node refuse the same at that node, naming the first two
 occurrences. A dependency mismatch refuses at `/dependencies` in the
 earlier graph-shape step.
@@ -82,8 +80,8 @@ earlier graph-shape step.
 | --- | --- | --- |
 | FR-060-AC-1 | The reader admits QSpec TC-961 MT-01 through MT-03 as `temporal`/`terminal` nodes with the exact four-binding body, `when` and `any` modes, level-0 `self` parameter only when read, Boolean type, absent `declaration`, exact dependency set and `claim` occurrence. The writer emits the complete admitted shape, and a read of its output returns the same nodes and occurrences. | Test |
 | FR-060-AC-2 | QSpec TC-961 MT-07 through MT-16 refuse with FR-476's exact code, cause and pointer after identities are rebuilt: swapped bindings, invalid mode, wrong mode fit, wrong model, wrong or mistyped `self`, non-Boolean condition, and both kinds of duplicate declaration are separately observed. An unknown `temporal` form still refuses at `semantic_form`, and no malformed terminal node is omitted or reinterpreted. | Test |
-| FR-060-AC-3 | The reader observes FR-322 and FR-476 precedence: graph-shape defects precede the terminal step; state-graph, temporal and abstraction body defects precede it; each terminal node's own checks precede one-per-model checks; nodes visit in ascending digest order; and a terminal defect precedes step-relation and later body defects. | Test |
-| FR-060-AC-4 | QSpec TC-961 MT-04 through MT-06 retain the specified identity distinctions: changing mode or condition changes node and package identities, renaming only the written declaration changes neither, and adding or removing the terminal changes package identity. In an IR-owned `any` control with two distinct selected model nodes present in both packages, changing only the terminal body's `model` reference from the first node to the second, and rebuilding dependencies and identities, changes both the terminal node id and the `package_id`. IR preserves the admitted node from which a deadlock-freedom request derives its distinct obligation identity; IR does not compute that request identity. | Test |
+| FR-060-AC-3 | The reader observes FR-322 and FR-476 precedence: graph-shape defects precede the terminal step; state-graph, temporal and abstraction body defects precede it; each terminal node's own checks precede one-per-model checks; nodes visit in structural node-id order; and a terminal defect precedes step-relation and later body defects. | Test |
+| FR-060-AC-4 | Withdrawn by the IR-1141 structural-identity decision under QSpec #517: the reader does not recompute identity from body content or refuse a retained structural id solely because a valid body changed. This id is retained and never reused. | Withdrawn |
 | FR-060-AC-5 | IR-owned positive and negative read/write vectors for QSpec TC-961 MT-01 through MT-16 assert the published wire shapes and refusals through the public V2 reader and writer, without copying QSpec fixture or schema files into IR. | Test |
 
 ## Dependencies

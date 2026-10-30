@@ -72,7 +72,7 @@ its exact two-member wire record; for every work-boundary case, assert existing
 canonical decimal-string wire projection. The matching one-under control must
 fail through the real continued node/body/edge walk, proving no replacement
 meter was allocated by the IR adapter. Compare the adapter's full source lock
-and package id with the retained originating values and its emitted profile
+and package name with the retained originating values and its emitted profile
 reference with the actual typed `profile.reference`, including refused results.
 No requirement field or new failure payload is serialized. These adapter
 assertions discharge FR-035-AC-9 while semantic expectations remain owned by

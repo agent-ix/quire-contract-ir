@@ -29,7 +29,7 @@ path and locus SHALL retain their specified values.
 An otherwise valid V2 package with terminal nodes that pass their individual
 body and target checks, and either two nodes referencing one model or one
 node carrying two or more `claim` occurrences. The reader compares nodes in
-ascending node-id digest order as QSpec FR-476 requires. A `CheckedNodeId`
+ascending structural node-id order as QSpec FR-476 requires. A `CheckedNodeId`
 and `CheckedOccurrence` are the reader's existing public typed identities.
 
 ## Outputs
@@ -43,7 +43,7 @@ crate root alongside `CheckedPackageRefusal`, `CheckedNodeId` and
 `CheckedOccurrence`, and has exactly these exhaustive variants:
 
 - `Nodes { first: CheckedNodeId, second: CheckedNodeId }`: two distinct
-  terminal nodes of one model, first and second in ascending node-id digest
+  terminal nodes of one model, first and second in ascending structural node id
   order;
 - `Occurrences { node: CheckedNodeId, first: CheckedOccurrence, second:
   CheckedOccurrence }`: two `claim` occurrences of one terminal node, the
@@ -80,7 +80,7 @@ compatibility reader or fallback interpretation is introduced.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-062-AC-1 | With two individually valid terminal nodes on one model and recomputed identities, the reader refuses `ambiguous_declaration`/`ambiguous-name` at the second node in ascending node-id digest order, with `locus` equal to that node and typed `Nodes { first, second }` containing exactly both distinct node ids in that order. The same model with either node alone admits. | Test |
+| FR-062-AC-1 | With two individually valid terminal nodes on one model and structural ids, the reader refuses `ambiguous_declaration`/`ambiguous-name` at the second node in structural node-id order, with `locus` equal to that node and typed `Nodes { first, second }` containing exactly both distinct node ids in that order. The same model with either node alone admits. | Test |
 | FR-062-AC-2 | One terminal node with two `claim` occurrences and matching source-map entries refuses `ambiguous_declaration`/`ambiguous-name` at the node with typed `Occurrences { node, first, second }`; the two occurrence values equal the first two checked occurrences, and a third occurrence does not replace them. One occurrence admits. | Test |
 | FR-062-AC-3 | The related payload is absent on a nonterminal `ambiguous_declaration`/`ambiguous-name` refusal and on each earlier strict-wire, graph-shape, key, source-map, body or target refusal; a terminal node with a wrong target and a duplicate still reports the target defect first with no related payload. | Test |
 | FR-062-AC-4 | A public consumer imports `CheckedTerminalDuplicate`, `CheckedPackageRefusal`, `CheckedNodeId` and `CheckedOccurrence` from `quire_contract_model`, reads the public `CheckedPackageRefusal::terminal_duplicate: Option<CheckedTerminalDuplicate>` member, and exhaustively matches `Nodes` and `Occurrences` without a wildcard or parsing prose, node-body JSON or paths. Each terminal-duplicate refusal retains its primary code, cause, path and locus and has no `document_pointer`, `related_path`, `expected`/`actual` or extension detail. | Test |

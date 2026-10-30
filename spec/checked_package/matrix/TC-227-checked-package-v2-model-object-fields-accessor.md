@@ -27,24 +27,16 @@ chain, an inherited field, a redefinition with a narrower range and a
 most-derived redefiner; one declaring every kind of AC-138 (the `i128` extremes,
 2^53 + 1 and one past each `i128` extreme); one with an ambiguous
 name, in a package with no read of it and a sibling with a read; one with a 200-type chain and 100
-redefinitions; chains of 4, 8, 1000 and 1500 types with one field each. Build the checked packages in the test, keying every read's type
-node by an independent recomputation through `quire-canonical`, never through
-the reader. Admit each, call `model_object_fields` on the model declaration
+redefinitions; chains of 4, 8, 1000 and 1500 types with one field each. Build the checked packages in the test, selecting every read's type node by its valid structural id and checking its declared type independently of the reader. Admit each, call `model_object_fields` on the model declaration
 node, and compare the result with the declared values. Call it with an unknown id
-and with each admitted non-model-object node of AC-139. Mutate only an unread
-selected model declaration's closed body and assert its exact stale-key
-admission refusal; separately append a declaration with an unselected model
-owner and assert its owner-join refusal. In a crate-internal test,
+and with each admitted non-model-object node of AC-139. Mutate only an unread selected model declaration's closed body while retaining its valid structural id and require admission when its declaration and graph joins remain valid; separately append a declaration with an unselected model owner and assert its owner-join refusal. In a crate-internal test,
 replace a read node's body bounds after admission and compare the result. For
-each returned type, admit a read keyed from it and a read keyed from its
-perturbation (AC-141). Compile the API fixtures of AC-142 (exhaustive matches, a
+each returned type, admit a read naming its selected structural type node and a read naming the distinct structural type node for its perturbation (AC-141). Compile the API fixtures of AC-142 (exhaustive matches, a
 struct literal that must fail to compile). For AC-144, read the table-building
 counter (13 for 4 types, 43 for 8), find the smallest whole-read admitting
 `work` limit and check its one-below selected-owner charge pointer; separately
 stop one charge before the last selected table entry and check the same
-model-selection pointer. A stale-key chain separately finds the graph-stage
-refusal threshold and checks that one below it stops at the unpaid structural
-node-key charge. Read the 1000 and 1500 chains under `bounded()`, run the
+model-selection pointer. A duplicate-id chain separately finds the graph-stage refusal threshold and checks that one below it stops at the unpaid structural node-id charge. Read the 1000 and 1500 chains under `bounded()`, run the
 two precedence packages, read a field and an operation of the 4-chain for the
 read charges, compare the smallest admitting work budgets for full-reader
 frame-field, abstraction-field and relationship-edge packages whose selected
@@ -57,22 +49,17 @@ items 4 to 9.
 ## Expected Results
 
 The fields, order, types and `None` entries equal the declaration; each error is
-the variant AC-139 names; a retained model declaration body change refuses
-admission before any accessor call, while the crate-internal post-admission
-body replacement changes nothing; a read keyed from
-the returned type admits and its perturbation refuses `ill_typed`; the API
+the variant AC-139 names; a valid retained model declaration body change admits and updates the selected document value, while the crate-internal post-admission
+body replacement changes nothing; a read naming the selected structural type node admits and its perturbation refuses `ill_typed`; the API
 fixtures compile or fail as stated; the chains admit under a sufficient limit
 and are `incomplete` at the selected-owner charge one below the whole-read
-minimum, or at the model selection one below the last table charge. The stale
-chain is `incomplete` at its structural node-key charge one below the first
-budget that reaches its stale-key refusal. The stated precedence holds, and
+minimum, or at the model selection one below the last table charge. The duplicate-id chain is `incomplete` at its structural node-id charge one below the first budget that reaches its duplicate-id refusal. The stated precedence holds, and
 the call does no resolution.
 
 ## Status
 
-Implemented (IR-628) in `tests/it/checked_package_v2_model_fields.rs` (AC-136 to
-AC-139, AC-141 to AC-144 over packages the reader admits, each type node keyed
-from an independent recomputation through `quire-canonical`) and the unit tests
+IR-1141 revised structural-id and valid-body-mutation controls are PLANNED/UNRUN. The independent table and accessor controls remain implemented (IR-628) in `tests/it/checked_package_v2_model_fields.rs` (AC-136 to
+AC-139, AC-141 to AC-144 over packages the reader admits, using the earlier content-derived type-node fixture, which must be updated for structural ids) and the unit tests
 of `crates/quire-contract-model/src/checked_package/v2/model_fields.rs` (the
 tables, charges, cycles, read charges, node-body independence) and
 `model_members.rs` (the `resolve` answers recorded before the change, run

@@ -58,18 +58,10 @@ declaration is required for the root. The root's identity carries no digest and
 no version.
 
 The selected domain-package identities are the `owner.identity` values of the
-roots. The reader SHALL require at most one root per identity. The root SHALL be self-typed, carry no `declaration`,
+roots. The reader SHALL require at most one root per identity. The root is self-typed, carry no `declaration`,
 `recursion_group` or nominal preimage, have the empty aggregate body
 `{term: "aggregate", members: []}` and empty `dependencies`, and carry the
-closed `ModelRootOwner` on no other node form. Its structural node id SHALL
-equal the JCS SHA-256 of QSpec's closed `ModelDeclarationNode` preimage:
-`{version: "quire.structural-node/v1", node_tag: "model",
-semantic_form: "model_root", semantic_type: null, declaration: null,
-recursion: null, owner: {kind: "model_root", identity},
-body: {term: "aggregate", members: []}}`. This key SHALL depend on the
-selected identity alone, not the source alias or any particular model
-declaration. The package identity SHALL include the root in its ordinary
-occurrence-free graph projection.
+closed `ModelRootOwner` on no other node form. Its structural node id uses the selected package name and declared path under QSpec FR-322. The reader checks its shape, uniqueness, owner and body independently and does not derive an expected id from the owner or body.
 
 The root SHALL carry exactly one `generated` occurrence at ordinal zero,
 whose source-map region is the existing source occurrence that selected that
@@ -100,13 +92,13 @@ continues to own the refinement body and its later header-join order.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-065-AC-1 | An external consumer constructs a complete typed V2 package selecting one domain package by identity, with its self-typed `model`/`model_root` node and closed `ModelRootOwner`, calls `encode_checked_package_v2`, then reads the bytes through the public strict reader. The admitted graph, occurrence-free projection and canonical read/write/read retain the same owner, root node id and package id. A source producer derives the root from the selected identity without a new FCD declaration or lock field. | Test |
+| FR-065-AC-1 | An external consumer constructs a complete typed V2 package selecting one domain package by identity, with its self-typed `model`/`model_root` node and closed `ModelRootOwner`, calls `encode_checked_package_v2`, then reads the bytes through the public strict reader. The admitted graph, occurrence-free projection and canonical read/write/read retain the same owner, root structural node id and package name. A source producer derives the root from the selected identity without a new FCD declaration or lock field. | Test |
 | FR-065-AC-2 | The root has absent `declaration`, `recursion_group` and nominal preimage, empty aggregate body and dependencies, and exactly one `generated` occurrence at ordinal zero whose source-map region is the source occurrence of the selected model package. A declaration occurrence, wrong role or ordinal, wrong or missing region, or extra occurrence refuses through FR-322's occurrence/source-map check; none is silently repaired. | Test |
-| FR-065-AC-3 | The root's node id equals the JCS SHA-256 of the exact closed `ModelDeclarationNode` preimage containing `ModelRootOwner` and `semantic_type: null`, including QSpec's published model-root vector. Changing only a source alias while preserving the selected identity leaves the root id unchanged. A different selected identity gives a different root id and, after rebuilding, a different package id; the content of the selected document does not enter the root id. A retained stale root key refuses under FR-322's structural-key check. | Test |
-| FR-065-AC-4 | For zero, one and multiple object types or state machines in a selected model document, the package has exactly one root for that identity; zero selected packages produce no root. Cloning a valid root as a second graph node, with the same or a distinct retained id, refuses `invalid_semantic_graph` with no cause at the later `/semantic_graph/nodes/{j}/owner`, in the selected-document evidence stage, before graph shape and key checking; a prior wire defect wins. The reader never chooses a representative declaration or admits a partial package. | Test |
+| FR-065-AC-3 | Withdrawn by the IR-1141 structural-identity decision under QSpec #517: model-root node ids are structural labels and are never recomputed from owner content. This id is retained and never reused. | Withdrawn |
+| FR-065-AC-4 | For zero, one and multiple selected object types or state machines, the package has exactly one root for each model identity. Cloning a valid root as a second graph node refuses invalid_semantic_graph at the later owner in the selected-document evidence stage; a prior wire defect wins. The reader neither picks a representative nor admits a partial package. | Test |
 | FR-065-AC-5 | An absent or extra `ModelRootOwner` member (including a `digest` or `version`), a `ModelOwner` on a root, or a `ModelRootOwner` on another form refuses at the closed wire/owner-presence stage. A `ModelOwner` whose identity names no root refuses `missing_declaration`/`missing-selection` in the reader's owner join at `/semantic_graph/nodes/{i}/owner`, without inferred selection or repaired owner; an earlier independent defect wins according to FR-322's order. A root with no supplied document refuses `missing_import`/`missing-selection` at `/semantic_graph/nodes/{i}/owner/identity`. | Test |
 | FR-065-AC-6 | A model-subject refinement uses the selected concrete root for `semantic_type` and the selected abstract root for its local `abstract` key, including an otherwise row-empty refinement. A protocol-subject refinement uses the abstract model root plus the exact protocol clause key. A root in a directly selected dependency resolves only through its package key. A header naming an object type, state machine, alias-derived surrogate, unselected dependency or wrong selected root refuses under FR-375's header joins after earlier FR-322 checks; the reader does not infer a substitute. | Test |
-| FR-065-AC-7 | An external consumer uses the public typed writer and strict reader to carry `model_root` and `ModelRootOwner` through the existing V2 graph and envelope; read/write/read retains the exact root owner, node id, package id and generated source correspondence. | Test |
+| FR-065-AC-7 | An external consumer uses the public typed writer and strict reader to carry `model_root` and `ModelRootOwner` through the existing V2 graph and envelope; read/write/read retains the exact root owner, structural node id, package name and generated source correspondence. | Test |
 | FR-065-AC-8 | Source inspection finds one typed V2 graph and envelope path for the root, with no parallel untyped writer, fallback owner inference, compatibility reader, copied QSpec schema or fixture. | Inspection |
 
 ## Dependencies

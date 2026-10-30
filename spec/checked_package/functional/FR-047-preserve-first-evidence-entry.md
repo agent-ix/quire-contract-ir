@@ -95,11 +95,9 @@ identity.
 
 Equal admitted content is exactly the existing `CheckedPackageV2::eq`
 relation: equality of all fields of `CheckedPackageWireV2` and the decoded
-node kinds. The wire includes contract version, identity preimage, package
-identity, lock, complete semantic graph, source map, capability report and
+node kinds. The wire includes contract version, package name, lock, complete semantic graph, source map, capability report and
 diagnostics. Equality preserves array order and compares all retained wire
-fields, including graph occurrences. It is not `package_id` equality or `Arc`
-address equality. Equal `package_id` values do not make packages with different
+fields, including graph occurrences. It is not name equality or `Arc` address equality. Equal package names do not make packages with different
 source maps, diagnostics, capability dispositions, occurrences or raw-source
 references equal evidence values.
 

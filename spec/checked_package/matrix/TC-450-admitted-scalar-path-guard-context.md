@@ -45,7 +45,7 @@ a different, independently valid represented guard to document IR's
 structural boundary: that input may pass IR and therefore cannot establish
 QSL item membership without the checked driver mapping.
 
-Compare the six-field wire, canonical identity and application
+Compare the five-member wire, complete canonical value and application
 `reached_closure` before and after each read-only query. Compare the
 application-only package with the contextual package to observe the ordinary
 root-driven graph/accounting/identity change. Compare FR-049 result-context

@@ -46,8 +46,8 @@ The seam is described as what crosses it, how identity is asserted, which way de
 
 | Item | Direction | Owner | Notes |
 | --- | --- | --- | --- |
-| `quire.checked-package/v2` bytes: `contract_version`, `package_id`, `identity_preimage`, `lock`, `semantic_graph`, `source_map`, `diagnostics` | QSL (producer) to IR | QSpec FR-322 and FR-340 to FR-342 define the wire | IR holds no copy of QSpec files; it states the shape it admits in its own reader (`crates/quire-contract-model/src/checked_package/`) |
-| `CheckedPackageEvidence`: selected domain package documents (supplied under their identity), dependency packages (already admitted), supported features | caller to IR | IR defines the type | `lock.sources` and the matching source-map and diagnostic references use `{authority, identity}` without a source digest; IR joins each reference to a lock row and does not read source bytes; definition references (`lock` selections, `diagnostics.catalog`, operation laws) use the same pair without revision or digest (FR-038 "Artifact references"); the separate `package_id` decision is pending QSpec STD-574 |
+| `quire.checked-package/v2` bytes: `contract_version`, `name`, `lock`, `semantic_graph`, `source_map`, `capability_report`, `diagnostics` (and optional `refinement_step_rows`) | QSL (producer) to IR | QSpec FR-322 and FR-340 to FR-342 define the wire | IR holds no copy of QSpec files; it states the shape it admits in its own reader (`crates/quire-contract-model/src/checked_package/`) |
+| `CheckedPackageEvidence`: selected domain package documents (supplied under their identity), dependency packages (already admitted), supported features | caller to IR | IR defines the type | `lock.sources` and the matching source-map and diagnostic references use `{authority, identity}` without a source digest; IR joins each reference to a lock row and does not read source bytes; definition references (`lock` selections, `diagnostics.catalog`, operation laws) use the same pair without revision or digest (FR-038 "Artifact references"); package identity is the required `name` |
 | `quire.checked-operation-catalog/v1`: the closed catalog every V2 `application` term's `operation` is validated against | `quire-verification-contracts` (owner) to IR | `quire-verification-contracts` | IR depends on that crate and owns only the reader; it holds no copy of the catalog (`v2/operation_catalog.rs`) |
 | `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits; no depth member, and no `CheckedPackageLimit::Depth` or `CheckedPackageReadLimits::MAXIMUM_DEPTH`, FR-038-AC-117 having removed them, a breaking change for a consumer across this seam that builds any of them) | caller to IR | IR | every member finite |
 | `CheckedPackageDispatchResult`: `AdmittedV2` / `Refused` / `Incomplete` | IR to caller | IR | typed code and RFC 6901 pointer on refusal |
@@ -77,21 +77,21 @@ codegen consumer adoption remains IR-744.
   other version refuses `unknown_contract_version` carrying the version read, and a missing or
   non-string `contract_version` refuses `malformed_wire`. This is a refusal control: IR never
   relabels or widens the input to fit.
-- Content identity. The reader recomputes `package_id` as the SHA-256 of the RFC 8785 bytes of
-  `identity_preimage` under `quire.package.semantic/v2`, requires the preimage's lock members
-  to equal the lock and its projection to equal the graph's occurrence-free projection (each
-  mismatch refuses `stale_dependency`), and re-derives every nominal node identity (a violation
-  refuses `invalid_semantic_graph`). Every one of these identity digests is `quire-canonical`'s
-  (FR-038, "Every identity digest is computed through quire-canonical"); a selected model
-  document holding a number past 2^53 is refused `noncanonical_wire` (IR's own rule) with a pointer into
-  that document, a different refusal from the pointer-free ones about the package's own
-  bytes. `package_id` is the package's content identity: it binds a
-  package to its content and is the value QSL's replay recomputes later. The wire carries other
-  digests (application node keys, nominal identity digests, dependency `package_id`s, the lock's
-  raw-source digests; a definition reference carries none) ; these are
-  QSpec-owned identities of the package's parts, and IR adds none. A domain package document is
-  supplied under its identity and checked to name that identity; it carries no digest.
-- There is no commit id, tool pin or version-tracking record on this seam, and IR checks none.
+- Structural identity. The checked package's required `name` is the library,
+  domain package or compilation-unit identity; the reader compares it by UTF-8
+  bytes. Complete package equality is JSON member equality with arrays in
+  element order. Its node ids are structural `{package, path, ordinal}` values
+  compared componentwise, with an owning package name and exact declaration or
+  derived path. A second equal id refuses `invalid_semantic_graph` at the
+  later node. A selected model document is supplied under its identity and
+  checked to name that identity. A selected dependency is supplied under its
+  `{identity}` lock row and must have that `name`; two structurally unequal
+  packages reached under one identity in a diamond refuse
+  `invalid_package`/`conflicting-definition` with both paths. Neither package
+  nor node has a content-derived id, and no stale-content refusal exists.
+- The wire carries no commit id, tool pin, version-tracking record, package
+  digest or source-byte digest. Definition and source references remain exact
+  `{authority, identity}` pairs.
 
 ### Dependency direction
 
@@ -112,8 +112,8 @@ and does not copy it.
 | Malformed JSON or non-canonical bytes | IR | `malformed_wire`, `noncanonical_wire`; no pointer (a refusal about the byte stream) |
 | Duplicate member, unknown member | IR | `duplicate_member`, `unknown_member`, each at the pointer of the member |
 | A selected domain package document or dependency package not supplied | IR | `missing_import` |
-| `package_id`, identity preimage, projection, lock or a selected document not matching the content identity it names | IR | `stale_dependency`, at the pointer of the value at fault |
-| Bad nominal node identity, unresolved reference, cycle outside one recursion group, other graph-form defects | IR | `invalid_semantic_graph` and the other codes FR-322 fixes, at the pointer of the value at fault |
+| A missing or mismatched selected dependency name, or unequal packages under one identity in a diamond | IR | `missing_import`/`missing-selection` or `invalid_package`/`conflicting-definition`, with exact lock paths |
+| Duplicate or malformed structural node id, unresolved reference, cycle outside one recursion group, other graph-form defects | IR | `malformed_wire`, `invalid_semantic_graph` and the other codes FR-322 fixes, at the pointer of the value at fault |
 | Frame, anchor or state-clause body defect | IR | the cause tag FR-322's pairing fixes, with the node key |
 | A limit reached | IR | `Incomplete` with the limit, the consumed amount and, except for the byte budget, the pointer of the value whose charge failed |
 | Item cannot lower | IR | one of seven record kinds (`lowered`, `unsupported`, `requires_bound`, `invalid_input`, `failed`, `invalid_body`, `body_incomplete`); the last two are never produced for an admitted package |
@@ -152,8 +152,7 @@ no backing test was measured here) or gap (not true today).
   such test exists.
 - Q-2. A byte string whose `contract_version` is not `quire.checked-package/v2` refuses
   `unknown_contract_version` before any version-specific decode. Current: FR-038 Description.
-- Q-3. The recomputed `package_id` equals the wire's for every admitted package; changing any
-  byte of the preimage changes it or refuses. Current: FR-038-AC-4.
+- Q-3. An admitted package exposes its exact required `name`; a diamond over one identity admits only structurally equal complete JSON packages and refuses unequal ones with both lock paths. Planned: FR-038-AC-363 and AC-366.
 - Q-4. A domain package document whose own identity differs from the identity it is supplied under is refused `invalid_model_binding`/`wrong-model-selection`. Stated: `CheckedPackageEvidence` doc; FR-038-AC-27.
 - Q-5. Every refusal carries a pointer that resolves in the given document, except a refusal of
   the byte stream. Stated: FR-038 pointer rules; backing test not measured.
@@ -167,7 +166,7 @@ no backing test was measured here) or gap (not true today).
   flag, subsets edge, redefines edge, population node) refuses with a typed code. Current:
   FR-344, TC-222. The other two members are carried and admitted.
 - Q-9. A package QSL emits for each node family and semantic form QSL can produce is admitted
-  by the reader at the emitted `package_id` (cross-repo, runs in QSL; see Routed gaps). Gap.
+  by the reader under the emitted `name` (cross-repo, runs in QSL; see Routed gaps). Gap.
 
 ## Risks
 

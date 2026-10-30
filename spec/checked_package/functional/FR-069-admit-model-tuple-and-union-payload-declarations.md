@@ -55,13 +55,8 @@ body and dependencies, and absent `declaration`, `nominal_identity_preimage`
 and `recursion_group`. Owner recovery SHALL match the owner identity to the
 selected model row and its node identity to that row's tuple declaration.
 
-The tuple node key SHALL be re-derived through the existing closed
-`ModelDeclarationNode` preimage with semantic form `tuple_value_type` and that
-owner. It depends on the owner, not the position types or an alias. A tuple's
-complete type identity SHALL pair its node key with the selected model row:
-reordering positions or changing a position type changes the selected document,
-its row digest, the model-root key and package id, even when the tuple node key
-does not change. The reader SHALL use that selected document for a tuple
+The tuple node carries its authored structural id and exact selected `ModelOwner`. Reordering positions or changing a position type changes the selected document's complete typed content; the reader checks its model-root owner and position type joins independently of the tuple node id. The package name and valid declared path can remain unchanged.
+The reader SHALL use that selected document for a tuple
 position's type. A `quire.op.tuple.project` member of kind `position` SHALL
 resolve only an existing position of its named tuple declaration and derive the
 result from that position's `typeRef` under required presence and `[1, 1]`
@@ -76,9 +71,7 @@ its family is `enum` when no case has a payload and `union` when at least one
 case does. In the latter case the reader SHALL derive member order by ascending
 UTF-8 case name, arity zero for a nullary case and arity one for a payload case;
 the payload type is the case's resolved `payloadType` under required presence
-and `[1, 1]` multiplicity at position zero. Changing the payload changes the
-selected document, model-root key and package id, but not the variant
-declaration's owner-derived node key. The reader SHALL apply QSpec FR-440's
+and `[1, 1]` multiplicity at position zero. Changing the payload changes the selected document and complete package value, while the declared variant path and package name remain unchanged. The reader SHALL apply QSpec FR-440's
 `union_value`, `case`, equality and structural-leaf rules to this model union,
 including a nullary `union_value` with an empty payload and a recursive type's
 `recursion:<d>` leaf only when text is reachable. An `enum_value` SHALL refuse
@@ -91,8 +84,7 @@ including recursive declarations, without graph `recursion_group`s.
 The reader SHALL keep FR-038 and QSpec FR-322's stage order and bounded work
 charges. A malformed tuple node owner or wire shape refuses at the closed
 schema stage; a selected-document defect refuses in step 1 at the model
-selection row before graph admission; a stale tuple node key refuses at the
-derived-shape stage; and an owner referring to a different or absent kind
+selection row before graph admission; a malformed or duplicate structural id refuses at the graph stage; and an owner referring to a different or absent kind
 refuses at the owner join. Within step 1 the reader SHALL check tuples in
 document order before variants, with each tuple's duplicate ordinal,
 declaration shape, position sequence and type reference in QSpec FR-322's
@@ -113,26 +105,11 @@ encode supplied `model`/`tuple_value_type` and payload-bearing
 node's semantic form, owner, family, body, node key, source occurrence and
 selection values. The reader, not the writer, decides whether those bytes are
 admissible. The writer SHALL NOT synthesize a model document, derive missing
-positions or payloads, or rewrite the supplied package id.
+positions or payloads, or rewrite the supplied package name.
 
 The QSpec checkout named by `QUIRE_SPECIFICATION_DIR` owns
 `proposals/checked-package-v2/fixtures/positive-model-tuple-union.json` and
-`proposals/checked-package-v2/model-tuple-union-vectors.json`. IR conformance
-SHALL also read the tuple and union declaration entries of
-`node-identity-vectors.json` and the model union member entries of
-`union_member_vectors` named by QSpec FR-322. IR conformance
-SHALL read those files from that checkout, never from copies in this repo, and
-fail if they are absent or malformed. It SHALL read the vector's
-`selected_document` from that checkout as the full Semantic IR model evidence,
-derive and compare the vector's `domain_package` projection from that document,
-and recompute the full document digest using the existing canonical identity
-path. It SHALL read the published positive package through the
-production reader, and compare the observed keys and results with the vector's
-declaration, family, position, field-type, member, union-value, enum-value,
-equality, identity, application-key, recursion, intake and wire cases.
-Where a case changes a selected document or wire package, conformance SHALL
-rederive the affected package identity through the production path rather than
-trusting a fixture's stale id. The typed writer SHALL round trip the positive
+`proposals/checked-package-v2/model-tuple-union-vectors.json`. IR conformance SHALL read the current QSpec tuple and union declaration, member and application cases directly from that checkout. It SHALL read the vector's selected document as the full Semantic IR model evidence and join the declared node paths, owners, body types and member references against it. It SHALL read the published positive package through the production reader and compare observed structural ids, family, position, field-type, union-value, enum-value, equality, recursion, intake and wire outcomes with the authoritative cases. A case changing a selected document or wire package SHALL be checked as a complete structural value with its declared package name and node ids; no content-derived id is recomputed. The typed writer SHALL round trip the positive
 package through the production reader without losing tuple positions or
 variant payload types.
 
@@ -146,20 +123,20 @@ silently skipped by an in-repo fixed count or range.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-069-AC-1 | The authoritative positive model tuple and union package admits with `model`/`tuple_value_type` declarations for `Pair`, `Swap`, `Nest` and `Cell`, owner-nested position identities, ordered zero-based positions and their exact type references; no position is a graph node or source-map key. The production reader's re-derived declaration node keys equal QSpec `model-tuple-union-vectors.json` and remain unchanged across aliases. | Test |
-| FR-069-AC-2 | Changing only a tuple position type or order changes the model-owned tuple declaration's content while leaving the tuple declaration key unchanged; two named tuples of identical shape have distinct owner-derived keys. A test compares the node key and the owning package identity as the complete tuple type identity. | Test |
+| FR-069-AC-1 | The authoritative positive model tuple and union package admits with `model`/`tuple_value_type` declarations for `Pair`, `Swap`, `Nest` and `Cell`, owner-nested position identities, ordered zero-based positions and their exact type references; no position is a graph node or source-map key. The production reader preserves the declaration nodes' structural ids and checks their paths against their declared qualified names; aliases do not change those names. | Test |
+| FR-069-AC-2 | Changing only a tuple position type or order changes the model-owned tuple declaration's content while leaving the tuple declaration key unchanged; two named tuples of identical shape have distinct owner-derived keys. A test compares the declared node path and owning package name as the complete tuple type identity. | Test |
 | FR-069-AC-3 | A `quire.op.tuple.project` over a selected model tuple resolves each valid position to the published type, including a tuple or union type reference; an out-of-range position or wrong declaring tuple refuses `ill_typed`/`operator-ineligible` at the application member. An anonymous structural tuple is not accepted as that model declaration. | Test |
-| FR-069-AC-4 | A payload-free variant has family `enum`; a mixed nullary/payload variant has family `union`, case order is ascending UTF-8 name, and payload cases retain exactly one resolved position-zero type. Adding or removing the first payload changes the selected document digest, model-root key and package id without changing the variant declaration key. | Test |
+| FR-069-AC-4 | PLANNED/UNRUN (IR-1141). A payload-free variant has family enum; mixed nullary/payload variants have family union, cases sort by UTF-8 name, and payload cases retain exactly one resolved position-zero type. Adding or removing the first payload changes the selected document and complete retained model body without requiring a different structural id. | Test |
 | FR-069-AC-5 | The published `union_value`, `enum_value`, equality, case-arm and structural-leaf cases pass through the production reader: a nullary union case uses an empty-payload `union_value`; union-family `enum_value` and enum-family `union_value` refuse with the specified typed mismatch; recursive tuple/union declarations admit without a graph recursion group and their leaf walk terminates with QSpec's reachable-text rule. | Test |
 | FR-069-AC-6 | Every published `TK-01` through `TK-35` intake case and `TW-00` through `TW-26` wire case returns the exact QSpec admission or, for a refused case, code, cause and location at its specified stage, including duplicate or gapped tuple positions, absent/unsupported/unresolved position `typeRef`, illegal tuple members, unresolved/unsupported `Variant.payloadType`, malformed owner, stale tuple key and owner-kind mismatch. The `TK-11` through `TK-35` controls distinguish tuple-position `invalid_model_binding`/`malformed-declaration` from variant-payload `unsupported_construct`/`declaration-form` for native, package-bound and aliased `Rational`, `Decimal` and bare or unbounded `Text`; they admit the published bounded `Text`, floating aliases and unbounded `Bytes`/`JsonObject` cases. A document with both a tuple and variant defect reports the tuple defect first. No malformed declaration produces an admitted partial package or a panic. A newly published vector case is replayed without narrowing this criterion to these numbered cases. | Test |
-| FR-069-AC-7 | `encode_checked_package_v2` emits the supplied tuple and payload-variant nodes under the existing eight-member V2 envelope and preserves the supplied package id and selection rows. The positive typed package encodes canonically and its bytes read back with the same admitted positions, payload types, node keys and package identity; a changed supplied id is preserved by the writer and refused by the reader. | Test |
-| FR-069-AC-8 | `make conformance-qspec` loads the positive fixture, `model-tuple-union-vectors.json`, its full Semantic IR `selected_document`, the two tuple/union entries in `node-identity-vectors.json`, and the model union member entries in QSpec's `union_member_vectors` from `QUIRE_SPECIFICATION_DIR`; it compares the document's derived `domain_package` projection with the vector, hashes the full document for the selection digest, recomputes identities and runs every published tuple/union intake and wire case, including admitted controls, against production intake, key derivation and reader paths. Missing or malformed files and omitted published cases fail the run. The test does not hash only vector JSON or copy QSpec artifacts into IR. | Test, Inspection |
+| FR-069-AC-7 | `encode_checked_package_v2` emits the supplied tuple and payload-variant nodes under the QSpec closed V2 envelope and preserves the supplied package name and selection rows. The positive typed package encodes canonically and its bytes read back with the same admitted positions, payload types, structural node ids and package name; a malformed or duplicate node id is refused by the reader. | Test |
+| FR-069-AC-8 | PLANNED/UNRUN (IR-1141). make conformance-qspec loads the current positive fixture, model-tuple-union vectors and selected document directly from QUIRE_SPECIFICATION_DIR; it runs every published tuple/union intake and wire case against production intake and reader paths. Missing or malformed files and omitted cases fail. No QSpec artifact is copied into IR, and no identity hash is computed. | Test, Inspection |
 
 ## Dependencies
 
 [FR-038](./FR-038-consume-checked-package-v2.md) owns the V2 reader and refusal
 surface. [FR-051](./FR-051-encode-checked-package-v2-envelope.md) owns the
 typed envelope writer. QSpec FR-154 and FR-208 own the admitted source model;
-QSpec FR-322 owns the V2 schema, preimages, identity and vectors; QSpec FR-440
+QSpec FR-322 owns the V2 schema, structural ids and vectors; QSpec FR-440
 owns union operations. FCD owns the Semantic IR producer and QSL owns source
 intake. Their changes are separate from this IR requirement.

@@ -13,7 +13,7 @@ relationships:
 Verify FR-038-AC-12 through FR-038-AC-15: the closed `creates`/`deletes`
 entry eligibility, the `missing_declaration`/`invalid_model_binding` refusal
 split and its cause, the meaning-join-over-order and member-then-order-key
-refusal precedence, and the ascending-node-id-digest visit order across
+refusal precedence, and the ascending-structural-node-id visit order across
 multiple frame nodes. The `modifies` and `deletes_scoped` entry shapes, scopes and eligibility are
 FR-040's and TC-056's.
 

@@ -34,9 +34,9 @@ invalid selection outcomes.
    object type, and provenance. Change only reader/Codegen resource ceilings
    and fixture object membership; verify neither changes either selected
    result.
-5. Read the producer's valid retargeted and re-keyed package, where one
+5. Read the producer's valid retargeted package with updated references and retained structural ids, where one
    parameter's `semantic_type` points from the first same-type population node
-   to the second. Confirm the package identity changes while direct selection
+   to the second. Confirm the complete package value changes while its name remains the same while direct selection
    still returns the original population nodes, extents, object types, and
    source-map provenance.
 6. Verify a field's edge multiplicity only through

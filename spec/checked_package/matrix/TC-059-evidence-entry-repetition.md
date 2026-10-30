@@ -36,7 +36,7 @@ selection-row test for an insertion call.
 ### Domain documents
 
 Build distinct valid domain documents A and B. Build otherwise reader-valid
-parent package bytes selecting A under its canonical selection digest K.
+parent package bytes selecting A under its exact package name K.
 Choose sufficient finite read limits and declare any required feature. Include
 unrelated document, dependency and feature sentinels in every evidence fixture
 so atomicity checks cover the entire builder state.
@@ -48,15 +48,14 @@ so atomicity checks cover the entire builder state.
    the control, then read again and compare full results (AC-1).
 2. Store equal bytes under separate exact keys and observe later insertion
    behavior at each key independently: equal bytes succeed and distinct bytes
-   conflict with that key's exact payload. Since only the recomputed digest
-   can bind those bytes, arbitrary alternative keys need not admit a parent;
+   conflict with that key's exact payload. A document supplied under a different key does not satisfy the parent name selection;
    independent storage is proved by these builder outcomes. A document key
    string and dependency identity string also occupy separate maps (AC-1).
 3. Run A-then-B and B-then-A under K in separate fresh fixtures. Clone each
-   first-only control; require `Err(DomainDocumentConflict { digest })` with
-   `digest == K` and whole-evidence equality after conflict. Read control and
+   first-only control; require `Err(DomainDocumentConflict { identity })` with
+   `identity == K` and whole-evidence equality after conflict. Read control and
    post-conflict evidence with the same parent bytes and limits. A-first must
-   admit; B-first retains the ordinary document-content mismatch even though
+   admit; B-first retains the ordinary selected-document body or owner mismatch even though
    rejected A would admit. Match the existing reader code/location contract;
    do not assign new causes to insertion (AC-2, AC-6).
 4. Produce byte-distinct encodings of equal JSON, such as canonical and
@@ -96,14 +95,14 @@ evidence sentinels in every fixture.
 3. Run D1-then-D2 and D2-then-D1 under I. Clone each first-only control; match
    `Err(DependencyPackageConflict { identity })` with `identity == I` and
    unchanged complete evidence. Parent reading equals its first-only control:
-   D1-first admits, D2-first retains the ordinary stale-selection outcome.
+   D1-first admits, D2-first retains the ordinary reader outcome for its selected name and content.
    Exercise both public reader entrypoints with identical bytes/limits
    (AC-4, AC-6).
-4. Produce independently admitted pairs with equal `package_id` but different
-   content, one dimension per pair: valid source-map regions, diagnostics,
+4. Produce independently admitted pairs with equal package `name` but different
+   complete content, one dimension per pair: valid source-map regions, diagnostics,
    capability disposition, occurrences with matching valid source-map rows,
    and raw-source references updated consistently. Assert independent
-   admission, equal package identity and unequal full content. Run each pair
+   admission, equal package names and unequal full content. Run each pair
    in both orders under I; require exact conflict/key and unchanged complete
    evidence (AC-4). Parent dependency reading may admit either metadata
    variant, which alone is not a retention oracle. Builder variant/state

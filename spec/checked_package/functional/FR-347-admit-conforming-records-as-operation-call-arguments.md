@@ -63,7 +63,7 @@ exact comparison gives today.
 The package carries no `supertypes` member and no conversion node on the
 checked side (QSL FR-359 item 3). The ancestry of a record is the
 `supertypes` its declaration carries in the domain package document the lock
-selects, which the reader already reads, and pins by digest, for the
+selects by its declared identity, which the reader already reads, for the
 effective-field and Reference-conformance rules of FR-038 "Model-owned
 members" (FR-038-AC-29). The reader therefore decides conformance as follows
 and consults nothing else:

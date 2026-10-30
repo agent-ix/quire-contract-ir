@@ -106,8 +106,8 @@ cross-owner join.
 ### Admission and support
 
 - The bridge SHALL accept only a `Supported` classification whose authenticated
-  selection names the same package digest, declaration, definition identity and
-  revision as the admitted `/2` package. It SHALL take the TL target exactly
+  selection names the same package name, declaration, definition identity and
+  version as the admitted `/2` package. It SHALL take the TL target exactly
   from that classification. An `Unsupported` classification SHALL return
   `unsupported` with every dimension the classification names and no formula,
   request or correspondence record.
@@ -149,32 +149,9 @@ cross-owner join.
   A fixed-sample mapping SHALL retain its authenticated epoch, period and unit;
   an absent required sample is `incomplete`, and a changed period or event-count
   reinterpretation is refused even where formula bytes are equal.
-- Every generated formula, trace or position history, request and mapped-result
-  artifact SHALL pass its owner's public reader before it is used. Each
-  artifact identity SHALL be computed from its own canonical bytes and SHALL
-  NOT substitute for another artifact's identity.
-- Construction SHALL be acyclic. The bridge SHALL first fix the native subject
-  identity from the admitted declaration and the correspondence *profile*
-  identity `quire.native-temporal-correspondence/v1`. It SHALL supply those
-  two exact strings as `RequestInput.subject_identity` and
-  `RequestInput.correspondence_identity` to quire-mltl FR-004, after owner-reading
-  the formula, proposition map, trace or history, clock and observation facts.
-  It SHALL then owner-read the derived request, take the SHA-256 of that
-  request's canonical bytes for `target.request`, construct the correspondence
-  record containing that digest, and only then derive the bridge-owned record
-  reference. The request SHALL NOT contain the record reference or record
-  digest, and the record reference SHALL NOT replace the request's opaque
-  correspondence profile identity. A request carrying a different profile
-  identity or a record whose `target.request` disagrees with the owner-read
-  request SHALL be refused before projection is admitted.
-- The correspondence record SHALL preserve the exact package digest,
-  declaration and clause identity, native source digest and span, selected
-  language/profile definition, model/type/predicate bindings, anchor, captures,
-  clock and observation binding, every interval, closure/history premises, TL
-  formula/profile/proposition identities and bridge definition. Its
-  bridge-owned derived reference SHALL change with every preserved-key change
-  and SHALL NOT reuse a native or TL identity. Source and bridge-definition
-  digests SHALL follow QSpec FR-201's `raw-artifact-digest` domain.
+- Every generated formula, trace or position history, request and mapped-result artifact SHALL pass its owner's public reader before use. The bridge SHALL retain each exact admitted typed owner value, its public name and version where one exists, and the selected definition references. It SHALL compute no content hash or derived identity.
+- Construction SHALL be acyclic. The bridge SHALL first take the native subject name from the admitted declaration and the correspondence profile name `quire.native-temporal-correspondence/v1`. It SHALL supply those names to quire-mltl `RequestInput`, owner-read the generated request, and construct the correspondence record with that exact admitted request value. The request SHALL NOT contain the record or a record-derived reference. A wrong subject/profile name or a request unequal to the value retained in the record SHALL refuse before projection admission.
+- The correspondence record SHALL retain the package name, declaration and clause names, selected source `{authority, identity}` and span, model/type/predicate bindings, anchor, captures, clock and observation binding, every interval, closure/history premises, the exact owner-admitted TL formula, request, trace/history and valuation values, their public versions and the bridge definition `{authority, identity}`. A change to any preserved axis SHALL change the corresponding exposed typed member. No record reference, digest or hash is produced.
 
 ### Join and strict reading
 
@@ -186,9 +163,9 @@ cross-owner join.
   decision-support identities; completeness; and supersession. Only an equal
   final pair may yield `agreement` with a Boolean. Every non-final decision
   SHALL carry no Boolean and a nonempty ordered cause set. A correction SHALL
-  retain immutable owner bytes and the exact direct predecessor.
+  retain immutable owner bytes and the exact direct predecessor value.
 - Projection and join readers SHALL reject unknown, duplicate, missing,
-  out-of-order, noncanonical or trailing fields; identity mismatches; and
+  out-of-order, noncanonical or trailing fields; name/version or typed-content mismatches; and
   cross-wired axes. A resource limit reached exactly SHALL admit; one unit over
   SHALL return `incomplete`, name the limit and setting, and expose no partial
   artifact. Work SHALL be charged before the work it pays for.
@@ -203,7 +180,7 @@ cross-owner join.
   every row the pair matches, in table order. A final `agreement` row has no
   cause, and its decision carries an empty cause set:
   The bridge SHALL first attempt each owner's reader and the projection's
-  subject, request, profile and correspondence checks. A refused owner read or
+  subject, request, profile and complete correspondence checks. A refused owner read or
   failed correspondence check SHALL become a typed refused state for the first
   row; it SHALL NOT be used as a value. Each row predicate SHALL then be
   evaluated against the same pair of resulting states, independently of earlier
@@ -214,12 +191,12 @@ cross-owner join.
 
 | Validated mapped state | Join decision | Cause |
 | --- | --- | --- |
-| either result refused, or a stale or wrong subject | `refused` / `not-compared` | `result-refused` |
+| either result refused, or a wrong subject | `refused` / `not-compared` | `result-refused` |
 | either result failed | `failed` / `not-compared` | `result-failed` |
 | a required result or producer unavailable | `unavailable` / `not-compared` | `result-unavailable` |
 | either result unsupported | `unsupported` / `not-compared` | `result-unsupported` |
 | either result incomplete | `incomplete` / `not-compared` | `result-incomplete` |
-| both results values or both pending, with unequal values or premises, contradicted deciding support, or an identity collision | `conflict` / `mismatch` | `result-mismatch` |
+| both results values or both pending, with unequal values or premises, contradicted deciding support, or conflicting complete values | `conflict` / `mismatch` | `result-mismatch` |
 | both values equal and every applicable premise and support equal | `agreement` / `equal-final`, that Boolean | none |
 | both pending under an open decision scope, equal | `agreement` / `equal-pending`, no Boolean | `result-pending` |
 
@@ -228,79 +205,32 @@ cross-owner join.
   basis, decision support, completeness and supersession SHALL be preserved,
   and omitting or mutating any of them SHALL NOT yield `agreement`.
 - A corrected pair SHALL require the strict-read prior join whose native and
-  TL source-result identities equal the two direct predecessors. A mixed
+  TL source-result values equal the two direct predecessors. A mixed
   original and corrected pair, a missing prior join or a predecessor mismatch
   SHALL be `conflict`. A correction never rewrites a prior join.
 
-### Wire
+### Correspondence value
 
-Every record below SHALL be a JSON object written in RFC 8785 canonical form
-by `quire-canonical` (ADR-013 §2): members in RFC 8785 order, integers as
-JSON numbers, digests as 64 lowercase hex characters, owner bytes as
-unpadded base64url strings, absent values as `null`. A reader SHALL reject
-any byte sequence that is not the canonical form of an admitted record.
+The bridge-owned correspondence record SHALL retain exactly the following typed axes. An encoder SHALL write admitted records in RFC 8785 canonical JSON form; a reader SHALL reject duplicate, missing, unknown, out-of-order or trailing members and noncanonical bytes. The record carries complete values and public names/versions, never a derived seal.
 
-The **correspondence record** of profile
-`quire.native-temporal-correspondence/v1` holds exactly these members:
-
-| Member | Value |
+| Axis | Retained value |
 | --- | --- |
-| `anchor` | `{binder, kind}`: `kind` `"origin"` for a whole-execution origin activation or `"trigger"` for a trigger activation (the two activation records FR-044 emits), and `binder` the trigger binder's name, `null` for `origin` |
-| `bindings` | one `{leaf, predicate, predicate_node, proposition}` per `holds` leaf in ascending leaf handle: the leaf handle, the leaf's checked predicate name, the predicate's checked node id (which fixes its parameter and result types, the type binding), and the TL proposition id |
-| `bridge` | `{definition, profile}`: the `raw-artifact-digest` of the bridge definition, and a `profile` object `{profile, selection}` serialized in RFC 8785 form as part of the record, with `selection` the `TlSelection` and its inner `profile` `"quire.native-temporal-correspondence/v1"` |
-| `captures` | one `{index, value}` per capture in declaration order, `value` the capture's canonical value |
-| `clause` | `{declaration, identity}`: the declaration index and the clause's declared name |
-| `clock` | `{name, parameters}`: the emitted clock binding name and the authenticated parameter map |
-| `closure` | `{surrounding}`: `"open"` or `"closed"` |
-| `definition` | `{identity, revision}` of the selected profile definition |
-| `history` | `"execution-origin"` or `"history-cutoff"` for a past target, `null` for a future target |
-| `intervals` | every `[a, b]` in postorder |
-| `models` | one `{alias, package}` per model binding of the unit in ascending alias: the model alias and its domain package digest |
-| `observation` | `{origin, trace}`: the trace's admitted execution-origin identity (`null` when the declaration does not activate on a whole-execution origin) and the observation identity, the SHA-256 of the RFC 8785 encoding of the trace's clock binding, positions and valuation maps |
-| `package` | the `/2` package digest |
-| `source` | `{digest, span}`: the native source's `raw-artifact-digest` and the clause's `[start, end]` byte span |
-| `target` | `{formula, formula_edition, profile, request, trace, trace_contract, valuation}`: the digests of the generated formula, request, trace or history and valuation cells (each the SHA-256 of that artifact's own canonical bytes), the formula edition, the TL target profile and the trace or history contract |
+| `package` | the strict `/2` package `name` and version |
+| `source` | the selected `{authority, identity}` reference and exact clause span |
+| `declaration` | declaration index and declared clause name |
+| `models` | each selected model alias and package name in alias order |
+| `bindings` | each leaf handle, predicate name, structural predicate node id and TL proposition id |
+| `anchor`, `captures`, `clock`, `observation` | the exact admitted activation, capture values, clock parameters and observation value |
+| `intervals`, `closure`, `history` | ordered interval pairs and separate surrounding/history facts |
+| `definition`, `bridge` | selected profile and bridge definition `{authority, identity}` pairs, profile names and versions |
+| `target` | the complete owner-admitted formula, request, trace or position history, valuation and mapped-result values with their public names/versions |
 
-### Canonical record vector for FR-350-AC-7
-
-The next code block contains one complete RFC 8785 record preimage as a single
-UTF-8 line. The line has **1429 bytes excluding the Markdown line ending**.
-Its 64-zero digests are fixture identity values for the byte-level record and
-reference check; owner-admission controls in AC-1 use actual owner-read artifact
-bytes and their recomputed digests. The admitted execution-origin identity is `origin-1`, matching the
-whole-execution `anchor.kind`, and the capture value is exactly 54 ASCII `v`
-characters. SHA-256 of the exact line is
-`af94ffed6cf2056cac630658154340137d6380fe6cf095a8a6511ca75aeb4213`.
-
-```json
-{"anchor":{"binder":null,"kind":"origin"},"bindings":[{"leaf":0,"predicate":"p","predicate_node":0,"proposition":0}],"bridge":{"definition":"0000000000000000000000000000000000000000000000000000000000000000","profile":{"profile":"quire.native-temporal-correspondence/v1","selection":{"profile":"mltl.closed-trace/v1"}}},"captures":[{"index":0,"value":"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"}],"clause":{"declaration":0,"identity":"c"},"clock":{"name":"event-position","parameters":{}},"closure":{"surrounding":"closed"},"definition":{"identity":"d","revision":"r"},"history":null,"intervals":[[0,1]],"models":[{"alias":"m","package":"0000000000000000000000000000000000000000000000000000000000000000"}],"observation":{"origin":"origin-1","trace":"0000000000000000000000000000000000000000000000000000000000000000"},"package":"0000000000000000000000000000000000000000000000000000000000000000","source":{"digest":"0000000000000000000000000000000000000000000000000000000000000000","span":[0,1]},"target":{"formula":"0000000000000000000000000000000000000000000000000000000000000000","formula_edition":"formula-v1","profile":"mltl.closed-trace/v1","request":"0000000000000000000000000000000000000000000000000000000000000000","trace":"0000000000000000000000000000000000000000000000000000000000000000","trace_contract":"mltl.closed-trace/v1","valuation":"0000000000000000000000000000000000000000000000000000000000000000"}}
-```
-
-Starting from that exact record, change **only** the named member below,
-re-encode in RFC 8785 form, and compare SHA-256 of the resulting canonical
-bytes. Each mutation remains 1429 bytes:
-
-| Mutation | SHA-256 |
-| --- | --- |
-| `intervals` from `[[0,1]]` to `[[0,2]]` | `8dbb7a21dd50d966b9912e59dfca7816f3ebda90c5591fbc2df9a2f5544efba7` |
-| `models[0].package` from 64 `0`s to 64 `a`s | `f736217757ea655a077861685a257707d92e872b83101fdc5d1437d062a6e4d2` |
-| `bridge.definition` from 64 `0`s to 64 `b`s | `9b5860c947e2237d5bacda3fe3da0e0b110e8ae7d7fb80862229e3234390ef7a` |
-
-The **correspondence reference** SHALL be `{domain, digest}` with `domain`
-`"quire.native-temporal-correspondence/v1"` and `digest` the SHA-256 of the
-record's canonical bytes. The **projection** (`quire.native-temporal-projection/v1`)
-holds `correspondence` (the record), `formula` and `request` (the owner bytes),
-`reference` and `version` `"quire.native-temporal-projection/v1"`. The **join** (`quire.native-temporal-join/v1`)
-holds `causes` (in table order), `decision`, `native` and `tl` (the digests of
-the two results' bytes), `outcome`, `predecessor` (the prior join's
-reference, or `null`), `reference` (the correspondence reference), `value`
-(`true`, `false` or `null`) and `version` `"quire.native-temporal-join/v1"`.
+The projection SHALL hold this record and the complete owner-admitted formula and request values. The join SHALL hold its decision, ordered causes, native and TL result values, complete correspondence record, optional exact direct predecessor value, optional Boolean and public join version. A previous join is supplied and checked as an admitted value; no reference or digest substitutes for it. Structural equality compares all members and array order.
 
 ### Strict reading and limits
 
 `read_tl_projection` and `read_tl_join` SHALL reject unknown, duplicate,
-missing or out-of-order members, noncanonical or trailing bytes, identity or
-digest mismatches and cross-wired positions, scopes or clocks.
+missing or out-of-order members, noncanonical or trailing bytes, name/version or typed-content mismatches and cross-wired positions, scopes or clocks.
 
 `TlLimits` SHALL hold seven caller-configured limits, each a request setting
 with the published default below (QSpec FR-461). Each is charged before the
@@ -338,11 +268,11 @@ an exact and one-over boundary without constructing a default-sized artifact.
 |---|---|---|
 | FR-350-AC-1 | Given a strict `/2` package and QSL `Supported` classification, the projection takes its target from the classification, emits the required formula and valuation request for each supported row, and each generated artifact is admitted by its selected owner reader. Each bounded past operator defined by QSpec FR-092 is projected alone under both false-extension profiles with origin-complete history; a history cutoff yields `incomplete`/`missing-history`. | Test (TC-461) |
 | FR-350-AC-2 | Timestamped-event, mixed past-and-future, infinite-trace unbounded and other unsupported classifications return `unsupported` with every named dimension and no formula, request or correspondence record; a finite-window-to-closed-trace equivalence claim is refused. | Test (TC-461) |
-| FR-350-AC-3 | Mutating any preserved source/span, package/declaration/profile, model/type/predicate binding, anchor, capture, clock, observation, interval, closure/history, TL selection or bridge-definition axis changes the bridge-owned correspondence reference and identifies that axis; a non-Boolean leaf never becomes a proposition. | Test (TC-461) |
+| FR-350-AC-3 | Mutating any preserved source/span, package/declaration/profile, model/type/predicate binding, anchor, capture, clock, observation, interval, closure/history, TL selection or bridge-definition axis changes the corresponding exposed typed member and identifies that axis; a non-Boolean leaf never becomes a proposition. | Test (TC-461) |
 | FR-350-AC-4 | Fixed-sample projection retains epoch, period and unit, refuses a changed period or event-count reinterpretation with equal formula bytes, and reports a missing required sample as `incomplete`. | Test (TC-461) |
-| FR-350-AC-5 | Every join decision row is reached; only an equal-final pair carries a Boolean; every non-final pair preserves its causes and all result axes, and a correction is accepted only with its exact direct predecessor. | Test (TC-461) |
+| FR-350-AC-5 | Every join decision row is reached; only an equal-final pair carries a Boolean; every non-final pair preserves its causes and all result axes, and a correction is accepted only with its exact direct predecessor value. | Test (TC-461) |
 | FR-350-AC-6 | Missing, duplicate, swapped, replayed or foreign valuation cells; owner-reader rejection; malformed or noncanonical projection/join data; and each one-over resource limit return one deterministic non-admitted/incomplete result, with no partial artifact and no evaluator invocation. Exact limits admit. | Test (TC-461) |
-| FR-350-AC-7 | The canonical correspondence record matches the complete field inventory and fixed 1429-byte vector specified in the Wire section; interval, model binding and bridge-definition mutations match the stated digests; reordered or whitespace-altered bytes are refused. | Test (TC-461) |
+| FR-350-AC-7 | Withdrawn by the IR-1141 no-hash decision under QSpec #517/#518: the fixed 1429-byte vector, SHA-256 known answers and derived correspondence reference are removed. This id is retained and never reused. | Withdrawn |
 | FR-350-AC-8 | Each `TlLimits` setting uses its stated default, charges before work, admits exactly at the setting and returns `incomplete` one past it with `limit-reached{limit, value, setting}` and no partial artifact. | Test (TC-461) |
 
 ## Dependencies
@@ -354,7 +284,7 @@ an exact and one-over boundary without constructing a default-sized artifact.
   result.
 - QSpec FR-095 owns the correspondence meaning; FR-092 owns the complete
   bounded-past operator semantics; FR-091 owns future false-extension rules;
-  FR-201 owns the raw-artifact digest domain.
+  FR-322 owns structural package names and source references.
 - Quire Observation FR-004 supplies selected observation views.
 - tl-syntax FR-011/FR-012/FR-013/FR-014, tl-mltl FR-018 and quire-mltl
   FR-001/FR-003 supply the public formula, history/trace, request and mapped

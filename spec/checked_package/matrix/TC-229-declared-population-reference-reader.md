@@ -18,9 +18,8 @@ copy no upstream fixture, schema or binary into this repository.
 
 ## Test Procedure
 
-1. Read QSpec's `model-owner-form-vectors.json` for the `counters` and
-   `archive` P7/P8 preimages and compare them with the production declaration
-   key function. Build selected documents with population entries and admit
+1. Read QSpec's current `model-owner-form-vectors.json` for the `counters` and
+   `archive` P7/P8 structural nodes and compare their complete bodies and ids with the admitted graph. Build selected documents with population entries and admit
    self-typed `relation`/`population` nodes through the public reader. Omit the
    node owner and projection owner separately; change fixed members and owner
    strings separately.

@@ -1,6 +1,6 @@
 ---
 id: TC-455
-title: "Checked-package V2 producer memory and identity"
+title: "Checked-package V2 producer memory and structural output"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/NFR-006
@@ -8,13 +8,13 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-051
     type: references
 ---
-# TC-455: Checked-package V2 producer memory and identity
+# TC-455: Checked-package V2 producer memory and structural output
 
 ## Description
 
 Measure the integrated QSL producer's V2 emission memory on a fixed checked
 source, and verify that removing retained projection-body copies leaves the
-canonical envelope and `package_id` exactly unchanged. The Contract IR API
+complete canonical envelope and package name unchanged. The Contract IR API
 portion alone does not satisfy the integrated memory result until QSL adopts it.
 
 ## Test Procedure
@@ -33,7 +33,7 @@ and graph-node count.
 Immediately before `emit_checked`, record `/proc/self/status` `VmRSS` and start
 a 1 ms RSS sampler. Stop it when emission returns. Record the maximum sampled
 RSS minus the starting RSS, the process high-water RSS, emitted byte length,
-elapsed emission time, complete emitted bytes, and typed `package_id`. Run the
+elapsed emission time, complete emitted bytes, and typed package `name`. Run the
 baseline and changed producer three times each as separate release-profile
 processes on the same host, allocator and Rust toolchain. Compare the medians
 of incremental peak RSS and report the median emission time for each path;
@@ -42,7 +42,7 @@ outside the measurement window. Use the baseline's exact bytes only as a
 temporary comparison oracle, not as a repository copy of another artifact.
 
 For the candidate path, compare the complete canonical bytes byte-for-byte
-with baseline output and compare the typed `package_id`. Read both envelopes
+with baseline output and compare the typed package `name`. Read both envelopes
 with the existing V2 reader and the same valid evidence. Inspect the IR and
 QSL producer paths for a retained per-node `Value::clone` or a collected owned
 identity projection. Exercise one body with nested values and a canonical
@@ -51,7 +51,7 @@ retains the existing error and no-partial-bytes behavior.
 
 ## Expected Results
 
-All six fresh processes emit the same canonical bytes and `package_id`; both
+All six fresh processes emit the same canonical bytes and package `name`; both
 versions' bytes are reader-admitted. Once QSL adopts the borrowed view, the
 changed producer's median incremental peak RSS is at least 65,536 KiB (64 MiB)
 below the freshly remeasured owned-projection baseline median on the same host.
@@ -61,8 +61,6 @@ an 84,432 KiB (24.90%) reduction; this demonstrates the target with the trial
 patch but does not complete QSL-owned adoption. The candidate's median emission
 time was 1,544 ms versus the baseline's 1,137 ms, a 35.8% slowdown disclosed
 without a time bound.
-The fixed source emits 40,631,408 bytes with typed `package_id`
-`ecc79a978fb59047c27e588cb17ccce1d0385eaa8427817cc4591fe1e0dc079a`.
 No second owned body is retained per projected node, and canonical refusal
 returns no bytes. A fresh baseline measurement is made before the candidate's
 result is evaluated.

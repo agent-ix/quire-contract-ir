@@ -80,19 +80,13 @@ The reader SHALL retain exactly one `claim` occurrence per checked source
 declaration of the transition, including each occurrence ordinal and source
 region. Equal checked transition content MAY share one node while retaining
 distinct occurrences. The node SHALL have no declaration, and its exact
-dependencies SHALL be the unique digest-ascending set of body-reference
-targets: the anchor, subject, every input, present `pre` and `post`. The
-application-node preimage SHALL include the operator, identity, selected
-profile-law definition, member operator, five bindings and Boolean result
-type; the package identity projection SHALL include the complete body and
-omit occurrences. Re-keying an operation, subject, input, clause or profile
-selection SHALL change the affected transition key and package identity;
-changing only source spelling, region or occurrence count SHALL NOT.
+dependencies SHALL be the unique structurally ordered set of body-reference
+targets: the anchor, subject, every input, present `pre` and `post`. The complete node body SHALL retain the operator, selected profile law, member operator, five bindings and Boolean result type. Source occurrences are not body members. A valid body edit can retain the same structural id; the reader checks placement, references and typing independently.
 
-After strict wire, graph-shape, declaration, stale-key and frame checks,
+After strict wire, graph-shape, declaration and frame checks,
 the state step SHALL check placement of transition applications before anchor
 checks, then every anchor, every state clause and every transition in their
-respective ascending node-id digest order. For each transition, the reader SHALL
+respective structural node-id order. For each transition, the reader SHALL
 check the `anchor`, `subject`, `inputs`, `pre` and `post`, then uniqueness of
 `(anchor, subject)`, in that order. The reader SHALL refuse missing declared
 targets as `missing_declaration`/`missing-name` at the target; wrong
@@ -123,9 +117,9 @@ infer a source claim, add a point, erase a point or substitute a sidecar value.
 | FR-067-AC-1 | The reader admits the published QSpec TC-233 `XT-01` Boolean `Switch.set(flag: Boolean)` transition under an authentic selected `acme/orders` model, retaining its no-point anchor, required Boolean `on` subject, ordered `flag` input, `flag || on` precondition, `on` postcondition, one selected `protocol_profile` law and Boolean type. A package with a point-bearing pre/post clause anchor and a distinct no-point transition anchor also admits. | Test |
 | FR-067-AC-2 | QSpec TC-233 `XT-02` through `XT-07`, `XT-16` and `XT-18` produce their published schema, `malformed_wire`, `operation-member-mismatch`, placement or unselected-law outcomes; no malformed transition is accepted as another form or a generic term. A nested transition application refuses at the nested application, and a root application on another node refuses at that node before anchor checks. | Test |
 | FR-067-AC-3 | QSpec TC-233 `XT-10` through `XT-15` independently refuse wrong anchor, unmodified or misbound subject, Integer or optional Boolean subject, wrong or misordered inputs, wrong clause, and duplicate `(anchor, subject)` with FR-341's first code, cause and locus. A valid required Boolean subject and declared-order Boolean inputs admit. | Test |
-| FR-067-AC-4 | With two independent defects, strict wire, graph/dependency, selected-declaration and stale-key checks outrank frame; frame outranks state; within state, transition placement outranks anchor, anchor outranks clause, and clause outranks transition. For two transition defects, ascending node-id digest order wins; within one transition, anchor, subject, inputs, clauses and uniqueness decide the first refusal. The operation-catalog law/member/type checks follow state. | Test |
-| FR-067-AC-5 | QSpec TC-233 `XT-08` and `XT-09` retain the published identity distinction: changing the anchor's operation rekeys anchor, clauses, transition and package; moving only a source region changes none of their identities. Independently changing the field, an input, `pre`, `post` or selected profile rekeys the affected transition and package. Retaining an old node key after a body change refuses `invalid_package`/`stale-node-key` before state checks. | Test |
-| FR-067-AC-6 | The public typed reader returns each `claim` occurrence and its original source region/ordinal; equal-content source claims share a transition node while preserving separate occurrences. A non-`claim` occurrence fails the published closed form. A public typed write/read/read of the admitted transition preserves the five bindings, exact dependency set, point/no-point anchors, occurrences, node keys and package identity without parsing an untyped JSON body. | Test |
+| FR-067-AC-4 | With two independent defects, strict wire, graph/dependency, selected-declaration checks outrank frame; frame outranks state; within state, transition placement outranks anchor, anchor outranks clause, and clause outranks transition. For two transition defects, structural node-id order wins; within one transition, anchor, subject, inputs, clauses and uniqueness decide the first refusal. The operation-catalog law/member/type checks follow state. | Test |
+| FR-067-AC-5 | Withdrawn by the IR-1141 structural-identity decision under QSpec #517: the reader does not recompute identity from body content or refuse a retained structural id solely because a valid body changed. This id is retained and never reused. | Withdrawn |
+| FR-067-AC-6 | The public typed reader returns each `claim` occurrence and its original source region/ordinal; equal-content source claims share a transition node while preserving separate occurrences. A non-`claim` occurrence fails the published closed form. A public typed write/read/read of the admitted transition preserves the five bindings, exact dependency set, point/no-point anchors, occurrences, structural node ids and package name without parsing an untyped JSON body. | Test |
 | FR-067-AC-7 | IR-owned tests use the authoritative QSpec TC-233 transition package and mutation definitions directly from the selected QSpec checkout, and a QSL-1163-authored source/claim when available; they copy no QSpec or QSL schema, fixture or binary into IR. The QSL-authored positive case exposes pre-state Boolean inputs, post-state Boolean result and actual transition subject through the public IR carrier. | Test |
 
 ## Dependencies
