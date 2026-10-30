@@ -1158,8 +1158,8 @@ impl Encode for CheckedTerm {
                 }
                 writer.end_array()?;
             }
-            Self::NominalBody(body) => match body.as_ref() {
-                super::identity::NominalBody::Enum { ordered, members } => {
+            Self::NominalBody(body) => match body.kind() {
+                super::identity::NominalBodyKind::Enum { ordered, members } => {
                     writer.name("term")?;
                     writer.string("enum")?;
                     writer.name("ordered")?;
@@ -1167,7 +1167,7 @@ impl Encode for CheckedTerm {
                     writer.name("members")?;
                     writer.serialize(members)?;
                 }
-                super::identity::NominalBody::Dimension { terms } => {
+                super::identity::NominalBodyKind::Dimension { terms } => {
                     writer.name("term")?;
                     writer.string("dimension")?;
                     writer.name("terms")?;
@@ -1182,7 +1182,7 @@ impl Encode for CheckedTerm {
                     }
                     writer.end_array()?;
                 }
-                super::identity::NominalBody::Unit {
+                super::identity::NominalBodyKind::Unit {
                     dimension_node_id,
                     target_unit_node_id,
                     scale,
@@ -1203,7 +1203,7 @@ impl Encode for CheckedTerm {
                     writer.name("offset")?;
                     encode_rational(offset, writer)?;
                 }
-                super::identity::NominalBody::DimensionEquivalence {
+                super::identity::NominalBodyKind::DimensionEquivalence {
                     dimension_node_ids,
                     root_scale,
                 } => {

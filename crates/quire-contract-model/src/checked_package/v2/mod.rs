@@ -1933,9 +1933,9 @@ fn validate_body(
             member: ReferenceMember::Target,
             is_body_root: false,
         };
-        match &nominal {
-            identity::NominalBody::Enum { .. } => {}
-            identity::NominalBody::Dimension { terms } => {
+        match nominal.kind() {
+            identity::NominalBodyKind::Enum { .. } => {}
+            identity::NominalBodyKind::Dimension { terms } => {
                 for (index, term) in terms.iter().enumerate() {
                     visit(
                         &term.dimension_node_id,
@@ -1944,7 +1944,7 @@ fn validate_body(
                     );
                 }
             }
-            identity::NominalBody::Unit {
+            identity::NominalBodyKind::Unit {
                 dimension_node_id,
                 target_unit_node_id,
                 ..
@@ -1954,7 +1954,7 @@ fn validate_body(
                     visit(target, site, &at.key("target_unit_node_id"));
                 }
             }
-            identity::NominalBody::DimensionEquivalence {
+            identity::NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids, ..
             } => {
                 for (index, id) in dimension_node_ids.iter().enumerate() {
@@ -1962,11 +1962,11 @@ fn validate_body(
                 }
             }
         }
-        return Ok(1 + match nominal {
-            identity::NominalBody::Dimension { terms } => terms.len() as u64,
-            identity::NominalBody::DimensionEquivalence { .. } => 2,
-            identity::NominalBody::Unit { .. } => 2,
-            identity::NominalBody::Enum { members, .. } => members.len() as u64,
+        return Ok(1 + match nominal.kind() {
+            identity::NominalBodyKind::Dimension { terms } => terms.len() as u64,
+            identity::NominalBodyKind::DimensionEquivalence { .. } => 2,
+            identity::NominalBodyKind::Unit { .. } => 2,
+            identity::NominalBodyKind::Enum { members, .. } => members.len() as u64,
         });
     }
     if kind == CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)
