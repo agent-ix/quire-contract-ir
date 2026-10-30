@@ -6,7 +6,6 @@
 //! then set `QUIRE_SPEC_LANGUAGE_DIR` and `QSL_EMIT_CHECKED_V2_BIN`.
 
 use ix_trace_rs::trace;
-use quire_canonical::Limits;
 use quire_contract_model::{
     ApplicationOperator, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageEvidence,
     CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
@@ -96,34 +95,6 @@ fn admit(bytes: &[u8], model: &[u8]) -> CheckedPackageV2 {
     }
 }
 
-fn rename_operation(value: &mut Value) {
-    match value {
-        Value::String(text) if text == "set" => *text = "adjust".to_owned(),
-        Value::String(text) => *text = text.replace("/Switch/set", "/Switch/adjust"),
-        Value::Array(items) => items.iter_mut().for_each(rename_operation),
-        Value::Object(members) => members.values_mut().for_each(rename_operation),
-        _ => {}
-    }
-}
-
-fn adjusted_switch_model(model_bytes: &[u8]) -> Vec<u8> {
-    let mut model: Value = serde_json::from_slice(model_bytes).expect("QSL Switch model");
-    let switch = model["types"]
-        .as_array_mut()
-        .expect("model types")
-        .iter_mut()
-        .find(|kind| kind["displayName"] == "Switch")
-        .expect("Switch type");
-    let operation = switch["operations"]
-        .as_array_mut()
-        .expect("Switch operations")
-        .iter_mut()
-        .find(|operation| operation["name"] == "set")
-        .expect("Switch.set");
-    rename_operation(operation);
-    quire_canonical::to_vec(&model, Limits::new(1 << 24)).expect("adjusted model canonical bytes")
-}
-
 fn target(term: &CheckedTerm) -> &CheckedNodeId {
     let CheckedTerm::Reference { target } = term else {
         panic!("expected a typed node reference: {term:?}");
@@ -155,22 +126,19 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
     let original_model =
         std::fs::read(qsl.join("examples/switch-transition/switch.semantic-ir.json"))
             .expect("QSL Switch model");
-    let model_bytes = adjusted_switch_model(&original_model);
-    let adjusted = original.replace("::set", "::adjust");
     let source = format!(
-        "{adjusted}\ninvariant Init using v on M::Switch at current {{ true }}\n\
-         constraint Handle using v on M::Switch at current {{ true }}\n\
-         pre Q0 using v on M::Switch::adjust {{ true }}\n"
+        "{original}\ninvariant Init using v on M::Switch at current {{ true }}\n\
+         constraint Handle using v on M::Switch at current {{ true }}\n"
     );
     let source_path = scratch.write("four-points.native", source);
-    let model_path = scratch.write("adjusted-switch.semantic-ir.json", &model_bytes);
     let points = scratch.write(
         "points.json",
         serde_json::to_vec(&json!({
             "Init": {"kind": "initialization", "name": "startup"},
             "Handle": {"kind": "handler", "name": "tick"},
-            "Q0": {"kind": "pre", "operation": "adjust"},
-            "Q1": {"kind": "post", "operation": "adjust"},
+            "P1": {"kind": "pre", "operation": "adjust"},
+            "Q2": {"kind": "post", "operation": "adjust"},
+            "Q1": {"kind": "post", "operation": "set"},
         }))
         .expect("points JSON"),
     );
@@ -178,11 +146,9 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
         .strip_prefix(&qsl)
         .expect("QSL-relative source path");
     let points_arg = points.strip_prefix(&qsl).expect("QSL-relative points path");
-    let model_arg = model_path
-        .strip_prefix(&qsl)
-        .expect("QSL-relative model path");
+    let model_arg = Path::new("examples/switch-transition/switch.semantic-ir.json");
     let bytes = emit(&qsl, &binary, source_arg, model_arg, Some(points_arg));
-    let package = admit(&bytes, &model_bytes);
+    let package = admit(&bytes, &original_model);
     drop(bytes);
 
     let expected = [
@@ -214,7 +180,11 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
                 .expect("producer point through public accessor"),
         );
     }
-    assert_eq!(observed.len(), expected.len(), "one claim per point kind");
+    assert_eq!(
+        observed.len(),
+        expected.len() + 1,
+        "one claim per source clause"
+    );
     for point in expected {
         assert_eq!(
             observed.iter().filter(|actual| **actual == point).count(),
@@ -222,6 +192,19 @@ fn qsl_four_execution_points_read_back_through_public_accessor() {
             "each point kind and exact name occurs once: {point:?}"
         );
     }
+    assert_eq!(
+        observed
+            .iter()
+            .filter(|point| {
+                **point
+                    == ExecutionPoint::Post {
+                        operation: ExecutionPointName::new("set").expect("operation name"),
+                    }
+            })
+            .count(),
+        1,
+        "QSL's original Switch.set clause also remains bound"
+    );
 }
 
 /// QSL's Switch source contributes an actual transition claim. Its public
