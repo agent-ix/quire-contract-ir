@@ -226,12 +226,10 @@ fn tc_048_refusal_pointers_escape_member_names_and_resolve() {
         assert_eq!(mutated.pointer(place), Some(&json!(1)), "{name}");
     }
 
-    // An unknown member that happens to be named like the typed nominal
-    // preimage is still just an unknown member at that key: only the two
-    // positions the wire types a preimage at are ever looked inside.
+    // Unknown members in both closed wire objects refuse at their own key.
     for place in [
-        "/capability_report/0/nominal_identity_preimage",
-        "/lock/nominal_identity_preimage",
+        "/capability_report/0/unrecognized_claim",
+        "/lock/unrecognized_claim",
     ] {
         let mut mutated = base.clone();
         let (parent, key) = place.rsplit_once('/').expect("member pointer");
@@ -514,11 +512,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         (
             "dangling body reference",
             Box::new(|v| {
-                // Not "9".repeat(64): that digest now collides with the
-                // fixture's own real node 23 (systems_interface/Flowable).
-                v["semantic_graph"]["nodes"][4]["body"]["target"]["digest"] =
-                    json!("0123456789abcdef".repeat(4));
-                checked_package::mint_ungrouped_structural_keys(v);
+                v["semantic_graph"]["nodes"][4]["body"]["target"] = node_id("missing/body-target");
                 refresh_identity(v);
             }),
             refusal(
@@ -529,7 +523,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         (
             "dangling dependency",
             Box::new(|v| {
-                v["semantic_graph"]["nodes"][1]["dependencies"] = json!([{"domain":"quire.checked-semantic-node/v1","digest":"0123456789abcdef".repeat(4)}]);
+                v["semantic_graph"]["nodes"][1]["dependencies"] =
+                    json!([node_id("missing/dependency")]);
                 refresh_identity(v);
             }),
             refusal(
@@ -583,7 +578,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             }),
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "/semantic_graph/nodes/3",
+                "/semantic_graph/nodes/6/recursion_group",
             ),
         ),
         (
@@ -631,7 +626,6 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         changed["semantic_graph"]["nodes"][3]["dependencies"] = json!([integer_type]);
         changed["semantic_graph"]["nodes"][3]["body"] =
             json!({"term":"literal","type":integer_type,"value_kind":"integer","value":literal});
-        checked_package::mint_ungrouped_structural_keys(&mut changed);
         refresh_identity(&mut changed);
         changed
     });
@@ -676,8 +670,6 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     grouped["semantic_graph"]["nodes"][6]["dependencies"] = json!([first]);
     grouped["semantic_graph"]["nodes"][3]["recursion_group"] = json!("pair");
     grouped["semantic_graph"]["nodes"][6]["recursion_group"] = json!("pair");
-    checked_package::mint_grouped_structural_keys(&mut grouped);
-    checked_package::mint_ungrouped_structural_keys(&mut grouped);
     checked_package::settle(&mut grouped);
     admitted(&grouped);
 
@@ -722,11 +714,9 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
         edges: 2,
         occurrences: 8,
         diagnostics: 1,
-        // Terms 4 + nominal 11 + graph edges 5 + diagnostic detail 1.
-        // Graph edges is 5, not 4: node 0's body now carries a required
-        // `literal.type` that (like its `semantic_type`) self-references
-        // node 0, adding one more body-target edge into the Tarjan walk.
-        work: 21,
+        // The current nominal fixture consumes 26 units of reader work,
+        // including graph and diagnostic validation.
+        work: 26,
     };
     match CheckedPackageV2::read(&bytes, exact, &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => {
@@ -1203,7 +1193,7 @@ fn tc_048_a_model_root_owner_is_exactly_kind_and_identity() {
         .expect("root");
     let at = format!("/semantic_graph/nodes/{root}/owner");
     let evidence = evidence_for(&base);
-    for member in ["digest", "version"] {
+    for member in ["authority", "version"] {
         let mut extra = base.clone();
         extra["semantic_graph"]["nodes"][root]["owner"][member] = json!("1");
         refresh_identity(&mut extra);
@@ -1222,10 +1212,10 @@ fn tc_048_a_model_root_owner_is_exactly_kind_and_identity() {
             "/lock/model_selections"
         )
     );
-    let mut preimage_member = base;
-    preimage_member["identity_preimage"]["model_selections"] = json!([]);
+    let mut retired_identity_member = base;
+    retired_identity_member["identity_preimage"] = json!({});
     assert_eq!(
-        refused(&preimage_member, &evidence),
+        refused(&retired_identity_member, &evidence),
         refusal(
             CheckedPackageRefusalCode::UnknownMember,
             "/identity_preimage"
@@ -1564,18 +1554,11 @@ fn tc_048_self_typed_literal_root_is_exempt_but_nested_self_references_refuse() 
 }
 
 /// FR-038-AC-17: deleting `declaration`, `literal.type`,
-/// `application.operation` or `application.result_type` from a single node
-/// refuses as `invalid_semantic_graph`, whether the deletion is left on the
-/// graph alone or mirrored into `identity_preimage.identity_projection`. Both
-/// scenarios hit the identical outcome, because the graph node's own
-/// member-level check — `validate_declaration` for `declaration`, the term
-/// grammar's closed member set for the other three — refuses unconditionally
-/// inside the per-node walk, before `identity_preimage.identity_projection`
-/// is ever compared against the derived projection; mirroring the deletion
-/// into the preimage changes nothing about which check fires first.
+/// `application.operation` or `application.result_type` from an otherwise
+/// admitted structural graph refuses at the missing member's graph node.
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
-fn deleting_a_declared_wire_member_refuses_after_graph_identity_is_refreshed() {
+fn deleting_a_declared_wire_member_refuses_at_its_graph_member() {
     let base = positive_operation_identities();
     // The base fixture must itself be admissible before any of the deletion
     // cases below can say anything about which member's absence refuses it:
