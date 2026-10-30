@@ -754,9 +754,9 @@ fn scalar_operand_package_named(
             continue;
         };
         let replacement = match target.as_str() {
-            Some(key) if key == "placeholder/a".to_owned() => Some(&parameter_keys[0]),
-            Some(key) if key == "placeholder/b".to_owned() => Some(&parameter_keys[1]),
-            Some(key) if key == "placeholder/c".to_owned() => Some(&literal_key),
+            Some("placeholder/a") => Some(&parameter_keys[0]),
+            Some("placeholder/b") => Some(&parameter_keys[1]),
+            Some("placeholder/c") => Some(&literal_key),
             _ => None,
         };
         if let Some(replacement) = replacement {
@@ -887,7 +887,7 @@ fn tc_048_parameter_declarations_follow_scalar_operand_order() {
         "binary",
         vec![
             argument('a'),
-            json!({"term": "literal", "type": node_id(&"scalar_type/integer".to_owned()),
+            json!({"term": "literal", "type": node_id("scalar_type/integer"),
                 "value_kind": "integer", "value": "7"}),
         ],
         Some(("0", "9")),
@@ -962,7 +962,7 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
             CheckedScalarOperandError::RangeOutOfI128 => "out of i128",
         }
     }
-    let first = node_id(&"placeholder/a".to_owned());
+    let first = node_id("placeholder/a");
     let integer = "scalar_type/integer".to_owned();
     let inline = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": "7"});
@@ -1039,7 +1039,7 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
 
     let (swapped, swapped_id) = scalar_operand_package(vec![
         json!({"term": "reference", "target": second}),
-        json!({"term": "reference", "target": node_id(&"placeholder/a".to_owned())}),
+        json!({"term": "reference", "target": node_id("placeholder/a")}),
     ]);
     let result = swapped
         .scalar_application_operands(&swapped_id, &occurrence)
@@ -1051,8 +1051,8 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
     );
     assert_ne!(result[0].child, result[1].child);
     let (forward, forward_id) = scalar_operand_package(vec![
-        json!({"term": "reference", "target": node_id(&"placeholder/a".to_owned())}),
-        json!({"term": "reference", "target": node_id(&"placeholder/b".to_owned())}),
+        json!({"term": "reference", "target": node_id("placeholder/a")}),
+        json!({"term": "reference", "target": node_id("placeholder/b")}),
     ]);
     let forward = forward
         .scalar_application_operands(&forward_id, &occurrence)
@@ -1060,10 +1060,10 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
     assert_eq!(forward[0].child, result[1].child);
     assert_eq!(forward[1].child, result[0].child);
 
-    let graph_literal = node_id(&"placeholder/c".to_owned());
+    let graph_literal = node_id("placeholder/c");
     let (package, id) = scalar_operand_package(vec![
         json!({"term": "reference", "target": graph_literal.clone()}),
-        json!({"term": "reference", "target": node_id(&"placeholder/a".to_owned())}),
+        json!({"term": "reference", "target": node_id("placeholder/a")}),
     ]);
     let graph_literal = scalar_fixture_child_id("literal", "7");
     let entries = package
@@ -1190,7 +1190,7 @@ fn tc_048_scalar_operands_refuse_unbounded_and_out_of_i128_ranges() {
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
     };
-    let first = json!({"term": "reference", "target": node_id(&"placeholder/a".to_owned())});
+    let first = json!({"term": "reference", "target": node_id("placeholder/a")});
     let integer = "scalar_type/integer".to_owned();
     let inline = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": "7"});
@@ -1235,7 +1235,7 @@ fn tc_048_scalar_operands_refuse_unbounded_and_out_of_i128_ranges() {
         "quire.op.integer.add",
         "binary",
         vec![
-            json!({"term": "reference", "target": node_id(&"placeholder/c".to_owned())}),
+            json!({"term": "reference", "target": node_id("placeholder/c")}),
             json!({"term": "literal", "type": node_id(&integer),
                 "value_kind": "integer", "value": "7"}),
         ],
@@ -2090,7 +2090,7 @@ fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type(
     let id =
         |path: &str| -> CheckedNodeId { serde_json::from_value(node_id(path)).expect("a node id") };
     assert_eq!(
-        package.model_object_fields(&id(&"placeholder/9".to_owned())),
+        package.model_object_fields(&id("placeholder/9")),
         Err(CheckedModelFieldsError::UnknownNode)
     );
     // The scalar node of the read's type.
@@ -2169,7 +2169,7 @@ fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
     // A node keyed as no selected declaration.
     let mut unselected = package;
     let stranger = "model:model:object_type:ix://acme/other/Stranger";
-    let mut stranger_node = wire_node(&stranger, "model", OBJECT, &stranger, &[], empty());
+    let mut stranger_node = wire_node(stranger, "model", OBJECT, stranger, &[], empty());
     let stranger_id = structural_id(
         "acme/other",
         vec![

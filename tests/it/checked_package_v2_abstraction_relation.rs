@@ -903,7 +903,7 @@ fn tc_225_an_occurrence_role_or_another_form_off_the_relation_refuses() {
 fn rooted_in(root: Value) -> (Value, usize) {
     let id = "relation/m";
     let node = plain(
-        &id,
+        id,
         "correspondence",
         "abstraction_relation",
         INTEGER,

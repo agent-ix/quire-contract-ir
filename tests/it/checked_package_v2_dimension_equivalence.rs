@@ -118,7 +118,8 @@ fn typed_equivalence_retains_complete_structural_node() {
 #[test]
 fn malformed_equivalence_shape_refuses_at_its_node() {
     let base = package();
-    let cases: [(fn(&mut Value), &str); 4] = [
+    type Case = (fn(&mut Value), &'static str);
+    let cases: [Case; 4] = [
         (
             |v: &mut Value| {
                 v["semantic_graph"]["nodes"][3]["body"]

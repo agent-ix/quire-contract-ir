@@ -149,9 +149,9 @@ fn tc_230_declaration_names_are_scoped_to_unit_dimension_and_type() {
         .as_array_mut()
         .unwrap()
         .push(json!({
-            "node_id": node_id(&key), "schema_version": "quire.checked-semantic-graph/v2",
+            "node_id": node_id(key), "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "composite_type", "semantic_form": "record",
-            "semantic_type": node_id(&key), "dependencies": [],
+            "semantic_type": node_id(key), "dependencies": [],
             "occurrences": [{"role": "declaration", "ordinal": 0}],
             "declaration": {"qualified_name": ["Example", "Metre"]},
             "owner": owner, "body": body,
