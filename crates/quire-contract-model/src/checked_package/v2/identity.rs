@@ -12,7 +12,9 @@ use super::{
 };
 use super::{CheckedPackageLockV2, RawCheckedPackageWireV2};
 use crate::checked_package::common::{node_pointer, ValidationFailure};
-use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
+use crate::checked_package::shared::{
+    CheckedNodeId, CheckedPackageRefusal, CheckedPackageRefusalCode, JsonPointer, RefusalFields,
+};
 use num_bigint::{BigInt, BigUint};
 use num_integer::Integer;
 use num_traits::{One, Zero};
@@ -155,11 +157,18 @@ pub struct CheckedRational {
     pub denominator: Box<str>,
 }
 
-/// The closed semantic body of a source-authored nominal node. The source
-/// owner and declared path are carried by the node, outside this body.
+/// A validated closed body of a source-authored nominal node. Constructors
+/// check body shape; the package reader checks owner and semantic joins.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct NominalBody {
+    kind: NominalBodyKind,
+}
+
+/// The closed body forms, hidden so callers cannot construct unchecked terms.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "term", rename_all = "snake_case")]
-pub enum NominalBody {
+pub(super) enum NominalBodyKind {
     /// Source enum declaration, preserving authored member order.
     Enum {
         /// Whether the enum is ordered.
@@ -193,6 +202,139 @@ pub enum NominalBody {
 }
 
 impl NominalBody {
+    /// Construct a source enum body, retaining declared case order.
+    pub fn try_enum(ordered: bool, members: Vec<Box<str>>) -> Result<Self, CheckedPackageRefusal> {
+        Self::try_kind(
+            NominalBodyKind::Enum { ordered, members },
+            JsonPointer::root(),
+        )
+    }
+
+    /// Construct a base or derived dimension body.
+    pub fn try_dimension(terms: Vec<DimensionTerm>) -> Result<Self, CheckedPackageRefusal> {
+        Self::try_kind(NominalBodyKind::Dimension { terms }, JsonPointer::root())
+    }
+
+    /// Construct a unit body; an absent target is the canonical root unit.
+    pub fn try_unit(
+        dimension_node_id: CheckedNodeId,
+        target_unit_node_id: Option<CheckedNodeId>,
+        scale: CheckedRational,
+        offset: CheckedRational,
+    ) -> Result<Self, CheckedPackageRefusal> {
+        Self::try_kind(
+            NominalBodyKind::Unit {
+                dimension_node_id,
+                target_unit_node_id,
+                scale,
+                offset,
+            },
+            JsonPointer::root(),
+        )
+    }
+
+    /// Construct an equivalence body with a positive root-scale numerator.
+    pub fn try_dimension_equivalence(
+        dimension_node_ids: [CheckedNodeId; 2],
+        root_scale: CheckedRational,
+    ) -> Result<Self, CheckedPackageRefusal> {
+        Self::try_kind(
+            NominalBodyKind::DimensionEquivalence {
+                dimension_node_ids,
+                root_scale,
+            },
+            JsonPointer::root(),
+        )
+    }
+
+    fn try_kind(kind: NominalBodyKind, at: JsonPointer) -> Result<Self, CheckedPackageRefusal> {
+        let malformed = |path| {
+            CheckedPackageRefusal::new(RefusalFields {
+                code: CheckedPackageRefusalCode::MalformedWire,
+                path: Some(path),
+                cause: None,
+                locus: None,
+                contract_version: None,
+                document_pointer: None,
+            })
+        };
+        let valid_id = |id: &CheckedNodeId, path: JsonPointer| {
+            id.is_well_formed()
+                .then_some(())
+                .ok_or_else(|| malformed(path))
+        };
+        let valid_rational = |value: &CheckedRational, path: JsonPointer, positive: bool| {
+            let numerator_ok = if positive {
+                positive_integer(&value.numerator)
+            } else {
+                integer_magnitude(&value.numerator).is_some()
+            };
+            if !numerator_ok {
+                return Err(malformed(path.clone().key("numerator")));
+            }
+            if !positive_integer(&value.denominator) {
+                return Err(malformed(path.key("denominator")));
+            }
+            Ok(())
+        };
+        match &kind {
+            NominalBodyKind::Enum { members, .. } => {
+                if members.is_empty() {
+                    return Err(malformed(at.key("members")));
+                }
+                let mut names = BTreeSet::new();
+                for (index, member) in members.iter().enumerate() {
+                    if !is_identifier(member) || !names.insert(member.as_ref()) {
+                        return Err(malformed(at.clone().key("members").index(index)));
+                    }
+                }
+            }
+            NominalBodyKind::Dimension { terms } => {
+                for (index, term) in terms.iter().enumerate() {
+                    let path = at.clone().key("terms").index(index);
+                    valid_id(
+                        &term.dimension_node_id,
+                        path.clone().key("dimension_node_id"),
+                    )?;
+                    if integer_magnitude(&term.exponent).is_none() {
+                        return Err(malformed(path.key("exponent")));
+                    }
+                }
+            }
+            NominalBodyKind::Unit {
+                dimension_node_id,
+                target_unit_node_id,
+                scale,
+                offset,
+            } => {
+                valid_id(dimension_node_id, at.clone().key("dimension_node_id"))?;
+                if let Some(target) = target_unit_node_id {
+                    valid_id(target, at.clone().key("target_unit_node_id"))?;
+                }
+                valid_rational(scale, at.clone().key("scale"), false)?;
+                valid_rational(offset, at.key("offset"), false)?;
+            }
+            NominalBodyKind::DimensionEquivalence {
+                dimension_node_ids,
+                root_scale,
+            } => {
+                for (index, id) in dimension_node_ids.iter().enumerate() {
+                    valid_id(id, at.clone().key("dimension_node_ids").index(index))?;
+                }
+                valid_rational(root_scale, at.key("root_scale"), true)?;
+            }
+        }
+        Ok(Self { kind })
+    }
+
+    pub(super) fn kind(&self) -> &NominalBodyKind {
+        &self.kind
+    }
+
+    fn into_kind(self) -> NominalBodyKind {
+        self.kind
+    }
+
     /// Decode without cloning a caller-authored nested NodeId path. The
     /// NodeId decoder itself walks those paths on the heap.
     #[ix_trace_rs::string_edge]
@@ -239,7 +381,7 @@ impl NominalBody {
                 denominator: denominator.into(),
             })
         };
-        match term {
+        let kind = match term {
             "enum" if exact_members(object, &["term", "ordered", "members"]) => {
                 let ordered = object["ordered"]
                     .as_bool()
@@ -257,7 +399,7 @@ impl NominalBody {
                         .ok_or_else(|| malformed(at.clone().key("members").index(index)))?;
                     members.push(member.into());
                 }
-                Ok(Self::Enum { ordered, members })
+                Ok(NominalBodyKind::Enum { ordered, members })
             }
             "dimension" if exact_members(object, &["term", "terms"]) => {
                 let values = object["terms"]
@@ -283,7 +425,7 @@ impl NominalBody {
                         exponent: exponent.into(),
                     });
                 }
-                Ok(Self::Dimension { terms })
+                Ok(NominalBodyKind::Dimension { terms })
             }
             "unit"
                 if exact_members(
@@ -304,7 +446,7 @@ impl NominalBody {
                             .ok_or_else(|| malformed(at.clone().key("target_unit_node_id")))?,
                     ),
                 };
-                Ok(Self::Unit {
+                Ok(NominalBodyKind::Unit {
                     dimension_node_id: node_ref("dimension_node_id")?,
                     target_unit_node_id,
                     scale: rational("scale", false)?,
@@ -318,7 +460,7 @@ impl NominalBody {
                     .as_array()
                     .filter(|items| items.len() == 2)
                     .ok_or_else(|| malformed(at.clone().key("dimension_node_ids")))?;
-                Ok(Self::DimensionEquivalence {
+                Ok(NominalBodyKind::DimensionEquivalence {
                     dimension_node_ids: [
                         CheckedNodeId::from_value(&values[0]).ok_or_else(|| {
                             malformed(at.clone().key("dimension_node_ids").index(0))
@@ -330,8 +472,9 @@ impl NominalBody {
                     root_scale: rational("root_scale", true)?,
                 })
             }
-            _ => Err(malformed(at)),
-        }
+            _ => Err(malformed(at.clone())),
+        }?;
+        Self::try_kind(kind, at).map_err(|refusal| ValidationFailure::Refused(Box::new(refusal)))
     }
 
     pub(super) fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
@@ -340,14 +483,14 @@ impl NominalBody {
                 *id = new.clone();
             }
         };
-        match self {
-            Self::Enum { .. } => {}
-            Self::Dimension { terms } => {
+        match &mut self.kind {
+            NominalBodyKind::Enum { .. } => {}
+            NominalBodyKind::Dimension { terms } => {
                 for term in terms {
                     replace(&mut term.dimension_node_id);
                 }
             }
-            Self::Unit {
+            NominalBodyKind::Unit {
                 dimension_node_id,
                 target_unit_node_id,
                 ..
@@ -357,7 +500,7 @@ impl NominalBody {
                     replace(id);
                 }
             }
-            Self::DimensionEquivalence {
+            NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids, ..
             } => {
                 for id in dimension_node_ids {
@@ -371,14 +514,14 @@ impl NominalBody {
         &'a self,
         visitor: &mut impl FnMut(&'a CheckedNodeId),
     ) {
-        match self {
-            Self::Enum { .. } => {}
-            Self::Dimension { terms } => {
+        match &self.kind {
+            NominalBodyKind::Enum { .. } => {}
+            NominalBodyKind::Dimension { terms } => {
                 for term in terms {
                     visitor(&term.dimension_node_id);
                 }
             }
-            Self::Unit {
+            NominalBodyKind::Unit {
                 dimension_node_id,
                 target_unit_node_id,
                 ..
@@ -388,7 +531,7 @@ impl NominalBody {
                     visitor(id);
                 }
             }
-            Self::DimensionEquivalence {
+            NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids, ..
             } => {
                 for id in dimension_node_ids {
@@ -673,8 +816,8 @@ fn record_from_node(
             .ok_or_else(|| invalid(at.clone().key("declaration")))
     };
     let body = || NominalBody::from_value(&node.body, at.clone().key("body"));
-    match (kind, body()?) {
-        (NominalKind::EnumDeclaration, NominalBody::Enum { ordered, members }) => {
+    match (kind, body()?.into_kind()) {
+        (NominalKind::EnumDeclaration, NominalBodyKind::Enum { ordered, members }) => {
             Ok(NominalRecord::EnumDeclaration(EnumDeclarationRecord {
                 owner: source_owner,
                 qualified_declaration: declared()?,
@@ -682,7 +825,7 @@ fn record_from_node(
                 members,
             }))
         }
-        (NominalKind::Dimension, NominalBody::Dimension { terms }) => {
+        (NominalKind::Dimension, NominalBodyKind::Dimension { terms }) => {
             Ok(NominalRecord::Dimension(DimensionRecord {
                 owner: source_owner,
                 qualified_declaration: declared()?,
@@ -691,7 +834,7 @@ fn record_from_node(
         }
         (
             NominalKind::Unit,
-            NominalBody::Unit {
+            NominalBodyKind::Unit {
                 dimension_node_id,
                 target_unit_node_id,
                 scale,
@@ -707,7 +850,7 @@ fn record_from_node(
         })),
         (
             NominalKind::DimensionEquivalence,
-            NominalBody::DimensionEquivalence {
+            NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids,
                 root_scale,
             },
@@ -1201,12 +1344,15 @@ pub(super) fn duration_unit_key(
     }) else {
         return Ok(None);
     };
-    let Ok(NominalBody::Unit {
+    let Ok(body) = NominalBody::from_value(&node.body, node_pointer(position).key("body")) else {
+        return Ok(None);
+    };
+    let NominalBodyKind::Unit {
         dimension_node_id,
         target_unit_node_id,
         scale: unit_scale,
         offset: unit_offset,
-    }) = NominalBody::from_value(&node.body, node_pointer(position).key("body"))
+    } = body.into_kind()
     else {
         return Ok(None);
     };
@@ -1228,9 +1374,11 @@ pub(super) fn duration_unit_key(
     else {
         return Ok(None);
     };
-    let Ok(NominalBody::Dimension { terms }) =
-        NominalBody::from_value(&dimension.body, node_pointer(position).key("body"))
+    let Ok(body) = NominalBody::from_value(&dimension.body, node_pointer(position).key("body"))
     else {
+        return Ok(None);
+    };
+    let NominalBodyKind::Dimension { terms } = body.into_kind() else {
         return Ok(None);
     };
     if dimension.owner != node.owner
@@ -1272,12 +1420,15 @@ pub(super) fn duration_unit_key(
         let Some(next) = nodes.iter().find(|candidate| candidate.node_id == target) else {
             return Ok(None);
         };
-        let Ok(NominalBody::Unit {
+        let Ok(body) = NominalBody::from_value(&next.body, at().key("body")) else {
+            return Ok(None);
+        };
+        let NominalBodyKind::Unit {
             dimension_node_id: next_dimension,
             target_unit_node_id: next_target,
             scale: next_scale,
             offset: next_offset,
-        }) = NominalBody::from_value(&next.body, at().key("body"))
+        } = body.into_kind()
         else {
             return Ok(None);
         };
@@ -2105,10 +2256,10 @@ mod tests {
             "dimension_node_ids":[first,second],
             "root_scale":{"numerator":"3","denominator":"2"}});
         let parsed = NominalBody::from_value(&body, JsonPointer::root()).expect("closed body");
-        let NominalBody::DimensionEquivalence {
+        let NominalBodyKind::DimensionEquivalence {
             dimension_node_ids,
             root_scale,
-        } = parsed
+        } = parsed.into_kind()
         else {
             panic!("equivalence body");
         };

@@ -750,10 +750,10 @@ fn descriptor(
             let CheckedTerm::NominalBody(body) = &node.body else {
                 return Err(malformed());
             };
-            let super::identity::NominalBody::Enum {
+            let super::identity::NominalBodyKind::Enum {
                 ordered,
                 members: names,
-            } = body.as_ref()
+            } = body.kind()
             else {
                 return Err(malformed());
             };
