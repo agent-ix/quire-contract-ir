@@ -833,7 +833,11 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
         panic!("300 levels refuse, read {result:?}");
     };
     assert_eq!(refusal.code, Code::MalformedWire);
-    assert_eq!(refusal.path, None, "the parse names no pointer");
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        None,
+        "the parse names no pointer"
+    );
 
     // The parse comes ahead of the canonical-bytes check: the same document,
     // no longer canonical, is refused as the same malformed wire.
@@ -843,7 +847,10 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
         panic!("300 levels, not canonical, refuse, read {result:?}");
     };
-    assert_eq!((refusal.code, refusal.path), (Code::MalformedWire, None));
+    assert_eq!(
+        (refusal.code, refusal.loci[0].path.clone()),
+        (Code::MalformedWire, None)
+    );
 
     // Twenty levels read, and the first value outside the grammar refuses:
     // the body is an aggregate whose member is a Group, so that Group's own
@@ -886,7 +893,10 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
         panic!("62 levels refuse, read {result:?}");
     };
-    assert_eq!((refusal.code, refusal.path), (Code::MalformedWire, None));
+    assert_eq!(
+        (refusal.code, refusal.loci[0].path.clone()),
+        (Code::MalformedWire, None)
+    );
 }
 
 /// A retired shipped projection nested near the strict parser's limit must

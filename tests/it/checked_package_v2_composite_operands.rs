@@ -889,7 +889,11 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
             );
             assert_eq!(refusal.cause, None);
             assert_eq!(
-                refusal.path.expect("nested argument pointer").as_str(),
+                refusal.loci[0]
+                    .path
+                    .clone()
+                    .expect("nested argument pointer")
+                    .as_str(),
                 format!("/semantic_graph/nodes/{nested_position}/body/arguments/1")
             );
         }
@@ -957,7 +961,11 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
                 Some(quire_contract_model::CheckedPackageRefusalCause::OperatorIneligible)
             );
             assert_eq!(
-                refusal.path.expect("argument pointer").as_str(),
+                refusal.loci[0]
+                    .path
+                    .clone()
+                    .expect("argument pointer")
+                    .as_str(),
                 format!("/semantic_graph/nodes/{position}/body/arguments/0")
             );
             assert_eq!(refusal.locus, Some(typed_node_id(&integer_application)));

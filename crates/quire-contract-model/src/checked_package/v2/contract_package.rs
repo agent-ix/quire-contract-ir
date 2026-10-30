@@ -1077,7 +1077,10 @@ impl ContractPackageWireV1 {
                     if refusal.code == CheckedPackageRefusalCode::DuplicateMember =>
                 {
                     malformed(
-                        refusal.path.unwrap_or_else(JsonPointer::root),
+                        refusal
+                            .primary_path()
+                            .cloned()
+                            .unwrap_or_else(JsonPointer::root),
                         CheckedPackageRefusalCause::DuplicateMember,
                     )
                 }
