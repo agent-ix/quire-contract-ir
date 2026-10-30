@@ -241,6 +241,9 @@ fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer
     let mut pending = vec![(source_raw(bytes, at)?, at.clone())];
     while let Some((raw, path)) = pending.pop() {
         let members: BTreeMap<&str, &RawValue> = serde_json::from_str(raw.get()).ok()?;
+        if !members.contains_key("package") || !members.contains_key("path") {
+            continue;
+        }
         if let Some(ordinal) = members.get("ordinal") {
             if serde_json::from_str::<u64>(ordinal.get())
                 .ok()
