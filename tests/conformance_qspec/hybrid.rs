@@ -141,27 +141,6 @@ fn model_position(package: &Value) -> usize {
         .expect("Tank model")
 }
 
-fn rekey_model(package: &mut Value, position: usize) {
-    let node = &package["semantic_graph"]["nodes"][position];
-    let old = node["node_id"]["digest"]
-        .as_str()
-        .expect("node id")
-        .to_owned();
-    let preimage = json!({
-        "version": "quire.structural-node/v1",
-        "node_tag": node["node_tag"],
-        "semantic_form": node["semantic_form"],
-        "semantic_type": null,
-        "declaration": node["declaration"],
-        "recursion": null,
-        "owner": node["owner"],
-        "body": node["body"],
-    });
-    let fresh = canonical_digest(&preimage);
-    rewrite_digest(package, &old, &fresh);
-    package["package_id"]["digest"] = json!(derived_with(package, None).expect("package id"));
-}
-
 fn braking_package() -> Value {
     let mut package = published_hybrid_package();
     let vectors = read_json(&proposal_dir_of(&fixtures_dir()).join("hybrid-node-vectors.json"))
@@ -186,16 +165,11 @@ fn append_published_nodes(package: &mut Value, nodes: &[Value]) {
         .as_array()
         .expect("published nodes")
         .iter()
-        .map(|node| {
-            node["node_id"]["digest"]
-                .as_str()
-                .expect("digest")
-                .to_owned()
-        })
-        .collect::<std::collections::BTreeSet<_>>();
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
     let source = package["lock"]["sources"][0].clone();
     for node in nodes {
-        if present.contains(node["node_id"]["digest"].as_str().expect("digest")) {
+        if present.contains(&node["node_id"]) {
             continue;
         }
         package["semantic_graph"]["nodes"]
@@ -242,10 +216,7 @@ fn sort_dependencies(package: &mut Value) {
         .as_array_mut()
         .expect("nodes")
     {
-        node["dependencies"]
-            .as_array_mut()
-            .expect("dependencies")
-            .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        sort_node_ids(node["dependencies"].as_array_mut().expect("dependencies"));
     }
 }
 
@@ -264,10 +235,7 @@ fn refresh_hybrid_dependencies(package: &mut Value) {
                 Value::Object(members) => {
                     if members.get("term").and_then(Value::as_str) == Some("reference") {
                         let target = &value["target"];
-                        targets.insert(
-                            target["digest"].as_str().expect("digest").to_owned(),
-                            target.clone(),
-                        );
+                        targets.insert(typed_node_id(target), target.clone());
                     } else {
                         pending.extend(members.values());
                     }
@@ -280,31 +248,41 @@ fn refresh_hybrid_dependencies(package: &mut Value) {
     }
 }
 
-fn refresh_tank_hybrid_keys(package: &mut Value) {
+fn refresh_tank_hybrid_graph(package: &mut Value) {
     refresh_hybrid_dependencies(package);
-    fixture_support::mint_ungrouped_structural_keys(package);
     sort_dependencies(package);
-    fixture_support::refresh_identity(package);
+    fixture_support::settle(package);
 }
 
 #[trace("TC-048", "FR-038-AC-312")]
 #[test]
-fn qspec_hybrid_rate_edit_propagates_identity_through_claim() {
-    let mut package = braking_package();
-    assert!(matches!(
-        read_package(&package).expect("QSpec package"),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
-    let model = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| {
-            node["node_tag"] == "hybrid"
-                && node["semantic_form"] == "hybrid_model"
-                && node["declaration"]["qualified_name"] == json!(["Braking"])
-        })
-        .expect("Braking model");
+fn qspec_hybrid_body_edit_preserves_structural_identity_and_checks_body() {
+    let mut package = published_hybrid_package();
+    let model = model_position(&package);
+    let original = package.clone();
+    let id = package["semantic_graph"]["nodes"][model]["node_id"].clone();
+    package["semantic_graph"]["nodes"][model]["body"]["members"][0]["value"]["members"][0]
+        ["members"][1]["value"]["value"] = json!("continuous");
+    assert_eq!(package["semantic_graph"]["nodes"][model]["node_id"], id);
+    assert_ne!(package, original, "body edit changes the complete package");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&package).expect("QSpec package")
+    else {
+        panic!("invalid hybrid class admitted");
+    };
+    assert_eq!(refusal.code, Code::MalformedWire);
+    assert_locus(
+        &refusal,
+        model,
+        "/body/members/0/value/members/0/members/1/value/value",
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-312")]
+#[test]
+fn qspec_hybrid_dependency_shape_precedes_body_checks() {
+    let mut package = published_hybrid_package();
+    let model = model_position(&package);
     let mode_id = package["semantic_graph"]["nodes"][model]["body"]["members"][1]["value"]
         ["members"][0]["target"]
         .clone();
@@ -313,99 +291,26 @@ fn qspec_hybrid_rate_edit_propagates_identity_through_claim() {
         .expect("nodes")
         .iter()
         .position(|node| node["node_id"] == mode_id)
-        .expect("Moving mode");
-    let claim = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| {
-            node["body"]["operation"]["identity"] == "quire.op.temporal.clause"
-                && node["body"]["arguments"][0]["target"] != Value::Null
-                && node["body"]["arguments"][1]["value"] == "model-time"
-        })
-        .expect("SlowEnough claim");
-    let before = [
-        package["semantic_graph"]["nodes"][mode]["node_id"].clone(),
-        package["semantic_graph"]["nodes"][model]["node_id"].clone(),
-        package["semantic_graph"]["nodes"][claim]["body"]["arguments"][0]["target"].clone(),
-        package["semantic_graph"]["nodes"][claim]["node_id"].clone(),
-        package["package_id"].clone(),
-    ];
-    let replacement = package["semantic_graph"]["nodes"][mode]["body"]["members"][1]["value"]
-        ["members"][1]["target"]
+        .expect("mode");
+    let repeated = package["semantic_graph"]["nodes"][mode]["body"]["members"][1]["value"]
+        ["members"][0]
         .clone();
-    package["semantic_graph"]["nodes"][mode]["body"]["members"][1]["value"]["members"][0]
-        ["target"] = replacement;
-    refresh_hybrid_dependencies(&mut package);
-    fixture_support::mint_ungrouped_structural_keys(&mut package);
-    refresh_hybrid_dependencies(&mut package);
-    fixture_support::rekey_application_node(&mut package, claim);
-    fixture_support::refresh_identity(&mut package);
-    let after = [
-        package["semantic_graph"]["nodes"][mode]["node_id"].clone(),
-        package["semantic_graph"]["nodes"][model]["node_id"].clone(),
-        package["semantic_graph"]["nodes"][claim]["body"]["arguments"][0]["target"].clone(),
-        package["semantic_graph"]["nodes"][claim]["node_id"].clone(),
-        package["package_id"].clone(),
-    ];
-    for (old, new) in before.iter().zip(&after) {
-        assert_ne!(old, new, "rate edit must propagate through the claim");
-    }
-    let read = read_package(&package).expect("QSpec package");
-    assert!(
-        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
-        "{read:?}"
-    );
-}
-
-#[trace("TC-048", "FR-038-AC-312")]
-#[test]
-fn qspec_hybrid_key_and_dependency_checks_precede_body_checks() {
-    for change in ["stale_key", "dependency_mismatch"] {
-        let mut package = published_hybrid_package();
-        let model = model_position(&package);
-        if change == "stale_key" {
-            package["semantic_graph"]["nodes"][model]["body"]["members"][0]["value"]["members"]
-                [0]["members"][1]["value"]["value"] = json!("clock");
-        } else {
-            package["semantic_graph"]["nodes"][model]["dependencies"]
-                .as_array_mut()
-                .expect("dependencies")
-                .pop();
-        }
-        fixture_support::refresh_identity(&mut package);
-        let read = read_package(&package).expect("QSpec package");
-        let CheckedPackageV2ReadResult::Refused(refusal) = read else {
-            panic!("{change} admitted")
-        };
-        assert_eq!(
-            refusal.code,
-            if change == "stale_key" {
-                Code::InvalidPackage
-            } else {
-                Code::InvalidSemanticGraph
-            },
-            "{change}: {refusal:?}"
-        );
-        assert_locus(
-            &refusal,
-            model,
-            if change == "stale_key" {
-                "/node_id"
-            } else {
-                "/dependencies"
-            },
-        );
-        assert_eq!(
-            refusal.cause,
-            if change == "stale_key" {
-                Some(Cause::StaleNodeKey)
-            } else {
-                None
-            },
-            "{change}: {refusal:?}"
-        );
-    }
+    package["semantic_graph"]["nodes"][mode]["body"]["members"][1]["value"]["members"]
+        .as_array_mut()
+        .expect("rates")
+        .push(repeated);
+    package["semantic_graph"]["nodes"][model]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .pop();
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&package).expect("QSpec package")
+    else {
+        panic!("independent graph and body defects admitted");
+    };
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph, "{refusal:?}");
+    assert_eq!(refusal.cause, None);
+    assert_locus(&refusal, model, "/dependencies");
 }
 
 #[trace("TC-048", "FR-038-AC-316")]
@@ -437,7 +342,7 @@ fn qspec_hybrid_capture_initializer_must_match_capture_type() {
         .find(|key| **key == old)
         .expect("capture dependency");
     *dependency = boolean;
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    sort_node_ids(&mut dependencies);
     let fair = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -446,9 +351,9 @@ fn qspec_hybrid_capture_initializer_must_match_capture_type() {
         .expect("fairness node");
     package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["name"] =
         json!("Halted");
-    fixture_support::rekey_application_node(&mut package, fair);
+    fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
-    fixture_support::rekey_application_node(&mut package, claim);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("QSpec package");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
@@ -481,11 +386,14 @@ fn qspec_hybrid_capture_ignores_unrelated_same_name_and_level() {
         .expect("Boolean scalar type")["node_id"]
         .clone();
     let mut unrelated = capture.clone();
-    unrelated["node_id"]["digest"] =
-        json!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    unrelated["node_id"] = fixture_support::structural_id(
+        "example",
+        vec![json!("value"), json!("parameter"), json!("unrelated")],
+        0,
+    );
     unrelated["semantic_type"] = boolean;
     append_published_nodes(&mut package, &[unrelated]);
-    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("QSpec package");
     assert!(
@@ -546,9 +454,9 @@ fn qspec_hybrid_timed_open_upper_admits_under_timed_profile() {
         &mut package["semantic_graph"]["nodes"][formula]["body"]["operation"]["member"]["interval"];
     interval["upper"] = Value::Null;
     interval["upper_end"] = json!("open");
-    fixture_support::rekey_application_node(&mut package, formula);
+    fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
-    fixture_support::rekey_application_node(&mut package, clause);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("published evidence");
     assert!(
@@ -603,7 +511,7 @@ fn qspec_hybrid_claim_refuses_clock_outside_model_vocabulary() {
         .expect("SlowEnough claim");
     package["semantic_graph"]["nodes"][position]["body"]["arguments"][1]["value"] =
         json!("wall-time");
-    fixture_support::rekey_application_node(&mut package, position);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("published evidence");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
@@ -626,10 +534,10 @@ fn qspec_hybrid_claim_refuses_unknown_fairness_mode() {
         .expect("fairness node");
     package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["name"] =
         json!("Halted");
-    fixture_support::rekey_application_node(&mut package, fair);
+    fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
     let claim_position = timed_claim_position(&package);
-    fixture_support::rekey_application_node(&mut package, claim_position);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("published evidence");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
@@ -665,23 +573,9 @@ fn qspec_hybrid_claim_refuses_trigger_typed_as_scalar() {
     let variable = package["semantic_graph"]["nodes"][model_position]["body"]["members"][0]
         ["value"]["members"][0]["members"][0]["value"]["target"]
         .clone();
-    let old_trigger = package["semantic_graph"]["nodes"][claim_position]["body"]["arguments"][2]
-        ["members"][1]["value"]["target"]
-        .clone();
     package["semantic_graph"]["nodes"][claim_position]["body"]["arguments"][2]["members"][1]
         ["value"]["target"] = variable.clone();
-    let old = old_trigger["digest"].as_str().expect("digest");
-    let new = variable["digest"].as_str().expect("digest");
-    for dependency in package["semantic_graph"]["nodes"][claim_position]["dependencies"]
-        .as_array_mut()
-        .expect("dependencies")
-    {
-        if dependency["digest"] == old {
-            dependency["digest"] = json!(new);
-        }
-    }
-    sort_dependencies(&mut package);
-    fixture_support::rekey_application_node(&mut package, claim_position);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("published evidence");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
@@ -720,11 +614,11 @@ fn qspec_hybrid_claim_refuses_holds_read_of_over_parameter() {
     let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["target"].clone();
     package["semantic_graph"]["nodes"][holds]["body"]["arguments"][0]["target"] = over.clone();
     package["semantic_graph"]["nodes"][holds]["dependencies"] = json!([over]);
-    fixture_support::rekey_application_node(&mut package, holds);
+    fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
-    fixture_support::rekey_application_node(&mut package, always);
+    fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
-    fixture_support::rekey_application_node(&mut package, clause);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("published evidence");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
@@ -756,7 +650,7 @@ fn qspec_hybrid_model_checks_duplicate_modes_and_clock_rates() {
             }
             _ => unreachable!("closed changes"),
         }
-        rekey_model(&mut package, position);
+        fixture_support::settle(&mut package);
         let read = read_package(&package).expect("published evidence");
         let CheckedPackageV2ReadResult::Refused(refusal) = read else {
             panic!("{change} must refuse: {read:?}");
@@ -808,7 +702,7 @@ fn qspec_hybrid_clock_rate_requires_exact_rational_one() {
         .iter()
         .position(|node| node["node_id"] == rate_id)
         .expect("rate");
-    refresh_tank_hybrid_keys(&mut package);
+    refresh_tank_hybrid_graph(&mut package);
     assert!(matches!(
         read_package(&package).expect("published evidence"),
         CheckedPackageV2ReadResult::Admitted(_)
@@ -817,7 +711,7 @@ fn qspec_hybrid_clock_rate_requires_exact_rational_one() {
     for value in ["2", "+1", "01"] {
         let mut changed = package.clone();
         changed["semantic_graph"]["nodes"][rate]["body"]["value"] = json!(value);
-        refresh_tank_hybrid_keys(&mut changed);
+        refresh_tank_hybrid_graph(&mut changed);
         let read = read_package(&changed).expect("published evidence");
         let CheckedPackageV2ReadResult::Refused(refusal) = read else {
             panic!("{value:?} clock rate admitted: {read:?}");
@@ -897,7 +791,7 @@ fn qspec_hybrid_model_rebuilt_key_boundaries() {
             }
             _ => unreachable!("closed changes"),
         }
-        refresh_tank_hybrid_keys(&mut package);
+        refresh_tank_hybrid_graph(&mut package);
         let read = read_package(&package).expect("published evidence");
         let CheckedPackageV2ReadResult::Refused(refusal) = read else {
             panic!("{change} admitted");
@@ -988,7 +882,7 @@ fn qspec_hybrid_initial_and_reset_checks_after_rekey() {
             }
             _ => unreachable!("closed changes"),
         }
-        refresh_tank_hybrid_keys(&mut package);
+        refresh_tank_hybrid_graph(&mut package);
         let read = read_package(&package).expect("published evidence");
         let CheckedPackageV2ReadResult::Refused(refusal) = read else {
             panic!("{change} admitted");
@@ -1049,7 +943,15 @@ fn qspec_hybrid_model_refuses_foreign_parameter_read() {
         })
         .expect("Boolean reference term")
         .clone();
-    let placeholder = json!({"domain":"quire.checked-semantic-node/v1", "digest":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"});
+    let placeholder = fixture_support::structural_id(
+        "example",
+        vec![
+            json!("expression"),
+            json!("reference"),
+            json!("foreign-parameter"),
+        ],
+        0,
+    );
     read["node_id"] = placeholder.clone();
     read["body"]["target"] = foreign.clone();
     read["dependencies"] = json!([foreign]);
@@ -1062,7 +964,7 @@ fn qspec_hybrid_model_refuses_foreign_parameter_read() {
         .as_array_mut()
         .expect("source map")
         .push(json!({
-            "node_id":placeholder, "role":"expression", "ordinal":0,
+            "node_id":placeholder.clone(), "role":"expression", "ordinal":0,
             "regions":[{"source":source,"start":0,"end":1}]
         }));
     let model = model_position(&package);
@@ -1075,8 +977,8 @@ fn qspec_hybrid_model_refuses_foreign_parameter_read() {
         .iter()
         .position(|node| node["node_id"] == mode_id)
         .expect("mode");
-    package["semantic_graph"]["nodes"][mode]["body"]["members"][0]["value"]["target"] = json!({"domain":"quire.checked-semantic-node/v1", "digest":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"});
-    refresh_tank_hybrid_keys(&mut package);
+    package["semantic_graph"]["nodes"][mode]["body"]["members"][0]["value"]["target"] = placeholder;
+    refresh_tank_hybrid_graph(&mut package);
     let read = read_package(&package).expect("published evidence");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
         panic!("foreign parameter read admitted");
@@ -1116,12 +1018,15 @@ fn qspec_hybrid_call_refuses_ineligible_function_signature() {
                 .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
                 .expect("published parameter")
                 .clone();
-            parameter["node_id"]["digest"] =
-                json!("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+            parameter["node_id"] = fixture_support::structural_id(
+                "example",
+                vec![json!("value"), json!("parameter"), json!("hybrid_argument")],
+                0,
+            );
             parameter["semantic_type"] = text_type.clone();
             parameter["body"]["members"][0]["value"]["value"] = json!("hybrid_argument");
             append_published_nodes(&mut package, &[parameter]);
-            fixture_support::mint_ungrouped_structural_keys(&mut package);
+            fixture_support::settle(&mut package);
             let key = package["semantic_graph"]["nodes"]
                 .as_array()
                 .expect("nodes")
@@ -1137,11 +1042,14 @@ fn qspec_hybrid_call_refuses_ineligible_function_signature() {
         } else {
             function["semantic_type"] = text_type;
         }
-        function["node_id"]["digest"] =
-            json!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        function["node_id"] = fixture_support::structural_id(
+            "example",
+            vec![json!("Example"), json!("hybrid_bad")],
+            0,
+        );
         function["declaration"]["qualified_name"] = json!(["Example", "hybrid_bad"]);
         append_published_nodes(&mut package, &[function]);
-        fixture_support::mint_ungrouped_structural_keys(&mut package);
+        fixture_support::settle(&mut package);
         let bad_function = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
@@ -1163,8 +1071,11 @@ fn qspec_hybrid_call_refuses_ineligible_function_signature() {
         call["node_tag"] = json!("expression");
         call["semantic_form"] = json!("call");
         call["occurrences"][0]["role"] = json!("expression");
-        call["node_id"]["digest"] =
-            json!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        call["node_id"] = fixture_support::structural_id(
+            "example",
+            vec![json!("expression"), json!("call"), json!("hybrid_bad")],
+            0,
+        );
         call["body"]["arguments"][0]["target"] = bad_function.clone();
         call["dependencies"] = json!([bad_function]);
         append_published_nodes(&mut package, &[call]);
@@ -1173,7 +1084,7 @@ fn qspec_hybrid_call_refuses_ineligible_function_signature() {
             .expect("nodes")
             .len()
             - 1;
-        fixture_support::rekey_application_node(&mut package, call_position);
+        fixture_support::settle(&mut package);
         let mode_id = package["semantic_graph"]["nodes"][model_position(&package)]["body"]
             ["members"][1]["value"]["members"][0]["target"]
             .clone();
@@ -1185,7 +1096,7 @@ fn qspec_hybrid_call_refuses_ineligible_function_signature() {
             .expect("Tank mode");
         package["semantic_graph"]["nodes"][mode]["body"]["members"][0]["value"]["target"] =
             package["semantic_graph"]["nodes"][call_position]["node_id"].clone();
-        refresh_tank_hybrid_keys(&mut package);
+        refresh_tank_hybrid_graph(&mut package);
         let read = read_package(&package).expect("QSpec package");
         let CheckedPackageV2ReadResult::Refused(refusal) = read else {
             panic!("bad function {defect} admitted: {read:?}")
@@ -1211,14 +1122,17 @@ fn qspec_protocol_reference_join_refuses_at_its_target() {
         .expect("Boolean type")["node_id"]
         .clone();
     let body = json!({"term":"reference", "target":boolean});
-    let key = fixture_support::structural_key(
-        "protocol",
-        "protocol_reference",
-        boolean["digest"].as_str(),
-        &body,
+    let key = fixture_support::structural_id(
+        "example",
+        vec![
+            json!("protocol"),
+            json!("protocol_reference"),
+            boolean.clone(),
+        ],
+        0,
     );
     let carrier = json!({
-        "node_id":fixture_support::node_id(&key),
+        "node_id":key,
         "schema_version":"quire.checked-semantic-graph/v2",
         "node_tag":"protocol", "semantic_form":"protocol_reference",
         "semantic_type":boolean, "dependencies":[body["target"].clone()],
@@ -1284,7 +1198,7 @@ fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
         .expect("published protocol clause");
     package["semantic_graph"]["nodes"][protocol]["body"]["operation"]["laws"][0]["role"] =
         json!("temporal_profile");
-    fixture_support::rekey_application_node(&mut package, protocol);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("QSpec package");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
@@ -1298,7 +1212,7 @@ fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
     assert_locus(&refusal, protocol, "/body/operation/laws/0/role");
 
     package["semantic_graph"]["nodes"][claim]["body"]["arguments"][1]["value"] = json!("wall-time");
-    fixture_support::rekey_application_node(&mut package, claim);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("QSpec package");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
@@ -1327,7 +1241,7 @@ fn qspec_hybrid_wrong_interval_profile_precedes_fairness_defect() {
         .expect("timed formula");
     package["semantic_graph"]["nodes"][formula]["body"]["operation"]["member"]["interval"] =
         json!({"lower":"0", "upper":"2"});
-    fixture_support::rekey_application_node(&mut package, formula);
+    fixture_support::settle(&mut package);
     let fair = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -1336,9 +1250,9 @@ fn qspec_hybrid_wrong_interval_profile_precedes_fairness_defect() {
         .expect("fairness node");
     package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["name"] =
         json!("Halted");
-    fixture_support::rekey_application_node(&mut package, fair);
+    fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
-    fixture_support::rekey_application_node(&mut package, claim);
+    fixture_support::settle(&mut package);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("QSpec package");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
