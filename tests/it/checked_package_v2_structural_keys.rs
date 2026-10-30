@@ -704,6 +704,48 @@ fn owner_free_self_option_group_obeys_closed_shape_checks() {
     );
 }
 
+#[trace("TC-226", "FR-038-AC-146", "FR-038-AC-147")]
+#[test]
+fn lone_labelled_scalar_range_and_reference_keep_closed_shapes() {
+    let (base, _) = all_ten_shapes();
+    let boolean_id = base["semantic_graph"]["nodes"][index_of(&base, "scalar_type", "boolean")]
+        ["node_id"]
+        .clone();
+    for (tag, form) in [
+        ("scalar_type", "boolean"),
+        ("scalar_type", "integer"),
+        ("bounded_domain", "integer_range"),
+        ("composite_type", "reference"),
+    ] {
+        let position = index_of(&base, tag, form);
+        let mut labelled = base.clone();
+        labelled["semantic_graph"]["nodes"][position]["recursion_group"] =
+            json!(format!("lone-{form}"));
+        assert!(
+            matches!(read(&labelled), CheckedPackageV2ReadResult::Admitted(_)),
+            "valid lone-labelled {form}: {:?}",
+            read(&labelled)
+        );
+        let mut malformed = labelled;
+        match form {
+            "boolean" | "integer" => {
+                malformed["semantic_graph"]["nodes"][position]["body"]["members"] =
+                    json!([{"term":"reference","target":boolean_id}]);
+            }
+            "integer_range" => {
+                malformed["semantic_graph"]["nodes"][position]["body"]["members"][0]["value"]
+                    ["value"] = json!("01");
+            }
+            "reference" => {
+                malformed["semantic_graph"]["nodes"][position]["body"]["members"][0]["target"] =
+                    boolean_id.clone();
+            }
+            _ => unreachable!("four closed shapes"),
+        }
+        assert_derived_refusal(&malformed, position);
+    }
+}
+
 fn list_group() -> (Value, usize, usize) {
     let mut package = local_package();
     let name = package["name"].as_str().expect("package name");
