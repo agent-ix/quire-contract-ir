@@ -158,7 +158,8 @@ pub struct CheckedRational {
 }
 
 /// A validated closed body of a source-authored nominal node. Constructors
-/// check body shape; the package reader checks owner and semantic joins.
+/// check body shape, returning `malformed_wire` with a body-relative pointer
+/// on failure; the package reader checks owner and semantic joins.
 ///
 /// ```
 /// use quire_contract_model::{CheckedTerm, NominalBody};
@@ -229,7 +230,8 @@ pub(super) enum NominalBodyKind {
 }
 
 impl NominalBody {
-    /// Construct a source enum body, retaining declared case order.
+    /// Construct a source enum body, retaining declared case order and refusing
+    /// an empty, duplicate or nonidentifier member.
     pub fn try_enum(
         ordered: bool,
         members: Vec<Box<str>>,
@@ -240,12 +242,14 @@ impl NominalBody {
         )
     }
 
-    /// Construct a base or derived dimension body.
+    /// Construct a base or derived dimension body, checking every structural
+    /// ID and canonical integer exponent.
     pub fn try_dimension(terms: Vec<DimensionTerm>) -> Result<Self, Box<CheckedPackageRefusal>> {
         Self::try_kind(NominalBodyKind::Dimension { terms }, JsonPointer::root())
     }
 
     /// Construct a unit body; an absent target is the canonical root unit.
+    /// IDs and rational integer spellings must have the closed V2 shape.
     pub fn try_unit(
         dimension_node_id: CheckedNodeId,
         target_unit_node_id: Option<CheckedNodeId>,
@@ -263,7 +267,8 @@ impl NominalBody {
         )
     }
 
-    /// Construct an equivalence body with a positive root-scale numerator.
+    /// Construct an equivalence body with two well-formed structural IDs and
+    /// a positive root-scale numerator.
     pub fn try_dimension_equivalence(
         dimension_node_ids: [CheckedNodeId; 2],
         root_scale: CheckedRational,
