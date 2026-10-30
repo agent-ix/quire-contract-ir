@@ -606,7 +606,9 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
         })
     };
     let empty = || json!({"term": "aggregate", "members": []});
-    let scalar_key = format!("lowering/scalar/{scalar_form}");
+    // Producer-assigned paths keep the scalar before the composite so the
+    // least-key oracle can distinguish closure order from traversal order.
+    let scalar_key = format!("lowering/a-scalar/{scalar_form}");
     let value_key = "lowering/value/literal".to_owned();
     let self_typed = matches!(
         composite_form,
