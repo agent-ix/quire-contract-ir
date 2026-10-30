@@ -43,16 +43,90 @@ fn node_id(key: &str) -> Value {
             0,
         );
     }
+    if let Some(form) = key.strip_prefix("scalar_type/") {
+        return structural_id("test/families", vec![json!("scalar_type"), json!(form)], 0);
+    }
+    for form in ["reference", "option", "set"] {
+        if let Some(element) = key.strip_prefix(&format!("composite_type/{form}/")) {
+            return structural_id(
+                "test/families",
+                vec![json!("composite_type"), json!(form), node_id(element)],
+                0,
+            );
+        }
+    }
+    if let Some(bounds) = key.strip_prefix("bounded_domain/integer_range/") {
+        let (lower, upper) = bounds.split_once('/').expect("integer bounds");
+        return structural_id(
+            "test/families",
+            vec![
+                json!("bounded_domain"),
+                json!("integer_range"),
+                json!("min"),
+                node_id("scalar_type/integer"),
+                json!(lower),
+                json!("max"),
+                json!(upper),
+            ],
+            0,
+        );
+    }
+    if let Some(bounds) = key.strip_prefix("bounded_domain/collection_bounds/") {
+        let (collection_and_lower, upper) = bounds.rsplit_once('/').expect("collection upper");
+        let (collection, lower) = collection_and_lower
+            .rsplit_once('/')
+            .expect("collection lower");
+        return structural_id(
+            "test/families",
+            vec![
+                json!("bounded_domain"),
+                json!("collection_bounds"),
+                json!("min"),
+                node_id("scalar_type/integer"),
+                json!(lower),
+                json!("max"),
+                json!(upper),
+                node_id(collection),
+            ],
+            0,
+        );
+    }
     fixture_node_id(key)
 }
 
 fn label_of(id: &Value) -> String {
-    if id["path"].as_array().is_some_and(|path| path.len() == 3) && id["path"][0] == "model" {
+    let path = id["path"].as_array().expect("structural path");
+    if path.len() == 3 && path[0] == "model" {
         return format!(
             "model:{}:{}:{}",
             id["package"].as_str().expect("model package"),
             id["path"][1].as_str().expect("model form"),
             id["path"][2].as_str().expect("model declaration")
+        );
+    }
+    if path.len() == 2 && path[0] == "scalar_type" {
+        return format!("scalar_type/{}", path[1].as_str().expect("scalar form"));
+    }
+    if path.len() == 3 && path[0] == "composite_type" {
+        return format!(
+            "composite_type/{}/{}",
+            path[1].as_str().expect("composite form"),
+            label_of(&path[2]),
+        );
+    }
+    if path.len() == 7 && path[0] == "bounded_domain" && path[1] == "integer_range" {
+        return format!(
+            "bounded_domain/integer_range/{}/{}",
+            path[4].as_str().expect("lower bound"),
+            path[6].as_str().expect("upper bound"),
+        );
+    }
+    if path.len() == 8 && path[0] == "bounded_domain" && path[1] == "collection_bounds" {
+        return format!(
+            "bounded_domain/collection_bounds/{}/{}/{}",
+            label_of(&path[7]),
+            path[4].as_str().expect("lower bound"),
+            path[6].as_str().expect("upper bound"),
         );
     }
     id["path"][0].as_str().expect("structural path").to_owned()
