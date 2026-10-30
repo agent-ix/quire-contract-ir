@@ -1327,7 +1327,7 @@ fn checked_unit_refs(
     nodes: &[RawSemanticNodeV2],
     meter: &mut WorkMeter,
 ) -> Result<UnitRefs, ValidationFailure> {
-    let mut refs: BTreeMap<Box<str>, Box<str>> = BTreeMap::new();
+    let mut refs: BTreeMap<Box<str>, CheckedNodeId> = BTreeMap::new();
     for node in nodes {
         if CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
@@ -1345,7 +1345,7 @@ fn checked_unit_refs(
             .collect::<Vec<&str>>()
             .join("/");
         refs.entry(format!("ix://quire/unit/{name}").into())
-            .or_insert_with(|| node.node_id.digest.clone());
+            .or_insert_with(|| node.node_id.clone());
     }
     // A Duration member can use its owner's s only when that unit has the
     // exact one-second Time type. Keep the candidate's presence in `refs`
@@ -1356,8 +1356,8 @@ fn checked_unit_refs(
         .cloned()
         .collect();
     for name in candidates {
-        if let Some(digest) = identity::duration_unit_key(nodes, &name, meter)? {
-            refs.insert(format!("{DURATION_RESOLVED_PREFIX}{name}").into(), digest);
+        if let Some(unit_id) = identity::duration_unit_key(nodes, &name, meter)? {
+            refs.insert(format!("{DURATION_RESOLVED_PREFIX}{name}").into(), unit_id);
         }
     }
     Ok(std::sync::Arc::new(refs))
@@ -1405,7 +1405,8 @@ fn validate_lock<'a>(
     } else {
         checked_unit_refs(&wire.semantic_graph.nodes, meter)?
     };
-    let mut models = validate_domain_packages(&roots, evidence, meter, bytes, &unit_refs)?;
+    let mut models =
+        validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
@@ -1573,6 +1574,7 @@ fn selected_model_roots(
 /// limit is `incomplete` there.
 fn validate_domain_packages(
     roots: &[(Box<str>, usize)],
+    checked_package: &str,
     evidence: &CheckedPackageEvidence,
     meter: &mut WorkMeter,
     bytes: u64,
@@ -1585,43 +1587,49 @@ fn validate_domain_packages(
         .map(|(identity, root)| {
             let root = *root;
             let mut budget = Budget::new(meter, root, bytes);
-            admit_selection(identity, evidence, &mut budget, unit_refs).map_err(|failure| {
-                match failure {
-                    SelectionFailure::Limit(failure) => failure,
-                    SelectionFailure::InexactNumber {
-                        document_pointer,
-                        cause,
-                    } => ValidationFailure::refused_number_in_document(
-                        at(root, "identity"),
-                        document_pointer,
-                        cause,
-                    ),
-                    SelectionFailure::Refused(refused) => {
-                        let model_members::SelectionRefusal {
-                            refusal,
-                            member,
-                            declaration_identity,
-                            declaration_origin,
-                            declaration_path,
+            admit_selection(identity, checked_package, evidence, &mut budget, unit_refs).map_err(
+                |failure| {
+                    match failure {
+                        SelectionFailure::Limit(failure) => failure,
+                        SelectionFailure::InexactNumber {
                             document_pointer,
-                        } = *refused;
-                        // Intake metadata is private. Its owning lifetime ends at
-                        // this projection; none is attached to the public refusal.
-                        drop((declaration_identity, declaration_origin, declaration_path));
-                        let path = member.map_or_else(|| row(root), |member| at(root, member));
-                        if let Some(document_pointer) = document_pointer {
-                            ValidationFailure::refused_because_in_document(
-                                refusal.code,
-                                path,
-                                refusal.cause,
+                            cause,
+                        } => ValidationFailure::refused_number_in_document(
+                            at(root, "identity"),
+                            document_pointer,
+                            cause,
+                        ),
+                        SelectionFailure::Refused(refused) => {
+                            let model_members::SelectionRefusal {
+                                refusal,
+                                member,
+                                declaration_identity,
+                                declaration_origin,
+                                declaration_path,
                                 document_pointer,
-                            )
-                        } else {
-                            ValidationFailure::refused_because(refusal.code, path, refusal.cause)
+                            } = *refused;
+                            // Intake metadata is private. Its owning lifetime ends at
+                            // this projection; none is attached to the public refusal.
+                            drop((declaration_identity, declaration_origin, declaration_path));
+                            let path = member.map_or_else(|| row(root), |member| at(root, member));
+                            if let Some(document_pointer) = document_pointer {
+                                ValidationFailure::refused_because_in_document(
+                                    refusal.code,
+                                    path,
+                                    refusal.cause,
+                                    document_pointer,
+                                )
+                            } else {
+                                ValidationFailure::refused_because(
+                                    refusal.code,
+                                    path,
+                                    refusal.cause,
+                                )
+                            }
                         }
                     }
-                }
-            })
+                },
+            )
         })
         .collect()
 }

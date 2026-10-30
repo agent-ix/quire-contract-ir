@@ -927,7 +927,7 @@ pub(super) fn duration_unit_key(
     nodes: &[CheckedSemanticNodeV2],
     name: &str,
     meter: &mut WorkMeter,
-) -> Result<Option<Box<str>>, ValidationFailure> {
+) -> Result<Option<CheckedNodeId>, ValidationFailure> {
     meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), || {
         JsonPointer::root().key("semantic_graph").key("nodes")
     })?;
@@ -1012,8 +1012,7 @@ pub(super) fn duration_unit_key(
         }
         current = next;
     }
-    Ok((scale == ExactRatio::one() && offset == ExactRatio::zero())
-        .then(|| node.node_id.digest.clone()))
+    Ok((scale == ExactRatio::one() && offset == ExactRatio::zero()).then(|| node.node_id.clone()))
 }
 
 /// A dimension's canonical base component and exact root scale within it.
