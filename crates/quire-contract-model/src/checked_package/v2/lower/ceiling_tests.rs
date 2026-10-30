@@ -1,188 +1,72 @@
 use super::*;
 use crate::checked_package::shared::CheckedPackageLimit;
 use ix_trace_rs::trace;
-use quire_canonical::LimitKind;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 
 fn node_id(fill: char) -> serde_json::Value {
-    json!({
-        "domain": "quire.checked-semantic-node/v1",
-        "digest": fill.to_string().repeat(64),
-    })
+    json!({"package": "lowering-test", "path": [fill.to_string()], "ordinal": 0})
 }
 
-fn projection() -> super::super::CheckedNodeProjectionV2 {
-    serde_json::from_value(json!({
+fn complete_node() -> CompleteContractNodeV2 {
+    let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
         "node_id": node_id('a'),
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "scalar_type",
         "semantic_form": "boolean",
         "semantic_type": node_id('a'),
         "dependencies": [],
+        "occurrences": [],
         "body": {"term": "aggregate", "members": []},
     }))
-    .expect("projection")
-}
-
-fn typed_id(fill: char) -> CheckedNodeId {
-    serde_json::from_value(node_id(fill)).expect("node id")
-}
-
-fn sha256_of(text: &str) -> String {
-    format!("{:x}", Sha256::digest(text.as_bytes()))
-}
-
-/// The lowered node preimage of [`projection`] with one dependency `b...`,
-/// written out by hand with members in RFC 8785 order.
-const LOWERED_NODE_TEXT: &str = concat!(
-    r#"{"bounds":[],"claims":[],"dependencies":[{"digest":""#,
-    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    r#"","domain":"quire.checked-semantic-node/v1"}],"node":{"body":{"members":[],"#,
-    r#""term":"aggregate"},"dependencies":[],"node_id":{"digest":""#,
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    r#"","domain":"quire.checked-semantic-node/v1"},"node_tag":"scalar_type","#,
-    r#""schema_version":"quire.checked-semantic-graph/v2","semantic_form":"boolean","#,
-    r#""semantic_type":{"digest":""#,
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    r#"","domain":"quire.checked-semantic-node/v1"}},"#,
-    r#""version":"quire.contract-ir.lowered-node/v1"}"#,
-);
-
-/// The lowered node preimage encodes to expected bytes written out above.
-#[trace("TC-048", "FR-038-AC-89")]
-#[test]
-fn tc_048_lowered_preimages_encode_to_the_expected_canonical_bytes() {
-    let dependencies = [typed_id('b')];
-    let node = LoweredNodePreimage {
-        version: LOWERED_NODE_PREIMAGE,
-        node: projection(),
-        dependencies: &dependencies,
-        bounds: &[],
-        claims: &[],
-    };
-    let bytes = quire_canonical::to_vec(&node, Limits::new(1 << 20)).expect("encodes");
-    assert_eq!(String::from_utf8(bytes).expect("utf-8"), LOWERED_NODE_TEXT);
-    assert_eq!(
-        identify_node(&node, 1 << 20).as_deref(),
-        Ok(sha256_of(LOWERED_NODE_TEXT).as_str())
-    );
-}
-
-/// The seam of FR-038-AC-95's node step: a ceiling equal to the length of
-/// the preimage's canonical bytes identifies the node, one byte lower does
-/// not and reports the byte count the encoder needed, which is above the
-/// ceiling.
-#[trace("TC-048", "FR-038-AC-95")]
-#[test]
-fn tc_048_a_lowered_node_is_identified_at_the_ceiling_and_not_one_byte_under_it() {
-    let dependencies = [typed_id('b')];
-    let preimage = LoweredNodePreimage {
-        version: LOWERED_NODE_PREIMAGE,
-        node: projection(),
-        dependencies: &dependencies,
-        bounds: &[],
-        claims: &[],
-    };
-    let length = LOWERED_NODE_TEXT.len() as u64;
-    assert_eq!(
-        identify_node(&preimage, length).map(|digest| digest.len()),
-        Ok(64)
-    );
-    // One byte under: `consumed` is the `required` of encoding the same
-    // preimage under that limit, above the limit and at most the length.
-    let required = identify_node(&preimage, length - 1).expect_err("one byte under refuses");
-    assert_eq!(required, required_of(&preimage, length - 1));
-    assert!(required > length - 1 && required <= length);
-    // At a limit of one byte the encoder refuses at the opening brace.
-    let required = identify_node(&preimage, 1).expect_err("one byte refuses");
-    assert_eq!(required, required_of(&preimage, 1));
-    assert!(required > 1);
-}
-
-/// The `required` of the canonical-bytes refusal of encoding `value` under
-/// `limit`: the oracle a `failed` record's `consumed` is compared with.
-fn required_of<T: Encode>(value: &T, limit: u64) -> u64 {
-    match quire_canonical::to_vec(value, Limits::new(limit)) {
-        Err(Error::Limit(refusal)) if refusal.kind == LimitKind::CanonicalBytes => refusal.required,
-        other => panic!("expected the canonical-bytes refusal, got {other:?}"),
+    .expect("typed node");
+    CompleteContractNodeV2 {
+        semantic_type: node.semantic_type.clone(),
+        node,
+        node_tag: CheckedNodeTag::ScalarType,
+        source_map: Vec::new(),
+        dependencies: Vec::new(),
+        bounds: Vec::new(),
+        claims: Vec::new(),
     }
 }
 
-/// A ceiling roughly mid-way through the encoding that lies two or more bytes
-/// inside a string value, not at a byte the encoder writes alone and not inside
-/// an escape run: the middle of the dependency's 64-character digest.
+/// A complete typed node is byte-charged at the exact canonical boundary.
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
-fn tc_048_a_refusal_inside_a_string_value_records_the_encoders_required_count() {
-    let dependencies = [typed_id('b')];
-    let preimage = LoweredNodePreimage {
-        version: LOWERED_NODE_PREIMAGE,
-        node: projection(),
-        dependencies: &dependencies,
-        bounds: &[],
-        claims: &[],
-    };
-    let length = LOWERED_NODE_TEXT.len() as u64;
-    // The encoder counts bytes in the order the preimage writes them, not in
-    // canonical member order, so the ceiling is chosen against that count: the
-    // one nearest the middle of the encoding at which the refused write is a
-    // run of two or more bytes past the limit, which is a string's characters
-    // and not a quote, colon, comma or brace written alone. The fixture holds
-    // no escape.
-    let ceiling = (1..length)
-        .filter(|ceiling| required_of(&preimage, *ceiling) >= ceiling + 2)
-        .min_by_key(|ceiling| ceiling.abs_diff(length / 2))
-        .expect("a ceiling inside a string value");
-    assert!(!LOWERED_NODE_TEXT.contains('\\'));
-    assert!(
-        ceiling > length / 4 && ceiling < length * 3 / 4,
-        "mid-way: {ceiling} of {length}"
+fn tc_048_complete_node_measures_exact_canonical_bytes_without_an_identity() {
+    let node = complete_node();
+    let independent = serde_json::to_value(&node).expect("typed node serializes");
+    let bytes = quire_canonical::to_vec(&independent, Limits::new(1 << 20))
+        .expect("independent canonical encoding");
+    let length = bytes.len() as u64;
+    assert_eq!(
+        quire_canonical::to_vec(&node, Limits::new(length)).expect("typed encoding"),
+        bytes
     );
-    let required = identify_node(&preimage, ceiling).expect_err("refuses");
-    assert_eq!(required, required_of(&preimage, ceiling));
-    assert!(required > ceiling);
-    assert_ne!(required, ceiling + 1, "not the invented `limit + 1`");
-    assert_ne!(required, length, "not the full length");
-    assert!(required < length);
+    assert_eq!(measure_node(&node, length), Ok(length));
+    let required = measure_node(&node, length - 1).expect_err("one byte under refuses");
+    assert!(required > length - 1 && required <= length);
 }
 
-/// A preimage built in memory holding an integer past 2^53 (which no admitted
-/// package holds, so it skips the reader) is refused with a refusal that is not
-/// the canonical-bytes limit: `consumed` is `limit + 1`, saturating at
-/// `u64::MAX`.
+/// Non-byte encoder failures remain typed resource stops with no partial node.
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
-fn tc_048_a_refusal_that_is_not_the_byte_limit_records_one_above_the_limit() {
-    let mut node = projection();
-    node.body = super::super::CheckedTerm::Literal {
+fn tc_048_non_byte_encoder_failure_reports_one_above_the_limit() {
+    let mut node = complete_node();
+    node.node.body = super::super::CheckedTerm::Literal {
         type_id: node.semantic_type.clone(),
         value_kind: super::super::LiteralKind::Integer,
         value: json!(9_007_199_254_740_993_i64),
     };
-    let preimage = LoweredNodePreimage {
-        version: LOWERED_NODE_PREIMAGE,
-        node,
-        dependencies: &[],
-        bounds: &[],
-        claims: &[],
-    };
-    // The encoding reaches the number under this ceiling and is refused for it.
     let ceiling = 1 << 20;
     assert!(matches!(
-        quire_canonical::to_vec(&preimage, Limits::new(ceiling)),
+        quire_canonical::to_vec(&node, Limits::new(ceiling)),
         Err(error) if !matches!(error, Error::Limit(_))
     ));
-    assert_eq!(identify_node(&preimage, ceiling), Err(ceiling + 1));
-    // At `u64::MAX` there is no greater count: `consumed` equals the limit.
-    assert_eq!(identify_node(&preimage, u64::MAX), Err(u64::MAX));
+    assert_eq!(measure_node(&node, ceiling), Err(ceiling + 1));
+    assert_eq!(measure_node(&node, u64::MAX), Err(u64::MAX));
 }
 
-/// An admitted package of three scalar nodes, built without the reader: the
-/// lowering reads only the graph, so nothing here needs a valid key. Node `x`
-/// carries a long declaration name, so its preimage is longer than the whole
-/// package of `y` alone; `z` is typed at `a`, so lowering it reaches `a` as a
-/// dependency node.
 fn package(bytes: u64) -> CheckedPackageV2 {
     let artifact = |identity: &str| json!({"authority": "agent-ix", "identity": identity});
     let source = json!({
@@ -214,19 +98,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     ]);
     let wire: super::super::CheckedPackageWireV2 = serde_json::from_value(json!({
         "contract_version": "quire.checked-package/v2",
-        "identity_preimage": {
-            "version": "quire.checked-package-id/v2",
-            "edition": edition,
-            "profile_selections": [],
-            "definition_selections": [],
-            "required_features": [],
-            "dependency_selections": [],
-        },
-        "package_id": {
-            "domain": "quire.package.semantic/v2",
-            "algorithm": "sha256",
-            "digest": "c".repeat(64),
-        },
+        "name": "lowering-test",
         "lock": {
             "sources": [source],
             "edition": edition,
@@ -282,8 +154,9 @@ fn shared_closure_package(roots: usize, shared: usize) -> (CheckedPackageV2, Vec
     let mut package = package(u64::MAX);
     let id = |number: usize| {
         json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": format!("{number:064x}"),
+            "package": "lowering-test",
+            "path": [format!("node-{number}")],
+            "ordinal": 0,
         })
     };
     let nodes = (0..shared + roots)
@@ -462,8 +335,9 @@ fn grouped_recursive_shared_closure_keeps_independent_records() {
     let (mut package, requests) = shared_closure_package(3, 4);
     package.wire.semantic_graph.nodes[0].semantic_type =
         serde_json::from_value(serde_json::json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": format!("{:064x}", 1),
+            "package": "lowering-test",
+            "path": ["node-1"],
+            "ordinal": 0,
         }))
         .expect("cycle target");
     package.wire.semantic_graph.nodes[0].recursion_group = Some("shared".into());
@@ -623,7 +497,7 @@ fn tc_048_a_package_over_the_ceiling_fails_every_record_and_returns_no_package()
 #[test]
 fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged() {
     let [x, y, z] = requested();
-    // The ceiling the package of `y` and `z` alone needs; `x`'s preimage, with
+    // The ceiling the package of `y` and `z` alone needs; `x`'s encoded node, with
     // its long declaration name, is longer.
     let siblings_only = package(u64::MAX).lower(&[y.clone(), z.clone()], &profile());
     let siblings_length = siblings_only
@@ -631,21 +505,19 @@ fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged(
         .canonical_bytes()
         .expect("bytes")
         .len() as u64;
-    // `x`'s own preimage (it is self-typed, so its closure is empty).
+    // `x`'s complete typed node (it is self-typed, so its closure is empty).
     let packaged = package(u64::MAX);
-    let preimage = LoweredNodePreimage {
-        version: LOWERED_NODE_PREIMAGE,
-        node: (&packaged.wire.semantic_graph.nodes[1]).into(),
-        dependencies: &[],
-        bounds: &[],
-        claims: &[],
+    let reference = packaged.lower(&[x.clone()], &profile());
+    let node = match &reference.records[0] {
+        CompleteLoweringRecordV2::Lowered { node } => node.as_ref(),
+        other => panic!("unlimited reference lowering: {other:?}"),
     };
     // Reserve room for `x`'s failed accounting record in the package. The
     // refused write of `x` is still a run of characters past the limit, not
     // one token byte, so `required` is not `limit + 1`.
     assert!(siblings_length < 10_000);
     let ceiling = (10_000..)
-        .find(|ceiling| required_of(&preimage, *ceiling) >= ceiling + 2)
+        .find(|ceiling| measure_node(node, *ceiling).is_err_and(|required| required >= ceiling + 2))
         .expect("a ceiling inside a string value");
     let result = package(ceiling).lower(&[x.clone(), y.clone(), z.clone()], &profile());
     match &result.records[0] {
@@ -658,9 +530,12 @@ fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged(
             assert_eq!(*node_id, x);
             assert_eq!(*limit_kind, CheckedPackageLimit::Bytes);
             assert_eq!(*limit, ceiling);
-            // `consumed` is the `required` of encoding `x`'s own preimage
+            // `consumed` is the `required` of encoding `x`'s complete node
             // under that ceiling, not an invented `limit + 1`.
-            assert_eq!(*consumed, required_of(&preimage, ceiling));
+            assert_eq!(
+                *consumed,
+                measure_node(node, ceiling).expect_err("node over limit")
+            );
             assert_ne!(*consumed, ceiling + 1);
             assert!(consumed > limit);
         }
