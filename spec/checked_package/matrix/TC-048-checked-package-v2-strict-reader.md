@@ -624,9 +624,16 @@ PLANNED/UNRUN until backed by the IR reader.
 Build one otherwise valid `composite_type`/`reference` node for each allowed
 model target kind (`object_type`, `process`, `state_machine`,
 `systems_interface`) and for a relation `relationship` target; assert reader
-admission and exact target retention. Mutate only the target to a scalar,
-function, value or another composite node of the same package with a valid
-structural ID and owner. Each `RM-REF-TARGET` mutation is schema-valid and
+admission and exact target retention. In each separate negative package,
+substitute a builtin `scalar_type`/`integer`, a source-declared function,
+a `value`/`literal`, or a derived `composite_type`/`option` target with a valid
+structural ID, and update the reference node's `dependencies` to contain
+exactly that substituted target in the required order. Give each substituted
+node the owner state required for its own kind: the declared function has its
+valid joined `SourceOwner`; the builtin scalar, literal value and derived
+composite nodes carry no `owner` (QSpec FR-322-AC-51). This keeps schema,
+owner and dependency checks passing so the target-kind check is reached.
+Each `RM-REF-TARGET` mutation is schema-valid and
 refuses `invalid_package`/`invalid-derived-shape` at the reference node's
 `node_id` under QSpec FR-322 "Derived type forms and forwarding". Keep the
 existing reference body-shape and graph/owner checks independent. These
