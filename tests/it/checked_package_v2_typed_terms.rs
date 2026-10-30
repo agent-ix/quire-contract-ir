@@ -4,11 +4,10 @@ use crate::support::checked_package::{
     canonical, evidence_for, positive_operation_identities, v2_all_families,
 };
 use ix_trace_rs::trace;
-use quire_canonical::Limits;
 use quire_contract_model::{
     CheckedApplicationOperation, CheckedOperationViewError, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticId, CheckedTerm, ExecutionPoint,
-    ExecutionPointName, StateClauseKind,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, ExecutionPoint, ExecutionPointName,
+    StateClauseKind,
 };
 use serde_json::json;
 
@@ -31,7 +30,7 @@ fn public_deserialization_does_not_admit_operation_views() {
         ],
         "mode": {"kind": "rounding", "value": "arbitrary"},
         "member": {"kind": "field", "declaration": {
-            "domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)
+            "package": "forged", "path": ["field"], "ordinal": 0
         }, "name": "forged"},
         "leaves": []
     });
@@ -155,8 +154,8 @@ fn admitted_v2_bodies_are_closed_typed_terms() {
             .expect("every admitted node has a typed body");
         assert_eq!(
             term, body,
-            "typed body preserves the admitted wire value for {}",
-            node.node_id.digest
+            "typed body preserves the admitted wire value for {:?}",
+            node.node_id
         );
         match term {
             CheckedTerm::Aggregate { members } => {
@@ -200,12 +199,8 @@ fn admitted_v2_bodies_are_closed_typed_terms() {
             Some(CheckedTerm::Literal { .. })
         )
     }));
-    let expected_id: CheckedSemanticId =
-        serde_json::from_value(fixture["package_id"].clone()).expect("fixture identity");
-    assert_eq!(admitted.package_id(), &expected_id);
     assert_eq!(
-        quire_canonical::to_vec(admitted.identity_preimage(), Limits::new(u64::MAX))
-            .expect("admitted JCS preimage"),
-        canonical(&fixture["identity_preimage"]),
+        admitted.name(),
+        fixture["name"].as_str().expect("package name")
     );
 }
