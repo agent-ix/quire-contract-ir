@@ -487,8 +487,7 @@ pub(super) struct DomainModel {
     pub(super) checked_package: Box<str>,
     /// Node position of this package's `model_root`.
     pub(super) root: usize,
-    /// The reader's byte limit, under which every key derived from this
-    /// model's declarations is hashed.
+    /// The reader's byte limit for declarations selected from this model.
     pub(super) bytes: u64,
     /// Object types and systems interfaces, by IR node identity.
     pub(super) object_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
