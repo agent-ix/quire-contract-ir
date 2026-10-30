@@ -889,10 +889,7 @@ fn expected_items_from(spec: &str) -> BTreeMap<String, BTreeSet<String>> {
             .split_whitespace()
             .next()
             .expect("module name must be present");
-        let declarations = cells[2]
-            .split_once(", the public record type of ")
-            .map_or(cells[2], |(declarations, _)| declarations);
-        let names = quoted_names(declarations).map(|name| {
+        let names = quoted_names(cells[2]).map(|name| {
             if module == "crate_root" {
                 name.strip_prefix("module ").unwrap_or(name).to_owned()
             } else {
