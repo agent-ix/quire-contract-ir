@@ -779,7 +779,7 @@ fn tc_229_declared_population_is_query_operand() {
             .as_array_mut()
             .unwrap()
             .push(json!({
-                "node_id":node_id(&application), "schema_version":"quire.checked-semantic-graph/v2",
+                "node_id":node_id(application), "schema_version":"quire.checked-semantic-graph/v2",
                 "node_tag":"expression", "semantic_form":"query",
                 "semantic_type":node_id(&result), "dependencies":[],
                 "occurrences":[{"role":"expression","ordinal":0}], "body":body

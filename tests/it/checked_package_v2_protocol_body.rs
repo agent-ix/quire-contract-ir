@@ -292,7 +292,7 @@ fn decision_fact_fixture() -> (Value, usize, usize, usize) {
     let mut field = existing;
     field["semantic_form"] = json!("query");
     field["body"] = field_body;
-    field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/297".to_owned());
+    field["node_id"] = node_id("fixture/protocol-body/application_node_key/297");
     let field_position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -446,7 +446,7 @@ fn decision_conjunction(package: &mut Value, left: &Value, right: &Value) -> Val
             {"term": "reference", "target": right},
         ],
     });
-    expression["node_id"] = node_id(&"fixture/protocol-body/application_node_key/455".to_owned());
+    expression["node_id"] = node_id("fixture/protocol-body/application_node_key/455");
     let mut dependencies = vec![left.clone(), right.clone()];
     dependencies.sort_by(|a, b| a["path"][0].as_str().cmp(&b["path"][0].as_str()));
     expression["dependencies"] = json!(dependencies);
@@ -470,7 +470,7 @@ fn bare_record_expression(package: &mut Value, binder: &Value) -> Value {
         .clone();
     expression["semantic_type"] = record_type.clone();
     expression["body"] = json!({"term": "reference", "target": binder});
-    expression["node_id"] = node_id(&"fixture/protocol-body/structural_key/484".to_owned());
+    expression["node_id"] = node_id("fixture/protocol-body/structural_key/484");
     expression["dependencies"] = json!([binder]);
     let key = expression["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -768,7 +768,7 @@ fn activation_record_field_fixture() -> (Value, Value, Value) {
         "result_type": node_id(&family_key("aaaa")),
         "arguments": [{"term": "reference", "target": trigger}],
     });
-    field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/788".to_owned());
+    field["node_id"] = node_id("fixture/protocol-body/application_node_key/788");
     field["dependencies"] = json!([trigger]);
     let field_key = field["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -809,7 +809,7 @@ fn record_capture_fixture() -> (Value, Value, Value) {
     let mut field =
         package["semantic_graph"]["nodes"][node_position_for_key(&package, &trigger_field)].clone();
     field["body"]["arguments"][0]["target"] = capture.clone();
-    field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/835".to_owned());
+    field["node_id"] = node_id("fixture/protocol-body/application_node_key/835");
     field["dependencies"] = json!([capture]);
     let field_key = field["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -862,7 +862,7 @@ fn activation_with_sent_field_fixture() -> (Value, usize, Value, Value) {
         package["semantic_graph"]["nodes"][send]["body"]["arguments"][1]["value"]["target"].clone();
     let mut sent_field = package["semantic_graph"]["nodes"][field].clone();
     sent_field["body"]["arguments"][0]["target"] = sent.clone();
-    sent_field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/899".to_owned());
+    sent_field["node_id"] = node_id("fixture/protocol-body/application_node_key/899");
     sent_field["dependencies"] = json!([sent]);
     let sent_field_key = sent_field["node_id"].clone();
     package["semantic_graph"]["nodes"]
@@ -1308,7 +1308,7 @@ fn decision_fact_other_role_and_composite_entry_do_not_grant_observation() {
                 "value_kind": "boolean", "value": true}
         ]
     });
-    entry["node_id"] = node_id(&"fixture/protocol-body/application_node_key/1355".to_owned());
+    entry["node_id"] = node_id("fixture/protocol-body/application_node_key/1355");
     entry["dependencies"] = json!([field_target]);
     let entry_target = entry["node_id"].clone();
     composite["semantic_graph"]["nodes"]
@@ -1381,7 +1381,7 @@ fn nested_projection_exposes_its_unlisted_inner_fact() {
 
     let inner = package["semantic_graph"]["nodes"][field]["node_id"].clone();
     outer_field["body"]["arguments"][0]["target"] = inner;
-    outer_field["node_id"] = node_id(&"fixture/protocol-body/application_node_key/1434".to_owned());
+    outer_field["node_id"] = node_id("fixture/protocol-body/application_node_key/1434");
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -8837,7 +8837,7 @@ fn boolean_atoms(package: &mut Value) -> (Value, Value) {
         "term": "literal", "type": node_id(&family_key("aaaa")),
         "value_kind": "boolean", "value": false
     }]});
-    second["node_id"] = node_id(&"fixture/protocol-body/structural_key/8835".to_owned());
+    second["node_id"] = node_id("fixture/protocol-body/structural_key/8835");
     let second_target = second["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -9667,7 +9667,7 @@ fn standalone_repeat_does_not_valuate_thirty_visible_atoms() {
         "term": "literal", "type": node_id(&family_key("aaaa")),
         "value_kind": "boolean", "value": true
     });
-    literal["node_id"] = node_id(&"fixture/protocol-body/structural_key/9670".to_owned());
+    literal["node_id"] = node_id("fixture/protocol-body/structural_key/9670");
     let true_literal = literal["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
