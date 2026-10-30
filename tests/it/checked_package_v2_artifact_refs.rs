@@ -450,7 +450,7 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
         );
         assert_eq!(
             (actual.code, actual.loci[0].path.clone(), actual.cause),
-            (expected.code, expected.loci[0].path.clone(), expected.cause),
+            (expected.code, expected.path.clone(), expected.cause),
             "{member}"
         );
     }
