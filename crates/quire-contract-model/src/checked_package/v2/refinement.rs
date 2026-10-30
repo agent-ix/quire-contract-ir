@@ -1117,7 +1117,7 @@ fn row_terms(
     Ok(())
 }
 
-/// Check the complete closed body before hashing the package, including the
+/// Check the complete closed body before graph admission, including the
 /// nested flat-term rule that applies to each row expression independently.
 pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
     check_body_header(body, at)?;
