@@ -230,11 +230,19 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
             .collect::<Vec<_>>();
         let wire = package(&name, &graph, &imports);
         let read = admitted(&wire, &dimension_imports);
+        assert_eq!(
+            serde_json::to_value(&read.graph().nodes[0].node_id).expect("authored node id"),
+            graph[0]["node_id"],
+            "XP-01 authored package {index}"
+        );
         authored.push((name, read));
     }
+    // The consumer authors its own graph nodes. The three independently read
+    // packages remain selected dependencies; their foreign nodes are never
+    // inserted into the consumer's local graph.
     let mut graph = Vec::new();
     for (index, case) in equivalences.iter().enumerate() {
-        graph.push(equivalence_node(&authored[index].0, case, index, all));
+        graph.push(equivalence_node("example", case, index, all));
     }
     let imports = authored
         .iter()
