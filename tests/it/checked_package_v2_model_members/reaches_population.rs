@@ -280,7 +280,7 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
     assert_eq!(
         selector,
         Selector {
-            package_id: package.package_id().clone(),
+            package_name: package.name().into(),
             binding: typed_id(&population),
             occurrence: occurrence.clone(),
         }
@@ -289,7 +289,7 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
         package: &package,
         selector: selector.clone(),
     });
-    let identity = package.package_id().clone();
+    let identity = package.name().to_owned();
     let sources = package.source_map().to_vec();
     for requests in [2, 4, 8] {
         for _ in 0..requests {
@@ -302,7 +302,7 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
             );
         }
     }
-    assert_eq!(package.package_id(), &identity);
+    assert_eq!(package.name(), identity);
     assert_eq!(package.source_map(), sources);
     match select_population(Source::Admitted {
         package: &package,
@@ -914,7 +914,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         .reaches_population(&selected)
         .expect("reaches result")
         .expect("selected population");
-    assert_eq!(result.package_id, *package.package_id());
+    assert_eq!(result.package_name.as_ref(), package.name());
     assert_eq!(result.binding, typed_id(&population));
     assert_eq!(
         result.occurrence,
@@ -924,7 +924,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         }
     );
     let missing = Selector {
-        package_id: package.package_id().clone(),
+        package_name: package.name().into(),
         binding: typed_id(&population),
         occurrence: CheckedOccurrence {
             role: CheckedOccurrenceRole::Type,
@@ -942,7 +942,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
     }) else {
         panic!("finite selected population")
     };
-    assert_eq!(finite.package_id, *package.package_id());
+    assert_eq!(finite.package_name.as_ref(), package.name());
     assert_eq!(finite.binding, typed_id(&population));
     assert_eq!(
         finite.occurrence,
