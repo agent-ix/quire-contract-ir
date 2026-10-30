@@ -7,7 +7,7 @@ use super::{
     RawCheckedPackageWireV2 as CheckedPackageWireV2, RawSemanticNodeV2 as CheckedSemanticNodeV2,
     ScalarTypeForm, WorkMeter,
 };
-use crate::checked_package::common::{is_digest, node_pointer, ValidationFailure, NODE_DOMAIN};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedExtensionRefusalDetail, CheckedNodeId,
@@ -70,11 +70,10 @@ pub(super) fn read_body(body: &Value, at: JsonPointer) -> Result<ExtensionBody, 
     if parsed.definition.authority.is_empty()
         || parsed.definition.identity.is_empty()
         || !is_identifier(&parsed.node_kind)
-        || parsed.clauses.iter().any(|clause| {
-            !is_identifier(&clause.name)
-                || clause.value.target.domain.as_ref() != NODE_DOMAIN
-                || !is_digest(&clause.value.target.digest)
-        })
+        || parsed
+            .clauses
+            .iter()
+            .any(|clause| !is_identifier(&clause.name) || !clause.value.target.is_well_formed())
     {
         return Err(ValidationFailure::refused(Code::MalformedWire, at));
     }
