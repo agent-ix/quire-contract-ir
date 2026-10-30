@@ -1089,6 +1089,68 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_doc
     }
 }
 
+/// AC-367 selected-declaration edit slice: a retained model-owned dimension
+/// cannot silently bind to a different selected declaration under the same
+/// domain-package identity and structural node id.
+#[trace("TC-048")]
+#[test]
+fn selected_model_declaration_edit_revalidates_the_retained_owner() {
+    let owner = model_owner("test/orders", "ix://test/orders/Length");
+    let package = model_owned_package(owner, &["test/orders"]);
+    admitted_model(&package);
+    let mut changed = model_document("1");
+    changed["dimensions"][0]["identity"] = json!("ix://test/orders/Other");
+    let evidence = evidence_with_document(&package, "test/orders", &changed);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("an edited selected declaration must not bind the old dimension owner");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+}
+
+/// AC-367 source-meaning edit slice: the same source selection and declared
+/// structural id do not exempt an edited source-owned body from wire checks.
+#[trace("TC-048")]
+#[test]
+fn edited_source_owned_body_revalidates_without_a_stale_identity_gate() {
+    let mut package = v2_nominal();
+    assert!(matches!(
+        read(&package, &evidence_for(&package)),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nominal graph")
+        .iter()
+        .position(|node| node["owner"]["kind"] == "source")
+        .expect("source-owned declaration");
+    let original_id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let name = package["name"].clone();
+    package["semantic_graph"]["nodes"][position]["body"] = json!({"term":"unknown-source-body"});
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence_for(&package))
+    else {
+        panic!("edited source body must be validated");
+    };
+    assert_eq!(package["name"], name);
+    assert_eq!(
+        package["semantic_graph"]["nodes"][position]["node_id"],
+        original_id
+    );
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{position}/body")),
+        "{refusal:?}"
+    );
+}
+
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-5", "FR-038-AC-64")]
 #[test]
 fn tc_048_model_owners_join_model_roots_by_identity() {
