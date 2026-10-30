@@ -13,8 +13,7 @@
 //! operation over two operands of that enum.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_package, rebuild_source_map, refresh_identity,
-    refusal_at, sha256_hex, ExpectedRefusal,
+    canonical, evidence_for, node_id, nominal_package, refusal_at_id, settle, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -34,10 +33,6 @@ enum Operands {
 
 fn owner() -> Value {
     json!({"kind": "source", "authority": "agent-ix", "identity": "quire.fixture.source/v1"})
-}
-
-fn key(preimage: &Value) -> String {
-    sha256_hex(&canonical(preimage))
 }
 
 /// `(preimage, key)` of an enum declaration.
@@ -61,7 +56,7 @@ fn declaration_with(name: &str, ordered: bool, members: [&str; 2]) -> (Value, St
         "ordered": ordered,
         "members": members,
     });
-    let key = key(&preimage);
+    let key = format!("enum/{name}");
     (preimage, key)
 }
 
@@ -72,20 +67,8 @@ fn member(declaration: &str, case: &str) -> (Value, String) {
         "declaration_node_id": node_id(declaration),
         "case": case,
     });
-    let key = key(&preimage);
+    let key = format!("enum/member/{declaration}/{case}");
     (preimage, key)
-}
-
-fn structural_key(form: &str, semantic_type: &str, declaration: bool, body: &Value) -> String {
-    key(&json!({
-        "version": "quire.structural-node/v1",
-        "node_tag": if form == "parameter" { "value" } else { "scalar_type" },
-        "semantic_form": form,
-        "semantic_type": if declaration { Value::Null } else { node_id(semantic_type) },
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    }))
 }
 
 fn plain_node(
@@ -146,7 +129,7 @@ fn package(
     }
     let mut package = nominal_package(&members);
     let boolean_body = json!({"term": "aggregate", "members": []});
-    let boolean = structural_key("boolean", "", true, &boolean_body);
+    let boolean = "scalar_type/boolean".to_owned();
     let mut nodes = vec![plain_node(
         &boolean,
         "scalar_type",
@@ -157,8 +140,8 @@ fn package(
     )];
     if let Operands::Parameters = form {
         let text_body = json!({"term": "aggregate", "members": []});
-        let text = structural_key("text", "", true, &text_body);
-        let integer = structural_key("integer", "", true, &text_body);
+        let text = "scalar_type/text".to_owned();
+        let integer = "scalar_type/integer".to_owned();
         nodes.push(plain_node(
             &text,
             "scalar_type",
@@ -182,7 +165,7 @@ fn package(
                 {"term": "binding", "name": "level", "value": {"term": "literal",
                     "type": node_id(&integer), "value_kind": "integer", "value": "0"}},
             ]});
-            let parameter = structural_key("parameter", &declaration, false, &body);
+            let parameter = format!("value/parameter/{position}");
             nodes.push(plain_node(
                 &parameter,
                 "value",
@@ -202,15 +185,7 @@ fn package(
         "result_type": node_id(&boolean),
         "arguments": [reference(&operands[0]), reference(&operands[1])],
     });
-    let application = key(&json!({
-        "version": "quire.application-node/v1",
-        "node_tag": "expression",
-        "semantic_form": "binary",
-        "semantic_type": node_id(&boolean),
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    }));
+    let application = "expression/enum-operation".to_owned();
     let mut application_node = plain_node(
         &application,
         "expression",
@@ -222,14 +197,13 @@ fn package(
     let mut dependencies = [operands[0].as_str(), operands[1].as_str()];
     dependencies.sort_unstable();
     application_node["dependencies"] =
-        Value::Array(dependencies.iter().map(|digest| node_id(digest)).collect());
+        Value::Array(dependencies.iter().map(|key| node_id(key)).collect());
     nodes.push(application_node);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
         .extend(nodes);
-    rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
+    settle(&mut package);
     package
 }
 
@@ -253,13 +227,11 @@ fn ineligible(package: &Value, argument: usize) -> ExpectedRefusal {
         .as_array()
         .expect("nodes");
     let position = nodes.len() - 1;
-    refusal_at(
+    refusal_at_id(
         CheckedPackageRefusalCode::IllTyped,
         &format!("/semantic_graph/nodes/{position}/body/arguments/{argument}"),
         Some(CheckedPackageRefusalCause::OperatorIneligible),
-        nodes[position]["node_id"]["digest"]
-            .as_str()
-            .expect("digest"),
+        &nodes[position]["node_id"],
     )
 }
 
