@@ -1651,7 +1651,7 @@ fn validate_recursion_group_paths(nodes: &[RawSemanticNodeV2]) -> Result<(), Val
         let Some(label) = node.recursion_group.as_deref() else {
             continue;
         };
-        if node.declaration.is_some() || node.owner.is_some() {
+        if node.declaration.is_some() {
             continue;
         }
         let Some(anchor) = sole_declaration.get(label).copied().flatten() else {
@@ -3442,6 +3442,18 @@ mod tests {
         assert!(validate_recursion_group_paths(&[declared.clone(), anonymous.clone()]).is_ok());
         assert_recursion_refusal(
             validate_recursion_group_paths(&[declared.clone(), member('b', "other", false)]),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_pointer(1).key("node_id").key("path").to_string(),
+        );
+        let mut owned_anonymous = member('b', "other", false);
+        owned_anonymous.node_tag = "scalar_type".into();
+        owned_anonymous.semantic_form = "dimension_equivalence".into();
+        owned_anonymous.owner = Some(super::CheckedNodeOwner::Source {
+            authority: "source".into(),
+            identity: "equivalence".into(),
+        });
+        assert_recursion_refusal(
+            validate_recursion_group_paths(&[declared.clone(), owned_anonymous]),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_pointer(1).key("node_id").key("path").to_string(),
         );
