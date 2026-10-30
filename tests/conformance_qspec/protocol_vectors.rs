@@ -38,6 +38,14 @@ fn read_authored(package: &Value) -> CheckedPackageV2ReadResult {
 fn qspec_k2_role_rename_changes_declared_and_operand_ids() {
     let row = vector("K2");
     assert_eq!(row["test_case"], "TC-946");
+    assert_eq!(
+        row["Edit to the base"],
+        "rename role `Fulfillment` to `Shipping`"
+    );
+    assert_eq!(
+        row["Expected"],
+        "the role's node id changes (its declaration path is the renamed name), and so does the id of every operand-derived node that references it"
+    );
     let mut package = fixture_support::admitted_protocol_families();
     let clause = package["semantic_graph"]["nodes"]
         .as_array()
@@ -114,6 +122,11 @@ fn qspec_k2_role_rename_changes_declared_and_operand_ids() {
 fn qspec_k4_poll_maximum_changes_body_without_changing_declared_id() {
     let row = vector("K4");
     assert_eq!(row["test_case"], "TC-946");
+    assert_eq!(row["Edit to the base"], "change `max 3` to `max 4`");
+    assert_eq!(
+        row["Expected"],
+        "`Poll`'s body changes; no node id changes, since a declared node's id is its declaration path and producer-assigned ordinal"
+    );
     let mut package = fixture_support::admitted_protocol_families();
     let root = package["semantic_graph"]["nodes"]
         .as_array()
@@ -218,6 +231,14 @@ fn qspec_k4_poll_maximum_changes_body_without_changing_declared_id() {
 fn qspec_c4_removing_scheduling_retains_declared_clause_id() {
     let row = vector("C4");
     assert_eq!(row["test_case"], "TC-946");
+    assert_eq!(
+        row["Edit to the base"],
+        "`scheduling` removed from the base"
+    );
+    assert_eq!(
+        row["Expected"],
+        "the clause body changes; no node id changes"
+    );
     let mut package = fixture_support::admitted_protocol_families();
     let clause = package["semantic_graph"]["nodes"]
         .as_array()
