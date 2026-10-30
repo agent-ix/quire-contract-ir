@@ -480,7 +480,11 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         .expect("changed reference node")
         .node_id
         .clone();
-    assert!(original_reference.term(&changed_key).is_none());
+    assert_ne!(
+        original_reference.term(&changed_key),
+        changed_reference.term(&changed_key),
+        "the same structural node key must not authenticate a changed body"
+    );
     let changed_lowered = changed_reference.lower(std::slice::from_ref(&changed_key), &profile());
     let mut changed: Value =
         serde_json::from_slice(bytes(&changed_lowered)).expect("changed reference V1 wire");
@@ -499,7 +503,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
             &ContractDependencies::new(),
             &original_reference,
         ),
-        Err(ContractSourceHandoffError::MissingNode(_))
+        Err(ContractSourceHandoffError::NodeMismatch(key)) if key == changed_key
     ));
 }
 
@@ -735,8 +739,8 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
         (
             CheckedPackageLimit::Work,
             2,
-            7,
-            Some("/semantic_graph/nodes/2/body"),
+            6,
+            Some("/semantic_graph/nodes/1/body"),
         ),
     ];
     for (kind, limit, consumed, path) in cases {
@@ -764,19 +768,41 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
     }
 
     let two_edge_output = lower(&mixed_fixture_with_two_dependencies(), &request());
+    let two_edge_nodes = &two_edge_output
+        .package
+        .wire()
+        .expect("two-dependency package")
+        .semantic_graph
+        .nodes;
+    let mut preceding_edges = 0_u64;
+    let (two_edge_position, two_edge_count) = two_edge_nodes
+        .iter()
+        .enumerate()
+        .find_map(|(position, node)| {
+            let count =
+                u64::try_from(node.dependencies.len()).expect("fixture edge count fits u64");
+            if count >= 2 {
+                Some((position, count))
+            } else {
+                preceding_edges += count;
+                None
+            }
+        })
+        .expect("one represented node has two dependencies");
     let mut limits = CheckedPackageReadLimits::bounded();
-    limits.edges = 0;
+    limits.edges = preceding_edges;
     let ContractPackageReadResult::Incomplete(incomplete) =
         read_with_limits(bytes(&two_edge_output), limits)
     else {
         panic!("two dependencies on one node must exhaust the edge limit");
     };
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Edges);
-    assert_eq!(incomplete.limit, 0);
-    assert_eq!(incomplete.consumed, 2);
+    assert_eq!(incomplete.limit, preceding_edges);
+    assert_eq!(incomplete.consumed, preceding_edges + two_edge_count);
+    let expected_path = format!("/semantic_graph/nodes/{two_edge_position}/dependencies");
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
-        Some("/semantic_graph/nodes/1/dependencies")
+        Some(expected_path.as_str())
     );
 
     let mut limits = CheckedPackageReadLimits::bounded();
@@ -789,7 +815,7 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
     assert_eq!(incomplete.consumed, 8);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
-        Some("/semantic_graph/nodes/0/node_id")
+        Some("/semantic_graph/nodes/1/semantic_type")
     );
 }
 
@@ -798,11 +824,14 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
 fn reader_uses_one_work_ceiling_across_value_and_reference_validation() {
     let output = lower(&mixed_fixture(), &request());
     let wire = bytes(&output);
+    // Independent body count: node 0 has one unit, node 1 five, node 2 one.
+    // Reference validation then visits six targets, for a total of thirteen.
     for (limit, consumed, path) in [
-        (2, 7, "/semantic_graph/nodes/2/body"),
-        (7, 8, "/semantic_graph/nodes/0/node_id"),
-        (20, 21, "/semantic_graph/nodes/2/node_id"),
-        (26, 27, "/semantic_graph/nodes/2/body/members/1/value/type"),
+        (2, 6, "/semantic_graph/nodes/1/body"),
+        (6, 7, "/semantic_graph/nodes/2/body"),
+        (7, 8, "/semantic_graph/nodes/1/semantic_type"),
+        (10, 11, "/semantic_graph/nodes/1/body/members/1/value/type"),
+        (12, 13, "/semantic_graph/nodes/2/dependencies/0"),
     ] {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = limit;
@@ -819,7 +848,7 @@ fn reader_uses_one_work_ceiling_across_value_and_reference_validation() {
         );
     }
     let mut limits = CheckedPackageReadLimits::bounded();
-    limits.work = 27;
+    limits.work = 13;
     assert!(matches!(
         read_with_limits(wire, limits),
         ContractPackageReadResult::Admitted(_)
@@ -1327,12 +1356,17 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         ),
         Err(ContractSourceHandoffError::MissingNode(missing()))
     );
+    let mut wrong_source_wire = mixed_fixture();
+    wrong_source_wire["name"] = json!("test/other-v1-source");
+    refresh_identity(&mut wrong_source_wire);
+    let wrong_source = admit(&wrong_source_wire);
+    assert_ne!(wrong_source.name(), source.name());
     assert_eq!(
         ContractPackageWireV1::read_with_source(
             wire_bytes,
             CheckedPackageReadLimits::bounded(),
             &ContractDependencies::new(),
-            &admit(&mixed_fixture()),
+            &wrong_source,
         ),
         Err(ContractSourceHandoffError::SourceIdentity)
     );
@@ -1928,12 +1962,26 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
     else {
         panic!("selected dependency must admit");
     };
-    assert!(dependency
+    let represented_keys = package
+        .wire()
+        .semantic_graph
+        .nodes
+        .iter()
+        .map(|node| &node.node_id)
+        .collect::<BTreeSet<_>>();
+    let external_only_key = dependency
         .graph()
         .nodes
         .iter()
-        .any(|node| node.node_id == id("7070")));
-    assert_eq!(package.node_kind(&id("7070")), None);
+        .map(|node| &node.node_id)
+        .find(|key| !represented_keys.contains(key))
+        .expect("selected dependency has a node outside the represented local graph");
+    assert!(admit(&mixed_fixture())
+        .graph()
+        .nodes
+        .iter()
+        .any(|node| node.node_id == *external_only_key));
+    assert_eq!(package.node_kind(external_only_key), None);
     let ContractPackageReadResult::Refused(missing) = read(&bytes) else {
         panic!("selection requires input");
     };
