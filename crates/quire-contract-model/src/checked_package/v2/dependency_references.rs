@@ -5,9 +5,9 @@
 //! Two stages, in the reader's first-refusal order:
 //!
 //! 1. [`admit_dependencies`], in the lock stage: every entry, in lock order,
-//!    must have a package supplied under its name (`missing_import` /
-//!    `missing-selection` at the entry), whose own name equals the entry's
-//!    (`stale_dependency` / `content-mismatch` at the entry's `identity`).
+//!    must have a package supplied under its name with the same package name;
+//!    absence or a nonmatching name refuses `missing_import` /
+//!    `missing-selection` at the entry.
 //!    This runs before any node is read, so before any `dependency_reference`
 //!    check.
 //! 2. [`DependencyReferences::walk_admitted`] in step 7 of the operation stage
@@ -223,9 +223,9 @@ pub(super) fn admit_dependencies<'e>(
         };
         if package.name() != entry.identity.as_ref() {
             return Err(ValidationFailure::refused_because(
-                CheckedPackageRefusalCode::StaleDependency,
-                at(index).key("identity"),
-                CheckedPackageRefusalCause::ContentMismatch,
+                CheckedPackageRefusalCode::MissingImport,
+                at(index),
+                CheckedPackageRefusalCause::MissingSelection,
             ));
         }
         let nodes = &package.graph().nodes;

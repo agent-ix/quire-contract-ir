@@ -488,10 +488,6 @@ pub enum CheckedDiagnosticCode {
     MissingImport,
     /// `missing_declaration`.
     MissingDeclaration,
-    /// `stale_dependency`.
-    StaleDependency,
-    /// `source_digest_mismatch`.
-    SourceDigestMismatch,
     /// `ambiguous_declaration`.
     AmbiguousDeclaration,
     /// `invalid_package`.
@@ -532,10 +528,6 @@ pub enum CheckedDiagnosticCause {
     UnsupportedFeature,
     /// `revision-mismatch`.
     RevisionMismatch,
-    /// `byte-digest-mismatch`.
-    ByteDigestMismatch,
-    /// `digest-domain-mismatch`.
-    DigestDomainMismatch,
     /// `definition-cycle`.
     DefinitionCycle,
     /// `conflicting-definition`.
@@ -1292,7 +1284,7 @@ fn validate_lock<'a>(
     let lock = &wire.lock;
     if lock.sources.is_empty() {
         return Err(refuse(
-            CheckedPackageRefusalCode::StaleDependency,
+            CheckedPackageRefusalCode::MalformedWire,
             member_pointer(&["lock", "sources"]),
         ));
     }

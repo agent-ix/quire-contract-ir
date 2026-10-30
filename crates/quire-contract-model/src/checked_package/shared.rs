@@ -74,13 +74,6 @@ pub enum CheckedPackageRefusalCode {
     UnknownMember,
     /// The parsed value was not RFC-8785-style canonical JSON bytes.
     NoncanonicalWire,
-    /// The package, or something it selects, does not match the content
-    /// identity it names: the `package_id`, identity preimage or projection,
-    /// a selected domain package document, a dependency's `package_id`, or a
-    /// lock that contradicts itself.
-    StaleDependency,
-    /// A digest appeared under an incompatible identity domain.
-    DigestDomainMismatch,
     /// A required capability was absent or non-available.
     UnknownRequiredCapability,
     /// Graph identity, reference, form, or source correspondence was invalid.
@@ -139,8 +132,6 @@ pub enum CheckedPackageRefusalCause {
     FeatureSetMismatch,
     /// A resource charge could not be made.
     InsufficientNextCharge,
-    /// Selected content has a different recomputed identity.
-    ContentMismatch,
     /// `missing-name`: an entry naming no node of the graph, or a node that
     /// is not a declared dependency of the frame node that names it.
     MissingName,
@@ -152,9 +143,6 @@ pub enum CheckedPackageRefusalCause {
     /// `wrong-export`: a protocol `related.relationship` target is not a
     /// `relation`/`relationship` declaration of the selected model.
     WrongExport,
-    /// `stale-node-key`: an application node whose retained key is not the
-    /// JCS SHA-256 of its own preimage.
-    StaleNodeKey,
     /// `invalid-derived-shape`: a correctly keyed derived node has an
     /// inadmissible semantic target.
     InvalidDerivedShape,
@@ -522,23 +510,15 @@ pub struct CheckedPackageRefusal {
     /// unsupported variant payload, or into the checked package for an
     /// unheld extension definition (FR-469).
     pub document_pointer: Option<JsonPointer>,
-    /// Selected or pinned identity in a content or byte digest mismatch.
-    pub expected: Option<CheckedSemanticId>,
-    /// Recomputed identity in a content or byte digest mismatch.
-    pub actual: Option<CheckedSemanticId>,
     /// Extension clause information at a missing-member or type-mismatch refusal.
     pub extension_detail: Option<Box<CheckedExtensionRefusalDetail>>,
     /// Protocol event, type or interval context for a control refusal.
     pub protocol_detail: Option<Box<CheckedProtocolRefusalDetail>>,
     /// Both parties to a terminal declaration duplicate, when applicable.
     pub terminal_duplicate: Option<CheckedTerminalDuplicate>,
-    /// The key already derived at a stale-node-key refusal site, when one
-    /// exists. It is meaningful only with the original reader-returned locus.
-    expected_node_id: Option<Box<CheckedNodeId>>,
 }
 
-/// Named fields for constructing a refusal inside this crate. The expected
-/// key is set only by the dedicated stale-key constructor.
+/// Named fields for constructing a refusal inside this crate.
 pub(crate) struct RefusalFields {
     pub(crate) code: CheckedPackageRefusalCode,
     pub(crate) path: Option<JsonPointer>,
@@ -560,12 +540,9 @@ impl CheckedPackageRefusal {
             locus: fields.locus,
             contract_version: fields.contract_version,
             document_pointer: fields.document_pointer,
-            expected: None,
-            actual: None,
             extension_detail: None,
             protocol_detail: None,
             terminal_duplicate: None,
-            expected_node_id: None,
         }
     }
 
@@ -587,51 +564,6 @@ impl CheckedPackageRefusal {
             path: Some(path),
             source_region: None,
         });
-    }
-
-    /// A selected or pinned identity differs from the supplied content.
-    pub(crate) fn mismatch(
-        path: JsonPointer,
-        cause: CheckedPackageRefusalCause,
-        expected: CheckedSemanticId,
-        actual: CheckedSemanticId,
-    ) -> Self {
-        debug_assert!(matches!(cause, CheckedPackageRefusalCause::ContentMismatch));
-        let mut refusal = Self::new(RefusalFields {
-            code: CheckedPackageRefusalCode::StaleDependency,
-            path: Some(path),
-            cause: Some(cause),
-            locus: None,
-            contract_version: None,
-            document_pointer: None,
-        });
-        refusal.expected = Some(expected);
-        refusal.actual = Some(actual);
-        refusal
-    }
-
-    pub(crate) fn stale_node_key(
-        path: JsonPointer,
-        locus: CheckedNodeId,
-        expected_node_id: CheckedNodeId,
-    ) -> Self {
-        let mut refusal = Self::new(RefusalFields {
-            code: CheckedPackageRefusalCode::InvalidPackage,
-            path: Some(path),
-            cause: Some(CheckedPackageRefusalCause::StaleNodeKey),
-            locus: Some(locus),
-            contract_version: None,
-            document_pointer: None,
-        });
-        refusal.expected_node_id = Some(Box::new(expected_node_id));
-        refusal
-    }
-
-    /// The production-derived node key retained with a stale-key refusal, if
-    /// the reader could derive one. The original [`Self::locus`] identifies the
-    /// stored key that refused.
-    pub fn expected_node_id(&self) -> Option<&CheckedNodeId> {
-        self.expected_node_id.as_deref()
     }
 }
 
@@ -657,18 +589,6 @@ pub struct CheckedArtifactLocator {
     pub authority: Box<str>,
     /// Artifact identity.
     pub identity: Box<str>,
-}
-
-/// A semantic digest with an explicit domain and algorithm.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CheckedSemanticId {
-    /// Identity domain.
-    pub domain: Box<str>,
-    /// Digest algorithm.
-    pub algorithm: Box<str>,
-    /// Lowercase SHA-256 digest.
-    pub digest: Box<str>,
 }
 
 /// One segment of a checked node's structural path.

@@ -1901,7 +1901,7 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
-    #[trace("TC-048", "FR-038-AC-5", "FR-063-AC-3")]
+    #[trace("TC-048", "FR-038-AC-5")]
     #[test]
     fn model_owned_nominals_join_selected_fcd_values() {
         let document = json!({
@@ -2004,7 +2004,7 @@ mod tests {
         ));
     }
 
-    #[trace("TC-048", "FR-038-AC-5", "FR-063-AC-3")]
+    #[trace("TC-048", "FR-038-AC-5")]
     #[test]
     fn merged_qspec_structural_nominal_fixture_reads() {
         let Some(root) = std::env::var_os("QUIRE_SPECIFICATION_DIR") else {
@@ -2031,7 +2031,7 @@ mod tests {
         );
     }
 
-    #[trace("TC-048", "FR-038-AC-5", "FR-063-AC-3")]
+    #[trace("TC-048", "FR-038-AC-5")]
     #[test]
     fn nominal_body_keeps_closed_structural_references() {
         let first = json!({"package":"acme/clock","path":["Time"],"ordinal":0});
