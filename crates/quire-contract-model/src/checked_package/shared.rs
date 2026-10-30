@@ -347,7 +347,7 @@ impl AsRef<str> for JsonPointer {
 }
 
 /// Clause information carried by an extension reader refusal.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CheckedExtensionRefusalDetail {
     /// The clause or first absent member.
     pub member: Box<str>,
@@ -360,7 +360,7 @@ pub struct CheckedExtensionRefusalDetail {
 }
 
 /// The two identities involved in a terminal declaration duplicate.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum CheckedTerminalDuplicate {
     /// Distinct terminal nodes for the same model, in node-id order.
     Nodes {
@@ -381,7 +381,7 @@ pub enum CheckedTerminalDuplicate {
 }
 
 /// Protocol control information retained at a typed reader refusal.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum CheckedProtocolRefusalDetail {
     /// A protocol expression reads a binder outside its stage's readable set.
     BinderScope {
@@ -472,7 +472,7 @@ pub enum CheckedProtocolRefusalDetail {
 }
 
 /// The record binder and field named by a decision-fact read.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CheckedProtocolDecisionRead {
     /// The record binder node.
     pub binder: CheckedNodeId,
@@ -481,7 +481,7 @@ pub struct CheckedProtocolDecisionRead {
 }
 
 /// One exact location of a typed refusal.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CheckedPackageRefusalLocation {
     /// RFC 6901 pointer of the value; absent only for a byte-stream defect.
     pub path: Option<JsonPointer>,
@@ -490,7 +490,7 @@ pub struct CheckedPackageRefusalLocation {
 }
 
 /// A typed refusal with a stable code and one or more ordered locations.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CheckedPackageRefusal {
     /// The condition callers can distinguish without parsing prose.
     pub code: CheckedPackageRefusalCode,
@@ -516,6 +516,12 @@ pub struct CheckedPackageRefusal {
     pub protocol_detail: Option<Box<CheckedProtocolRefusalDetail>>,
     /// Both parties to a terminal declaration duplicate, when applicable.
     pub terminal_duplicate: Option<CheckedTerminalDuplicate>,
+}
+
+impl std::fmt::Display for CheckedPackageRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, formatter)
+    }
 }
 
 /// Named fields for constructing a refusal inside this crate.
@@ -952,7 +958,54 @@ pub(crate) mod checked_node_comparisons {
 
 #[cfg(test)]
 mod structural_node_identity_tests {
-    use super::{CheckedNodeId, CheckedNodePathSegment};
+    use super::{
+        CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal, CheckedPackageRefusalCode,
+        JsonPointer, RefusalFields,
+    };
+
+    /// Trace: FR-038-AC-185, TC-048.
+    #[test]
+    fn refusal_public_forms_retain_only_the_reported_structural_locus() {
+        let pre_graph = CheckedPackageRefusal::new(RefusalFields {
+            code: CheckedPackageRefusalCode::MalformedWire,
+            path: None,
+            cause: None,
+            locus: None,
+            contract_version: None,
+            document_pointer: None,
+        });
+        let pre_graph_json = serde_json::to_value(&pre_graph).expect("serialize refusal");
+        assert!(pre_graph_json["locus"].is_null());
+        assert!(pre_graph.to_string().contains("locus: None"));
+
+        let id = CheckedNodeId {
+            package: "example".into(),
+            path: vec![CheckedNodePathSegment::Name("declaration".into())],
+            ordinal: 7,
+        };
+        let located = CheckedPackageRefusal::new(RefusalFields {
+            code: CheckedPackageRefusalCode::InvalidSemanticGraph,
+            path: JsonPointer::parse("/semantic_graph/nodes/1/node_id"),
+            cause: None,
+            locus: Some(id.clone()),
+            contract_version: None,
+            document_pointer: None,
+        });
+        let cloned = located.clone();
+        assert_eq!(cloned.locus, Some(id.clone()));
+        let encoded = serde_json::to_value(&located).expect("serialize located refusal");
+        assert_eq!(
+            encoded["locus"],
+            serde_json::to_value(&id).expect("serialize ID")
+        );
+        assert_eq!(
+            encoded["loci"][0]["path"],
+            "/semantic_graph/nodes/1/node_id"
+        );
+        assert!(located.to_string().contains("declaration"));
+        assert!(encoded.get("expected_node_id").is_none());
+        assert!(encoded.get("actual_digest").is_none());
+    }
 
     /// Trace: FR-038-AC-364, FR-322-AC-270, FR-322-AC-271.
     #[test]
