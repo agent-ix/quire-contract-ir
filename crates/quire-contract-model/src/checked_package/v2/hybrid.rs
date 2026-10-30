@@ -1135,8 +1135,7 @@ pub(super) fn validate_claims(
                 continue;
             };
             let member = &operation.record()["member"];
-            let declaration: Option<CheckedNodeId> =
-                serde_json::from_value(member["declaration"].clone()).ok();
+            let declaration = CheckedNodeId::from_value(&member["declaration"]);
             let name = member["name"].as_str().unwrap_or_default();
             let mut resolved = false;
             for mode_key in &mode_keys {
