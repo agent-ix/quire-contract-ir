@@ -1167,6 +1167,25 @@ fn malformed_group_member_structural_ordinals_refuse_at_the_ordinal() {
     }
 }
 
+#[trace("TC-226", "FR-038-AC-147", "FR-038-AC-150")]
+#[test]
+fn mismatched_cycle_label_refuses_at_the_member() {
+    let (mut package, _, record) = list_group();
+    package["semantic_graph"]["nodes"][record]["recursion_group"] = json!("Other");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("different labels in one List cycle must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{record}/recursion_group")),
+        "{refusal:?}"
+    );
+}
+
 fn large_cyclic_component() -> Value {
     const MEMBERS: usize = 512;
     let (mut package, option, record) = list_group();
