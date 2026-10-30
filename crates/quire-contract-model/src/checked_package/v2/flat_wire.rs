@@ -198,6 +198,21 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                                 at.key("operation").key("member").key("operator").pointer(),
                             ));
                         }
+                        let member = &operation["member"];
+                        if member["kind"].as_str() == Some("relationship_end")
+                            && member
+                                .get("destination_type")
+                                .and_then(CheckedNodeId::from_value)
+                                .is_none()
+                        {
+                            return Err(ValidationFailure::refused(
+                                CheckedPackageRefusalCode::MalformedWire,
+                                at.key("operation")
+                                    .key("member")
+                                    .key("destination_type")
+                                    .pointer(),
+                            ));
+                        }
                         if kind == CheckedNodeKind::State(super::StateForm::Transition) {
                             let body = CheckedTerm::decode_admitted(&node.body).ok();
                             let transition_shape = body
