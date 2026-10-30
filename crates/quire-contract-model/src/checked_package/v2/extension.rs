@@ -485,13 +485,7 @@ mod tests {
             let edition = json!({"role": "edition", "definition": definition});
             let mut wire: CheckedPackageWireV2 = serde_json::from_value(json!({
                 "contract_version": super::super::CHECKED_PACKAGE_V2,
-                "identity_preimage": {
-                    "version": "quire.checked-package-id/v2", "edition": edition,
-                    "profile_selections": [], "definition_selections": [],
-                    "required_features": [], "dependency_selections": []
-                },
-                "package_id": {"domain": super::super::PACKAGE_DOMAIN_V2,
-                    "algorithm": "sha256", "digest": "a".repeat(64)},
+                "name": "test/extension",
                 "lock": {"sources": [], "edition": edition, "profile_selections": [],
                     "definition_selections": [definition],
                     "required_features": [], "dependency_selections": []},
