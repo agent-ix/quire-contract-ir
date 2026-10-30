@@ -74,6 +74,15 @@ impl<'e> SuppliedDependencies<'e> {
     pub(super) fn selected_package(&self, package: &str) -> Option<&'e CheckedPackageV2> {
         self.resolve(package).map(|entry| entry.package)
     }
+
+    /// The exact node retained by a directly selected dependency package.
+    pub(super) fn selected_node(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<&'e super::CheckedSemanticNodeV2> {
+        let selected = self.resolve(&id.package)?;
+        selected.package.graph().nodes.get(*selected.index.get(id)?)
+    }
     /// Index already admitted, selection-matched packages for another closed
     /// reader that shares FR-322 dependency-reference semantics.
     pub(super) fn from_admitted(

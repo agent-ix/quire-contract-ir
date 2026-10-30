@@ -43,8 +43,9 @@
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::{
-    BodyTerm, CheckedNodeKind, FrameEntryKind, ModelForm,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, WorkMeter,
+    BodyTerm, CheckedFieldScope, CheckedFrameModification, CheckedNodeKind, CheckedScopedDeletion,
+    CheckedTerm, FrameEntryKind, ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
+    RelationForm, WorkMeter,
 };
 use crate::checked_package::common::{
     body_term, exact_members, node_pointer, visit_reference, ReferenceMember, Trail,
@@ -125,6 +126,48 @@ pub(super) struct FrameBody {
     pub(super) creates: Vec<CheckedNodeId>,
     pub(super) deletes: Vec<CheckedNodeId>,
     pub(super) deletes_scoped: Vec<DeletesScopedEntry>,
+}
+
+impl FrameBody {
+    /// Retains the already validated frame as the public typed term. This
+    /// avoids a second generic JSON decode of nested structural node IDs.
+    pub(super) fn into_checked_term(self) -> CheckedTerm {
+        let modifies = self
+            .modifies
+            .into_iter()
+            .map(|entry| match entry {
+                ModifiesEntry::Relationship { declaration } => {
+                    CheckedFrameModification::Relationship { declaration }
+                }
+                ModifiesEntry::Field {
+                    declaration,
+                    name,
+                    scope,
+                } => CheckedFrameModification::Field {
+                    declaration,
+                    name,
+                    scope: match scope {
+                        FieldScope::EveryObject => CheckedFieldScope::EveryObject,
+                        FieldScope::Receiver => CheckedFieldScope::Receiver,
+                    },
+                },
+            })
+            .collect();
+        let deletes_scoped = self
+            .deletes_scoped
+            .into_iter()
+            .map(|entry| match entry {
+                DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
+                DeletesScopedEntry::Parameter { name } => CheckedScopedDeletion::Parameter { name },
+            })
+            .collect();
+        CheckedTerm::Frame {
+            modifies,
+            creates: self.creates,
+            deletes: self.deletes,
+            deletes_scoped,
+        }
+    }
 }
 
 /// Reads a `state`/`frame` node's body at `at`, returning it and its work:
