@@ -430,3 +430,50 @@ fn pregraph_refusal_invents_no_structural_node_locus() {
     let debug = format!("{refusal:?}");
     assert!(!debug.contains("expected_node_id"));
 }
+
+fn self_option_group() -> (Value, usize) {
+    let mut package = local_package();
+    let mut option = package["semantic_graph"]["nodes"][0].clone();
+    option["body"] = json!({"term":"aggregate","members":[]});
+    option["recursion_group"] = json!("self-option");
+    let position = append_shape(&mut package, "composite_type", "option", option);
+    let self_id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = self_id.clone();
+    package["semantic_graph"]["nodes"][position]["dependencies"] = json!([self_id]);
+    package["semantic_graph"]["nodes"][position]["body"]["members"] =
+        json!([{"term":"reference","target":self_id}]);
+    settle(&mut package);
+    (package, position)
+}
+
+#[trace("TC-226", "FR-038-AC-145", "FR-038-AC-146")]
+#[test]
+fn owner_free_self_option_group_obeys_closed_shape_checks() {
+    let (package, position) = self_option_group();
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "valid self-option group: {:?}",
+        read(&package)
+    );
+    let mut malformed = package.clone();
+    malformed["semantic_graph"]["nodes"][position]["body"]["members"] = json!([]);
+    assert_derived_refusal(&malformed, position);
+
+    let mut ungrouped = package;
+    ungrouped["semantic_graph"]["nodes"][position]
+        .as_object_mut()
+        .expect("option node")
+        .remove("recursion_group");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&ungrouped) else {
+        panic!("unlabelled self-reference must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{position}")),
+        "{refusal:?}"
+    );
+}
