@@ -237,7 +237,11 @@ fn expect_refusal(
 ) {
     assert_eq!(refusal.code, code, "{refusal:?}");
     assert_eq!(refusal.cause, cause, "{refusal:?}");
-    assert_eq!(refusal.path, Some(pointer(path)), "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path.clone(),
+        Some(pointer(path)),
+        "{refusal:?}"
+    );
 }
 
 fn call_path(package: &Value, tail: &str) -> String {
@@ -880,7 +884,7 @@ fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
             "{name}"
         );
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&call_path(&package, "/arguments/0"))),
             "{name}"
         );

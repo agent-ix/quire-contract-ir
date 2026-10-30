@@ -329,7 +329,11 @@ fn tc_048_a_declaration_key_over_the_byte_limit_refuses_at_its_selection_row() {
         Err(ValidationFailure::Refused(refusal)) => {
             assert_eq!(refusal.code, Code::InvalidSemanticGraph);
             assert_eq!(
-                refusal.path.map(|path| path.to_string()).as_deref(),
+                refusal.loci[0]
+                    .path
+                    .clone()
+                    .map(|path| path.to_string())
+                    .as_deref(),
                 Some("/semantic_graph/nodes/0/owner")
             );
         }

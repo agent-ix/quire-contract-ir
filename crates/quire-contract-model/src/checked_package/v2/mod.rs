@@ -945,8 +945,8 @@ fn locate_in_preimage_with(
     let ValidationFailure::Refused(mut refusal) = failure else {
         return failure;
     };
-    if let Some(path) = refusal.path.take() {
-        refusal.path = Some(if is_typed_preimage_position(&path) {
+    if let Some(path) = refusal.primary_path().cloned() {
+        let located = if is_typed_preimage_position(&path) {
             if let Some(preimage) = source(&path) {
                 // Most nominal preimage decode failures remain graph errors.
                 // The explicitly closed schema defects refuse at their node.
@@ -973,7 +973,8 @@ fn locate_in_preimage_with(
             }
         } else {
             path
-        });
+        };
+        refusal.set_primary_path(Some(located));
     }
     ValidationFailure::Refused(refusal)
 }
@@ -1004,7 +1005,7 @@ fn classify_dependency_entry_shape_with(
     if refusal.code != CheckedPackageRefusalCode::UnknownMember {
         return ValidationFailure::Refused(refusal);
     }
-    let entry = refusal.path.as_ref().and_then(|path| {
+    let entry = refusal.primary_path().and_then(|path| {
         let text = path.as_str();
         ["/lock/dependency_selections/"]
             .iter()
@@ -1030,7 +1031,7 @@ fn classify_dependency_entry_shape_with(
             });
         if lacks_member {
             refusal.code = CheckedPackageRefusalCode::MalformedWire;
-            refusal.path = JsonPointer::parse(&entry);
+            refusal.set_primary_path(JsonPointer::parse(&entry));
         }
     }
     ValidationFailure::Refused(refusal)
@@ -1066,7 +1067,7 @@ fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
         return failure;
     };
     if refusal.code == CheckedPackageRefusalCode::UnknownMember {
-        let owner_path = refusal.path.as_ref().and_then(|path| {
+        let owner_path = refusal.primary_path().and_then(|path| {
             let index = path.as_str().split('/').nth(3)?.parse::<usize>().ok()?;
             let prefix = node_pointer(index);
             let member_path = path
@@ -1078,7 +1079,7 @@ fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
         });
         if let Some(owner_path) = owner_path {
             refusal.code = CheckedPackageRefusalCode::MalformedWire;
-            refusal.path = Some(owner_path);
+            refusal.set_primary_path(Some(owner_path));
         }
     }
     ValidationFailure::Refused(refusal)
@@ -1515,16 +1516,17 @@ fn validate_dependency_selections(
     if let Some(path) = malformed {
         return Err(refuse(CheckedPackageRefusalCode::MalformedWire, path));
     }
-    let mut identities = BTreeSet::new();
-    if let Some(repeat) = selections
-        .iter()
-        .position(|entry| !identities.insert(entry.identity.as_ref()))
-    {
-        return Err(ValidationFailure::refused_because(
-            CheckedPackageRefusalCode::InvalidPackage,
-            at(repeat),
-            CheckedPackageRefusalCause::ConflictingDefinition,
-        ));
+    let mut identities = BTreeMap::new();
+    for (index, entry) in selections.iter().enumerate() {
+        if let Some(&first) = identities.get(entry.identity.as_ref()) {
+            return Err(ValidationFailure::refused_because_at_two_paths(
+                CheckedPackageRefusalCode::InvalidPackage,
+                at(first),
+                at(index),
+                CheckedPackageRefusalCause::ConflictingDefinition,
+            ));
+        }
+        identities.insert(entry.identity.as_ref(), index);
     }
     if let Some(index) = selections
         .windows(2)
@@ -1556,9 +1558,10 @@ fn validate_refinement_internals(
         if !is_nonempty(&row.refinement) || row.internal.is_empty() {
             return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at(index)));
         }
-        if seen_rows.insert(row.refinement.as_ref(), index).is_some() {
-            return Err(ValidationFailure::refused_because(
+        if let Some(first) = seen_rows.insert(row.refinement.as_ref(), index) {
+            return Err(ValidationFailure::refused_because_at_two_paths(
                 CheckedPackageRefusalCode::InvalidPackage,
+                at(first).key("refinement"),
                 at(index).key("refinement"),
                 CheckedPackageRefusalCause::ConflictingDefinition,
             ));
@@ -1569,9 +1572,10 @@ fn validate_refinement_internals(
             if !is_nonempty(class) {
                 return Err(refuse(CheckedPackageRefusalCode::MalformedWire, class_at()));
             }
-            if seen_classes.insert(class.as_ref(), class_index).is_some() {
-                return Err(ValidationFailure::refused_because(
+            if let Some(first) = seen_classes.insert(class.as_ref(), class_index) {
+                return Err(ValidationFailure::refused_because_at_two_paths(
                     CheckedPackageRefusalCode::InvalidPackage,
+                    at(index).key("internal").index(first),
                     class_at(),
                     CheckedPackageRefusalCause::ConflictingDefinition,
                 ));
@@ -2604,7 +2608,7 @@ fn validate_graph(
         if let Err(failure) = source_check {
             if let ValidationFailure::Refused(refusal) = &failure {
                 if refusal.code == CheckedPackageRefusalCode::InvalidSourceMap {
-                    if let Some(path) = &refusal.path {
+                    if let Some(path) = refusal.primary_path() {
                         let source_root = JsonPointer::root().key("source_map");
                         if path == &source_root {
                             refinement::validate_occurrences(
@@ -3217,6 +3221,85 @@ mod tests {
         }
     }
 
+    #[trace("FR-038-AC-368", "FR-038-AC-369", "TC-048")]
+    #[test]
+    fn repeated_lock_values_report_both_concrete_locations_in_declaration_order() {
+        use super::{CheckedDependencySelection, CheckedRefinementInternal};
+
+        let paths = |failure: ValidationFailure| {
+            let ValidationFailure::Refused(refusal) = failure else {
+                panic!("expected a typed refusal");
+            };
+            assert!(refusal
+                .loci
+                .iter()
+                .all(|location| location.source_region.is_none()));
+            refusal
+                .loci
+                .iter()
+                .map(|location| {
+                    location
+                        .path
+                        .as_ref()
+                        .expect("lock value pointer")
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+        };
+        let row = |refinement: &str, internal: &[&str]| CheckedRefinementInternal {
+            refinement: refinement.into(),
+            internal: internal.iter().map(|name| (*name).into()).collect(),
+        };
+        let repeated_row =
+            super::validate_refinement_internals(Some(&[row("R", &["a"]), row("R", &["b"])]))
+                .expect_err("repeated refinement");
+        assert_eq!(
+            paths(repeated_row),
+            [
+                "/lock/refinement_internals/0/refinement",
+                "/lock/refinement_internals/1/refinement"
+            ]
+            .map(str::to_owned)
+            .to_vec()
+        );
+        let repeated_spelling =
+            super::validate_refinement_internals(Some(&[row("R", &["a", "a"])]))
+                .expect_err("repeated internal spelling");
+        assert_eq!(
+            paths(repeated_spelling),
+            [
+                "/lock/refinement_internals/0/internal/0",
+                "/lock/refinement_internals/0/internal/1"
+            ]
+            .map(str::to_owned)
+            .to_vec()
+        );
+        let repeated_dependency = super::validate_dependency_selections(&[
+            CheckedDependencySelection {
+                identity: "lib".into(),
+            },
+            CheckedDependencySelection {
+                identity: "lib".into(),
+            },
+        ])
+        .expect_err("repeated dependency identity");
+        assert_eq!(
+            paths(repeated_dependency),
+            [
+                "/lock/dependency_selections/0",
+                "/lock/dependency_selections/1"
+            ]
+            .map(str::to_owned)
+            .to_vec()
+        );
+        let one_location = super::validate_refinement_internals(Some(&[row("R", &[])]))
+            .expect_err("empty internal list");
+        assert_eq!(
+            paths(one_location),
+            ["/lock/refinement_internals/0"].map(str::to_owned).to_vec()
+        );
+    }
+
     fn recursion_test_node(digit: char, group: Option<&str>) -> super::RawSemanticNodeV2 {
         serde_json::from_value(json!({
             "node_id": super::test_support::id(digit),
@@ -3241,7 +3324,10 @@ mod tests {
             panic!("expected recursion refusal, got {result:?}");
         };
         assert_eq!(refusal.code, code);
-        assert_eq!(refusal.path.as_ref().map(ToString::to_string), Some(path));
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(path)
+        );
     }
 
     #[trace("FR-038-AC-241", "TC-048", "TC-946")]
@@ -3477,7 +3563,7 @@ mod tests {
                     refusal.code,
                     CheckedPackageRefusalCode::InvalidSemanticGraph
                 );
-                assert_eq!(refusal.path, Some(node_pointer(0)));
+                assert_eq!(refusal.loci[0].path.clone(), Some(node_pointer(0)));
             } else {
                 assert!(result.is_ok(), "the body-root literal is exempt");
             }

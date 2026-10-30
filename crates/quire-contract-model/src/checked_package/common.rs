@@ -86,6 +86,21 @@ impl ValidationFailure {
         })))
     }
 
+    /// A repeated identity whose first and second concrete entries are both
+    /// part of the refusal, in declaration order.
+    pub(super) fn refused_because_at_two_paths(
+        code: CheckedPackageRefusalCode,
+        first: JsonPointer,
+        second: JsonPointer,
+        cause: CheckedPackageRefusalCause,
+    ) -> Self {
+        let mut failure = Self::refused_because(code, first, cause);
+        if let Self::Refused(ref mut refusal) = failure {
+            refusal.push_path(second);
+        }
+        failure
+    }
+
     /// A model-selection refusal whose selected-document member is also
     /// specified by the intake contract.
     pub(super) fn refused_because_in_document(

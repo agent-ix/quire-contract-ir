@@ -605,7 +605,7 @@ mod tests {
                 (Code::IllTyped, Some(Cause::TypeMismatch))
             );
             assert_eq!(
-                refusal.path.expect("path").to_string(),
+                refusal.loci[0].path.clone().expect("path").to_string(),
                 "/semantic_graph/nodes/2/body/clauses/0/value"
             );
             assert_eq!(refusal.locus, Some(node_id('2')));
@@ -749,7 +749,7 @@ mod tests {
             (Code::IllTyped, Some(Cause::TypeMismatch))
         );
         assert_eq!(
-            refusal.path.expect("path").to_string(),
+            refusal.loci[0].path.clone().expect("path").to_string(),
             "/semantic_graph/nodes/2/body/clauses/0/value"
         );
         assert_eq!(
@@ -786,7 +786,7 @@ mod tests {
             (Code::MissingDeclaration, Some(Cause::MissingSelection))
         );
         assert_eq!(
-            refusal.path.expect("path").to_string(),
+            refusal.loci[0].path.clone().expect("path").to_string(),
             "/semantic_graph/nodes/2/body/definition"
         );
         assert_eq!(work, 0);

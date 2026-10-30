@@ -1464,7 +1464,7 @@ fn read_of(
         CheckedPackageV2ReadResult::Refused(refusal) => {
             let at = positions.first().copied().expect("a read position");
             let result_type = format!("/semantic_graph/nodes/{at}/body/result_type");
-            let path = refusal.path.as_ref().map(ToString::to_string);
+            let path = refusal.loci[0].path.as_ref().map(ToString::to_string);
             assert_eq!(path.as_deref(), Some(result_type.as_str()), "{refusal:?}");
             Err((refusal.code, refusal.cause, result_type))
         }
@@ -1512,7 +1512,7 @@ fn tc_056_record_projection_unknown_field_remains_ineligible() {
             (
                 refusal.code,
                 refusal.cause,
-                refusal.path.as_ref().map(|path| path.as_str())
+                refusal.loci[0].path.as_ref().map(|path| path.as_str())
             ),
             (
                 CheckedPackageRefusalCode::IllTyped,
@@ -1597,7 +1597,7 @@ fn selected_record_address_street_has_profiled_text_and_account_keeps_record_typ
         Some(CheckedPackageRefusalCause::OperatorIneligible)
     );
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(
             format!(
                 "/semantic_graph/nodes/{}/body/operation/member/name",
@@ -1774,7 +1774,7 @@ fn selected_record_field_refuses_each_non_value_object_meaning_at_intake() {
             "{kind}"
         );
         assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
             Some(root_owner(&wire, IDENTITY).as_str()),
             "{kind}"
         );
@@ -2225,7 +2225,7 @@ fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
         .position(|node| node["node_id"]["digest"] == json!(order))
         .expect("Order declaration");
     assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{order_position}/node_id").as_str())
     );
     assert_eq!(
@@ -2631,7 +2631,7 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
             CheckedPackageV2ReadResult::Refused(refusal)
                 if refusal.code == CheckedPackageRefusalCode::InvalidPackage
                     && refusal.cause == Some(CheckedPackageRefusalCause::StaleNodeKey)
-                    && refusal.path.as_ref().map(ToString::to_string).as_deref()
+                    && refusal.loci[0].path.as_ref().map(ToString::to_string).as_deref()
                         == Some(stale_key_path.as_str())
         )
     };
@@ -2668,7 +2668,11 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
         CheckedPackageV2ReadResult::Refused(refusal) => {
             assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingImport);
             assert_eq!(
-                refusal.path.map(|path| path.to_string()).as_deref(),
+                refusal.loci[0]
+                    .path
+                    .clone()
+                    .map(|path| path.to_string())
+                    .as_deref(),
                 Some(format!("{}/identity", root_owner(&two, "acme/other")).as_str())
             );
         }

@@ -99,7 +99,7 @@ fn generated_occurrence_ordinal_and_source_region_survive_reading() {
     let refusal = refused(&mismatched, &evidence_for(&mismatched));
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidSourceMap);
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(support_pointer(&format!("/source_map/{map_position}")))
     );
 }
@@ -348,7 +348,11 @@ fn tc_048_v2_reader_refuses_every_structural_mutation() {
                 assert_eq!(actual.code, code, "{id}");
                 // The refusal points at exactly the value the mutation
                 // replaced.
-                assert_eq!(actual.path, Some(support_pointer(pointer)), "{id}");
+                assert_eq!(
+                    actual.loci[0].path.clone(),
+                    Some(support_pointer(pointer)),
+                    "{id}"
+                );
             }
         }
     }
@@ -660,7 +664,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             CheckedPackageV2ReadResult::Refused(actual) => {
                 assert_eq!(actual, expected, "{name}");
                 // Every pointer resolves in the document the reader was given.
-                let path = actual.path.expect("a refusal about a value");
+                let path = actual.loci[0]
+                    .path
+                    .clone()
+                    .expect("a refusal about a value");
                 assert!(mutated.pointer(path.as_str()).is_some(), "{name}: {path}");
             }
             other => panic!("{name}: expected refusal, got {other:?}"),
@@ -1656,7 +1663,7 @@ fn tc_226_a_source_declared_interface_authenticates_but_a_model_owned_one_keeps_
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
     assert_eq!(
-        refusal.path,
+        refusal.loci[0].path.clone(),
         Some(support_pointer(&format!(
             "/semantic_graph/nodes/{model_position}/node_id"
         )))

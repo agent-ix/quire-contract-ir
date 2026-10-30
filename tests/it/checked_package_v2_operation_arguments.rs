@@ -736,7 +736,7 @@ impl Case {
         };
         let expected = format!("/semantic_graph/nodes/{}{tail}", self.node);
         assert_eq!(
-            (refusal.code, refusal.cause, refusal.path.clone()),
+            (refusal.code, refusal.cause, refusal.loci[0].path.clone()),
             (code, Some(cause), Some(pointer(&expected))),
             "{label}: {refusal:?}"
         );
@@ -1430,7 +1430,7 @@ fn tc_448_a_parameter_typed_at_an_object_type_is_still_refused() {
         panic!("a parameter typed at an object type must be refused");
     };
     assert_eq!(
-        (refusal.code, refusal.cause, refusal.path.clone()),
+        (refusal.code, refusal.cause, refusal.loci[0].path.clone()),
         (
             Code::InvalidSemanticGraph,
             None,
@@ -1507,7 +1507,7 @@ fn operation_mode_and_member_are_required_even_when_null_is_admitted() {
         );
         assert_eq!(refusal.cause, None, "{field}: {refusal:?}");
         assert_eq!(
-            refusal.path,
+            refusal.loci[0].path.clone(),
             Some(pointer(&format!(
                 "/semantic_graph/nodes/{}/body/operation",
                 case.node
@@ -1526,7 +1526,10 @@ fn operation_mode_and_member_are_required_even_when_null_is_admitted() {
         };
         assert_eq!(before_catalog.code, Code::InvalidSemanticGraph);
         assert_eq!(before_catalog.cause, None);
-        assert_eq!(before_catalog.path, refusal.path);
+        assert_eq!(
+            before_catalog.loci[0].path.clone(),
+            refusal.loci[0].path.clone()
+        );
 
         case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"]["identity"] =
             json!("quire.op.integer.add");
