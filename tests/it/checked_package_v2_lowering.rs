@@ -580,9 +580,8 @@ fn tc_052_lowering_outcome_selection_is_a_total_order() {
 
 /// A package of one scalar node of `scalar_form`, one composite node of
 /// `composite_form` over it and one value node typed at the scalar, in place
-/// of the all-families graph. The undeclared nodes of the ten derived shapes
-/// carry their derived key and closed body (FR-038-AC-134); a form the reader
-/// does not derive carries a placeholder key.
+/// of the all-families graph. The nodes have authored structural paths and
+/// closed bodies (FR-038-AC-134).
 struct Forms {
     value: Value,
     scalar: CheckedNodeId,
@@ -607,9 +606,8 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
         })
     };
     let empty = || json!({"term": "aggregate", "members": []});
-    let scalar_key = checked_package::structural_key("scalar_type", scalar_form, None, &empty());
-    let value_key =
-        checked_package::structural_key("value", "literal", Some(&scalar_key), &empty());
+    let scalar_key = format!("lowering/scalar/{scalar_form}");
+    let value_key = "lowering/value/literal".to_owned();
     let self_typed = matches!(
         composite_form,
         "option" | "reference" | "set" | "bag" | "sequence" | "ordered_set"
@@ -618,7 +616,7 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
         (composite_form == "reference").then(|| checked_package::family_key("1515"));
     let (composite_key, composite) = if self_typed {
         let body = checked_package::over_body(reference_target.as_deref().unwrap_or(&scalar_key));
-        let key = checked_package::structural_key("composite_type", composite_form, None, &body);
+        let key = format!("lowering/composite/{composite_form}");
         let composite = node(
             &key,
             "composite_type",
@@ -629,12 +627,7 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
         );
         (key, composite)
     } else {
-        let key = checked_package::structural_key(
-            "composite_type",
-            composite_form,
-            Some(&scalar_key),
-            &empty(),
-        );
+        let key = format!("lowering/composite/{composite_form}");
         let composite = node(
             &key,
             "composite_type",
