@@ -6,7 +6,7 @@
 //! The published multi-package and graph-order vectors run in conformance_qspec.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, settle, structural_id, v2_all_families,
+    canonical, evidence_for, settle, structural_id, v2_all_families, v2_nominal, v2_reference_chain,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -177,6 +177,68 @@ fn all_ten_shapes() -> (Value, Vec<(&'static str, usize)>) {
     positions.push(("collection_bounds", position));
     settle(&mut package);
     (package, positions)
+}
+
+#[trace("TC-226", "FR-038-AC-134")]
+#[test]
+fn full_in_repo_family_inventory_admits_and_retains_authored_ids() {
+    let (chain_bytes, _) = v2_reference_chain(2);
+    let chain: Value = serde_json::from_slice(&chain_bytes).expect("reference-chain JSON");
+    for (label, package) in [
+        ("all families", v2_all_families()),
+        ("nominal", v2_nominal()),
+        ("reference chain", chain),
+    ] {
+        let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+            panic!("{label} fixture must admit: {:?}", read(&package));
+        };
+        let published = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("fixture nodes");
+        assert_eq!(admitted.graph().nodes.len(), published.len(), "{label}");
+        for (position, (node, wire)) in admitted.graph().nodes.iter().zip(published).enumerate() {
+            assert_eq!(
+                serde_json::to_value(&node.node_id).expect("node id"),
+                wire["node_id"],
+                "{label}: node {position}"
+            );
+            assert_eq!(
+                serde_json::to_value(&node.owner).expect("owner"),
+                wire["owner"],
+                "{label}: node {position}"
+            );
+            assert_eq!(
+                serde_json::to_value(&node.body).expect("body"),
+                wire["body"],
+                "{label}: node {position}"
+            );
+        }
+    }
+}
+
+#[trace("TC-226", "FR-038-AC-134")]
+#[test]
+fn broken_structural_reference_refuses_without_a_placeholder_key() {
+    let (mut package, _) = all_ten_shapes();
+    let position = index_of(&package, "composite_type", "set");
+    let missing = structural_id("test/families", vec![json!("Missing")], 0);
+    package["semantic_graph"]["nodes"][position]["body"]["members"][0]["target"] = missing;
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("unresolved structural target must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{position}/body/members/0/target"
+        )),
+        "{refusal:?}"
+    );
 }
 
 fn assert_derived_refusal(package: &Value, position: usize) {
