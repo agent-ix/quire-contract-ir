@@ -3,24 +3,24 @@ id: SR-2026102934
 title: "Code review — fresh QSL producer readback"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR 706 Cargo.toml, tests/conformance_qsl_ir1013_ir1052.rs; FR-058-AC-1/6, FR-067-AC-7"
+scope: "agent-ix/quire-contract-ir; PR 706 Cargo.toml, Makefile, tests/conformance_qsl_ir1013_ir1052.rs; FR-058-AC-1/6, FR-067-AC-7"
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed PR 706 at 48d4e2d3 against the three named criteria and QSL's current Switch source. The external tests have a missing source input, and the four-point control asserts a different operation name from FR-058-AC-1.
+Reviewed PR 706 at 48d4e2d3 against the three named criteria and QSL's Switch source. The external tests had a missing source input, and the four-point control asserted a different operation name from FR-058-AC-1.
 
 ## Verdict
 
-**FAIL** — two high-severity findings prevent this draft from providing the claimed producer-origin evidence. Runtime remains unrun because the QSL source-reference migration and shared build lock block it.
+**FAIL at original review** — the two findings below prevented producer-origin evidence at the reviewed head. Both findings were fixed in later PR revisions; runtime and AC acceptance remain unverified pending QSL #1852.
 
 ## Findings
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | high | Both tests require `examples/switch-transition/switch.native.in`, which is absent from the current QSL checkout; `producer()` fails before invoking the emitter. QSL owns `switch.native`. | tests/conformance_qsl_ir1013_ir1052.rs:52 |
-| FND-002 | high | FR-058-AC-1 requires Pre and Post `adjust`, but the producer input and assertions use `set`; a passing test cannot establish the literal four-point criterion. | tests/conformance_qsl_ir1013_ir1052.rs:140 |
+| FND-001 | high | Both tests required `examples/switch-transition/switch.native.in`, absent from the selected QSL checkout; `producer()` failed before invoking the emitter. QSL owned `switch.native`. | tests/conformance_qsl_ir1013_ir1052.rs:52 |
+| FND-002 | high | FR-058-AC-1 required Pre and Post `adjust`, but the producer input and assertions used `set`; a passing test could not establish the literal four-point criterion. | tests/conformance_qsl_ir1013_ir1052.rs:140 |
 
 ## Scope
 
@@ -30,20 +30,20 @@ Reviewed PR 706 at 48d4e2d3 against the three named criteria and QSL's current S
 
 ## Review Notes
 
-The test invokes the QSL emitter executable with a fresh source and selected QSL model, then admits returned bytes through the public IR reader. The transition test checks the typed application, Boolean subject, one Boolean input, and Boolean post clause. No copied fixture, frozen package bytes, alternate accessor, or compatibility shim appears in this diff. `test = false` gives a named external Cargo target; no existing Makefile or CI target invokes it, so this review does not claim execution or AC acceptance. No applicable AssuranceProfile was found. No builds or full gates were run, as directed.
+The test invokes the QSL emitter executable with a fresh source and selected QSL model, then admits returned bytes through the public IR reader. The transition test checks the typed application, Boolean subject, one Boolean input, and Boolean post clause. No copied fixture, frozen package bytes, alternate accessor, or compatibility shim appeared in the original diff. No applicable AssuranceProfile was found. No builds or full gates were run, as directed.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At a8a51059, both tests read QSL's existing `examples/switch-transition/switch.native`; `producer()` checks that same path. |
-| FND-002 | fixed | At a8a51059, the test derives an adjusted Switch model and source at runtime, passes Pre/Post `adjust` to the QSL emitter, and asserts exact Pre/Post `adjust` from the public accessor. |
+| FND-001 | fixed | At a8a51059, both tests read QSL's existing `examples/switch-transition/switch.native`; `producer()` checked that same path. |
+| FND-002 | fixed | At a8a51059, the test derived an adjusted Switch model and source at runtime, passed Pre/Post `adjust` to the QSL emitter, and asserted exact Pre/Post `adjust` from the public accessor. |
 
-The new `make conformance-qsl-ir1013-ir1052` target passes both required environment variables to the named Cargo test target; a `make -n` check confirmed the command. Runtime remains unrun pending the QSL source-reference migration and shared build lock. This disposition does not claim AC acceptance.
+The new `make conformance-qsl-ir1013-ir1052` target passes both required environment variables to the named Cargo test target; a `make -n` check confirmed the command. Runtime remains unrun. This disposition does not claim AC acceptance.
 
 ### Disposition round 2
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At c7ef98a0, both tests still consume QSL's existing `switch.native`; the `.native.in` path has not returned. |
-| FND-002 | fixed | At c7ef98a0, the harness reads QSL's original model without deriving a digest, supplies `P1` Pre and `Q2` Post `adjust` bindings, and asserts those exact accessor results. It separately expects QSL's original `Q1` Post `set`. The new QSL clauses are pending in #1852, so runtime and AC acceptance remain unverified. |
+| FND-001 | fixed | At 2d80b3a4, the four-point test reads QSL-owned `examples/switch-transition/adjust.native` and the transition test reads `switch.native`; neither uses the obsolete `.native.in` path. The `adjust.native` fixture is pending in QSL #1852. |
+| FND-002 | fixed | At 2d80b3a4, the harness reads QSL's unchanged selected model, passes QSL-owned `P1` Pre and `Q2` Post `adjust` bindings with appended Init/Handle clauses, and asserts exactly the four required accessor results. The QSL fixture is pending, so runtime and AC acceptance remain unverified. |
