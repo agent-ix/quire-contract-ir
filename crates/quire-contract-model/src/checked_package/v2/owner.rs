@@ -385,19 +385,24 @@ pub(super) fn validate_owner_joins(
                 }) {
                     return Err(missing_owner(node, at));
                 }
-                // A selected model or relation declaration has no meaning-bearing body.
-                // Check this independently of an accessor using the declaration.
+                // A selected model or relation declaration has a fixed,
+                // self-typed shape. Check it at the declaration before an
+                // application can report the same defect at its member.
                 if kinds.get(position).is_some_and(|kind| {
                     matches!(
                         kind,
                         CheckedNodeKind::Model(_) | CheckedNodeKind::Relation(_)
                     )
-                }) && !terms.get(position).and_then(Option::as_ref).is_some_and(
-                    |term| matches!(term, CheckedTerm::Aggregate { members } if members.is_empty()),
-                ) {
+                }) && (node.semantic_type != node.node_id
+                    || node.declaration.is_some()
+                    || node.recursion_group.is_some()
+                    || !terms.get(position).and_then(Option::as_ref).is_some_and(
+                        |term| matches!(term, CheckedTerm::Aggregate { members } if members.is_empty()),
+                    ))
+                {
                     return Err(ValidationFailure::refused_at(
                         CheckedPackageRefusalCode::InvalidPackage,
-                        node_pointer(position).key("owner"),
+                        node_pointer(position).key("node_id"),
                         Some(CheckedPackageRefusalCause::InvalidDerivedShape),
                         node.node_id.clone(),
                     ));
