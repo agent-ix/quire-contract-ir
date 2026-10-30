@@ -31,8 +31,15 @@ relationships:
 ## Description
 
 Verify FR-038-AC-1 through FR-038-AC-5 (QSpec FR-322-AC-4, FR-322-AC-8,
-FR-322-AC-10) against the V2 package fixtures this repository builds from its
+FR-322-AC-10 and FR-322-AC-269) against the V2 package fixtures this repository builds from its
 own public vocabulary (`tests/it/support/checked_package.rs`), and
+read QSpec's `proposals/checked-package-v2/fixtures/adverse.json`
+`nominal_body_mutations` NB-01..NB-06 directly from its selected checkout:
+compare `malformed_wire` at each recorded body locus for NB-01..NB-05 and admission of the
+ordered enum for NB-06. Construct separate schema-valid source nominal bodies
+whose owner, declaration, semantic type, dependencies, case or unit meaning
+does not join, and compare each applicable semantic refusal after wire validation;
+do not copy QSpec fixtures into this repository. Then verify
 FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
 "Model-owned members") against a self-built domain package document, and
 FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
