@@ -9,13 +9,13 @@
 //! and typed (steps 3 and 4) against the graph.
 //!
 //! The package and the domain package document are built here, node by node,
-//! from FR-322's and QSL FR-092's preimages; nothing of QSpec is copied in.
+//! with fixture-authored structural identities; nothing of QSpec is copied in.
 
 use crate::support::checked_package::{
-    application_node_key, bounds_body, canonical, evidence_for, evidence_with_document, node_id,
+    bounds_body, canonical, evidence_for, evidence_with_document, node_id as fixture_node_id,
     nominal_fixture_members, nominal_package, over_body, pointer, rebuild_source_map,
-    refresh_identity, refusal_bytes, refusal_cause, select_model, settle, sha256_hex,
-    ExpectedRefusal, COMPLETE_VALUE_FEATURE,
+    refresh_identity, refusal_bytes, refusal_cause, select_model, settle, ExpectedRefusal,
+    COMPLETE_VALUE_FEATURE, FIXTURE_PACKAGE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -29,8 +29,6 @@ use std::sync::LazyLock;
 
 mod reaches_population;
 
-const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
-const APPLICATION_NODE: &str = "quire.application-node/v1";
 const IDENTITY: &str = "acme/orders";
 const VERSION: &str = "1.0.0";
 const ORDER: &str = "ix://acme/orders/Order";
@@ -39,33 +37,42 @@ const PRIORITY_ORDER: &str = "ix://acme/orders/PriorityOrder";
 const PREFERRED_ORDER: &str = "ix://acme/orders/PreferredOrder";
 const TIER: &str = "ix://acme/orders/Tier";
 
-/// The self-typed Integer and Text scalar type nodes, keyed by
-/// [`structural_key`].
-static INTEGER: LazyLock<String> =
-    LazyLock::new(|| structural_key("scalar_type", "integer", None, None, &empty()));
-static TEXT: LazyLock<String> =
-    LazyLock::new(|| structural_key("scalar_type", "text", None, None, &empty()));
+/// Stable authored labels for the two native scalars used throughout this fixture.
+static INTEGER: LazyLock<String> = LazyLock::new(|| "scalar/integer".to_owned());
+static TEXT: LazyLock<String> = LazyLock::new(|| "scalar/text".to_owned());
 
-fn structural_key(
-    tag: &str,
-    form: &str,
-    semantic_type: Option<&str>,
-    owner: Option<Value>,
-    body: &Value,
-) -> String {
-    let mut preimage = json!({
-        "version": STRUCTURAL_NODE,
-        "node_tag": tag,
-        "semantic_form": form,
-        "semantic_type": semantic_type.map(node_id),
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    });
-    if let Some(owner) = owner {
-        preimage["owner"] = owner;
+fn node_id(path: &str) -> Value {
+    if let Some(rest) = path.strip_prefix("model|") {
+        let mut parts = rest.splitn(3, '|');
+        let form = parts.next().expect("model form");
+        let package = parts.next().expect("model package");
+        let node = parts.next().expect("model declaration");
+        return json!({"package": package, "path": ["model", form, node], "ordinal": 0});
     }
-    sha256_hex(&canonical(&preimage))
+    if let Some(node) = path.strip_prefix("relationship|") {
+        return json!({"package": IDENTITY, "path": ["relation", "relationship", node], "ordinal": 0});
+    }
+    if let Some(target) = path.strip_prefix("reference/") {
+        let target = if target.starts_with("model|") {
+            node_id(target)
+        } else {
+            node_id(&model_key("object_type", IDENTITY, target))
+        };
+        return json!({"package": FIXTURE_PACKAGE, "path": ["composite_type", "reference", target], "ordinal": 0});
+    }
+    fixture_node_id(path)
+}
+
+fn model_key(form: &str, package: &str, node: &str) -> String {
+    format!("model|{form}|{package}|{node}")
+}
+
+fn dependency_ids(keys: &[&str]) -> Vec<Value> {
+    let mut ids = keys.iter().map(|key| node_id(key)).collect::<Vec<_>>();
+    ids.sort_by_key(|id| {
+        serde_json::from_value::<CheckedNodeId>(id.clone()).expect("dependency identity")
+    });
+    ids
 }
 
 fn wire_node(
@@ -82,7 +89,7 @@ fn wire_node(
         "node_tag": tag,
         "semantic_form": form,
         "semantic_type": node_id(semantic_type),
-        "dependencies": dependencies.iter().map(|key| node_id(key)).collect::<Vec<_>>(),
+        "dependencies": dependency_ids(dependencies),
         "occurrences": [{"role": "type", "ordinal": 0}],
         "body": body,
     })
@@ -105,7 +112,7 @@ fn parameter(name: &str, level: &str, ty: &str) -> (String, Value) {
         {"term": "binding", "name": "name", "value": literal(&TEXT, "text", name)},
         {"term": "binding", "name": "level", "value": literal(&INTEGER, "integer", level)},
     ]});
-    let key = structural_key("value", "parameter", Some(ty), None, &body);
+    let key = format!("parameter/{name}");
     let mut node = wire_node(&key, "value", "parameter", ty, &[], body);
     node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     (key, node)
@@ -190,15 +197,9 @@ fn root_owner(package: &Value) -> String {
 fn package_selecting_form(name: &str, form: &str, declaring: &str) -> Value {
     let mut package = nominal_package(&[]);
 
-    let order = structural_key(
-        "model",
-        form,
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": declaring})),
-        &empty(),
-    );
+    let order = model_key(form, IDENTITY, declaring);
     let reference_body = json!({"term": "aggregate", "members": [reference(&order)]});
-    let reference_type = structural_key("composite_type", "reference", None, None, &reference_body);
+    let reference_type = format!("reference/{order}");
     let (receiver, receiver_node) = parameter("receiver", "0", &reference_type);
     let (argument, argument_node) = parameter("argument", "1", &INTEGER);
 
@@ -213,15 +214,7 @@ fn package_selecting_form(name: &str, form: &str, declaring: &str) -> Value {
         "result_type": node_id(&INTEGER),
         "arguments": [reference(&receiver), reference(&argument)],
     });
-    let call = sha256_hex(&canonical(&json!({
-        "version": APPLICATION_NODE,
-        "node_tag": "expression",
-        "semantic_form": "call",
-        "semantic_type": node_id(&INTEGER),
-        "declaration": null,
-        "recursion": null,
-        "body": call_body,
-    })));
+    let call = "call/dispatch";
     let mut call_dependencies = [receiver.as_str(), argument.as_str(), order.as_str()];
     call_dependencies.sort_unstable();
     let mut declaring_node = wire_node(&order, "model", form, &order, &[], empty());
@@ -288,17 +281,13 @@ fn selected_native_parameters_and_results_keep_their_type_nodes() {
         document["types"][0]["operations"][0]["params"] = json!([slot(None, &type_ref)]);
         document["types"][0]["operations"][0]["returns"] = slot(None, &type_ref);
         let (mut package, evidence) = package_over(&document, "total");
-        let key = structural_key("scalar_type", form, None, None, &empty());
+        let key = format!("scalar/{form}");
         let (_, argument) = parameter("argument", "1", &key);
         let nodes = package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes");
         nodes[5] = argument;
-        nodes[CALL]["body"]["arguments"][1] = reference(
-            nodes[5]["node_id"]["digest"]
-                .as_str()
-                .expect("argument key"),
-        );
+        nodes[CALL]["body"]["arguments"][1] = reference("parameter/argument");
         nodes[CALL]["body"]["result_type"] = node_id(&key);
         nodes[CALL]["semantic_type"] = node_id(&key);
         nodes.push(wire_node(&key, "scalar_type", form, &key, &[], empty()));
@@ -383,7 +372,7 @@ fn selected_tuple_and_payload_variant_declarations_admit() {
     let (mut package, evidence) = package_over(&document, "total");
     for (name, form) in [(&tuple, "tuple_value_type"), (&variant, "variant_type")] {
         let owner = json!({"kind":"model", "identity":IDENTITY, "node":name});
-        let key = structural_key("model", form, None, Some(owner.clone()), &empty());
+        let key = model_key(form, IDENTITY, name);
         let mut node = wire_node(&key, "model", form, &key, &[], empty());
         node["owner"] = owner;
         package["semantic_graph"]["nodes"]
@@ -405,7 +394,7 @@ fn selected_payload_variant_uses_union_family_in_binary_operations() {
     let mut document = variant_document_named(TIER, &["Gold", "2x"]);
     document["types"][1]["variants"][0]["payloadType"] = json!("ix://quire/native/Integer");
     let (mut package, _, variant_key) = variant_package(&["Gold", "2x"], &[], false);
-    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let boolean = "scalar/boolean".to_owned();
     let (left, left_node) = parameter("left", "3", &variant_key);
     let (right, right_node) = parameter("right", "4", &variant_key);
     let nodes = package["semantic_graph"]["nodes"]
@@ -424,7 +413,7 @@ fn selected_payload_variant_uses_union_family_in_binary_operations() {
         "arguments":[reference(&left), reference(&right)],
     });
     let mut equality = wire_node(
-        &application_node_key("expression", "binary", &boolean, &body),
+        "binary/structural-eq",
         "expression",
         "binary",
         &boolean,
@@ -518,13 +507,7 @@ fn variant_package_named(
         order["operations"][0]["returns"] = slot(None, declared);
     }
     let (mut package, evidence) = package_over(&document, "total");
-    let key = structural_key(
-        "model",
-        "variant_type",
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": declared})),
-        &empty(),
-    );
+    let key = model_key("variant_type", IDENTITY, declared);
     let mut variant = wire_node(&key, "model", "variant_type", &key, &[], empty());
     variant["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": declared});
     let nodes = package["semantic_graph"]["nodes"]
@@ -536,42 +519,27 @@ fn variant_package_named(
         let body = &mut nodes[CALL]["body"];
         body["arguments"][1] = reference(&argument);
         body["result_type"] = node_id(&key);
-        let call_key = application_node_key("expression", "call", &key, body);
-        let order = nodes[2]["node_id"]["digest"]
-            .as_str()
-            .expect("order")
-            .to_owned();
-        let receiver = nodes[4]["node_id"]["digest"]
-            .as_str()
-            .expect("receiver")
-            .to_owned();
+        let call_key = "call/dispatch";
+        let order = model_key("object_type", IDENTITY, ORDER);
+        let receiver = "parameter/receiver".to_owned();
         let mut dependencies = [argument.as_str(), order.as_str(), receiver.as_str()];
         dependencies.sort_unstable();
         nodes[CALL]["node_id"] = node_id(&call_key);
         nodes[CALL]["semantic_type"] = node_id(&key);
-        nodes[CALL]["dependencies"] = json!(dependencies
-            .iter()
-            .map(|id| node_id(id))
-            .collect::<Vec<_>>());
+        nodes[CALL]["dependencies"] = json!(dependency_ids(&dependencies));
     }
     nodes.insert(5, variant);
     for case in emitted {
-        let preimage = json!({
-            "version": "quire.enum-member-node/v1",
-            "declaration_node_id": node_id(&key),
-            "case": case,
-        });
-        let member_key = sha256_hex(&canonical(&preimage));
+        let member_key = format!("enum-value/{declared}/{case}");
         let body = literal(&key, "enum", case);
         let mut member = wire_node(&member_key, "value", "enum_value", &key, &[&key], body);
-        member["nominal_identity_preimage"] = preimage;
         member["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
         nodes.push(member);
     }
     if typed {
         for form in ["option", "sequence"] {
             let body = over_body(&key);
-            let composite = structural_key("composite_type", form, None, None, &body);
+            let composite = format!("composite/{form}/{declared}");
             nodes.push(wire_node(
                 &composite,
                 "composite_type",
@@ -582,13 +550,7 @@ fn variant_package_named(
             ));
             if form == "sequence" {
                 let bounds = bounds_body("0", "3");
-                let bounded = structural_key(
-                    "bounded_domain",
-                    "collection_bounds",
-                    Some(&composite),
-                    None,
-                    &bounds,
-                );
+                let bounded = format!("bounds/{declared}");
                 nodes.push(wire_node(
                     &bounded,
                     "bounded_domain",
@@ -635,7 +597,9 @@ fn selected_variant_case_keys_bind_exact_case_and_declaration() {
     let tier_nodes = tier["semantic_graph"]["nodes"].as_array().expect("nodes");
     let case_keys: std::collections::BTreeSet<_> = tier_nodes[9..13]
         .iter()
-        .map(|node| node["node_id"]["digest"].as_str().expect("case key"))
+        .map(|node| {
+            serde_json::from_value::<CheckedNodeId>(node["node_id"].clone()).expect("case identity")
+        })
         .collect();
     assert_eq!(case_keys.len(), 4);
 
@@ -685,13 +649,7 @@ fn selected_variant_types_field_parameter_and_result() {
             "admitted graph omits {form} over Tier"
         );
     }
-    let order = structural_key(
-        "model",
-        "object_type",
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": ORDER})),
-        &empty(),
-    );
+    let order = model_key("object_type", IDENTITY, ORDER);
     let fields = admitted
         .model_object_fields(&serde_json::from_value(node_id(&order)).expect("node id"))
         .expect("Order fields");
@@ -715,18 +673,12 @@ fn variant_binary_package(
     operation: &str,
 ) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     let (mut package, evidence, _) = variant_package(&["Gold", "2x"], &["Gold", "2x"], false);
-    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let boolean = "scalar/boolean".to_owned();
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
-    let left = nodes[9]["node_id"]["digest"]
-        .as_str()
-        .expect("left")
-        .to_owned();
-    let right = nodes[10]["node_id"]["digest"]
-        .as_str()
-        .expect("right")
-        .to_owned();
+    let left = format!("enum-value/{TIER}/Gold");
+    let right = format!("enum-value/{TIER}/2x");
     nodes.push(wire_node(
         &boolean,
         "scalar_type",
@@ -742,7 +694,7 @@ fn variant_binary_package(
         "result_type": node_id(&boolean),
         "arguments": [reference(&left), reference(&right)],
     });
-    let key = application_node_key("expression", "binary", &boolean, &body);
+    let key = "binary/variant-comparison";
     let mut dependencies = [left.as_str(), right.as_str()];
     dependencies.sort_unstable();
     let mut application = wire_node(&key, "expression", "binary", &boolean, &dependencies, body);
@@ -898,25 +850,13 @@ fn relationship_operation_package(
 ) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     let document = domain_document(json!({"relationships": [relationship]}));
     let mut package = package_selecting("total");
-    let relationship_key = structural_key(
-        "relation",
-        "relationship",
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": RELATIONSHIP})),
-        &empty(),
-    );
+    let relationship_key = format!("relationship|{RELATIONSHIP}");
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
-    let receiver = nodes[4]["node_id"]["digest"]
-        .as_str()
-        .expect("receiver")
-        .to_owned();
-    let reference_type = nodes[3]["node_id"]["digest"]
-        .as_str()
-        .expect("reference")
-        .to_owned();
-    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let receiver = "parameter/receiver".to_owned();
+    let reference_type = format!("reference/{ORDER}");
+    let boolean = "scalar/boolean".to_owned();
     let result_type = if reaches { &boolean } else { &reference_type };
     let form = if reaches { "reachability" } else { "query" };
     let operator = if reaches { "reaches" } else { "query" };
@@ -942,11 +882,7 @@ fn relationship_operation_package(
         "result_type": node_id(result_type),
         "arguments": arguments,
     });
-    let application_key = sha256_hex(&canonical(&json!({
-        "version": APPLICATION_NODE, "node_tag": "expression", "semantic_form": form,
-        "semantic_type": node_id(result_type), "declaration": null,
-        "recursion": null, "body": body,
-    })));
+    let application_key = format!("application/{form}");
     let mut dependencies = vec![receiver.as_str(), relationship_key.as_str()];
     if let Some((key, _)) = &second {
         dependencies.push(key);
@@ -1008,7 +944,7 @@ fn bounded_collection(
     upper: u64,
 ) -> String {
     let body = over_body(element);
-    let collection = structural_key("composite_type", form, None, None, &body);
+    let collection = format!("collection/{form}/{element}");
     nodes.push(wire_node(
         &collection,
         "composite_type",
@@ -1018,13 +954,7 @@ fn bounded_collection(
         body,
     ));
     let bounds = bounds_body(&lower.to_string(), &upper.to_string());
-    let key = structural_key(
-        "bounded_domain",
-        "collection_bounds",
-        Some(&collection),
-        None,
-        &bounds,
-    );
+    let key = format!("bounds/{form}/{element}/{lower}/{upper}");
     nodes.push(wire_node(
         &key,
         "bounded_domain",
@@ -1052,10 +982,7 @@ fn navigation_with_result(
         .as_array_mut()
         .expect("nodes");
     let reference_type = if destination == ORDER {
-        nodes[3]["node_id"]["digest"]
-            .as_str()
-            .expect("reference")
-            .to_owned()
+        format!("reference/{ORDER}")
     } else {
         document["types"]
             .as_array_mut()
@@ -1066,18 +993,12 @@ fn navigation_with_result(
                 "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
                 "supertypes": [], "fields": [], "operations": [],
             }));
-        let object = structural_key(
-            "model",
-            "object_type",
-            None,
-            Some(json!({"kind": "model", "identity": IDENTITY, "node": destination})),
-            &empty(),
-        );
+        let object = model_key("object_type", IDENTITY, destination);
         let mut declaration = wire_node(&object, "model", "object_type", &object, &[], empty());
         declaration["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": destination});
         nodes.push(declaration);
         let body = over_body(&object);
-        let reference = structural_key("composite_type", "reference", None, None, &body);
+        let reference = format!("reference/{destination}");
         nodes.push(wire_node(
             &reference,
             "composite_type",
@@ -1090,13 +1011,10 @@ fn navigation_with_result(
     };
     let result_type = match result {
         NavigationResult::Reference => reference_type,
-        NavigationResult::OrderReference => nodes[3]["node_id"]["digest"]
-            .as_str()
-            .expect("Order reference")
-            .to_owned(),
+        NavigationResult::OrderReference => format!("reference/{ORDER}"),
         NavigationResult::Option => {
             let body = over_body(&reference_type);
-            let key = structural_key("composite_type", "option", None, None, &body);
+            let key = format!("option/{reference_type}");
             nodes.push(wire_node(
                 &key,
                 "composite_type",
@@ -1117,12 +1035,7 @@ fn navigation_with_result(
     let call = &mut nodes[CALL];
     call["body"]["result_type"] = node_id(&result_type);
     call["semantic_type"] = node_id(&result_type);
-    call["node_id"] = node_id(&application_node_key(
-        "expression",
-        "query",
-        &result_type,
-        &call["body"],
-    ));
+    call["node_id"] = node_id("application/query");
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let evidence = evidence_with_document(&package, IDENTITY, &document);
@@ -1150,10 +1063,7 @@ fn reaches_over(
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
-    let order_reference = nodes[3]["node_id"]["digest"]
-        .as_str()
-        .expect("Order reference")
-        .to_owned();
+    let order_reference = format!("reference/{ORDER}");
     let mut references = vec![(ORDER, order_reference)];
     let mut operand_keys = Vec::new();
     for (position, ty) in [first_type, second_type].into_iter().enumerate() {
@@ -1172,18 +1082,12 @@ fn reaches_over(
                     "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
                     "supertypes": supertype, "fields": [], "operations": [],
                 }));
-            let object = structural_key(
-                "model",
-                "object_type",
-                None,
-                Some(json!({"kind": "model", "identity": IDENTITY, "node": ty})),
-                &empty(),
-            );
+            let object = model_key("object_type", IDENTITY, ty);
             let mut declaration = wire_node(&object, "model", "object_type", &object, &[], empty());
             declaration["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": ty});
             nodes.push(declaration);
             let body = over_body(&object);
-            let reference = structural_key("composite_type", "reference", None, None, &body);
+            let reference = format!("reference/{ty}");
             nodes.push(wire_node(
                 &reference,
                 "composite_type",
@@ -1227,26 +1131,13 @@ fn reaches_over(
                 }));
         }
     }
-    let relation_key = nodes[CALL]["body"]["operation"]["member"]["declaration"]["digest"]
-        .as_str()
-        .expect("relationship declaration")
-        .to_owned();
+    let relation_key = format!("relationship|{RELATIONSHIP}");
     nodes[CALL]["body"]["arguments"] =
         json!([reference(&operand_keys[0]), reference(&operand_keys[1])]);
     let mut dependencies = [&operand_keys[0], &operand_keys[1], &relation_key];
     dependencies.sort_unstable();
-    nodes[CALL]["dependencies"] = json!(dependencies
-        .iter()
-        .map(|key| node_id(key))
-        .collect::<Vec<_>>());
-    nodes[CALL]["node_id"] = node_id(&application_node_key(
-        "expression",
-        "reachability",
-        nodes[CALL]["semantic_type"]["digest"]
-            .as_str()
-            .expect("Boolean"),
-        &nodes[CALL]["body"],
-    ));
+    nodes[CALL]["dependencies"] = json!(dependency_ids(&dependencies));
+    nodes[CALL]["node_id"] = node_id("application/reachability");
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let evidence = evidence_with_document(&package, IDENTITY, &document);
@@ -1563,17 +1454,7 @@ fn tc_048_reaches_finite_multivalued_ends_keep_the_single_valued_node_shape() {
                 .as_array_mut()
                 .expect("nodes");
             let call = &mut nodes[CALL];
-            let result_type = call["semantic_type"]["digest"]
-                .as_str()
-                .expect("result key")
-                .to_owned();
-            let body = call["body"].clone();
-            call["node_id"] = node_id(&application_node_key(
-                "expression",
-                "reachability",
-                &result_type,
-                &body,
-            ));
+            call["node_id"] = node_id("application/reachability");
             rebuild_source_map(&mut tampered);
             refresh_identity(&mut tampered);
             let refusal = refused(&tampered, &evidence);
@@ -1767,10 +1648,7 @@ fn tc_048_reaches_multivalued_end_requires_boolean_result() {
         relation["targetEnd"]["multiplicity"] =
             json!({"lower": 1, "upper": 3, "ordered": false, "unique": unique});
         let (mut package, evidence) = relationship_operation_package(relation, "links", true);
-        let reference = package["semantic_graph"]["nodes"][3]["node_id"]["digest"]
-            .as_str()
-            .expect("Order reference")
-            .to_owned();
+        let reference = format!("reference/{ORDER}");
         let nodes = package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes");
@@ -1778,13 +1656,7 @@ fn tc_048_reaches_multivalued_end_requires_boolean_result() {
         let call = &mut nodes[CALL];
         call["body"]["result_type"] = node_id(&result_type);
         call["semantic_type"] = node_id(&result_type);
-        let body = call["body"].clone();
-        call["node_id"] = node_id(&application_node_key(
-            "expression",
-            "reachability",
-            &result_type,
-            &body,
-        ));
+        call["node_id"] = node_id("application/reachability");
         rebuild_source_map(&mut package);
         refresh_identity(&mut package);
         let refusal = refused(&package, &evidence);
@@ -2000,12 +1872,12 @@ fn unit_dispatch_call(
         .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
         .expect("unit");
     unit.0["qualified_declaration"] = json!(["ms"]);
-    unit.1 = sha256_hex(&canonical(&unit.0));
+    unit.1 = "ms".to_owned();
     let mut second_preimage = unit.0.clone();
     second_preimage["qualified_declaration"] = json!(["s"]);
     second_preimage["target_unit_node_id"] = node_id(&unit.1);
     second_preimage["scale"]["numerator"] = json!("2");
-    let second = sha256_hex(&canonical(&second_preimage));
+    let second = "s".to_owned();
     let ms = unit.1.clone();
     members.push((second_preimage, second.clone()));
     let nominal = nominal_package(&members);
@@ -2107,8 +1979,8 @@ fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes
     // A document that differs only in content the keys do not read (its
     // display name): the keys are unchanged (FR-038-AC-45).
     let renamed = domain_document(json!({"displayName": "Order renamed"}));
-    let (digest_only, digest_evidence) = package_over(&renamed, "total");
-    match read(&digest_only, &digest_evidence) {
+    let (renamed_package, renamed_evidence) = package_over(&renamed, "total");
+    match read(&renamed_package, &renamed_evidence) {
         CheckedPackageV2ReadResult::Admitted(_) => {}
         other => panic!("expected admission under the changed document, got {other:?}"),
     }
@@ -2121,7 +1993,7 @@ fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes
             .cloned()
             .collect::<Vec<_>>()
     };
-    assert_eq!(declarations(&selected), declarations(&digest_only));
+    assert_eq!(declarations(&selected), declarations(&renamed_package));
 
     // The same declarations in a document whose only difference is its
     // package version, which the selection no longer names: the keys are
@@ -2885,16 +2757,9 @@ fn edge_document() -> Value {
     })
 }
 
-/// The model declaration node key of `node` owned by the domain package
-/// `identity`; the owner is content-only and carries no version.
+/// The authored model declaration identity of `node` under `identity`.
 fn declaration_key_of(node: &str, identity: &str) -> String {
-    structural_key(
-        "model",
-        "object_type",
-        None,
-        Some(json!({"kind": "model", "identity": identity, "node": node})),
-        &empty(),
-    )
+    model_key("object_type", identity, node)
 }
 
 /// What an operand of [`reaches_package`] is typed as.
@@ -2920,7 +2785,7 @@ fn reaches_package(
     let document = edge_document();
     let mut package = nominal_package(&[]);
 
-    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let boolean = "scalar/boolean".to_owned();
     let mut models: Vec<(String, String)> = MODELS
         .into_iter()
         .map(|node| (node.to_owned(), declaration_key_of(node, IDENTITY)))
@@ -2938,7 +2803,7 @@ fn reaches_package(
         .iter()
         .map(|(node, key)| {
             let body = json!({"term": "aggregate", "members": [reference(key)]});
-            let type_key = structural_key("composite_type", "reference", None, None, &body);
+            let type_key = format!("reference/{key}");
             (node.clone(), type_key, body)
         })
         .collect();
@@ -2982,15 +2847,7 @@ fn reaches_package(
         "result_type": node_id(&boolean),
         "arguments": [reference(&receiver), reference(&argument)],
     });
-    let reaches = sha256_hex(&canonical(&json!({
-        "version": APPLICATION_NODE,
-        "node_tag": "expression",
-        "semantic_form": "reachability",
-        "semantic_type": node_id(&boolean),
-        "declaration": null,
-        "recursion": null,
-        "body": body,
-    })));
+    let reaches = "application/reaches-field";
     let mut dependencies = [receiver.as_str(), argument.as_str(), declaring_key.as_str()];
     dependencies.sort_unstable();
     let dependencies: Vec<&str> = {
@@ -3258,13 +3115,7 @@ fn application_of(package: &CheckedPackageV2, operation: &str) -> CheckedNodeId 
 
 /// The relationship declaration node's key, built from the authored identity.
 fn relationship_id() -> CheckedNodeId {
-    typed_id(&structural_key(
-        "relation",
-        "relationship",
-        None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": RELATIONSHIP})),
-        &empty(),
-    ))
+    typed_id(&format!("relationship|{RELATIONSHIP}"))
 }
 
 fn end_json(role: Option<&str>, lower: u64, upper: u64, unique: bool, ordered: bool) -> Value {
