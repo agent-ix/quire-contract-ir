@@ -24,9 +24,9 @@ use super::{
     ApplicationOperator, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
     CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm, CompositeTypeForm,
     CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind, ModelForm,
-    NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind, OperationModeKind,
-    ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm,
-    StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
+    OperationConstraintKind, OperationMemberKind, OperationModeKind, ProtocolForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateClauseKind,
+    StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{decoder_pointer, node_pointer};
