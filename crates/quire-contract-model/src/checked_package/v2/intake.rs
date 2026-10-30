@@ -153,7 +153,20 @@ struct BorrowedDiagnostic<'a> {
 pub(super) fn decode_borrowed_wire(
     bytes: &[u8],
 ) -> Result<RawCheckedPackageWireV2, ValidationFailure> {
-    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes)?;
+    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|mut failure| {
+        if let ValidationFailure::Refused(ref mut refusal) = failure {
+            if refusal.code == CheckedPackageRefusalCode::MalformedWire {
+                if let Some(at) = refusal.primary_path().cloned() {
+                    if at.as_str().ends_with("/node_id") {
+                        if let Some(ordinal) = invalid_node_id_ordinal(bytes, &at) {
+                            refusal.set_primary_path(Some(ordinal));
+                        }
+                    }
+                }
+            }
+        }
+        failure
+    })?;
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
     let mut nodes = Vec::with_capacity(graph.nodes.len());
@@ -223,9 +236,65 @@ pub(super) fn decode_borrowed_wire(
     })
 }
 
+/// Refine a buffered structural ID decode error to the actual ordinal member.
+/// Nested operand IDs are walked on the heap, without a path-depth cap.
+fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+    const MAX_SAFE: u64 = 9_007_199_254_740_991;
+    let mut pending = vec![(source_raw(bytes, at)?, at.clone())];
+    while let Some((raw, path)) = pending.pop() {
+        let members: BTreeMap<&str, &RawValue> = serde_json::from_str(raw.get()).ok()?;
+        if let Some(ordinal) = members.get("ordinal") {
+            if serde_json::from_str::<u64>(ordinal.get())
+                .ok()
+                .is_none_or(|value| value > MAX_SAFE)
+            {
+                return Some(path.key("ordinal"));
+            }
+        }
+        if let Some(raw_path) = members.get("path") {
+            let segments: Vec<&RawValue> = serde_json::from_str(raw_path.get()).ok()?;
+            for (index, segment) in segments.into_iter().enumerate().rev() {
+                if segment.get().starts_with('{') {
+                    pending.push((segment, path.clone().key("path").index(index)));
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod ordinal_locus_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_structural_ordinals_keep_their_exact_member_pointer() {
+        let node = JsonPointer::parse("/semantic_graph/nodes/1/node_id").unwrap();
+        for ordinal in ["9007199254740992", "1.5", "-1", "\"one\""] {
+            let bytes = format!(
+                "{{\"semantic_graph\":{{\"nodes\":[null,{{\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":{ordinal}}}}}]}}}}"
+            );
+            assert_eq!(
+                invalid_node_id_ordinal(bytes.as_bytes(), &node),
+                Some(node.clone().key("ordinal"))
+            );
+        }
+
+        let nested = br#"{"semantic_graph":{"nodes":[null,{"node_id":{"package":"p","path":[{"package":"p","path":["x"],"ordinal":1.5}],"ordinal":0}}]}}"#;
+        assert_eq!(
+            invalid_node_id_ordinal(nested, &node),
+            Some(node.key("path").index(0).key("ordinal"))
+        );
+    }
+}
+
 /// Read only the JSON value named by `pointer`. Borrowed raw subtrees retain
 /// slices of the caller's bytes; no ancestor is decoded into a `Value`.
 pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value> {
+    serde_json::from_str(source_raw(bytes, pointer)?.get()).ok()
+}
+
+fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a RawValue> {
     let mut current: &RawValue = serde_json::from_slice(bytes).ok()?;
     let path = pointer.as_str();
     if !path.is_empty() {
@@ -245,7 +314,7 @@ pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value>
             };
         }
     }
-    serde_json::from_str(current.get()).ok()
+    Some(current)
 }
 
 /// `malformed_wire` at `at`.
