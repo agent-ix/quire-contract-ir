@@ -835,6 +835,50 @@ fn independent_graph_shape_refuses_before_source_owner_join() {
     );
 }
 
+#[trace("TC-228", "FR-038-AC-155", "FR-038-AC-343")]
+#[test]
+fn source_owner_refusal_precedes_its_dangling_semantic_type() {
+    let (mut package, _, record) = list_group();
+    let selected_source = package["semantic_graph"]["nodes"][record]["owner"]["identity"].clone();
+    let missing_type = structural_id(
+        package["name"].as_str().expect("package name"),
+        vec![json!("missing-type")],
+        0,
+    );
+    package["semantic_graph"]["nodes"][record]["semantic_type"] = missing_type;
+    package["semantic_graph"]["nodes"][record]["owner"]["identity"] = json!("unselected-source");
+
+    let CheckedPackageV2ReadResult::Refused(owner_refusal) = read(&package) else {
+        panic!("unselected source owner must refuse before its dangling type");
+    };
+    assert_eq!(
+        owner_refusal.code,
+        CheckedPackageRefusalCode::MissingDeclaration
+    );
+    assert_eq!(
+        owner_refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        owner_refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{record}/node_id")),
+    );
+
+    package["semantic_graph"]["nodes"][record]["owner"]["identity"] = selected_source;
+    let CheckedPackageV2ReadResult::Refused(edge_refusal) = read(&package) else {
+        panic!("repairing only the owner must expose its dangling type");
+    };
+    assert_eq!(
+        edge_refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(edge_refusal.cause, None);
+    assert_eq!(
+        edge_refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{record}/semantic_type")),
+    );
+}
+
 #[trace("TC-226", "FR-038-AC-127")]
 #[test]
 fn derived_shape_refusal_precedes_dependent_frame_check() {
