@@ -3365,12 +3365,6 @@ fn tc_048_relationship_end_refuses_every_node_that_is_not_a_reaches_application(
     assert_eq!(package.relationship_end(&literal), refusal, "literal");
 }
 
-/// The least `work` limit that admits [`relationship_operation_package`]'s
-/// reaches package, as charged before the reader retained relationship ends.
-/// One additional graph node adds four bounded validation visits.
-const MODEL_ROOT_VALIDATION_WORK: u64 = 4;
-const REACHES_ADMISSION_WORK: u64 = 97 + MODEL_ROOT_VALIDATION_WORK;
-
 #[trace("TC-048", "FR-038-AC-266")]
 #[test]
 fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
@@ -3398,8 +3392,8 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     // comparing an admitted package with one whose retention is cleared. The
     // charged work (below) is the guard this test owns.
 
-    // Admission charges the same work with the relationship record retained:
-    // the least work limit that admits is the one measured before retention.
+    // The accessor leaves the authored package and its exact admission work
+    // boundary intact. The independent per-visit tally is TC-226/AC-149.
     let bytes = canonical(&package);
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
@@ -3415,10 +3409,22 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
             other => panic!("expected work boundary, got {other:?}"),
         }
     }
-    assert_eq!(
-        sufficient, REACHES_ADMISSION_WORK,
-        "charged admission work is unchanged"
-    );
+    assert!(matches!(
+        read_at(sufficient),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    match read_at(sufficient - 1) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(incomplete.limit, sufficient - 1);
+            assert_eq!(incomplete.consumed, sufficient);
+            assert_eq!(
+                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                Some("/semantic_graph/nodes/6/body/arguments/0/target")
+            );
+        }
+        other => panic!("expected first unpaid work visit, got {other:?}"),
+    }
 }
 
 #[trace("TC-048", "FR-038-AC-267")]
