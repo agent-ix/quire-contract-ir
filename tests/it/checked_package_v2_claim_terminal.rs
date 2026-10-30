@@ -6,7 +6,7 @@
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, family_key, family_model_document,
     fixture_source, model_owner, node_id, refresh_identity, settle, sha256_hex, source_owner,
-    structural_key, v2_all_families,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -50,7 +50,15 @@ fn word(value: &str) -> Value {
 
 fn node(tag: &str, form: &str, body: Value, dependencies: &[String]) -> Value {
     let ty = family_key("aaaa");
-    let id = structural_key(tag, form, Some(&ty), &body);
+    let named = match form {
+        "state_graph" => body["members"][0]["value"]["value"].as_str(),
+        "terminal" => body["members"][1]["value"]["value"].as_str(),
+        _ => None,
+    };
+    let id = named.map_or_else(
+        || format!("fixture/claim-terminal/{tag}/{form}"),
+        |name| format!("fixture/claim-terminal/{tag}/{form}/{name}"),
+    );
     let mut dependencies = dependencies.to_vec();
     dependencies.sort();
     dependencies.dedup();
@@ -60,16 +68,6 @@ fn node(tag: &str, form: &str, body: Value, dependencies: &[String]) -> Value {
         "dependencies": dependencies.into_iter().map(|key| node_id(&key)).collect::<Vec<_>>(),
         "occurrences": [{"role": "claim", "ordinal": 0}], "body": body,
     })
-}
-
-fn rekey(node: &mut Value) {
-    let key = structural_key(
-        node["node_tag"].as_str().expect("tag"),
-        node["semantic_form"].as_str().expect("form"),
-        Some(&family_key("aaaa")),
-        &node["body"],
-    );
-    node["node_id"] = node_id(&key);
 }
 
 fn state_graph(kind: &str, over: Value, from: Value, target: Value, deps: &[String]) -> Value {
@@ -160,7 +158,7 @@ fn terminal_with_self(target_model: &str, parameter_name: &str, level: &str) -> 
     let mut package = v2_all_families();
     let model = family_key("1515");
     let reference_body = json!({"term": "aggregate", "members": [reference(target_model)]});
-    let reference_type = structural_key("composite_type", "reference", None, &reference_body);
+    let reference_type = format!("fixture/claim-terminal/reference/{target_model}");
     let mut reference_node = node(
         "composite_type",
         "reference",
@@ -175,18 +173,13 @@ fn terminal_with_self(target_model: &str, parameter_name: &str, level: &str) -> 
         binding("level", json!({"term": "literal", "type": node_id(&family_key("a3a3")),
             "value_kind": "integer", "value": level})),
     ]});
-    let parameter = structural_key("value", "parameter", Some(&reference_type), &parameter_body);
+    let parameter = format!("fixture/claim-terminal/parameter/{parameter_name}/{level}");
     let mut parameter_node = node("value", "parameter", parameter_body, &[]);
     parameter_node["node_id"] = node_id(&parameter);
     parameter_node["semantic_type"] = node_id(&reference_type);
     parameter_node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     let condition_body = reference(&parameter);
-    let condition = structural_key(
-        "expression",
-        "reference",
-        Some(&family_key("aaaa")),
-        &condition_body,
-    );
+    let condition = format!("fixture/claim-terminal/condition/{parameter_name}/{level}");
     let condition_node = node(
         "expression",
         "reference",
@@ -611,7 +604,6 @@ fn state_graph_refuses_kind_fit_and_target_meaning() {
         .as_array_mut()
         .expect("members")
         .swap(2, 3);
-    rekey(&mut reordered);
     refused(
         &package_with(reordered),
         Code::InvalidSemanticGraph,
@@ -720,7 +712,6 @@ fn terminal_when_and_mode_refusals() {
         .as_array_mut()
         .expect("members")
         .swap(1, 3);
-    rekey(&mut reordered);
     refused(
         &package_with(reordered),
         Code::InvalidSemanticGraph,
@@ -765,8 +756,7 @@ fn terminal_when_and_mode_refusals() {
     refused(&both, Code::InvalidSemanticGraph, None, "/body/members/2");
     let integer = family_key("a3a3");
     let integer_body = reference(&integer);
-    let integer_condition =
-        structural_key("expression", "reference", Some(&integer), &integer_body);
+    let integer_condition = "fixture/claim-terminal/integer-condition".to_owned();
     let mut expression = node(
         "expression",
         "reference",
@@ -891,7 +881,7 @@ fn state_graph_constant_predicate_and_absent_over() {
     let boolean = family_key("aaaa");
     let truth_body = json!({"term": "literal", "type": node_id(&boolean),
         "value_kind": "boolean", "value": true});
-    let truth = structural_key("value", "literal", Some(&boolean), &truth_body);
+    let truth = "fixture/claim-terminal/truth".to_owned();
     let mut truth_node = node("value", "literal", truth_body, &[]);
     truth_node["node_id"] = node_id(&truth);
     truth_node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
@@ -988,12 +978,7 @@ fn terminal_identity_and_uniqueness_per_model() {
     }
     assert_ne!(encoded(&any), encoded(&v2_all_families()));
     let changed_body = reference(&predicate);
-    let changed_condition = structural_key(
-        "expression",
-        "reference",
-        Some(&family_key("aaaa")),
-        &changed_body,
-    );
+    let changed_condition = "fixture/claim-terminal/changed-condition".to_owned();
     let mut changed_node = node(
         "expression",
         "reference",
@@ -1070,7 +1055,6 @@ fn terminal_identity_and_uniqueness_per_model() {
     let terminal = &mut bad_target["semantic_graph"]["nodes"][base_node_index() + 1];
     terminal["body"]["members"][3]["value"] = reference(&model);
     terminal["dependencies"] = json!([node_id(&model)]);
-    rekey(terminal);
     settle(&mut bad_target);
     refused(
         &bad_target,
@@ -1186,7 +1170,6 @@ fn terminal_self_parameter_must_have_right_name_level_and_type() {
         .as_array_mut()
         .expect("dependencies")
         .retain(|id| *id != parameter_id);
-    rekey(terminal);
     settle(&mut omitted);
     match read_with_population(&omitted) {
         CheckedPackageV2ReadResult::Refused(value) => {
