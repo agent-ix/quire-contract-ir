@@ -208,7 +208,7 @@ impl From<&CheckedPackageIncomplete> for ContractBodyIncompleteV1 {
 }
 
 /// One exact terminal outcome, serialized as the closed FR-330 tagged record.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "disposition", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ContractFeatureRecordV1 {
     /// Exact represented root.
@@ -245,6 +245,86 @@ pub enum ContractFeatureRecordV1 {
         body_node_id: CheckedNodeId,
         incomplete: ContractBodyIncompleteV1,
     },
+}
+
+impl<'de> Deserialize<'de> for ContractFeatureRecordV1 {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+
+        fn take(map: &mut serde_json::Map<String, Value>, name: &str) -> Result<Value, String> {
+            map.remove(name).ok_or_else(|| format!("missing {name}"))
+        }
+
+        fn node(
+            map: &mut serde_json::Map<String, Value>,
+            name: &str,
+        ) -> Result<CheckedNodeId, String> {
+            CheckedNodeId::from_value(&take(map, name)?).ok_or_else(|| format!("invalid {name}"))
+        }
+
+        fn typed<T: serde::de::DeserializeOwned>(
+            map: &mut serde_json::Map<String, Value>,
+            name: &str,
+        ) -> Result<T, String> {
+            serde_json::from_value(take(map, name)?).map_err(|error| error.to_string())
+        }
+
+        let mut map = match Value::deserialize(deserializer)? {
+            Value::Object(map) => map,
+            _ => return Err(D::Error::custom("feature record must be an object")),
+        };
+        let disposition: ContractDispositionV1 =
+            typed(&mut map, "disposition").map_err(D::Error::custom)?;
+        let node_id = node(&mut map, "node_id").map_err(D::Error::custom)?;
+        let record = match disposition {
+            ContractDispositionV1::Lowered => Self::Lowered { node_id },
+            ContractDispositionV1::Unsupported => Self::Unsupported {
+                node_id,
+                unsupported_node_id: node(&mut map, "unsupported_node_id")
+                    .map_err(D::Error::custom)?,
+                node_tag: typed(&mut map, "node_tag").map_err(D::Error::custom)?,
+            },
+            ContractDispositionV1::RequiresBound => Self::RequiresBound {
+                node_id,
+                unbounded_type: node(&mut map, "unbounded_type").map_err(D::Error::custom)?,
+            },
+            ContractDispositionV1::InvalidInput => Self::InvalidInput { node_id },
+            ContractDispositionV1::Failed => Self::Failed {
+                node_id,
+                limit_kind: typed(&mut map, "limit_kind").map_err(D::Error::custom)?,
+                limit: typed(&mut map, "limit").map_err(D::Error::custom)?,
+                consumed: typed(&mut map, "consumed").map_err(D::Error::custom)?,
+            },
+            ContractDispositionV1::InvalidBody => {
+                let mut refusal: Value = take(&mut map, "refusal").map_err(D::Error::custom)?;
+                let locus = refusal
+                    .as_object_mut()
+                    .and_then(|object| object.remove("locus"))
+                    .map(|value| {
+                        CheckedNodeId::from_value(&value)
+                            .ok_or_else(|| D::Error::custom("invalid refusal locus"))
+                    })
+                    .transpose()?;
+                let mut refusal: ContractBodyRefusalV1 =
+                    serde_json::from_value(refusal).map_err(D::Error::custom)?;
+                refusal.locus = locus;
+                Self::InvalidBody {
+                    node_id,
+                    body_node_id: node(&mut map, "body_node_id").map_err(D::Error::custom)?,
+                    refusal,
+                }
+            }
+            ContractDispositionV1::BodyIncomplete => Self::BodyIncomplete {
+                node_id,
+                body_node_id: node(&mut map, "body_node_id").map_err(D::Error::custom)?,
+                incomplete: typed(&mut map, "incomplete").map_err(D::Error::custom)?,
+            },
+        };
+        if !map.is_empty() {
+            return Err(D::Error::custom("unknown feature record member"));
+        }
+        Ok(record)
+    }
 }
 
 impl ContractFeatureRecordV1 {
@@ -1679,8 +1759,9 @@ fn validate_body_refusal(value: &Value, at: JsonPointer) -> Result<(), Validatio
     if let Some(locus) = object.get("locus") {
         let locus_at = at.clone().key("locus");
         id_shape(locus, locus_at.clone())?;
-        let id = CheckedNodeId::from_value(locus)
-            .ok_or_else(|| malformed(locus_at.clone(), CheckedPackageRefusalCause::WrongValueKind))?;
+        let id = CheckedNodeId::from_value(locus).ok_or_else(|| {
+            malformed(locus_at.clone(), CheckedPackageRefusalCause::WrongValueKind)
+        })?;
         if !valid_node_id(&id) {
             return Err(malformed(
                 locus_at,
