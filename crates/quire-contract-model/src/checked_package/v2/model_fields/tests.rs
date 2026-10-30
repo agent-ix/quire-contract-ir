@@ -331,27 +331,27 @@ fn tc_056_record_fields_keep_value_types_and_effective_names() {
     assert_eq!(
         model.field_type(inherited),
         Some(MemberType::Option(Box::new(MemberType::Record(
-            record_key.clone().into(),
+            record_key.clone(),
         ))))
     );
     assert_eq!(
         model.field_type(&model.record_types[&*profile].fields[0]),
         Some(MemberType::Option(Box::new(MemberType::Record(
-            record_key.clone().into()
+            record_key.clone()
         ))))
     );
     assert_eq!(
         model.field_type(&model.record_types[&*profile].fields[1]),
         Some(MemberType::Collection {
             kind: super::super::model_members::CollectionKind::Sequence,
-            element: Box::new(MemberType::Record(record_key.into())),
+            element: Box::new(MemberType::Record(record_key)),
             bounds: Some((0, 3)),
         })
     );
     assert_eq!(
         model.field_type(&model.record_types[&*profile].fields[2]),
         Some(MemberType::Option(Box::new(MemberType::Record(
-            profile_key.into()
+            profile_key
         ))))
     );
 }

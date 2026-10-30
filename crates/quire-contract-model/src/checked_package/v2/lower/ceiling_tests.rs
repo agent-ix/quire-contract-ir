@@ -507,7 +507,7 @@ fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged(
         .len() as u64;
     // `x`'s complete typed node (it is self-typed, so its closure is empty).
     let packaged = package(u64::MAX);
-    let reference = packaged.lower(&[x.clone()], &profile());
+    let reference = packaged.lower(std::slice::from_ref(&x), &profile());
     let node = match &reference.records[0] {
         CompleteLoweringRecordV2::Lowered { node } => node.as_ref(),
         other => panic!("unlimited reference lowering: {other:?}"),
