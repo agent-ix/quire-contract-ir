@@ -392,7 +392,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
     let mut wrong_lock: Value = serde_json::from_slice(bytes(&lowered)).expect("wire json");
     wrong_lock["package"]["source"]["lock"] =
         serde_json::to_value(wrong_source.lock()).expect("lock wire");
-    let wrong_lock = canonical(wrong_lock);
+    let wrong_lock = canonical(&wrong_lock);
     assert!(matches!(
         read(&wrong_lock),
         ContractPackageReadResult::Admitted(_)
@@ -412,7 +412,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         serde_json::to_value(wrong_source.package_id()).expect("source id wire");
     unrelated["package"]["source"]["lock"] =
         serde_json::to_value(wrong_source.lock()).expect("source lock wire");
-    let unrelated = canonical(unrelated);
+    let unrelated = canonical(&unrelated);
     assert!(matches!(
         read(&unrelated),
         ContractPackageReadResult::Admitted(_)
@@ -462,7 +462,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         serde_json::to_value(original_operation.package_id()).expect("original source identity");
     changed["package"]["source"]["lock"] =
         serde_json::to_value(original_operation.lock()).expect("original source lock");
-    let changed = canonical(changed);
+    let changed = canonical(&changed);
     assert!(matches!(
         read(&changed),
         ContractPackageReadResult::Admitted(_)
@@ -505,7 +505,7 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         serde_json::to_value(original_reference.package_id()).expect("original source identity");
     changed["package"]["source"]["lock"] =
         serde_json::to_value(original_reference.lock()).expect("original source lock");
-    let changed = canonical(changed);
+    let changed = canonical(&changed);
     assert!(matches!(
         read(&changed),
         ContractPackageReadResult::Admitted(_)
@@ -624,7 +624,7 @@ fn reader_refuses_first_accounting_record_for_later_requested_items() {
         let mut changed = wire.clone();
         changed["feature_accounting"][0]["node_id"] =
             wire["source_map"]["requested_items"][index]["requested_item"].clone();
-        let ContractPackageReadResult::Refused(refusal) = read(&canonical(changed)) else {
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
             panic!("accounting record for requested item {index} must refuse");
         };
         assert_eq!(refusal.code, Code::InvalidPackage, "requested item {index}");
@@ -653,7 +653,7 @@ fn reader_refuses_first_accounting_record_for_later_requested_items() {
         .iter()
         .any(|node| node["node_id"] == other_root));
     changed["feature_accounting"][0]["node_id"] = other_root;
-    let ContractPackageReadResult::Refused(refusal) = read(&canonical(changed)) else {
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
         panic!("first accounting record for another represented root must refuse");
     };
     assert_eq!(refusal.code, Code::InvalidPackage);
@@ -1316,7 +1316,7 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         healthy_sources.clone();
     represented_request["source_map"]["refusals"][0]["requested_item"] = represented;
     represented_request["source_map"]["refusals"][0]["occurrences"] = healthy_sources;
-    let represented_request = canonical(represented_request);
+    let represented_request = canonical(&represented_request);
     let ContractPackageReadResult::Admitted(represented_plain) = read(&represented_request) else {
         panic!("canonical V1 with a represented unsupported request must admit");
     };
@@ -1332,7 +1332,7 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
     missing_root["source_map"]["requested_items"][0]["occurrences"] = json!([]);
     missing_root["source_map"]["refusals"][0]["requested_item"] = absent;
     missing_root["source_map"]["refusals"][0]["occurrences"] = json!([]);
-    let missing_root = canonical(missing_root);
+    let missing_root = canonical(&missing_root);
     let missing_root_read = read(&missing_root);
     assert!(
         matches!(missing_root_read, ContractPackageReadResult::Admitted(_)),
@@ -1365,7 +1365,7 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         .expect("temporal profile selection");
     temporal_profile["definition"]["identity"] =
         json!("quire.temporal.event-position.false-extension/v1");
-    let wrong_lock = canonical(wrong_lock);
+    let wrong_lock = canonical(&wrong_lock);
     assert!(matches!(
         read(&wrong_lock),
         ContractPackageReadResult::Admitted(_)
@@ -1672,7 +1672,7 @@ fn canonical_decimal_counters_keep_the_full_u64_range() {
     use quire_contract_model::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
     for counter in ["0", "18446744073709551615"] {
         assert!(matches!(
-            read(&canonical(failed_wire(counter, counter))),
+            read(&canonical(&failed_wire(counter, counter))),
             ContractPackageReadResult::Admitted(_)
         ));
     }
@@ -1713,7 +1713,7 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     });
     wire["source_map"]["refusals"][0]["disposition"] = json!("body_incomplete");
     assert!(matches!(
-        read(&canonical(wire.clone())),
+        read(&canonical(&wire)),
         ContractPackageReadResult::Admitted(_)
     ));
     wire["feature_accounting"][1]["incomplete"]["path"] = json!("");
@@ -1726,7 +1726,7 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     );
     wire["feature_accounting"][1]["incomplete"]["limit_kind"] = json!("work");
     assert!(matches!(
-        read(&canonical(wire.clone())),
+        read(&canonical(&wire)),
         ContractPackageReadResult::Admitted(_)
     ));
     let mut unknown_kind = wire.clone();
@@ -1761,7 +1761,7 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     });
     body["source_map"]["refusals"][0]["disposition"] = json!("invalid_body");
     assert!(matches!(
-        read(&canonical(body.clone())),
+        read(&canonical(&body)),
         ContractPackageReadResult::Admitted(_)
     ));
     let mut unpaired = body.clone();
@@ -1818,7 +1818,7 @@ fn reader_refuses_causes_on_causeless_nested_reader_codes() {
         });
         wire["source_map"]["refusals"][0]["disposition"] = json!("invalid_body");
         assert!(matches!(
-            read(&canonical(wire.clone())),
+            read(&canonical(&wire)),
             ContractPackageReadResult::Admitted(_)
         ));
 
@@ -1869,7 +1869,7 @@ fn reader_refuses_causes_on_causeless_nested_reader_codes() {
 #[test]
 fn duplicate_member_and_noncanonical_bytes_refuse() {
     use quire_contract_model::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
-    let wire = canonical(failed_wire("0", "0"));
+    let wire = canonical(&failed_wire("0", "0"));
     let text = std::str::from_utf8(&wire).expect("utf8");
     let duplicate = text.replacen("\"limit\":\"0\"", "\"limit\":\"0\",\"limit\":\"0\"", 1);
     let ContractPackageReadResult::Refused(refusal) = read(duplicate.as_bytes()) else {
@@ -1889,7 +1889,7 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
         CheckedPackageRefusalCause, CheckedPackageRefusalCode, ContractDependencyInput,
     };
     let (dependency, wire) = wire_selecting_lib_a();
-    let bytes = canonical(wire.clone());
+    let bytes = canonical(&wire);
     let mut supplied = ContractDependencies::new();
     supplied.insert(
         "lib/a",
@@ -1985,7 +1985,7 @@ fn contract_reader_refuses_different_ids_in_derived_dependency_diamond() {
         {"identity": "lib/left", "package_id": left.package_id()},
         {"identity": "lib/right", "package_id": right.package_id()}
     ]);
-    let bytes = canonical(wire);
+    let bytes = canonical(&wire);
     let mut supplied = ContractDependencies::new();
     supplied.insert(
         "lib/left",
@@ -2035,7 +2035,7 @@ fn reader_refuses_stale_selected_dependency_at_selection() {
     );
     wire["package"]["source"]["lock"]["dependency_selections"][0]["package_id"]["digest"] =
         json!("0".repeat(64));
-    let stale = canonical(wire);
+    let stale = canonical(&wire);
     let ContractPackageReadResult::Refused(wrong_package) =
         ContractPackageWireV1::read(&stale, CheckedPackageReadLimits::bounded(), &supplied)
     else {
@@ -2093,7 +2093,7 @@ fn reader_refuses_reference_type_targeting_an_existing_scalar_node() {
         "term": "aggregate",
         "members": [{"term": "reference", "target": scalar}],
     });
-    let ContractPackageReadResult::Refused(refusal) = read(&canonical(wire)) else {
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
         panic!("reference type cannot target a scalar key");
     };
     assert_eq!(
