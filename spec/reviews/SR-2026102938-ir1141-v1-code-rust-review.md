@@ -41,3 +41,12 @@ Code review and Rust review were folded into this artifact. The changed Rust sou
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | At #708 head 94e65cd3ee297031fbf0a2e98f9228c8c4e51b35, TC-447 encodes each admitted five-field V1 wire with `quire_canonical::to_vec` and compares complete canonical values; the removed accessor has no call left in the named target. The independent `[0, 9]` and `[0, 10]` assertions remain. |
+| FND-002 | fixed | At #708 head 45f982bd31bf86f1789dabf8cbf2e03053f5a021, every V1 control touched by this PR passes `&Value` to the existing `canonical(&Value)` helper; refusal and admission assertions are retained. |
+| FND-003 | fixed | At #708 head 45f982bd31bf86f1789dabf8cbf2e03053f5a021, the obsolete `CompleteContractPackageV2::package_id()` call and V1 semantic-projection hash oracle are removed. The test still checks canonical V1 bytes and the five-member wire shape, while its independent V2 node-key and lowered-node oracles remain. |
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | The first #708 code patch passed owned JSON values to a `canonical(&Value)` helper at roughly twenty V1 integration-test sites, preventing the workspace test target from compiling. | tests/it/complete_v1_contract_package.rs:395 |
+| FND-003 | high | The first #708 code patch left a call to removed `CompleteContractPackageV2::package_id()` and a V1 hash-preimage oracle in a tagged V2 identity test, preventing the test target from compiling. | tests/it/checked_package_v2_identity_digests.rs:282 |
