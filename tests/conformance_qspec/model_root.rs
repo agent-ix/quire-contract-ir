@@ -5,9 +5,7 @@
 
 use super::{code_word, derived_with, fixtures_dir, proposal_dir_of, read_json, read_package};
 use ix_trace_rs::trace;
-use quire_contract_model::{
-    derive_structural_candidates, CheckedPackageV2ReadResult, CheckedSemanticNodeV2,
-};
+use quire_contract_model::{CheckedPackageV2ReadResult, CheckedSemanticNodeV2};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 

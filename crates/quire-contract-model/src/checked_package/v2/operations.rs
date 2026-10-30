@@ -4,55 +4,10 @@
 //! against the upstream `quire.checked-operation-catalog/v1`
 //! ([`operation_catalog`]) and the package's own lock selections.
 //!
-//! Two stages, run in the upstream contract's normative order (its
-//! "Operation identity rules" and reader-boundary sections). The copy of
-//! that description this tree used to carry was removed with the rest of the
-//! private-sourced fixture tree; see agent-ix/quire-contract-ir#166:
-//!
-//! 1. [`validate_application_keys`]: every node whose body is an
-//!    `application` term re-derives its own `node_id` from
-//!    `{version: "quire.application-node/v1", node_tag, semantic_form,
-//!    semantic_type, declaration, recursion, body}`; a retained stale key is
-//!    `invalid_package`/`stale-node-key`. This runs before declaration
-//!    (`validate_nominal_nodes`) and frame (`validate_frame_semantics`)
-//!    checks, exactly like those two stages' own key/identity work.
-//! 2. [`validate_operations`]: once declaration and frame checks pass, each
-//!    application node's `operation` is checked against its catalogued
-//!    entry, in ascending node-id digest order, reporting the first node
-//!    that fails.
-//!
-//! A node's `recursion` preimage member is FR-322's `{size, ordinal}` of the
-//! node within its `recursion_group` in graph order (`null` outside a group),
-//! and each body `reference` to a member of that group is keyed as
-//! `{term: "group_reference", ordinal}` (see the shared application preimage construction).
-//!
-//! Scope this reader does not cover, narrower than the upstream contract
-//! description's full generality and not exercised by an admitted fixture or
-//! upstream vector. Each item is a silent no-op (never a false refusal), not
-//! a silent admission of something the upstream corpus requires rejected: an
-//! `operation.member` of kind `position`, `element`, `relationship_end`,
-//! `operation` is checked for presence and kind only, not
-//! that its `declaration` resolves to a real, eligible node (`field` is the
-//! one kind an upstream mutation exercises, so it alone is checked in full,
-//! including that the named field is actually declared; the `temporal_interval`
-//! and `fairness` members are checked for their closed shape here and by
-//! [`super::temporal`] for their meaning); a `constraints`
-//! entry other than `same_family`/`same_type`/`conforming_reference`/
-//! `reference_edge`/`union_arms` and type-argument member-result
-//! `member_family` is not enforced; leaf-path
-//! resolution covers exactly one shape, `["field:<name>"]` against the first
-//! operand's record type, the one the upstream vectors exercise;
-//! [`validate_application_keys`] re-derives a key for a node whose own
-//! `body` is an application term at its root. An application stands nowhere
-//! else: the flat wire refuses one nested in another term, ahead of every
-//! identity check (`flat_wire`), so every application's key and its own
-//! `operation` are checked here; `operation.mode` is checked for kind and
-//! type pins, but its value is not checked against the catalog's closed
-//! `modes` vocabulary. The catalog's `member` result form is checked for
-//! type-argument and selected-model tuple-position members; other result
-//! forms remain unenforced.
+//! Application bodies are checked against the selected operation catalog after graph
+//! shape, owner, and reference validation. Node IDs are structural labels; this
+//! module does not derive an identity from an application body.
 
-use super::application_identity::{application_digest_admitted, ApplicationGroup};
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::model_members::{
     declaration_key, units, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind,
@@ -66,15 +21,15 @@ use super::structural::{typed_union_type_body, typed_union_value_body, UnionMemb
 use super::temporal::member_is_well_formed;
 use super::typed_terms::CheckedOperationViews;
 use super::{
-    ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
-    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm,
-    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind,
-    ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
-    OperationModeKind, ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm,
-    ScalarTypeForm, StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
+    ApplicationOperator, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
+    CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm, CompositeTypeForm,
+    CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind, ModelForm,
+    NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind, OperationModeKind,
+    ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm,
+    StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
-use crate::checked_package::common::{body_term, decoder_pointer, node_pointer, NODE_DOMAIN};
+use crate::checked_package::common::{decoder_pointer, node_pointer, NODE_DOMAIN};
 use crate::checked_package::selected_population::{
     is_model_population, least_type_occurrence, population_maximum, population_object_type,
 };
@@ -117,106 +72,6 @@ impl Application<'_> {
     ) -> ValidationFailure {
         ValidationFailure::refused_at(code, path, Some(cause), self.node.node_id.clone())
     }
-}
-
-fn is_application(body: &Value) -> bool {
-    body_term(body) == Some(BodyTerm::Application)
-}
-
-/// QSpec keys an aggregate-bodied union construction with the same preimage
-/// as a root application; other application-free values remain structural.
-pub(super) fn has_application_key(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> bool {
-    is_application(&node.body) || kind == CheckedNodeKind::Value(super::ValueForm::UnionValue)
-}
-
-/// Reader selection uses the already-decoded term; the raw-body predicate
-/// above remains for the independent pre-read candidate API.
-pub(super) fn has_application_key_admitted(
-    term: Option<&CheckedTerm>,
-    kind: CheckedNodeKind,
-) -> bool {
-    matches!(term, Some(CheckedTerm::Application { .. }))
-        || kind == CheckedNodeKind::Value(super::ValueForm::UnionValue)
-}
-
-/// Every application-keyed node's `node_id` re-derived from its own visible
-/// members, in ascending digest order, reporting the first stale one.
-///
-/// Each key is hashed through `quire-canonical` under `bytes`, the reader's
-/// byte limit; a preimage whose canonical bytes exceed it refuses
-/// `invalid_semantic_graph` at the node's `node_id`.
-pub(super) fn validate_application_keys(
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-    meter: &mut WorkMeter,
-    bytes: u64,
-) -> Result<(), ValidationFailure> {
-    // Each recursion group's members, in graph order.
-    let mut groups: BTreeMap<&str, BTreeMap<&CheckedNodeId, usize>> = BTreeMap::new();
-    for node in nodes {
-        if let Some(label) = node.recursion_group.as_deref() {
-            let group = groups.entry(label).or_default();
-            let ordinal = group.len();
-            group.insert(&node.node_id, ordinal);
-        }
-    }
-    for (&node_id, &position) in index {
-        let node = &nodes[position];
-        let Some(term) = terms.get(position).and_then(Option::as_ref) else {
-            continue;
-        };
-        let keyed = kinds
-            .get(position)
-            .is_some_and(|&kind| has_application_key_admitted(Some(term), kind));
-        if !keyed {
-            continue;
-        }
-        let application = Application { node, position };
-        meter.charge(1, || application.node_id())?;
-        let group = node
-            .recursion_group
-            .as_deref()
-            .and_then(|label| groups.get(label));
-        let group = group.map_or(ApplicationGroup::Keys(&[]), ApplicationGroup::Indexed);
-        let computed_digest =
-            application_digest_admitted(node, term, group, bytes).map_err(|_| {
-                ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    application.node_id(),
-                )
-            })?;
-        if computed_digest != node_id.digest.as_ref() {
-            return Err(ValidationFailure::refused_stale_node_key(
-                application.node_id(),
-                node_id.clone(),
-                CheckedNodeId {
-                    domain: NODE_DOMAIN.into(),
-                    digest: computed_digest.into(),
-                },
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// The application preimage, including a union value's aggregate body,
-/// contributes unchanged to a group digest.
-pub(super) fn application_local_digest(
-    node: &CheckedSemanticNodeV2,
-    term: &CheckedTerm,
-    position: usize,
-    group: &[&CheckedNodeId],
-    bytes: u64,
-) -> Result<String, ValidationFailure> {
-    let application = Application { node, position };
-    application_digest_admitted(node, term, ApplicationGroup::Keys(group), bytes).map_err(|_| {
-        ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.node_id(),
-        )
-    })
 }
 
 #[derive(Deserialize)]
@@ -309,7 +164,7 @@ struct OperationLeafWire {
     mode: Option<OperationModeWire>,
 }
 
-/// Every application node's `operation`, in ascending node-id digest order,
+/// Every application node's `operation`, in ascending structural node-id order,
 /// checked against [`operation_catalog`] and `lock`. Reports the first node
 /// that fails, at the first check it fails, in this order: `unknown-operation`,
 /// `operation-class-mismatch`, `operation-law-missing`,
@@ -4539,24 +4394,18 @@ fn check_leaf_count(
 
 #[cfg(test)]
 mod tests {
-    use super::super::application_identity::{
-        application_digest, application_preimage, ApplicationGroup,
-    };
-    use super::super::encode::GroupPlace;
     use super::super::CheckedSelectionRole;
     use super::{
-        is_type_shaped, operand_family, operation_catalog, operation_defect,
-        validate_application_keys, Application, ApplicationOperator, CheckedNodeId,
-        CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageRefusalCause,
-        CheckedPackageRefusalCode, CheckedSemanticNodeV2, DependencyReferences, ExpressionForm,
-        Graph, LawRole, ModelOwners, ProtocolForm, StructuralTypes, SuppliedDependencies,
-        TemporalForm, ValidationFailure, WorkMeter,
+        is_type_shaped, operand_family, operation_catalog, operation_defect, Application,
+        ApplicationOperator, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2,
+        CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticNodeV2,
+        DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners, ProtocolForm,
+        StructuralTypes, SuppliedDependencies, TemporalForm, ValidationFailure, WorkMeter,
     };
     use crate::checked_package::common::NODE_DOMAIN;
     use crate::checked_package::shared::{
         CheckedArtifactRef, CheckedPackageLimit, CheckedSelection, JsonPointer,
     };
-    use crate::checked_package::v2::encode::APPLICATION_NODE_VERSION;
     use ix_trace_rs::trace;
 
     fn decoded_terms(nodes: &[CheckedSemanticNodeV2]) -> Vec<Option<super::CheckedTerm>> {
@@ -5144,9 +4993,7 @@ mod tests {
 
     /// A single-node `application` term with a caller-supplied `operator`,
     /// `operation` wire value and `arguments`. `node_id`/`semantic_type` are
-    /// placeholders `operation_defect` never inspects for its own checks
-    /// (only `validate_application_keys`'s own tests care whether a node's
-    /// key is genuine).
+    /// placeholders `operation_defect` never inspects for its own checks.
     fn custom_application_node(
         operator: &str,
         operation: Value,
@@ -5192,30 +5039,6 @@ mod tests {
                 json!({ "term": "literal", "value": 2 }),
             ],
         )
-    }
-
-    /// `application_node`'s `node_id.digest` replaced by the genuine JCS
-    /// SHA-256 of its own preimage — the same formula
-    /// `validate_application_keys` re-derives — so the node passes that
-    /// check rather than tripping the `stale-node-key` refusal every other
-    /// fixture in this module deliberately does not care about.
-    fn correctly_keyed(mut node: CheckedSemanticNodeV2) -> CheckedSemanticNodeV2 {
-        let semantic_type =
-            serde_json::to_value(&node.semantic_type).expect("semantic_type serializes");
-        let preimage = json!({
-            "version": APPLICATION_NODE_VERSION,
-            "node_tag": node.node_tag.as_ref(),
-            "semantic_form": node.semantic_form.as_ref(),
-            "semantic_type": semantic_type,
-            "declaration": Value::Null,
-            "recursion": node.recursion_group.as_deref(),
-            "body": node.body.clone(),
-        });
-        let digest = quire_canonical::sha256(&preimage, quire_canonical::Limits::new(1 << 20))
-            .expect("preimage digests")
-            .to_string();
-        node.node_id.digest = Box::from(digest.as_str());
-        node
     }
 
     /// A bare graph node with caller-supplied tag/form/semantic-type/body,
@@ -5449,356 +5272,6 @@ mod tests {
 
     fn node_ref(fill: u8) -> serde_json::Value {
         json!({ "domain": "quire.checked-semantic-node/v1", "digest": key(fill) })
-    }
-
-    fn reference(fill: u8) -> serde_json::Value {
-        json!({ "term": "reference", "target": node_ref(fill) })
-    }
-
-    fn add(arguments: Vec<serde_json::Value>) -> serde_json::Value {
-        json!({
-            "term": "application",
-            "operator": "binary",
-            "operation": {
-                "identity": "quire.op.integer.add",
-                "laws": [], "mode": null, "member": null, "leaves": []
-            },
-            "result_type": node_ref(3),
-            "arguments": arguments,
-        })
-    }
-
-    fn grouped_node(id: u8, body: serde_json::Value) -> CheckedSemanticNodeV2 {
-        serde_json::from_value(json!({
-            "node_id": node_ref(id),
-            "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "function",
-            "semantic_form": "function",
-            "semantic_type": node_ref(3),
-            "dependencies": [],
-            "occurrences": [],
-            "recursion_group": "g",
-            "declaration": { "qualified_name": ["pkg", "total"] },
-            "body": body,
-        }))
-        .expect("node")
-    }
-
-    /// QSpec FR-322's application preimage for a recursion-group member,
-    /// byte for byte the vector quire-spec-language's `application_key`
-    /// pins (`preimage_bytes_are_pinned`): the node is member 1 of a group
-    /// of 2, its reference to member 0 becomes a `group_reference`, and its
-    /// reference outside the group stays a reference.
-    #[trace("TC-048", "FR-038-AC-88")]
-    #[test]
-    fn tc_048_application_preimage_matches_the_qsl_pinned_group_vector() {
-        let node = grouped_node(2, add(vec![reference(1), reference(9)]));
-        let one = typed(&key(1));
-        let group = [&one, &node.node_id];
-        let preimage =
-            application_preimage(&node, ApplicationGroup::Keys(&group)).expect("preimage");
-        // Spelled literally, as quire-spec-language's own vector does, rather
-        // than produced by the serializer under test.
-        let literal_ref = |fill: u8| {
-            format!(
-                r#"{{"digest":"{}","domain":"quire.checked-semantic-node/v1"}}"#,
-                key(fill)
-            )
-        };
-        let three = literal_ref(3);
-        let nine = literal_ref(9);
-        let expected = format!(
-            concat!(
-                r#"{{"body":{{"arguments":[{{"ordinal":0,"term":"group_reference"}},"#,
-                r#"{{"target":{nine},"term":"reference"}}],"#,
-                r#""operation":{{"identity":"quire.op.integer.add","laws":[],"leaves":[],"member":null,"mode":null}},"#,
-                r#""operator":"binary","result_type":{three},"term":"application"}},"#,
-                r#""declaration":{{"qualified_name":["pkg","total"]}},"#,
-                r#""node_tag":"function","recursion":{{"ordinal":1,"size":2}},"#,
-                r#""semantic_form":"function","semantic_type":{three},"#,
-                r#""version":"quire.application-node/v1"}}"#,
-            ),
-            nine = nine,
-            three = three,
-        );
-        let bytes = quire_canonical::to_vec(&preimage, quire_canonical::Limits::new(1 << 20))
-            .expect("encodes");
-        assert_eq!(String::from_utf8(bytes).expect("utf-8"), expected);
-        let term = super::CheckedTerm::decode_admitted(&node.body).expect("admitted term");
-        let admitted = super::application_digest_admitted(
-            &node,
-            &term,
-            ApplicationGroup::Keys(&group),
-            1 << 20,
-        )
-        .expect("admitted digest");
-        let pinned = quire_canonical::sha256(&preimage, quire_canonical::Limits::new(1 << 20))
-            .expect("pinned digest")
-            .to_string();
-        assert_eq!(admitted, pinned);
-    }
-
-    /// Group references are rewritten in every nested term position, as in
-    /// quire-spec-language's `group_references_are_rewritten_in_every_nested_term`.
-    #[trace("TC-048", "FR-038-AC-88")]
-    #[test]
-    fn tc_048_group_references_are_rewritten_in_every_nested_term() {
-        let body = json!({
-            "term": "aggregate",
-            "members": [
-                { "term": "binding", "name": "x", "value": reference(2) },
-                add(vec![reference(1), add(vec![reference(2), reference(9)])]),
-            ],
-        });
-        let node = grouped_node(1, body);
-        let two = typed(&key(2));
-        let group = [&node.node_id, &two];
-        let preimage =
-            application_preimage(&node, ApplicationGroup::Keys(&group)).expect("preimage");
-        let group_reference =
-            |ordinal: usize| json!({ "term": "group_reference", "ordinal": ordinal });
-        let members = &preimage.body["members"];
-        assert_eq!(members[0]["value"], group_reference(1));
-        assert_eq!(members[1]["arguments"][0], group_reference(0));
-        assert_eq!(
-            members[1]["arguments"][1]["arguments"][0],
-            group_reference(1)
-        );
-        assert_eq!(members[1]["arguments"][1]["arguments"][1], reference(9));
-        assert_eq!(
-            preimage.recursion,
-            Some(GroupPlace {
-                size: 2,
-                ordinal: 0
-            })
-        );
-    }
-
-    /// A caller-funded cyclic protocol group keeps graph-order ordinals when
-    /// its key order runs backward, and every application key re-derives.
-    #[trace("TC-048", "FR-038-AC-88")]
-    #[test]
-    fn tc_048_protocol_sized_group_uses_indexed_application_ordinals() {
-        const MEMBERS: usize = 100_000;
-        let provisional = (0..MEMBERS)
-            .map(|position| CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: format!("{:064x}", MEMBERS - position).into(),
-            })
-            .collect::<Vec<_>>();
-        let mut nodes = (0..MEMBERS)
-            .map(|position| {
-                let mut node = grouped_node(
-                    2,
-                    json!({
-                        "term": "application",
-                        "operator": "protocol_control",
-                        "operation": {
-                            "identity": "quire.op.protocol.control",
-                            "laws": [], "mode": null, "member": null, "leaves": []
-                        },
-                        "result_type": node_ref(3),
-                        "arguments": [{
-                            "term": "reference",
-                            "target": provisional[(position + 1) % MEMBERS]
-                        }]
-                    }),
-                );
-                node.node_tag = "protocol".into();
-                node.semantic_form = "control".into();
-                node.node_id = provisional[position].clone();
-                node
-            })
-            .collect::<Vec<_>>();
-        let ordinals = provisional
-            .iter()
-            .enumerate()
-            .map(|(ordinal, id)| (id, ordinal))
-            .collect::<BTreeMap<_, _>>();
-        let digests = nodes
-            .iter()
-            .map(|node| {
-                application_digest(node, ApplicationGroup::Indexed(&ordinals), 1 << 20)
-                    .expect("provisional cyclic application key")
-            })
-            .collect::<Vec<_>>();
-        for (position, node) in nodes.iter_mut().enumerate() {
-            node.node_id.digest = digests[position].clone().into();
-            node.body["arguments"][0]["target"]["digest"] =
-                json!(digests[(position + 1) % MEMBERS]);
-        }
-        let indexed = nodes
-            .iter()
-            .enumerate()
-            .map(|(ordinal, node)| (&node.node_id, ordinal))
-            .collect::<BTreeMap<_, _>>();
-        let last = &nodes[MEMBERS - 1];
-        let preimage = application_preimage(last, ApplicationGroup::Indexed(&indexed))
-            .expect("indexed protocol application preimage");
-        let group_size = u64::try_from(MEMBERS).expect("group size fits u64");
-        assert_eq!(
-            preimage.recursion,
-            Some(GroupPlace {
-                size: group_size,
-                ordinal: group_size - 1,
-            })
-        );
-        assert_eq!(
-            preimage.body["arguments"][0],
-            json!({"term": "group_reference", "ordinal": 0})
-        );
-        let kinds = vec![CheckedNodeKind::Protocol(ProtocolForm::Control); MEMBERS];
-        let terms = decoded_terms(&nodes);
-        assert!(terms.iter().all(Option::is_some), "all bodies decode");
-        let index = nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect::<BTreeMap<_, _>>();
-        assert_eq!(
-            validate_application_keys(
-                &nodes,
-                &kinds,
-                &terms,
-                &index,
-                &mut WorkMeter::new(group_size),
-                1 << 20,
-            ),
-            Ok(())
-        );
-    }
-
-    #[trace("TC-048", "FR-038-AC-227")]
-    #[test]
-    fn tc_048_grouped_union_value_key_respects_references_bytes_and_work() {
-        let parameter: CheckedSemanticNodeV2 = serde_json::from_value(json!({
-            "node_id": node_ref(1),
-            "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "value",
-            "semantic_form": "parameter",
-            "semantic_type": node_ref(3),
-            "dependencies": [],
-            "occurrences": [{"role": "expression", "ordinal": 0}],
-            "recursion_group": "g",
-            "body": {"term": "aggregate", "members": []},
-        }))
-        .expect("parameter");
-        let mut union: CheckedSemanticNodeV2 = serde_json::from_value(json!({
-            "node_id": node_ref(2),
-            "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "value",
-            "semantic_form": "union_value",
-            "semantic_type": node_ref(4),
-            "dependencies": [node_ref(1), node_ref(9)],
-            "occurrences": [{"role": "expression", "ordinal": 0}],
-            "recursion_group": "g",
-            "body": {"term": "aggregate", "members": [{
-                "term": "binding", "name": "Rect", "value": {
-                    "term": "aggregate", "members": [reference(1), reference(9)]
-                }
-            }]},
-        }))
-        .expect("union value");
-        let provisional = [&parameter.node_id, &union.node_id];
-        let preimage = application_preimage(&union, ApplicationGroup::Keys(&provisional))
-            .expect("group preimage");
-        let expected_body = json!({"term": "aggregate", "members": [{
-            "term": "binding", "name": "Rect", "value": {
-                "term": "aggregate", "members": [
-                    {"term": "group_reference", "ordinal": 0}, reference(9)
-                ]
-            }
-        }]});
-        assert_eq!(preimage.body.as_ref(), &expected_body);
-        assert_eq!(
-            preimage.recursion,
-            Some(GroupPlace {
-                size: 2,
-                ordinal: 1
-            })
-        );
-        let independent = json!({
-            "version": "quire.application-node/v1",
-            "node_tag": "value",
-            "semantic_form": "union_value",
-            "semantic_type": node_ref(4),
-            "declaration": null,
-            "recursion": {"size": 2, "ordinal": 1},
-            "body": expected_body,
-        });
-        let canonical =
-            quire_canonical::to_vec(&independent, quire_canonical::Limits::new(1 << 20))
-                .expect("independent preimage bytes");
-        let exact = u64::try_from(canonical.len()).expect("byte length fits");
-        let expected = quire_canonical::sha256(&independent, quire_canonical::Limits::new(exact))
-            .expect("independent key")
-            .to_string();
-        assert_eq!(
-            quire_canonical::to_vec(&preimage, quire_canonical::Limits::new(exact))
-                .expect("production preimage at exact ceiling"),
-            canonical
-        );
-        drop(preimage);
-        union.node_id.digest = expected.clone().into();
-        let nodes = [parameter, union];
-        let kinds = [
-            CheckedNodeKind::Value(super::super::ValueForm::Parameter),
-            CheckedNodeKind::Value(super::super::ValueForm::UnionValue),
-        ];
-        let index = BTreeMap::from([(&nodes[0].node_id, 0), (&nodes[1].node_id, 1)]);
-        let terms = decoded_terms(&nodes);
-        assert_eq!(
-            validate_application_keys(
-                &nodes,
-                &kinds,
-                &terms,
-                &index,
-                &mut WorkMeter::new(1),
-                exact
-            ),
-            Ok(())
-        );
-        let too_short = validate_application_keys(
-            &nodes,
-            &kinds,
-            &terms,
-            &index,
-            &mut WorkMeter::new(1),
-            exact - 1,
-        );
-        let Err(ValidationFailure::Refused(refusal)) = too_short else {
-            panic!("one byte below the preimage must refuse: {too_short:?}");
-        };
-        assert_eq!(
-            refusal.code,
-            CheckedPackageRefusalCode::InvalidSemanticGraph
-        );
-        assert_eq!(refusal.expected_node_id(), None);
-        assert_eq!(
-            refusal.loci[0].path.clone(),
-            Some(pointer("/semantic_graph/nodes/1/node_id"))
-        );
-        let unpaid = validate_application_keys(
-            &nodes,
-            &kinds,
-            &terms,
-            &index,
-            &mut WorkMeter::new(0),
-            exact - 1,
-        );
-        let Err(ValidationFailure::Incomplete(incomplete)) = unpaid else {
-            panic!("work must refuse before hashing: {unpaid:?}");
-        };
-        assert_eq!(
-            incomplete.limit_kind,
-            crate::checked_package::shared::CheckedPackageLimit::Work
-        );
-        assert_eq!(incomplete.limit, 0);
-        assert_eq!(incomplete.consumed, 1);
-        assert_eq!(
-            incomplete.path,
-            Some(pointer("/semantic_graph/nodes/1/node_id"))
-        );
     }
 
     fn typed(digest: &str) -> CheckedNodeId {
@@ -9705,129 +9178,6 @@ mod tests {
                 locus,
             ))),
             "a clause application at a boolean position"
-        );
-    }
-
-    /// `stale-node-key`: agent-ix/quire-contract-ir#171. `application_node`'s
-    /// `node_id.digest` is a placeholder, never the JCS SHA-256 of its own
-    /// preimage — exactly the condition [`validate_application_keys`] exists
-    /// to catch. Unlike every other test in this module, this one calls
-    /// `validate_application_keys` directly rather than `operation_defect`:
-    /// the two are separate stages (see the module doc), and nothing above
-    /// reaches this one.
-    #[trace("TC-048", "FR-038-AC-88", "FR-038-AC-184")]
-    #[test]
-    fn tc_048_validate_application_keys_refuses_a_stale_node_key() {
-        let node = application_node(CATALOGUED_IDENTITY, "binary");
-        let nodes = std::slice::from_ref(&node);
-        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
-        index.insert(&node.node_id, 0);
-        let mut meter = WorkMeter::new(1_000);
-
-        let kinds = [CheckedNodeKind::Expression(ExpressionForm::Call)];
-        let terms = decoded_terms(nodes);
-        let result = validate_application_keys(nodes, &kinds, &terms, &index, &mut meter, 1 << 20);
-
-        let Err(ValidationFailure::Refused(refusal)) = result else {
-            panic!("a placeholder node key must refuse: {result:?}");
-        };
-        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
-        assert_eq!(
-            refusal.loci[0].path.clone(),
-            Some(pointer("/semantic_graph/nodes/0/node_id"))
-        );
-        assert_eq!(
-            refusal.cause,
-            Some(CheckedPackageRefusalCause::StaleNodeKey)
-        );
-        assert_eq!(refusal.locus, Some(node.node_id.clone()));
-        assert_eq!(refusal.contract_version, None);
-        assert_eq!(refusal.document_pointer, None);
-        let expected = refusal.expected_node_id().cloned().expect("computed key");
-        assert_eq!(expected.domain.as_ref(), NODE_DOMAIN);
-        assert_ne!(expected, node.node_id);
-
-        // The returned key is checked by the same production stage. The
-        // fixture does not recompute an expected digest in test code.
-        let mut rekeyed = node;
-        rekeyed.node_id = expected;
-        let mut index = BTreeMap::new();
-        index.insert(&rekeyed.node_id, 0);
-        let mut meter = WorkMeter::new(1_000);
-        assert_eq!(
-            validate_application_keys(
-                std::slice::from_ref(&rekeyed),
-                &kinds,
-                &terms,
-                &index,
-                &mut meter,
-                1 << 20,
-            ),
-            Ok(())
-        );
-    }
-
-    /// Control for the test above: a node whose `node_id.digest` genuinely
-    /// is its own preimage's digest ([`correctly_keyed`]) is admitted, not
-    /// refused. Without this control, a `validate_application_keys` that
-    /// refused every node would satisfy the assertion above just as well as
-    /// the real re-derivation does.
-    #[trace("TC-048", "FR-038-AC-88")]
-    #[test]
-    fn tc_048_validate_application_keys_admits_a_correctly_keyed_node() {
-        let node = correctly_keyed(application_node(CATALOGUED_IDENTITY, "binary"));
-        let nodes = std::slice::from_ref(&node);
-        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
-        index.insert(&node.node_id, 0);
-        let mut meter = WorkMeter::new(1_000);
-
-        let kinds = [CheckedNodeKind::Expression(ExpressionForm::Call)];
-        let terms = decoded_terms(nodes);
-        let result = validate_application_keys(nodes, &kinds, &terms, &index, &mut meter, 1 << 20);
-
-        assert_eq!(
-            result,
-            Ok(()),
-            "a node_id that genuinely is the JCS SHA-256 of the node's own preimage must be \
-             admitted, got {result:?}"
-        );
-    }
-
-    #[trace("FR-046-AC-6")]
-    #[test]
-    fn application_identity_work_refusal_precedes_a_canonical_hash_refusal() {
-        let node = application_node(CATALOGUED_IDENTITY, "binary");
-        let nodes = std::slice::from_ref(&node);
-        let index = BTreeMap::from([(&node.node_id, 0)]);
-        let kinds = [CheckedNodeKind::Expression(ExpressionForm::Call)];
-        let terms = decoded_terms(nodes);
-        let result =
-            validate_application_keys(nodes, &kinds, &terms, &index, &mut WorkMeter::new(0), 0);
-        let Err(ValidationFailure::Incomplete(incomplete)) = result else {
-            panic!("the unpaid work charge must precede the zero-byte hash refusal: {result:?}");
-        };
-        assert_eq!(
-            incomplete.limit_kind,
-            crate::checked_package::shared::CheckedPackageLimit::Work
-        );
-        assert_eq!(incomplete.limit, 0);
-        assert_eq!(incomplete.consumed, 1);
-        assert_eq!(
-            incomplete.path,
-            Some(pointer("/semantic_graph/nodes/0/node_id"))
-        );
-        let paid =
-            validate_application_keys(nodes, &kinds, &terms, &index, &mut WorkMeter::new(1), 0);
-        let Err(ValidationFailure::Refused(refusal)) = paid else {
-            panic!("the paid application reaches canonical encoding: {paid:?}");
-        };
-        assert_eq!(
-            refusal.code,
-            CheckedPackageRefusalCode::InvalidSemanticGraph
-        );
-        assert_eq!(
-            refusal.loci[0].path.clone(),
-            Some(pointer("/semantic_graph/nodes/0/node_id"))
         );
     }
 

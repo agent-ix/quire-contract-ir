@@ -5,10 +5,7 @@ use std::{
 };
 
 use ix_trace_rs::trace;
-use quire_contract_model::{
-    derive_structural_candidates, CheckedSemanticNodeV2, DiagnosticCode, Std001Code,
-    StructuralCandidateError,
-};
+use quire_contract_model::{CheckedNodeId, CheckedNodePathSegment, DiagnosticCode, Std001Code};
 use serde_json::{json, Value};
 use syn::{parse::Parser, punctuated::Punctuated, Token};
 
@@ -1655,52 +1652,24 @@ fn tc_058_root_crate_exposes_only_its_kani_module() {
     assert_eq!(public, ["pub mod kani;"]);
 }
 
-/// The external consumer can call the borrowed graph API and distinguish
-/// every refusal by its variant, without reading error messages.
-#[trace("TC-058", "FR-048-AC-1")]
+/// The public structural ID is a typed value with explicit package, path and
+/// ordinal; constructing one does not confer checked-package admission.
+#[trace("TC-058")]
 #[test]
-fn tc_058_structural_candidate_api_is_typed_and_closed() {
-    let draft: CheckedSemanticNodeV2 = serde_json::from_value(json!({
-        "node_id": {"domain": "quire.checked-semantic-node/v1", "digest": "draft"},
-        "schema_version": "quire.checked-semantic-graph/v2",
-        "node_tag": "scalar_type", "semantic_form": "boolean",
-        "semantic_type": {"domain": "quire.checked-semantic-node/v1", "digest": "draft"},
-        "dependencies": [], "occurrences": [{"role": "generated", "ordinal": 0}],
-        "body": {"term": "aggregate", "members": []},
-    }))
-    .expect("typed draft");
-    let draft: quire_contract_model::CheckedSemanticNodeV2<Value> =
-        serde_json::from_value(serde_json::to_value(draft).expect("draft wire"))
-            .expect("raw draft");
-    let candidates =
-        derive_structural_candidates(std::slice::from_ref(&draft), 4096, 10).expect("candidate");
-    assert_eq!(candidates.nodes().len(), 1);
-    assert_eq!(candidates.nodes()[0].position(), 0);
-    assert_eq!(
-        candidates.nodes()[0].candidate_node_id().domain.as_ref(),
-        "quire.checked-semantic-node/v1"
-    );
-    assert!(candidates.groups().is_empty());
-    let repeated = [draft.clone(), draft];
-    let error = derive_structural_candidates(&repeated, 4096, 10).expect_err("repeat");
-    let kind = match error {
-        StructuralCandidateError::RepeatedKey {
-            first_position,
-            repeated_position,
-            ..
-        } => {
-            assert_eq!((first_position, repeated_position), (0, 1));
-            "repeated"
-        }
-        StructuralCandidateError::InvalidTagForm { .. } => "tag-form",
-        StructuralCandidateError::InvalidClosedShape { .. } => "shape",
-        StructuralCandidateError::UnsupportedGroupMember { .. } => "group-member",
-        StructuralCandidateError::CounterOverflow { .. } => "overflow",
-        StructuralCandidateError::WorkExhausted { .. } => "work",
-        StructuralCandidateError::CanonicalEncoding { .. } => "canonical",
-        StructuralCandidateError::ApplicationLocal { .. } => "application-local",
+fn tc_058_structural_node_identity_is_public_and_typed() {
+    let id = CheckedNodeId {
+        package: "example".into(),
+        path: vec![
+            CheckedNodePathSegment::Name("function".into()),
+            CheckedNodePathSegment::Name("function".into()),
+            CheckedNodePathSegment::Name("call".into()),
+        ],
+        ordinal: 0,
     };
-    assert_eq!(kind, "repeated");
+    assert_eq!(
+        serde_json::to_value(&id).expect("structural ID serializes"),
+        json!({"package": "example", "path": ["function", "function", "call"], "ordinal": 0})
+    );
 }
 
 /// The timed form is available through the model's documented public root.
