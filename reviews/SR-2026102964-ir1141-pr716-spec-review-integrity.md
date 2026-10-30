@@ -1,0 +1,32 @@
+---
+id: SR-2026102964
+title: "spec-review/integrity review of IR-1141 PR #716"
+type: SpecReview
+analysis: integrity
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+review_set: subset
+---
+
+## Summary
+
+Examined PR #716 exact head 5d161434d38721b5635224cd9d1d9bebe77a3062 against merged QSpec #532 f2892d91529b2112e0ac629edd961fd263dbf61d. QSpec FR-322-AC-270/271, the schema and DT-01..05 match the edited FR-038 and TC-048. No applicable AssuranceProfile was found.
+
+## Examined scope
+
+- `FR-038 relationship_end member` (examined): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `FR-038 destination_type reader behavior` (examined): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `FR-038-AC-262` (examined): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `FR-038-AC-263` (examined): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `TC-048 relationship_end` (examined): spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
+- `FR-038-AC-254..257` (context_only): spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+- `FR-322-AC-270..271` (context_only): agent-ix/quire-specification/spec/objects/interfaces/FR-322-checked-package-artifact.md
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | low | No findings (placeholder) | - |
+
+## Verdict
+
+PASS for this method.
