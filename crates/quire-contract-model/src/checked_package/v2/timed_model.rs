@@ -1750,6 +1750,7 @@ fn check_timed_reference_order(
 }
 
 /// Join the retained timed roots, members and local typed targets in structural ID order.
+#[ix_trace_rs::string_edge]
 pub(super) fn validate_models<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
