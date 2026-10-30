@@ -222,9 +222,7 @@ fn timed_equal_region_rational_order_charges_before_big_integer_work() {
     let numerator = format!("3{}", "0".repeat(1_000));
     package["semantic_graph"]["nodes"][77]["body"]["members"][5]["value"]["value"] =
         json!(format!("{numerator}/1"));
-    fixture_support::settle(&mut package);
     sort_timed_graph_dependencies(&mut package);
-    fixture_support::settle(&mut package);
     let document = proposal.join("domain-package-acme-timed-clauses.json");
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
@@ -512,9 +510,7 @@ fn timed_clause_first_of_two_unlisted_nodes_follows_structural_id_order() {
         .as_array_mut()
         .expect("root dependencies")
         .retain(|dependency| dependency != &reset && dependency != &constraint);
-    fixture_support::settle(&mut wire);
     sort_timed_graph_dependencies(&mut wire);
-    fixture_support::settle(&mut wire);
     let document = proposal_dir_of(&fixtures).join("domain-package-acme-timed-clauses.json");
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package_with_document(&wire, "two unlisted timed nodes", &document)
@@ -524,7 +520,8 @@ fn timed_clause_first_of_two_unlisted_nodes_follows_structural_id_order() {
     };
     assert_eq!(
         (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::TimedNodeReference))
+        (Code::InvalidPackage, Some(Cause::TimedNodeReference)),
+        "{refusal:?}"
     );
     assert_eq!(
         refusal.loci[0].path.clone().unwrap().to_string(),
