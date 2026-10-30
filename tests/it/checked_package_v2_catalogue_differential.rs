@@ -4,9 +4,8 @@
 //! Catalogue-wide admission differential for the IR-225 member-result rule.
 
 use crate::support::checked_package::{
-    add_family_reference_target, application_node_key, canonical, evidence_for, family_key,
-    node_id, nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity,
-    settle, structural_key, v2_all_families,
+    add_family_reference_target, canonical, evidence_for, family_key, node_id,
+    nominal_fixture_members, nominal_package, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -48,7 +47,7 @@ fn fixture() -> Fixture {
         .clone();
     let mut package = nominal_package(&members);
     let empty = json!({"term": "aggregate", "members": []});
-    let scalar = |form| structural_key("scalar_type", form, None, &empty);
+    let scalar = |form: &str| format!("scalar_type/{form}");
     let boolean = scalar("boolean");
     let integer = scalar("integer");
     let rational = scalar("rational");
@@ -67,10 +66,9 @@ fn fixture() -> Fixture {
         {"term": "binding", "name": "level", "value":
             {"term": "literal", "type": node_id(&integer), "value_kind": "integer", "value": "0"}}
     ]});
-    let left = structural_key("value", "parameter", Some(&unit), &body);
+    let left = "value/parameter/left".to_owned();
     node(&mut package, &left, "value", "parameter", &unit, body);
-    rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
+    settle(&mut package);
     Fixture {
         package,
         unit,
@@ -93,13 +91,13 @@ fn binder(value: Value) -> Value {
 }
 fn composite(package: &mut Value, form: &str, member: &str) -> String {
     let body = json!({"term": "aggregate", "members": [reference(member)]});
-    let key = structural_key("composite_type", form, None, &body);
+    let key = format!("composite/{form}/{member}");
     node(package, &key, "composite_type", form, &key, body);
     key
 }
 fn population(f: &mut Fixture, reference_type: &str) -> String {
     let set_body = json!({"term": "aggregate", "members": [reference(reference_type)]});
-    let set = structural_key("composite_type", "set", None, &set_body);
+    let set = format!("composite/set/{reference_type}");
     if !f.package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -116,7 +114,7 @@ fn population(f: &mut Fixture, reference_type: &str) -> String {
         );
     }
     let body = json!({"term": "aggregate", "members": []});
-    let ty = structural_key("bounded_domain", "model_population", Some(&set), &body);
+    let ty = format!("bounded/model_population/{reference_type}");
     node(
         &mut f.package,
         &ty,
@@ -129,7 +127,7 @@ fn population(f: &mut Fixture, reference_type: &str) -> String {
 }
 fn expression_reference(package: &mut Value, target: &str, ty: &str) -> String {
     let body = reference(target);
-    let key = structural_key("expression", "reference", Some(ty), &body);
+    let key = format!("expression/reference/{target}");
     node(package, &key, "expression", "reference", ty, body);
     key
 }
@@ -138,7 +136,7 @@ fn rational_parameter(f: &mut Fixture) -> String {
         {"term": "binding", "name": "name", "value": {"term": "literal",
             "type": node_id(&f.text), "value_kind": "text", "value": "ratio"}},
         {"term": "binding", "name": "level", "value": integer_literal(&f.integer)}]});
-    let key = structural_key("value", "parameter", Some(&f.rational), &body);
+    let key = "value/parameter/ratio".to_owned();
     node(
         &mut f.package,
         &key,
@@ -151,7 +149,7 @@ fn rational_parameter(f: &mut Fixture) -> String {
 }
 fn scalar(f: &mut Fixture, form: &str) -> String {
     let body = json!({"term": "aggregate", "members": []});
-    let key = structural_key("scalar_type", form, None, &body);
+    let key = format!("scalar_type/{form}");
     node(&mut f.package, &key, "scalar_type", form, &key, body);
     key
 }
@@ -161,7 +159,7 @@ fn parameter(f: &mut Fixture, ty: &str, name: &str) -> String {
             {"term":"literal", "type":node_id(&f.text), "value_kind":"text", "value":name}},
         {"term":"binding", "name":"level", "value":integer_literal(&f.integer)}
     ]});
-    let key = structural_key("value", "parameter", Some(ty), &body);
+    let key = format!("value/parameter/{name}");
     node(&mut f.package, &key, "value", "parameter", ty, body);
     key
 }
@@ -212,7 +210,7 @@ fn application_with_member(
         "member": member, "leaves": []});
     let body = json!({"term": "application", "operator": operator,
         "operation": operation, "result_type": node_id(result), "arguments": arguments});
-    let key = application_node_key("expression", form, result, &body);
+    let key = format!("expression/application/{identity}");
     let position = f.package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -289,7 +287,7 @@ fn simple_fixture(entry: &Value) -> Option<Value> {
         "operation":{"identity":identity, "laws":[], "mode":null,
             "member":null, "leaves":[]},
         "result_type":node_id(&result), "arguments":args});
-    let key = application_node_key("expression", operator, &result, &body);
+    let key = format!("expression/application/{identity}");
     node(&mut f.package, &key, "expression", operator, &result, body);
     settle(&mut f.package);
     Some(f.package)
@@ -989,12 +987,7 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
                 .push(declaration);
             composite(&mut package, "reference", &flow)
         } else {
-            structural_key(
-                "scalar_type",
-                other,
-                None,
-                &json!({"term":"aggregate", "members":[]}),
-            )
+            format!("scalar_type/{other}")
         };
         package["semantic_graph"]["nodes"][position]["body"]["result_type"] = node_id(&key);
         package["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(&key);
@@ -1048,15 +1041,9 @@ fn tc_048_member_kind_mismatch_precedes_member_result_check() {
         .expect("nodes")
         .len()
         - 1;
-    package["semantic_graph"]["nodes"][position]["body"]["operation"]["member"] = json!({"kind":"position", "declaration":node_id(&structural_key(
-            "scalar_type", "integer", None, &json!({"term":"aggregate", "members":[]}))),
+    package["semantic_graph"]["nodes"][position]["body"]["operation"]["member"] = json!({"kind":"position", "declaration":node_id("scalar_type/integer"),
             "index":0});
-    let wrong = structural_key(
-        "scalar_type",
-        "rational",
-        None,
-        &json!({"term":"aggregate", "members":[]}),
-    );
+    let wrong = "scalar_type/rational";
     package["semantic_graph"]["nodes"][position]["body"]["result_type"] = node_id(&wrong);
     package["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(&wrong);
     settle(&mut package);
