@@ -313,15 +313,15 @@ impl ContractPackageV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checked_package::shared::CheckedNodePathSegment;
     use ix_trace_rs::trace;
-    use serde_json::json;
 
     fn id(number: usize) -> CheckedNodeId {
-        serde_json::from_value(json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": format!("{number:064x}"),
-        }))
-        .expect("node identity")
+        CheckedNodeId {
+            package: "example".into(),
+            path: vec![CheckedNodePathSegment::Name(format!("n{number}").into())],
+            ordinal: 0,
+        }
     }
 
     #[trace("TC-447", "FR-049-AC-5")]
