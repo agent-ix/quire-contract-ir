@@ -7,7 +7,7 @@
 
 use crate::support::checked_package::{
     bounds_body, canonical, evidence_for, node_id, nominal_fixture_members, nominal_package,
-    over_body, reassign_node_id, settle, BOOLEAN_KEY, INTEGER_KEY,
+    over_body, settle, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -180,18 +180,6 @@ fn finish(mut package: Value, mut nodes: Vec<(String, Value)>) -> Fixture {
     let keys = nodes.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
     package["semantic_graph"]["nodes"] =
         Value::Array(nodes.into_iter().map(|(_, node)| node).collect());
-    let grouped = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .filter(|node| node.get("recursion_group").is_some())
-        .map(|node| node["node_id"].clone())
-        .collect::<Vec<_>>();
-    for (ordinal, old) in grouped.iter().enumerate() {
-        let mut fresh = old.clone();
-        fresh["ordinal"] = json!(ordinal);
-        reassign_node_id(&mut package, old, &fresh);
-    }
     settle(&mut package);
     let ids = keys
         .into_iter()
