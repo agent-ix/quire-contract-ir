@@ -164,19 +164,6 @@ impl ValidationFailure {
         })))
     }
 
-    /// A stale node key with the different key already derived by this stage.
-    pub(super) fn refused_stale_node_key(
-        path: JsonPointer,
-        locus: CheckedNodeId,
-        expected_node_id: CheckedNodeId,
-    ) -> Self {
-        Self::Refused(Box::new(CheckedPackageRefusal::stale_node_key(
-            path,
-            locus,
-            expected_node_id,
-        )))
-    }
-
     /// `unknown_contract_version` for the version string actually read at
     /// the document's `contract_version` member.
     pub(super) fn unknown_contract_version(version: &str) -> Self {
@@ -702,13 +689,6 @@ pub(super) fn count(len: usize) -> u64 {
 
 pub(super) fn is_nonempty(value: &str) -> bool {
     !value.is_empty()
-}
-
-pub(super) fn is_digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// Checks one locked source row's nonempty authority and identity.
