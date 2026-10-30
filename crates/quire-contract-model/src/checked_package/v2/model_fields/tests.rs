@@ -702,7 +702,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     nodes.push(node_of(integer_id, "scalar_type", "integer", empty, None));
     let artifact = |identity: &str| json!({"authority": "agent-ix", "identity": identity});
     let edition = json!({"role": "edition", "definition": artifact("edition")});
-    let wire: super::super::CheckedPackageWireV2 = serde_json::from_value(json!({
+    let wire_value = json!({
         "contract_version": "quire.checked-package/v2",
         "name": "checked",
         "lock": {
@@ -717,8 +717,32 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
         "source_map": [],
         "capability_report": [],
         "diagnostics": {"catalog": artifact("diagnostics"), "entries": []},
-    }))
-    .expect("wire");
+    });
+    let raw: super::super::RawCheckedPackageWireV2 =
+        serde_json::from_value(wire_value).expect("raw wire");
+    let graph = super::super::CheckedSemanticGraphV2 {
+        graph_version: raw.semantic_graph.graph_version,
+        nodes: raw
+            .semantic_graph
+            .nodes
+            .into_iter()
+            .map(|node| {
+                let body =
+                    super::super::CheckedTerm::decode_admitted(&node.body).expect("fixture body");
+                node.into_typed(body)
+            })
+            .collect(),
+    };
+    let wire = super::super::CheckedPackageWireV2 {
+        contract_version: raw.contract_version,
+        name: raw.name,
+        lock: raw.lock,
+        semantic_graph: graph,
+        source_map: raw.source_map,
+        refinement_step_rows: raw.refinement_step_rows,
+        capability_report: raw.capability_report,
+        diagnostics: raw.diagnostics,
+    };
     let owners =
         ModelOwners::new(&models, &wire.semantic_graph.nodes, |_| Ok(())).expect("owner index");
     let index = owners.index();
@@ -924,11 +948,11 @@ fn admitted_model_fields_use_retained_declaration_term() {
         .package
         .model_object_fields(&ledger)
         .expect("admitted fields");
-    fixture.package.wire.semantic_graph.nodes[0].body =
-        serde_json::from_value(json!({"term":"aggregate","members":[
-            {"term":"reference","target": ledger}
-        ]}))
-        .expect("typed changed body");
+    fixture.package.wire.semantic_graph.nodes[0].body = super::super::CheckedTerm::Aggregate {
+        members: vec![super::super::CheckedTerm::Reference {
+            target: ledger.clone(),
+        }],
+    };
     assert_eq!(fixture.package.model_object_fields(&ledger), Ok(expected));
 }
 
