@@ -1044,8 +1044,8 @@ fn tc_048_member_kind_mismatch_precedes_member_result_check() {
     package["semantic_graph"]["nodes"][position]["body"]["operation"]["member"] = json!({"kind":"position", "declaration":node_id("scalar_type/integer"),
             "index":0});
     let wrong = "scalar_type/rational";
-    package["semantic_graph"]["nodes"][position]["body"]["result_type"] = node_id(&wrong);
-    package["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(&wrong);
+    package["semantic_graph"]["nodes"][position]["body"]["result_type"] = node_id(wrong);
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(wrong);
     settle(&mut package);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
         panic!("wrong member kind must refuse");

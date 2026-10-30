@@ -313,7 +313,7 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
     let integer_occurrence = occurrence(integer_expression, 0);
     let narrow_occurrence = occurrence(direct_narrow, 0);
     let application_only = package(&source, std::slice::from_ref(&app_id));
-    let absent_application = typed_key(&"guard/absent-application".to_owned());
+    let absent_application = typed_key("guard/absent-application");
     assert!(matches!(
         application_only.guard_context(&absent_application, &app_first, &[]),
         Ok(ContractGuardContextViewV1::Absent)
@@ -553,7 +553,7 @@ fn tc_450_guard_context_refuses_first_bad_occurrence_without_a_prefix() {
     );
 
     let absent = ContractOccurrenceKeyV1 {
-        node_id: typed_key(&"guard/absent-guard".to_owned()),
+        node_id: typed_key("guard/absent-guard"),
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
     };
@@ -716,7 +716,7 @@ fn tc_450_unrepresented_guard_key_cannot_gain_authority_from_its_body_position()
 
     let contextual = package(&source, &[app_id.clone(), guard_occurrence.node_id.clone()]);
     let plausible_but_unrepresented = ContractOccurrenceKeyV1 {
-        node_id: typed_key(&"guard/plausible-caller".to_owned()),
+        node_id: typed_key("guard/plausible-caller"),
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
     };

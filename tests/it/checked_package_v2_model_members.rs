@@ -237,7 +237,7 @@ fn package_selecting_form(name: &str, form: &str, declaring: &str) -> Value {
         receiver_node,
         argument_node,
         wire_node(
-            &call,
+            call,
             "expression",
             "call",
             &INTEGER,
@@ -527,7 +527,7 @@ fn variant_package_named(
         let receiver = "parameter/receiver".to_owned();
         let mut dependencies = [argument.as_str(), order.as_str(), receiver.as_str()];
         dependencies.sort_unstable();
-        nodes[CALL]["node_id"] = node_id(&call_key);
+        nodes[CALL]["node_id"] = node_id(call_key);
         nodes[CALL]["semantic_type"] = node_id(&key);
         nodes[CALL]["dependencies"] = json!(dependency_ids(&dependencies));
     }
@@ -700,7 +700,7 @@ fn variant_binary_package(
     let key = "binary/variant-comparison";
     let mut dependencies = [left.as_str(), right.as_str()];
     dependencies.sort_unstable();
-    let mut application = wire_node(&key, "expression", "binary", &boolean, &dependencies, body);
+    let mut application = wire_node(key, "expression", "binary", &boolean, &dependencies, body);
     application["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     nodes.push(application);
     rebuild_source_map(&mut package);
@@ -2900,7 +2900,7 @@ fn reaches_package(
     }
     nodes.extend(receiver_node.into_iter().chain(argument_node));
     nodes.push(wire_node(
-        &reaches,
+        reaches,
         "expression",
         "reachability",
         &boolean,
