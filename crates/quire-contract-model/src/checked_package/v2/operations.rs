@@ -1388,7 +1388,32 @@ pub(super) enum FamilyResolution {
     Malformed(CheckedNodeId),
 }
 
-pub(super) fn resolve_family_with<'a, E, Body: 'a>(
+pub(super) trait NominalEnumOrder {
+    fn enum_ordered(&self) -> Option<bool>;
+}
+
+impl NominalEnumOrder for serde_json::Value {
+    fn enum_ordered(&self) -> Option<bool> {
+        match super::identity::NominalBody::from_value(self, JsonPointer::root()).ok()? {
+            super::identity::NominalBody::Enum { ordered, .. } => Some(ordered),
+            _ => None,
+        }
+    }
+}
+
+impl NominalEnumOrder for CheckedTerm {
+    fn enum_ordered(&self) -> Option<bool> {
+        match self {
+            CheckedTerm::NominalBody(body) => match body.as_ref() {
+                super::identity::NominalBody::Enum { ordered, .. } => Some(*ordered),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+pub(super) fn resolve_family_with<'a, E, Body: NominalEnumOrder + 'a>(
     type_id: &CheckedNodeId,
     visit: impl FnMut(
         FamilyVisit<'_>,
@@ -1398,7 +1423,7 @@ pub(super) fn resolve_family_with<'a, E, Body: 'a>(
     resolve_family_with_selected(type_id, visit, |_| None)
 }
 
-pub(super) fn resolve_family_with_selected<'a, E, Body: 'a>(
+pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
     type_id: &CheckedNodeId,
     mut visit: impl FnMut(
         FamilyVisit<'_>,
@@ -1429,10 +1454,7 @@ pub(super) fn resolve_family_with_selected<'a, E, Body: 'a>(
             return Ok(FamilyResolution::Family("enum"));
         }
         if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) {
-            let ordered = matches!(
-                &node.nominal_identity_preimage,
-                Some(NominalIdentityPreimage::EnumDeclaration(declaration)) if declaration.ordered
-            );
+            let ordered = node.body.enum_ordered().unwrap_or(false);
             return Ok(FamilyResolution::Family(if ordered {
                 "ordered_enum"
             } else {
