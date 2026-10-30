@@ -172,7 +172,7 @@ impl From<&CheckedPackageRefusal> for ContractBodyRefusalV1 {
     fn from(value: &CheckedPackageRefusal) -> Self {
         Self {
             code: value.code,
-            path: value.path.clone(),
+            path: value.primary_path().cloned(),
             cause: value.cause,
             locus: value.locus.clone(),
             contract_version: value.contract_version.clone(),
