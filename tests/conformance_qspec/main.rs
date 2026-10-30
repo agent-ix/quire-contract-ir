@@ -89,6 +89,13 @@ const DOMAIN_DOCUMENT: &str = "domain-package-acme-orders.json";
 /// cannot silently fall back to the baseline document.
 fn vector_selected_documents(proposal: &Path) -> Result<BTreeMap<String, String>, String> {
     let mapping = read_json(&proposal.join("selected-documents.json"))?;
+    selected_document_assignments(&mapping, proposal)
+}
+
+fn selected_document_assignments(
+    mapping: &Value,
+    proposal: &Path,
+) -> Result<BTreeMap<String, String>, String> {
     let assignments = mapping["selected_documents"]
         .as_object()
         .ok_or("selected-documents.json: selected_documents is not an object")?;
@@ -145,6 +152,16 @@ fn tc_048_positive_document_selection_follows_qspec_map() {
         positive_document("positive-recursive-records.json", &documents),
         DOMAIN_DOCUMENT
     );
+    let fixture = "fixtures/positive-model-tuple-union.json";
+    let mut invalid = json!({"selected_documents": {fixture: "../other.json"}});
+    assert!(selected_document_assignments(&invalid, &proposal).is_err());
+    invalid["selected_documents"][fixture] = json!("domain-package-acme-shapes.json");
+    assert!(selected_document_assignments(&invalid, &proposal).is_ok());
+    invalid
+        .as_object_mut()
+        .expect("mapping")
+        .remove("selected_documents");
+    assert!(selected_document_assignments(&invalid, &proposal).is_err());
 }
 
 /// QSpec's recursive records, including the owner-free derived nodes in each group.

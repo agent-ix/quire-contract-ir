@@ -1088,11 +1088,10 @@ pub(super) fn validate_nominal_nodes(
     let mut equivalence_pairs = BTreeSet::new();
     let mut equivalences = Vec::new();
     for &position in index.values() {
-        let (Some(node), Some(kind)) = (nodes.get(position), kinds.get(position)) else {
-            continue;
-        };
+        let node = &nodes[position];
+        let kind = kinds[position];
         let site = Site { node, position };
-        let required = NominalKind::required_by(*kind);
+        let required = NominalKind::required_by(kind);
         let record = match (required, records[position].as_ref()) {
             (None, None) => continue,
             (Some(kind), Some(record)) if NominalKind::of(record) == kind => record,

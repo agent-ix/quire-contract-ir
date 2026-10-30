@@ -130,6 +130,16 @@ fn nominal_semantic_refusals_visit_structural_ids_before_graph_positions() {
 
     let package = nominal_package(&members);
     let earlier_position = members.len() - 1;
+    let later_position = members
+        .iter()
+        .position(|(_, key)| key == "qualified:Example/Metre")
+        .expect("original root unit");
+    assert!(earlier_position > later_position, "graph order is reversed");
+    assert!(
+        node_id(&package["semantic_graph"]["nodes"][earlier_position]["node_id"])
+            < node_id(&package["semantic_graph"]["nodes"][later_position]["node_id"]),
+        "structural order is the opposite of graph order"
+    );
     let result = CheckedPackageV2::read(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
