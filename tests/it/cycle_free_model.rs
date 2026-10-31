@@ -54,6 +54,7 @@ fn forbidden(package: &Value) -> bool {
         "quire-spec-language",
         "quire-observation",
         "quire-protocol",
+        "quire-checked",
     ]
     .contains(&name)
         || name.starts_with("qsl-")
@@ -63,6 +64,7 @@ fn forbidden(package: &Value) -> bool {
             "quire-spec-language",
             "quire-observation",
             "quire-protocol",
+            "quire-checked",
             "tl-syntax",
             "tl-parse",
             "tl-mltl",
@@ -131,7 +133,7 @@ fn production_graph(
     Ok(complete)
 }
 
-#[trace("TC-041", "FR-028-AC-1")]
+#[trace("TC-041", "FR-028-AC-1", "FR-349-AC-9")]
 #[test]
 fn resolved_production_graph_is_acyclic_and_owner_free_in_each_feature_configuration() {
     let default = metadata(&[]);

@@ -142,9 +142,12 @@ impl OperationWire {
             },
             laws: read_laws(&self.laws)?,
             member: match &self.member {
-                Some(member) => {
-                    Some(serde_json::from_value::<CheckedOperationMember>(member.clone()).ok()?)
-                }
+                Some(member) => Some(
+                    serde_json::from_slice::<CheckedOperationMember>(
+                        &serde_json::to_vec(member).ok()?,
+                    )
+                    .ok()?,
+                ),
                 None => None,
             },
             constraints: entry

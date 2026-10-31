@@ -5,8 +5,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedApplicationOperation, CheckedBindingName, CheckedBindingNameKind, CheckedLiteralValue,
-    CheckedOperationMember, CheckedOperationViewError, CheckedPackageReadLimits, CheckedPackageV2,
+    encode_checked_package_v2, CheckedApplicationOperation, CheckedBindingName,
+    CheckedBindingNameKind, CheckedLiteralValue, CheckedOperationMember, CheckedOperationViewError,
+    CheckedPackageReadLimits, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedTerm, ExecutionPoint, ExecutionPointName, StateClauseKind,
 };
 use serde_json::json;
@@ -230,31 +231,118 @@ fn public_literal_and_binding_reads_preserve_exact_values() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("positive V2 fixture refused: {other:?}"),
     };
-    let mut saw_decimal = false;
-    let mut saw_integer = false;
+    let mut saw_boolean = false;
     for node in &admitted.graph().nodes {
         if let Some(literal) = node.body.literal_read() {
             assert_eq!(literal.type_id, &node.semantic_type);
             match literal.value {
-                CheckedLiteralValue::Decimal { coefficient, scale } => {
-                    saw_decimal = true;
-                    assert_eq!(coefficient.to_string(), "125");
-                    assert_eq!(scale, 2);
-                }
-                CheckedLiteralValue::Integer(magnitude) => {
-                    saw_integer = true;
-                    assert!(!magnitude.to_string().is_empty());
-                }
+                CheckedLiteralValue::Boolean(true) => saw_boolean = true,
                 _ => {}
             }
         }
     }
-    assert!(saw_decimal, "fixture contains a decimal literal");
-    assert!(saw_integer, "fixture contains integer literals");
-    assert_eq!(
-        serde_json::to_value(&admitted).expect("serialize admitted package"),
-        fixture
-    );
+    assert!(saw_boolean, "fixture contains an admitted Boolean literal");
+    let encoded = encode_checked_package_v2(
+        admitted.name(),
+        admitted.lock(),
+        admitted.graph(),
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: admitted.source_map(),
+            refinement_step_rows: admitted.refinement_step_rows(),
+        },
+        admitted.capability_report(),
+        admitted.diagnostics(),
+        quire_canonical::Limits::new(u64::MAX),
+    )
+    .expect("encode admitted package");
+    assert_eq!(encoded, bytes);
+}
+
+#[trace("FR-349-AC-6")]
+#[test]
+fn public_literal_read_covers_the_closed_payload_vocabulary() {
+    let type_id = quire_contract_model::CheckedNodeId {
+        package: "literal-test".into(),
+        path: vec![quire_contract_model::CheckedNodePathSegment::Name(
+            "type".into(),
+        )],
+        ordinal: 0,
+    };
+    let cases = [
+        ("boolean", json!(true)),
+        ("integer", json!("123456789012345678901234567890")),
+        ("rational", json!("-5/7")),
+        ("quantity", json!("12345678901234567890/7")),
+        ("decimal", json!("1.00")),
+        ("float32_bits", json!("80000000")),
+        ("float64_bits", json!("7ff8000000000001")),
+        ("text", json!("text")),
+        ("string", json!("string")),
+        ("uuid", json!("00000000-0000-0000-0000-000000000000")),
+        (
+            "timestamp",
+            json!("170141183460469231731687303715884105727"),
+        ),
+        ("enum", json!("READY")),
+        ("none", json!(null)),
+    ];
+    assert_eq!(cases.len(), quire_contract_model::LiteralKind::ALL.len());
+    for (kind, value) in cases {
+        let term = CheckedTerm::Literal {
+            type_id: type_id.clone(),
+            value_kind: quire_contract_model::LiteralKind::from_wire(kind)
+                .expect("closed literal kind"),
+            value,
+        };
+        let read = term
+            .literal_read()
+            .expect("every closed kind has a typed value");
+        assert_eq!(read.type_id, &type_id);
+        assert_eq!(read.kind.as_wire(), kind);
+        match (kind, read.value) {
+            ("boolean", CheckedLiteralValue::Boolean(true)) => {}
+            ("integer", CheckedLiteralValue::Integer(value)) => {
+                assert_eq!(value.to_string(), "123456789012345678901234567890")
+            }
+            (
+                "rational",
+                CheckedLiteralValue::Rational {
+                    numerator,
+                    denominator,
+                },
+            ) => {
+                assert_eq!(
+                    (numerator.to_string(), denominator.to_string()),
+                    ("-5".into(), "7".into())
+                );
+            }
+            (
+                "quantity",
+                CheckedLiteralValue::Rational {
+                    numerator,
+                    denominator,
+                },
+            ) => {
+                assert_eq!(
+                    (numerator.to_string(), denominator.to_string()),
+                    ("12345678901234567890".into(), "7".into())
+                );
+            }
+            ("decimal", CheckedLiteralValue::Decimal { coefficient, scale }) => {
+                assert_eq!(coefficient.to_string(), "100");
+                assert_eq!(scale, 2);
+            }
+            ("float32_bits", CheckedLiteralValue::Float32Bits(0x80000000))
+            | ("float64_bits", CheckedLiteralValue::Float64Bits(0x7ff8000000000001))
+            | ("text", CheckedLiteralValue::Text("text"))
+            | ("string", CheckedLiteralValue::String("string"))
+            | ("uuid", CheckedLiteralValue::Uuid("00000000-0000-0000-0000-000000000000"))
+            | ("timestamp", CheckedLiteralValue::Timestamp(i128::MAX))
+            | ("enum", CheckedLiteralValue::Enum("READY"))
+            | ("none", CheckedLiteralValue::None) => {}
+            (_, other) => panic!("{kind} mapped to {other:?}"),
+        }
+    }
 }
 
 #[trace("FR-349-AC-8", "FR-349-AC-9")]
@@ -270,7 +358,6 @@ fn public_operation_read_exposes_admitted_records_and_rejects_forgery() {
         other => panic!("positive V2 fixture refused: {other:?}"),
     };
     let mut count = 0;
-    let mut saw_constraint = false;
     for node in &admitted.graph().nodes {
         if let CheckedTerm::Application { operation, .. } = &node.body {
             let read = operation
@@ -301,12 +388,14 @@ fn public_operation_read_exposes_admitted_records_and_rejects_forgery() {
                     Some((declaration, name.as_ref()))
                 );
             }
-            saw_constraint |= !read.constraints.is_empty();
+            assert!(
+                read.constraints.is_empty(),
+                "function call has no catalog constraints"
+            );
             count += 1;
         }
     }
     assert!(count > 0, "fixture contains applications");
-    assert!(saw_constraint, "catalog constraints are exposed");
 
     let forged: CheckedApplicationOperation = serde_json::from_value(json!({
         "identity": "quire.op.function.call", "laws": [], "mode": null,
@@ -317,4 +406,15 @@ fn public_operation_read_exposes_admitted_records_and_rejects_forgery() {
         forged.read(),
         Err(CheckedOperationViewError::NotAdmitted)
     ));
+
+    #[cfg(feature = "test-support")]
+    {
+        let fixture = quire_contract_model::CheckedApplicationOperationFixture::default();
+        let operation =
+            CheckedApplicationOperation::from_test_fixture(fixture).expect("valid test fixture");
+        assert!(matches!(
+            operation.read(),
+            Err(CheckedOperationViewError::NotAdmitted)
+        ));
+    }
 }

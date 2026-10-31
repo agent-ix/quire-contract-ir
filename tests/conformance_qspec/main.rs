@@ -30,7 +30,7 @@ use quire_contract_model::{
     CheckedExtensionTypedNodeSchema, CheckedNodeId, CheckedPackageEvidence,
     CheckedPackageEvidenceInsertionError, CheckedPackageReadLimits,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult, CheckedTerm,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -693,6 +693,60 @@ fn tc_048_qspec_positive_fixtures_admit() {
             read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
         let _ = (&package, &admitted);
     }
+}
+
+#[trace("FR-349-AC-6", "FR-349-AC-8", "FR-349-AC-9")]
+#[test]
+fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
+    let dir = fixtures_dir();
+    let proposal = proposal_dir_of(&dir);
+    let documents = vector_selected_documents(&proposal).expect("published document selections");
+    let mut operations = 0;
+    let mut constraints = 0;
+    let mut leaves = 0;
+    let mut literals = 0;
+    for name in POSITIVE_ALL {
+        let document = proposal.join(positive_document(name, &documents));
+        let (_, admitted) =
+            read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
+        let mut pending: Vec<&CheckedTerm> = admitted
+            .graph()
+            .nodes
+            .iter()
+            .map(|node| &node.body)
+            .collect();
+        while let Some(term) = pending.pop() {
+            if term.literal_read().is_some() {
+                literals += 1;
+            }
+            match term {
+                CheckedTerm::Application {
+                    operation,
+                    arguments,
+                    ..
+                } => {
+                    let read = operation
+                        .read()
+                        .expect("QSpec-admitted operation has a complete typed read");
+                    assert_eq!(Some(read.identity), operation.identity());
+                    operations += 1;
+                    constraints += read.constraints.len();
+                    leaves += read.leaves.len();
+                    pending.extend(arguments);
+                }
+                CheckedTerm::Aggregate { members } => pending.extend(members),
+                CheckedTerm::Binding { value, .. } => pending.push(value),
+                _ => {}
+            }
+        }
+    }
+    assert!(operations > 0, "published fixtures contain applications");
+    assert!(
+        constraints > 0,
+        "published catalog has exercised constraints"
+    );
+    assert!(leaves > 0, "published fixtures contain structural leaves");
+    assert!(literals > 0, "published fixtures contain literals");
 }
 
 #[trace("TC-048", "FR-038-AC-225")]

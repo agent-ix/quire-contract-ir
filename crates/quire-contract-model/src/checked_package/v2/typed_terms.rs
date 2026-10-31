@@ -146,7 +146,7 @@ pub enum CheckedOperationMember {
     /// An explicit type argument.
     TypeArgument { declaration: CheckedNodeId },
     /// An operator selected by a profile.
-    ProfileOperator { operator: Box<str> },
+    ProfileOperator { operator: Option<Box<str>> },
     /// A state clause.
     StateClause { clause: StateClauseKind },
     /// An optional temporal interval.
@@ -168,8 +168,12 @@ pub enum CheckedOperationMember {
 pub enum CheckedOperationInterval {
     /// Integer positions, including an unbounded upper end.
     Integer {
-        lower: Box<str>,
-        upper: Option<Box<str>>,
+        /// Inclusive lower position.
+        #[serde(deserialize_with = "decode_decimal_bigint")]
+        lower: BigInt,
+        /// Inclusive upper position, or no upper limit.
+        #[serde(deserialize_with = "decode_optional_decimal_bigint")]
+        upper: Option<BigInt>,
     },
     /// Time magnitudes with explicit open or closed ends.
     Timed {
@@ -185,9 +189,11 @@ pub enum CheckedOperationInterval {
 #[serde(deny_unknown_fields)]
 pub struct CheckedOperationRational {
     /// Decimal numerator.
-    pub numerator: Box<str>,
+    #[serde(deserialize_with = "decode_decimal_bigint")]
+    pub numerator: BigInt,
     /// Decimal denominator.
-    pub denominator: Box<str>,
+    #[serde(deserialize_with = "decode_decimal_bigint")]
+    pub denominator: BigInt,
 }
 
 /// Whether an interval includes its endpoint.
@@ -262,6 +268,8 @@ pub struct CheckedOperationRead<'a> {
     pub laws: &'a [CheckedOperationLaw],
     /// Closed typed member.
     pub member: Option<&'a CheckedOperationMember>,
+    /// State-clause execution point, when the member carries one.
+    pub execution_point: Option<&'a ExecutionPoint>,
     /// Catalogued constraints in order.
     pub constraints: &'a [CheckedOperationConstraint],
     /// Ordered structural leaves.
@@ -340,6 +348,23 @@ fn decode_position<'de, D: Deserializer<'de>>(deserializer: D) -> Result<BigInt,
     };
     BigInt::parse_bytes(text.as_bytes(), 10)
         .ok_or_else(|| serde::de::Error::custom("position must be an integer"))
+}
+
+fn decode_decimal_bigint<'de, D: Deserializer<'de>>(deserializer: D) -> Result<BigInt, D::Error> {
+    let text = Box::<str>::deserialize(deserializer)?;
+    BigInt::parse_bytes(text.as_bytes(), 10)
+        .ok_or_else(|| serde::de::Error::custom("expected a decimal integer"))
+}
+
+fn decode_optional_decimal_bigint<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<BigInt>, D::Error> {
+    let text = Option::<Box<str>>::deserialize(deserializer)?;
+    text.map(|text| {
+        BigInt::parse_bytes(text.as_bytes(), 10)
+            .ok_or_else(|| serde::de::Error::custom("expected a decimal integer"))
+    })
+    .transpose()
 }
 
 impl CheckedApplicationOperation {
@@ -512,6 +537,7 @@ impl CheckedApplicationOperation {
             }),
             laws: &record.laws,
             member: record.member.as_ref(),
+            execution_point: self.execution_point.as_ref(),
             constraints: &record.constraints,
             leaves: &record.leaves,
         })
