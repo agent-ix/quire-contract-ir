@@ -9,7 +9,9 @@ use super::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodePathSegment, CheckedPackageReadLimits, CheckedPackageV2ReadResult,
+    CheckedNodePathSegment, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2ReadResult,
+    CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
+    ContractPackageReadResult, ContractPackageWireV1, LoweringProfileRef,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -107,6 +109,185 @@ fn remap_graph_indexes(value: &mut Value, old_to_new: &[usize]) -> usize {
             .sum(),
         _ => 0,
     }
+}
+
+#[trace("TC-047", "FR-035-AC-23")]
+#[test]
+fn v1_indexed_graph_order_uses_resolved_node_keys() {
+    let mut wire = read_json(&fixtures_dir().join("positive-operation-identities.json"))
+        .expect("published indexed operations");
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published nodes")
+        .swap(31, 34);
+    let mut old_to_new =
+        (0..wire["semantic_graph"]["nodes"].as_array().unwrap().len()).collect::<Vec<_>>();
+    old_to_new.swap(31, 34);
+    assert!(remap_graph_indexes(&mut wire, &old_to_new) > 0);
+    let outcome = read_package(&wire).expect("published source read");
+    let CheckedPackageV2ReadResult::Admitted(source) = outcome else {
+        panic!("published source admits: {outcome:?}");
+    };
+    assert!(source.graph().nodes[25].node_id < source.graph().nodes[26].node_id);
+    assert!(source.structural_key_at(26) < source.structural_key_at(25));
+    let requests = [25, 26].map(|position| source.graph().nodes[position].node_id.clone());
+    let profile = CompleteLoweringProfileV2 {
+        reference: LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        required_source_selections: Vec::new(),
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let lowered = source.lower(&requests, &profile);
+    assert!(
+        lowered
+            .records
+            .iter()
+            .all(|record| matches!(record, CompleteLoweringRecordV2::Lowered { .. })),
+        "both published indexed applications lower: {:?}",
+        lowered.records
+    );
+    let produced = lowered.package.wire().expect("lowered wire").wire();
+    let earlier = produced
+        .semantic_graph
+        .nodes
+        .iter()
+        .position(|node| node.node_id == *produced.feature_accounting[1].node_id())
+        .expect("second requested application represented");
+    let later = produced
+        .semantic_graph
+        .nodes
+        .iter()
+        .position(|node| node.node_id == *produced.feature_accounting[0].node_id())
+        .expect("first requested application represented");
+    assert_eq!(
+        later,
+        earlier + 1,
+        "resolved node order opposes wire-index order"
+    );
+    let bytes = lowered
+        .package
+        .canonical_bytes()
+        .expect("canonical V1 bytes");
+    let read_back = ContractPackageWireV1::read(
+        bytes,
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+    );
+    let ContractPackageReadResult::Admitted(read_back) = read_back else {
+        panic!("V1 reader admits indexed producer output: {read_back:?}");
+    };
+    let producer = lowered.package.wire().expect("producer package");
+    for node in &produced.semantic_graph.nodes {
+        assert_eq!(
+            producer.term(&node.node_id),
+            read_back.term(&node.node_id),
+            "producer and V1 reader retain identical typed body for projected key"
+        );
+    }
+    let authenticated = ContractPackageWireV1::read_with_source(
+        bytes,
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+        &source,
+    )
+    .expect("structural source correspondence after V1 projection");
+    let ContractPackageReadResult::Admitted(authenticated) = authenticated else {
+        panic!("indexed V1 source handoff must admit: {authenticated:?}");
+    };
+    let key = produced.feature_accounting[0].node_id();
+    let Some(CheckedTerm::Application { operation, .. }) = authenticated.term(key) else {
+        panic!("indexed source handoff retains application");
+    };
+    assert!(
+        operation.mode().is_ok(),
+        "source handoff restores admitted operation views"
+    );
+    let Some(CheckedTerm::Application { operation, .. }) = producer.term(key) else {
+        panic!("indexed producer retains application");
+    };
+    assert!(
+        operation.mode().is_ok(),
+        "producer retains admitted operation views"
+    );
+    let mut wrong_order: Value = serde_json::from_slice(bytes).expect("canonical V1 value");
+    wrong_order["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("projected graph")
+        .swap(earlier, later);
+    let wrong_bytes = serde_json::to_vec(&wrong_order).expect("mutated canonical JSON");
+    let wrong_result = ContractPackageWireV1::read(
+        &wrong_bytes,
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+    );
+    let ContractPackageReadResult::Refused(refusal) = wrong_result else {
+        panic!("V1 reader must refuse index-ordered graph: {wrong_result:?}");
+    };
+    assert_eq!(code_word(refusal.code), "invalid_package");
+    assert_eq!(
+        cause_word(refusal.cause.expect("invalid-value cause")),
+        "invalid-value"
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{earlier}/node_id"))
+    );
+}
+
+/// Trace: FR-330-AC-2
+/// IR-1186 hold: FR-330 requires the exact absent key while FR-322 indexes
+/// name a graph-local node; this request has no represented graph node.
+#[trace("TC-933", "FR-330-AC-2")]
+#[test]
+fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
+    let wire = read_json(&fixtures_dir().join("positive-operation-identities.json"))
+        .expect("published indexed operations");
+    let source_outcome = read_package(&wire).expect("published source read");
+    let CheckedPackageV2ReadResult::Admitted(source) = source_outcome else {
+        panic!("published source admits: {source_outcome:?}");
+    };
+    let mut absent = source.graph().nodes[25].node_id.clone();
+    absent.path[0] = CheckedNodePathSegment::Name("absent".into());
+    assert_eq!(absent.path[2], CheckedNodePathSegment::Index(34));
+    assert_eq!(absent.path[7], CheckedNodePathSegment::Index(21));
+    let profile = CompleteLoweringProfileV2 {
+        reference: LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        required_source_selections: Vec::new(),
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let result = source.lower(std::slice::from_ref(&absent), &profile);
+    let [CompleteLoweringRecordV2::InvalidInput { node_id }] = result.records.as_slice() else {
+        panic!(
+            "absent indexed request must remain InvalidInput: {:?}",
+            result.records
+        );
+    };
+    assert_eq!(
+        node_id, &absent,
+        "invalid input retains exact requested key"
+    );
+    let bytes = result
+        .package
+        .canonical_bytes()
+        .expect("canonical refusal package");
+    let read_back = ContractPackageWireV1::read(
+        bytes,
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+    );
+    let ContractPackageReadResult::Admitted(read_back) = read_back else {
+        panic!("reader admits exact invalid-input record: {read_back:?}");
+    };
+    assert!(read_back.wire().semantic_graph.nodes.is_empty());
 }
 
 /// Trace: FR-038-AC-376, FR-038-AC-96

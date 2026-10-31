@@ -188,10 +188,12 @@ fn published_dependency_call_lowers_and_reads_back_with_selected_callee() {
             package: &library,
         },
     );
-    let ContractPackageReadResult::Admitted(read_back) =
-        ContractPackageWireV1::read(bytes, CheckedPackageReadLimits::bounded(), &selected)
-    else {
-        panic!("published external call must read back with selected library");
+    let read_back_outcome =
+        ContractPackageWireV1::read(bytes, CheckedPackageReadLimits::bounded(), &selected);
+    let ContractPackageReadResult::Admitted(read_back) = read_back_outcome else {
+        panic!(
+            "published external call must read back with selected library: {read_back_outcome:?}"
+        );
     };
     let ContractRootViewV1::Lowered(view) = read_back
         .reached_closure(&request)

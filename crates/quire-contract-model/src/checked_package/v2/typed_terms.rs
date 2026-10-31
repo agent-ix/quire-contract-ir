@@ -268,7 +268,9 @@ impl CheckedApplicationOperation {
         Ok(&self.admitted_views()?.law_definitions)
     }
 
-    fn admitted_views(&self) -> Result<&CheckedOperationViews, CheckedOperationViewError> {
+    pub(super) fn admitted_views(
+        &self,
+    ) -> Result<&CheckedOperationViews, CheckedOperationViewError> {
         self.views
             .as_ref()
             .ok_or(CheckedOperationViewError::NotAdmitted)

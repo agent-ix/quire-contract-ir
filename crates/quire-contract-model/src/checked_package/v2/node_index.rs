@@ -424,6 +424,140 @@ pub(super) fn equivalent_values(
 /// The marked comparisons recognize only the closed V2 member names and term
 /// discriminator; an unmatched name never selects a valid alternate shape.
 #[ix_trace_rs::string_edge]
+/// Resolve graph-local node operands for either the checked V2 envelope or
+/// its FR-330 ContractPackage projection. The caller owns refusal coding.
+pub(super) fn rebuild_graph_keys(
+    nodes: &[super::RawSemanticNodeV2],
+    refuse: impl Fn(JsonPointer) -> ValidationFailure,
+) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
+    let node_count = nodes.len();
+    for (position, node) in nodes.iter().enumerate() {
+        for (slot, segment) in node.node_id.path.iter().enumerate() {
+            if let CheckedNodePathSegment::Index(index) = segment {
+                if usize::try_from(*index)
+                    .ok()
+                    .is_none_or(|index| index >= node_count)
+                {
+                    return Err(refuse(
+                        JsonPointer::root()
+                            .key("semantic_graph")
+                            .key("nodes")
+                            .index(position)
+                            .key("node_id")
+                            .key("path")
+                            .index(slot)
+                            .key("node"),
+                    ));
+                }
+            }
+        }
+    }
+    let edges: Vec<Vec<(usize, usize)>> = nodes
+        .iter()
+        .map(|node| {
+            node.node_id
+                .path
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, segment)| match segment {
+                    CheckedNodePathSegment::Index(index) => {
+                        usize::try_from(*index).ok().map(|target| (slot, target))
+                    }
+                    CheckedNodePathSegment::Name(_) | CheckedNodePathSegment::Node(_) => None,
+                })
+                .collect()
+        })
+        .collect();
+    // Kosaraju's two heap-backed passes make the cycle decision linear in
+    // nodes plus index segments, independent of graph order and chain depth.
+    let mut seen = vec![false; node_count];
+    let mut order = Vec::with_capacity(node_count);
+    for start in 0..node_count {
+        if seen[start] {
+            continue;
+        }
+        seen[start] = true;
+        let mut stack = vec![(start, 0usize)];
+        while let Some((node, cursor)) = stack.pop() {
+            if let Some((_, target)) = edges[node].get(cursor) {
+                stack.push((node, cursor + 1));
+                if !seen[*target] {
+                    seen[*target] = true;
+                    stack.push((*target, 0));
+                }
+            } else {
+                order.push(node);
+            }
+        }
+    }
+    let mut reverse = vec![Vec::new(); node_count];
+    for (node, outgoing) in edges.iter().enumerate() {
+        for (_, target) in outgoing {
+            reverse[*target].push(node);
+        }
+    }
+    let mut component = vec![usize::MAX; node_count];
+    for &start in order.iter().rev() {
+        if component[start] != usize::MAX {
+            continue;
+        }
+        let mut stack = vec![start];
+        component[start] = start;
+        while let Some(node) = stack.pop() {
+            for &previous in &reverse[node] {
+                if component[previous] == usize::MAX {
+                    component[previous] = start;
+                    stack.push(previous);
+                }
+            }
+        }
+    }
+    for (node, outgoing) in edges.iter().enumerate() {
+        for &(slot, target) in outgoing {
+            if component[node] == component[target] {
+                return Err(refuse(
+                    JsonPointer::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(node)
+                        .key("node_id")
+                        .key("path")
+                        .index(slot)
+                        .key("node"),
+                ));
+            }
+        }
+    }
+    let mut keys: Vec<Option<Arc<super::CheckedNodeId>>> = vec![None; node_count];
+    for node in order {
+        let source = &nodes[node].node_id;
+        let path = source
+            .path
+            .iter()
+            .map(|segment| match segment {
+                CheckedNodePathSegment::Name(name) => CheckedNodePathSegment::Name(name.clone()),
+                CheckedNodePathSegment::Node(key) => CheckedNodePathSegment::Node(Arc::clone(key)),
+                CheckedNodePathSegment::Index(index) => {
+                    let target = usize::try_from(*index).expect("index was checked in bounds");
+                    CheckedNodePathSegment::Node(Arc::clone(
+                        keys[target].as_ref().expect("target key built first"),
+                    ))
+                }
+            })
+            .collect();
+        keys[node] = Some(Arc::new(super::CheckedNodeId {
+            package: source.package.clone(),
+            path,
+            ordinal: source.ordinal,
+        }));
+    }
+    Ok(keys
+        .into_iter()
+        .map(|key| key.expect("each graph node key built"))
+        .collect())
+}
+
+#[ix_trace_rs::string_edge]
 pub(super) fn check(
     bytes: &[u8],
     wire: &RawCheckedPackageWireV2,
@@ -541,111 +675,7 @@ pub(super) fn check(
         return Err(malformed(site.at.clone()));
     }
 
-    let edges: Vec<Vec<(usize, usize)>> = wire
-        .semantic_graph
-        .nodes
-        .iter()
-        .map(|node| {
-            node.node_id
-                .path
-                .iter()
-                .enumerate()
-                .filter_map(|(slot, segment)| match segment {
-                    CheckedNodePathSegment::Index(index) => {
-                        usize::try_from(*index).ok().map(|target| (slot, target))
-                    }
-                    CheckedNodePathSegment::Name(_) | CheckedNodePathSegment::Node(_) => None,
-                })
-                .collect()
-        })
-        .collect();
-    // Kosaraju's two heap-backed passes make the cycle decision linear in
-    // nodes plus index segments, independent of graph order and chain depth.
-    let mut seen = vec![false; node_count];
-    let mut order = Vec::with_capacity(node_count);
-    for start in 0..node_count {
-        if seen[start] {
-            continue;
-        }
-        seen[start] = true;
-        let mut stack = vec![(start, 0usize)];
-        while let Some((node, cursor)) = stack.pop() {
-            if let Some((_, target)) = edges[node].get(cursor) {
-                stack.push((node, cursor + 1));
-                if !seen[*target] {
-                    seen[*target] = true;
-                    stack.push((*target, 0));
-                }
-            } else {
-                order.push(node);
-            }
-        }
-    }
-    let mut reverse = vec![Vec::new(); node_count];
-    for (node, outgoing) in edges.iter().enumerate() {
-        for (_, target) in outgoing {
-            reverse[*target].push(node);
-        }
-    }
-    let mut component = vec![usize::MAX; node_count];
-    for &start in order.iter().rev() {
-        if component[start] != usize::MAX {
-            continue;
-        }
-        let mut stack = vec![start];
-        component[start] = start;
-        while let Some(node) = stack.pop() {
-            for &previous in &reverse[node] {
-                if component[previous] == usize::MAX {
-                    component[previous] = start;
-                    stack.push(previous);
-                }
-            }
-        }
-    }
-    for (node, outgoing) in edges.iter().enumerate() {
-        for &(slot, target) in outgoing {
-            if component[node] == component[target] {
-                return Err(malformed(
-                    JsonPointer::root()
-                        .key("semantic_graph")
-                        .key("nodes")
-                        .index(node)
-                        .key("node_id")
-                        .key("path")
-                        .index(slot)
-                        .key("node"),
-                ));
-            }
-        }
-    }
-    let mut keys: Vec<Option<Arc<super::CheckedNodeId>>> = vec![None; node_count];
-    for node in order {
-        let source = &wire.semantic_graph.nodes[node].node_id;
-        let path = source
-            .path
-            .iter()
-            .map(|segment| match segment {
-                CheckedNodePathSegment::Name(name) => CheckedNodePathSegment::Name(name.clone()),
-                CheckedNodePathSegment::Node(key) => CheckedNodePathSegment::Node(Arc::clone(key)),
-                CheckedNodePathSegment::Index(index) => {
-                    let target = usize::try_from(*index).expect("index was checked in bounds");
-                    CheckedNodePathSegment::Node(Arc::clone(
-                        keys[target].as_ref().expect("target key built first"),
-                    ))
-                }
-            })
-            .collect();
-        keys[node] = Some(Arc::new(super::CheckedNodeId {
-            package: source.package.clone(),
-            path,
-            ordinal: source.ordinal,
-        }));
-    }
-    Ok(keys
-        .into_iter()
-        .map(|key| key.expect("each graph node key built"))
-        .collect())
+    rebuild_graph_keys(&wire.semantic_graph.nodes, malformed)
 }
 
 #[cfg(test)]

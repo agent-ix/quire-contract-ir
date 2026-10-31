@@ -1048,29 +1048,141 @@ fn canonical<T: Encode>(value: &T, ceiling: u64) -> Result<Vec<u8>, u64> {
 /// admitted order of members inside each block. Ungrouped nodes are one-node
 /// blocks, so a graph without recursion keeps its ordinary key order.
 fn canonical_node_order<'a, Body>(
-    nodes: impl Iterator<Item = &'a super::CheckedSemanticNodeV2<Body>>,
+    nodes: impl Iterator<Item = (&'a CheckedNodeId, &'a super::CheckedSemanticNodeV2<Body>)>,
 ) -> Vec<&'a super::CheckedSemanticNodeV2<Body>> {
     let mut nodes = nodes.collect::<Vec<_>>();
     let mut least = BTreeMap::<&str, &CheckedNodeId>::new();
-    for node in &nodes {
+    for &(structural_key, node) in &nodes {
         if let Some(group) = node.recursion_group.as_deref() {
             least
                 .entry(group)
-                .and_modify(|key| {
-                    if node.node_id < **key {
-                        *key = &node.node_id;
+                .and_modify(|least_key| {
+                    if structural_key < *least_key {
+                        *least_key = structural_key;
                     }
                 })
-                .or_insert(&node.node_id);
+                .or_insert(structural_key);
         }
     }
-    nodes.sort_by_key(|node| {
+    nodes.sort_by_key(|(key, node)| {
         node.recursion_group
             .as_deref()
             .and_then(|group| least.get(group).copied())
-            .unwrap_or(&node.node_id)
+            .unwrap_or(key)
     });
-    nodes
+    nodes.into_iter().map(|(_, node)| node).collect()
+}
+
+fn remap_projected_indexes(value: &mut Value, positions: &[Option<usize>]) -> Result<bool, ()> {
+    let mut changed = false;
+    match value {
+        // A selected dependency key owns its own graph coordinates.
+        Value::Object(members)
+            if members.contains_key("package")
+                && members.contains_key("node")
+                && !members.contains_key("path") => {}
+        Value::Object(members)
+            if members.len() == 3
+                && members.contains_key("package")
+                && members.contains_key("path")
+                && members.contains_key("ordinal") =>
+        {
+            for segment in members["path"].as_array_mut().ok_or(())? {
+                let Value::Object(index) = segment else {
+                    continue;
+                };
+                if index.len() != 1 || !index.contains_key("node") {
+                    return Err(());
+                }
+                let source = index["node"].as_u64().ok_or(())?;
+                let source = usize::try_from(source).map_err(|_| ())?;
+                let projected = positions
+                    .get(source)
+                    .and_then(|position| *position)
+                    .ok_or(())?;
+                changed |= source != projected;
+                index.insert("node".to_owned(), Value::from(projected));
+            }
+        }
+        Value::Object(members) => {
+            for member in members.values_mut() {
+                changed |= remap_projected_indexes(member, positions)?;
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                changed |= remap_projected_indexes(item, positions)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(changed)
+}
+
+fn remap_checked_id(id: &CheckedNodeId, positions: &[Option<usize>]) -> Option<CheckedNodeId> {
+    let mut value = serde_json::to_value(id).ok()?;
+    remap_projected_indexes(&mut value, positions).ok()?;
+    CheckedNodeId::from_value(&value)
+}
+
+fn restore_operation_views(
+    source: &super::CheckedTerm,
+    projected: &mut super::CheckedTerm,
+    positions: &[Option<usize>],
+) -> Result<(), ()> {
+    use super::CheckedTerm;
+    match (source, projected) {
+        (
+            CheckedTerm::Application {
+                operation: source_operation,
+                arguments: source_arguments,
+                ..
+            },
+            CheckedTerm::Application {
+                operation: projected_operation,
+                arguments: projected_arguments,
+                ..
+            },
+        ) => {
+            if let Ok(source_views) = source_operation.admitted_views() {
+                let mut views = source_views.clone();
+                if let Some((id, _)) = &mut views.projection_field {
+                    *id = remap_checked_id(id, positions).ok_or(())?;
+                }
+                if let Some(id) = &mut views.member_declaration {
+                    *id = remap_checked_id(id, positions).ok_or(())?;
+                }
+                projected_operation.install_admitted_views(views);
+            }
+            for (source, projected) in source_arguments.iter().zip(projected_arguments) {
+                restore_operation_views(source, projected, positions)?;
+            }
+        }
+        (
+            CheckedTerm::Aggregate { members: source },
+            CheckedTerm::Aggregate { members: projected },
+        )
+        | (
+            CheckedTerm::ExtensionForm {
+                clauses: source, ..
+            },
+            CheckedTerm::ExtensionForm {
+                clauses: projected, ..
+            },
+        ) => {
+            for (source, projected) in source.iter().zip(projected) {
+                restore_operation_views(source, projected, positions)?;
+            }
+        }
+        (
+            CheckedTerm::Binding { value: source, .. },
+            CheckedTerm::Binding {
+                value: projected, ..
+            },
+        ) => restore_operation_views(source, projected, positions)?,
+        _ => {}
+    }
+    Ok(())
 }
 
 impl ContractPackageWireV1 {
@@ -1098,8 +1210,28 @@ impl ContractPackageWireV1 {
                 .graph()
                 .nodes
                 .iter()
-                .filter(|node| nodes.contains(&node.node_id)),
+                .enumerate()
+                .filter(|(_, node)| nodes.contains(&node.node_id))
+                .map(|(position, node)| {
+                    (
+                        source
+                            .structural_key_at(position)
+                            .expect("admitted graph key at every position"),
+                        node,
+                    )
+                }),
         );
+        let source_positions = source
+            .graph()
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect::<BTreeMap<_, _>>();
+        let mut projected_positions = vec![None; source.graph().nodes.len()];
+        for (position, node) in nodes.iter().enumerate() {
+            projected_positions[source_positions[&node.node_id]] = Some(position);
+        }
         let source_kinds = source
             .graph()
             .nodes
@@ -1107,7 +1239,7 @@ impl ContractPackageWireV1 {
             .zip(source.node_kinds())
             .map(|(node, kind)| (&node.node_id, *kind))
             .collect::<BTreeMap<_, _>>();
-        let node_kinds = nodes
+        let node_kinds: Vec<CheckedNodeKind> = nodes
             .iter()
             .map(|node| source_kinds[&node.node_id])
             .collect();
@@ -1160,16 +1292,10 @@ impl ContractPackageWireV1 {
             graph_version: source.graph().graph_version.clone(),
             nodes: nodes.into_iter().map(|node| node.to_raw()).collect(),
         };
-        let terms = semantic_graph
+        let terms: Vec<Option<super::CheckedTerm>> = semantic_graph
             .nodes
             .iter()
             .map(|node| source.term(&node.node_id).cloned())
-            .collect();
-        let node_index = semantic_graph
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (node.node_id.clone(), position))
             .collect();
         let source_map = ContractSourceMapV1 {
             nodes: node_sources,
@@ -1183,6 +1309,64 @@ impl ContractPackageWireV1 {
             source_map,
             feature_accounting: accounting,
         };
+        // FR-322 indexes name positions in this projected document, not in
+        // the originating checked package. Preserve provenance untouched.
+        let mut projected = serde_json::to_value(&wire).map_err(|_| ceiling.saturating_add(1))?;
+        remap_projected_indexes(&mut projected["semantic_graph"], &projected_positions)
+            .map_err(|()| ceiling.saturating_add(1))?;
+        remap_projected_indexes(&mut projected["source_map"], &projected_positions)
+            .map_err(|()| ceiling.saturating_add(1))?;
+        for record in projected["feature_accounting"]
+            .as_array_mut()
+            .expect("constructed accounting array")
+            .iter_mut()
+        {
+            for member in [
+                "node_id",
+                "unsupported_node_id",
+                "unbounded_type",
+                "body_node_id",
+            ] {
+                if let Some(id) = record.get_mut(member) {
+                    remap_projected_indexes(id, &projected_positions)
+                        .map_err(|()| ceiling.saturating_add(1))?;
+                }
+            }
+        }
+        let wire_bytes = serde_json::to_vec(&projected).map_err(|_| ceiling.saturating_add(1))?;
+        let wire: Self =
+            serde_json::from_slice(&wire_bytes).map_err(|_| ceiling.saturating_add(1))?;
+        let terms = terms
+            .into_iter()
+            .enumerate()
+            .map(|(position, term)| {
+                let Some(source_term) = term else {
+                    return Ok(None);
+                };
+                let mut value =
+                    serde_json::to_value(&source_term).map_err(|_| ceiling.saturating_add(1))?;
+                if !remap_projected_indexes(&mut value, &projected_positions)
+                    .map_err(|()| ceiling.saturating_add(1))?
+                {
+                    return Ok(Some(source_term));
+                }
+                let mut term = super::decode_admitted_body(
+                    node_kinds[position],
+                    &wire.semantic_graph.nodes[position].body,
+                )
+                .map_err(|_| ceiling.saturating_add(1))?;
+                restore_operation_views(&source_term, &mut term, &projected_positions)
+                    .map_err(|()| ceiling.saturating_add(1))?;
+                Ok(Some(term))
+            })
+            .collect::<Result<Vec<_>, u64>>()?;
+        let node_index = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (node.node_id.clone(), position))
+            .collect();
         let bytes = canonical(&wire, ceiling)?.into_boxed_slice();
         Ok((
             ContractPackageV1 {
@@ -1240,21 +1424,52 @@ impl ContractPackageWireV1 {
             .graph()
             .nodes
             .iter()
-            .map(|node| (&node.node_id, node))
+            .enumerate()
+            .map(|(position, _)| {
+                (
+                    source
+                        .structural_key_at(position)
+                        .expect("admitted source graph key"),
+                    position,
+                )
+            })
             .collect::<BTreeMap<_, _>>();
-        let mut source_terms = Vec::with_capacity(package.wire.semantic_graph.nodes.len());
-        for represented in &package.wire.semantic_graph.nodes {
+        let projected_keys =
+            super::node_index::rebuild_graph_keys(&package.wire.semantic_graph.nodes, |_| {
+                unreachable!("admitted V1 graph was already index-checked")
+            })
+            .expect("admitted V1 graph keys");
+        let mut projected_positions = vec![None; source.graph().nodes.len()];
+        let mut source_positions = Vec::with_capacity(package.wire.semantic_graph.nodes.len());
+        for (position, represented) in package.wire.semantic_graph.nodes.iter().enumerate() {
             let key = &represented.node_id;
-            let node = source_nodes
-                .get(key)
+            let &source_position = source_nodes
+                .get(projected_keys[position].as_ref())
                 .ok_or_else(|| ContractSourceHandoffError::MissingNode(key.clone()))?;
-            if node.to_raw() != *represented {
+            source_positions.push(Some(source_position));
+            projected_positions[source_position] = Some(position);
+        }
+        for (position, represented) in package.wire.semantic_graph.nodes.iter().enumerate() {
+            let key = &represented.node_id;
+            let source_position = source_positions[position].expect("matched source position");
+            let node = &source.graph().nodes[source_position];
+            let mut source_value = serde_json::to_value(node.to_raw())
+                .map_err(|_| ContractSourceHandoffError::NodeMismatch(key.clone()))?;
+            remap_projected_indexes(&mut source_value, &projected_positions)
+                .map_err(|()| ContractSourceHandoffError::NodeMismatch(key.clone()))?;
+            if source_value
+                != serde_json::to_value(represented)
+                    .map_err(|_| ContractSourceHandoffError::NodeMismatch(key.clone()))?
+            {
                 return Err(ContractSourceHandoffError::NodeMismatch(key.clone()));
             }
-            let term = source
-                .term(key)
+            let source_term = source
+                .term(&node.node_id)
                 .ok_or_else(|| ContractSourceHandoffError::MissingNode(key.clone()))?;
-            source_terms.push(Some(term.clone()));
+            if let Some(Some(projected_term)) = package.terms.get_mut(position) {
+                restore_operation_views(source_term, projected_term, &projected_positions)
+                    .map_err(|()| ContractSourceHandoffError::NodeMismatch(key.clone()))?;
+            }
         }
         let unsupported_source_kinds = package
             .wire
@@ -1268,7 +1483,6 @@ impl ContractPackageWireV1 {
                 _ => Ok(None),
             })
             .collect::<Result<Vec<_>, _>>()?;
-        package.terms = source_terms;
         package.unsupported_source_kinds = Some(unsupported_source_kinds);
         Ok(ContractPackageReadResult::Admitted(package))
     }
@@ -1435,42 +1649,49 @@ fn decimal(value: &Value, path: JsonPointer) -> Result<u64, ValidationFailure> {
 }
 
 fn id_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFailure> {
-    let mut pending = vec![(value, at)];
-    while let Some((value, at)) = pending.pop() {
-        let object = shape(value, at.clone(), &["package", "path", "ordinal"], &[])?;
-        if string(member(object, "package", &at)?, at.clone().key("package"))?.is_empty() {
-            return Err(malformed(
-                at.key("package"),
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
-        }
-        let path_at = at.clone().key("path");
-        let path = array(member(object, "path", &at)?, path_at.clone())?;
-        if path.is_empty() {
-            return Err(malformed(path_at, CheckedPackageRefusalCause::InvalidValue));
-        }
-        let ordinal_at = at.clone().key("ordinal");
-        if !object
-            .get("ordinal")
-            .and_then(Value::as_u64)
-            .is_some_and(|ordinal| ordinal <= 9_007_199_254_740_991)
-        {
-            return Err(malformed(
-                ordinal_at,
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
-        }
-        for (index, segment) in path.iter().enumerate().rev() {
-            let segment_at = path_at.clone().index(index);
-            match segment {
-                Value::String(_) => {}
-                Value::Object(_) => pending.push((segment, segment_at)),
-                _ => {
+    let object = shape(value, at.clone(), &["package", "path", "ordinal"], &[])?;
+    if string(member(object, "package", &at)?, at.clone().key("package"))?.is_empty() {
+        return Err(malformed(
+            at.key("package"),
+            CheckedPackageRefusalCause::InvalidValue,
+        ));
+    }
+    let path_at = at.clone().key("path");
+    let path = array(member(object, "path", &at)?, path_at.clone())?;
+    if path.is_empty() {
+        return Err(malformed(path_at, CheckedPackageRefusalCause::InvalidValue));
+    }
+    let ordinal_at = at.clone().key("ordinal");
+    if !object
+        .get("ordinal")
+        .and_then(Value::as_u64)
+        .is_some_and(|ordinal| ordinal <= 9_007_199_254_740_991)
+    {
+        return Err(malformed(
+            ordinal_at,
+            CheckedPackageRefusalCause::InvalidValue,
+        ));
+    }
+    for (index, segment) in path.iter().enumerate() {
+        let segment_at = path_at.clone().index(index);
+        match segment {
+            Value::String(_) => {}
+            Value::Object(object) if object.len() == 1 && object.contains_key("node") => {
+                if !object["node"]
+                    .as_u64()
+                    .is_some_and(|index| index <= 9_007_199_254_740_991)
+                {
                     return Err(malformed(
-                        segment_at,
+                        segment_at.key("node"),
                         CheckedPackageRefusalCause::InvalidValue,
-                    ))
+                    ));
                 }
+            }
+            _ => {
+                return Err(malformed(
+                    segment_at,
+                    CheckedPackageRefusalCause::InvalidValue,
+                ))
             }
         }
     }
@@ -2010,7 +2231,15 @@ impl ContractPackageWireV1 {
                 Some(JsonPointer::root().key("semantic_graph").key("nodes")),
             ));
         }
-        let canonical = canonical_node_order(nodes.iter());
+        let structural_keys = super::node_index::rebuild_graph_keys(nodes, |at| {
+            malformed(at, CheckedPackageRefusalCause::InvalidValue)
+        })?;
+        let canonical = canonical_node_order(
+            nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (structural_keys[position].as_ref(), node)),
+        );
         let mut seen = BTreeSet::new();
         let mut edges = 0_u64;
         let mut node_kinds = Vec::with_capacity(nodes.len());
@@ -2020,7 +2249,7 @@ impl ContractPackageWireV1 {
                 .key("nodes")
                 .index(index);
             if !valid_node_id(&node.node_id)
-                || !seen.insert(&node.node_id)
+                || !seen.insert(structural_keys[index].as_ref())
                 || canonical[index].node_id != node.node_id
             {
                 return Err(malformed(
