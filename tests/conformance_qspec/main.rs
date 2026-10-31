@@ -1003,10 +1003,21 @@ fn assert_qspec_operation_record(
     };
     match read.member {
         None => assert!(member.is_null()),
-        Some(CheckedOperationMember::Field { declaration, name }) => {
+        Some(CheckedOperationMember::Field {
+            declaration,
+            name,
+            read_form,
+        }) => {
             assert_eq!(member["kind"], "field");
             node(declaration, "declaration");
             assert_eq!(member["name"], name.as_ref());
+            assert_eq!(
+                read_form.map(|form| match form {
+                    quire_contract_model::CheckedFieldReadForm::Bare => "bare",
+                    quire_contract_model::CheckedFieldReadForm::ExplicitDeref => "explicit_deref",
+                }),
+                member["read_form"].as_str()
+            );
         }
         Some(CheckedOperationMember::Position {
             declaration,

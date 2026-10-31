@@ -20,8 +20,8 @@ use super::operation_catalog::{
 use super::structural::{typed_union_type_body, typed_union_value_body, UnionMember};
 use super::temporal::member_is_well_formed;
 use super::typed_terms::{
-    CheckedOperationConstraint, CheckedOperationLaw, CheckedOperationLeaf, CheckedOperationMember,
-    CheckedOperationMode, CheckedOperationRecord, CheckedOperationViews,
+    CheckedFieldReadForm, CheckedOperationConstraint, CheckedOperationLaw, CheckedOperationLeaf,
+    CheckedOperationMember, CheckedOperationMode, CheckedOperationRecord, CheckedOperationViews,
 };
 use super::{
     ApplicationOperator, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
@@ -952,6 +952,30 @@ fn operation_defect(
             )
         }
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
+    }
+    if wire_member_kind == Some(Some(OperationMemberKind::Field)) {
+        let member = operation.member.as_ref().expect("matched field member");
+        let read_form = member.get("read_form");
+        let model_projection = operation.identity.as_ref() == "quire.op.record.project"
+            && admitted_arguments(application, graph)
+                .and_then(|arguments| arguments.first())
+                .is_some_and(|argument| {
+                    matches!(argument, CheckedTerm::Application { operation, .. }
+                        if operation.identity() == Some("quire.op.model.deref"))
+                });
+        let valid = match (model_projection, read_form) {
+            (true, Some(Value::String(value))) => CheckedFieldReadForm::from_wire(value).is_some(),
+            (false, None) => true,
+            _ => false,
+        };
+        if !valid {
+            return Ok(Some(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::MalformedWire,
+                application.body(&["operation", "member", "read_form"]),
+                None,
+                application.node.node_id.clone(),
+            )));
+        }
     }
     let profile_operator = operation
         .member
