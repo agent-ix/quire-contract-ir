@@ -716,10 +716,19 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
             .map(|node| &node.body)
             .collect();
         while let Some(term) = pending.pop() {
-            if term.literal_read().is_some() {
-                literals += 1;
-            }
             match term {
+                CheckedTerm::Literal {
+                    type_id,
+                    value_kind,
+                    ..
+                } => {
+                    let read = term
+                        .literal_read()
+                        .expect("QSpec-admitted literal has a typed read");
+                    assert_eq!(read.type_id, type_id);
+                    assert_eq!(read.kind, *value_kind);
+                    literals += 1;
+                }
                 CheckedTerm::Application {
                     operation,
                     arguments,
