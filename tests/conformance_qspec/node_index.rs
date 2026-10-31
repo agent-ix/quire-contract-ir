@@ -147,6 +147,107 @@ fn imported_index_resolves_in_the_importing_graph() {
     );
 }
 
+/// Trace: FR-038-AC-376
+#[trace("TC-048", "FR-038-AC-376")]
+#[test]
+fn permutation_rebuilds_the_same_structural_keys_and_stale_operands_do_not() {
+    let fixtures = fixtures_dir();
+    let original_wire = read_json(&fixtures.join("positive-dependency-call.json"))
+        .expect("published importing package");
+    let CheckedPackageV2ReadResult::Admitted(original) =
+        read_package(&original_wire).expect("published importer read")
+    else {
+        panic!("published importer must admit");
+    };
+    let count = original.graph().nodes.len();
+    assert_eq!(count, 4, "published graph cardinality");
+    let mut permuted_wire = original_wire.clone();
+    permuted_wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published graph nodes")
+        .reverse();
+    assert!(reverse_graph_indexes(&mut permuted_wire, count) > 0);
+    let CheckedPackageV2ReadResult::Admitted(permuted) =
+        read_package(&permuted_wire).expect("permuted importer read")
+    else {
+        panic!("graph permutation with rewritten indexes must admit");
+    };
+    for original_position in 0..count {
+        let permuted_position = count - 1 - original_position;
+        assert_eq!(
+            original.structural_key_at(original_position),
+            permuted.structural_key_at(permuted_position),
+            "node {original_position}: permutation preserves resolved key"
+        );
+        assert_eq!(
+            original.graph().nodes[original_position].node_tag,
+            permuted.graph().nodes[permuted_position].node_tag,
+            "node {original_position}: permutation preserves referenced kind"
+        );
+    }
+    // Keep all rewritten references, but retarget the imported range's own
+    // path operand from the Integer node (3) to the Boolean node (2).
+    let mut stale = permuted_wire;
+    stale["semantic_graph"]["nodes"][1]["node_id"]["path"][3] = json!({"node":2});
+    match read_package(&stale).expect("stale-index package read") {
+        CheckedPackageV2ReadResult::Admitted(changed) => assert_ne!(
+            changed.structural_key_at(1),
+            original.structural_key_at(2),
+            "stale index must change the resolved operand key"
+        ),
+        CheckedPackageV2ReadResult::Refused(refusal) => assert!(
+            matches!(
+                code_word(refusal.code),
+                "invalid_source_map" | "invalid_semantic_graph"
+            ),
+            "stale valid index must fail a structural join: {refusal:?}"
+        ),
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            panic!("stale index is not a resource limit: {incomplete:?}")
+        }
+    }
+}
+
+/// Trace: FR-038-AC-376
+#[trace("TC-048", "FR-038-AC-376")]
+#[test]
+fn two_semantic_defects_choose_structural_order_over_graph_order() {
+    let fixtures = fixtures_dir();
+    let mut package = read_json(&fixtures.join("positive-dependency-call.json"))
+        .expect("published importing package");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published graph nodes");
+    assert_eq!(nodes[0]["semantic_form"], "integer");
+    assert_eq!(nodes[1]["semantic_form"], "boolean");
+    assert!(
+        nodes[1]["node_id"]["path"][1]
+            .as_str()
+            .expect("Boolean segment")
+            < nodes[0]["node_id"]["path"][1]
+                .as_str()
+                .expect("Integer segment"),
+        "Boolean precedes Integer structurally but follows it in the graph"
+    );
+    for node in nodes.iter_mut().take(2) {
+        node["body"]["members"] = json!([{
+            "term":"reference",
+            "target":{"package":"test/predicates","path":["missing"],"ordinal":0}
+        }]);
+    }
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&package).expect("two-defect package read")
+    else {
+        panic!("two invalid scalar bodies must refuse");
+    };
+    assert_eq!(code_word(refusal.code), "invalid_semantic_graph");
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/semantic_graph/nodes/1/body".to_owned()),
+        "structurally first Boolean defect must win"
+    );
+}
+
 /// Trace: FR-038-AC-380, FR-038-AC-381
 #[trace("TC-048", "FR-038-AC-380", "FR-038-AC-381")]
 #[test]
