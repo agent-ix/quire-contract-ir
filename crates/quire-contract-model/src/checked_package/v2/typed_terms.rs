@@ -119,43 +119,70 @@ pub struct CheckedOperationConstraint {
 pub enum CheckedOperationMember {
     /// A named field of a declaration.
     Field {
+        /// Declaring type node.
         declaration: CheckedNodeId,
+        /// Admitted field name.
         name: Box<str>,
     },
     /// A declared tuple position.
     Position {
+        /// Declaring tuple node.
         declaration: CheckedNodeId,
+        /// Exact position, including beyond the JSON safe integer range.
         position: BigInt,
     },
     /// An element type of a collection.
-    Element { declaration: CheckedNodeId },
+    Element {
+        /// Declaring collection node.
+        declaration: CheckedNodeId,
+    },
     /// A named relationship end.
     RelationshipEnd {
+        /// Declaring relationship node.
         declaration: CheckedNodeId,
+        /// Named end role.
         name: Box<str>,
+        /// Producer supplied destination type node.
         destination_type: CheckedNodeId,
+        /// Population node, when the operation links one.
         population: Option<CheckedNodeId>,
     },
     /// A named dispatched operation.
     Operation {
+        /// Declaring model node.
         declaration: CheckedNodeId,
+        /// Admitted operation name.
         name: Box<str>,
     },
     /// An explicit type argument.
-    TypeArgument { declaration: CheckedNodeId },
+    TypeArgument {
+        /// Type argument declaration node.
+        declaration: CheckedNodeId,
+    },
     /// An operator selected by a profile.
-    ProfileOperator { operator: Option<Box<str>> },
+    ProfileOperator {
+        /// Explicit operator, when present in the admitted record.
+        operator: Option<Box<str>>,
+    },
     /// A state clause.
-    StateClause { clause: StateClauseKind },
+    StateClause {
+        /// Closed clause kind.
+        clause: StateClauseKind,
+    },
     /// An optional temporal interval.
     TemporalInterval {
+        /// Interval, or an unbounded interval when absent.
         interval: Option<CheckedOperationInterval>,
     },
     /// A fairness clause.
     Fairness {
+        /// Weak or strong fairness.
         fairness_kind: CheckedFairnessKind,
+        /// Whole or per participant granularity.
         granularity: CheckedFairnessGranularity,
+        /// Declaring transition node.
         declaration: CheckedNodeId,
+        /// Fairness declaration name.
         name: Box<str>,
     },
 }
@@ -175,9 +202,13 @@ pub enum CheckedOperationInterval {
     },
     /// Time magnitudes with explicit open or closed ends.
     Timed {
+        /// Lower time magnitude.
         lower: CheckedOperationRational,
+        /// Upper time magnitude, when bounded.
         upper: Option<CheckedOperationRational>,
+        /// Lower endpoint inclusion.
         lower_end: CheckedIntervalEnd,
+        /// Upper endpoint inclusion.
         upper_end: CheckedIntervalEnd,
     },
 }
