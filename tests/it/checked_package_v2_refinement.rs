@@ -6,7 +6,7 @@
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, index_fixture_node_ids, node_id,
     protocol_named_node, rebuild_source_map, refresh_identity, select_model, settle,
-    v2_all_families, v2_nominal,
+    structural_fixture_id, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -24,46 +24,9 @@ const MODEL_NODE: &str = "ix://test/refinement/Machine";
 const FAMILY_MODEL_IDENTITY: &str = "test/families";
 
 fn node_id_order(left: &Value, right: &Value) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-
-    fn segment_order(left: &Value, right: &Value) -> Ordering {
-        match (left.as_str(), right.as_str()) {
-            (Some(left), Some(right)) => left.cmp(right),
-            (Some(_), None) => Ordering::Less,
-            (None, Some(_)) => Ordering::Greater,
-            (None, None) => match (left.get("node"), right.get("node")) {
-                (Some(left), Some(right)) => left
-                    .as_u64()
-                    .expect("left fixture index")
-                    .cmp(&right.as_u64().expect("right fixture index")),
-                (Some(_), None) => Ordering::Greater,
-                (None, Some(_)) => Ordering::Less,
-                (None, None) => node_id_order(left, right),
-            },
-        }
-    }
-
-    let package = left["package"]
-        .as_str()
-        .expect("left fixture package")
-        .cmp(right["package"].as_str().expect("right fixture package"));
-    let left_path = left["path"].as_array().expect("left fixture path");
-    let right_path = right["path"].as_array().expect("right fixture path");
-    package
-        .then_with(|| {
-            left_path
-                .iter()
-                .zip(right_path)
-                .map(|(left, right)| segment_order(left, right))
-                .find(|order| *order != Ordering::Equal)
-                .unwrap_or_else(|| left_path.len().cmp(&right_path.len()))
-        })
-        .then_with(|| {
-            left["ordinal"]
-                .as_u64()
-                .expect("left fixture ordinal")
-                .cmp(&right["ordinal"].as_u64().expect("right fixture ordinal"))
-        })
+    // Fixture construction sorts authored structural operands before the
+    // graph-local index conversion at the read boundary.
+    structural_fixture_id(left).cmp(&structural_fixture_id(right))
 }
 
 fn name_dependency_fixture(package: &mut Value, name: &str) {
@@ -2082,7 +2045,7 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     assert_eq!(second.graph(), third.graph());
     assert_eq!(
         serde_json::to_value(third.term(&refinement_id)).expect("reread refinement"),
-        expected["body"]
+        indexed_expected["body"]
     );
 }
 
@@ -2143,7 +2106,8 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
         let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
         assert_eq!(
             written["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"],
-            target
+            indexed_package(&package)["semantic_graph"]["nodes"][position]["body"]["steps"][0]
+                ["target"]
         );
         let CheckedPackageV2ReadResult::Admitted(reread) =
             CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
@@ -2253,7 +2217,7 @@ fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     );
     assert_eq!(
         serde_json::to_value(ensure).expect("typed ensure"),
-        package["semantic_graph"]["nodes"][position]["body"]["ensure"]
+        indexed_package(&package)["semantic_graph"]["nodes"][position]["body"]["ensure"]
     );
     let encoded = writer_bytes(&package);
     let CheckedPackageV2ReadResult::Admitted(reread) =
@@ -5402,7 +5366,7 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
     };
     assert_eq!(
         serde_json::to_value(reread.term(&key)).expect("reread steps"),
-        two["semantic_graph"]["nodes"][two_position]["body"]
+        indexed_package(&two)["semantic_graph"]["nodes"][two_position]["body"]
     );
 
     let (mut any, any_evidence, position) = catalog_free_operation_package("object_type");
