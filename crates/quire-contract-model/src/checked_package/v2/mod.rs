@@ -2740,7 +2740,15 @@ fn validate_graph(
     extension::validate(wire, &kinds, &terms, &index, evidence, &owners, meter)?;
     let declarations = owners.index();
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
-    state::validate_state(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    state::validate_state(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+        &owners,
+        meter,
+    )?;
     claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners)?;
     validate_temporal(
         &graph.nodes,
