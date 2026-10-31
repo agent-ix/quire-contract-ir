@@ -5,7 +5,7 @@
 //! three-package XP-01 graph runs in the conformance target.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, fixture_source, pointer, v2_all_families,
+    canonical, evidence_for, fixture_source, index_fixture_node_ids, pointer, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -68,6 +68,7 @@ pub(super) fn package() -> Value {
         .collect::<Vec<_>>();
     package["semantic_graph"]["nodes"] = json!(nodes);
     package["source_map"] = json!(source_map);
+    index_fixture_node_ids(&mut package);
     package
 }
 

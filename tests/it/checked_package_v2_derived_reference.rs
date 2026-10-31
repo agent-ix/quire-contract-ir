@@ -4,7 +4,8 @@
 //! Reader-boundary controls for the derived `Reference<T>` target join.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, selected_interface_model_node, settle, v2_all_families,
+    canonical, evidence_for, index_fixture_node_ids, selected_interface_model_node, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -53,6 +54,7 @@ fn reference_package(tag: &str, form: &str) -> (Value, Value, usize) {
             ]},
         }));
     settle(&mut package);
+    index_fixture_node_ids(&mut package);
     let retained = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     (package, retained, position)
 }
@@ -139,6 +141,13 @@ fn derived_reference_target_joins_eligible_declaration_kinds() {
         .as_array_mut()
         .expect("machine source map")
         .push(source);
+    index_fixture_node_ids(&mut machine);
+    let reference = machine["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("machine nodes")
+        .last()
+        .expect("reference node")["node_id"]
+        .clone();
     let result = CheckedPackageV2::read(
         &canonical(&machine),
         CheckedPackageReadLimits::bounded(),
