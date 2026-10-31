@@ -2366,7 +2366,7 @@ fn body_root_defect(
             .iter()
             .find_map(|member| match member {
                 CheckedTerm::Binding { name, value }
-                    if name.kind() == super::TermBindingName::Body =>
+                    if name.internal_kind() == super::TermBindingName::Body =>
                 {
                     Some(value.as_ref())
                 }
@@ -2430,7 +2430,7 @@ fn check_function_call(
     };
     let Some(present) = members
         .iter()
-        .position(|member| matches!(member, CheckedTerm::Binding { name, .. } if name.kind() == super::TermBindingName::Parameters))
+        .position(|member| matches!(member, CheckedTerm::Binding { name, .. } if name.internal_kind() == super::TermBindingName::Parameters))
     else {
         return Ok(None);
     };
@@ -3927,7 +3927,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                         let [CheckedTerm::Binding { name, value }] = members.as_slice() else {
                             return None;
                         };
-                        if name.kind() != super::TermBindingName::Optional {
+                        if name.internal_kind() != super::TermBindingName::Optional {
                             return None;
                         }
                         let target = referenced_type(value)?;

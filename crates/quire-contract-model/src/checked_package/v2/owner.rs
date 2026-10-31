@@ -186,7 +186,9 @@ fn clause_kind(body: &CheckedTerm) -> Option<OwnerClauseKind> {
         return None;
     };
     let mut clauses = members.iter().filter_map(|member| match member {
-        CheckedTerm::Binding { name, value } if name.kind() == super::TermBindingName::Clause => {
+        CheckedTerm::Binding { name, value }
+            if name.internal_kind() == super::TermBindingName::Clause =>
+        {
             Some(value.as_ref())
         }
         _ => None,

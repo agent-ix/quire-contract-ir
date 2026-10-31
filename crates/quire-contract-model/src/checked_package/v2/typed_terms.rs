@@ -12,6 +12,7 @@ use super::{
 };
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment};
 use crate::identity::ExecutionPoint;
+use num_bigint::BigInt;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
@@ -423,9 +424,35 @@ pub struct CheckedBindingName {
     kind: super::TermBindingName,
 }
 
+/// The contextual meaning of an admitted binding name.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedBindingNameKind<'a> {
+    /// The `parameters` binding.
+    Parameters,
+    /// The `body` binding.
+    Body,
+    /// The `optional` binding.
+    Optional,
+    /// The `clause` binding.
+    Clause,
+    /// Any other name, retained verbatim.
+    Other(&'a str),
+}
+
 impl CheckedBindingName {
-    pub(super) fn kind(&self) -> super::TermBindingName {
+    pub(super) fn internal_kind(&self) -> super::TermBindingName {
         self.kind
+    }
+
+    /// Read the contextual name without losing an unrecognized exact name.
+    pub fn kind(&self) -> CheckedBindingNameKind<'_> {
+        match self.kind {
+            super::TermBindingName::Parameters => CheckedBindingNameKind::Parameters,
+            super::TermBindingName::Body => CheckedBindingNameKind::Body,
+            super::TermBindingName::Optional => CheckedBindingNameKind::Optional,
+            super::TermBindingName::Clause => CheckedBindingNameKind::Clause,
+            super::TermBindingName::Other => CheckedBindingNameKind::Other(&self.raw),
+        }
     }
 }
 
@@ -477,6 +504,102 @@ impl<'de> Deserialize<'de> for CheckedBindingName {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Box::<str>::deserialize(deserializer).map(Self::from)
     }
+}
+
+/// A literal's decoded value. Exact numbers are retained without floating point conversion.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CheckedLiteralValue<'a> {
+    /// Boolean value.
+    Boolean(bool),
+    /// Arbitrary precision signed integer.
+    Integer(BigInt),
+    /// Reduced rational or quantity magnitude.
+    Rational {
+        numerator: BigInt,
+        denominator: BigInt,
+    },
+    /// Decimal coefficient and the exact written scale.
+    Decimal { coefficient: BigInt, scale: usize },
+    /// IEEE binary32 bits, including signed zero and NaN payloads.
+    Float32Bits(u32),
+    /// IEEE binary64 bits, including signed zero and NaN payloads.
+    Float64Bits(u64),
+    /// Text value.
+    Text(&'a str),
+    /// Native string value.
+    String(&'a str),
+    /// Canonical UUID spelling.
+    Uuid(&'a str),
+    /// Signed nanoseconds from the POSIX epoch.
+    Timestamp(i128),
+    /// Exact enumeration value.
+    Enum(&'a str),
+    /// Absent option value.
+    None,
+}
+
+/// A borrowed read of one literal's type, kind, and decoded value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedLiteralRead<'a> {
+    /// The literal's declared type node.
+    pub type_id: &'a CheckedNodeId,
+    /// The admitted literal kind.
+    pub kind: LiteralKind,
+    /// The decoded value.
+    pub value: CheckedLiteralValue<'a>,
+}
+
+fn rational_parts(value: &Value) -> Option<(BigInt, BigInt)> {
+    let text = value.as_str()?;
+    let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
+    Some((
+        BigInt::parse_bytes(numerator.as_bytes(), 10)?,
+        BigInt::parse_bytes(denominator.as_bytes(), 10)?,
+    ))
+}
+
+fn literal_value(kind: LiteralKind, value: &Value) -> Option<CheckedLiteralValue<'_>> {
+    Some(match kind {
+        LiteralKind::Boolean => CheckedLiteralValue::Boolean(value.as_bool()?),
+        LiteralKind::Integer => {
+            let text = match value {
+                Value::String(text) => text.clone(),
+                Value::Number(number) => number.to_string(),
+                _ => return None,
+            };
+            CheckedLiteralValue::Integer(BigInt::parse_bytes(text.as_bytes(), 10)?)
+        }
+        LiteralKind::Rational | LiteralKind::Quantity => {
+            let (numerator, denominator) = rational_parts(value)?;
+            CheckedLiteralValue::Rational {
+                numerator,
+                denominator,
+            }
+        }
+        LiteralKind::Decimal => {
+            let text = value.as_str()?;
+            let (whole, fractional) = text.split_once('.').unwrap_or((text, ""));
+            let scale = fractional.len();
+            let digits = format!("{whole}{fractional}");
+            CheckedLiteralValue::Decimal {
+                coefficient: BigInt::parse_bytes(digits.as_bytes(), 10)?,
+                scale,
+            }
+        }
+        LiteralKind::Float32Bits => {
+            CheckedLiteralValue::Float32Bits(u32::from_str_radix(value.as_str()?, 16).ok()?)
+        }
+        LiteralKind::Float64Bits => {
+            CheckedLiteralValue::Float64Bits(u64::from_str_radix(value.as_str()?, 16).ok()?)
+        }
+        LiteralKind::Text => CheckedLiteralValue::Text(value.as_str()?),
+        LiteralKind::String => CheckedLiteralValue::String(value.as_str()?),
+        LiteralKind::Uuid => CheckedLiteralValue::Uuid(value.as_str()?),
+        LiteralKind::Timestamp => CheckedLiteralValue::Timestamp(value.as_str()?.parse().ok()?),
+        LiteralKind::Enum => CheckedLiteralValue::Enum(value.as_str()?),
+        LiteralKind::None if value.is_null() => CheckedLiteralValue::None,
+        LiteralKind::None => return None,
+    })
 }
 
 /// A body term in an admitted checked-package V2 node.
@@ -622,6 +745,24 @@ pub(in crate::checked_package) enum CheckedTermView<'a> {
 }
 
 impl CheckedTerm {
+    /// Read a scalar literal without inspecting its JSON wire payload.
+    /// Returns `None` for another term or a directly decoded malformed literal.
+    pub fn literal_read(&self) -> Option<CheckedLiteralRead<'_>> {
+        let Self::Literal {
+            type_id,
+            value_kind,
+            value,
+        } = self
+        else {
+            return None;
+        };
+        Some(CheckedLiteralRead {
+            type_id,
+            kind: *value_kind,
+            value: literal_value(*value_kind, value)?,
+        })
+    }
+
     pub(in crate::checked_package) fn view(value: &Value) -> Option<CheckedTermView<'_>> {
         Self::view_from_wire(crate::checked_package::common::WireTerm::decode(value))
     }
