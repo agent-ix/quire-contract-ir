@@ -344,6 +344,21 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
     let b = f.boolean.clone();
     let mut set_i = || composite(&mut f.package, "set", &i);
     match identity {
+        "quire.op.reference.eq" => {
+            let target = add_family_reference_target(&mut f.package);
+            let reference_type = composite(&mut f.package, "reference", &target);
+            let operand = parameter(&mut f, &reference_type, "same_reference");
+            application_with_member(
+                &mut f,
+                "binary",
+                "binary",
+                identity,
+                Value::Null,
+                Value::Null,
+                &b,
+                vec![reference(&operand), reference(&operand)],
+            );
+        }
         "quire.op.ieee.from_exact" | "quire.op.numeric.convert_rounding" => {
             let family = if identity == "quire.op.ieee.from_exact" {
                 "float32"
@@ -597,6 +612,14 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
         _ => return None,
     }
     Some(f.package)
+}
+
+pub(crate) fn admitted_catalogue_control(identity: &str) -> CheckedPackageV2 {
+    let wire = admitted_fixture(identity).expect("constructible catalog control");
+    match read(&wire) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("{identity}: catalog control refused: {other:?}"),
+    }
 }
 
 #[trace(

@@ -31,3 +31,14 @@ Frozen PR #741 head d7a4d88385a5788e7106fd9b6ecae43bc14f8d4d against merged main
 - **FR-019 (examined):** | `checked_package` (V2 typed read views) | types `CheckedBindingName`, `CheckedBindingNameKind`, `CheckedLiteralRead`, `CheckedLiteralValue`, `CheckedOperationRead`, `CheckedOperationMember`, `CheckedOperationConstraint`, `CheckedOperationLeaf`, `CheckedOperationLaw`, `CheckedOperationMode`, `CheckedOperationInterval`, `CheckedOperationRational`, `CheckedIntervalEnd`, `CheckedFairnessKind`, `CheckedFairnessGranularity`, `LawRole`, `OperationMemberKind`, `OperationConstraintKind`; methods `CheckedTerm::literal_read`, `CheckedBindingName::kind`, and `CheckedApplicationOperation::read` | FR-349 |
 
 Plan completion: not assessed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | still-open | The added admitted QSpec fixture asserts exact Integer and Decimal, but the published positive set also admits Boolean, Rational, Quantity, Float32Bits, Float64Bits, Text and Enum. The general fixture sweep calls literal_read only for type and kind; those values and the remaining directly constructed String, Uuid, Timestamp and None still have no admitted-package exact-value oracle. |
+| FND-002 | still-open | The new exhaustive comparator checks exact values for member and constraint kinds present in the 19 QSpec positive fixtures. At c5deb110, the set has no Element or Fairness member and exercises only 7 of 16 catalog constraint kinds. AC-8 requires every admitted production; missing kinds still lack a reader-backed exact-value check. |
+
+## Disposition Verdict
+
+**FAIL** — Both original coverage findings remain partially open on d7a0f813.

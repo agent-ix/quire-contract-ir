@@ -30,3 +30,13 @@ Frozen PR #741 head d7a4d88385a5788e7106fd9b6ecae43bc14f8d4d against merged main
 - **FR-019 (examined):** | `checked_package` (V2 typed read views) | types `CheckedBindingName`, `CheckedBindingNameKind`, `CheckedLiteralRead`, `CheckedLiteralValue`, `CheckedOperationRead`, `CheckedOperationMember`, `CheckedOperationConstraint`, `CheckedOperationLeaf`, `CheckedOperationLaw`, `CheckedOperationMode`, `CheckedOperationInterval`, `CheckedOperationRational`, `CheckedIntervalEnd`, `CheckedFairnessKind`, `CheckedFairnessGranularity`, `LawRole`, `OperationMemberKind`, `OperationConstraintKind`; methods `CheckedTerm::literal_read`, `CheckedBindingName::kind`, and `CheckedApplicationOperation::read` | FR-349 |
 
 Plan completion: not assessed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Verified remap on projected indexed field; focused producer and authenticated read test passed. |
+
+## Disposition Verdict
+
+**PASS** — The projected-ID finding is fixed on d7a0f813.

@@ -712,6 +712,7 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
     let mut constraints = 0;
     let mut leaves = 0;
     let mut literals = 0;
+    let mut literal_kinds = std::collections::BTreeSet::new();
     for name in POSITIVE_ALL {
         let document = proposal.join(positive_document(name, &documents));
         let (wire, admitted) =
@@ -741,6 +742,7 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
                         .expect("QSpec-admitted literal has a typed read");
                     assert_eq!(read.type_id, type_id);
                     assert_eq!(read.kind, *value_kind);
+                    literal_kinds.insert(read.kind.as_wire());
                     literals += 1;
                 }
                 CheckedTerm::Application {
@@ -762,6 +764,25 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
                 _ => {}
             }
         }
+        let encoded = encode_checked_package_v2(
+            admitted.name(),
+            admitted.lock(),
+            admitted.graph(),
+            CheckedPackageSourceCorrespondenceRef {
+                source_map: admitted.source_map(),
+                refinement_step_rows: admitted.refinement_step_rows(),
+            },
+            admitted.capability_report(),
+            admitted.diagnostics(),
+            quire_canonical::Limits::new(1 << 24),
+        )
+        .expect("QSpec admitted package encodes");
+        assert_eq!(
+            encoded,
+            quire_canonical::to_vec(&wire, quire_canonical::Limits::new(1 << 24))
+                .expect("QSpec canonical bytes"),
+            "{name}: exact published bytes"
+        );
     }
     assert!(operations > 0, "published fixtures contain applications");
     assert!(
@@ -770,10 +791,28 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
     );
     assert!(leaves > 0, "published fixtures contain structural leaves");
     assert!(literals > 0, "published fixtures contain literals");
+    assert_eq!(
+        literal_kinds,
+        [
+            "boolean",
+            "integer",
+            "rational",
+            "quantity",
+            "decimal",
+            "float32_bits",
+            "float64_bits",
+            "text",
+            "enum"
+        ]
+        .into_iter()
+        .collect(),
+        "published positives exercise every named QSpec literal kind"
+    );
 }
 
 fn assert_qspec_term_record(term: &CheckedTerm, wire: &Value, catalog: &Value) {
     match term {
+        CheckedTerm::Literal { .. } => assert_qspec_literal_read(term, wire),
         CheckedTerm::Application {
             operation,
             arguments,
@@ -801,6 +840,63 @@ fn assert_qspec_term_record(term: &CheckedTerm, wire: &Value, catalog: &Value) {
             assert_qspec_term_record(value, &wire["value"], catalog);
         }
         _ => {}
+    }
+}
+
+fn assert_qspec_literal_read(term: &CheckedTerm, wire: &Value) {
+    let read = term.literal_read().expect("admitted literal read");
+    assert_eq!(serde_json::to_value(read.type_id).unwrap(), wire["type"]);
+    assert_eq!(read.kind.as_wire(), wire["value_kind"].as_str().unwrap());
+    let value = &wire["value"];
+    match read.value {
+        CheckedLiteralValue::Boolean(actual) => assert_eq!(Some(actual), value.as_bool()),
+        CheckedLiteralValue::Integer(actual) => {
+            let expected = value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.as_number().expect("integer wire").to_string());
+            assert_eq!(actual.to_string(), expected);
+        }
+        CheckedLiteralValue::Rational {
+            numerator,
+            denominator,
+        } => {
+            let wire = value.as_str().expect("rational wire");
+            let (expected_numerator, expected_denominator) =
+                wire.split_once('/').unwrap_or((wire, "1"));
+            assert_eq!(numerator.to_string(), expected_numerator);
+            assert_eq!(denominator.to_string(), expected_denominator);
+        }
+        CheckedLiteralValue::Decimal { coefficient, scale } => {
+            let wire = value.as_str().expect("decimal wire");
+            let (whole, fraction) = wire.split_once('.').expect("decimal scale");
+            assert_eq!(scale, fraction.len());
+            let negative = whole.starts_with('-');
+            let digits = format!("{}{fraction}", whole.trim_start_matches('-'));
+            let magnitude = digits.trim_start_matches('0');
+            let expected = if magnitude.is_empty() {
+                "0".to_owned()
+            } else if negative {
+                format!("-{magnitude}")
+            } else {
+                magnitude.to_owned()
+            };
+            assert_eq!(coefficient.to_string(), expected);
+        }
+        CheckedLiteralValue::Float32Bits(actual) => {
+            assert_eq!(format!("{actual:08x}"), value.as_str().unwrap())
+        }
+        CheckedLiteralValue::Float64Bits(actual) => {
+            assert_eq!(format!("{actual:016x}"), value.as_str().unwrap())
+        }
+        CheckedLiteralValue::Text(actual)
+        | CheckedLiteralValue::String(actual)
+        | CheckedLiteralValue::Uuid(actual)
+        | CheckedLiteralValue::Enum(actual) => assert_eq!(actual, value.as_str().unwrap()),
+        CheckedLiteralValue::Timestamp(actual) => {
+            assert_eq!(actual.to_string(), value.as_str().unwrap())
+        }
+        CheckedLiteralValue::None => assert!(value.is_null()),
     }
 }
 
