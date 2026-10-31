@@ -324,6 +324,11 @@ pub fn index_fixture_node_ids(package: &mut Value) {
         {
             for segment in path {
                 if segment.is_object() {
+                    if segment.as_object().is_some_and(|object| {
+                        object.len() == 1 && object.get("node").and_then(Value::as_u64).is_some()
+                    }) {
+                        continue;
+                    }
                     let index = ids
                         .iter()
                         .position(|id| id == segment)
