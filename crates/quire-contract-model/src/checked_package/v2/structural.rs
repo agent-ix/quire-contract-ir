@@ -680,11 +680,7 @@ pub(super) fn validate_selected_type_bounds(
     terms: &[Option<CheckedTerm>],
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
 ) -> Result<(), ValidationFailure> {
-    let index = structural_keys
-        .iter()
-        .enumerate()
-        .map(|(position, key)| (key.as_ref(), position))
-        .collect::<BTreeMap<_, _>>();
+    let mut selected = Vec::new();
     for model in models {
         for bounds in model.value_types.values().flatten() {
             let ValueBounds::Integer(expected) = bounds else {
@@ -693,35 +689,62 @@ pub(super) fn validate_selected_type_bounds(
             let Some(id) = (MemberType::IntRange(*expected)).node_id(&model.checked_package) else {
                 continue;
             };
-            let Some(&position) = index.get(&id) else {
-                continue;
-            };
-            let actual = terms
-                .get(position)
-                .and_then(Option::as_ref)
-                .and_then(typed_aggregate)
-                .and_then(|members| {
-                    let [minimum, maximum] = members else {
-                        return None;
-                    };
-                    let bound = |term, name| match typed_binding(term, name)? {
-                        CheckedTerm::Literal {
-                            value_kind: LiteralKind::Integer,
-                            value,
-                            ..
-                        } => value.as_str()?.parse::<i128>().ok(),
-                        _ => None,
-                    };
-                    Some((bound(minimum, "min")?, bound(maximum, "max")?))
-                });
-            if actual != Some((expected.lower, expected.upper)) {
-                return Err(ValidationFailure::refused_at(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    node_pointer(position).key("node_id"),
-                    Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
-                    id,
-                ));
-            }
+            selected.push((*expected, std::sync::Arc::new(id)));
+        }
+    }
+    if selected.is_empty() {
+        return Ok(());
+    }
+
+    // Tokens compare one path segment at a time. Comparing every rebuilt key
+    // structurally would repeatedly descend a long operand chain.
+    let mut interner = super::node_index::StructuralInterner::new();
+    let graph_tokens = interner
+        .tokens(structural_keys)
+        .expect("reader-rebuilt graph keys contain only resolved operands");
+    let selected_keys = selected
+        .iter()
+        .map(|(_, id)| std::sync::Arc::clone(id))
+        .collect::<Vec<_>>();
+    let selected_tokens = interner
+        .tokens(&selected_keys)
+        .expect("selected member keys contain only resolved operands");
+    let mut index = Vec::new();
+    for (position, token) in graph_tokens.into_iter().enumerate() {
+        if token >= index.len() {
+            index.resize(token + 1, None);
+        }
+        index[token] = Some(position);
+    }
+    for ((expected, id), token) in selected.into_iter().zip(selected_tokens) {
+        let Some(&Some(position)) = index.get(token) else {
+            continue;
+        };
+        let actual = terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(typed_aggregate)
+            .and_then(|members| {
+                let [minimum, maximum] = members else {
+                    return None;
+                };
+                let bound = |term, name| match typed_binding(term, name)? {
+                    CheckedTerm::Literal {
+                        value_kind: LiteralKind::Integer,
+                        value,
+                        ..
+                    } => value.as_str()?.parse::<i128>().ok(),
+                    _ => None,
+                };
+                Some((bound(minimum, "min")?, bound(maximum, "max")?))
+            });
+        if actual != Some((expected.lower, expected.upper)) {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                node_pointer(position).key("node_id"),
+                Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
+                id.as_ref().clone(),
+            ));
         }
     }
     Ok(())
