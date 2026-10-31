@@ -3,9 +3,14 @@
 
 //! QSpec NI-01..NI-12 indexed node-path vectors through the production V2 reader.
 
-use super::{code_word, fixtures_dir, proposal_dir_of, read_json, read_package};
+use super::{
+    code_word, fixtures_dir, proposal_dir_of, read_json, read_package,
+    read_package_with_document_and_extensions_at_limit, DOMAIN_DOCUMENT,
+};
 use ix_trace_rs::trace;
-use quire_contract_model::CheckedPackageV2ReadResult;
+use quire_contract_model::{
+    CheckedNodePathSegment, CheckedPackageReadLimits, CheckedPackageV2ReadResult,
+};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
@@ -140,4 +145,95 @@ fn imported_index_resolves_in_the_importing_graph() {
         importing_key, library_key,
         "NI-14 resolves against importer graph"
     );
+}
+
+/// Trace: FR-038-AC-380, FR-038-AC-381
+#[trace("TC-048", "FR-038-AC-380", "FR-038-AC-381")]
+#[test]
+fn long_index_chain_admits_on_a_small_stack_with_shared_keys() {
+    const APPLICATIONS: usize = 100_000;
+    let fixtures = fixtures_dir();
+    let mut package = read_json(&fixtures.join("positive-operation-identities.json"))
+        .expect("published operation-identity fixture");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published nodes");
+    let integer = nodes[16].clone();
+    let application_template = nodes[35].clone();
+    assert_eq!(integer["semantic_form"], "integer");
+    assert_eq!(
+        application_template["body"]["operation"]["identity"],
+        "quire.op.integer.add"
+    );
+    let sources = package["source_map"]
+        .as_array()
+        .expect("published source map");
+    let integer_source = sources[16].clone();
+    let application_source = sources[35].clone();
+    package["lock"]["definition_selections"] = json!([]);
+    let mut chain = Vec::with_capacity(APPLICATIONS + 1);
+    let mut source_map = Vec::with_capacity(APPLICATIONS + 1);
+    let mut previous = integer["node_id"].clone();
+    chain.push(integer);
+    source_map.push(integer_source);
+    for index in 1..=APPLICATIONS {
+        let mut node = application_template.clone();
+        node["node_id"]["path"] = json!(["expression", "binary", {"node": index - 1}]);
+        if index > 1 {
+            node["body"]["arguments"][0] = json!({"term":"reference", "target":previous});
+            node["dependencies"] = json!([previous]);
+        }
+        let id = node["node_id"].clone();
+        let id_bytes = serde_json::to_vec(&id).expect("fixed-depth id");
+        assert!(id_bytes.len() <= 200, "index {index}: node id byte bound");
+        let mut entry = application_source.clone();
+        entry["node_id"] = id.clone();
+        chain.push(node);
+        source_map.push(entry);
+        previous = id;
+    }
+    package["semantic_graph"]["nodes"] = Value::Array(chain);
+    package["source_map"] = Value::Array(source_map);
+    let bytes = serde_json::to_vec(&package).expect("fixed-depth package");
+    let limits = CheckedPackageReadLimits {
+        bytes: u64::try_from(bytes.len()).expect("package byte count") + 1024,
+        nodes: u64::try_from(APPLICATIONS + 1).expect("node count"),
+        edges: u64::try_from(APPLICATIONS).expect("edge count"),
+        occurrences: u64::try_from((APPLICATIONS + 1) * 2).expect("occurrence count"),
+        diagnostics: 1,
+        work: 100_000_000,
+    };
+    let document = proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT);
+    let reading = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || {
+            read_package_with_document_and_extensions_at_limit(
+                &package,
+                "NI-13 deep index chain",
+                &document,
+                true,
+                limits,
+            )
+        })
+        .expect("small-stack reader thread")
+        .join()
+        .expect("small-stack reader did not panic")
+        .expect("reader evidence");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = reading else {
+        panic!("NI-13 must admit: {reading:?}");
+    };
+    assert_eq!(admitted.graph().nodes.len(), APPLICATIONS + 1);
+    for index in 1..=APPLICATIONS {
+        let current = admitted.structural_key_at(index).expect("chain key");
+        let prior = admitted
+            .structural_key_at(index - 1)
+            .expect("predecessor key");
+        let Some(CheckedNodePathSegment::Node(last)) = current.path.last() else {
+            panic!("index {index}: last key segment is not resolved");
+        };
+        assert!(
+            std::ptr::eq(last.as_ref(), prior),
+            "index {index}: key is shared"
+        );
+    }
 }
