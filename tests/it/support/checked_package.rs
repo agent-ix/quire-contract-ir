@@ -276,6 +276,58 @@ pub fn structural_id(package: &str, path: Vec<Value>, ordinal: u64) -> Value {
     json!({"package": package, "path": path, "ordinal": ordinal})
 }
 
+/// Rewrites authored structural fixture identities into the V2 graph-local
+/// index wire. Every nested operand must name a node in this document's graph;
+/// a missing fixture node is an error in the test construction.
+pub fn index_fixture_node_ids(package: &mut Value) {
+    let ids = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("semantic graph nodes")
+        .iter()
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+
+    fn rewrite(value: &mut Value, ids: &[Value]) {
+        if let Some(path) = value
+            .as_object_mut()
+            .filter(|object| {
+                object.len() == 3
+                    && object.contains_key("package")
+                    && object.contains_key("path")
+                    && object.contains_key("ordinal")
+            })
+            .and_then(|object| object.get_mut("path"))
+            .and_then(Value::as_array_mut)
+        {
+            for segment in path {
+                if segment.is_object() {
+                    let index = ids
+                        .iter()
+                        .position(|id| id == segment)
+                        .expect("nested fixture operand must be a graph node");
+                    *segment = json!({"node": index});
+                }
+            }
+        }
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    rewrite(item, ids);
+                }
+            }
+            Value::Object(object) => {
+                for member in object.values_mut() {
+                    rewrite(member, ids);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    rewrite(package, &ids);
+    refresh_identity(package);
+}
+
 /// Renames one structural identity throughout a synthetic package, including
 /// body references, dependency edges, nested paths and source-map entries.
 pub fn reassign_node_id(package: &mut Value, old: &Value, fresh: &Value) {
