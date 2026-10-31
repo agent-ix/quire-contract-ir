@@ -104,7 +104,7 @@ use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::{
-    validate_derived_type_shapes, validate_selected_type_bounds, validate_structural_nodes,
+    validate_derived_type_shapes, validate_selected_type_bounds,
 };
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
@@ -2696,7 +2696,13 @@ fn validate_graph(
     // so an entry, anchor or clause reference naming no node is the step's
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
-    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index, structural_keys)?;
+    structural::validate_structural_nodes_with_keys(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+    )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index)?;
     validate_selected_type_bounds(models, &terms, &index)?;

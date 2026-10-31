@@ -109,6 +109,63 @@ fn remap_graph_indexes(value: &mut Value, old_to_new: &[usize]) -> usize {
     }
 }
 
+/// Trace: FR-038-AC-376, FR-038-AC-96
+#[trace("TC-048", "FR-038-AC-376", "FR-038-AC-96")]
+#[test]
+fn graph_reindexing_preserves_structural_dependency_order() {
+    let fixtures = fixtures_dir();
+    let mut package = read_json(&fixtures.join("positive-operation-identities.json"))
+        .expect("published operation fixture");
+    let count = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published graph")
+        .len();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published graph")
+        .reverse();
+    assert!(reverse_graph_indexes(&mut package, count) > 0);
+    let result = read_package(&package).expect("permuted package read");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("structurally ordered dependency graph must admit: {result:?}");
+    };
+    let mut opposed_wire_order = None;
+    for (position, node) in admitted.graph().nodes.iter().enumerate() {
+        let resolved = node
+            .dependencies
+            .iter()
+            .map(|id| admitted.structural_key(id).expect("local dependency key"))
+            .collect::<Vec<_>>();
+        assert!(
+            resolved.windows(2).all(|pair| pair[0] < pair[1]),
+            "node {position}: resolved dependency order"
+        );
+        if let Some(pair_index) = node
+            .dependencies
+            .windows(2)
+            .position(|pair| pair[0] > pair[1])
+        {
+            opposed_wire_order = Some((position, pair_index));
+        }
+    }
+    let (position, pair_index) =
+        opposed_wire_order.expect("permutation opposes wire and structural orders");
+    let mut unsorted = package;
+    unsorted["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("multi-dependency node")
+        .swap(pair_index, pair_index + 1);
+    let result = read_package(&unsorted).expect("unsorted package read");
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("structurally unsorted dependencies must refuse: {result:?}");
+    };
+    assert_eq!(code_word(refusal.code), "invalid_semantic_graph");
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{position}/dependencies"))
+    );
+}
+
 /// Trace: FR-038-AC-379
 #[trace("TC-048", "FR-038-AC-379")]
 #[test]

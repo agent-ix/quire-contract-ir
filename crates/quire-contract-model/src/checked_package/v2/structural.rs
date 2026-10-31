@@ -331,6 +331,15 @@ pub(super) fn validate_structural_nodes(
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[])
+}
+
+pub(super) fn validate_structural_nodes_with_keys(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<super::CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
