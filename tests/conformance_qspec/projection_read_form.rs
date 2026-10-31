@@ -8,8 +8,9 @@ use super::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedFieldReadForm, CheckedOperationMember, CheckedPackageRefusalCode,
-    CheckedPackageV2ReadResult, CheckedTerm,
+    encode_checked_package_v2, CheckedFieldReadForm, CheckedOperationMember,
+    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2ReadResult,
+    CheckedTerm,
 };
 use serde_json::Value;
 
@@ -125,7 +126,20 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                     }
                 });
                 assert_eq!(found, Some(expected), "{name}: typed read form");
-                let encoded = serde_json::to_value(&*package).expect("serialize admitted package");
+                let encoded = encode_checked_package_v2(
+                    package.name(),
+                    package.lock(),
+                    package.graph(),
+                    CheckedPackageSourceCorrespondenceRef {
+                        source_map: package.source_map(),
+                        refinement_step_rows: package.refinement_step_rows(),
+                    },
+                    package.capability_report(),
+                    package.diagnostics(),
+                    quire_canonical::Limits::new(u64::MAX),
+                )
+                .expect("encode admitted package");
+                let encoded: Value = serde_json::from_slice(&encoded).expect("encoded JSON");
                 assert_eq!(
                     encoded["semantic_graph"]["nodes"], wire["semantic_graph"]["nodes"],
                     "{name}: graph round trip"
