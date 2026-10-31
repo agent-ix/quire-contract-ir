@@ -661,6 +661,20 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
     diagnostics: &CheckedDiagnosticsV2,
     limits: quire_canonical::Limits,
 ) -> Result<Vec<u8>, quire_canonical::Error> {
+    if semantic_graph.nodes.iter().any(|node| {
+        [&node.node_id, &node.semantic_type]
+            .into_iter()
+            .chain(node.dependencies.iter())
+            .any(|id| {
+                id.path
+                    .iter()
+                    .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
+            })
+    }) {
+        return Err(quire_canonical::Error::Internal {
+            invariant: "checked-package V2 paths require graph-local operand indices",
+        });
+    }
     let envelope = CheckedPackageEnvelope {
         contract_version: CHECKED_PACKAGE_V2,
         name,
@@ -671,7 +685,13 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         capability_report,
         diagnostics,
     };
-    quire_canonical::to_vec(&envelope, limits)
+    let bytes = quire_canonical::to_vec(&envelope, limits)?;
+    if node_index::contains_inline_node_path(&bytes) {
+        return Err(quire_canonical::Error::Internal {
+            invariant: "checked-package V2 paths cannot embed node IDs",
+        });
+    }
+    Ok(bytes)
 }
 
 /// The closed result of reading untrusted bytes as V2.
@@ -1233,8 +1253,9 @@ fn validate(
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
-    flat_wire::check(wire)?;
+    let flat_kinds = flat_wire::check(wire)?;
     let structural_keys = node_index::check(bytes, wire, evidence)?;
+    flat_wire::check_interval_bounds(wire, &flat_kinds)?;
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
         models,

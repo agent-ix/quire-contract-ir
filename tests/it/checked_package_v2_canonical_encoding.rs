@@ -15,7 +15,7 @@ use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCapability, CheckedCapabilityDisposition,
     CheckedDependencySelection, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeId,
-    CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedNodePathSegment, CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSelectionRole,
     CheckedSemanticGraphV2, CheckedSemanticNodeV2, CheckedSourceMapEntry, CheckedTerm,
 };
@@ -26,6 +26,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// The byte ceiling of every encode over an in-repo fixture.
 const FIXTURE_CEILING: u64 = 1 << 24;
@@ -140,6 +141,81 @@ fn graph_of(package: &Value) -> CheckedSemanticGraphV2 {
 
 fn raw_graph_of(package: &Value) -> CheckedSemanticGraphV2<Value> {
     typed(&package["semantic_graph"])
+}
+
+/// The envelope writes graph-local index operands, and refuses a structural
+/// operand even though generic node-ID encoding retains that preimage form.
+#[trace("TC-048", "FR-038-AC-377")]
+#[test]
+fn tc_048_envelope_writes_index_and_refuses_inline_node_path() {
+    let package = v2_all_families();
+    let lock: CheckedPackageLockV2 = typed(&package["lock"]);
+    let mut graph = graph_of(&package);
+    let source_map: Vec<CheckedSourceMapEntry> = typed_each(&package["source_map"]);
+    let capabilities: Vec<CheckedCapability> = typed_each(&package["capability_report"]);
+    let diagnostics: CheckedDiagnosticsV2 = typed(&package["diagnostics"]);
+    let encode = |graph: &CheckedSemanticGraphV2| {
+        encode_checked_package_v2(
+            package["name"].as_str().expect("name"),
+            &lock,
+            graph,
+            quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+                source_map: &source_map,
+                refinement_step_rows: None,
+            },
+            &capabilities,
+            &diagnostics,
+            Limits::new(FIXTURE_CEILING),
+        )
+    };
+
+    graph.nodes[0]
+        .node_id
+        .path
+        .push(CheckedNodePathSegment::Index(0));
+    let encoded = encode(&graph).expect("index operand encodes");
+    assert!(encoded
+        .windows(b"{\"node\":0}".len())
+        .any(|part| part == b"{\"node\":0}"));
+
+    let structural = Arc::new(graph.nodes[1].node_id.clone());
+    graph.nodes[0].node_id.path.pop();
+    graph.nodes[0]
+        .node_id
+        .path
+        .push(CheckedNodePathSegment::Node(structural));
+    assert!(matches!(encode(&graph), Err(Error::Internal { .. })));
+}
+
+/// A dependency-reference node is declared, so even a syntactically valid
+/// graph-local operand index cannot be published in that field.
+#[trace("TC-048", "FR-038-AC-377")]
+#[test]
+fn tc_048_envelope_refuses_indexed_dependency_reference_node() {
+    let package = v2_all_families();
+    let lock: CheckedPackageLockV2 = typed(&package["lock"]);
+    let mut graph = raw_graph_of(&package);
+    let source_map: Vec<CheckedSourceMapEntry> = typed_each(&package["source_map"]);
+    let capabilities: Vec<CheckedCapability> = typed_each(&package["capability_report"]);
+    let diagnostics: CheckedDiagnosticsV2 = typed(&package["diagnostics"]);
+    graph.nodes[0].body = json!({
+        "term": "dependency_reference",
+        "package": "acme/library",
+        "node": {"package": "acme/library", "path": ["owned", {"node": 0}], "ordinal": 0}
+    });
+    let result = encode_checked_package_v2(
+        package["name"].as_str().expect("name"),
+        &lock,
+        &graph,
+        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+            source_map: &source_map,
+            refinement_step_rows: None,
+        },
+        &capabilities,
+        &diagnostics,
+        Limits::new(FIXTURE_CEILING),
+    );
+    assert!(matches!(result, Err(Error::Internal { .. })));
 }
 
 // ---------------------------------------------------------------------------

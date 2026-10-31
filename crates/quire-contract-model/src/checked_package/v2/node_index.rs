@@ -59,6 +59,198 @@ fn array_items(raw: &[u8]) -> Option<Vec<&[u8]>> {
     Some(items)
 }
 
+/// Detect a structural operand embedded in an encoded checked-package path.
+/// The generic `CheckedNodeId` encoder still writes such values for FR-201
+/// structural preimages; the V2 package envelope has the stricter index wire.
+pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Key {
+        Other,
+        Package,
+        Path,
+        Ordinal,
+        Node,
+        Term,
+    }
+    enum Frame {
+        Object {
+            start: usize,
+            members: usize,
+            keys: u8,
+            current: Key,
+            path_bad: bool,
+            path_index: bool,
+            term_dependency_reference: bool,
+            node_index: bool,
+        },
+        Array {
+            path: bool,
+            bad: bool,
+            index: bool,
+        },
+    }
+
+    let mut stack = Vec::<Frame>::new();
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        match byte {
+            b'{' => stack.push(Frame::Object {
+                start: at,
+                members: 0,
+                keys: 0,
+                current: Key::Other,
+                path_bad: false,
+                path_index: false,
+                term_dependency_reference: false,
+                node_index: false,
+            }),
+            b'[' => {
+                if let Some(Frame::Array {
+                    path: true, bad, ..
+                }) = stack.last_mut()
+                {
+                    *bad = true;
+                }
+                let path = matches!(
+                    stack.last(),
+                    Some(Frame::Object {
+                        current: Key::Path,
+                        ..
+                    })
+                );
+                stack.push(Frame::Array {
+                    path,
+                    bad: false,
+                    index: false,
+                });
+            }
+            b'"' => {
+                let start = at + 1;
+                at = start;
+                while let Some(&part) = bytes.get(at) {
+                    if part == b'\\' {
+                        at += 2;
+                    } else if part == b'"' {
+                        break;
+                    } else {
+                        at += 1;
+                    }
+                }
+                if bytes.get(at + 1) == Some(&b':') {
+                    if let Some(Frame::Object {
+                        members,
+                        keys,
+                        current,
+                        ..
+                    }) = stack.last_mut()
+                    {
+                        *members += 1;
+                        *current = match bytes.get(start..at) {
+                            Some(b"package") => Key::Package,
+                            Some(b"path") => Key::Path,
+                            Some(b"ordinal") => Key::Ordinal,
+                            Some(b"node") => Key::Node,
+                            Some(b"term") => Key::Term,
+                            _ => Key::Other,
+                        };
+                        *keys |= match current {
+                            Key::Package => 1,
+                            Key::Path => 2,
+                            Key::Ordinal => 4,
+                            Key::Node => 8,
+                            Key::Term => 0,
+                            Key::Other => 0,
+                        };
+                    }
+                } else if let Some(Frame::Object {
+                    current: Key::Term,
+                    term_dependency_reference,
+                    ..
+                }) = stack.last_mut()
+                {
+                    if bytes.get(start..at) == Some(b"dependency_reference") {
+                        *term_dependency_reference = true;
+                    }
+                }
+            }
+            b'}' => {
+                let Some(Frame::Object {
+                    start,
+                    members,
+                    keys,
+                    path_bad,
+                    path_index,
+                    term_dependency_reference,
+                    node_index,
+                    ..
+                }) = stack.pop()
+                else {
+                    return true;
+                };
+                if members == 3 && keys == 7 && path_bad {
+                    return true;
+                }
+                if term_dependency_reference && node_index {
+                    return true;
+                }
+                let is_node_id = members == 3 && keys == 7;
+                if let Some(Frame::Object {
+                    current: Key::Node,
+                    node_index,
+                    ..
+                }) = stack.last_mut()
+                {
+                    if is_node_id {
+                        *node_index = path_index;
+                    }
+                }
+                if let Some(Frame::Array {
+                    path: true,
+                    bad,
+                    index,
+                }) = stack.last_mut()
+                {
+                    let is_index = members == 1
+                        && keys == 8
+                        && bytes
+                            .get(start + b"{\"node\":".len()..at)
+                            .and_then(|raw| std::str::from_utf8(raw).ok())
+                            .and_then(|raw| raw.parse::<u64>().ok())
+                            .is_some_and(|index| index <= 9_007_199_254_740_991);
+                    *bad |= !is_index;
+                    *index |= is_index;
+                }
+            }
+            b']' => {
+                let Some(Frame::Array { bad, index, .. }) = stack.pop() else {
+                    return true;
+                };
+                if let Some(Frame::Object {
+                    current: Key::Path,
+                    path_bad,
+                    path_index,
+                    ..
+                }) = stack.last_mut()
+                {
+                    *path_bad |= bad;
+                    *path_index |= index;
+                }
+            }
+            b't' | b'f' | b'n' | b'-' | b'0'..=b'9' => {
+                if let Some(Frame::Array {
+                    path: true, bad, ..
+                }) = stack.last_mut()
+                {
+                    *bad = true;
+                }
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    !stack.is_empty()
+}
+
 /// Check every graph-local index before any graph meaning check, then reject
 /// the first own-path edge in a cycle by holder and path position.
 pub(super) fn check(
@@ -283,4 +475,26 @@ pub(super) fn check(
         .into_iter()
         .map(|key| key.expect("each graph node key built"))
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contains_inline_node_path;
+
+    /// Trace: TC-048, FR-038-AC-74, FR-038-AC-377.
+    #[test]
+    fn envelope_scan_distinguishes_index_from_inline_and_declared_reference() {
+        assert!(!contains_inline_node_path(
+            br#"{"node_id":{"ordinal":0,"package":"p","path":["x",{"node":1}]}}"#
+        ));
+        assert!(contains_inline_node_path(
+            br#"{"node_id":{"ordinal":0,"package":"p","path":["x",{"ordinal":0,"package":"p","path":["y"]}]}}"#
+        ));
+        assert!(contains_inline_node_path(
+            br#"{"body":{"node":{"ordinal":0,"package":"p","path":[{"node":1}]},"package":"q","term":"dependency_reference"}}"#
+        ));
+        assert!(!contains_inline_node_path(
+            br#"{"details":{"ordinal":0,"package":"p","path":["x"]}}"#
+        ));
+    }
 }
