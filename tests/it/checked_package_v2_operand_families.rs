@@ -1300,7 +1300,7 @@ fn position_and_element_member_results_do_not_require_declaration_equality() {
         operation(
             "quire.op.tuple.project",
             Value::Null,
-            json!({"kind": "position", "declaration": node_id(&tuple), "index": 0}),
+            json!({"kind": "position", "declaration": node_id(&tuple), "position": 0}),
         ),
         &integer,
         vec![reference(&tuple)],

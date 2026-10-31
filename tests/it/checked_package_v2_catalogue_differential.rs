@@ -587,7 +587,7 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
                 "query",
                 identity,
                 Value::Null,
-                json!({"kind":"position", "declaration":node_id(&tuple), "index":0}),
+                json!({"kind":"position", "declaration":node_id(&tuple), "position":0}),
                 &i,
                 vec![reference(&tuple)],
             );
@@ -944,10 +944,10 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
     assert_eq!(entries.len(), 160, "catalogue entry count changed");
     assert_eq!(
         admitted.len(),
-        56,
-        "56 of 160 entries have behavioral controls"
+        57,
+        "57 of 160 entries have behavioral controls"
     );
-    assert_eq!(unavailable.len(), 104, "unavailable fixture count changed");
+    assert_eq!(unavailable.len(), 103, "unavailable fixture count changed");
     assert_eq!(
         unavailable_classes,
         BTreeMap::from([
@@ -962,7 +962,7 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
             ("requires selected model declarations not built here", 3),
             (
                 "requires typed operands or member fixtures not built here",
-                61
+                60
             ),
         ])
     );
@@ -1069,7 +1069,7 @@ fn tc_048_member_kind_mismatch_precedes_member_result_check() {
         .len()
         - 1;
     package["semantic_graph"]["nodes"][position]["body"]["operation"]["member"] = json!({"kind":"position", "declaration":node_id("scalar_type/integer"),
-            "index":0});
+            "position":0});
     let wrong = "scalar_type/rational";
     package["semantic_graph"]["nodes"][position]["body"]["result_type"] = node_id(wrong);
     package["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(wrong);
@@ -1187,7 +1187,6 @@ fn expected_unavailable() -> BTreeSet<String> {
         "quire.op.quantity.ne",
         "quire.op.quantity.pow",
         "quire.op.quantity.sub",
-        "quire.op.reference.eq",
         "quire.op.reference.ne",
         "quire.op.state.clause",
         "quire.op.state.pre",
