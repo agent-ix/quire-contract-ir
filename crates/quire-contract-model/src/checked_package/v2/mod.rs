@@ -3780,10 +3780,10 @@ mod tests {
         std::thread::Builder::new()
             .stack_size(512 * 1024)
             .spawn(|| {
-                const DEPTH: usize = 100_000;
+                const CHAIN_LEN: usize = 100_000;
                 let mut key = std::sync::Arc::new(super::test_support::node_id('a'));
                 let mut keys = vec![std::sync::Arc::clone(&key)];
-                for ordinal in 1..=DEPTH {
+                for ordinal in 1..=CHAIN_LEN {
                     key = std::sync::Arc::new(super::CheckedNodeId {
                         package: "test".into(),
                         path: vec![super::CheckedNodePathSegment::Node(key)],
@@ -3793,9 +3793,9 @@ mod tests {
                 }
 
                 let node_debug = format!("{key:?}");
-                assert_eq!(node_debug.matches("package: ").count(), DEPTH + 1);
-                assert_eq!(node_debug.matches("Node(#").count(), DEPTH);
-                assert!(node_debug.len() < DEPTH * 100);
+                assert_eq!(node_debug.matches("package: ").count(), CHAIN_LEN + 1);
+                assert_eq!(node_debug.matches("Node(#").count(), CHAIN_LEN);
+                assert!(node_debug.len() < CHAIN_LEN * 100);
                 drop(node_debug);
                 drop(key);
 
@@ -3814,10 +3814,10 @@ mod tests {
                     closure_index: Default::default(),
                 };
                 let package_debug = format!("{package:?}");
-                assert_eq!(package_debug.matches("package: ").count(), DEPTH + 1);
-                assert_eq!(package_debug.matches("Node(#").count(), DEPTH);
+                assert_eq!(package_debug.matches("package: ").count(), CHAIN_LEN + 1);
+                assert_eq!(package_debug.matches("Node(#").count(), CHAIN_LEN);
                 assert!(package_debug.contains("roots: [#0, #1, #2"));
-                assert!(package_debug.len() < DEPTH * 110);
+                assert!(package_debug.len() < CHAIN_LEN * 110);
             })
             .expect("small-stack thread spawns")
             .join()
