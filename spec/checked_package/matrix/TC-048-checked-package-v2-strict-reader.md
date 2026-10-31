@@ -1205,7 +1205,7 @@ For each positive fixture, encode the complete V2 envelope, graph, lock, source-
 For FR-038-AC-76, compare one independent canonical-byte oracle per public
 `CheckedPackageLockV2`, `CheckedSourceMapEntry`, `CheckedCapability`,
 `CheckedNodeId` and `CheckedDiagnosticsV2` value from every in-repo positive
-fixture. The `CheckedNodeId` oracle includes a nested structural id in `path`
+fixture. The `CheckedNodeId` oracle includes an operand index segment in `path`
 and its exact producer-assigned ordinal; diagnostics include nested object
 and array `details` and non-empty `loci`. Do not construct or encode the
 removed `CheckedSemanticId` (FR-038-AC-80).
