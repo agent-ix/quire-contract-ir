@@ -14,7 +14,7 @@ relationships:
 
 Verify FR-035-AC-2, FR-035-AC-6 through FR-035-AC-8, FR-035-AC-10, FR-035-AC-11, FR-035-AC-13 through FR-035-AC-18,
 and planned FR-035-AC-23 through FR-035-AC-30,
-and planned FR-035-AC-31 through FR-035-AC-34,
+and planned FR-035-AC-31 through FR-035-AC-35,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
@@ -83,7 +83,11 @@ Each case admits no `ContractPackageV1`.
 
 For FR-035-AC-32 through FR-035-AC-34, lower an admitted source with an absent
 derived requested key containing an operand and an empty output graph. Require
-its exact source structural key and operand closure in `source_keys`; the
+an entry with the same rebuilt structural key as the source id and its operand
+closure in `source_keys`; source-table-local indexes may differ from the source
+graph's indexes. Add an unused entry with a unique rebuilt key and require the
+reader to validate it while preserving admission; a malformed unused entry
+still refuses under the same rules. The
 requested item, `invalid_input` accounting id and requested-item source-map id
 must each be a source-key reference, and requested occurrences remain empty.
 Add a represented lowered root and a defensive `invalid_body` or
@@ -95,6 +99,22 @@ the accounting/request bijection and each refusal's requested key. Permute
 `source_keys` and output nodes, rewrite all corresponding references, and
 require identical joins and refusal pointers. An unequal rebuilt key refuses
 at its applicable FR-330 join.
+
+For FR-035-AC-35, obtain the typed source-frame structural key both from the
+admitted source graph and from the V1 `source_keys` table and require equality
+for one requested root, one non-`lowered` request, one source node reached only
+through another root, and one absent derived key. Query reached closure with
+each key. The first returns the exact output root and closure; the others
+return their respective non-`lowered` disposition or typed absence, without a
+fabricated closure. Reorder the output graph and rewrite its index segments
+while leaving the source-key table intact; then reorder the source-key table
+and rewrite its references while leaving the output graph intact. In each
+permutation the query still selects the same request, output root, reached
+members, bound and claim subsets, and source-map correspondence. Choose a
+raw indexed `CheckedNodeId` whose identical bytes occur in the two frames but
+whose rebuilt keys differ; passing the typed source key must not select the
+output node or its closure. An unresolved or malformed id cannot be converted
+into a typed source key, and the query accepts no unscoped raw id.
 
 Mutate one otherwise valid canonical package per reader-order case: an
 out-of-range output graph index segment, an out-of-range `source_keys` index
@@ -189,6 +209,9 @@ and occurrence id uses its assigned frame; output ids use only the output graph.
 The reader reports the first index defect before source-map and accounting
 joins, then compares rebuilt structural keys so permitted table reorderings
 preserve admission and refusal pointers.
+The reached-closure query likewise selects by source structural key, translates
+to the equal output key only for a lowered record, and remains unchanged by
+each independent frame permutation, including a raw-id collision.
 The two causeless nested reader codes admit with no cause and refuse a present
 cause as `invalid_package`/`invalid-value` at their own `/refusal/cause` pointer.
 The lowered-root view contains exactly the key-ordered local reached closure,
@@ -248,5 +271,5 @@ implementation still contain an old `identity` member and omit the new
 `source_keys` frame. The current six-member FR-330 contract requires code and
 test changes. Existing unaffected node, source-map, limit and typed-view
 controls retain their prior evidence only where their assertions do not depend
-on the retired identity member or absent source-key frame. AC-31 through AC-34
+on the retired identity member or absent source-key frame. AC-31 through AC-35
 remain planned until their reader and lowerer controls execute.

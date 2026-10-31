@@ -59,7 +59,7 @@ requested id, refusal requested id, accounting id or payload id, and source-map
 occurrence id is the closed `{"source_key": i}` reference to that table. Output
 node ids and `source_map.nodes[].node_id` instead use the output graph's index
 frame. Equality between those frames is by rebuilt structural key, not the
-integer positions; neither frame resolves through a selected source package.
+integer positions; neither serialized frame resolves through a selected source package.
 
 `feature_accounting` has exactly one record for each requested item, drawn
 from the closed seven-member vocabulary FR-038 declares: `lowered`,
@@ -117,7 +117,20 @@ refusal for one item SHALL leave independent sibling dispositions unchanged. If 
 every requested record is `failed`, because no package can carry a lowered
 node (FR-038-AC-95).
 
-For an exact `CheckedNodeId` that has a `lowered` feature-accounting record,
+The public reached-closure query SHALL accept a typed source-frame structural
+key, not an unscoped `CheckedNodeId` or an output-graph index. Contract IR SHALL
+provide a way to construct that key by rebuilding a source `node_id` against
+the admitted checked-package graph to which it belongs, including a derived
+requested id absent from that graph, and a way to read one from a V1
+`source_keys` entry. Its value is the rebuilt structural key, not the entry's
+integer position; a malformed or unresolved id cannot construct it. The
+query SHALL find a request's accounting record by that source key. For a
+`lowered` record it SHALL translate to the equal rebuilt output-root key and
+then traverse the output graph; it SHALL NOT use the source `node_id`'s raw
+index segments as output-graph indexes or accept an output-frame id as a
+source query without explicit conversion through the owning graph.
+
+For a typed source-frame key that has a `lowered` feature-accounting record,
 the admitted `ContractPackageV1` SHALL expose a read-only typed view of that
 root and its local reached closure. The view SHALL include the root and every
 local node reachable through `semantic_type`, declared `dependencies`, and
@@ -134,7 +147,7 @@ subsets, including an empty subset when that class has no reached member. Each
 subset SHALL contain exactly the keys derived by Contract IR's existing
 lowering classification in typed-key order; consumers SHALL NOT infer either
 subset from node tags.
-For an exact requested key with a non-`lowered` record, the view SHALL return
+For an exact typed source-frame key with a non-`lowered` record, the view SHALL return
 that typed disposition. When a key has no lowered request record, the view SHALL
 return typed absence, including for an absent key or a node present only because
 another root reaches it. Neither case SHALL synthesize a root closure.
@@ -312,9 +325,10 @@ admit no `ContractPackageV1`.
 | FR-035-AC-29 | PLANNED (IR-1104). For a canonical V1 package admitted by plain `read`, querying an `unsupported` accounting index returns typed `NotAdmitted` for the requested-root kind, including when the requested key is represented through another root. A non-`unsupported` or out-of-range index returns typed absence, distinct from `NotAdmitted`. Neither query changes the existing `unsupported` record's first-reachable `unsupported_node_id`/`node_tag` or an independent sibling's result. | Test (TC-047) |
 | FR-035-AC-30 | PLANNED (IR-1104). Producer and authenticated reader requested-root-kind queries change none of the six FR-330 wire members, the closed unsupported payload or canonical bytes. Fairness, formula and temporal-clause requests remain distinguishable through the typed view. | Test (TC-047) |
 | FR-035-AC-31 | PLANNED (IR-1186). An otherwise valid canonical V1 package has exactly `contract_version`, `package`, `semantic_graph`, `source_keys`, `source_map` and `feature_accounting`. Omitting each member separately refuses `invalid_package`/`missing-member` at the root with no admitted value; adding `identity` refuses `invalid_package`/`unknown-member` at the root. This replaces the five-member list of AC-12 without dropping any omission control. | Test (TC-047) |
-| FR-035-AC-32 | PLANNED (IR-1186). Lowering an absent, derived requested key with an operand emits its exact source structural key and the operand closure in `source_keys`; every source-frame id is a `{"source_key": i}` reference into that table, and an empty output graph with `invalid_input` and empty requested occurrences admits. An output-frame id resolves only in `semantic_graph`. Neither frame resolves against the selected source checked package after emission. | Test (TC-047; QSpec TC-934) |
+| FR-035-AC-32 | PLANNED (IR-1186). Lowering an absent, derived requested key with an operand emits a `source_keys` entry equal to the source id by rebuilt structural key and the operand closure in that table; table-local index numbers may be rewritten from the source graph, and extra entries with unique rebuilt keys are allowed and validated. Every source-frame reference is a `{"source_key": i}` reference into that table, and an empty output graph with `invalid_input` and empty requested occurrences admits. An output-frame id resolves only in `semantic_graph`. Neither serialized frame resolves against the selected source checked package after emission. | Test (TC-047; QSpec TC-934, FR-330-AC-14) |
 | FR-035-AC-33 | PLANNED (IR-1186). After closed-shape checks and before source-map, accounting or graph-reference joins, strict reading checks output-graph segments, then `source_keys` segments, then source-key references. In either graph, an out-of-range index precedes a cycle; both refuse `malformed_wire` without cause at the offending `/node` member, including a self-cycle. An out-of-range source-key reference refuses there at its `/source_key` member. A malformed reference shape uses FR-330's `invalid_package` closed-shape cause and pointer, and duplicate rebuilt source keys refuse `invalid_package`/`invalid-value` at the later table entry. No partial package is admitted. | Test (TC-047; QSpec TC-937) |
 | FR-035-AC-34 | PLANNED (IR-1186). The lowered source id and output root id, every accounting/request pair, and a refusal's requested id compare by rebuilt structural key across their distinct frames. Permuting `source_keys` or the output graph while rewriting references and retaining keys leaves each comparison and refusal pointer unchanged; unequal keys refuse at the owning FR-330 join. | Test (TC-047; QSpec TC-934) |
+| FR-035-AC-35 | PLANNED (IR-1186). The public reached-closure query accepts a typed source-frame structural key rebuilt against its owning graph or read from the V1 `source_keys` table; it cannot confuse the same raw indexed `CheckedNodeId` in two frames. It finds `lowered`, non-`lowered`, unrequested and absent results by the source structural key, translates a `lowered` root to the equal rebuilt output key, and traverses only that output closure. Reordering output nodes and rewriting their references cannot change the selected request, returned root, closure, bound/claim subsets or source correspondence. A raw-id collision with unequal rebuilt source and output keys never returns the other node's closure. | Test (TC-047) |
 
 FR-035-AC-13 and FR-035-AC-14 retain tagged TC-047 reader controls in
 `tests/it/complete_v1_contract_package.rs`. AC-12 is retired with its full
