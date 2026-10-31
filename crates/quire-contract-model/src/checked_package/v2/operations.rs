@@ -199,6 +199,7 @@ pub(super) fn validate_operations(
         nodes,
         kinds,
         index: order.wire_index,
+        structural_keys: order.structural_keys,
         terms,
     };
     let references = DependencyReferences::new(dependencies);
@@ -443,7 +444,22 @@ struct Graph<'g> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
     index: &'g BTreeMap<&'g CheckedNodeId, usize>,
+    structural_keys: &'g [std::sync::Arc<CheckedNodeId>],
     terms: &'g [Option<CheckedTerm>],
+}
+
+impl Graph<'_> {
+    fn structural_id<'a>(&'a self, wire: &'a CheckedNodeId) -> Option<&'a CheckedNodeId> {
+        let position = *self.index.get(wire)?;
+        #[cfg(test)]
+        if self.structural_keys.is_empty() {
+            // Isolated operation unit fixtures use only string path segments.
+            return Some(wire);
+        }
+        self.structural_keys
+            .get(position)
+            .map(std::sync::Arc::as_ref)
+    }
 }
 
 fn admitted_arguments<'g>(
@@ -2126,7 +2142,9 @@ fn conforms_to_type(
     let Some(actual) = actual else {
         return Ok(false);
     };
-    if actual == expected {
+    if graph.structural_id(actual).unwrap_or(actual)
+        == graph.structural_id(expected).unwrap_or(expected)
+    {
         return Ok(true);
     }
     let Some(parameter) = owners.record_by_key(expected) else {
@@ -2537,7 +2555,7 @@ fn check_tuple_position(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result_type != Some(&expected_type) {
+    if result_type.and_then(|id| graph.structural_id(id)) != Some(&expected_type) {
         return ineligible();
     }
     Ok(None)
@@ -2697,7 +2715,7 @@ fn check_relationship_member(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result != Some(&expected_id) {
+    if result.and_then(|id| graph.structural_id(id)) != Some(&expected_id) {
         return ineligible(application.body(&["result_type"]));
     }
     // The population link is the last check of the member: every earlier defect
@@ -3108,7 +3126,7 @@ fn check_model_member(
             let Some(receiver_id) = receiver.node_id(&application.node.node_id.package) else {
                 return ineligible(argument_at(0));
             };
-            if type_node(0).as_ref() != Some(&receiver_id) {
+            if type_node(0).as_ref().and_then(|id| graph.structural_id(id)) != Some(&receiver_id) {
                 return ineligible(argument_at(0));
             }
             if arguments.len().saturating_sub(1) != resolved.parameters.len() {
@@ -3152,7 +3170,7 @@ fn check_model_member(
     let Some(member_id) = member_type.node_id(&application.node.node_id.package) else {
         return ineligible(application.body(&["result_type"]));
     };
-    if result_type != Some(&member_id) {
+    if result_type.and_then(|id| graph.structural_id(id)) != Some(&member_id) {
         return ineligible(application.body(&["result_type"]));
     }
     Ok(None)
@@ -3273,6 +3291,7 @@ fn check_mode_type(
         kinds,
         index,
         terms,
+        ..
     } = *graph;
     let mode = operation.mode.as_ref()?;
     let mode_kind = mode.kind_class()?;
@@ -3804,6 +3823,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             kinds: self.kinds,
             index: self.index,
             terms: self.terms,
+            structural_keys: &[],
         };
         let (position, kind) = self
             .structural
@@ -4680,6 +4700,7 @@ mod tests {
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &[],
         };
         let operation: super::OperationWire = serde_json::from_value(operation).expect("operation");
         let outcome = super::check_relationship_member(
@@ -5263,6 +5284,7 @@ mod tests {
                 terms: &terms,
                 kinds: &kinds,
                 index: &index,
+                structural_keys: &[],
             },
             &lock,
             &ModelOwners::default(),
@@ -5299,6 +5321,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             },
             &empty_lock(),
             &ModelOwners::default(),
@@ -5385,6 +5408,7 @@ mod tests {
                 terms: &terms,
                 kinds: &kinds,
                 index: &index,
+                structural_keys: &[],
             },
             lock,
             &ModelOwners::default(),
@@ -7068,6 +7092,7 @@ mod tests {
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &[],
         };
         let supplied: Vec<super::OperationLeafWire> = leaves
             .into_iter()
@@ -7129,6 +7154,7 @@ mod tests {
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &[],
         };
         let head = char::from_u32(0x5600).expect("test id");
         let mut meter = WorkMeter::new(300);
@@ -7267,6 +7293,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation");
             let mut structural = StructuralTypes::default();
@@ -7355,6 +7382,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
             let mut meter = WorkMeter::new(u64::MAX);
@@ -7448,6 +7476,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
             for limit in [0, 1] {
@@ -7507,6 +7536,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
             let mut meter = WorkMeter::new(2);
@@ -7573,6 +7603,7 @@ mod tests {
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &[],
         };
         let at = pointer("/semantic_graph/nodes/0/body/operation");
         let mut structural = StructuralTypes::default();
@@ -7633,6 +7664,7 @@ mod tests {
                 terms: &terms,
                 kinds: &kinds,
                 index: &index,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation");
             let mut structural = StructuralTypes::default();
@@ -7696,6 +7728,7 @@ mod tests {
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &[],
         };
         let application = Application {
             node: &nodes[0],
@@ -8923,6 +8956,7 @@ mod tests {
                 terms: &terms,
                 kinds: &kinds,
                 index: &index,
+                structural_keys: &[],
             },
             &text_selecting_lock(),
             &ModelOwners::default(),
@@ -9831,6 +9865,7 @@ mod tests {
                 kinds: &kinds,
                 terms: &terms,
                 index: &index,
+                structural_keys: &[],
             };
             let operation: super::OperationWire =
                 serde_json::from_value(nodes[0].body["operation"].clone())
