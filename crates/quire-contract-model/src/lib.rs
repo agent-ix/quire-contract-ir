@@ -193,24 +193,25 @@ pub use checked_package::{
     CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
 };
 
+pub use checked_package::CheckedFieldReadForm;
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 
 pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
     CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
     CheckedApplicationOperation, CheckedBindingName, CheckedBindingNameKind,
-    CheckedFairnessGranularity, CheckedFairnessKind, CheckedFieldReadForm, CheckedFieldScope,
-    CheckedFrameModification, CheckedIntervalEnd, CheckedLiteralRead, CheckedLiteralValue,
-    CheckedOperationAnchorBody, CheckedOperationConstraint, CheckedOperationInterval,
-    CheckedOperationLaw, CheckedOperationLeaf, CheckedOperationMember, CheckedOperationMode,
-    CheckedOperationRational, CheckedOperationRead, CheckedScopedDeletion, CheckedTerm, LawRole,
-    LiteralKind, OperationConstraintKind, OperationMemberKind, OperationModeKind,
-    RefinementAbstractClass, RefinementAssume, RefinementClassCatalog, RefinementConcreteClass,
-    RefinementDrain, RefinementEnsure, RefinementFairnessKind, RefinementField,
-    RefinementGranularity, RefinementHistory, RefinementHistoryUpdate, RefinementKey,
-    RefinementMemoryClass, RefinementMemoryModel, RefinementObject, RefinementOpen,
-    RefinementPackageNodeKey, RefinementPopulation, RefinementStep, RefinementStepArgument,
-    RefinementStepTarget, RefinementTsoModel, StateClauseKind,
+    CheckedFairnessGranularity, CheckedFairnessKind, CheckedFieldScope, CheckedFrameModification,
+    CheckedIntervalEnd, CheckedLiteralRead, CheckedLiteralValue, CheckedOperationAnchorBody,
+    CheckedOperationConstraint, CheckedOperationInterval, CheckedOperationLaw,
+    CheckedOperationLeaf, CheckedOperationMember, CheckedOperationMode, CheckedOperationRational,
+    CheckedOperationRead, CheckedScopedDeletion, CheckedTerm, LawRole, LiteralKind,
+    OperationConstraintKind, OperationMemberKind, OperationModeKind, RefinementAbstractClass,
+    RefinementAssume, RefinementClassCatalog, RefinementConcreteClass, RefinementDrain,
+    RefinementEnsure, RefinementFairnessKind, RefinementField, RefinementGranularity,
+    RefinementHistory, RefinementHistoryUpdate, RefinementKey, RefinementMemoryClass,
+    RefinementMemoryModel, RefinementObject, RefinementOpen, RefinementPackageNodeKey,
+    RefinementPopulation, RefinementStep, RefinementStepArgument, RefinementStepTarget,
+    RefinementTsoModel, StateClauseKind,
 };
 #[cfg(feature = "test-support")]
 pub use checked_package::{
