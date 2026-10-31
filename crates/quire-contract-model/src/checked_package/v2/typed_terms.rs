@@ -2041,7 +2041,10 @@ impl Encode for CheckedAbstractionFrame {
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckedBindingName, CheckedTerm, ExecutionPoint, TermConversionCause};
+    use super::{
+        CheckedBindingName, CheckedBindingNameKind, CheckedTerm, ExecutionPoint,
+        TermConversionCause,
+    };
     use ix_trace_rs::trace;
     use quire_canonical::{to_vec, Limits};
     use serde_json::{error::Category, json};
@@ -2074,10 +2077,10 @@ mod tests {
     #[test]
     fn admitted_binding_name_retains_its_class_without_changing_wire_text() {
         let known: CheckedBindingName = serde_json::from_value(json!("parameters")).unwrap();
-        assert_eq!(known.kind(), super::super::TermBindingName::Parameters);
+        assert_eq!(known.kind(), CheckedBindingNameKind::Parameters);
         assert_eq!(serde_json::to_value(&known).unwrap(), json!("parameters"));
         let open: CheckedBindingName = serde_json::from_value(json!("user-field")).unwrap();
-        assert_eq!(open.kind(), super::super::TermBindingName::Other);
+        assert_eq!(open.kind(), CheckedBindingNameKind::Other("user-field"));
         assert_eq!(open.as_ref(), "user-field");
     }
 
