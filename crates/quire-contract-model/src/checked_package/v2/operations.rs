@@ -180,10 +180,15 @@ struct OperationLeafWire {
 /// upstream vector distinguishes the two orders, so this one adjacent pair's
 /// relative order is not pinned by any vector — do not read it as validated
 /// against the upstream description.
+pub(super) struct OperationNodeOrder<'a> {
+    pub(super) wire_index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    pub(super) structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
+}
+
 pub(super) fn validate_operations(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    order: OperationNodeOrder<'_>,
     terms: &[Option<CheckedTerm>],
     lock: &CheckedPackageLockV2,
     owners: &ModelOwners<'_>,
@@ -193,53 +198,77 @@ pub(super) fn validate_operations(
     let graph = Graph {
         nodes,
         kinds,
-        index,
+        index: order.wire_index,
         terms,
     };
     let references = DependencyReferences::new(dependencies);
     let mut admitted_views = Vec::new();
-    for &position in index.values() {
-        let node = &nodes[position];
+    // Temporal placement precedes every operation refusal, including one at
+    // a structurally earlier node (FR-038-AC-67).
+    for &position in order.wire_index.values() {
         if let Some(failure) = case_placement_defect(position, &graph) {
             return Err(failure);
         }
-        if !matches!(
-            graph.terms.get(position).and_then(Option::as_ref),
-            Some(CheckedTerm::Application { .. })
-        ) {
-            // No application check applies, but a union type or union value
-            // node has its own joins (QSpec FR-440), and the terms of the
-            // body are walked for `dependency_reference` (FR-322, step 7).
-            if let Some(failure) = union_defect(position, &graph, owners, meter)? {
-                return Err(failure);
+    }
+    // Select the first defect of this whole step by rebuilt structural key.
+    // Comparing only defective entries keeps a valid deep chain linear in
+    // its shared-key depth. An incomplete read cannot establish a first
+    // refusal and is returned as incomplete.
+    let mut first_refusal: Option<(usize, ValidationFailure)> = None;
+    for &position in order.wire_index.values() {
+        let node = &nodes[position];
+        let checked = (|| -> Result<(), ValidationFailure> {
+            if !matches!(
+                graph.terms.get(position).and_then(Option::as_ref),
+                Some(CheckedTerm::Application { .. })
+            ) {
+                // Union, literal and dependency-reference joins share this
+                // structural-order step (QSpec FR-322, step 7; FR-440).
+                if let Some(failure) = union_defect(position, &graph, owners, meter)? {
+                    return Err(failure);
+                }
+                if let Some(term) = graph.terms.get(position).and_then(Option::as_ref) {
+                    references.walk_admitted(Referrer { node, position }, term, meter)?;
+                }
+                if let Some(failure) = literal_defect(node, position, &graph, owners) {
+                    return Err(failure);
+                }
+                if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
+                    return Err(failure);
+                }
+                return Ok(());
             }
-            if let Some(term) = graph.terms.get(position).and_then(Option::as_ref) {
-                references.walk_admitted(Referrer { node, position }, term, meter)?;
-            }
-            if let Some(failure) = literal_defect(node, position, &graph, owners) {
+            let application = Application { node, position };
+            if let Some(failure) = operation_defect(
+                application,
+                &graph,
+                lock,
+                owners,
+                references,
+                operation_catalog(),
+                meter,
+                &mut admitted_views,
+            )? {
                 return Err(failure);
             }
             if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
                 return Err(failure);
             }
-            continue;
+            Ok(())
+        })();
+        if let Err(failure) = checked {
+            if !matches!(failure, ValidationFailure::Refused(_)) {
+                return Err(failure);
+            }
+            if first_refusal.as_ref().is_none_or(|(first, _)| {
+                order.structural_keys[position] < order.structural_keys[*first]
+            }) {
+                first_refusal = Some((position, failure));
+            }
         }
-        let application = Application { node, position };
-        if let Some(failure) = operation_defect(
-            application,
-            &graph,
-            lock,
-            owners,
-            references,
-            operation_catalog(),
-            meter,
-            &mut admitted_views,
-        )? {
-            return Err(failure);
-        }
-        if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
-            return Err(failure);
-        }
+    }
+    if let Some((_, failure)) = first_refusal {
+        return Err(failure);
     }
     Ok(admitted_views)
 }
@@ -4622,6 +4651,17 @@ mod tests {
         let mut kinds = kinds_of(&nodes);
         configure(&mut nodes, &mut kinds, &mut operation);
         nodes[0].body["operation"] = operation.clone();
+        // This isolated operation test predates the indexed package envelope.
+        // Give its structural model-member IDs consistent flat fixture IDs
+        // before typed wire decoding; the selected model owner/name joins are
+        // still exercised by the operation checker below.
+        let mut fixture_ids = std::collections::BTreeMap::new();
+        for node in &mut nodes {
+            let mut value = serde_json::to_value(&*node).expect("raw fixture node");
+            flatten_fixture_ids(&mut value, &mut fixture_ids);
+            *node = serde_json::from_value(value).expect("flat fixture node");
+        }
+        flatten_fixture_ids(&mut operation, &mut fixture_ids);
         let index: BTreeMap<_, _> = nodes
             .iter()
             .enumerate()
@@ -4629,7 +4669,12 @@ mod tests {
             .collect();
         let owners =
             ModelOwners::new(std::slice::from_ref(&model), &nodes, |_| Ok(())).expect("owners");
-        let terms = decoded_terms(&nodes);
+        let mut terms = decoded_terms(&nodes);
+        if let Some(super::CheckedTerm::Application { result_type, .. }) =
+            terms.get_mut(0).and_then(Option::as_mut)
+        {
+            *result_type = translated_fixture_result(result_key, &fixture_ids);
+        }
         let graph = Graph {
             nodes: &nodes,
             terms: &terms,
@@ -4657,6 +4702,68 @@ mod tests {
             other => panic!("expected refusal, got {other:?}"),
         });
         (outcome, meter.consumed())
+    }
+
+    fn flatten_fixture_ids(
+        value: &mut Value,
+        aliases: &mut std::collections::BTreeMap<String, Value>,
+    ) {
+        match value {
+            Value::Object(object)
+                if object.len() == 3
+                    && object.contains_key("package")
+                    && object.contains_key("path")
+                    && object.contains_key("ordinal") =>
+            {
+                let nested = object["path"]
+                    .as_array()
+                    .is_some_and(|path| path.iter().any(Value::is_object));
+                if nested {
+                    let key = serde_json::to_string(&*object).expect("fixture node id");
+                    let next = aliases.len();
+                    *value = aliases
+                        .entry(key)
+                        .or_insert_with(|| {
+                            json!({
+                                "package": object["package"],
+                                "path": [format!("fixture-{next}")],
+                                "ordinal": object["ordinal"],
+                            })
+                        })
+                        .clone();
+                }
+            }
+            Value::Object(object) => {
+                for member in object.values_mut() {
+                    flatten_fixture_ids(member, aliases);
+                }
+            }
+            Value::Array(array) => {
+                for member in array {
+                    flatten_fixture_ids(member, aliases);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn translated_fixture_result(
+        id: &CheckedNodeId,
+        aliases: &std::collections::BTreeMap<String, Value>,
+    ) -> CheckedNodeId {
+        if id.package.as_ref() == "acme/orders" {
+            let key = serde_json::to_string(id).expect("model fixture id");
+            if let Some(alias) = aliases.get(&key) {
+                return CheckedNodeId::from_value(alias).expect("flat model fixture id");
+            }
+        }
+        let mut translated = id.clone();
+        for segment in &mut translated.path {
+            if let crate::checked_package::shared::CheckedNodePathSegment::Node(operand) = segment {
+                *operand = std::sync::Arc::new(translated_fixture_result(operand, aliases));
+            }
+        }
+        translated
     }
 
     /// Exercise the real caller with a checked selected model and its real owners.
@@ -5076,12 +5183,20 @@ mod tests {
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": node_tag,
             "semantic_form": semantic_form,
-            "semantic_type": semantic_type,
+            "semantic_type": node_id(id_byte),
             "dependencies": [],
             "occurrences": [],
-            "body": body,
+            "body": {},
         });
-        serde_json::from_value(value).expect("test fixture node is well-formed")
+        // This isolated internal graph uses already resolved structural IDs.
+        // Its raw body is inspected by the operation checker; round-tripping
+        // those IDs through the public indexed wire decoder would incorrectly
+        // turn this unit fixture into an old-wire package.
+        let mut node: CheckedSemanticNodeV2 =
+            serde_json::from_value(value).expect("test fixture node is well-formed");
+        node.semantic_type = semantic_type.clone();
+        node.body = body;
+        node
     }
 
     /// One `operation.laws[]` entry.
@@ -9422,10 +9537,17 @@ mod tests {
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
             let terms = decoded_terms(&nodes);
+            let structural_keys = nodes
+                .iter()
+                .map(|node| std::sync::Arc::new(node.node_id.clone()))
+                .collect::<Vec<_>>();
             let result = super::validate_operations(
                 &nodes,
                 &kinds,
-                &index,
+                super::OperationNodeOrder {
+                    wire_index: &index,
+                    structural_keys: &structural_keys,
+                },
                 &terms,
                 &empty_lock(),
                 &ModelOwners::default(),

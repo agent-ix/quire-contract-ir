@@ -5784,7 +5784,7 @@ fn refinement_headers_require_selected_roots_not_state_machine_declarations() {
     );
 }
 
-#[trace("TC-233", "FR-065-AC-6")]
+#[trace("TC-233", "FR-065-AC-6", "FR-038-AC-379")]
 #[test]
 fn refinement_external_abstract_resolves_only_the_directly_selected_package_root() {
     let (mut dependency_wire, dependency_evidence) = machine_package();
@@ -5827,6 +5827,38 @@ fn refinement_external_abstract_resolves_only_the_directly_selected_package_root
         read(&package, &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+
+    // This index exists in the importing graph (which also has a refinement
+    // node) but not in the selected dependency graph. The external key's
+    // outer package, rather than the containing document, sets its bounds.
+    let dependency_count = dependency_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("dependency nodes")
+        .len();
+    assert!(
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("importer nodes")
+            .len()
+            > dependency_count
+    );
+    let mut wrong_graph = package.clone();
+    let path = wrong_graph["semantic_graph"]["nodes"][position]["body"]["abstract"]["node"]["path"]
+        .as_array_mut()
+        .expect("external root path");
+    let segment = path.len();
+    path.push(json!({"node": dependency_count}));
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_graph, &evidence) else {
+        panic!("external key resolved against the importing graph");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(
+            format!("/semantic_graph/nodes/{position}/body/abstract/node/path/{segment}/node")
+                .as_str()
+        )
+    );
 
     let mut declaration = package.clone();
     declaration["semantic_graph"]["nodes"][position]["body"]["abstract"]["node"] =

@@ -101,7 +101,7 @@ use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use ix_trace_rs::string_edge;
-use operations::validate_operations;
+use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::{
     validate_derived_type_shapes, validate_selected_type_bounds, validate_structural_nodes,
@@ -2514,7 +2514,12 @@ fn validate_graph(
             _ => wire.name.as_ref(),
         };
         if node.node_id.package.as_ref() != expected_package {
-            let imported = if node.owner.is_none() && node.declaration.is_none() {
+            let imported = if node.owner.is_none()
+                && node.declaration.is_none()
+                && dependencies
+                    .selected_package(&node.node_id.package)
+                    .is_some()
+            {
                 if import_index.is_none() {
                     import_index =
                         Some(dependencies.structural_import_index(structural_keys, meter)?);
@@ -2872,7 +2877,10 @@ fn validate_graph(
     let admitted_views = validate_operations(
         &graph.nodes,
         &kinds,
-        &index,
+        OperationNodeOrder {
+            wire_index: &index,
+            structural_keys,
+        },
         &terms,
         &wire.lock,
         &owners,
