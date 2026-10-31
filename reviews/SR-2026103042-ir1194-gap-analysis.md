@@ -45,3 +45,51 @@ The fixture at lines 299-351 deserializes a private wire and directly initialize
 ## Disposition Verdict
 
 **PASS for the original finding** — The public admitted-package scalar path is tested. Complete FR-352 record view and the QSL SelectedExactIdentities producer remain open outside this partial PR.
+
+
+## New findings (gate evidence recheck)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | AC-1 is marked backed by tests that do not cover all admitted range cases or external conversion | crates/quire-contract-model/src/checked_package/v2/exact_projection.rs:708-735; tests/it/checked_package_v2_reader.rs:52-95 |
+| FND-003 | high | AC-2 is marked backed by a field-row test with no Composite or SelectedRecordView | crates/quire-contract-model/src/checked_package/v2/model_fields/tests.rs:234-294 |
+| FND-004 | high | AC-3 is marked backed without a positive admitted Node reference or foreign/dangling controls | crates/quire-contract-model/src/checked_package/v2/model_fields/tests.rs:153-216; tests/it/checked_package_v2_derived_reference.rs:71-100 |
+| FND-005 | high | AC-4 is marked backed without ambiguous-owner and alias/display-name join controls | crates/quire-contract-model/src/checked_package/v2/model_fields/tests.rs:19-80 |
+| FND-006 | high | AC-5 is marked backed without declared-unit, union, dimension and compound-unit checks | crates/quire-contract-model/src/checked_package/v2/exact_projection.rs:708-735 |
+| FND-007 | medium | AC-6 is marked backed by one unsupported-shape example, not the admitted-form partition | crates/quire-contract-model/src/checked_package/v2/exact_projection.rs:737-781 |
+| FND-008 | medium | AC-7 is marked backed without nested or cyclic depth and no-reparse controls | crates/quire-contract-model/src/checked_package/v2/exact_projection.rs:737-781; tests/it/checked_package_v2_reader.rs:52-110 |
+| FND-009 | medium | AC-8 is marked backed by a scalar projection test that never inspects inventories | tests/it/checked_package_v2_reader.rs:52-110 |
+| FND-010 | high | AC-9 is marked backed without the QSL-side producer or external authoritative rows | crates/quire-contract-model/src/checked_package/v2/model_fields/tests.rs:19-319; tests/it/checked_package_v2_derived_reference.rs:71-100 |
+
+## Exact trace-tag disposition
+
+Remove every `FR-352-AC-*` trace tag from the eight current test functions, in both their `/// Trace:` lines and `#[trace(...)]` attributes. Retain all test bodies as partial regression checks; retain any unrelated trace IDs. Rebind an AC only when a test or cohesive test set exercises its full criterion.
+
+| Test function | Remove FR-352 tags | Retain FR-352 tags | Reason |
+| --- | --- | --- | --- |
+| `scalar_and_inclusive_range_projection` | AC-1, AC-5 | none | private constructed package; no admitted unit/union controls |
+| `unknown_foreign_unsupported_and_exhausted_are_distinct` | AC-4, AC-6, AC-7 | none | shallow refusal examples only |
+| `exact_stage_rows_join_selected_original_declaration` | AC-4, AC-9 | none | local row constructor and selected-identity subcases only |
+| `distinct_selected_objects_cannot_claim_one_exact_identity` | AC-3, AC-4 | none | duplicate-identity subcase only |
+| `exact_reference_uses_the_selected_object_row` | AC-3, AC-9 | none | positive reference uses a privately mutated package and local row |
+| `exact_field_rows_require_selected_record_and_original_field` | AC-2, AC-9 | none | field-row join only; no complete record projection |
+| `exact_scalar_projection_uses_publicly_admitted_package` | AC-1, AC-4, AC-7, AC-8 | none | admitted scalar Int[0,1000] path only; no inventories |
+| `admitted_reference_requires_selected_exact_identity_row` | AC-3, AC-9 | none | admitted missing-witness refusal only |
+
+## Evidence recheck verdict
+
+**FAIL** — On eb12804519dd410caa844d632de594aef84261f6, the computed matrix marks all nine FR-352 criteria backed, but current tests assert only subcases. The open identity producer, selected record view, and full admitted reference path make AC-2, AC-3 and AC-9 plainly incomplete. The other six tags also claim more than their assertions cover. Remove the tags now; keep the tests as partial regression checks. The full FR-352 criteria should return to unbacked until complete acceptance evidence lands. Plan completion: not assessed.
+
+## Dispositions (gate evidence recheck)
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | still-open | The FR-352-AC-1 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
+| FND-003 | still-open | The FR-352-AC-2 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
+| FND-004 | still-open | The FR-352-AC-3 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
+| FND-005 | still-open | The FR-352-AC-4 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
+| FND-006 | still-open | The FR-352-AC-5 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
+| FND-007 | still-open | The FR-352-AC-6 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
+| FND-008 | still-open | The FR-352-AC-7 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
+| FND-009 | still-open | The FR-352-AC-8 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
+| FND-010 | still-open | The FR-352-AC-9 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |

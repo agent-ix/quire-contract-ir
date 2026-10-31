@@ -49,8 +49,6 @@ fn refused_bytes(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPack
     }
 }
 
-/// Trace: FR-352-AC-1, FR-352-AC-4, FR-352-AC-7, FR-352-AC-8
-#[trace("FR-352-AC-1", "FR-352-AC-4", "FR-352-AC-7", "FR-352-AC-8")]
 #[test]
 fn exact_scalar_projection_uses_publicly_admitted_package() {
     let mut document = v2_all_families();

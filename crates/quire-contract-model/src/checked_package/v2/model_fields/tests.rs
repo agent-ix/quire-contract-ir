@@ -16,8 +16,6 @@ use quire_exact::{
 };
 use serde_json::{json, Value};
 
-/// Trace: FR-352-AC-4, FR-352-AC-9
-#[trace("FR-352-AC-4", "FR-352-AC-9")]
 #[test]
 fn exact_stage_rows_join_selected_original_declaration() {
     use crate::checked_package::v2::{
@@ -80,8 +78,6 @@ fn exact_stage_rows_join_selected_original_declaration() {
     );
 }
 
-/// Trace: FR-352-AC-3, FR-352-AC-4
-#[trace("FR-352-AC-3", "FR-352-AC-4")]
 #[test]
 fn distinct_selected_objects_cannot_claim_one_exact_identity() {
     use crate::checked_package::v2::{
@@ -150,8 +146,6 @@ fn distinct_selected_objects_cannot_claim_one_exact_identity() {
     );
 }
 
-/// Trace: FR-352-AC-3, FR-352-AC-9
-#[trace("FR-352-AC-3", "FR-352-AC-9")]
 #[test]
 fn exact_reference_uses_the_selected_object_row() {
     use crate::checked_package::v2::{
@@ -231,8 +225,6 @@ fn exact_reference_uses_the_selected_object_row() {
     assert_eq!(refusal.at.as_deref(), Some(&object));
 }
 
-/// Trace: FR-352-AC-2, FR-352-AC-9
-#[trace("FR-352-AC-2", "FR-352-AC-9")]
 #[test]
 fn exact_field_rows_require_selected_record_and_original_field() {
     use crate::checked_package::v2::{

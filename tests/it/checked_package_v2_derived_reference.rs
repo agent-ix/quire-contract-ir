@@ -68,8 +68,6 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
     )
 }
 
-/// Trace: FR-352-AC-3, FR-352-AC-9
-#[trace("FR-352-AC-3", "FR-352-AC-9")]
 #[test]
 fn admitted_reference_requires_selected_exact_identity_row() {
     let (document, reference, _) = reference_package("model", "object_type");

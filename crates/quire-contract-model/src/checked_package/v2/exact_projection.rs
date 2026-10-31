@@ -614,7 +614,6 @@ impl CheckedPackageV2 {
 mod tests {
     use super::*;
     use crate::checked_package::v2::{CheckedPackageWireV2, RetainedModels};
-    use ix_trace_rs::trace;
     use serde_json::{json, Value};
 
     fn id(path: &str) -> Value {
@@ -705,8 +704,6 @@ mod tests {
         serde_json::from_value(id(path)).expect("fixture identity")
     }
 
-    /// Trace: FR-352-AC-1, FR-352-AC-5
-    #[trace("FR-352-AC-1", "FR-352-AC-5")]
     #[test]
     fn scalar_and_inclusive_range_projection() {
         let package = fixture();
@@ -734,8 +731,6 @@ mod tests {
         }
     }
 
-    /// Trace: FR-352-AC-4, FR-352-AC-6, FR-352-AC-7
-    #[trace("FR-352-AC-4", "FR-352-AC-6", "FR-352-AC-7")]
     #[test]
     fn unknown_foreign_unsupported_and_exhausted_are_distinct() {
         let package = fixture();
