@@ -421,6 +421,9 @@ pub(super) fn equivalent_values(
 
 /// Check every graph-local index before any graph meaning check, then reject
 /// the first own-path edge in a cycle by holder and path position.
+/// The marked comparisons recognize only the closed V2 member names and term
+/// discriminator; an unmatched name never selects a valid alternate shape.
+#[ix_trace_rs::string_edge]
 pub(super) fn check(
     bytes: &[u8],
     wire: &RawCheckedPackageWireV2,
