@@ -268,7 +268,9 @@ impl CheckedApplicationOperation {
         Ok(&self.admitted_views()?.law_definitions)
     }
 
-    fn admitted_views(&self) -> Result<&CheckedOperationViews, CheckedOperationViewError> {
+    pub(super) fn admitted_views(
+        &self,
+    ) -> Result<&CheckedOperationViews, CheckedOperationViewError> {
         self.views
             .as_ref()
             .ok_or(CheckedOperationViewError::NotAdmitted)
@@ -1281,6 +1283,8 @@ fn value_is_node_id(value: &Value, id: &CheckedNodeId) -> bool {
             match expected {
                 CheckedNodePathSegment::Name(name) if segment.as_str() == Some(name.as_ref()) => {}
                 CheckedNodePathSegment::Node(node) => pending.push((segment, node)),
+                CheckedNodePathSegment::Index(index)
+                    if segment.get("node").and_then(Value::as_u64) == Some(*index) => {}
                 _ => return false,
             }
         }
@@ -1292,6 +1296,7 @@ fn node_id_value(id: &CheckedNodeId) -> Value {
     enum Task<'a> {
         Node(&'a CheckedNodeId),
         Name(&'a str),
+        Index(u64),
         Finish(&'a CheckedNodeId),
     }
     let mut pending = vec![Task::Node(id)];
@@ -1304,10 +1309,16 @@ fn node_id_value(id: &CheckedNodeId) -> Value {
                     pending.push(match segment {
                         CheckedNodePathSegment::Name(name) => Task::Name(name),
                         CheckedNodePathSegment::Node(child) => Task::Node(child),
+                        CheckedNodePathSegment::Index(index) => Task::Index(*index),
                     });
                 }
             }
             Task::Name(name) => values.push(Value::String(name.to_owned())),
+            Task::Index(index) => {
+                let mut object = serde_json::Map::new();
+                object.insert("node".into(), Value::Number(index.into()));
+                values.push(Value::Object(object));
+            }
             Task::Finish(node) => {
                 let path = values.split_off(values.len() - node.path.len());
                 let mut object = serde_json::Map::new();

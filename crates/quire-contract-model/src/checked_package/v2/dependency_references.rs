@@ -66,6 +66,27 @@ pub(super) struct SuppliedDependencies<'e> {
     packages: Vec<SuppliedDependency<'e>>,
 }
 
+/// Per-read cross-document equality lookup. Tokens are interned across all
+/// selected graphs and the importing graph from shallow structural descriptors.
+pub(super) struct StructuralImportIndex<'e> {
+    importer: Vec<usize>,
+    selected: Vec<(&'e str, &'e CheckedPackageV2, BTreeMap<usize, usize>)>,
+}
+
+impl<'e> StructuralImportIndex<'e> {
+    pub(super) fn lookup(
+        &self,
+        package: &str,
+        importing_position: usize,
+    ) -> Option<(usize, &'e CheckedPackageV2)> {
+        let token = self.importer.get(importing_position)?;
+        self.selected
+            .iter()
+            .find(|(identity, _, _)| *identity == package)
+            .and_then(|(_, selected, positions)| positions.get(token).map(|&at| (at, *selected)))
+    }
+}
+
 impl<'e> SuppliedDependencies<'e> {
     pub(super) fn packages(&self) -> Vec<&'e CheckedPackageV2> {
         self.packages.iter().map(|entry| entry.package).collect()
@@ -75,13 +96,39 @@ impl<'e> SuppliedDependencies<'e> {
         self.resolve(package).map(|entry| entry.package)
     }
 
-    /// The exact node retained by a directly selected dependency package.
-    pub(super) fn selected_node(
+    /// Build one bounded lookup for imported nodes, sharing compact tokens
+    /// across all selected packages and the importing graph.
+    pub(super) fn structural_import_index(
         &self,
-        id: &CheckedNodeId,
-    ) -> Option<&'e super::CheckedSemanticNodeV2> {
-        let selected = self.resolve(&id.package)?;
-        selected.package.graph().nodes.get(*selected.index.get(id)?)
+        importer_keys: &[std::sync::Arc<CheckedNodeId>],
+        meter: &mut WorkMeter,
+    ) -> Result<StructuralImportIndex<'e>, ValidationFailure> {
+        let mut interner = super::node_index::StructuralInterner::new();
+        let importer = interner
+            .tokens(importer_keys)
+            .expect("reader rebuilt each importer key");
+        meter.charge(count(importer.len()), || {
+            JsonPointer::root().key("semantic_graph").key("nodes")
+        })?;
+        let mut selected = Vec::with_capacity(self.packages.len());
+        for package in &self.packages {
+            let tokens = interner
+                .tokens(&package.package.structural_keys)
+                .expect("admitted dependency has rebuilt keys");
+            meter.charge(count(tokens.len()), || {
+                JsonPointer::root().key("lock").key("dependency_selections")
+            })?;
+            selected.push((
+                package.identity,
+                package.package,
+                tokens
+                    .into_iter()
+                    .enumerate()
+                    .map(|(position, token)| (token, position))
+                    .collect(),
+            ));
+        }
+        Ok(StructuralImportIndex { importer, selected })
     }
     /// Index already admitted, selection-matched packages for another closed
     /// reader that shares FR-322 dependency-reference semantics.

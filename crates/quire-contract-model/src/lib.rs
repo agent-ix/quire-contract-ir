@@ -186,7 +186,7 @@ pub use checked_package::{
     ContractRootViewError, ContractRootViewV1, ContractScalarOperandChildV1,
     ContractScalarOperandErrorV1, ContractScalarOperandV1, ContractScalarOperandViewV1,
     ContractScalarOwnRangeV1, ContractSelectedReferenceV1, ContractSemanticGraphV1,
-    ContractSourceHandoffError, ContractSourceMapV1, ContractSourceV1,
+    ContractSourceHandoffError, ContractSourceKeyV1, ContractSourceMapV1, ContractSourceV1,
     ContractUnsupportedSourceKindError, CorrespondenceForm, DimensionTerm, ExpressionForm,
     FunctionForm, HybridForm, JsonPointer, LoweringProfileRef, ModelForm, NominalBody,
     ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, TimedModelForm, ValueForm,

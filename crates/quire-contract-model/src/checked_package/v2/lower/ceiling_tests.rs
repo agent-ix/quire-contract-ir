@@ -30,6 +30,23 @@ fn complete_node() -> CompleteContractNodeV2 {
     }
 }
 
+fn retain_graph_indices(package: &mut CheckedPackageV2) {
+    package.node_index = super::super::retained_node_index(&package.wire);
+    let ids = package
+        .wire
+        .semantic_graph
+        .nodes
+        .iter()
+        .map(|node| &node.node_id)
+        .collect::<Vec<_>>();
+    package.structural_keys = super::super::node_index::rebuild_keys(
+        &ids,
+        |_, _| unreachable!("fixture graph has only valid node IDs"),
+        |_| unreachable!("fixture graph has only valid node IDs"),
+    )
+    .expect("fixture structural keys");
+}
+
 /// A complete typed node is byte-charged at the exact canonical boundary.
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
@@ -116,6 +133,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); 4];
     let mut package = CheckedPackageV2 {
         node_index: super::super::retained_node_index(&wire),
+        structural_keys: Vec::new(),
         source_index: super::super::retained_source_index(&wire),
         lowering_facts: Vec::new(),
         wire,
@@ -126,6 +144,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         direct_dependencies: Vec::new(),
         closure_index: Default::default(),
     };
+    retain_graph_indices(&mut package);
     let index = package
         .graph()
         .nodes
@@ -182,6 +201,7 @@ fn shared_closure_package(roots: usize, shared: usize) -> (CheckedPackageV2, Vec
         .collect::<Vec<_>>();
     package.wire.semantic_graph.nodes = serde_json::from_value(json!(nodes)).expect("nodes");
     package.kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); shared + roots];
+    retain_graph_indices(&mut package);
     BODY_WALKS.with(|walks| walks.set(0));
     let index = package
         .graph()

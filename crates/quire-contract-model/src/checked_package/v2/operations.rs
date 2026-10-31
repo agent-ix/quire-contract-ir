@@ -34,14 +34,15 @@ use crate::checked_package::selected_population::{
     is_model_population, least_type_occurrence, population_maximum, population_object_type_typed,
 };
 use crate::checked_package::shared::{
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::One;
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 /// One application node under validation, and pointers into its body.
@@ -180,68 +181,199 @@ struct OperationLeafWire {
 /// upstream vector distinguishes the two orders, so this one adjacent pair's
 /// relative order is not pinned by any vector — do not read it as validated
 /// against the upstream description.
+pub(super) struct OperationNodeOrder<'a> {
+    pub(super) wire_index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    pub(super) structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
+}
+
 pub(super) fn validate_operations(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    order: OperationNodeOrder<'_>,
     terms: &[Option<CheckedTerm>],
     lock: &CheckedPackageLockV2,
     owners: &ModelOwners<'_>,
     dependencies: &SuppliedDependencies<'_>,
     meter: &mut WorkMeter,
 ) -> Result<Vec<(usize, CheckedOperationViews)>, ValidationFailure> {
+    let flat_index = FlatWireIndex::new(order.wire_index);
     let graph = Graph {
         nodes,
         kinds,
-        index,
+        index: order.wire_index,
+        structural_keys: order.structural_keys,
         terms,
     };
     let references = DependencyReferences::new(dependencies);
     let mut admitted_views = Vec::new();
-    for &position in index.values() {
-        let node = &nodes[position];
+    // Temporal placement precedes every operation refusal, including one at
+    // a structurally earlier node (FR-038-AC-67).
+    for &position in order.wire_index.values() {
         if let Some(failure) = case_placement_defect(position, &graph) {
             return Err(failure);
         }
-        if !matches!(
-            graph.terms.get(position).and_then(Option::as_ref),
-            Some(CheckedTerm::Application { .. })
-        ) {
-            // No application check applies, but a union type or union value
-            // node has its own joins (QSpec FR-440), and the terms of the
-            // body are walked for `dependency_reference` (FR-322, step 7).
-            if let Some(failure) = union_defect(position, &graph, owners, meter)? {
-                return Err(failure);
+    }
+    // Select the first defect of this whole step by rebuilt structural key.
+    // Comparing only defective entries keeps a valid deep chain linear in
+    // its shared-key depth. An incomplete read cannot establish a first
+    // refusal and is returned as incomplete.
+    let mut first_refusal: Option<(usize, ValidationFailure)> = None;
+    for &position in order.wire_index.values() {
+        let node = &nodes[position];
+        let checked = (|| -> Result<(), ValidationFailure> {
+            if !matches!(
+                graph.terms.get(position).and_then(Option::as_ref),
+                Some(CheckedTerm::Application { .. })
+            ) {
+                // Union, literal and dependency-reference joins share this
+                // structural-order step (QSpec FR-322, step 7; FR-440).
+                if let Some(failure) = union_defect(position, &graph, owners, meter)? {
+                    return Err(failure);
+                }
+                if let Some(term) = graph.terms.get(position).and_then(Option::as_ref) {
+                    references.walk_admitted(Referrer { node, position }, term, meter)?;
+                }
+                if let Some(failure) = literal_defect(node, position, &graph, owners) {
+                    return Err(failure);
+                }
+                if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
+                    return Err(failure);
+                }
+                return Ok(());
             }
-            if let Some(term) = graph.terms.get(position).and_then(Option::as_ref) {
-                references.walk_admitted(Referrer { node, position }, term, meter)?;
-            }
-            if let Some(failure) = literal_defect(node, position, &graph, owners) {
+            let application = Application { node, position };
+            if let Some(failure) = operation_defect(
+                application,
+                &graph,
+                lock,
+                owners,
+                references,
+                OperationResolution {
+                    catalog: operation_catalog(),
+                    fast_index: Some(&flat_index),
+                },
+                meter,
+                &mut admitted_views,
+            )? {
                 return Err(failure);
             }
             if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
                 return Err(failure);
             }
-            continue;
-        }
-        let application = Application { node, position };
-        if let Some(failure) = operation_defect(
-            application,
-            &graph,
-            lock,
-            owners,
-            references,
-            operation_catalog(),
-            meter,
-            &mut admitted_views,
-        )? {
-            return Err(failure);
-        }
-        if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
-            return Err(failure);
+            Ok(())
+        })();
+        if let Err(failure) = checked {
+            if !matches!(failure, ValidationFailure::Refused(_)) {
+                return Err(failure);
+            }
+            if first_refusal.as_ref().is_none_or(|(first, _)| {
+                order.structural_keys[position] < order.structural_keys[*first]
+            }) {
+                first_refusal = Some((position, failure));
+            }
         }
     }
+    if let Some((_, failure)) = first_refusal {
+        return Err(failure);
+    }
     Ok(admitted_views)
+}
+
+/// The wire index admits only flat node IDs. Keep a hash lookup for repeated
+/// operand-family reads; ordering still comes from `wire_index` above.
+struct FlatWireIndex<'a> {
+    flat: HashMap<FlatNodeKey<'a>, usize>,
+    has_nested: bool,
+}
+
+#[derive(Clone, Copy)]
+struct FlatNodeKey<'a>(&'a CheckedNodeId);
+
+impl<'a> FlatNodeKey<'a> {
+    fn new(id: &'a CheckedNodeId) -> Option<Self> {
+        id.path
+            .iter()
+            .all(|segment| !matches!(segment, CheckedNodePathSegment::Node(_)))
+            .then_some(Self(id))
+    }
+}
+
+impl PartialEq for FlatNodeKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.package == other.0.package
+            && self.0.ordinal == other.0.ordinal
+            && self.0.path.len() == other.0.path.len()
+            && self
+                .0
+                .path
+                .iter()
+                .zip(&other.0.path)
+                .all(|(left, right)| match (left, right) {
+                    (CheckedNodePathSegment::Name(left), CheckedNodePathSegment::Name(right)) => {
+                        left == right
+                    }
+                    (CheckedNodePathSegment::Index(left), CheckedNodePathSegment::Index(right)) => {
+                        left == right
+                    }
+                    _ => false,
+                })
+    }
+}
+
+impl Eq for FlatNodeKey<'_> {}
+
+impl Hash for FlatNodeKey<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.package.hash(state);
+        self.0.ordinal.hash(state);
+        self.0.path.len().hash(state);
+        for segment in &self.0.path {
+            match segment {
+                CheckedNodePathSegment::Name(name) => {
+                    0_u8.hash(state);
+                    name.hash(state);
+                }
+                CheckedNodePathSegment::Index(index) => {
+                    1_u8.hash(state);
+                    index.hash(state);
+                }
+                CheckedNodePathSegment::Node(_) => unreachable!("flat node key"),
+            }
+        }
+    }
+}
+
+impl<'a> FlatWireIndex<'a> {
+    fn new(index: &BTreeMap<&'a CheckedNodeId, usize>) -> Self {
+        let mut flat = HashMap::with_capacity(index.len());
+        let mut has_nested = false;
+        for (&id, &position) in index {
+            if let Some(key) = FlatNodeKey::new(id) {
+                flat.insert(key, position);
+            } else {
+                has_nested = true;
+            }
+        }
+        Self { flat, has_nested }
+    }
+
+    fn get(&self, id: &CheckedNodeId, ordered: &BTreeMap<&CheckedNodeId, usize>) -> Option<usize> {
+        if let Some(key) = FlatNodeKey::new(id) {
+            self.flat.get(&key).copied()
+        } else if self.has_nested {
+            ordered.get(id).copied()
+        } else {
+            None
+        }
+    }
+}
+
+fn operand_position(
+    id: &CheckedNodeId,
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    fast: Option<&FlatWireIndex<'_>>,
+) -> Option<usize> {
+    fast.map_or_else(|| index.get(id).copied(), |fast| fast.get(id, index))
 }
 
 /// Check each literal type before native payload syntax, including body roots
@@ -414,7 +546,17 @@ struct Graph<'g> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
     index: &'g BTreeMap<&'g CheckedNodeId, usize>,
+    structural_keys: &'g [std::sync::Arc<CheckedNodeId>],
     terms: &'g [Option<CheckedTerm>],
+}
+
+impl Graph<'_> {
+    fn structural_id<'a>(&'a self, wire: &'a CheckedNodeId) -> Option<&'a CheckedNodeId> {
+        let position = *self.index.get(wire)?;
+        self.structural_keys
+            .get(position)
+            .map(std::sync::Arc::as_ref)
+    }
 }
 
 fn admitted_arguments<'g>(
@@ -553,16 +695,26 @@ fn check_type_argument_member_result(
     None
 }
 
+#[derive(Clone, Copy)]
+struct OperationResolution<'a> {
+    catalog: &'a OperationCatalog,
+    fast_index: Option<&'a FlatWireIndex<'a>>,
+}
+
 fn operation_defect(
     application: Application<'_>,
     graph: &Graph<'_>,
     lock: &CheckedPackageLockV2,
     owners: &ModelOwners<'_>,
     references: DependencyReferences<'_>,
-    catalog: &OperationCatalog,
+    resolution: OperationResolution<'_>,
     meter: &mut WorkMeter,
     admitted_views: &mut Vec<(usize, CheckedOperationViews)>,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let OperationResolution {
+        catalog,
+        fast_index,
+    } = resolution;
     let Graph {
         nodes,
         kinds,
@@ -807,6 +959,7 @@ fn operation_defect(
             graph,
             owners,
             catalog,
+            fast_index,
             &mut OperationWork {
                 meter: &mut *meter,
                 structural: &mut structural,
@@ -958,6 +1111,7 @@ fn argument_family(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    fast_index: Option<&FlatWireIndex<'_>>,
     catalog: &OperationCatalog,
     owners: Option<&ModelOwners<'_>>,
 ) -> Option<&'static str> {
@@ -968,10 +1122,15 @@ fn argument_family(
         CheckedTerm::Reference { .. }
         | CheckedTerm::Literal { .. }
         | CheckedTerm::Application { .. } => {
-            let type_node = operand_type_node_typed(argument, nodes, kinds, index)?;
+            let type_node =
+                operand_type_node_typed_with_lookup(argument, nodes, kinds, index, fast_index)?;
             owners.map_or_else(
-                || resolve_family(&type_node, nodes, kinds, index),
-                |owners| resolve_family_from_selected(&type_node, nodes, kinds, index, owners),
+                || resolve_family_with_lookup(&type_node, nodes, kinds, index, fast_index),
+                |owners| {
+                    resolve_family_from_selected_with_lookup(
+                        &type_node, nodes, kinds, index, fast_index, owners,
+                    )
+                },
             )
         }
         CheckedTerm::Binding { .. } => Some("binder"),
@@ -1317,17 +1476,27 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
 /// the chain of bounded domains is. The walk is iterative and follows each node
 /// once, so a chain has no length limit and a cycle of bounded domains, which
 /// ends at no type, names no family (`None`), as an unresolved type does.
+#[cfg(test)]
 fn resolve_family(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<&'static str> {
+    resolve_family_with_lookup(type_id, nodes, kinds, index, None)
+}
+
+fn resolve_family_with_lookup(
+    type_id: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    fast_index: Option<&FlatWireIndex<'_>>,
+) -> Option<&'static str> {
     let result = resolve_family_with(type_id, |visit| {
         Ok::<_, std::convert::Infallible>(match visit {
-            FamilyVisit::Node(id) => index
-                .get(id)
-                .and_then(|position| Some((nodes.get(*position)?, *kinds.get(*position)?))),
+            FamilyVisit::Node(id) => operand_position(id, index, fast_index)
+                .and_then(|position| Some((nodes.get(position)?, *kinds.get(position)?))),
             FamilyVisit::Forward => None,
         })
     });
@@ -1355,13 +1524,23 @@ fn resolve_family_from_selected(
     index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
 ) -> Option<&'static str> {
+    resolve_family_from_selected_with_lookup(type_id, nodes, kinds, index, None, owners)
+}
+
+fn resolve_family_from_selected_with_lookup(
+    type_id: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    fast_index: Option<&FlatWireIndex<'_>>,
+    owners: &ModelOwners<'_>,
+) -> Option<&'static str> {
     let result = resolve_family_with_selected(
         type_id,
         |visit| {
             Ok::<_, std::convert::Infallible>(match visit {
-                FamilyVisit::Node(id) => index
-                    .get(id)
-                    .and_then(|position| Some((nodes.get(*position)?, *kinds.get(*position)?))),
+                FamilyVisit::Node(id) => operand_position(id, index, fast_index)
+                    .and_then(|position| Some((nodes.get(position)?, *kinds.get(position)?))),
                 FamilyVisit::Forward => None,
             })
         },
@@ -1481,6 +1660,7 @@ fn check_operands(
     graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
     catalog: &OperationCatalog,
+    fast_index: Option<&FlatWireIndex<'_>>,
     work: &mut OperationWork<'_>,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
@@ -1554,7 +1734,15 @@ fn check_operands(
             continue;
         }
         if let Some(actual) = typed_arguments.get(position).and_then(|argument| {
-            argument_family(argument, nodes, kinds, index, catalog, Some(owners))
+            argument_family(
+                argument,
+                nodes,
+                kinds,
+                index,
+                fast_index,
+                catalog,
+                Some(owners),
+            )
         }) {
             if !catalog.family_fits(actual, expected) {
                 if entry.mode == Some(OperationModeKind::TextProfile)
@@ -1574,9 +1762,15 @@ fn check_operands(
             .iter()
             .enumerate()
         {
-            if let Some(actual) =
-                argument_family(argument, nodes, kinds, index, catalog, Some(owners))
-            {
+            if let Some(actual) = argument_family(
+                argument,
+                nodes,
+                kinds,
+                index,
+                fast_index,
+                catalog,
+                Some(owners),
+            ) {
                 if !catalog.family_fits(actual, rest_family) {
                     if entry.mode == Some(OperationModeKind::TextProfile)
                         && FamilyClass::from_wire(actual) == FamilyClass::String
@@ -1617,7 +1811,15 @@ fn check_operands(
                     .iter()
                     .map(|position| {
                         typed_arguments.get(*position).and_then(|argument| {
-                            argument_family(argument, nodes, kinds, index, catalog, Some(owners))
+                            argument_family(
+                                argument,
+                                nodes,
+                                kinds,
+                                index,
+                                fast_index,
+                                catalog,
+                                Some(owners),
+                            )
                         })
                     })
                     .collect();
@@ -1632,7 +1834,9 @@ fn check_operands(
                     .iter()
                     .map(|position| {
                         typed_arguments.get(*position).and_then(|argument| {
-                            operand_type_node_typed(argument, nodes, kinds, index)
+                            operand_type_node_typed_with_lookup(
+                                argument, nodes, kinds, index, fast_index,
+                            )
                         })
                     })
                     .collect();
@@ -1859,14 +2063,7 @@ fn union_arms_hold(
                 && binders
                     .iter()
                     .zip(&member.payload)
-                    .all(|(binder, payload)| {
-                        referenced_type(binder)
-                            .and_then(|target| index.get(&target).copied())
-                            .is_some_and(|position| {
-                                kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
-                                    && nodes[position].semantic_type == *payload
-                            })
-                    })
+                    .all(|(binder, payload)| binder_matches_payload(binder, payload, graph))
         });
         // Implements: FR-347. an arm body conforms to a record `result_type`; a binder is
         // bound to the payload type and stays exact.
@@ -1886,6 +2083,20 @@ fn union_arms_hold(
         }
     }
     Ok(true)
+}
+
+fn binder_matches_payload(
+    binder: &CheckedTerm,
+    payload: &CheckedNodeId,
+    graph: &Graph<'_>,
+) -> bool {
+    referenced_type(binder)
+        .and_then(|target| graph.index.get(&target).copied())
+        .is_some_and(|position| {
+            graph.kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
+                && graph.structural_id(&graph.nodes[position].semantic_type)
+                    == Some(graph.structural_id(payload).unwrap_or(payload))
+        })
 }
 
 /// Whether a node of this kind is a type node: a `scalar_type`,
@@ -2097,7 +2308,10 @@ fn conforms_to_type(
     let Some(actual) = actual else {
         return Ok(false);
     };
-    if actual == expected {
+    let Some(actual_key) = graph.structural_id(actual) else {
+        return Ok(false);
+    };
+    if actual_key == graph.structural_id(expected).unwrap_or(expected) {
         return Ok(true);
     }
     let Some(parameter) = owners.record_by_key(expected) else {
@@ -2508,7 +2722,7 @@ fn check_tuple_position(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result_type != Some(&expected_type) {
+    if result_type.and_then(|id| graph.structural_id(id)) != Some(&expected_type) {
         return ineligible();
     }
     Ok(None)
@@ -2668,7 +2882,7 @@ fn check_relationship_member(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result != Some(&expected_id) {
+    if result.and_then(|id| graph.structural_id(id)) != Some(&expected_id) {
         return ineligible(application.body(&["result_type"]));
     }
     // The population link is the last check of the member: every earlier defect
@@ -3079,7 +3293,7 @@ fn check_model_member(
             let Some(receiver_id) = receiver.node_id(&application.node.node_id.package) else {
                 return ineligible(argument_at(0));
             };
-            if type_node(0).as_ref() != Some(&receiver_id) {
+            if type_node(0).as_ref().and_then(|id| graph.structural_id(id)) != Some(&receiver_id) {
                 return ineligible(argument_at(0));
             }
             if arguments.len().saturating_sub(1) != resolved.parameters.len() {
@@ -3123,7 +3337,7 @@ fn check_model_member(
     let Some(member_id) = member_type.node_id(&application.node.node_id.package) else {
         return ineligible(application.body(&["result_type"]));
     };
-    if result_type != Some(&member_id) {
+    if result_type.and_then(|id| graph.structural_id(id)) != Some(&member_id) {
         return ineligible(application.body(&["result_type"]));
     }
     Ok(None)
@@ -3197,13 +3411,33 @@ fn operand_type_node_typed(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<CheckedNodeId> {
+    operand_type_node_typed_with_lookup(argument, nodes, kinds, index, None)
+}
+
+fn operand_type_node_typed_with_lookup(
+    argument: &CheckedTerm,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    fast_index: Option<&FlatWireIndex<'_>>,
+) -> Option<CheckedNodeId> {
     let target = match argument {
         CheckedTerm::Literal { type_id, .. } => return Some(type_id.clone()),
         CheckedTerm::Application { result_type, .. } => return Some(result_type.clone()),
         CheckedTerm::Reference { target } => target,
         _ => return None,
     };
-    referenced_operand_type(target, nodes, kinds, index)
+    if let Some(fast_index) = fast_index {
+        let position = fast_index.get(target, index)?;
+        let target_node = &nodes[position];
+        if is_type_shaped(*kinds.get(position)?) {
+            Some(target.clone())
+        } else {
+            Some(target_node.semantic_type.clone())
+        }
+    } else {
+        referenced_operand_type(target, nodes, kinds, index)
+    }
 }
 
 /// The value a type node's own declaration pins for a type-pinned mode kind
@@ -3244,6 +3478,7 @@ fn check_mode_type(
         kinds,
         index,
         terms,
+        ..
     } = *graph;
     let mode = operation.mode.as_ref()?;
     let mode_kind = mode.kind_class()?;
@@ -3775,6 +4010,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             kinds: self.kinds,
             index: self.index,
             terms: self.terms,
+            structural_keys: &[],
         };
         let (position, kind) = self
             .structural
@@ -4622,6 +4858,39 @@ mod tests {
         let mut kinds = kinds_of(&nodes);
         configure(&mut nodes, &mut kinds, &mut operation);
         nodes[0].body["operation"] = operation.clone();
+        if !nodes.iter().any(|node| node.node_id == *result_key) {
+            let boolean = result_key == &MemberType::Boolean.node_id("checked").expect("boolean");
+            let mut result_node = graph_node(
+                't',
+                if boolean {
+                    "scalar_type"
+                } else {
+                    "composite_type"
+                },
+                if boolean { "boolean" } else { "reference" },
+                result_key,
+                json!({"term": "aggregate", "members": []}),
+            );
+            result_node.node_id = result_key.clone();
+            result_node.semantic_type = result_key.clone();
+            kinds.extend(kinds_of(std::slice::from_ref(&result_node)));
+            nodes.push(result_node);
+        }
+        let structural_keys: Vec<_> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
+        // This isolated operation test predates the indexed package envelope.
+        // Give its structural model-member IDs consistent flat fixture IDs
+        // before typed wire decoding; the selected model owner/name joins are
+        // still exercised by the operation checker below.
+        let mut fixture_ids = std::collections::BTreeMap::new();
+        for node in &mut nodes {
+            let mut value = serde_json::to_value(&*node).expect("raw fixture node");
+            flatten_fixture_ids(&mut value, &mut fixture_ids);
+            *node = serde_json::from_value(value).expect("flat fixture node");
+        }
+        flatten_fixture_ids(&mut operation, &mut fixture_ids);
         let index: BTreeMap<_, _> = nodes
             .iter()
             .enumerate()
@@ -4629,12 +4898,18 @@ mod tests {
             .collect();
         let owners =
             ModelOwners::new(std::slice::from_ref(&model), &nodes, |_| Ok(())).expect("owners");
-        let terms = decoded_terms(&nodes);
+        let mut terms = decoded_terms(&nodes);
+        if let Some(super::CheckedTerm::Application { result_type, .. }) =
+            terms.get_mut(0).and_then(Option::as_mut)
+        {
+            *result_type = translated_fixture_result(result_key, &fixture_ids);
+        }
         let graph = Graph {
             nodes: &nodes,
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &structural_keys,
         };
         let operation: super::OperationWire = serde_json::from_value(operation).expect("operation");
         let outcome = super::check_relationship_member(
@@ -4657,6 +4932,67 @@ mod tests {
             other => panic!("expected refusal, got {other:?}"),
         });
         (outcome, meter.consumed())
+    }
+
+    fn flatten_fixture_ids(
+        value: &mut Value,
+        aliases: &mut std::collections::BTreeMap<String, Value>,
+    ) {
+        match value {
+            Value::Object(object)
+                if object.len() == 3
+                    && object.contains_key("package")
+                    && object.contains_key("path")
+                    && object.contains_key("ordinal") =>
+            {
+                let nested = object["path"]
+                    .as_array()
+                    .is_some_and(|path| path.iter().any(Value::is_object));
+                if nested {
+                    let key = serde_json::to_string(&*object).expect("fixture node id");
+                    let next = aliases.len();
+                    *value = aliases
+                        .entry(key)
+                        .or_insert_with(|| {
+                            json!({
+                                "package": object["package"],
+                                "path": [format!("fixture-{next}")],
+                                "ordinal": object["ordinal"],
+                            })
+                        })
+                        .clone();
+                }
+            }
+            Value::Object(object) => {
+                for member in object.values_mut() {
+                    flatten_fixture_ids(member, aliases);
+                }
+            }
+            Value::Array(array) => {
+                for member in array {
+                    flatten_fixture_ids(member, aliases);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn translated_fixture_result(
+        id: &CheckedNodeId,
+        aliases: &std::collections::BTreeMap<String, Value>,
+    ) -> CheckedNodeId {
+        let key = serde_json::to_string(&serde_json::to_value(id).expect("model fixture id"))
+            .expect("model fixture key");
+        if let Some(alias) = aliases.get(&key) {
+            return CheckedNodeId::from_value(alias).expect("flat model fixture id");
+        }
+        let mut translated = id.clone();
+        for segment in &mut translated.path {
+            if let crate::checked_package::shared::CheckedNodePathSegment::Node(operand) = segment {
+                *operand = std::sync::Arc::new(translated_fixture_result(operand, aliases));
+            }
+        }
+        translated
     }
 
     /// Exercise the real caller with a checked selected model and its real owners.
@@ -4948,6 +5284,57 @@ mod tests {
         }
     }
 
+    #[trace("TC-048", "FR-038-AC-114")]
+    #[test]
+    fn operand_wire_lookup_matches_ordered_index_for_flat_and_nested_ids() {
+        use super::{CheckedNodePathSegment as Segment, FlatWireIndex};
+        let named = node_id('a');
+        let indexed = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![Segment::Index(1)],
+            ordinal: 0,
+        };
+        let nested = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![Segment::Node(std::sync::Arc::new(named.clone()))],
+            ordinal: 0,
+        };
+        let index = BTreeMap::from([(&named, 0), (&indexed, 1), (&nested, 2)]);
+        let fast = FlatWireIndex::new(&index);
+        for id in [&named, &indexed, &nested, &node_id('z')] {
+            assert_eq!(fast.get(id, &index), index.get(id).copied());
+        }
+        let flat_index = BTreeMap::from([(&named, 0), (&indexed, 1)]);
+        let flat = FlatWireIndex::new(&flat_index);
+        assert_eq!(flat.get(&nested, &flat_index), None);
+    }
+
+    #[trace("TC-048", "FR-038-AC-117")]
+    #[test]
+    fn operand_wire_lookup_avoids_deep_comparisons_for_unresolved_keys() {
+        use super::{CheckedNodePathSegment as Segment, FlatWireIndex};
+        use crate::checked_package::shared::checked_node_comparisons;
+        let ids: Vec<_> = (0..8_000)
+            .map(|ordinal| CheckedNodeId {
+                package: "checked".into(),
+                path: vec![Segment::Name("argument".into()), Segment::Index(ordinal)],
+                ordinal: 0,
+            })
+            .collect();
+        let index: BTreeMap<_, _> = ids.iter().enumerate().map(|(at, id)| (id, at)).collect();
+        let fast = FlatWireIndex::new(&index);
+        let deep = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![Segment::Node(std::sync::Arc::new(ids[0].clone()))],
+            ordinal: 0,
+        };
+        checked_node_comparisons::reset();
+        for _ in 0..8_000 {
+            assert_eq!(fast.get(&deep, &index), None);
+        }
+        assert_eq!(checked_node_comparisons::count(), 0);
+    }
+
     /// The default `operation` wire shape every fixture below starts from:
     /// `identity`, zero laws, no mode, no member, no leaves. Individual
     /// tests override exactly the field their refusal needs to be wrong.
@@ -5076,12 +5463,20 @@ mod tests {
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": node_tag,
             "semantic_form": semantic_form,
-            "semantic_type": semantic_type,
+            "semantic_type": node_id(id_byte),
             "dependencies": [],
             "occurrences": [],
-            "body": body,
+            "body": {},
         });
-        serde_json::from_value(value).expect("test fixture node is well-formed")
+        // This isolated internal graph uses already resolved structural IDs.
+        // Its raw body is inspected by the operation checker; round-tripping
+        // those IDs through the public indexed wire decoder would incorrectly
+        // turn this unit fixture into an old-wire package.
+        let mut node: CheckedSemanticNodeV2 =
+            serde_json::from_value(value).expect("test fixture node is well-formed");
+        node.semantic_type = semantic_type.clone();
+        node.body = body;
+        node
     }
 
     /// One `operation.laws[]` entry.
@@ -5148,11 +5543,15 @@ mod tests {
                 terms: &terms,
                 kinds: &kinds,
                 index: &index,
+                structural_keys: &[],
             },
             &lock,
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
-            operation_catalog(),
+            super::OperationResolution {
+                catalog: operation_catalog(),
+                fast_index: None,
+            },
             &mut meter,
             &mut Vec::new(),
         )
@@ -5184,11 +5583,15 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             },
             &empty_lock(),
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
-            operation_catalog(),
+            super::OperationResolution {
+                catalog: operation_catalog(),
+                fast_index: None,
+            },
             &mut WorkMeter::new(1_000),
             &mut Vec::new(),
         );
@@ -5260,6 +5663,10 @@ mod tests {
         let mut meter = WorkMeter::new(limit);
         let kinds = kinds_of(&nodes);
         let terms = decoded_terms(&nodes);
+        let structural_keys: Vec<_> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
         let result = operation_defect(
             Application {
                 node: &nodes[0],
@@ -5270,11 +5677,15 @@ mod tests {
                 terms: &terms,
                 kinds: &kinds,
                 index: &index,
+                structural_keys: &structural_keys,
             },
             lock,
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
-            operation_catalog(),
+            super::OperationResolution {
+                catalog: operation_catalog(),
+                fast_index: None,
+            },
             &mut meter,
             &mut Vec::new(),
         );
@@ -6948,11 +7359,16 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect();
         let terms = decoded_terms(&nodes);
+        let structural_keys: Vec<_> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
         let graph = Graph {
             nodes: &nodes,
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &structural_keys,
         };
         let supplied: Vec<super::OperationLeafWire> = leaves
             .into_iter()
@@ -7014,6 +7430,7 @@ mod tests {
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &[],
         };
         let head = char::from_u32(0x5600).expect("test id");
         let mut meter = WorkMeter::new(300);
@@ -7152,6 +7569,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation");
             let mut structural = StructuralTypes::default();
@@ -7240,6 +7658,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
             let mut meter = WorkMeter::new(u64::MAX);
@@ -7333,6 +7752,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
             for limit in [0, 1] {
@@ -7392,6 +7812,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
                 terms: &terms,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
             let mut meter = WorkMeter::new(2);
@@ -7458,6 +7879,7 @@ mod tests {
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &[],
         };
         let at = pointer("/semantic_graph/nodes/0/body/operation");
         let mut structural = StructuralTypes::default();
@@ -7518,6 +7940,7 @@ mod tests {
                 terms: &terms,
                 kinds: &kinds,
                 index: &index,
+                structural_keys: &[],
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation");
             let mut structural = StructuralTypes::default();
@@ -7576,11 +7999,16 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect();
         let terms = decoded_terms(&nodes);
+        let structural_keys: Vec<_> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
         let graph = Graph {
             nodes: &nodes,
             terms: &terms,
             kinds: &kinds,
             index: &index,
+            structural_keys: &structural_keys,
         };
         let application = Application {
             node: &nodes[0],
@@ -7633,6 +8061,87 @@ mod tests {
         });
         let incomplete = forwarding_refusal.expect("union forwarding has its own Work refusal");
         assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    }
+
+    #[trace("TC-048", "FR-038-AC-224")]
+    #[test]
+    fn union_binder_matches_rebuilt_indexed_payload_type() {
+        use crate::checked_package::shared::CheckedNodePathSegment;
+
+        let source = scalar_type_node('i', "integer");
+        let generated = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("scalar_type".into()),
+                CheckedNodePathSegment::Node(std::sync::Arc::new(source.node_id.clone())),
+            ],
+            ordinal: 0,
+        };
+        let indexed = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("scalar_type".into()),
+                CheckedNodePathSegment::Index(0),
+            ],
+            ordinal: 0,
+        };
+        let mut type_node = scalar_type_node('x', "integer");
+        type_node.node_id = indexed.clone();
+        type_node.semantic_type = indexed.clone();
+        let mut binder = parameter_of('q', 'x');
+        binder.semantic_type = indexed.clone();
+        let nodes = [source, type_node, binder];
+        let kinds = kinds_of(&nodes);
+        let index: BTreeMap<_, _> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let terms = decoded_terms(&nodes);
+        let structural_keys = [
+            std::sync::Arc::new(nodes[0].node_id.clone()),
+            std::sync::Arc::new(generated.clone()),
+            std::sync::Arc::new(nodes[2].node_id.clone()),
+        ];
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+            structural_keys: &structural_keys,
+            terms: &terms,
+        };
+        let bound = super::CheckedTerm::Reference {
+            target: nodes[2].node_id.clone(),
+        };
+        assert!(super::binder_matches_payload(&bound, &generated, &graph));
+        assert!(super::binder_matches_payload(&bound, &indexed, &graph));
+        assert!(!super::binder_matches_payload(
+            &bound,
+            &node_id('z'),
+            &graph
+        ));
+        let mut meter = WorkMeter::new(100);
+        assert_eq!(
+            super::conforms_to_type(
+                &generated,
+                Some(&indexed),
+                &graph,
+                &ModelOwners::default(),
+                &mut meter,
+            ),
+            Ok(true),
+        );
+        assert_eq!(
+            super::conforms_to_type(
+                &node_id('z'),
+                Some(&node_id('z')),
+                &graph,
+                &ModelOwners::default(),
+                &mut meter,
+            ),
+            Ok(false),
+            "an unselected wire type cannot pass by fallback equality",
+        );
     }
 
     #[trace("TC-048", "FR-038-AC-224")]
@@ -8808,11 +9317,15 @@ mod tests {
                 terms: &terms,
                 kinds: &kinds,
                 index: &index,
+                structural_keys: &[],
             },
             &text_selecting_lock(),
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
-            operation_catalog(),
+            super::OperationResolution {
+                catalog: operation_catalog(),
+                fast_index: None,
+            },
             &mut meter,
             &mut Vec::new(),
         );
@@ -9422,10 +9935,17 @@ mod tests {
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
             let terms = decoded_terms(&nodes);
+            let structural_keys = nodes
+                .iter()
+                .map(|node| std::sync::Arc::new(node.node_id.clone()))
+                .collect::<Vec<_>>();
             let result = super::validate_operations(
                 &nodes,
                 &kinds,
-                &index,
+                super::OperationNodeOrder {
+                    wire_index: &index,
+                    structural_keys: &structural_keys,
+                },
                 &terms,
                 &empty_lock(),
                 &ModelOwners::default(),
@@ -9597,7 +10117,8 @@ mod tests {
         let catalog = operation_catalog();
         let reference = super::CheckedTerm::decode_admitted(&reference_to('4'))
             .expect("reference fixture admits");
-        let family = super::argument_family(&reference, &nodes, &kinds, &index, catalog, None);
+        let family =
+            super::argument_family(&reference, &nodes, &kinds, &index, None, catalog, None);
         assert_eq!(family, Some("temporal"));
         assert!(catalog.family_fits("temporal", "temporal"));
         assert!(catalog.family_fits("temporal", "any_term"));
@@ -9709,6 +10230,7 @@ mod tests {
                 kinds: &kinds,
                 terms: &terms,
                 index: &index,
+                structural_keys: &[],
             };
             let operation: super::OperationWire =
                 serde_json::from_value(nodes[0].body["operation"].clone())

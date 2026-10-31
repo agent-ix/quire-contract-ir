@@ -38,7 +38,10 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
     let admitted = package(&checked, std::slice::from_ref(&add.node_id));
     let before = admitted.wire().clone();
     let reached = admitted
-        .reached_closure(&add.node_id)
+        .reached_closure(
+            &quire_contract_model::ContractSourceKeyV1::from_structural(&add.node_id)
+                .expect("structural source key"),
+        )
         .expect("reached before");
     let result = admitted
         .result_context(&add.node_id, &add, None, BoundedDomainForm::IntegerRange)
@@ -85,7 +88,10 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
     assert_eq!(admitted.wire(), &before);
     assert_eq!(
         admitted
-            .reached_closure(&add.node_id)
+            .reached_closure(
+                &quire_contract_model::ContractSourceKeyV1::from_structural(&add.node_id)
+                    .expect("structural source key")
+            )
             .expect("reached after"),
         reached
     );
@@ -205,7 +211,12 @@ fn tc_458_invalid_occurrence_refuses_without_mutating_admitted_views() {
     let narrow = by_operation(&checked, "quire.op.numeric.narrow");
     let admitted = package(&checked, std::slice::from_ref(&add.node_id));
     let before = admitted.wire().clone();
-    let before_reached = admitted.reached_closure(&add.node_id).expect("reached");
+    let before_reached = admitted
+        .reached_closure(
+            &quire_contract_model::ContractSourceKeyV1::from_structural(&add.node_id)
+                .expect("structural source key"),
+        )
+        .expect("reached");
     for invalid in [
         ContractOccurrenceKeyV1 {
             node_id: add.node_id.clone(),
@@ -269,7 +280,12 @@ fn tc_458_invalid_occurrence_refuses_without_mutating_admitted_views() {
     ));
     assert_eq!(admitted.wire(), &before);
     assert_eq!(
-        admitted.reached_closure(&add.node_id).expect("reached"),
+        admitted
+            .reached_closure(
+                &quire_contract_model::ContractSourceKeyV1::from_structural(&add.node_id)
+                    .expect("structural source key")
+            )
+            .expect("reached"),
         before_reached
     );
 }

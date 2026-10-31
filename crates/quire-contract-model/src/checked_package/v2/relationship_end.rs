@@ -305,7 +305,11 @@ pub(super) mod tests {
                     json!({"package":IDENTITY, "path":["model","object_type",ORDER],"ordinal":0})
                 }
                 'b' => {
-                    json!({"package":"relationship-end", "path":["composite_type","reference",ids[&'a']],"ordinal":0})
+                    let target = nodes
+                        .iter()
+                        .position(|node| node["node_id"] == json!(ids[&'a']))
+                        .expect("reference target is in this graph");
+                    json!({"package":"relationship-end", "path":["composite_type","reference",{"node":target}],"ordinal":0})
                 }
                 'c' => {
                     json!({"package":IDENTITY, "path":["relation","relationship",LINKS],"ordinal":0})

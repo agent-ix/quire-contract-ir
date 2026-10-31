@@ -6,8 +6,9 @@
 //! Semantic IR 2.0.0 domain package document selected by the lock.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, evidence_with_document, node_id as fixture_node_id, nominal_package,
-    rebuild_source_map, select_model, settle, structural_id,
+    canonical, evidence_for, evidence_with_document, index_fixture_node_ids,
+    node_id as fixture_node_id, nominal_package, rebuild_source_map, select_model, settle,
+    structural_fixture_id, structural_id,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -647,7 +648,9 @@ fn read_with(
     evidence: &CheckedPackageEvidence,
     limits: CheckedPackageReadLimits,
 ) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(&canonical(package), limits, evidence)
+    let mut wire = package.clone();
+    index_fixture_node_ids(&mut wire);
+    CheckedPackageV2::read(&canonical(&wire), limits, evidence)
 }
 
 fn admit(document: &Value, declared: &[(&str, &str)], reads: &[Read]) -> CheckedPackageV2 {
@@ -2162,8 +2165,7 @@ fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type(
         &[(ORDER, OBJECT), ("Pump", INTERFACE)],
         &[read],
     );
-    let id =
-        |path: &str| -> CheckedNodeId { serde_json::from_value(node_id(path)).expect("a node id") };
+    let id = |path: &str| -> CheckedNodeId { structural_fixture_id(&node_id(path)) };
     assert_eq!(
         package.model_object_fields(&id("placeholder/9")),
         Err(CheckedModelFieldsError::UnknownNode)
@@ -2173,8 +2175,17 @@ fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type(
     let integer = type_nodes(&Ty::Integer, &mut scalar);
     let thousand = type_nodes(&Ty::Range(0, 1000), &mut scalar);
     for key in [&integer, &thousand] {
+        let structural = id(key);
+        let wire = package
+            .graph()
+            .nodes
+            .iter()
+            .enumerate()
+            .find(|(position, _)| package.structural_key_at(*position) == Some(&structural))
+            .map(|(_, node)| &node.node_id)
+            .expect("authored type node");
         assert_eq!(
-            package.model_object_fields(&id(key)),
+            package.model_object_fields(wire),
             Err(CheckedModelFieldsError::NotModelObjectType),
             "a type node is no model object"
         );

@@ -11,8 +11,9 @@
 //! assigned its own structural path.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, fixture_source, node_id, nominal_fixture_members, nominal_package,
-    rebuild_source_map, refusal, refusal_at_id, source_owner, ExpectedRefusal,
+    canonical, evidence_for, fixture_source, index_fixture_node_ids, node_id,
+    nominal_fixture_members, nominal_package, rebuild_source_map, refusal, refusal_at_id,
+    source_owner, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -267,10 +268,12 @@ fn parameters_package() -> Value {
 }
 
 fn read(value: &Value) -> CheckedPackageV2ReadResult {
+    let mut wire = value.clone();
+    index_fixture_node_ids(&mut wire);
     CheckedPackageV2::read(
-        &canonical(value),
+        &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
-        &evidence_for(value),
+        &evidence_for(&wire),
     )
 }
 
@@ -308,20 +311,24 @@ fn mutated(position: usize, mutate: impl Fn(&mut Value)) -> Value {
 /// `invalid_semantic_graph` at the node at `position`, pointing at `member`
 /// (a pointer suffix below that node).
 fn invalid_at(package: &Value, position: usize, member: &str) -> ExpectedRefusal {
+    let mut wire = package.clone();
+    index_fixture_node_ids(&mut wire);
     refusal_at_id(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         &format!("/semantic_graph/nodes/{position}{member}"),
         None,
-        &package["semantic_graph"]["nodes"][position]["node_id"],
+        &wire["semantic_graph"]["nodes"][position]["node_id"],
     )
 }
 
 fn invalid_derived_at(package: &Value, position: usize) -> ExpectedRefusal {
+    let mut wire = package.clone();
+    index_fixture_node_ids(&mut wire);
     refusal_at_id(
         CheckedPackageRefusalCode::InvalidPackage,
         &format!("/semantic_graph/nodes/{position}/node_id"),
         Some(CheckedPackageRefusalCause::InvalidDerivedShape),
-        &package["semantic_graph"]["nodes"][position]["node_id"],
+        &wire["semantic_graph"]["nodes"][position]["node_id"],
     )
 }
 

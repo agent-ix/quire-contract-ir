@@ -765,6 +765,33 @@ fn tc_048_an_interval_member_admits_and_refuses_on_each_interval_operator() {
     }
 }
 
+/// Trace: TC-048, FR-038-AC-378.
+#[test]
+fn tc_048_out_of_range_operand_precedes_interval_semantics() {
+    let (mut package, root) = with_root(BOUNDED, "eventually", closed("-1", "3"), None, 1);
+    let count = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .len();
+    let path = package["semantic_graph"]["nodes"][root]["node_id"]["path"]
+        .as_array_mut()
+        .expect("node path");
+    let slot = path.len();
+    path.push(json!({"node": count}));
+    let expected = format!("/semantic_graph/nodes/{root}/node_id/path/{slot}/node");
+    match read(&package) {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            assert_eq!(refusal.code, Code::MalformedWire);
+            assert_eq!(refusal.cause, None);
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+                Some(expected.as_str())
+            );
+        }
+        other => panic!("index refusal must precede interval defect: {other:?}"),
+    }
+}
+
 #[trace("TC-048", "FR-038-AC-97")]
 #[test]
 fn tc_048_invalid_interval_precedes_a_missing_application_result_type() {

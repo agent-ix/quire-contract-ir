@@ -4,7 +4,8 @@
 //! External construction and reader admission of closed V2 nominal bodies.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, nominal_fixture_members, nominal_package, v2_nominal,
+    canonical, evidence_for, index_fixture_node_ids, nominal_fixture_members, nominal_package,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -280,7 +281,7 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
             .collect()
     );
 
-    let model_wire = super::checked_package_v2_reader::model_owned_package(
+    let mut model_wire = super::checked_package_v2_reader::model_owned_package(
         json!({
             "kind": "model",
             "identity": "test/orders",
@@ -288,6 +289,7 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
         }),
         &["test/orders"],
     );
+    index_fixture_node_ids(&mut model_wire);
     let model = match CheckedPackageV2::read(
         &canonical(&model_wire),
         CheckedPackageReadLimits::bounded(),
@@ -337,11 +339,13 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
     );
     let invalid_id = CheckedNodeId {
         package: "units".into(),
-        path: vec![CheckedNodePathSegment::Node(Box::new(CheckedNodeId {
-            package: "".into(),
-            path: id.path.clone(),
-            ordinal: 0,
-        }))],
+        path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(
+            CheckedNodeId {
+                package: "".into(),
+                path: id.path.clone(),
+                ordinal: 0,
+            },
+        ))],
         ordinal: 0,
     };
     assert_malformed(

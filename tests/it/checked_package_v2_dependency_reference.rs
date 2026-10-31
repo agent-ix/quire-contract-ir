@@ -324,7 +324,13 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
     };
     let result = admitted.lower(std::slice::from_ref(&root), &profile);
     let emitted = result.package.wire().expect("lowered package");
-    let ContractRootViewV1::Lowered(view) = emitted.reached_closure(&root).expect("view") else {
+    let ContractRootViewV1::Lowered(view) = emitted
+        .reached_closure(
+            &quire_contract_model::ContractSourceKeyV1::from_structural(&root)
+                .expect("structural source key"),
+        )
+        .expect("view")
+    else {
         panic!("lowered call must have a view");
     };
     assert_eq!(view.selected_references.len(), 1);
@@ -361,7 +367,12 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
         panic!("emitted package must read with selected dependency");
     };
     assert_eq!(
-        read_back.reached_closure(&root).expect("view"),
+        read_back
+            .reached_closure(
+                &quire_contract_model::ContractSourceKeyV1::from_structural(&root)
+                    .expect("structural source key")
+            )
+            .expect("view"),
         ContractRootViewV1::Lowered(view.clone())
     );
     let application = ContractOccurrenceKeyV1 {

@@ -1,17 +1,16 @@
 //! The closed-schema decode of the package document, without native recursion
-//! following the nesting of a term or structural node path.
+//! following the nesting of a term.
 //!
 //! A node `body` and a diagnostic's `details`
 //! entry may nest as deep as the strict parser's limit of 128. The outer typed
 //! decode borrows each such term as a raw source slice, then decodes it into a
-//! `Value` only after that outer frame has returned. A `NodeId.path` is
-//! captured and decoded on a heap worklist, so it has no fixed depth cap.
-//! This keeps an adverse deep term or path within the reader stack budget.
+//! `Value` only after that outer frame has returned. A `NodeId.path` contains
+//! fixed-depth string or graph-index segments, so a derived chain does not
+//! increase JSON nesting depth. Deep terms stay within the reader stack budget.
 //!
 //! The lossless-decode check (no member defaulted, nulled or dropped) compares
 //! borrowed source array items against their typed serialization one at a
-//! time, except structural node identities, which compare from raw slices
-//! to avoid recursive serialization.
+//! time, except structural node identities, which compare from raw slices.
 
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
@@ -157,8 +156,8 @@ pub(super) fn decode_borrowed_wire(
         if let ValidationFailure::Refused(ref mut refusal) = failure {
             if refusal.code == CheckedPackageRefusalCode::MalformedWire {
                 if let Some(at) = refusal.primary_path().cloned() {
-                    if let Some(ordinal) = invalid_node_id_ordinal(bytes, &at) {
-                        refusal.set_primary_path(Some(ordinal));
+                    if let Some(member) = invalid_node_id_field(bytes, &at) {
+                        refusal.set_primary_path(Some(member));
                     }
                 }
             }
@@ -234,33 +233,43 @@ pub(super) fn decode_borrowed_wire(
     })
 }
 
-/// Refine a buffered structural ID decode error to the actual ordinal member.
-/// Nested operand IDs are walked on the heap, without a path-depth cap.
+/// Refine a buffered node-ID decode error to an ordinal or path segment.
+/// V2 path objects are closed graph-local indices; nested IDs are refused at
+/// the segment itself, before semantic-graph admission.
 #[ix_trace_rs::string_edge]
-fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+fn invalid_node_id_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
     const MAX_SAFE: u64 = 9_007_199_254_740_991;
-    let mut pending = vec![(source_raw(bytes, at)?, at.clone())];
-    while let Some((raw, path)) = pending.pop() {
-        let members: BTreeMap<&str, &RawValue> = serde_json::from_str(raw.get()).ok()?;
-        if !members.contains_key("package") || !members.contains_key("path") {
+    let members: BTreeMap<&str, &RawValue> = serde_json::from_str(source_raw(bytes, at)?).ok()?;
+    if !members.contains_key("package") || !members.contains_key("path") {
+        return None;
+    }
+    if let Some(ordinal) = members.get("ordinal") {
+        if serde_json::from_str::<u64>(ordinal.get())
+            .ok()
+            .is_none_or(|value| value > MAX_SAFE)
+        {
+            return Some(at.clone().key("ordinal"));
+        }
+    }
+    let segments: Vec<&RawValue> = serde_json::from_str(members.get("path")?.get()).ok()?;
+    for (index, segment) in segments.into_iter().enumerate() {
+        let raw = segment.get();
+        if raw.starts_with('"') {
             continue;
         }
-        if let Some(ordinal) = members.get("ordinal") {
-            if serde_json::from_str::<u64>(ordinal.get())
-                .ok()
-                .is_none_or(|value| value > MAX_SAFE)
+        if raw.starts_with('{') {
+            let object: BTreeMap<&str, &RawValue> = serde_json::from_str(raw).ok()?;
+            if object.len() == 1
+                && object.get("node").is_some_and(|value| {
+                    serde_json::from_str::<u64>(value.get())
+                        .ok()
+                        .is_some_and(|value| value <= MAX_SAFE)
+                })
             {
-                return Some(path.key("ordinal"));
+                continue;
             }
         }
-        if let Some(raw_path) = members.get("path") {
-            let segments: Vec<&RawValue> = serde_json::from_str(raw_path.get()).ok()?;
-            for (index, segment) in segments.into_iter().enumerate().rev() {
-                if segment.get().starts_with('{') {
-                    pending.push((segment, path.clone().key("path").index(index)));
-                }
-            }
-        }
+        return Some(at.clone().key("path").index(index));
     }
     None
 }
@@ -268,30 +277,117 @@ fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer
 /// Read only the JSON value named by `pointer`. Borrowed raw subtrees retain
 /// slices of the caller's bytes; no ancestor is decoded into a `Value`.
 pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value> {
-    serde_json::from_str(source_raw(bytes, pointer)?.get()).ok()
+    serde_json::from_str(source_raw(bytes, pointer)?).ok()
 }
 
-fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a RawValue> {
-    let mut current: &RawValue = serde_json::from_slice(bytes).ok()?;
+/// Locate a source value without deserializing its ancestors. A package can
+/// contain a valid term near serde_json's depth limit even when the requested
+/// member is shallow; deserializing the root as RawValue would reject it.
+fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a str> {
+    let mut current = bytes;
     let path = pointer.as_str();
     if !path.is_empty() {
         for token in path.strip_prefix('/')?.split('/') {
             let key = token.replace("~1", "/").replace("~0", "~");
-            current = match current.get().as_bytes().first()? {
-                b'{' => {
-                    let members: BTreeMap<String, &RawValue> =
-                        serde_json::from_str(current.get()).ok()?;
-                    *members.get(&key)?
-                }
-                b'[' => {
-                    let items: Vec<&RawValue> = serde_json::from_str(current.get()).ok()?;
-                    *items.get(key.parse::<usize>().ok()?)?
-                }
+            current = match current.first()? {
+                b'{' => object_member(current, &key)?,
+                b'[' => array_item(current, key.parse::<usize>().ok()?)?,
                 _ => return None,
             };
         }
     }
-    Some(current)
+    std::str::from_utf8(current).ok()
+}
+
+/// The strict and canonical scans precede every source lookup. These local
+/// scans only delimit a child span and do not materialize skipped subtrees.
+fn object_member<'a>(object: &'a [u8], key: &str) -> Option<&'a [u8]> {
+    let mut at = 1;
+    while object.get(at) != Some(&b'}') {
+        let end = value_end(object, at)?;
+        let member: &str = serde_json::from_slice(object.get(at..end)?).ok()?;
+        at = end;
+        if object.get(at) != Some(&b':') {
+            return None;
+        }
+        at += 1;
+        let end = value_end(object, at)?;
+        if member == key {
+            return object.get(at..end);
+        }
+        at = end;
+        match object.get(at)? {
+            b',' => at += 1,
+            b'}' => return None,
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn array_item(array: &[u8], target: usize) -> Option<&[u8]> {
+    let mut at = 1;
+    let mut index = 0;
+    while array.get(at) != Some(&b']') {
+        let end = value_end(array, at)?;
+        if index == target {
+            return array.get(at..end);
+        }
+        at = end;
+        if array.get(at) != Some(&b',') {
+            return None;
+        }
+        at += 1;
+        index += 1;
+    }
+    None
+}
+
+/// End of one already validated JSON value, found with a heap stack.
+pub(super) fn value_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let first = *bytes.get(start)?;
+    if !matches!(first, b'{' | b'[' | b'"') {
+        let mut at = start;
+        while !matches!(bytes.get(at), None | Some(b',' | b'}' | b']')) {
+            at += 1;
+        }
+        return Some(at);
+    }
+    let mut at = start;
+    let mut closers = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    loop {
+        let byte = *bytes.get(at)?;
+        at += 1;
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+                if closers.is_empty() {
+                    return Some(at);
+                }
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' => closers.push(b'}'),
+            b'[' => closers.push(b']'),
+            b'}' | b']' => {
+                if closers.pop() != Some(byte) {
+                    return None;
+                }
+                if closers.is_empty() {
+                    return Some(at);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// `malformed_wire` at `at`.
@@ -484,28 +580,48 @@ mod ordinal_locus_tests {
     use super::*;
 
     #[test]
-    fn malformed_structural_ordinals_keep_their_exact_member_pointer() {
+    fn source_lookup_skips_deep_sibling_without_deserializing_it() {
+        let deep = format!("{}0{}", "[".repeat(120), "]".repeat(120));
+        let bytes = format!(
+            "{{\"semantic_graph\":{{\"nodes\":[{{\"body\":{deep},\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":0}}}}]}}}}"
+        );
+        let pointer = JsonPointer::parse("/semantic_graph/nodes/0/node_id/ordinal").unwrap();
+        assert_eq!(
+            source_value(bytes.as_bytes(), &pointer),
+            Some(Value::from(0))
+        );
+    }
+
+    #[test]
+    fn source_lookup_handles_escaped_member_and_string_contents() {
+        let bytes = br#"{"a/b":{"~name":["quoted \" { [ }",{"node":3}]}}"#;
+        let pointer = JsonPointer::parse("/a~1b/~0name/1/node").unwrap();
+        assert_eq!(source_value(bytes, &pointer), Some(Value::from(3)));
+    }
+
+    #[test]
+    fn malformed_node_id_members_keep_their_exact_pointer() {
         let node = JsonPointer::parse("/semantic_graph/nodes/1/node_id").unwrap();
         for ordinal in ["9007199254740992", "1.5", "-1", "\"one\""] {
             let bytes = format!(
                 "{{\"semantic_graph\":{{\"nodes\":[null,{{\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":{ordinal}}}}}]}}}}"
             );
             assert_eq!(
-                invalid_node_id_ordinal(bytes.as_bytes(), &node),
+                invalid_node_id_field(bytes.as_bytes(), &node),
                 Some(node.clone().key("ordinal"))
             );
         }
 
         let nested = br#"{"semantic_graph":{"nodes":[null,{"node_id":{"package":"p","path":[{"package":"p","path":["x"],"ordinal":1.5}],"ordinal":0}}]}}"#;
         assert_eq!(
-            invalid_node_id_ordinal(nested, &node),
-            Some(node.key("path").index(0).key("ordinal"))
+            invalid_node_id_field(nested, &node),
+            Some(node.key("path").index(0))
         );
 
         let dependency = br#"{"semantic_graph":{"nodes":[{"dependencies":[{"package":"p","path":["x"],"ordinal":"one"}]}]}}"#;
         let reference = JsonPointer::parse("/semantic_graph/nodes/0/dependencies/0").unwrap();
         assert_eq!(
-            invalid_node_id_ordinal(dependency, &reference),
+            invalid_node_id_field(dependency, &reference),
             Some(reference.key("ordinal"))
         );
     }

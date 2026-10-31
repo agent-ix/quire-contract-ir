@@ -169,8 +169,11 @@ impl ContractPackageV1 {
         if application_record.disposition() != ContractDispositionV1::Lowered {
             return Ok(ContractGuardContextViewV1::NonLowered(application_record));
         }
+        let Some(source_key) = self.source_key_for_wire(expression) else {
+            return Ok(ContractGuardContextViewV1::Absent);
+        };
         let _application_reached =
-            match self.reached_closure_indexed(expression, &index, query_work) {
+            match self.reached_closure_indexed(&source_key, &index, query_work) {
                 Ok(ContractRootViewV1::Absent) => return Ok(ContractGuardContextViewV1::Absent),
                 Ok(ContractRootViewV1::NonLowered(record)) => {
                     return Ok(ContractGuardContextViewV1::NonLowered(record));
@@ -284,22 +287,26 @@ impl ContractPackageV1 {
             };
 
             if !validated_roots.contains_key(&occurrence.node_id) {
-                let reached =
-                    match self.reached_closure_indexed(&occurrence.node_id, &index, query_work) {
-                        Ok(ContractRootViewV1::Lowered(reached)) => reached,
-                        Ok(ContractRootViewV1::Absent | ContractRootViewV1::NonLowered(_)) => {
-                            return Err(failure(
-                                ContractGuardContextFailureCauseV1::UnrepresentedRoot,
-                                Some(source),
-                            ));
-                        }
-                        Err(error) => {
-                            return Err(failure(
-                                ContractGuardContextFailureCauseV1::InvalidBody(error),
-                                Some(source),
-                            ));
-                        }
-                    };
+                let Some(source_key) = self.source_key_for_wire(&occurrence.node_id) else {
+                    return Err(ContractGuardContextErrorV1::ApplicationView(
+                        ContractRootViewError::Inconsistent,
+                    ));
+                };
+                let reached = match self.reached_closure_indexed(&source_key, &index, query_work) {
+                    Ok(ContractRootViewV1::Lowered(reached)) => reached,
+                    Ok(ContractRootViewV1::Absent | ContractRootViewV1::NonLowered(_)) => {
+                        return Err(failure(
+                            ContractGuardContextFailureCauseV1::UnrepresentedRoot,
+                            Some(source),
+                        ));
+                    }
+                    Err(error) => {
+                        return Err(failure(
+                            ContractGuardContextFailureCauseV1::InvalidBody(error),
+                            Some(source),
+                        ));
+                    }
+                };
                 let expression_node = reached.root;
                 let kind = CheckedNodeTag::from_wire(&expression_node.node_tag)
                     .and_then(|tag| CheckedNodeKind::decode(tag, &expression_node.semantic_form));

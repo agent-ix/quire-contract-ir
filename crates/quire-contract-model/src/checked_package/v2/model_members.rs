@@ -712,7 +712,9 @@ impl MemberType {
                     package,
                     "composite_type",
                     "reference",
-                    vec![CheckedNodePathSegment::Node(Box::new(target.clone()))],
+                    vec![CheckedNodePathSegment::Node(std::sync::Arc::new(
+                        target.clone(),
+                    ))],
                 )),
                 Task::Read(
                     Self::Record(id) | Self::Tuple(id) | Self::Variant(id) | Self::Quantity(id),
@@ -754,7 +756,7 @@ impl MemberType {
                         package,
                         "composite_type",
                         "option",
-                        vec![CheckedNodePathSegment::Node(Box::new(inner))],
+                        vec![CheckedNodePathSegment::Node(std::sync::Arc::new(inner))],
                     ));
                 }
                 Task::Collection(kind, bounds) => {
@@ -762,7 +764,9 @@ impl MemberType {
                         package,
                         "composite_type",
                         kind.form(),
-                        vec![CheckedNodePathSegment::Node(Box::new(ids.pop()?))],
+                        vec![CheckedNodePathSegment::Node(std::sync::Arc::new(
+                            ids.pop()?,
+                        ))],
                     );
                     ids.push(match bounds {
                         Some((lower, upper)) => bounded_id(
@@ -809,7 +813,7 @@ fn bounded_id(
     let integer = derived_id(package, "scalar_type", "integer", Vec::new());
     let mut operands = vec![
         CheckedNodePathSegment::Name("min".into()),
-        CheckedNodePathSegment::Node(Box::new(integer)),
+        CheckedNodePathSegment::Node(std::sync::Arc::new(integer)),
         CheckedNodePathSegment::Name(lower.into()),
         CheckedNodePathSegment::Name("max".into()),
         CheckedNodePathSegment::Name(upper.into()),
@@ -817,16 +821,15 @@ fn bounded_id(
     match tail {
         Some(BoundTail::Text(profile)) => {
             operands.push(CheckedNodePathSegment::Name("text_profile".into()));
-            operands.push(CheckedNodePathSegment::Node(Box::new(derived_id(
-                package,
-                "scalar_type",
-                "text",
-                Vec::new(),
-            ))));
+            operands.push(CheckedNodePathSegment::Node(std::sync::Arc::new(
+                derived_id(package, "scalar_type", "text", Vec::new()),
+            )));
             operands.push(CheckedNodePathSegment::Name(profile.into()));
         }
         Some(BoundTail::Collection(target)) => {
-            operands.push(CheckedNodePathSegment::Node(Box::new(target.clone())));
+            operands.push(CheckedNodePathSegment::Node(std::sync::Arc::new(
+                target.clone(),
+            )));
         }
         None => {}
     }
