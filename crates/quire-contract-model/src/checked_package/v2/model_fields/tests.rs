@@ -681,12 +681,23 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     }
     let integer_id = MemberType::Integer.node_id("checked").expect("integer ID");
     let range = nodes.len();
-    let range_id = MemberType::IntRange(super::super::model_members::IntegerBounds {
+    let mut range_id = MemberType::IntRange(super::super::model_members::IntegerBounds {
         lower: 0,
         upper: 1000,
     })
     .node_id("checked")
     .expect("range ID");
+    // The Integer operand is the node immediately after this range node.
+    // V2 carries its graph index, while the member type still describes the
+    // same structural bounded domain.
+    let operand = range_id.path.get_mut(3).expect("Integer operand");
+    assert!(matches!(
+        operand,
+        super::super::CheckedNodePathSegment::Node(_)
+    ));
+    *operand = super::super::CheckedNodePathSegment::Index(
+        u64::try_from(range + 1).expect("fixture graph index"),
+    );
     let mut bounded = node_of(
         range_id,
         "bounded_domain",
