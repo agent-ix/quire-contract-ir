@@ -7,7 +7,7 @@
 
 use super::{
     ApplicationOperator, BodyTerm, LawRole, LiteralKind, OperationConstraintKind,
-    OperationModeKind, StateClauseKind,
+    OperationMemberKind, OperationModeKind, StateClauseKind,
 };
 use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
@@ -115,8 +115,7 @@ pub struct CheckedOperationConstraint {
 }
 
 /// The closed shape of an admitted operation member.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedOperationMember {
     /// A named field of a declaration.
     Field {
@@ -126,7 +125,6 @@ pub enum CheckedOperationMember {
     /// A declared tuple position.
     Position {
         declaration: CheckedNodeId,
-        #[serde(deserialize_with = "decode_position")]
         position: BigInt,
     },
     /// An element type of a collection.
@@ -307,6 +305,71 @@ impl CheckedOperationViews {
 }
 
 impl CheckedOperationMember {
+    pub(super) fn from_validated_value(value: &Value) -> Option<Self> {
+        let kind = OperationMemberKind::from_wire(value.get("kind")?.as_str()?)?;
+        let declaration = || CheckedNodeId::from_value(value.get("declaration")?);
+        let name = || Some(Box::<str>::from(value.get("name")?.as_str()?));
+        let node = |key| CheckedNodeId::from_value(value.get(key)?);
+        Some(match kind {
+            OperationMemberKind::Field => Self::Field {
+                declaration: declaration()?,
+                name: name()?,
+            },
+            OperationMemberKind::Position => {
+                let position = value.get("position")?;
+                let text = match position {
+                    Value::Number(number) => number.to_string(),
+                    Value::String(text) => text.clone(),
+                    _ => return None,
+                };
+                Self::Position {
+                    declaration: declaration()?,
+                    position: BigInt::parse_bytes(text.as_bytes(), 10)?,
+                }
+            }
+            OperationMemberKind::Element => Self::Element {
+                declaration: declaration()?,
+            },
+            OperationMemberKind::RelationshipEnd => Self::RelationshipEnd {
+                declaration: declaration()?,
+                name: name()?,
+                destination_type: node("destination_type")?,
+                population: match value.get("population") {
+                    Some(_) => Some(node("population")?),
+                    None => None,
+                },
+            },
+            OperationMemberKind::Operation => Self::Operation {
+                declaration: declaration()?,
+                name: name()?,
+            },
+            OperationMemberKind::TypeArgument => Self::TypeArgument {
+                declaration: declaration()?,
+            },
+            OperationMemberKind::ProfileOperator => Self::ProfileOperator {
+                operator: value
+                    .get("operator")
+                    .and_then(Value::as_str)
+                    .map(Into::into),
+            },
+            OperationMemberKind::StateClause => Self::StateClause {
+                clause: StateClauseKind::from_wire(value.get("clause")?.as_str()?)?,
+            },
+            OperationMemberKind::TemporalInterval => Self::TemporalInterval {
+                interval: match value.get("interval")? {
+                    Value::Null => None,
+                    interval => Some(serde_json::from_value(interval.clone()).ok()?),
+                },
+            },
+            OperationMemberKind::Fairness => Self::Fairness {
+                fairness_kind: serde_json::from_value(value.get("fairness_kind")?.clone()).ok()?,
+                granularity: serde_json::from_value(value.get("granularity")?.clone()).ok()?,
+                declaration: declaration()?,
+                name: name()?,
+            },
+        })
+    }
+
     fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
         let replace = |id: &mut CheckedNodeId| {
             if id == old {
@@ -337,17 +400,6 @@ impl CheckedOperationMember {
             | Self::TemporalInterval { .. } => {}
         }
     }
-}
-
-fn decode_position<'de, D: Deserializer<'de>>(deserializer: D) -> Result<BigInt, D::Error> {
-    let value = Value::deserialize(deserializer)?;
-    let text = match value {
-        Value::Number(number) => number.to_string(),
-        Value::String(text) => text,
-        _ => return Err(serde::de::Error::custom("position must be an integer")),
-    };
-    BigInt::parse_bytes(text.as_bytes(), 10)
-        .ok_or_else(|| serde::de::Error::custom("position must be an integer"))
 }
 
 fn decode_decimal_bigint<'de, D: Deserializer<'de>>(deserializer: D) -> Result<BigInt, D::Error> {

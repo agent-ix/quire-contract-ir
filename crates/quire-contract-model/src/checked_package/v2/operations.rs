@@ -142,12 +142,7 @@ impl OperationWire {
             },
             laws: read_laws(&self.laws)?,
             member: match &self.member {
-                Some(member) => Some(
-                    serde_json::from_slice::<CheckedOperationMember>(
-                        &serde_json::to_vec(member).ok()?,
-                    )
-                    .ok()?,
-                ),
+                Some(member) => Some(CheckedOperationMember::from_validated_value(member)?),
                 None => None,
             },
             constraints: entry
