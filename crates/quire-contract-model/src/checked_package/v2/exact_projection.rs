@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Read-only projection of admitted checked types into Exact value types.
 
-use super::structural::{typed_aggregate, typed_binding};
+use super::extension::integer_range_bounds;
 use super::{
-    BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedPackageV2, CheckedTerm,
-    CompositeTypeForm, ModelForm, ScalarTypeForm,
+    BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedPackageV2, CompositeTypeForm,
+    ModelForm, ScalarTypeForm,
 };
 use quire_exact::{Integer, IntegerInterval, ValueType};
 
@@ -141,20 +141,6 @@ fn charge_work_amount(
     }
     *work += amount;
     Ok(())
-}
-
-fn integer_range_bounds(term: &CheckedTerm) -> Option<(&str, &str)> {
-    let members = typed_aggregate(term)?;
-    let bound = |name| {
-        let member = members
-            .iter()
-            .find_map(|member| typed_binding(member, name))?;
-        let CheckedTerm::Literal { value, .. } = member else {
-            return None;
-        };
-        value.as_str()
-    };
-    Some((bound("min")?, bound("max")?))
 }
 
 impl CheckedPackageV2 {

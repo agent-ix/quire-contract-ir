@@ -281,7 +281,7 @@ pub(super) fn validate(
     Ok(())
 }
 
-fn integer_range_bounds(term: &CheckedTerm) -> Option<(&str, &str)> {
+pub(super) fn integer_range_bounds(term: &CheckedTerm) -> Option<(&str, &str)> {
     fn bound<'a>(term: &'a CheckedTerm, expected: &str) -> Option<&'a str> {
         let CheckedTerm::Binding { name, value } = term else {
             return None;

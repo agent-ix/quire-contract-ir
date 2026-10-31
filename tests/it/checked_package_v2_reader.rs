@@ -16,7 +16,8 @@ use quire_contract_model::{
     read_checked_package, CheckedOccurrenceRole, CheckedPackageDispatchResult,
     CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, ExpressionForm,
+    CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode, ExpressionForm,
+    SelectedExactIdentities,
 };
 use serde_json::{json, Value};
 
@@ -46,6 +47,66 @@ fn refused_bytes(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPack
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected V2 refusal, got {other:?}"),
     }
+}
+
+/// Trace: FR-352-AC-1, FR-352-AC-4, FR-352-AC-7, FR-352-AC-8
+#[trace("FR-352-AC-1", "FR-352-AC-4", "FR-352-AC-7", "FR-352-AC-8")]
+#[test]
+fn exact_scalar_projection_uses_publicly_admitted_package() {
+    let mut document = v2_all_families();
+    let range = node_id(&family_key("cccc"));
+    let parameter = node_id("projection/range-parameter");
+    let mut range_parameter = document["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
+        .expect("admitted parameter shape")
+        .clone();
+    range_parameter["node_id"] = parameter.clone();
+    range_parameter["semantic_type"] = range;
+    range_parameter["body"]["members"][0]["value"]["value"] = json!("range_parameter");
+    document["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(range_parameter);
+    checked_package::rebuild_source_map(&mut document);
+    refresh_identity(&mut document);
+
+    let package = admitted(&document);
+    let identities = SelectedExactIdentities::empty();
+    for (id, expected) in [
+        (node_id(&family_key("aaaa")), "Boolean"),
+        (node_id(&family_key("a3a3")), "Integer"),
+        (
+            parameter,
+            "Int(IntegerInterval { lower: Integer(0), upper: Integer(1000) })",
+        ),
+    ] {
+        let id = serde_json::from_value(id).expect("structural ID");
+        let projected = package
+            .project_exact_type(&id, &identities, 12)
+            .expect("Exact type");
+        assert_eq!(projected.node(), &id);
+        assert_eq!(format!("{:?}", projected.value_type()), expected);
+        assert_eq!(
+            package.clone().project_exact_type(&id, &identities, 12),
+            Ok(projected),
+        );
+    }
+
+    let id = serde_json::from_value(node_id(&family_key("aaaa"))).expect("Boolean ID");
+    let exhausted = package
+        .project_exact_type(&id, &identities, 1)
+        .expect_err("finite limit");
+    assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+
+    let mut invalid = document;
+    invalid["semantic_graph"]["nodes"][0]["semantic_type"] = node_id("missing-type");
+    assert!(matches!(
+        read(&invalid, &evidence_for(&invalid)),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
 }
 
 /// Reader-only FR-038-AC-4 subcase: the fixture supplies the ordinal and
