@@ -465,7 +465,7 @@ encoder neither derives nor authenticates a node or package id.
 | `CheckedSourceMapEntry` | `Encode` | Its structural node id has fixed-depth string or index path segments; source regions remain fixed shape. |
 | `CheckedCapability` | `FixedShape` | A string and closed disposition. |
 | `CheckedPackageLockV2` | `FixedShape` | Closed selections and strings, with no recursive member. |
-| `CheckedSemanticGraphV2` | `Encode` | Node ids can nest and node bodies contain `Value`. |
+| `CheckedSemanticGraphV2` | `Encode` | Node bodies contain variable-depth `Value` terms; node-id index segments have fixed wire depth. |
 | `CheckedDiagnosticsV2` | `Encode` | Detail terms contain `Value`. |
 | Complete V2 envelope | `Encode` | It delegates structural ids and graph bodies to their iterative encoders. |
 
