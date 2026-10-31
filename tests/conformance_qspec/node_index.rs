@@ -249,6 +249,9 @@ fn two_semantic_defects_choose_structural_order_over_graph_order() {
     );
 }
 
+/// Syntax and duplicate-member precedence already has a small-stack control
+/// in `checked_package_v2_flat_wire`; noncanonical bytes have their independent
+/// `checked_package_v2_canonical_encoding` controls.
 /// Trace: FR-038-AC-380, FR-038-AC-381
 #[trace("TC-048", "FR-038-AC-380", "FR-038-AC-381")]
 #[test]
@@ -306,36 +309,88 @@ fn long_index_chain_admits_on_a_small_stack_with_shared_keys() {
         work: 100_000_000,
     };
     let document = proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT);
-    let reading = std::thread::Builder::new()
+    std::thread::Builder::new()
         .stack_size(256 * 1024)
         .spawn(move || {
-            read_package_with_document_and_extensions_at_limit(
+            let reading = read_package_with_document_and_extensions_at_limit(
                 &package,
                 "NI-13 deep index chain",
                 &document,
                 true,
                 limits,
             )
+            .expect("reader evidence");
+            let CheckedPackageV2ReadResult::Admitted(admitted) = reading else {
+                panic!("NI-13 must admit: {reading:?}");
+            };
+            assert_eq!(admitted.graph().nodes.len(), APPLICATIONS + 1);
+            for index in 1..=APPLICATIONS {
+                let current = admitted.structural_key_at(index).expect("chain key");
+                let prior = admitted
+                    .structural_key_at(index - 1)
+                    .expect("predecessor key");
+                let Some(CheckedNodePathSegment::Node(last)) = current.path.last() else {
+                    panic!("index {index}: last key segment is not resolved");
+                };
+                assert!(
+                    std::ptr::eq(last.as_ref(), prior),
+                    "index {index}: key is shared"
+                );
+            }
+            let deepest = admitted
+                .structural_key_at(APPLICATIONS)
+                .expect("deepest key");
+            let previous = admitted
+                .structural_key_at(APPLICATIONS - 1)
+                .expect("previous key");
+            let cloned = deepest.clone();
+            assert_eq!(
+                deepest, &cloned,
+                "deep key clone retains structural equality"
+            );
+            assert_ne!(
+                deepest, previous,
+                "deep comparison distinguishes adjacent keys"
+            );
+            drop(cloned);
+            drop(admitted);
+
+            // Reuse this generated package, trimming it to a 2049-node prefix:
+            // the second read is genuinely deep without constructing or reading
+            // another 100000-node package.
+            const DEEP_BAD_POSITION: usize = 2048;
+            package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("generated graph")
+                .truncate(DEEP_BAD_POSITION + 1);
+            package["source_map"]
+                .as_array_mut()
+                .expect("generated source map")
+                .truncate(DEEP_BAD_POSITION + 1);
+            package["semantic_graph"]["nodes"][DEEP_BAD_POSITION]["node_id"]["path"][2] =
+                json!({"node": DEEP_BAD_POSITION + 1});
+            let malformed = read_package_with_document_and_extensions_at_limit(
+                &package,
+                "NI-13 deep malformed index",
+                &document,
+                true,
+                limits,
+            )
+            .expect("reader evidence");
+            let CheckedPackageV2ReadResult::Refused(refusal) = malformed else {
+                panic!("deep out-of-range index must refuse: {malformed:?}");
+            };
+            assert_eq!(code_word(refusal.code), "malformed_wire");
+            assert!(refusal.cause.is_none(), "deep index has no cause");
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(ToString::to_string),
+                Some(format!(
+                    "/semantic_graph/nodes/{DEEP_BAD_POSITION}/node_id/path/2/node"
+                )),
+                "deep malformed index points to its own segment"
+            );
         })
         .expect("small-stack reader thread")
         .join()
-        .expect("small-stack reader did not panic")
-        .expect("reader evidence");
-    let CheckedPackageV2ReadResult::Admitted(admitted) = reading else {
-        panic!("NI-13 must admit: {reading:?}");
-    };
-    assert_eq!(admitted.graph().nodes.len(), APPLICATIONS + 1);
-    for index in 1..=APPLICATIONS {
-        let current = admitted.structural_key_at(index).expect("chain key");
-        let prior = admitted
-            .structural_key_at(index - 1)
-            .expect("predecessor key");
-        let Some(CheckedNodePathSegment::Node(last)) = current.path.last() else {
-            panic!("index {index}: last key segment is not resolved");
-        };
-        assert!(
-            std::ptr::eq(last.as_ref(), prior),
-            "index {index}: key is shared"
-        );
-    }
+        .expect("small-stack reader did not panic");
 }
