@@ -726,7 +726,7 @@ literals of one type and of two, and two nested applications of one result type
 and of two (AC-86). Compare the operand family and the type-shaped predicate of
 every kind of the closed node taxonomy with the stated pairs, the
 `temporal`/`formula` pair added when the IR-503 code lands and the
-`composite_type`/`union` pair when the IR-549 code lands (AC-87). Build an application member in a two-node recursion group with a producer-assigned structural `node_id.ordinal` and exact references to an in-group and an outside node. Verify its ID and references in an aggregate member, binding value and nested arguments; a valid graph permutation retains them and admits. A duplicate ID, malformed structural ordinal or unresolved target refuses under its own rule (AC-88). The former group-reference-position mutations are withdrawn in place.
+`composite_type`/`union` pair when the IR-549 code lands (AC-87). Build an application member in a two-node recursion group with a producer-assigned structural `node_id.ordinal` and exact references to an in-group and an outside node. Verify its ID and references in an aggregate member, binding value and nested arguments; a valid graph permutation rewrites index segments to the new target positions, retains resolved keys and references, and admits. A duplicate ID, malformed structural ordinal or unresolved target refuses under its own rule (AC-88). The former group-reference-position mutations are withdrawn in place.
 
 Expected: the uncatalogued identity refuses `unknown-operation` at
 `operation.identity`, the `unary` case `operation-class-mismatch` at `operator`,
@@ -1197,6 +1197,33 @@ reference an option type. Retain the package name and valid structural ids each 
 The flat body grammar admits each mutant. Assert that every one reaches the
 operation check and refuses `ill_typed`/`operator-ineligible` at
 `operation.leaves`, with no partial leaf derivation. An earlier grammar or graph refusal fails the test.
+
+## Indexed structural paths (FR-038-AC-376 through FR-038-AC-381)
+
+Read QSpec FR-322 at the selected checkout and consume its
+`proposals/checked-package-v2/node-index-vectors.json` and named fixtures
+directly, without copying them into IR. Apply NI-01..NI-12 to the
+selected positive fixture, comparing each refusal's exact code, null cause and
+RFC 6901 pointer with the published vector; NI-14 is an admitted scope control. An absent vector, wrongly admitted
+mutation or differing refusal fails. Add two out-of-range segments to test
+canonical-byte-order selection, and combine one index defect with a later
+semantic-graph defect to prove stage precedence. Reverse graph order, rewrite
+all affected index segments, and compare resolved keys and exact references;
+then leave one stale segment to prove the target changes. Test an imported
+node whose `package` differs from the importing document name and an FR-375
+external key whose own package selects its dependency's graph. Reject an
+index in a dependency-reference declaration path.
+
+Generate NI-13 from the QSpec construction, with 100000 derived nodes over
+Integer. Under nonbinding reader limits on a 256 KiB thread, compare node-id
+wire size and JSON depth with the 100-node control, count 100001 distinct
+shared structural keys, and inspect that each derived key holds its
+predecessor as a resolved operand. Exercise source-raw intake and per-pointer
+reparse under serde_json's default recursion limit. A deeply located malformed
+segment points to its own member; the existing malformed syntax, duplicate
+member, noncanonical bytes and body-grammar controls retain their precedence.
+Inspect the key representation and iterative traversal to exclude expanded
+nested wire ids and recursive walks over the chain.
 
 ## Canonical encoding (FR-038-AC-74 through FR-038-AC-80)
 
@@ -2143,7 +2170,7 @@ AC-183 and AC-184 are withdrawn under QSpec #517. For AC-185, read malformed-wir
 
 ## Aggregate-bodied union values (FR-038-AC-225 through FR-038-AC-227)
 
-Read QSpec `positive-union-nodes.json` directly from the selected checkout through the production reader. Verify payload-bearing and nullary union-value nodes preserve their exact structural ids and complete aggregate bodies; separately admit ordinary applications, record values and tuple values. Duplicate a union-value id, break one body reference and make a case/payload invalid in separate copies; assert the specified graph, reference and body refusals. For a valid group with union and nonapplication members, verify its shared non-empty label, producer-assigned structural IDs, and exact in-group and outside references. A valid graph permutation retains every structural ID and reference. Malformed structural ordinal, invalid cycle label, type-incompatible exact target, repeated ID and unresolved target controls refuse at their own graph or wire stage. No content-key or expected-key accessor is involved.
+Read QSpec `positive-union-nodes.json` directly from the selected checkout through the production reader. Verify payload-bearing and nullary union-value nodes preserve their exact structural ids and complete aggregate bodies; separately admit ordinary applications, record values and tuple values. Duplicate a union-value id, break one body reference and make a case/payload invalid in separate copies; assert the specified graph, reference and body refusals. For a valid group with union and nonapplication members, verify its shared non-empty label, producer-assigned structural IDs, and exact in-group and outside references. A valid graph permutation rewrites index segments to the new target positions and retains every resolved structural key and reference. Malformed structural ordinal, invalid cycle label, type-incompatible exact target, repeated ID and unresolved target controls refuse at their own graph or wire stage. No content-key or expected-key accessor is involved.
 
 ## Dependency selection and diamond conflict (FR-038-AC-217, FR-038-AC-218)
 
