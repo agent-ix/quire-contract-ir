@@ -4,8 +4,9 @@
 //! Focused FR-061 refinement and selected state-machine owner vectors.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, evidence_with_document, node_id, protocol_named_node,
-    rebuild_source_map, refresh_identity, select_model, settle, v2_all_families, v2_nominal,
+    canonical, evidence_for, evidence_with_document, index_fixture_node_ids, node_id,
+    protocol_named_node, rebuild_source_map, refresh_identity, select_model, settle,
+    v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -23,11 +24,46 @@ const MODEL_NODE: &str = "ix://test/refinement/Machine";
 const FAMILY_MODEL_IDENTITY: &str = "test/families";
 
 fn node_id_order(left: &Value, right: &Value) -> std::cmp::Ordering {
-    let left: quire_contract_model::CheckedNodeId =
-        serde_json::from_value(left.clone()).expect("left fixture node ID");
-    let right: quire_contract_model::CheckedNodeId =
-        serde_json::from_value(right.clone()).expect("right fixture node ID");
-    left.cmp(&right)
+    use std::cmp::Ordering;
+
+    fn segment_order(left: &Value, right: &Value) -> Ordering {
+        match (left.as_str(), right.as_str()) {
+            (Some(left), Some(right)) => left.cmp(right),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => match (left.get("node"), right.get("node")) {
+                (Some(left), Some(right)) => left
+                    .as_u64()
+                    .expect("left fixture index")
+                    .cmp(&right.as_u64().expect("right fixture index")),
+                (Some(_), None) => Ordering::Greater,
+                (None, Some(_)) => Ordering::Less,
+                (None, None) => node_id_order(left, right),
+            },
+        }
+    }
+
+    let package = left["package"]
+        .as_str()
+        .expect("left fixture package")
+        .cmp(right["package"].as_str().expect("right fixture package"));
+    let left_path = left["path"].as_array().expect("left fixture path");
+    let right_path = right["path"].as_array().expect("right fixture path");
+    package
+        .then_with(|| {
+            left_path
+                .iter()
+                .zip(right_path)
+                .map(|(left, right)| segment_order(left, right))
+                .find(|order| *order != Ordering::Equal)
+                .unwrap_or_else(|| left_path.len().cmp(&right_path.len()))
+        })
+        .then_with(|| {
+            left["ordinal"]
+                .as_u64()
+                .expect("left fixture ordinal")
+                .cmp(&right["ordinal"].as_u64().expect("right fixture ordinal"))
+        })
 }
 
 fn name_dependency_fixture(package: &mut Value, name: &str) {
@@ -442,7 +478,7 @@ fn selected_process_persistence_state_and_record_keep_owner_and_reference_identi
                 && node["body"]["members"][0]["target"] == target));
     }
     let encoded = writer_bytes(&package);
-    assert_eq!(encoded, canonical(&package));
+    assert_eq!(encoded, canonical_indexed(&package));
     let CheckedPackageV2ReadResult::Admitted(again) =
         CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
     else {
@@ -659,6 +695,25 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
         matches!(control, CheckedPackageV2ReadResult::Admitted(_)),
         "selected control must admit: {control:?}"
     );
+    let indexed: Value = serde_json::from_slice(&canonical_indexed(&base)).expect("indexed wire");
+    let indexed_binder = &indexed["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]
+        ["abstract"][0]["binder_types"][0];
+    assert!(
+        indexed_binder["path"][2]["node"].as_u64().is_some(),
+        "derived catalog binder uses a graph-local operand"
+    );
+    let mut wrong_binder = base.clone();
+    wrong_binder["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]["abstract"][0]
+        ["binder_types"] = json!([boolean]);
+    settle_refinement(&mut wrong_binder, refinement);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_binder, &evidence) else {
+        panic!("wrong reindexed catalog binder admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/abstract/0").as_str())
+    );
     for selected in extra {
         let form = selected["semantic_form"].as_str().expect("form");
         let mut package = base.clone();
@@ -728,11 +783,22 @@ pub(super) fn machine_package() -> (Value, CheckedPackageEvidence) {
 }
 
 fn read(package: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2ReadResult {
+    let indexed = indexed_package(package);
     CheckedPackageV2::read(
-        &canonical(package),
+        &canonical(&indexed),
         CheckedPackageReadLimits::bounded(),
         evidence,
     )
+}
+
+fn canonical_indexed(package: &Value) -> Vec<u8> {
+    canonical(&indexed_package(package))
+}
+
+fn indexed_package(package: &Value) -> Value {
+    let mut indexed = package.clone();
+    index_fixture_node_ids(&mut indexed);
+    indexed
 }
 
 fn invalid_value_at(result: CheckedPackageV2ReadResult, pointer: &str) {
@@ -751,6 +817,8 @@ fn invalid_value_at(result: CheckedPackageV2ReadResult, pointer: &str) {
 }
 
 fn writer_bytes(package: &Value) -> Vec<u8> {
+    let indexed = indexed_package(package);
+    let package = &indexed;
     let name = package["name"].as_str().expect("package name");
     let lock: CheckedPackageLockV2 = serde_json::from_value(package["lock"].clone()).expect("lock");
     let graph: CheckedSemanticGraphV2<Value> =
@@ -843,13 +911,7 @@ fn attach_step_to_last_refinement(package: &mut Value, step: Value) {
             .clone();
         if !dependencies.contains(&source) {
             dependencies.push(source);
-            dependencies.sort_by(|left, right| {
-                let left: quire_contract_model::CheckedNodeId =
-                    serde_json::from_value(left.clone()).expect("structural dependency");
-                let right: quire_contract_model::CheckedNodeId =
-                    serde_json::from_value(right.clone()).expect("structural dependency");
-                left.cmp(&right)
-            });
+            dependencies.sort_by(node_id_order);
         }
         node["dependencies"] = json!(dependencies);
     }
@@ -1094,13 +1156,7 @@ fn catalog_free_operation_package_config(
         0,
     );
     let mut dependencies = vec![declaring.clone(), frame.clone()];
-    dependencies.sort_by(|left, right| {
-        let left: quire_contract_model::CheckedNodeId =
-            serde_json::from_value(left.clone()).expect("anchor dependency");
-        let right: quire_contract_model::CheckedNodeId =
-            serde_json::from_value(right.clone()).expect("anchor dependency");
-        left.cmp(&right)
-    });
+    dependencies.sort_by(node_id_order);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -1218,13 +1274,7 @@ fn rebind_catalog_free_anchor(
         context.clone(),
         node["body"]["members"][2]["value"]["target"].clone(),
     ];
-    dependencies.sort_by(|left, right| {
-        let left: quire_contract_model::CheckedNodeId =
-            serde_json::from_value(left.clone()).expect("anchor dependency");
-        let right: quire_contract_model::CheckedNodeId =
-            serde_json::from_value(right.clone()).expect("anchor dependency");
-        left.cmp(&right)
-    });
+    dependencies.sort_by(node_id_order);
     node["dependencies"] = json!(dependencies);
     settle_refinement(package, refinement);
     anchor
@@ -2002,14 +2052,19 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     let Some(CheckedTerm::Refinement { .. }) = first.term(&refinement_id) else {
         panic!("complete rows were not retained as a typed refinement");
     };
+    let indexed = indexed_package(&package);
+    let indexed_expected = &indexed["semantic_graph"]["nodes"][position];
     assert_eq!(
         serde_json::to_value(first.term(&refinement_id)).expect("typed refinement"),
-        expected["body"]
+        indexed_expected["body"]
     );
     let bytes = writer_bytes(&package);
-    assert_eq!(bytes, canonical(&package));
+    assert_eq!(bytes, canonical_indexed(&package));
     let written: Value = serde_json::from_slice(&bytes).expect("writer JSON");
-    assert_eq!(written["semantic_graph"]["nodes"][position], expected);
+    assert_eq!(
+        written["semantic_graph"]["nodes"][position],
+        *indexed_expected
+    );
     let CheckedPackageV2ReadResult::Admitted(second) =
         CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
     else {
@@ -2081,7 +2136,8 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
         };
         assert_eq!(
             serde_json::to_value(&steps[0].target).expect("typed target"),
-            target
+            indexed_package(&package)["semantic_graph"]["nodes"][position]["body"]["steps"][0]
+                ["target"]
         );
         let encoded = writer_bytes(&package);
         let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
@@ -2192,7 +2248,8 @@ fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     };
     assert_eq!(
         serde_json::to_value(&steps[0].target).expect("typed target"),
-        package["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"]
+        indexed_package(&package)["semantic_graph"]["nodes"][position]["body"]["steps"][0]
+            ["target"]
     );
     assert_eq!(
         serde_json::to_value(ensure).expect("typed ensure"),
@@ -2444,7 +2501,7 @@ fn row_empty_refinement_swapped_concrete_root_retains_structural_identity() {
         );
     };
     let bytes = writer_bytes(&swapped);
-    assert_eq!(bytes, canonical(&swapped));
+    assert_eq!(bytes, canonical_indexed(&swapped));
     assert!(matches!(
         CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
@@ -2612,7 +2669,7 @@ fn ac5_refusal_preserved_by_writer(
     let encoded = writer_bytes(package);
     assert_eq!(
         encoded,
-        canonical(package),
+        canonical_indexed(package),
         "public writer changed adverse input"
     );
     assert_step_refusal(
@@ -2709,7 +2766,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         &format!("{root}/histories/0/initial"),
     );
-    assert_eq!(writer_bytes(&base), canonical(&base));
+    assert_eq!(writer_bytes(&base), canonical_indexed(&base));
     for side in ["assume", "ensure"] {
         for (member, value) in [("kind", "eventual"), ("granularity", "global")] {
             let mut package = base.clone();
@@ -2725,7 +2782,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 &format!("{root}/{side}/0/{member}"),
             );
-            assert_eq!(writer_bytes(&package), canonical(&package));
+            assert_eq!(writer_bytes(&package), canonical_indexed(&package));
         }
     }
     let mut package = base.clone();
@@ -2760,7 +2817,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
     settle_refinement(&mut package, position);
     assert_eq!(
         writer_bytes(&package),
-        canonical(&package),
+        canonical_indexed(&package),
         "writer must preserve field order"
     );
     ac5_refusal(
@@ -2778,7 +2835,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
     settle_refinement(&mut package, position);
     assert_eq!(
         writer_bytes(&package),
-        canonical(&package),
+        canonical_indexed(&package),
         "writer must preserve row order"
     );
     ac5_refusal(
@@ -2798,7 +2855,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
     settle_refinement(&mut package, position);
     assert_eq!(
         writer_bytes(&package),
-        canonical(&package),
+        canonical_indexed(&package),
         "writer must preserve update order"
     );
     ac5_refusal(
@@ -2858,7 +2915,7 @@ fn refinement_rejects_each_unsorted_row_array_without_reordering() {
         settle_refinement(&mut package, position);
         assert_eq!(
             writer_bytes(&package),
-            canonical(&package),
+            canonical_indexed(&package),
             "{array} writer order"
         );
         ac5_refusal(
@@ -3427,7 +3484,7 @@ fn catalog_free_operation_steps_join_in_received_order() {
     let encoded = writer_bytes(&package);
     assert_eq!(
         encoded,
-        canonical(&package),
+        canonical_indexed(&package),
         "writer must preserve step order"
     );
     assert_step_refusal(
@@ -3506,13 +3563,7 @@ fn set_concrete_catalog(package: &mut Value, entries: Vec<Value>) -> usize {
             dependencies.extend(binders.iter().cloned());
         }
     }
-    dependencies.sort_by(|left, right| {
-        let left: quire_contract_model::CheckedNodeId =
-            serde_json::from_value(left.clone()).expect("catalog dependency");
-        let right: quire_contract_model::CheckedNodeId =
-            serde_json::from_value(right.clone()).expect("catalog dependency");
-        left.cmp(&right)
-    });
+    dependencies.sort_by(node_id_order);
     dependencies.dedup();
     node["body"]["class_catalog"] = json!({"concrete": entries, "abstract": []});
     node["dependencies"] = json!(dependencies);
@@ -3749,7 +3800,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
     });
     let position = set_concrete_catalog(&mut package, vec![finish_entry.clone(), activate.clone()]);
     let bytes = writer_bytes(&package);
-    assert_eq!(bytes, canonical(&package));
+    assert_eq!(bytes, canonical_indexed(&package));
     let admitted = CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
@@ -3925,7 +3976,7 @@ fn refinement_catalog_activate_record_follows_authored_inherited_field_order() {
         ];
         let (package, evidence, position) = record_activation_case(records, "Leaf", &expected);
         let bytes = writer_bytes(&package);
-        assert_eq!(bytes, canonical(&package));
+        assert_eq!(bytes, canonical_indexed(&package));
         let admitted =
             CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
         assert!(
@@ -5200,7 +5251,7 @@ fn refinement_step_regions_bind_generated_occurrences_before_row_join() {
         Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog").as_str())
     );
     let bytes = writer_bytes(&package);
-    assert_eq!(bytes, canonical(&package));
+    assert_eq!(bytes, canonical_indexed(&package));
     let mut wrong = package.clone();
     wrong["refinement_step_rows"][0]["region"]["start"] = json!(30);
     let at = wrong["source_map"]
@@ -5323,7 +5374,7 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
     };
     assert_eq!(
         serde_json::to_value(steps).expect("typed steps"),
-        two["semantic_graph"]["nodes"][two_position]["body"]["steps"]
+        indexed_package(&two)["semantic_graph"]["nodes"][two_position]["body"]["steps"]
     );
     let regions = admitted.refinement_step_rows().expect("step regions");
     assert_eq!(regions.len(), 2);
@@ -5730,7 +5781,7 @@ fn refinement_row_empty_model_refinement_is_admitted() {
         "{result:?}"
     );
     let bytes = writer_bytes(&package);
-    assert_eq!(bytes, canonical(&package));
+    assert_eq!(bytes, canonical_indexed(&package));
     assert!(matches!(
         CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
@@ -6291,7 +6342,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         "{admitted:?}"
     );
     let written = writer_bytes(&package);
-    assert_eq!(written, canonical(&package));
+    assert_eq!(written, canonical_indexed(&package));
     let written_read =
         CheckedPackageV2::read(&written, CheckedPackageReadLimits::bounded(), &evidence);
     let CheckedPackageV2ReadResult::Admitted(round_trip) = written_read else {
