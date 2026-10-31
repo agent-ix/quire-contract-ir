@@ -142,8 +142,6 @@ for the checked-operation catalogue.
 
 ## Building and testing
 
-The toolchain is pinned in `rust-toolchain.toml` (Rust 1.98.1).
-
 ```bash
 make test           # cargo test over the workspace, plus doctests
 make lint           # clippy with -D warnings
