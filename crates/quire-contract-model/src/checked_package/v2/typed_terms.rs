@@ -336,6 +336,40 @@ impl CheckedOperationViews {
 }
 
 impl CheckedOperationMember {
+    pub(super) fn map_node_ids(
+        &mut self,
+        mut map: impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>,
+    ) -> Option<()> {
+        let mut replace = |id: &mut CheckedNodeId| {
+            *id = map(id)?;
+            Some(())
+        };
+        match self {
+            Self::Field { declaration, .. }
+            | Self::Position { declaration, .. }
+            | Self::Element { declaration }
+            | Self::Operation { declaration, .. }
+            | Self::TypeArgument { declaration }
+            | Self::Fairness { declaration, .. } => replace(declaration)?,
+            Self::RelationshipEnd {
+                declaration,
+                destination_type,
+                population,
+                ..
+            } => {
+                replace(declaration)?;
+                replace(destination_type)?;
+                if let Some(population) = population {
+                    replace(population)?;
+                }
+            }
+            Self::ProfileOperator { .. }
+            | Self::StateClause { .. }
+            | Self::TemporalInterval { .. } => {}
+        }
+        Some(())
+    }
+
     pub(super) fn from_validated_value(value: &Value) -> Option<Self> {
         let kind = OperationMemberKind::from_wire(value.get("kind")?.as_str()?)?;
         let declaration = || CheckedNodeId::from_value(value.get("declaration")?);

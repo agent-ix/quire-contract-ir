@@ -1351,6 +1351,15 @@ fn restore_operation_views(
                 if let Some(id) = &mut views.member_declaration {
                     *id = remap_checked_id(id, positions).ok_or(())?;
                 }
+                if let Some(member) = views
+                    .record
+                    .as_mut()
+                    .and_then(|record| record.member.as_mut())
+                {
+                    member
+                        .map_node_ids(|id| remap_checked_id(id, positions))
+                        .ok_or(())?;
+                }
                 projected_operation.install_admitted_views(views);
             }
             for (source, projected) in source_arguments.iter().zip(projected_arguments) {
