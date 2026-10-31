@@ -114,10 +114,10 @@ use super::common::{
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedNodePathSegment,
-    CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry, CheckedSourceRef,
-    CheckedSourceRegion, JsonPointer,
+    CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry,
+    CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
@@ -741,15 +741,15 @@ pub struct CheckedPackageV2 {
 
 impl std::fmt::Debug for CheckedPackageV2 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let nodes = CheckedNodeTableDebug::new(self.structural_keys.iter().map(AsRef::as_ref));
         formatter
             .debug_struct("CheckedPackageV2")
-            .field("wire", &self.wire)
+            .field("name", &self.wire.name)
+            .field("nodes", &nodes)
             .field("kinds", &self.kinds)
-            .field("node_index", &self.node_index)
-            .field("structural_key_count", &self.structural_keys.len())
-            .field("source_index", &self.source_index)
+            .field("source_count", &self.wire.source_map.len())
+            .field("diagnostic_count", &self.wire.diagnostics.entries.len())
             .field("bytes", &self.bytes)
-            .field("models", &self.models)
             .field("direct_dependency_count", &self.direct_dependencies.len())
             .finish()
     }
@@ -3771,6 +3771,57 @@ mod tests {
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []}
         }))
         .expect("private owned wire")
+    }
+
+    /// Trace: FR-038-AC-117.
+    /// Provenance: IR-1196, QSL FR-264-AC-1.
+    #[test]
+    fn deep_node_and_package_debug_write_each_node_once_on_a_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                const CHAIN_LEN: usize = 100_000;
+                let mut key = std::sync::Arc::new(super::test_support::node_id('a'));
+                let mut keys = vec![std::sync::Arc::clone(&key)];
+                for ordinal in 1..=CHAIN_LEN {
+                    key = std::sync::Arc::new(super::CheckedNodeId {
+                        package: "test".into(),
+                        path: vec![super::CheckedNodePathSegment::Node(key)],
+                        ordinal: u64::try_from(ordinal).expect("depth fits u64"),
+                    });
+                    keys.push(std::sync::Arc::clone(&key));
+                }
+
+                let node_debug = format!("{key:?}");
+                assert_eq!(node_debug.matches("package: ").count(), CHAIN_LEN + 1);
+                assert_eq!(node_debug.matches("Node(#").count(), CHAIN_LEN);
+                assert!(node_debug.len() < CHAIN_LEN * 100);
+                drop(node_debug);
+                drop(key);
+
+                let wire = tc_451_private_owned_wire();
+                let package = super::CheckedPackageV2 {
+                    node_index: Default::default(),
+                    structural_keys: keys,
+                    source_index: Default::default(),
+                    lowering_facts: Vec::new(),
+                    wire,
+                    terms: Vec::new(),
+                    kinds: Vec::new(),
+                    bytes: 0,
+                    models: Default::default(),
+                    direct_dependencies: Vec::new(),
+                    closure_index: Default::default(),
+                };
+                let package_debug = format!("{package:?}");
+                assert_eq!(package_debug.matches("package: ").count(), CHAIN_LEN + 1);
+                assert_eq!(package_debug.matches("Node(#").count(), CHAIN_LEN);
+                assert!(package_debug.contains("roots: [#0, #1, #2"));
+                assert!(package_debug.len() < CHAIN_LEN * 110);
+            })
+            .expect("small-stack thread spawns")
+            .join()
+            .expect("small-stack Debug completes");
     }
 
     #[trace("TC-451", "FR-051-AC-1", "FR-051-AC-4")]

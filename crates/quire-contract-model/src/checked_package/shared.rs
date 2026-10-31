@@ -623,7 +623,7 @@ impl Serialize for CheckedNodePathSegment {
 }
 
 /// A checked semantic graph node identity.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedNodeId {
     /// The name of the owning package.
@@ -632,6 +632,90 @@ pub struct CheckedNodeId {
     pub path: Vec<CheckedNodePathSegment>,
     /// Position among nodes sharing the package and path.
     pub ordinal: u64,
+}
+
+/// One iterative Debug view of roots and their shared structural children.
+pub(crate) struct CheckedNodeTableDebug<'a> {
+    roots: Vec<&'a CheckedNodeId>,
+}
+
+impl<'a> CheckedNodeTableDebug<'a> {
+    pub(crate) fn new(roots: impl IntoIterator<Item = &'a CheckedNodeId>) -> Self {
+        Self {
+            roots: roots.into_iter().collect(),
+        }
+    }
+}
+
+impl std::fmt::Debug for CheckedNodeTableDebug<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::collections::HashMap;
+
+        let mut nodes = Vec::new();
+        let mut positions = HashMap::<*const CheckedNodeId, usize>::new();
+        for root in &self.roots {
+            let pointer = std::ptr::from_ref(*root);
+            if let std::collections::hash_map::Entry::Vacant(entry) = positions.entry(pointer) {
+                entry.insert(nodes.len());
+                nodes.push(*root);
+            }
+        }
+        let mut at = 0;
+        while at < nodes.len() {
+            for segment in &nodes[at].path {
+                if let CheckedNodePathSegment::Node(child) = segment {
+                    let pointer = std::sync::Arc::as_ptr(child);
+                    if let std::collections::hash_map::Entry::Vacant(entry) =
+                        positions.entry(pointer)
+                    {
+                        entry.insert(nodes.len());
+                        nodes.push(child);
+                    }
+                }
+            }
+            at += 1;
+        }
+
+        formatter.write_str("NodeTable { roots: [")?;
+        for (at, root) in self.roots.iter().enumerate() {
+            if at != 0 {
+                formatter.write_str(", ")?;
+            }
+            write!(formatter, "#{}", positions[&std::ptr::from_ref(*root)])?;
+        }
+        formatter.write_str("], nodes: [")?;
+        for (at, node) in nodes.iter().enumerate() {
+            if at != 0 {
+                formatter.write_str(", ")?;
+            }
+            write!(formatter, "#{at} {{ package: {:?}, path: [", node.package)?;
+            for (part, segment) in node.path.iter().enumerate() {
+                if part != 0 {
+                    formatter.write_str(", ")?;
+                }
+                match segment {
+                    CheckedNodePathSegment::Name(name) => write!(formatter, "Name({name:?})")?,
+                    CheckedNodePathSegment::Index(index) => write!(formatter, "Index({index})")?,
+                    CheckedNodePathSegment::Node(child) => write!(
+                        formatter,
+                        "Node(#{})",
+                        positions[&std::sync::Arc::as_ptr(child)]
+                    )?,
+                }
+            }
+            write!(formatter, "], ordinal: {} }}", node.ordinal)?;
+        }
+        formatter.write_str("] }")
+    }
+}
+
+impl std::fmt::Debug for CheckedNodeId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("CheckedNodeId")
+            .field(&CheckedNodeTableDebug::new(std::iter::once(self)))
+            .finish()
+    }
 }
 
 impl<'de> Deserialize<'de> for CheckedNodeId {
