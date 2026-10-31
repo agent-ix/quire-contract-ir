@@ -199,6 +199,7 @@ pub enum CheckedFieldReadForm {
 }
 
 impl CheckedFieldReadForm {
+    #[ix_trace_rs::string_edge]
     pub(super) fn from_wire(value: &str) -> Option<Self> {
         match value {
             "bare" => Some(Self::Bare),

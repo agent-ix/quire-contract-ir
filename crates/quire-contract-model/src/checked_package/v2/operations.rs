@@ -90,6 +90,12 @@ pub(super) struct OperationWire {
     leaves: Vec<OperationLeafWire>,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum FieldProjectionIdentity {
+    RecordProject,
+    Other,
+}
+
 impl OperationWire {
     /// The wire member's decoded `kind`: `None` when the operation carries no
     /// member (or one without a string `kind`), `Some(None)` when the `kind`
@@ -98,6 +104,15 @@ impl OperationWire {
     fn member_kind_class(&self) -> Option<Option<OperationMemberKind>> {
         let kind = self.member.as_ref()?.get("kind")?.as_str()?;
         Some(OperationMemberKind::from_wire(kind))
+    }
+
+    /// Classify the catalogued wire identity for field-read admission.
+    #[ix_trace_rs::string_edge]
+    fn field_projection_identity(&self) -> FieldProjectionIdentity {
+        match self.identity.as_ref() {
+            "quire.op.record.project" => FieldProjectionIdentity::RecordProject,
+            _ => FieldProjectionIdentity::Other,
+        }
     }
 
     fn admitted_views(&self, entry: &OperationCatalogEntry) -> Option<CheckedOperationViews> {
@@ -971,7 +986,8 @@ fn operation_defect(
             return member_mismatch();
         };
         let read_form = member.get("read_form");
-        let model_projection = operation.identity.as_ref() == "quire.op.record.project"
+        let model_projection = operation.field_projection_identity()
+            == FieldProjectionIdentity::RecordProject
             && admitted_arguments(application, graph)
                 .and_then(|arguments| arguments.first())
                 .is_some_and(|argument| is_model_deref_argument(argument, graph));
