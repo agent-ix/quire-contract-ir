@@ -179,7 +179,7 @@ impl ContractPackageV1 {
         conversion: Option<&ContractOccurrenceKeyV1>,
         expected: BoundedDomainForm,
     ) -> Result<ContractResultViewV1<'_>, ContractRootViewError> {
-        let reached = match self.reached_closure(expression)? {
+        let reached = match self.reached_closure_source_wire(expression)? {
             ContractRootViewV1::Absent => return Ok(ContractResultViewV1::Absent),
             ContractRootViewV1::NonLowered(record) => {
                 return Ok(ContractResultViewV1::NonLowered(record));
@@ -239,7 +239,7 @@ impl ContractPackageV1 {
             }
             // A context root is separately lowered. This validates its
             // admitted body and source edges before selecting its result type.
-            let converted = match self.reached_closure(&selected.node_id)? {
+            let converted = match self.reached_closure_source_wire(&selected.node_id)? {
                 ContractRootViewV1::Lowered(converted) => converted,
                 ContractRootViewV1::Absent | ContractRootViewV1::NonLowered(_) => {
                     return Ok(ContractResultContextV1::IncompleteContext);

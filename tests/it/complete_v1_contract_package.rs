@@ -13,8 +13,8 @@ use quire_contract_model::{
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
     ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1,
-    ContractSourceHandoffError, ContractUnsupportedSourceKindError, TemporalForm,
-    CONTRACT_PACKAGE_VERSION,
+    ContractSourceHandoffError, ContractSourceKeyV1, ContractUnsupportedSourceKindError,
+    TemporalForm, CONTRACT_PACKAGE_VERSION,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -25,6 +25,10 @@ fn id(prefix: &str) -> CheckedNodeId {
 
 fn missing() -> CheckedNodeId {
     typed_node_id(&"0123456789abcdef".repeat(4))
+}
+
+fn source_key(key: &CheckedNodeId) -> ContractSourceKeyV1 {
+    ContractSourceKeyV1::from_structural(key).expect("fixture key is structural")
 }
 
 fn admit(value: &Value) -> CheckedPackageV2 {
@@ -703,6 +707,243 @@ fn reader_checks_output_then_source_indexes_then_source_references() {
     );
 }
 
+/// An admitted source graph and the V1 source table may use different numeric
+/// spellings for the same structural operand. The query names that structure.
+#[trace("TC-047", "FR-035-AC-35")]
+#[test]
+fn indexed_reached_closure_uses_a_typed_source_structural_key() {
+    fn replace(value: &mut Value, before: &Value, after: &Value) {
+        if value == before {
+            *value = after.clone();
+            return;
+        }
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    replace(item, before, after);
+                }
+            }
+            Value::Object(members) => {
+                for item in members.values_mut() {
+                    replace(item, before, after);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn remap_output_indexes(value: &mut Value, first: usize, second: usize) {
+        match value {
+            Value::Object(members)
+                if members.len() == 2
+                    && members.contains_key("package")
+                    && members.contains_key("node") => {}
+            Value::Object(members)
+                if members.len() == 3
+                    && members.contains_key("package")
+                    && members.contains_key("path")
+                    && members.contains_key("ordinal") =>
+            {
+                for segment in members["path"].as_array_mut().expect("output id path") {
+                    if let Some(index) = segment
+                        .as_object_mut()
+                        .filter(|object| object.len() == 1)
+                        .and_then(|object| object.get_mut("node"))
+                    {
+                        let old = usize::try_from(index.as_u64().expect("output index"))
+                            .expect("fixture output index fits usize");
+                        if old == first {
+                            *index = json!(second);
+                        } else if old == second {
+                            *index = json!(first);
+                        }
+                    }
+                }
+            }
+            Value::Object(members) => {
+                for child in members.values_mut() {
+                    remap_output_indexes(child, first, second);
+                }
+            }
+            Value::Array(items) => {
+                for child in items {
+                    remap_output_indexes(child, first, second);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut input = mixed_fixture();
+    let before = checked_package::node_id(&checked_package::family_key("dddd"));
+    let operand = checked_package::node_id(&checked_package::family_key("a3a3"));
+    let after = json!({
+        "package": before["package"],
+        "path": [before["path"][0].clone(), operand],
+        "ordinal": before["ordinal"]
+    });
+    replace(&mut input, &before, &after);
+    settle(&mut input);
+    checked_package::index_fixture_node_ids(&mut input);
+    settle(&mut input);
+
+    let source = admit(&input);
+    let position = source
+        .graph()
+        .nodes
+        .iter()
+        .position(|node| {
+            node.node_id.path.iter().any(|segment| {
+                matches!(
+                    segment,
+                    quire_contract_model::CheckedNodePathSegment::Index(_)
+                )
+            })
+        })
+        .expect("indexed request present");
+    let root = source.graph().nodes[position].node_id.clone();
+    let structural = source
+        .structural_key_at(position)
+        .expect("admitted structural key");
+    let key = source_key(structural);
+    assert!(ContractSourceKeyV1::from_structural(&root).is_none());
+
+    let output = source.lower(std::slice::from_ref(&root), &profile());
+    let producer = output.package.wire().expect("producer V1");
+    let ContractPackageReadResult::Admitted(reader) = read(bytes(&output)) else {
+        panic!("indexed V1 readback must admit");
+    };
+    let accounted = reader.wire().feature_accounting[0].node_id();
+    assert_ne!(
+        &root, accounted,
+        "source graph and source table use distinct indexes"
+    );
+    assert!(ContractSourceKeyV1::from_structural(accounted).is_none());
+    let table_index = reader
+        .wire()
+        .source_keys
+        .iter()
+        .position(|entry| entry == accounted)
+        .expect("accounting key in source table");
+    assert_eq!(reader.source_key_at(table_index), Some(key.clone()));
+    let ContractRootViewV1::Lowered(produced) =
+        producer.reached_closure(&key).expect("producer view")
+    else {
+        panic!("indexed request must lower");
+    };
+    let ContractRootViewV1::Lowered(read_back) = reader.reached_closure(&key).expect("read view")
+    else {
+        panic!("indexed readback request must remain lowered");
+    };
+    assert_eq!(read_back, produced);
+    let first = read_back
+        .root
+        .node_id
+        .path
+        .iter()
+        .find_map(|segment| match segment {
+            quire_contract_model::CheckedNodePathSegment::Index(index) => {
+                usize::try_from(*index).ok()
+            }
+            _ => None,
+        })
+        .expect("projected root has indexed operand");
+    let graph_len = reader.wire().semantic_graph.nodes.len();
+    assert!(graph_len >= 2 && first < graph_len);
+    let second = if first == 0 { 1 } else { 0 };
+    let mut reordered: Value = serde_json::from_slice(bytes(&output)).expect("V1 JSON");
+    reordered["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("output nodes")
+        .swap(first, second);
+    remap_output_indexes(&mut reordered["semantic_graph"], first, second);
+    let mapped = reordered["source_map"]["nodes"]
+        .as_array_mut()
+        .expect("source-map nodes");
+    assert_eq!(mapped.len(), graph_len);
+    mapped.swap(first, second);
+    for entry in mapped {
+        remap_output_indexes(&mut entry["node_id"], first, second);
+    }
+    let ContractPackageReadResult::Admitted(reordered) = read(&canonical(&reordered)) else {
+        panic!("rewritten producer-chosen output graph must admit");
+    };
+    let ContractRootViewV1::Lowered(reordered_view) =
+        reordered.reached_closure(&key).expect("reordered view")
+    else {
+        panic!("reordered indexed root must remain lowered");
+    };
+    assert_ne!(reordered_view.root.node_id, read_back.root.node_id);
+    assert_eq!(
+        reordered_view.root_structural_key,
+        read_back.root_structural_key
+    );
+    assert_eq!(
+        reordered_view
+            .nodes
+            .iter()
+            .map(|entry| &entry.structural_key)
+            .collect::<Vec<_>>(),
+        read_back
+            .nodes
+            .iter()
+            .map(|entry| &entry.structural_key)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(reordered_view.bounds, read_back.bounds);
+    assert_eq!(reordered_view.claims, read_back.claims);
+    assert_eq!(
+        reordered_view
+            .nodes
+            .iter()
+            .map(|entry| &entry.sources)
+            .collect::<Vec<_>>(),
+        read_back
+            .nodes
+            .iter()
+            .map(|entry| &entry.sources)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        reordered_view.selected_references,
+        read_back.selected_references
+    );
+    let unrequested = source
+        .graph()
+        .nodes
+        .iter()
+        .enumerate()
+        .find(|(candidate, _)| *candidate != position)
+        .and_then(|(candidate, _)| source.structural_key_at(candidate))
+        .expect("second admitted source node");
+    assert!(matches!(
+        reader
+            .reached_closure(&source_key(unrequested))
+            .expect("unrequested source view"),
+        ContractRootViewV1::Absent
+    ));
+    assert!(matches!(
+        reader
+            .reached_closure(&source_key(&missing()))
+            .expect("absent view"),
+        ContractRootViewV1::Absent
+    ));
+
+    let mut unsupported = profile();
+    unsupported.supported_tags.clear();
+    let refused = source.lower(std::slice::from_ref(&root), &unsupported);
+    let ContractPackageReadResult::Admitted(refused_package) = read(bytes(&refused)) else {
+        panic!("non-lowered indexed request must read back");
+    };
+    assert!(matches!(
+        refused_package
+            .reached_closure(&key)
+            .expect("non-lowered indexed view"),
+        ContractRootViewV1::NonLowered(record)
+            if record.disposition() == ContractDispositionV1::Unsupported
+    ));
+}
+
 #[trace("TC-047", "FR-035-AC-33")]
 #[test]
 fn reader_refuses_closed_source_reference_shapes_before_index_checks() {
@@ -1150,7 +1391,9 @@ fn reached_view_uses_all_three_edges_and_preserves_sources_and_wire() {
     let result = admitted.lower(&[root.clone(), id("7070"), missing()], &profile());
     let package = result.package.wire().expect("wire");
     let before = package.wire().clone();
-    let ContractRootViewV1::Lowered(view) = package.reached_closure(&root).expect("view") else {
+    let ContractRootViewV1::Lowered(view) =
+        package.reached_closure(&source_key(&root)).expect("view")
+    else {
         panic!("lowered root must have a view");
     };
     assert_eq!(view.root.node_id, root);
@@ -1192,13 +1435,15 @@ fn reached_view_uses_all_three_edges_and_preserves_sources_and_wire() {
     assert_eq!(view.bounds, lowered.bounds);
     assert_eq!(view.claims, lowered.claims);
     assert!(
-        matches!(package.reached_closure(&id("7070")).expect("refused"), ContractRootViewV1::NonLowered(record) if record.disposition() == ContractDispositionV1::Unsupported)
+        matches!(package.reached_closure(&source_key(&id("7070"))).expect("refused"), ContractRootViewV1::NonLowered(record) if record.disposition() == ContractDispositionV1::Unsupported)
     );
     assert!(
-        matches!(package.reached_closure(&missing()).expect("missing"), ContractRootViewV1::NonLowered(record) if record.disposition() == ContractDispositionV1::InvalidInput)
+        matches!(package.reached_closure(&source_key(&missing())).expect("missing"), ContractRootViewV1::NonLowered(record) if record.disposition() == ContractDispositionV1::InvalidInput)
     );
     assert!(matches!(
-        package.reached_closure(&id("dddd")).expect("reached only"),
+        package
+            .reached_closure(&source_key(&id("dddd")))
+            .expect("reached only"),
         ContractRootViewV1::Absent
     ));
     assert_eq!(package.wire(), &before);
@@ -1218,7 +1463,9 @@ fn reached_view_exposes_empty_subsets_and_absent_keys() {
         .clone();
     let result = admitted.lower(std::slice::from_ref(&root), &profile());
     let package = result.package.wire().expect("wire");
-    let ContractRootViewV1::Lowered(view) = package.reached_closure(&root).expect("view") else {
+    let ContractRootViewV1::Lowered(view) =
+        package.reached_closure(&source_key(&root)).expect("view")
+    else {
         panic!("lowered root must have a view");
     };
     assert!(view.bounds.is_empty());
@@ -1229,7 +1476,9 @@ fn reached_view_exposes_empty_subsets_and_absent_keys() {
     assert_eq!(view.bounds, lowered.bounds);
     assert_eq!(view.claims, lowered.claims);
     assert!(matches!(
-        package.reached_closure(&missing()).expect("absent"),
+        package
+            .reached_closure(&source_key(&missing()))
+            .expect("absent"),
         ContractRootViewV1::Absent
     ));
 }
@@ -1310,8 +1559,9 @@ fn retained_typed_views_match_source_and_strict_reader_without_changing_wire() {
         assert_eq!(reader.node_kind(&node.node_id), Some(expected));
     }
     for package in [producer, reader.as_ref()] {
-        let ContractRootViewV1::Lowered(view) =
-            package.reached_closure(&id("dddd")).expect("closure")
+        let ContractRootViewV1::Lowered(view) = package
+            .reached_closure(&source_key(&id("dddd")))
+            .expect("closure")
         else {
             panic!("lowered root");
         };

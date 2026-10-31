@@ -134,6 +134,18 @@ fn published_dependency_call_lowers_and_reads_back_with_selected_callee() {
         .expect("published dependency call");
     let request: CheckedNodeId =
         serde_json::from_value(call["node_id"].clone()).expect("call identity");
+    let request_position = importer
+        .graph()
+        .nodes
+        .iter()
+        .position(|node| node.node_id == request)
+        .expect("published call position");
+    let source_key = quire_contract_model::ContractSourceKeyV1::from_structural(
+        importer
+            .structural_key_at(request_position)
+            .expect("admitted call structural key"),
+    )
+    .expect("resolved source key");
     let callee: CheckedNodeId =
         serde_json::from_value(call["body"]["arguments"][0]["node"].clone())
             .expect("selected callee identity");
@@ -196,7 +208,7 @@ fn published_dependency_call_lowers_and_reads_back_with_selected_callee() {
         );
     };
     let ContractRootViewV1::Lowered(view) = read_back
-        .reached_closure(&request)
+        .reached_closure(&source_key)
         .expect("admitted reached closure")
     else {
         panic!("published call must remain lowered after readback");

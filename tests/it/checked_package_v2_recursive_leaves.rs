@@ -1262,7 +1262,12 @@ fn recursive_group_round_trips_with_original_node_keys() {
         assert_eq!(producer.node_kind(&node.node_id), Some(kind));
         assert_eq!(decoded.node_kind(&node.node_id), Some(kind));
     }
-    let ContractRootViewV1::Lowered(closure) = decoded.reached_closure(&root).expect("closure")
+    let ContractRootViewV1::Lowered(closure) = decoded
+        .reached_closure(
+            &quire_contract_model::ContractSourceKeyV1::from_structural(&root)
+                .expect("structural source key"),
+        )
+        .expect("closure")
     else {
         panic!("lowered root");
     };
@@ -1319,7 +1324,10 @@ fn reached_view_visits_an_admitted_recursion_group_once() {
         .package
         .wire()
         .expect("wire")
-        .reached_closure(&root)
+        .reached_closure(
+            &quire_contract_model::ContractSourceKeyV1::from_structural(&root)
+                .expect("structural source key"),
+        )
         .expect("view")
     else {
         panic!("recursive request must lower");

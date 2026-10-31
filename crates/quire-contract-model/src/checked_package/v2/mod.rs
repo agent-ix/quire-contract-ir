@@ -71,8 +71,8 @@ pub use contract_package::{
     ContractResultContextV1, ContractResultViewV1, ContractRootViewError, ContractRootViewV1,
     ContractScalarOperandChildV1, ContractScalarOperandErrorV1, ContractScalarOperandV1,
     ContractScalarOperandViewV1, ContractScalarOwnRangeV1, ContractSelectedReferenceV1,
-    ContractSemanticGraphV1, ContractSourceHandoffError, ContractSourceMapV1, ContractSourceV1,
-    ContractUnsupportedSourceKindError,
+    ContractSemanticGraphV1, ContractSourceHandoffError, ContractSourceKeyV1, ContractSourceMapV1,
+    ContractSourceV1, ContractUnsupportedSourceKindError,
 };
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;

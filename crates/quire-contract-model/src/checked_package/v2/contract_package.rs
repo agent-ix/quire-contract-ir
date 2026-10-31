@@ -662,6 +662,8 @@ impl<'a> ContractPackageTraversalIndex<'a> {
 pub struct ContractReachedNodeV1<'a> {
     /// The admitted semantic node, addressed by its existing typed key.
     pub node: &'a CheckedSemanticNodeV2,
+    /// Resolved identity stable across output-graph index rewrites.
+    pub structural_key: CheckedNodeId,
     /// The node's admitted typed family and form.
     pub kind: CheckedNodeKind,
     /// Every admitted source-map occurrence for that node.
@@ -682,6 +684,8 @@ pub struct ContractSelectedReferenceV1 {
 pub struct ContractReachedClosureV1<'a> {
     /// Requested root, also present in `nodes`.
     pub root: &'a CheckedSemanticNodeV2,
+    /// The resolved root identity, independent of its output-graph index.
+    pub root_structural_key: ContractSourceKeyV1,
     /// The requested root's admitted typed family and form.
     pub root_kind: CheckedNodeKind,
     /// Reached local nodes once each, in ascending typed-key order.
@@ -716,6 +720,34 @@ pub enum ContractRootViewError {
     Inconsistent,
 }
 
+/// A source-frame structural node key for a V1 reached-closure query.
+/// Its path contains resolved operand keys, never graph-local wire indexes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractSourceKeyV1(Arc<CheckedNodeId>);
+
+impl ContractSourceKeyV1 {
+    /// Accept a structural key from an admitted V2 graph or an already
+    /// resolved V1 source frame. Raw indexed wire keys have no frame here.
+    pub fn from_structural(key: &CheckedNodeId) -> Option<Self> {
+        let mut pending = vec![key];
+        while let Some(node) = pending.pop() {
+            for segment in &node.path {
+                match segment {
+                    CheckedNodePathSegment::Name(_) => {}
+                    CheckedNodePathSegment::Node(operand) => pending.push(operand),
+                    CheckedNodePathSegment::Index(_) => return None,
+                }
+            }
+        }
+        Some(Self(Arc::new(key.clone())))
+    }
+
+    /// Borrow the resolved structural identity without entering a wire frame.
+    pub fn structural_key(&self) -> &CheckedNodeId {
+        &self.0
+    }
+}
+
 impl From<ValidationFailure> for ContractRootViewError {
     fn from(failure: ValidationFailure) -> Self {
         match failure {
@@ -728,24 +760,33 @@ impl From<ValidationFailure> for ContractRootViewError {
 impl ContractPackageV1 {
     pub(super) fn reached_closure_indexed<'a>(
         &'a self,
-        requested: &CheckedNodeId,
+        requested: &ContractSourceKeyV1,
         index: &ContractPackageTraversalIndex<'a>,
         work: &mut GuardContextWork,
     ) -> Result<ContractRootViewV1<'a>, ContractRootViewError> {
         work.charge(1).map_err(ContractRootViewError::Incomplete)?;
-        let Some(record) = index.accounting.get(requested).copied() else {
+        let Some(record) = self.wire.feature_accounting.iter().find(|record| {
+            self.frames.source(record.node_id()) == Some(requested.structural_key())
+        }) else {
             return Ok(ContractRootViewV1::Absent);
         };
         if record.disposition() != ContractDispositionV1::Lowered {
             return Ok(ContractRootViewV1::NonLowered(record));
         }
         let nodes = &self.wire.semantic_graph.nodes;
-        let Some(&root_position) = index.positions.get(requested) else {
+        let Some(root_key) =
+            self.frames.output.iter().find_map(|(wire, key)| {
+                (key.as_ref() == requested.structural_key()).then_some(wire)
+            })
+        else {
+            return Err(ContractRootViewError::Inconsistent);
+        };
+        let Some(&root_position) = index.positions.get(root_key) else {
             return Err(ContractRootViewError::Inconsistent);
         };
         let root = &nodes[root_position];
         let mut visited = BTreeSet::new();
-        let mut pending = VecDeque::from([requested.clone()]);
+        let mut pending = VecDeque::from([root_key.clone()]);
         let mut selected_references = BTreeSet::new();
         while let Some(key) = pending.pop_front() {
             work.charge(1).map_err(ContractRootViewError::Incomplete)?;
@@ -795,8 +836,10 @@ impl ContractPackageV1 {
         }
         work.charge(u64::try_from(visited.len()).unwrap_or(u64::MAX))
             .map_err(ContractRootViewError::Incomplete)?;
-        let reached = visited
-            .iter()
+        let mut ordered = visited.iter().collect::<Vec<_>>();
+        ordered.sort_by(|left, right| self.frames.output(left).cmp(&self.frames.output(right)));
+        let reached = ordered
+            .into_iter()
             .map(|key| {
                 let position = index
                     .positions
@@ -817,6 +860,11 @@ impl ContractPackageV1 {
                     .ok_or(ContractRootViewError::Inconsistent)?;
                 Ok(ContractReachedNodeV1 {
                     node,
+                    structural_key: self
+                        .frames
+                        .output(&node.node_id)
+                        .ok_or(ContractRootViewError::Inconsistent)?
+                        .clone(),
                     kind,
                     sources,
                 })
@@ -826,10 +874,18 @@ impl ContractPackageV1 {
             .map_err(ContractRootViewError::Incomplete)?;
         let classified = reached
             .iter()
-            .map(|entry| (&entry.node.node_id, entry.kind.tag()));
-        let (bounds, claims) = super::lower::classify_reached_keys(requested, classified);
+            .map(|entry| {
+                self.frames
+                    .output(&entry.node.node_id)
+                    .map(|key| (key, entry.kind.tag()))
+                    .ok_or(ContractRootViewError::Inconsistent)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let (bounds, claims) =
+            super::lower::classify_reached_keys(requested.structural_key(), classified);
         Ok(ContractRootViewV1::Lowered(ContractReachedClosureV1 {
             root,
+            root_structural_key: requested.clone(),
             root_kind: *self
                 .node_kinds
                 .get(root_position)
@@ -844,6 +900,14 @@ impl ContractPackageV1 {
     /// The admitted six-member wire, available for read-only inspection.
     pub fn wire(&self) -> &ContractPackageWireV1 {
         &self.wire
+    }
+
+    /// Resolve a `source_keys` table entry into its source-frame structural
+    /// query key. The returned key is independent of that table's index.
+    pub fn source_key_at(&self, index: usize) -> Option<ContractSourceKeyV1> {
+        let wire = self.wire.source_keys.get(index)?;
+        let key = self.frames.source(wire)?;
+        ContractSourceKeyV1::from_structural(key)
     }
 
     /// A represented local node, addressed by its admitted typed key.
@@ -918,16 +982,31 @@ impl ContractPackageV1 {
         true
     }
 
-    /// Reads one exact requested key and, when lowered, its local reached
-    /// closure. The six-member wire is never changed.
+    /// Reads one source-frame structural key and, when lowered, its local
+    /// reached closure. A raw graph or source-table index has no meaning here.
+    /// The six-member wire is never changed.
     pub fn reached_closure(
         &self,
-        requested: &CheckedNodeId,
+        requested: &ContractSourceKeyV1,
     ) -> Result<ContractRootViewV1<'_>, ContractRootViewError> {
         let mut work = GuardContextWork::unbounded_view();
         let index = ContractPackageTraversalIndex::build(self, &mut work)
             .map_err(ContractRootViewError::Incomplete)?;
         self.reached_closure_indexed(requested, &index, &mut work)
+    }
+
+    fn source_key_for_wire(&self, wire: &CheckedNodeId) -> Option<ContractSourceKeyV1> {
+        ContractSourceKeyV1::from_structural(self.frames.source(wire)?)
+    }
+
+    fn reached_closure_source_wire(
+        &self,
+        wire: &CheckedNodeId,
+    ) -> Result<ContractRootViewV1<'_>, ContractRootViewError> {
+        let Some(key) = self.source_key_for_wire(wire) else {
+            return Ok(ContractRootViewV1::Absent);
+        };
+        self.reached_closure(&key)
     }
 }
 
