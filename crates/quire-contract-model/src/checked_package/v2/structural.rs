@@ -73,10 +73,11 @@ use super::{
 };
 use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
+    rank_checked_node_ids, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode,
+    JsonPointer,
 };
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// The member of one node a structural defect is about.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -349,34 +350,57 @@ pub(super) fn validate_structural_nodes_with_keys(
     };
     // A rebuilt key can contain a long chain of operand keys. Equality of
     // two references to that key must not descend the chain once per node.
-    let mut key_tokens = BTreeMap::new();
+    let mut key_tokens = HashMap::new();
+    let mut key_ranks = HashMap::new();
     if !structural_keys.is_empty() {
         let tokens = super::node_index::StructuralInterner::new()
             .tokens(structural_keys)
             .expect("reader-rebuilt graph keys contain only resolved operands");
-        for (key, token) in structural_keys.iter().zip(tokens) {
+        let ranks = rank_checked_node_ids(structural_keys);
+        for ((key, token), rank) in structural_keys.iter().zip(tokens).zip(ranks) {
             key_tokens.insert(std::sync::Arc::as_ptr(key), token);
+            key_ranks.insert(std::sync::Arc::as_ptr(key), rank);
         }
     }
-    let same_key = |left: &CheckedNodeId, right: &CheckedNodeId| {
-        if std::ptr::eq(left, right) {
-            return true;
-        }
-        match (
-            key_tokens.get(&std::ptr::from_ref(left)),
-            key_tokens.get(&std::ptr::from_ref(right)),
-        ) {
-            (Some(left), Some(right)) => left == right,
-            _ => left == right,
-        }
-    };
     let matches_dependencies = |actual: &[CheckedNodeId], expected: BTreeSet<&CheckedNodeId>| {
-        actual.len() == expected.len()
-            && actual
-                .iter()
-                .map(|id| super::structural_key(id, index, structural_keys))
-                .zip(expected)
-                .all(|(left, right)| same_key(left, right))
+        let expected_keys = expected
+            .into_iter()
+            .map(|id| super::structural_key(id, index, structural_keys));
+        if structural_keys.is_empty() {
+            let expected = expected_keys.collect::<BTreeSet<_>>();
+            return actual.len() == expected.len()
+                && actual
+                    .iter()
+                    .map(|id| super::structural_key(id, index, structural_keys))
+                    .zip(expected)
+                    .all(|(left, right)| left == right);
+        }
+        let mut expected_tokens = HashSet::new();
+        for key in expected_keys {
+            let Some(&token) = key_tokens.get(&std::ptr::from_ref(key)) else {
+                return false;
+            };
+            expected_tokens.insert(token);
+        }
+        if actual.len() != expected_tokens.len() {
+            return false;
+        }
+        let mut previous_rank = None;
+        let mut actual_tokens = HashSet::with_capacity(actual.len());
+        for id in actual {
+            let key = super::structural_key(id, index, structural_keys);
+            let pointer = std::ptr::from_ref(key);
+            let (Some(&token), Some(&rank)) = (key_tokens.get(&pointer), key_ranks.get(&pointer))
+            else {
+                return false;
+            };
+            if previous_rank.is_some_and(|previous| previous >= rank) {
+                return false;
+            }
+            previous_rank = Some(rank);
+            actual_tokens.insert(token);
+        }
+        actual_tokens == expected_tokens
     };
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
@@ -418,7 +442,6 @@ pub(super) fn validate_structural_nodes_with_keys(
                         },
                         _ => None,
                     })
-                    .map(|id| super::structural_key(id, index, structural_keys))
                     .collect::<BTreeSet<_>>();
                 if node.semantic_type != node.node_id {
                     Some(Defect::SemanticType)
@@ -450,10 +473,6 @@ pub(super) fn validate_structural_nodes_with_keys(
                         _ => return Err(refuse(Defect::Body)),
                     }
                 }
-                let targets = targets
-                    .into_iter()
-                    .map(|id| super::structural_key(id, index, structural_keys))
-                    .collect::<BTreeSet<_>>();
                 if node.semantic_type != node.node_id {
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
@@ -515,19 +534,22 @@ pub(super) fn validate_structural_nodes_with_keys(
         if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             if let Some(owner_model) = node.owner_model.as_ref() {
                 let ordered = node.dependencies.windows(2).all(|pair| {
-                    super::structural_key(&pair[0], index, structural_keys)
-                        < super::structural_key(&pair[1], index, structural_keys)
+                    let left = super::structural_key(&pair[0], index, structural_keys);
+                    let right = super::structural_key(&pair[1], index, structural_keys);
+                    match (
+                        key_ranks.get(&std::ptr::from_ref(left)),
+                        key_ranks.get(&std::ptr::from_ref(right)),
+                    ) {
+                        (Some(left), Some(right)) => left < right,
+                        _ => left < right,
+                    }
                 });
                 if !ordered || !node.dependencies.contains(owner_model) {
                     return Err(refuse(Defect::Dependencies));
                 }
                 if let Some(mut expected) = term.and_then(application_dependencies) {
                     expected.insert(owner_model.clone());
-                    let expected = expected
-                        .iter()
-                        .map(|id| super::structural_key(id, index, structural_keys))
-                        .collect::<BTreeSet<_>>();
-                    if !matches_dependencies(&node.dependencies, expected) {
+                    if !matches_dependencies(&node.dependencies, expected.iter().collect()) {
                         return Err(refuse(Defect::Dependencies));
                     }
                 }
@@ -535,11 +557,7 @@ pub(super) fn validate_structural_nodes_with_keys(
             continue;
         }
         if let Some(expected) = term.and_then(application_dependencies) {
-            let expected = expected
-                .iter()
-                .map(|id| super::structural_key(id, index, structural_keys))
-                .collect::<BTreeSet<_>>();
-            if !matches_dependencies(&node.dependencies, expected) {
+            if !matches_dependencies(&node.dependencies, expected.iter().collect()) {
                 return Err(refuse(Defect::Dependencies));
             }
         }

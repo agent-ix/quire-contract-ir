@@ -887,6 +887,9 @@ impl Ord for CheckedNodeId {
                 Task::Node(left, right) => {
                     #[cfg(test)]
                     checked_node_comparisons::visited();
+                    if std::ptr::eq(left, right) {
+                        continue;
+                    }
                     match left.package.cmp(&right.package) {
                         Ordering::Equal => {
                             tasks.push(Task::Ordinal(left.ordinal, right.ordinal));
@@ -934,7 +937,9 @@ impl Ord for CheckedNodeId {
                                 return Ordering::Greater
                             }
                             (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
-                                tasks.push(Task::Node(a, b));
+                                if !std::sync::Arc::ptr_eq(a, b) {
+                                    tasks.push(Task::Node(a, b));
+                                }
                             }
                         }
                     }
@@ -947,6 +952,217 @@ impl Ord for CheckedNodeId {
         }
         Ordering::Equal
     }
+}
+
+/// Rank resolved structural IDs in `CheckedNodeId::cmp` order without
+/// repeatedly walking a shared operand spine. Children enter the order tree
+/// before parents, so a parent comparison reads the positions of its children.
+pub(crate) fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> Vec<usize> {
+    use std::collections::HashMap;
+
+    struct Entry<'a> {
+        key: &'a CheckedNodeId,
+        parent: Option<usize>,
+        left: Option<usize>,
+        right: Option<usize>,
+        size: usize,
+        priority: u64,
+    }
+
+    struct Order<'a> {
+        entries: Vec<Entry<'a>>,
+        by_pointer: HashMap<*const CheckedNodeId, usize>,
+        root: Option<usize>,
+        random: u64,
+    }
+
+    impl<'a> Order<'a> {
+        fn size(&self, index: Option<usize>) -> usize {
+            index.map_or(0, |at| self.entries[at].size)
+        }
+
+        fn position(&self, mut at: usize) -> usize {
+            let mut position = self.size(self.entries[at].left);
+            while let Some(parent) = self.entries[at].parent {
+                if self.entries[parent].right == Some(at) {
+                    position += self.size(self.entries[parent].left) + 1;
+                }
+                at = parent;
+            }
+            position
+        }
+
+        fn compare(&self, left: &CheckedNodeId, right: &CheckedNodeId) -> std::cmp::Ordering {
+            use std::cmp::Ordering;
+            let package = left.package.cmp(&right.package);
+            if package != Ordering::Equal {
+                return package;
+            }
+            for (a, b) in left.path.iter().zip(&right.path) {
+                let order = match (a, b) {
+                    (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => a.cmp(b),
+                    (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b)) => {
+                        a.cmp(b)
+                    }
+                    (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
+                        let a = self.by_pointer[&std::sync::Arc::as_ptr(a)];
+                        let b = self.by_pointer[&std::sync::Arc::as_ptr(b)];
+                        self.position(a).cmp(&self.position(b))
+                    }
+                    (CheckedNodePathSegment::Name(_), _) => Ordering::Less,
+                    (_, CheckedNodePathSegment::Name(_)) => Ordering::Greater,
+                    (CheckedNodePathSegment::Index(_), _) => Ordering::Less,
+                    (CheckedNodePathSegment::Node(_), _) => Ordering::Greater,
+                };
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
+            left.path
+                .len()
+                .cmp(&right.path.len())
+                .then_with(|| left.ordinal.cmp(&right.ordinal))
+        }
+
+        fn rotate_up(&mut self, child: usize) {
+            let parent = self.entries[child].parent.expect("rotation has a parent");
+            let grand = self.entries[parent].parent;
+            if self.entries[parent].left == Some(child) {
+                let moved = self.entries[child].right;
+                self.entries[parent].left = moved;
+                if let Some(moved) = moved {
+                    self.entries[moved].parent = Some(parent);
+                }
+                self.entries[child].right = Some(parent);
+            } else {
+                let moved = self.entries[child].left;
+                self.entries[parent].right = moved;
+                if let Some(moved) = moved {
+                    self.entries[moved].parent = Some(parent);
+                }
+                self.entries[child].left = Some(parent);
+            }
+            self.entries[parent].parent = Some(child);
+            self.entries[child].parent = grand;
+            if let Some(grand) = grand {
+                if self.entries[grand].left == Some(parent) {
+                    self.entries[grand].left = Some(child);
+                } else {
+                    self.entries[grand].right = Some(child);
+                }
+            } else {
+                self.root = Some(child);
+            }
+            self.entries[parent].size =
+                1 + self.size(self.entries[parent].left) + self.size(self.entries[parent].right);
+            self.entries[child].size =
+                1 + self.size(self.entries[child].left) + self.size(self.entries[child].right);
+        }
+
+        fn insert(&mut self, key: &'a CheckedNodeId) -> usize {
+            use std::cmp::Ordering;
+            let mut parent = None;
+            let mut at = self.root;
+            let mut side = Ordering::Equal;
+            while let Some(current) = at {
+                side = self.compare(key, self.entries[current].key);
+                if side == Ordering::Equal {
+                    return current;
+                }
+                parent = Some(current);
+                at = if side == Ordering::Less {
+                    self.entries[current].left
+                } else {
+                    self.entries[current].right
+                };
+            }
+            // The priority is for tree balance only; it never identifies a
+            // package, file or tool, and it does not affect structural order.
+            self.random = self
+                .random
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let index = self.entries.len();
+            self.entries.push(Entry {
+                key,
+                parent,
+                left: None,
+                right: None,
+                size: 1,
+                priority: self.random,
+            });
+            if let Some(parent) = parent {
+                if side == Ordering::Less {
+                    self.entries[parent].left = Some(index);
+                } else {
+                    self.entries[parent].right = Some(index);
+                }
+                let mut ancestor = Some(parent);
+                while let Some(current) = ancestor {
+                    self.entries[current].size += 1;
+                    ancestor = self.entries[current].parent;
+                }
+            } else {
+                self.root = Some(index);
+            }
+            while let Some(parent) = self.entries[index].parent {
+                if self.entries[index].priority <= self.entries[parent].priority {
+                    break;
+                }
+                self.rotate_up(index);
+            }
+            index
+        }
+
+        fn positions(&self) -> Vec<usize> {
+            let mut positions = vec![0; self.entries.len()];
+            let mut pending = Vec::new();
+            let mut at = self.root;
+            let mut next = 0;
+            while at.is_some() || !pending.is_empty() {
+                while let Some(current) = at {
+                    pending.push(current);
+                    at = self.entries[current].left;
+                }
+                let current = pending.pop().expect("nonempty traversal stack");
+                positions[current] = next;
+                next += 1;
+                at = self.entries[current].right;
+            }
+            positions
+        }
+    }
+
+    let mut order = Order {
+        entries: Vec::new(),
+        by_pointer: HashMap::new(),
+        root: None,
+        random: 0x9e37_79b9_7f4a_7c15,
+    };
+    for root in keys {
+        let mut pending = vec![(root.as_ref(), false)];
+        while let Some((key, finish)) = pending.pop() {
+            let pointer = std::ptr::from_ref(key);
+            if order.by_pointer.contains_key(&pointer) {
+                continue;
+            }
+            if finish {
+                let index = order.insert(key);
+                order.by_pointer.insert(pointer, index);
+            } else {
+                pending.push((key, true));
+                for segment in key.path.iter().rev() {
+                    if let CheckedNodePathSegment::Node(child) = segment {
+                        pending.push((child, false));
+                    }
+                }
+            }
+        }
+    }
+    let positions = order.positions();
+    keys.iter()
+        .map(|key| positions[order.by_pointer[&std::sync::Arc::as_ptr(key)]])
+        .collect()
 }
 
 impl Encode for CheckedNodeId {
@@ -1017,8 +1233,8 @@ pub(crate) mod checked_node_comparisons {
 #[cfg(test)]
 mod structural_node_identity_tests {
     use super::{
-        CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal, CheckedPackageRefusalCode,
-        JsonPointer, RefusalFields,
+        rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal,
+        CheckedPackageRefusalCode, JsonPointer, RefusalFields,
     };
 
     /// Trace: FR-038-AC-185, TC-048.
@@ -1133,6 +1349,77 @@ mod structural_node_identity_tests {
         assert_eq!(
             encoded,
             serde_json::to_value(&nested).expect("serialize id")
+        );
+    }
+
+    /// Trace: FR-038-AC-364, FR-038-AC-380.
+    #[test]
+    fn structural_ranks_agree_with_nested_id_order() {
+        use std::sync::Arc;
+
+        let mut keys = vec![Arc::new(CheckedNodeId {
+            package: "p".into(),
+            path: vec![CheckedNodePathSegment::Name("leaf".into())],
+            ordinal: 0,
+        })];
+        for depth in 0..80 {
+            let child = Arc::clone(keys.last().expect("first key exists"));
+            keys.push(Arc::new(CheckedNodeId {
+                package: if depth % 7 == 0 { "q" } else { "p" }.into(),
+                path: vec![
+                    CheckedNodePathSegment::Name(if depth % 3 == 0 { "a" } else { "z" }.into()),
+                    CheckedNodePathSegment::Node(child),
+                ],
+                ordinal: (depth % 2) as u64,
+            }));
+        }
+        keys.push(Arc::new(keys[17].as_ref().clone()));
+        keys.push(Arc::new(CheckedNodeId {
+            package: "p".into(),
+            path: vec![CheckedNodePathSegment::Index(17)],
+            ordinal: 0,
+        }));
+        keys.reverse();
+        let ranks = rank_checked_node_ids(&keys);
+        for (left, a) in keys.iter().enumerate() {
+            for (right, b) in keys.iter().enumerate() {
+                assert_eq!(ranks[left].cmp(&ranks[right]), a.cmp(b));
+            }
+        }
+    }
+
+    /// Trace: FR-038-AC-117, FR-038-AC-380.
+    #[test]
+    #[ignore = "IR-1191 bounded performance lane"]
+    fn sixteen_thousand_nested_ids_rank_within_ten_seconds() {
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let mut keys = vec![Arc::new(CheckedNodeId {
+            package: "p".into(),
+            path: vec![CheckedNodePathSegment::Name("leaf".into())],
+            ordinal: 0,
+        })];
+        for _ in 0..16_000 {
+            let child = Arc::clone(keys.last().expect("first key exists"));
+            keys.push(Arc::new(CheckedNodeId {
+                package: "p".into(),
+                path: vec![
+                    CheckedNodePathSegment::Name("option".into()),
+                    CheckedNodePathSegment::Node(child),
+                ],
+                ordinal: 0,
+            }));
+        }
+        let start = Instant::now();
+        let ranks = rank_checked_node_ids(&keys);
+        assert!(
+            ranks.into_iter().eq(0..keys.len()),
+            "every child ranks before its parent"
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "ranking a 16,000-level shared chain exceeded ten seconds"
         );
     }
 
