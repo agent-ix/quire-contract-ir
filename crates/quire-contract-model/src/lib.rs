@@ -187,10 +187,11 @@ pub use checked_package::{
     ContractScalarOperandErrorV1, ContractScalarOperandV1, ContractScalarOperandViewV1,
     ContractScalarOwnRangeV1, ContractSelectedReferenceV1, ContractSemanticGraphV1,
     ContractSourceHandoffError, ContractSourceKeyV1, ContractSourceMapV1, ContractSourceV1,
-    ContractUnsupportedSourceKindError, CorrespondenceForm, DimensionTerm, ExpressionForm,
-    FunctionForm, HybridForm, JsonPointer, LoweringProfileRef, ModelForm, NominalBody,
-    ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, TimedModelForm, ValueForm,
-    CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
+    ContractUnsupportedSourceKindError, CorrespondenceForm, DimensionTerm, ExactTypeProjection,
+    ExactTypeProjectionError, ExactTypeProjectionErrorCode, ExpressionForm, FunctionForm,
+    HybridForm, JsonPointer, LoweringProfileRef, ModelForm, NominalBody, ProtocolForm,
+    RelationForm, ScalarTypeForm, SelectedExactIdentities, StateForm, TemporalForm, TimedModelForm,
+    ValueForm, CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
 };
 
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
