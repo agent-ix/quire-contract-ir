@@ -319,6 +319,24 @@ fn read_package_with_document_and_extensions_at_limit(
     hold_retention: bool,
     limits: CheckedPackageReadLimits,
 ) -> Result<CheckedPackageV2ReadResult, String> {
+    read_package_with_document_override(
+        package,
+        name,
+        domain_document,
+        hold_retention,
+        limits,
+        None,
+    )
+}
+
+fn read_package_with_document_override(
+    package: &Value,
+    name: &str,
+    domain_document: &Path,
+    hold_retention: bool,
+    limits: CheckedPackageReadLimits,
+    document_override: Option<&[u8]>,
+) -> Result<CheckedPackageV2ReadResult, String> {
     // The reader takes canonical bytes; the published files are indented.
     let bytes = serde_json::to_vec(package).map_err(|error| error.to_string())?;
     let mut evidence = CheckedPackageEvidence::new();
@@ -417,8 +435,18 @@ fn read_package_with_document_and_extensions_at_limit(
         } else {
             domain_document.to_path_buf()
         };
-        let document = std::fs::read(&selected_document)
-            .map_err(|error| format!("{} cannot be read: {error}", selected_document.display()))?;
+        let document = if identity == "acme/orders" {
+            match document_override {
+                Some(bytes) => bytes.to_vec(),
+                None => std::fs::read(&selected_document).map_err(|error| {
+                    format!("{} cannot be read: {error}", selected_document.display())
+                })?,
+            }
+        } else {
+            std::fs::read(&selected_document).map_err(|error| {
+                format!("{} cannot be read: {error}", selected_document.display())
+            })?
+        };
         serde_json::from_slice::<Value>(&document)
             .map_err(|error| format!("{} is not JSON: {error}", selected_document.display()))?;
         evidence

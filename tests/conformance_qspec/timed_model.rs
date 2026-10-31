@@ -25,6 +25,94 @@ fn published() -> Value {
         .expect("published timed model must be available")
 }
 
+/// Trace: FR-038-AC-323, TC-367.
+#[trace("TC-367", "FR-038-AC-323")]
+#[test]
+fn model_owned_time_dimension_reads_and_wrong_fcd_name_refuses_at_source_unit() {
+    let fixtures = fixtures_dir();
+    let mut wire = read_json(&fixtures.join("positive-timed-model-nodes.json"))
+        .expect("published timed model");
+    let mut document = read_json(&proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT))
+        .expect("published selected model");
+    let origin = document["types"][0]["origin"].clone();
+    let time = "ix://acme/orders/dimension/Time";
+    let second = "ix://acme/orders/unit/s";
+    document["dimensions"] = json!([{
+        "identity":time, "name":"Time", "base":true, "terms":[], "origin":origin
+    }]);
+    document["units"] = json!([{
+        "identity":second, "name":"s", "dimension":time,
+        "scale":"1", "offset":"0", "origin":origin
+    }]);
+    for (position, form, fcd_id) in [(42, "dimension", time), (43, "unit", second)] {
+        let old = wire["semantic_graph"]["nodes"][position]["node_id"].clone();
+        let new = fixture_support::structural_id(
+            "acme/orders",
+            vec![json!("scalar_type"), json!(form), json!(fcd_id)],
+            0,
+        );
+        fixture_support::reassign_node_id(&mut wire, &old, &new);
+        let node = &mut wire["semantic_graph"]["nodes"][position];
+        node["owner"] = json!({"kind":"model","identity":"acme/orders","node":fcd_id});
+        node["body"] = json!({"term":"aggregate","members":[]});
+        node["occurrences"] = json!([{"role":"generated","ordinal":0}]);
+        node.as_object_mut()
+            .expect("node object")
+            .remove("declaration");
+    }
+    fixture_support::rebuild_source_map(&mut wire);
+    fixture_support::refresh_identity(&mut wire);
+    let document_bytes = serde_json::to_vec(&document).expect("selected document JSON");
+    let read = |candidate: &Value, selected: &[u8]| {
+        read_package_with_document_override(
+            candidate,
+            "model-owned timed source",
+            &proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT),
+            true,
+            CheckedPackageReadLimits::bounded(),
+            Some(selected),
+        )
+        .expect("checked package read")
+    };
+    assert!(
+        matches!(
+            read(&wire, &document_bytes),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "selected model-owned Time and s must admit"
+    );
+    let mut wrong_wire = wire.clone();
+    let length = "ix://acme/orders/dimension/Length";
+    let old = wrong_wire["semantic_graph"]["nodes"][42]["node_id"].clone();
+    let replacement = fixture_support::structural_id(
+        "acme/orders",
+        vec![json!("scalar_type"), json!("dimension"), json!(length)],
+        0,
+    );
+    fixture_support::reassign_node_id(&mut wrong_wire, &old, &replacement);
+    wrong_wire["semantic_graph"]["nodes"][42]["owner"]["node"] = json!(length);
+    fixture_support::refresh_identity(&mut wrong_wire);
+    document["dimensions"][0]["identity"] = json!(length);
+    document["dimensions"][0]["name"] = json!("Length");
+    document["units"][0]["dimension"] = json!(length);
+    let wrong_document = serde_json::to_vec(&document).expect("wrong FCD name JSON");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_wire, &wrong_document) else {
+        panic!("model-owned non-Time source unit must refuse")
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::IllTyped, Some(Cause::InvalidTimeQuantity))
+    );
+    assert_eq!(
+        refusal.loci[0]
+            .path
+            .clone()
+            .expect("source unit locus")
+            .to_string(),
+        "/semantic_graph/nodes/44/body/members/1/value/target"
+    );
+}
+
 fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
     let path = patch["path"].as_str().expect("published patch path");
     let (parent, member) = path.rsplit_once('/').expect("published patch member");
