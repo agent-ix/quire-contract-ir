@@ -34,3 +34,7 @@ Ticket: IR-1203. Planless review of the computed matrix and the PR's changed req
 - Reverse trace: the new enum, intake conversion, and typed read field are owned by FR-349 and QSpec FR-322-AC-34; no QSL operation mirror or unowned evaluator was added.
 - Semantic review: not separately requested; code-test alignment was checked as part of required code review.
 - Plan completion: not assessed.
+
+## Disposition pass 2 review
+
+The fixture repair at e6d5aabf0db516af030b969b6887534956c7408d changes two existing traced integration tests. Each requires strict reader admission before its typed-member assertion can execute. The step-relation test follows both field reads through the admitted relation body, and the structural-key test checks the retained bare form in each selected range case. The new assertions fail if typed retention drops or changes the form. No new diff-scoped trace or test-oracle finding arose. The original clean placeholder remains a placeholder, not a finding needing disposition.

@@ -43,3 +43,7 @@ Ticket: IR-1203. Reviewed frozen PR #745 at 6880ab2a against origin/main. Rust r
 ## Disposition verdict
 
 Round 1 at 2a0acc4848a782f1dab9ac1f901562f20a92de3d: FND-001 fixed on source inspection and a focused string-edge rerun. The original review finding and verdict remain as recorded above. No new finding or still-open finding was found. The lead owns the final aggregate gate.
+
+## Disposition pass 2 review
+
+At e6d5aabf0db516af030b969b6887534956c7408d, the five failing integration cases from the full gate at ca12e267 received fixture corrections. `step_relation_package` now supplies `read_form: bare` on its model-object field projections. `selected_model_field_range_joins_exact_body_members` now constructs `Reference<Object> -> model.deref -> record.project` with the same form. Both tests assert `CheckedOperationMember::Field { read_form: Some(CheckedFieldReadForm::Bare), .. }` after strict reader admission. These paths satisfy QSpec FR-322-AC-34's operand and member form rule. The focused tests reported by the coder passed, and an independent `make string-edge` rerun passed. `git diff --check ca12e267..HEAD` passed. No new findings arose; FND-001 remains fixed, so round 2 adds no `## Dispositions` row. The final aggregate gate on this head remains the lead's responsibility.
