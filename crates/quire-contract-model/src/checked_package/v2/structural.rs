@@ -387,12 +387,18 @@ pub(super) fn validate_structural_nodes_with_keys(
                         },
                         _ => None,
                     })
+                    .map(|id| super::structural_key(id, index, structural_keys))
                     .collect::<BTreeSet<_>>();
                 if node.semantic_type != node.node_id {
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if !node.dependencies.iter().eq(expected) {
+                } else if !node
+                    .dependencies
+                    .iter()
+                    .map(|id| super::structural_key(id, index, structural_keys))
+                    .eq(expected)
+                {
                     Some(Defect::Dependencies)
                 } else {
                     None
@@ -418,11 +424,20 @@ pub(super) fn validate_structural_nodes_with_keys(
                         _ => return Err(refuse(Defect::Body)),
                     }
                 }
+                let targets = targets
+                    .into_iter()
+                    .map(|id| super::structural_key(id, index, structural_keys))
+                    .collect::<BTreeSet<_>>();
                 if node.semantic_type != node.node_id {
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if !node.dependencies.iter().eq(targets) {
+                } else if !node
+                    .dependencies
+                    .iter()
+                    .map(|id| super::structural_key(id, index, structural_keys))
+                    .eq(targets)
+                {
                     Some(Defect::Dependencies)
                 } else {
                     None

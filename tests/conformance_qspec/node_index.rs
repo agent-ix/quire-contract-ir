@@ -173,7 +173,7 @@ fn graph_reindexing_preserves_structural_dependency_order() {
 /// Trace: FR-038-AC-96, FR-038-AC-376
 #[trace("TC-048", "FR-038-AC-96", "FR-038-AC-376")]
 #[test]
-fn published_extension_dependencies_follow_resolved_key_order() {
+fn published_extension_and_hybrid_dependencies_follow_resolved_key_order() {
     let fixtures = fixtures_dir();
     let package = read_json(&fixtures.join("positive-all-families.json"))
         .expect("published all-families fixture");
@@ -195,29 +195,41 @@ fn published_extension_dependencies_follow_resolved_key_order() {
     let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
         panic!("published Audit extension must admit: {result:?}");
     };
-    let dependencies = &admitted.graph().nodes[position].dependencies;
-    let first = admitted
-        .structural_key(&dependencies[0])
-        .expect("first resolved key");
-    let second = admitted
-        .structural_key(&dependencies[1])
-        .expect("second resolved key");
-    assert!(first < second, "Audit dependencies ascend by rebuilt keys");
-
-    let mut unsorted = package;
-    unsorted["semantic_graph"]["nodes"][position]["dependencies"]
-        .as_array_mut()
-        .expect("Audit dependencies")
-        .swap(0, 1);
-    let result = read_package(&unsorted).expect("unsorted package read");
-    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
-        panic!("structurally unsorted Audit dependencies must refuse");
-    };
-    assert_eq!(code_word(refusal.code), "invalid_semantic_graph");
+    let hybrid_position = 40;
     assert_eq!(
-        refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{position}/dependencies"))
+        package["semantic_graph"]["nodes"][hybrid_position]["node_tag"],
+        "hybrid"
     );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][hybrid_position]["semantic_form"],
+        "hybrid_mode"
+    );
+    for (position, label) in [(position, "Audit"), (hybrid_position, "hybrid mode")] {
+        let dependencies = &admitted.graph().nodes[position].dependencies;
+        let resolved = dependencies
+            .iter()
+            .map(|id| admitted.structural_key(id).expect("local dependency key"))
+            .collect::<Vec<_>>();
+        assert!(
+            resolved.windows(2).all(|pair| pair[0] < pair[1]),
+            "{label} dependencies ascend by rebuilt keys"
+        );
+
+        let mut unsorted = package.clone();
+        unsorted["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("published dependencies")
+            .swap(0, 1);
+        let result = read_package(&unsorted).expect("unsorted package read");
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("structurally unsorted {label} dependencies must refuse");
+        };
+        assert_eq!(code_word(refusal.code), "invalid_semantic_graph");
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(format!("/semantic_graph/nodes/{position}/dependencies"))
+        );
+    }
 }
 
 /// Trace: FR-038-AC-379
