@@ -1399,12 +1399,15 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
     }
     // This form needs a selected model declaration and owner, unlike the
     // anonymous node used for the other vocabulary controls.
-    let (state_machine, evidence) = crate::checked_package_v2_refinement::machine_package();
+    let (mut state_machine, evidence) = crate::checked_package_v2_refinement::machine_package();
+    checked_package::index_fixture_node_ids(&mut state_machine);
     assert!(matches!(
         read(&state_machine, &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    let (persistence, evidence) = crate::checked_package_v2_refinement::selected_forms_package();
+    let (mut persistence, evidence) =
+        crate::checked_package_v2_refinement::selected_forms_package();
+    checked_package::index_fixture_node_ids(&mut persistence);
     let result = read(&persistence, &evidence);
     let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
         panic!("selected persistence interface must admit: {result:?}");

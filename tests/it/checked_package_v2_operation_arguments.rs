@@ -11,8 +11,9 @@
 //! a real Semantic IR 2.0.0 domain package document selected by the lock.
 
 use crate::support::checked_package::{
-    canonical, fixture_source, node_id as fixture_node_id, nominal_package, pointer, select_model,
-    selected_model_identities, settle, source_owner, structural_id, COMPLETE_VALUE_FEATURE,
+    canonical, fixture_source, index_fixture_node_ids, node_id as fixture_node_id, nominal_package,
+    pointer, select_model, selected_model_identities, settle, source_owner, structural_id,
+    COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -749,7 +750,9 @@ impl Case {
         if let Some(work) = work {
             limits.work = work;
         }
-        CheckedPackageV2::read(&canonical(&self.package), limits, &self.evidence)
+        let mut wire = self.package.clone();
+        index_fixture_node_ids(&mut wire);
+        CheckedPackageV2::read(&canonical(&wire), limits, &self.evidence)
     }
 
     fn read(&self) -> CheckedPackageV2ReadResult {

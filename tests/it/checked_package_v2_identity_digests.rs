@@ -15,7 +15,7 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-use crate::support::checked_package::v2_all_families;
+use crate::support::checked_package::{index_fixture_node_ids, v2_all_families};
 
 /// Resolve a path inside this checkout for the V1 source-scan controls.
 pub(crate) fn repository_path(relative: &str) -> PathBuf {
@@ -111,6 +111,7 @@ fn derived_range_package() -> Value {
     range_map["node_id"] = range["node_id"].clone();
     package["semantic_graph"]["nodes"] = json!([boolean, integer, range]);
     package["source_map"] = json!(maps);
+    index_fixture_node_ids(&mut package);
     package
 }
 
