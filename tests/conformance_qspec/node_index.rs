@@ -120,37 +120,39 @@ fn graph_reindexing_preserves_structural_dependency_order() {
         .as_array()
         .expect("published graph")
         .len();
+    let original = package.clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("published graph")
         .reverse();
     assert!(reverse_graph_indexes(&mut package, count) > 0);
-    let result = read_package(&package).expect("permuted package read");
-    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
-        panic!("structurally ordered dependency graph must admit: {result:?}");
-    };
     let mut opposed_wire_order = None;
-    for (position, node) in admitted.graph().nodes.iter().enumerate() {
-        let resolved = node
-            .dependencies
-            .iter()
-            .map(|id| admitted.structural_key(id).expect("local dependency key"))
-            .collect::<Vec<_>>();
-        assert!(
-            resolved.windows(2).all(|pair| pair[0] < pair[1]),
-            "node {position}: resolved dependency order"
-        );
-        if let Some(pair_index) = node
-            .dependencies
-            .windows(2)
-            .position(|pair| pair[0] > pair[1])
-        {
-            opposed_wire_order = Some((position, pair_index));
+    for wire in [&original, &package] {
+        let result = read_package(wire).expect("published package read");
+        let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+            panic!("structurally ordered dependency graph must admit: {result:?}");
+        };
+        for (position, node) in admitted.graph().nodes.iter().enumerate() {
+            let resolved = node
+                .dependencies
+                .iter()
+                .map(|id| admitted.structural_key(id).expect("local dependency key"))
+                .collect::<Vec<_>>();
+            assert!(
+                resolved.windows(2).all(|pair| pair[0] < pair[1]),
+                "node {position}: resolved dependency order"
+            );
+            if let Some(pair_index) = node
+                .dependencies
+                .windows(2)
+                .position(|pair| pair[0] > pair[1])
+            {
+                opposed_wire_order = Some((wire.clone(), position, pair_index));
+            }
         }
     }
-    let (position, pair_index) =
+    let (mut unsorted, position, pair_index) =
         opposed_wire_order.expect("permutation opposes wire and structural orders");
-    let mut unsorted = package;
     unsorted["semantic_graph"]["nodes"][position]["dependencies"]
         .as_array_mut()
         .expect("multi-dependency node")
