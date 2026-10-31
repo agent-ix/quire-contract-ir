@@ -304,6 +304,99 @@ fn two_semantic_defects_choose_structural_order_over_graph_order() {
     );
 }
 
+/// Trace: FR-038-AC-376
+#[trace("TC-048", "FR-038-AC-376")]
+#[test]
+fn mixed_operation_defects_choose_resolved_operand_order() {
+    let fixtures = fixtures_dir();
+    let mut base = read_json(&fixtures.join("positive-operation-identities.json"))
+        .expect("published local operation-identity package");
+    let count = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published graph nodes")
+        .len();
+    assert_eq!(count, 62);
+    base["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published graph nodes")
+        .swap(31, 34);
+    let mut old_to_new = (0..count).collect::<Vec<_>>();
+    old_to_new.swap(31, 34);
+    assert!(remap_graph_indexes(&mut base, &old_to_new) > 0);
+    let CheckedPackageV2ReadResult::Admitted(positive) =
+        read_package(&base).expect("permuted operation fixture read")
+    else {
+        panic!("permuted operation fixture must admit");
+    };
+    assert_eq!(
+        base["semantic_graph"]["nodes"][25]["node_id"]["path"][2],
+        json!({"node":31})
+    );
+    assert_eq!(
+        base["semantic_graph"]["nodes"][26]["node_id"]["path"][2],
+        json!({"node":34})
+    );
+    assert!(
+        positive.structural_key_at(26).expect("second key")
+            < positive.structural_key_at(25).expect("first key"),
+        "resolved operand order opposes graph and wire index order"
+    );
+    let unknown = |wire: &mut Value| {
+        wire["semantic_graph"]["nodes"][25]["body"]["operation"]["identity"] =
+            json!("quire.op.not-catalogued");
+    };
+    let wrong_class = |wire: &mut Value| {
+        wire["semantic_graph"]["nodes"][26]["body"]["operator"] = json!("unary");
+    };
+    for (position, mutate, cause, member) in [
+        (
+            25,
+            unknown as fn(&mut Value),
+            "unknown-operation",
+            "operation/identity",
+        ),
+        (
+            26,
+            wrong_class as fn(&mut Value),
+            "operation-class-mismatch",
+            "operator",
+        ),
+    ] {
+        let mut single = base.clone();
+        mutate(&mut single);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package(&single).expect("single mixed-defect read")
+        else {
+            panic!("one operation defect must refuse");
+        };
+        assert_eq!(code_word(refusal.code), "invalid_package");
+        assert_eq!(refusal.cause.map(cause_word), Some(cause));
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(format!("/semantic_graph/nodes/{position}/body/{member}")),
+            "each defect independently reaches the operation step"
+        );
+    }
+    let mut paired = base;
+    unknown(&mut paired);
+    wrong_class(&mut paired);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&paired).expect("paired mixed-defect read")
+    else {
+        panic!("paired operation defects must refuse");
+    };
+    assert_eq!(code_word(refusal.code), "invalid_package");
+    assert_eq!(
+        refusal.cause.map(cause_word),
+        Some("operation-class-mismatch")
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/semantic_graph/nodes/26/body/operator".to_owned()),
+        "structurally earlier node 26 must win with its distinct typed cause"
+    );
+}
+
 /// Syntax and duplicate-member precedence already has a small-stack control
 /// in `checked_package_v2_flat_wire`; noncanonical bytes have their independent
 /// `checked_package_v2_canonical_encoding` controls.
