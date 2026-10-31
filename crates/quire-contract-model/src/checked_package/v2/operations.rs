@@ -451,11 +451,6 @@ struct Graph<'g> {
 impl Graph<'_> {
     fn structural_id<'a>(&'a self, wire: &'a CheckedNodeId) -> Option<&'a CheckedNodeId> {
         let position = *self.index.get(wire)?;
-        #[cfg(test)]
-        if self.structural_keys.is_empty() {
-            // Isolated operation unit fixtures use only string path segments.
-            return Some(wire);
-        }
         self.structural_keys
             .get(position)
             .map(std::sync::Arc::as_ref)
@@ -1909,7 +1904,8 @@ fn union_arms_hold(
                             .and_then(|target| index.get(&target).copied())
                             .is_some_and(|position| {
                                 kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
-                                    && nodes[position].semantic_type == *payload
+                                    && graph.structural_id(&nodes[position].semantic_type)
+                                        == Some(payload)
                             })
                     })
         });
@@ -2142,9 +2138,10 @@ fn conforms_to_type(
     let Some(actual) = actual else {
         return Ok(false);
     };
-    if graph.structural_id(actual).unwrap_or(actual)
-        == graph.structural_id(expected).unwrap_or(expected)
-    {
+    let Some(actual_key) = graph.structural_id(actual) else {
+        return Ok(false);
+    };
+    if actual_key == graph.structural_id(expected).unwrap_or(expected) {
         return Ok(true);
     }
     let Some(parameter) = owners.record_by_key(expected) else {
@@ -4671,6 +4668,28 @@ mod tests {
         let mut kinds = kinds_of(&nodes);
         configure(&mut nodes, &mut kinds, &mut operation);
         nodes[0].body["operation"] = operation.clone();
+        if !nodes.iter().any(|node| node.node_id == *result_key) {
+            let boolean = result_key == &MemberType::Boolean.node_id("checked").expect("boolean");
+            let mut result_node = graph_node(
+                't',
+                if boolean {
+                    "scalar_type"
+                } else {
+                    "composite_type"
+                },
+                if boolean { "boolean" } else { "reference" },
+                result_key,
+                json!({"term": "aggregate", "members": []}),
+            );
+            result_node.node_id = result_key.clone();
+            result_node.semantic_type = result_key.clone();
+            kinds.extend(kinds_of(std::slice::from_ref(&result_node)));
+            nodes.push(result_node);
+        }
+        let structural_keys: Vec<_> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
         // This isolated operation test predates the indexed package envelope.
         // Give its structural model-member IDs consistent flat fixture IDs
         // before typed wire decoding; the selected model owner/name joins are
@@ -4700,7 +4719,7 @@ mod tests {
             terms: &terms,
             kinds: &kinds,
             index: &index,
-            structural_keys: &[],
+            structural_keys: &structural_keys,
         };
         let operation: super::OperationWire = serde_json::from_value(operation).expect("operation");
         let outcome = super::check_relationship_member(
@@ -4772,11 +4791,10 @@ mod tests {
         id: &CheckedNodeId,
         aliases: &std::collections::BTreeMap<String, Value>,
     ) -> CheckedNodeId {
-        if id.package.as_ref() == "acme/orders" {
-            let key = serde_json::to_string(id).expect("model fixture id");
-            if let Some(alias) = aliases.get(&key) {
-                return CheckedNodeId::from_value(alias).expect("flat model fixture id");
-            }
+        let key = serde_json::to_string(&serde_json::to_value(id).expect("model fixture id"))
+            .expect("model fixture key");
+        if let Some(alias) = aliases.get(&key) {
+            return CheckedNodeId::from_value(alias).expect("flat model fixture id");
         }
         let mut translated = id.clone();
         for segment in &mut translated.path {
@@ -5398,6 +5416,10 @@ mod tests {
         let mut meter = WorkMeter::new(limit);
         let kinds = kinds_of(&nodes);
         let terms = decoded_terms(&nodes);
+        let structural_keys: Vec<_> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
         let result = operation_defect(
             Application {
                 node: &nodes[0],
@@ -5408,7 +5430,7 @@ mod tests {
                 terms: &terms,
                 kinds: &kinds,
                 index: &index,
-                structural_keys: &[],
+                structural_keys: &structural_keys,
             },
             lock,
             &ModelOwners::default(),
@@ -7087,12 +7109,16 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect();
         let terms = decoded_terms(&nodes);
+        let structural_keys: Vec<_> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
         let graph = Graph {
             nodes: &nodes,
             terms: &terms,
             kinds: &kinds,
             index: &index,
-            structural_keys: &[],
+            structural_keys: &structural_keys,
         };
         let supplied: Vec<super::OperationLeafWire> = leaves
             .into_iter()
@@ -7723,12 +7749,16 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect();
         let terms = decoded_terms(&nodes);
+        let structural_keys: Vec<_> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
         let graph = Graph {
             nodes: &nodes,
             terms: &terms,
             kinds: &kinds,
             index: &index,
-            structural_keys: &[],
+            structural_keys: &structural_keys,
         };
         let application = Application {
             node: &nodes[0],
@@ -7781,6 +7811,94 @@ mod tests {
         });
         let incomplete = forwarding_refusal.expect("union forwarding has its own Work refusal");
         assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    }
+
+    #[trace("TC-048", "FR-038-AC-224")]
+    #[test]
+    fn union_binder_matches_rebuilt_payload_type() {
+        let mut application =
+            custom_application_node("case", plain_operation("quire.op.control.case"), Vec::new());
+        application.body["result_type"] = json!(node_id('i'));
+        application.body["arguments"] = json!([
+            reference_to('p'),
+            { "term": "binding", "name": "Only", "value": {
+                "term": "aggregate", "members": [
+                    { "term": "aggregate", "members": [reference_to('q')] },
+                    reference_to('r'),
+                ],
+            } },
+        ]);
+        let union = graph_node(
+            'U',
+            "composite_type",
+            "union",
+            &node_id('U'),
+            json!({ "term": "aggregate", "members": [{
+                "term": "binding", "name": "Only",
+                "value": { "term": "aggregate", "members": [reference_to('i')] },
+            }] }),
+        );
+        let mut nodes = vec![
+            application,
+            parameter_of('p', 'U'),
+            union,
+            parameter_of('q', 'x'),
+            parameter_of('r', 'i'),
+            scalar_type_node('i', "integer"),
+            scalar_type_node('x', "integer"),
+        ];
+        let check = |nodes: &[CheckedSemanticNodeV2]| {
+            let kinds = kinds_of(nodes);
+            let index: BTreeMap<_, _> = nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            let terms = decoded_terms(nodes);
+            let structural_keys: Vec<_> = nodes
+                .iter()
+                .map(|node| {
+                    let key = if node.node_id == node_id('x') {
+                        node_id('i')
+                    } else {
+                        node.node_id.clone()
+                    };
+                    std::sync::Arc::new(key)
+                })
+                .collect();
+            let graph = Graph {
+                nodes,
+                kinds: &kinds,
+                index: &index,
+                structural_keys: &structural_keys,
+                terms: &terms,
+            };
+            let mut meter = WorkMeter::new(100);
+            let application = Application {
+                node: &nodes[0],
+                position: 0,
+            };
+            let result = super::union_arms_hold(
+                application,
+                0,
+                1,
+                &graph,
+                &ModelOwners::default(),
+                &mut meter,
+                &mut StructuralTypes::default(),
+            );
+            let missing = super::conforms_to_type(
+                &node_id('i'),
+                Some(&node_id('z')),
+                &graph,
+                &ModelOwners::default(),
+                &mut meter,
+            );
+            (result, missing)
+        };
+        assert_eq!(check(&nodes), (Ok(true), Ok(false)));
+        nodes[3].semantic_type = node_id('z');
+        assert_eq!(check(&nodes).0, Ok(false));
     }
 
     #[trace("TC-048", "FR-038-AC-224")]

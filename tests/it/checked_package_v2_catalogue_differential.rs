@@ -4,8 +4,8 @@
 //! Catalogue-wide admission differential for the IR-225 member-result rule.
 
 use crate::support::checked_package::{
-    add_family_reference_target, canonical, evidence_for, family_key, node_id,
-    nominal_fixture_members, nominal_package, refresh_identity, settle, v2_all_families,
+    add_family_reference_target, canonical, evidence_for, family_key, index_fixture_node_ids,
+    node_id, nominal_fixture_members, nominal_package, refresh_identity, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -220,18 +220,22 @@ fn application_with_member(
     position
 }
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
+    let mut wire = package.clone();
+    index_fixture_node_ids(&mut wire);
     CheckedPackageV2::read(
-        &canonical(package),
+        &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
-        &evidence_for(package),
+        &evidence_for(&wire),
     )
 }
 fn read_with_evidence(
     package: &Value,
     evidence: &CheckedPackageEvidence,
 ) -> CheckedPackageV2ReadResult {
+    let mut wire = package.clone();
+    index_fixture_node_ids(&mut wire);
     CheckedPackageV2::read(
-        &canonical(package),
+        &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         evidence,
     )

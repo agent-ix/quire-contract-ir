@@ -11,9 +11,9 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, family_key, family_model_document,
-    fixture_source, node_id as fixture_node_id, reassign_node_id, rebuild_source_map,
-    refresh_identity, select_model, settle, sha256_hex, source_owner, structural_id, typed_node_id,
-    v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
+    fixture_source, index_fixture_node_ids, node_id as fixture_node_id, reassign_node_id,
+    rebuild_source_map, refresh_identity, select_model, settle, sha256_hex, source_owner,
+    structural_id, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
@@ -842,7 +842,8 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
     }
     // A state machine is owner dependent: use a selected declaration rather
     // than changing only the form of the anonymous all-family node.
-    let (state_machine, evidence) = crate::checked_package_v2_refinement::machine_package();
+    let (mut state_machine, evidence) = crate::checked_package_v2_refinement::machine_package();
+    index_fixture_node_ids(&mut state_machine);
     assert!(matches!(
         CheckedPackageV2::read(
             &canonical(&state_machine),
@@ -852,7 +853,9 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     // Persistence interfaces also require an owner from a selected model.
-    let (persistence, evidence) = crate::checked_package_v2_refinement::selected_forms_package();
+    let (mut persistence, evidence) =
+        crate::checked_package_v2_refinement::selected_forms_package();
+    index_fixture_node_ids(&mut persistence);
     let result = CheckedPackageV2::read(
         &canonical(&persistence),
         CheckedPackageReadLimits::bounded(),
@@ -3676,6 +3679,77 @@ fn tc_056_a_clause_binds_self_the_result_and_the_operation_parameters() {
             &format!("/semantic_graph/nodes/{position}/body/arguments/0"),
         );
     }
+}
+
+/// Trace: FR-040-AC-8, FR-040-AC-9, TC-056.
+#[trace("TC-056", "FR-040-AC-8", "FR-040-AC-9")]
+#[test]
+fn tc_056_indexed_parameter_type_binds_a_derived_model_slot() {
+    let mut package = ModelPackage::new().value;
+    let order = model_key(ORDER_NODE);
+    let flat_reference = node_id(&reference_key(&order));
+    let derived_reference = structural_id(
+        "test/families",
+        vec![json!("composite_type"), json!("reference"), node_id(&order)],
+        0,
+    );
+    reassign_node_id(&mut package, &flat_reference, &derived_reference);
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("model nodes")
+    {
+        if node["semantic_form"] == "parameter"
+            && matches!(
+                node["body"]["members"][0]["value"]["value"].as_str(),
+                Some("n" | "result")
+            )
+        {
+            node["semantic_type"] = derived_reference.clone();
+        }
+    }
+    settle(&mut package);
+
+    let mut document = orders_document();
+    document["types"][0]["operations"][0]["params"][0]["typeRef"] = json!(ORDER_NODE);
+    document["types"][0]["operations"][0]["returns"]["typeRef"] = json!(ORDER_NODE);
+    let read = |authored: &Value| {
+        let mut wire = authored.clone();
+        index_fixture_node_ids(&mut wire);
+        CheckedPackageV2::read(
+            &canonical(&wire),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_with_document(&wire, ORDERS, &document),
+        )
+    };
+    let admitted = read(&package);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "indexed derived slot must bind: {admitted:?}"
+    );
+
+    let precondition = nodes(&package)
+        .iter()
+        .position(|node| node["body"]["operation"]["member"]["clause"] == "precondition")
+        .expect("precondition clause");
+    let parameter = nodes(&package)
+        .iter()
+        .position(|node| {
+            node["semantic_form"] == "parameter"
+                && node["body"]["members"][0]["value"]["value"] == "n"
+        })
+        .expect("operation parameter");
+    package["semantic_graph"]["nodes"][parameter]["semantic_type"] =
+        node_id("model-scalar:integer");
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("wrong indexed slot type must refuse");
+    };
+    assert_eq!(refusal.code, Code::IllTyped);
+    assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{precondition}/body/arguments/0").as_str())
+    );
 }
 
 #[trace("FR-038-AC-203", "FR-038-AC-205", "FR-038-AC-207")]

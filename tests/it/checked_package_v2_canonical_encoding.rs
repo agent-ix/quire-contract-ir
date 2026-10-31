@@ -7,8 +7,9 @@
 //! quire-canonical's bytes", FR-038-AC-74 through FR-038-AC-80).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, node_id, positive_operation_identities, refusal,
-    refusal_bytes, settle, v2_all_families, v2_nominal, ExpectedRefusal,
+    canonical, evidence_for, family_key, index_fixture_node_ids, node_id,
+    positive_operation_identities, refusal, refusal_bytes, settle, v2_all_families, v2_nominal,
+    ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
@@ -33,14 +34,18 @@ const FIXTURE_CEILING: u64 = 1 << 24;
 
 /// The in-repo positive package fixtures.
 fn fixtures() -> Vec<(&'static str, Value)> {
-    vec![
+    let mut fixtures = vec![
         ("v2_all_families", v2_all_families()),
         ("v2_nominal", v2_nominal()),
         (
             "positive_operation_identities",
             positive_operation_identities(),
         ),
-    ]
+    ];
+    for (_, package) in &mut fixtures {
+        index_fixture_node_ids(package);
+    }
+    fixtures
 }
 
 /// `value` as `serde_json` canonical bytes: `to_value` then `to_vec`, members
@@ -400,7 +405,7 @@ fn tc_048_lock_source_map_capability_node_id_and_diagnostics_bytes_equal_serde_j
     assert_same_bytes(
         "structural id",
         &typed::<CheckedNodeId>(&json!({
-            "package": "p/\u{e9}", "path": ["type", {"package":"q", "path":["name"], "ordinal":0}], "ordinal": 1
+            "package": "p/\u{e9}", "path": ["type", {"node": 0}], "ordinal": 1
         })),
     );
 }
