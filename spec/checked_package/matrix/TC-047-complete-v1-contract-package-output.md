@@ -12,8 +12,9 @@ relationships:
 
 ## Description
 
-Verify FR-035-AC-2, FR-035-AC-6 through FR-035-AC-8, FR-035-AC-10 through FR-035-AC-18,
+Verify FR-035-AC-2, FR-035-AC-6 through FR-035-AC-8, FR-035-AC-10, FR-035-AC-11, FR-035-AC-13 through FR-035-AC-18,
 and planned FR-035-AC-23 through FR-035-AC-30,
+and planned FR-035-AC-31 through FR-035-AC-34,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
@@ -21,7 +22,7 @@ emitter and strict-reader controls run in
 
 ## Test Procedure
 
-Lower a mixed request with represented and refused items. Read the emitted package as `quire.contract-package/v1`. Assert exactly five FR-330 members, one ordered semantic graph node collection, total source correspondence and one accounting record per request. Equivalent construction orders produce equal complete canonical bytes. Change a represented node, selected profile, accounting result and valid source-map region separately; compare the corresponding typed member and complete bytes, then require strict admission or the applicable independent refusal. An extra `identity` member, missing member, extra graph partition, duplicate/disordered key and wrong version refuse before artifact generation. No digest or hash is computed.
+Lower a mixed request with represented and refused items. Read the emitted package as `quire.contract-package/v1`. Assert exactly six FR-330 members (`contract_version`, `package`, `semantic_graph`, `source_keys`, `source_map`, `feature_accounting`), one ordered semantic graph node collection, total source correspondence and one accounting record per request. Equivalent construction orders produce equal complete canonical bytes. Change a represented node, selected profile, accounting result and valid source-map region separately; compare the corresponding typed member and complete bytes, then require strict admission or the applicable independent refusal. An extra `identity` member, missing member, extra graph partition, duplicate/disordered key and wrong version refuse before artifact generation. No digest or hash is computed.
 For the wire reader itself, change only `contract_version` to another string in
 an otherwise valid canonical package. Assert `Refused` with
 `unknown_contract_version`, path `/contract_version` and the exact supplied
@@ -61,19 +62,54 @@ plus one and `path` names that occurrence. Assert `limit_kind = Occurrences`
 and the selected limit at each stop; `/source_map` alone is never the stop
 pointer when a value was charged.
 
-For FR-035-AC-12, remove each of the five required top-level members
-(`contract_version`, `package`, `semantic_graph`, `source_map`,
+For replacement FR-035-AC-31, remove each of the six required top-level members
+(`contract_version`, `package`, `semantic_graph`, `source_keys`, `source_map`,
 and `feature_accounting`) separately from otherwise valid canonical
 packages and assert `Refused(invalid_package)` at root path `""` with cause
-`missing_member` for every omission. Include the separate `contract_version`
+`missing_member` for every omission; add `identity` and require
+`invalid_package`/`unknown-member` at the root. These retain all of retired
+AC-12's cases. Include the separate `contract_version`
 reader branch. For FR-035-AC-13, prepend a space, tab, LF, or CR separately to
 otherwise valid canonical bytes and assert `Refused(noncanonical_wire)` with no
 path or cause.
 For FR-035-AC-14, change only the first `feature_accounting.node_id` in an
-otherwise valid canonical package to a different valid requested node,
+otherwise valid canonical package to a source-key reference with a different
+rebuilt structural key from the first requested item,
 and assert
 `Refused(invalid_package)` at `/feature_accounting` with cause `invalid_value`.
+Reorder `source_keys`, rewrite every reference, and verify that an equal
+rebuilt requested key admits at a different table index.
 Each case admits no `ContractPackageV1`.
+
+For FR-035-AC-32 through FR-035-AC-34, lower an admitted source with an absent
+derived requested key containing an operand and an empty output graph. Require
+its exact source structural key and operand closure in `source_keys`; the
+requested item, `invalid_input` accounting id and requested-item source-map id
+must each be a source-key reference, and requested occurrences remain empty.
+Add a represented lowered root and a defensive `invalid_body` or
+`body_incomplete` record to inspect accounting payload ids, refusal locus and
+source-map occurrence ids in the source frame, while output graph node ids and
+`source_map.nodes[].node_id` remain in the output frame. Independently rebuild
+keys from both tables and compare the lowered source key with its output root,
+the accounting/request bijection and each refusal's requested key. Permute
+`source_keys` and output nodes, rewrite all corresponding references, and
+require identical joins and refusal pointers. An unequal rebuilt key refuses
+at its applicable FR-330 join.
+
+Mutate one otherwise valid canonical package per reader-order case: an
+out-of-range output graph index segment, an out-of-range `source_keys` index
+segment, an out-of-range `source_key` reference, a path-reference cycle in
+each graph including a self-cycle, and two table entries with equal rebuilt
+keys. Assert `malformed_wire` with no cause at the exact offending `/node` or
+`/source_key` member for index defects, out-of-range before cycles, and
+`invalid_package`/`invalid-value` at the later duplicate table entry. Repeat
+with a source-key reference bearing an extra member, missing `source_key`,
+wrong JSON kind, and negative or above-bound integer; assert FR-330's exact
+closed-shape cause and pointer before index validation. An inline source-frame
+`node_id` in place of `{"source_key": i}` refuses closed-shape validation.
+Combine each index defect with a later source-map or accounting mismatch and
+require the index defect first. No refused or incomplete case exposes an
+admitted package.
 
 For FR-035-AC-17, construct an otherwise valid package with one nested
 `invalid_body.refusal`. For each of `unknown_contract_version` and
@@ -104,7 +140,7 @@ view retains the selected dependency package name and target key, and admission 
 missing or differently named selected package. Admit a validly edited
 selected package under the same name when its independent joins still pass; there
 is no content-staleness refusal. Query refused, unrequested reached
-and absent keys, then compare all five wire properties and canonical bytes before and
+and absent keys, then compare all six wire properties and canonical bytes before and
 after the read-only queries.
 
 For FR-035-AC-27 through FR-035-AC-30, lower one admitted V2 source with
@@ -132,7 +168,7 @@ source whose exact `name` differs from V1 `package.source.identity`, a source
 with a mismatched complete lock, and a source missing the requested root
 through a controlled test-only mutation; require a typed handoff error with no
 partially authenticated package. Also assert existing V1 reader refusal and
-limit precedence over source handoff. Compare all five wire members and canonical
+limit precedence over source handoff. Compare all six wire members and canonical
 bytes before and after the typed queries.
 
 ## Expected Results
@@ -146,7 +182,13 @@ limit 18 under FR-035-AC-15 and FR-035-AC-16. Its work stops at limits 2, 6,
 exact count and pointer specified above. The
 `requested_items` occurrence stop names its first charged occurrence.
 The malformed, noncanonical and bad-accounting fixtures return the exact
-FR-035-AC-12 through FR-035-AC-14 refusal fields. Source and dependency selection mutations return FR-035-AC-2’s applicable independent refusal fields.
+FR-035-AC-31 and FR-035-AC-13 through FR-035-AC-14 refusal fields. Source and dependency selection mutations return FR-035-AC-2’s applicable independent refusal fields.
+An absent derived requested id remains in the source-key frame with its operand
+closure despite the empty output graph. Every requested, refusal, accounting
+and occurrence id uses its assigned frame; output ids use only the output graph.
+The reader reports the first index defect before source-map and accounting
+joins, then compares rebuilt structural keys so permitted table reorderings
+preserve admission and refusal pointers.
 The two causeless nested reader codes admit with no cause and refuse a present
 cause as `invalid_package`/`invalid-value` at their own `/refusal/cause` pointer.
 The lowered-root view contains exactly the key-ordered local reached closure,
@@ -155,7 +197,7 @@ package boundary. Every lowered-root view exposes both bound and claim subsets,
 empty when appropriate, with the exact keys and order of IR's own lowering
 classification. Refused requests return their typed disposition;
 unrequested reached or absent roots return typed absence. No such query changes
-the five-field wire or canonical bytes.
+the six-member wire or canonical bytes.
 The unsupported requested-root-kind view distinguishes fairness, formula and
 temporal-clause roots despite their shared `temporal` tag, independently of
 which reachable node made lowering unsupported. Producer and authenticated
@@ -201,4 +243,10 @@ fallback JSON parse.
 
 ## Status
 
-PLANNED/UNRUN (IR-1141): the existing tagged V1 tests and current implementation still contain six-member and digest assertions. The structural five-member FR-330 contract requires code and test changes after QSpec #517/#518. Existing unaffected node, source-map, limit and typed-view controls retain their prior evidence only where their assertions do not depend on a removed identity field.
+PLANNED/UNRUN (IR-1141, IR-1186): the existing tagged V1 tests and current
+implementation still contain an old `identity` member and omit the new
+`source_keys` frame. The current six-member FR-330 contract requires code and
+test changes. Existing unaffected node, source-map, limit and typed-view
+controls retain their prior evidence only where their assertions do not depend
+on the retired identity member or absent source-key frame. AC-31 through AC-34
+remain planned until their reader and lowerer controls execute.
