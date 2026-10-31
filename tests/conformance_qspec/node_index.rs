@@ -9,13 +9,14 @@ use super::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeKind, CheckedNodePathSegment, CheckedNodeTag, CheckedPackageReadLimits,
-    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    ContractDependencies, ContractPackageReadResult, ContractPackageWireV1, ExpressionForm,
-    LoweringProfileRef,
+    CheckedNodeId, CheckedNodeKind, CheckedNodePathSegment, CheckedNodeTag,
+    CheckedPackageReadLimits, CheckedPackageV2ReadResult, CheckedSemanticNodeV2, CheckedTerm,
+    CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
+    ContractPackageReadResult, ContractPackageWireV1, ExpressionForm, LoweringProfileRef,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 fn apply_patch(package: &mut Value, patch: &Value) {
     let path = patch["path"].as_str().expect("published patch path");
@@ -112,6 +113,249 @@ fn remap_graph_indexes(value: &mut Value, old_to_new: &[usize]) -> usize {
     }
 }
 
+fn remap_source_references(value: &mut Value, old_to_new: &[usize]) -> usize {
+    match value {
+        Value::Object(map) if map.len() == 1 && map.contains_key("source_key") => {
+            let old = map["source_key"].as_u64().expect("source-key reference");
+            let old: usize = old.try_into().expect("source-key position fits usize");
+            let new = old_to_new.get(old).expect("source-key reference in range");
+            map.insert("source_key".into(), json!(new));
+            1
+        }
+        Value::Object(map) => map
+            .values_mut()
+            .map(|part| remap_source_references(part, old_to_new))
+            .sum(),
+        Value::Array(items) => items
+            .iter_mut()
+            .map(|part| remap_source_references(part, old_to_new))
+            .sum(),
+        _ => 0,
+    }
+}
+
+// Resolve this small published fixture's output indexes independently of the
+// reader, so the source and output tables can be compared by structural key.
+fn fixture_structural_key_from_ids(ids: &[CheckedNodeId], position: usize) -> CheckedNodeId {
+    let id = &ids[position];
+    CheckedNodeId {
+        package: id.package.clone(),
+        path: id
+            .path
+            .iter()
+            .map(|segment| match segment {
+                CheckedNodePathSegment::Name(name) => CheckedNodePathSegment::Name(name.clone()),
+                CheckedNodePathSegment::Index(index) => {
+                    let operand = usize::try_from(*index).expect("fixture index fits usize");
+                    CheckedNodePathSegment::Node(Arc::new(fixture_structural_key_from_ids(
+                        ids, operand,
+                    )))
+                }
+                CheckedNodePathSegment::Node(node) => CheckedNodePathSegment::Node(node.clone()),
+            })
+            .collect(),
+        ordinal: id.ordinal,
+    }
+}
+
+fn fixture_structural_key(nodes: &[CheckedSemanticNodeV2], position: usize) -> CheckedNodeId {
+    let ids = nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect::<Vec<_>>();
+    fixture_structural_key_from_ids(&ids, position)
+}
+
+fn fixture_source_ref_key(wire: &Value, reference: &Value) -> CheckedNodeId {
+    let ids = wire["source_keys"]
+        .as_array()
+        .expect("source keys")
+        .iter()
+        .map(|id| serde_json::from_value(id.clone()).expect("source key shape"))
+        .collect::<Vec<_>>();
+    let position = reference["source_key"]
+        .as_u64()
+        .expect("source-key reference") as usize;
+    fixture_structural_key_from_ids(&ids, position)
+}
+
+/// Trace: FR-330-AC-16
+#[trace("TC-934", "FR-330-AC-16")]
+#[test]
+fn contract_source_and_output_index_tables_permute_independently() {
+    let mut source_wire = read_json(&fixtures_dir().join("positive-operation-identities.json"))
+        .expect("published indexed operations");
+    source_wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published graph")
+        .swap(31, 34);
+    let source_count = source_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published graph")
+        .len();
+    let mut source_positions = (0..source_count).collect::<Vec<_>>();
+    source_positions.swap(31, 34);
+    assert!(remap_graph_indexes(&mut source_wire, &source_positions) > 0);
+    let outcome = read_package(&source_wire).expect("published source read");
+    let CheckedPackageV2ReadResult::Admitted(source) = outcome else {
+        panic!("published source admits: {outcome:?}");
+    };
+    let requests = [25, 26].map(|position| source.graph().nodes[position].node_id.clone());
+    let mut absent = requests[0].clone();
+    absent.path[0] = CheckedNodePathSegment::Name("absent".into());
+    let profile = CompleteLoweringProfileV2 {
+        reference: LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        required_source_selections: Vec::new(),
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let lowered = source.lower(
+        &[requests[0].clone(), requests[1].clone(), absent],
+        &profile,
+    );
+    assert!(
+        matches!(
+            lowered.records.as_slice(),
+            [
+                CompleteLoweringRecordV2::Lowered { .. },
+                CompleteLoweringRecordV2::Lowered { .. },
+                CompleteLoweringRecordV2::InvalidInput { .. }
+            ]
+        ),
+        "both indexed roots lower and absent derived key refuses: {:?}",
+        lowered.records
+    );
+    let original_wire: Value = serde_json::from_slice(
+        lowered
+            .package
+            .canonical_bytes()
+            .expect("canonical package"),
+    )
+    .expect("ContractPackage JSON");
+    let original = ContractPackageWireV1::read(
+        lowered
+            .package
+            .canonical_bytes()
+            .expect("canonical package"),
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+    );
+    let ContractPackageReadResult::Admitted(original) = original else {
+        panic!("producer package must admit: {original:?}");
+    };
+
+    let output_len = original_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    let source_len = original_wire["source_keys"]
+        .as_array()
+        .expect("source keys")
+        .len();
+    assert!(
+        output_len > 1 && source_len > 1,
+        "both tables are nontrivial"
+    );
+    let output_positions = (0..output_len).rev().collect::<Vec<_>>();
+    let source_positions = (0..source_len).rev().collect::<Vec<_>>();
+    let output_keys = |wire: &Value| {
+        let ids = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("output nodes")
+            .iter()
+            .map(|node| serde_json::from_value(node["node_id"].clone()).expect("output node id"))
+            .collect::<Vec<_>>();
+        (0..ids.len())
+            .map(|position| fixture_structural_key_from_ids(&ids, position))
+            .collect::<BTreeSet<_>>()
+    };
+    let expected_output_keys = output_keys(&original_wire);
+    for (request_position, source_position) in [(0_usize, 25_usize), (1, 26)] {
+        let expected = source
+            .structural_key_at(source_position)
+            .expect("source structural key");
+        let source_ref = &original_wire["feature_accounting"][request_position]["node_id"];
+        assert_eq!(
+            fixture_source_ref_key(&original_wire, source_ref),
+            *expected
+        );
+        assert!(
+            expected_output_keys.contains(expected),
+            "lowered source root joins output graph"
+        );
+    }
+    for (output, source_table) in [(true, false), (false, true), (true, true)] {
+        let mut wire = original_wire.clone();
+        if output {
+            wire["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .reverse();
+            wire["source_map"]["nodes"]
+                .as_array_mut()
+                .expect("node map")
+                .reverse();
+            assert!(remap_graph_indexes(&mut wire["semantic_graph"], &output_positions) > 0);
+            assert!(remap_graph_indexes(&mut wire["source_map"]["nodes"], &output_positions) > 0);
+        }
+        if source_table {
+            wire["source_keys"]
+                .as_array_mut()
+                .expect("source keys")
+                .reverse();
+            assert!(remap_graph_indexes(&mut wire["source_keys"], &source_positions) > 0);
+            assert!(remap_source_references(&mut wire, &source_positions) > 0);
+        }
+        let permuted = ContractPackageWireV1::read(
+            &super::fixture_support::canonical(&wire),
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+        );
+        let ContractPackageReadResult::Admitted(permuted) = permuted else {
+            panic!(
+                "output={output} source={source_table}: permuted tables must admit: {permuted:?}"
+            );
+        };
+        assert_eq!(output_keys(&wire), expected_output_keys);
+        assert_eq!(
+            permuted.wire().feature_accounting.len(),
+            original.wire().feature_accounting.len()
+        );
+        for position in 0..3 {
+            for path in [
+                format!("/feature_accounting/{position}/node_id"),
+                format!("/source_map/requested_items/{position}/requested_item"),
+            ] {
+                assert_eq!(
+                    fixture_source_ref_key(
+                        &wire,
+                        wire.pointer(&path).expect("permuted source reference")
+                    ),
+                    fixture_source_ref_key(
+                        &original_wire,
+                        original_wire
+                            .pointer(&path)
+                            .expect("original source reference")
+                    ),
+                    "output={output} source={source_table}: {path} compares by structural key"
+                );
+            }
+        }
+        assert_eq!(
+            fixture_source_ref_key(&wire, &wire["source_map"]["refusals"][0]["requested_item"]),
+            fixture_source_ref_key(
+                &original_wire,
+                &original_wire["source_map"]["refusals"][0]["requested_item"]
+            ),
+            "refusal pointer compares the requested structural key"
+        );
+    }
+}
+
 #[trace("TC-047", "FR-035-AC-23")]
 #[test]
 fn v1_indexed_graph_order_uses_resolved_node_keys() {
@@ -152,18 +396,17 @@ fn v1_indexed_graph_order_uses_resolved_node_keys() {
         lowered.records
     );
     let produced = lowered.package.wire().expect("lowered wire").wire();
-    let earlier = produced
-        .semantic_graph
-        .nodes
+    let output_keys = (0..produced.semantic_graph.nodes.len())
+        .map(|position| fixture_structural_key(&produced.semantic_graph.nodes, position))
+        .collect::<Vec<_>>();
+    let earlier = output_keys
         .iter()
-        .position(|node| node.node_id == *produced.feature_accounting[1].node_id())
-        .expect("second requested application represented");
-    let later = produced
-        .semantic_graph
-        .nodes
+        .position(|key| Some(key) == source.structural_key_at(26))
+        .expect("second source key has a structurally equal output root");
+    let later = output_keys
         .iter()
-        .position(|node| node.node_id == *produced.feature_accounting[0].node_id())
-        .expect("first requested application represented");
+        .position(|key| Some(key) == source.structural_key_at(25))
+        .expect("first source key has a structurally equal output root");
     assert_eq!(
         later,
         earlier + 1,
@@ -199,7 +442,7 @@ fn v1_indexed_graph_order_uses_resolved_node_keys() {
     let ContractPackageReadResult::Admitted(authenticated) = authenticated else {
         panic!("indexed V1 source handoff must admit: {authenticated:?}");
     };
-    let key = produced.feature_accounting[0].node_id();
+    let key = &produced.semantic_graph.nodes[later].node_id;
     let Some(CheckedTerm::Application { operation, .. }) = authenticated.term(key) else {
         panic!("indexed source handoff retains application");
     };
@@ -239,10 +482,8 @@ fn v1_indexed_graph_order_uses_resolved_node_keys() {
     );
 }
 
-/// Trace: FR-330-AC-2
-/// IR-1186 hold: FR-330 requires the exact absent key while FR-322 indexes
-/// name a graph-local node; this request has no represented graph node.
-#[trace("TC-933", "FR-330-AC-2")]
+/// Trace: FR-330-AC-2, FR-330-AC-14
+#[trace("TC-933", "TC-934", "FR-330-AC-2", "FR-330-AC-14")]
 #[test]
 fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
     let wire = read_json(&fixtures_dir().join("positive-operation-identities.json"))
@@ -280,6 +521,38 @@ fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
         .package
         .canonical_bytes()
         .expect("canonical refusal package");
+    let emitted: Value = serde_json::from_slice(bytes).expect("canonical package value");
+    assert_eq!(emitted["semantic_graph"]["nodes"], json!([]));
+    let source_keys = emitted["source_keys"].as_array().expect("source-key table");
+    let request_index = emitted["feature_accounting"][0]["node_id"]["source_key"]
+        .as_u64()
+        .expect("request has a source-key reference") as usize;
+    let request_key = source_keys
+        .get(request_index)
+        .expect("requested source key");
+    assert_eq!(request_key["path"][0], "absent");
+    for (segment, source_position) in [(2_usize, 34_usize), (7, 21)] {
+        let operand = request_key["path"][segment]["node"]
+            .as_u64()
+            .expect("indexed operand") as usize;
+        let keyed_operand = source_keys.get(operand).expect("source operand in table");
+        assert_eq!(
+            keyed_operand, &fixture["semantic_graph"]["nodes"][source_position]["node_id"],
+            "path segment {segment} names its original source operand"
+        );
+    }
+    assert_eq!(
+        emitted["source_map"]["requested_items"][0]["requested_item"],
+        json!({"source_key": request_index})
+    );
+    assert_eq!(
+        emitted["source_map"]["requested_items"][0]["occurrences"],
+        json!([])
+    );
+    assert_eq!(
+        emitted["source_map"]["refusals"][0]["requested_item"],
+        json!({"source_key": request_index})
+    );
     let read_back = ContractPackageWireV1::read(
         bytes,
         CheckedPackageReadLimits::bounded(),
@@ -289,6 +562,7 @@ fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
         panic!("reader admits exact invalid-input record: {read_back:?}");
     };
     assert!(read_back.wire().semantic_graph.nodes.is_empty());
+    assert_eq!(read_back.wire().feature_accounting[0].node_id(), &absent);
 }
 
 #[trace("TC-935", "FR-330-AC-2")]
