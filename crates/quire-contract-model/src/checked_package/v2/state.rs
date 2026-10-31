@@ -58,6 +58,7 @@ pub(super) fn validate_state(
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -90,7 +91,7 @@ pub(super) fn validate_state(
         }
     }
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::StateClause)) {
-        check_clause(node, position, terms, &graph, meter)?;
+        check_clause(node, position, terms, &graph, structural_keys, meter)?;
     }
     let mut pairs = BTreeSet::new();
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::Transition)) {
@@ -384,6 +385,7 @@ fn check_clause(
     position: usize,
     terms: &[Option<CheckedTerm>],
     graph: &StepGraph<'_, '_>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let body = terms
@@ -509,7 +511,12 @@ fn check_clause(
                 clause.node_id.clone(),
             )
         })?;
-        if expected != parameter.semantic_type {
+        let actual = graph
+            .index
+            .get(&parameter.semantic_type)
+            .and_then(|&position| structural_keys.get(position))
+            .map(std::sync::Arc::as_ref);
+        if actual != Some(&expected) {
             return Err(signature_refusal());
         }
     }
