@@ -170,6 +170,56 @@ fn graph_reindexing_preserves_structural_dependency_order() {
     );
 }
 
+/// Trace: FR-038-AC-96, FR-038-AC-376
+#[trace("TC-048", "FR-038-AC-96", "FR-038-AC-376")]
+#[test]
+fn published_extension_dependencies_follow_resolved_key_order() {
+    let fixtures = fixtures_dir();
+    let package = read_json(&fixtures.join("positive-all-families.json"))
+        .expect("published all-families fixture");
+    let position = 34;
+    let node = &package["semantic_graph"]["nodes"][position];
+    assert_eq!(node["node_tag"], "extension");
+    assert_eq!(node["node_id"]["path"], json!(["Audit"]));
+    assert_eq!(
+        node["dependencies"]
+            .as_array()
+            .expect("Audit dependencies")
+            .len(),
+        2
+    );
+    assert_eq!(node["dependencies"][0]["path"][2], json!({"node":24}));
+    assert_eq!(node["dependencies"][1]["path"][2], json!({"node":23}));
+
+    let result = read_package(&package).expect("published package read");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("published Audit extension must admit: {result:?}");
+    };
+    let dependencies = &admitted.graph().nodes[position].dependencies;
+    let first = admitted
+        .structural_key(&dependencies[0])
+        .expect("first resolved key");
+    let second = admitted
+        .structural_key(&dependencies[1])
+        .expect("second resolved key");
+    assert!(first < second, "Audit dependencies ascend by rebuilt keys");
+
+    let mut unsorted = package;
+    unsorted["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("Audit dependencies")
+        .swap(0, 1);
+    let result = read_package(&unsorted).expect("unsorted package read");
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("structurally unsorted Audit dependencies must refuse");
+    };
+    assert_eq!(code_word(refusal.code), "invalid_semantic_graph");
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{position}/dependencies"))
+    );
+}
+
 /// Trace: FR-038-AC-379
 #[trace("TC-048", "FR-038-AC-379")]
 #[test]
