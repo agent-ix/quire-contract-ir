@@ -183,6 +183,8 @@ fn fixture_source_ref_key(wire: &Value, reference: &Value) -> CheckedNodeId {
 }
 
 /// Trace: FR-330-AC-16
+/// QSpec FR-330-AC-4 follows FR-322-AC-95's producer-chosen graph order at
+/// agent-ix/quire-specification@da7ecb373141693ccc32ecff76377ce453113570.
 #[trace("TC-934", "FR-330-AC-16")]
 #[test]
 fn contract_source_and_output_index_tables_permute_independently() {
