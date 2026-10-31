@@ -1266,7 +1266,15 @@ fn validate(
         terms,
         declarations,
         lowering_facts,
-    } = validate_graph(wire, limits, &mut meter, &models, &dependencies, evidence)?;
+    } = validate_graph(
+        wire,
+        limits,
+        &mut meter,
+        &models,
+        &dependencies,
+        evidence,
+        &structural_keys,
+    )?;
     validate_source_map_entries(
         wire.semantic_graph
             .nodes
@@ -2414,6 +2422,50 @@ fn decode_node_kind<Body>(
     })
 }
 
+/// Compare a selected import's complete content after resolving each graph-
+/// local operand in its own document. Both packages may choose different node
+/// order and thus different wire index spellings for the same structural key.
+fn imported_node_matches(
+    importer: &RawSemanticNodeV2,
+    selected: &RawSemanticNodeV2,
+    importer_keys: &[std::sync::Arc<CheckedNodeId>],
+    selected_keys: &[std::sync::Arc<CheckedNodeId>],
+) -> bool {
+    let same_id = |left: &CheckedNodeId, right: &CheckedNodeId| match (
+        node_index::resolve_id(left, importer_keys),
+        node_index::resolve_id(right, selected_keys),
+    ) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    };
+    same_id(&importer.node_id, &selected.node_id)
+        && importer.schema_version == selected.schema_version
+        && importer.node_tag == selected.node_tag
+        && importer.semantic_form == selected.semantic_form
+        && same_id(&importer.semantic_type, &selected.semantic_type)
+        && importer.dependencies.len() == selected.dependencies.len()
+        && importer
+            .dependencies
+            .iter()
+            .zip(&selected.dependencies)
+            .all(|(left, right)| same_id(left, right))
+        && importer.occurrences == selected.occurrences
+        && importer.recursion_group == selected.recursion_group
+        && importer.declaration == selected.declaration
+        && importer.owner == selected.owner
+        && match (&importer.owner_model, &selected.owner_model) {
+            (Some(left), Some(right)) => same_id(left, right),
+            (None, None) => true,
+            _ => false,
+        }
+        && node_index::equivalent_values(
+            &importer.body,
+            &selected.body,
+            importer_keys,
+            selected_keys,
+        )
+}
+
 fn validate_graph(
     wire: &RawCheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
@@ -2421,6 +2473,7 @@ fn validate_graph(
     models: &[DomainModel],
     dependencies: &SuppliedDependencies<'_>,
     evidence: &CheckedPackageEvidence,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
 ) -> Result<ValidatedGraph, ValidationFailure> {
     let graph = &wire.semantic_graph;
     check_graph_version(graph)?;
@@ -2450,6 +2503,7 @@ fn validate_graph(
     // Each frame node's typed body, read once here and joined by the frame step.
     let mut frames = Vec::new();
     let mut edges = 0_u64;
+    let mut import_index = None;
     for (position, node) in graph.nodes.iter().enumerate() {
         let at = |member: &str| node_pointer(position).key(member);
         validate_node_id(&node.node_id, || at("node_id"))?;
@@ -2459,17 +2513,36 @@ fn validate_graph(
             ) => identity.as_ref(),
             _ => wire.name.as_ref(),
         };
-        if node.node_id.package.as_ref() != expected_package
-            && (node.owner.is_some()
-                || node.declaration.is_some()
-                || !dependencies
-                    .selected_node(&node.node_id)
-                    .is_some_and(|selected| selected.to_raw() == *node))
-        {
-            return Err(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                at("node_id").key("package"),
-            ));
+        if node.node_id.package.as_ref() != expected_package {
+            let imported = if node.owner.is_none() && node.declaration.is_none() {
+                if import_index.is_none() {
+                    import_index =
+                        Some(dependencies.structural_import_index(structural_keys, meter)?);
+                }
+                import_index
+                    .as_ref()
+                    .and_then(
+                        |lookup: &dependency_references::StructuralImportIndex<'_>| {
+                            lookup.lookup(&node.node_id.package, position)
+                        },
+                    )
+                    .is_some_and(|(selected_position, selected_package)| {
+                        imported_node_matches(
+                            node,
+                            &selected_package.graph().nodes[selected_position].to_raw(),
+                            structural_keys,
+                            &selected_package.structural_keys,
+                        )
+                    })
+            } else {
+                false
+            };
+            if !imported {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at("node_id").key("package"),
+                ));
+            }
         }
         // Charge the graph-node visit before checking identity uniqueness so
         // a denied visit cannot proceed to the duplicate-id refusal.

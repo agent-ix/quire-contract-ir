@@ -125,10 +125,9 @@ fn imported_index_resolves_in_the_importing_graph() {
         json!({"node":3}),
         "imported Int[0,9] names the importer's Integer node"
     );
-    let CheckedPackageV2ReadResult::Admitted(importer) =
-        read_package(&importer_wire).expect("importing package read")
-    else {
-        panic!("NI-14 importing package must admit");
+    let importer_result = read_package(&importer_wire).expect("importing package read");
+    let CheckedPackageV2ReadResult::Admitted(importer) = importer_result else {
+        panic!("NI-14 importing package must admit: {importer_result:?}");
     };
     let CheckedPackageV2ReadResult::Admitted(library) =
         read_package(&library_wire).expect("library package read")
@@ -167,10 +166,9 @@ fn permutation_rebuilds_the_same_structural_keys_and_stale_operands_do_not() {
         .expect("published graph nodes")
         .reverse();
     assert!(reverse_graph_indexes(&mut permuted_wire, count) > 0);
-    let CheckedPackageV2ReadResult::Admitted(permuted) =
-        read_package(&permuted_wire).expect("permuted importer read")
-    else {
-        panic!("graph permutation with rewritten indexes must admit");
+    let permuted_result = read_package(&permuted_wire).expect("permuted importer read");
+    let CheckedPackageV2ReadResult::Admitted(permuted) = permuted_result else {
+        panic!("graph permutation with rewritten indexes must admit: {permuted_result:?}");
     };
     for original_position in 0..count {
         let permuted_position = count - 1 - original_position;

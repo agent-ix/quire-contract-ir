@@ -7,7 +7,88 @@
 use super::{CheckedNodePathSegment, RawCheckedPackageWireV2, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
+use std::collections::BTreeMap;
 use std::sync::Arc;
+
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+enum TokenSegment {
+    Name(Box<str>),
+    Operand(usize),
+}
+
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+struct TokenDescriptor {
+    package: Box<str>,
+    path: Vec<TokenSegment>,
+    ordinal: u64,
+}
+
+/// Assign compact equality tokens to resolved keys from multiple documents.
+/// Descriptors compare only immediate names and operand tokens, so a long
+/// derived chain never triggers repeated deep structural comparisons.
+pub(super) struct StructuralInterner {
+    descriptors: BTreeMap<TokenDescriptor, usize>,
+    pointers: BTreeMap<*const super::CheckedNodeId, usize>,
+}
+
+impl StructuralInterner {
+    pub(super) fn new() -> Self {
+        Self {
+            descriptors: BTreeMap::new(),
+            pointers: BTreeMap::new(),
+        }
+    }
+
+    pub(super) fn tokens(&mut self, keys: &[Arc<super::CheckedNodeId>]) -> Option<Vec<usize>> {
+        enum Task<'a> {
+            Visit(&'a super::CheckedNodeId),
+            Finish(&'a super::CheckedNodeId),
+        }
+        let mut output = Vec::with_capacity(keys.len());
+        for root in keys {
+            let mut pending = vec![Task::Visit(root)];
+            while let Some(task) = pending.pop() {
+                match task {
+                    Task::Visit(node) => {
+                        if self.pointers.contains_key(&std::ptr::from_ref(node)) {
+                            continue;
+                        }
+                        pending.push(Task::Finish(node));
+                        for segment in node.path.iter().rev() {
+                            if let CheckedNodePathSegment::Node(operand) = segment {
+                                pending.push(Task::Visit(operand));
+                            }
+                        }
+                    }
+                    Task::Finish(node) => {
+                        let mut path = Vec::with_capacity(node.path.len());
+                        for segment in &node.path {
+                            path.push(match segment {
+                                CheckedNodePathSegment::Name(name) => {
+                                    TokenSegment::Name(name.clone())
+                                }
+                                CheckedNodePathSegment::Node(operand) => TokenSegment::Operand(
+                                    *self.pointers.get(&Arc::as_ptr(operand))?,
+                                ),
+                                CheckedNodePathSegment::Index(_) => return None,
+                            });
+                        }
+                        let descriptor = TokenDescriptor {
+                            package: node.package.clone(),
+                            path,
+                            ordinal: node.ordinal,
+                        };
+                        let next = self.descriptors.len();
+                        let token = *self.descriptors.entry(descriptor).or_insert(next);
+                        self.pointers.insert(std::ptr::from_ref(node), token);
+                    }
+                }
+            }
+            output.push(*self.pointers.get(&Arc::as_ptr(root))?);
+        }
+        Some(output)
+    }
+}
 
 fn malformed(at: JsonPointer) -> ValidationFailure {
     ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
@@ -249,6 +330,93 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
         at += 1;
     }
     !stack.is_empty()
+}
+
+/// Rebuild an ID written in one package document against that document's
+/// graph. The returned operands share the already rebuilt graph keys.
+pub(super) fn resolve_id(
+    wire: &super::CheckedNodeId,
+    keys: &[Arc<super::CheckedNodeId>],
+) -> Option<super::CheckedNodeId> {
+    let mut path = Vec::with_capacity(wire.path.len());
+    for segment in &wire.path {
+        path.push(match segment {
+            CheckedNodePathSegment::Name(name) => CheckedNodePathSegment::Name(name.clone()),
+            CheckedNodePathSegment::Index(index) => {
+                CheckedNodePathSegment::Node(Arc::clone(keys.get(usize::try_from(*index).ok()?)?))
+            }
+            CheckedNodePathSegment::Node(_) => return None,
+        });
+    }
+    Some(super::CheckedNodeId {
+        package: wire.package.clone(),
+        path,
+        ordinal: wire.ordinal,
+    })
+}
+
+/// Compare two body values from distinct package documents, resolving every
+/// node ID against the graph of the document that contains it.
+pub(super) fn equivalent_values(
+    left: &serde_json::Value,
+    right: &serde_json::Value,
+    left_keys: &[Arc<super::CheckedNodeId>],
+    right_keys: &[Arc<super::CheckedNodeId>],
+) -> bool {
+    let mut pending = vec![(left, right)];
+    while let Some((left, right)) = pending.pop() {
+        match (left, right) {
+            (serde_json::Value::Object(a), serde_json::Value::Object(b)) => {
+                // FR-375 external keys are the exception to document-local
+                // index scope: their `node` is scoped by the outer package.
+                // Both documents select that dependency under the same key,
+                // so compare its wire ID directly instead of resolving it in
+                // either containing document's graph.
+                if a.len() == 2 && a.contains_key("package") && a.contains_key("node") {
+                    if a != b {
+                        return false;
+                    }
+                    continue;
+                }
+                let node_shape = |map: &serde_json::Map<String, serde_json::Value>| {
+                    map.len() == 3
+                        && map.contains_key("package")
+                        && map.contains_key("path")
+                        && map.contains_key("ordinal")
+                };
+                if node_shape(a) || node_shape(b) {
+                    let Some(a) = super::CheckedNodeId::from_value(left) else {
+                        return false;
+                    };
+                    let Some(b) = super::CheckedNodeId::from_value(right) else {
+                        return false;
+                    };
+                    if resolve_id(&a, left_keys) != resolve_id(&b, right_keys) {
+                        return false;
+                    }
+                } else {
+                    if a.len() != b.len() {
+                        return false;
+                    }
+                    for (name, value) in a {
+                        let Some(other) = b.get(name) else {
+                            return false;
+                        };
+                        pending.push((value, other));
+                    }
+                }
+            }
+            (serde_json::Value::Array(a), serde_json::Value::Array(b)) => {
+                if a.len() != b.len() {
+                    return false;
+                }
+                pending.extend(a.iter().zip(b));
+            }
+            (a, b) if a == b => {}
+            _ => return false,
+        }
+    }
+    true
 }
 
 /// Check every graph-local index before any graph meaning check, then reject

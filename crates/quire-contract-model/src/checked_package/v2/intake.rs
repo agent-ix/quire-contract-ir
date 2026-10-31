@@ -1,17 +1,16 @@
 //! The closed-schema decode of the package document, without native recursion
-//! following the nesting of a term or structural node path.
+//! following the nesting of a term.
 //!
 //! A node `body` and a diagnostic's `details`
 //! entry may nest as deep as the strict parser's limit of 128. The outer typed
 //! decode borrows each such term as a raw source slice, then decodes it into a
-//! `Value` only after that outer frame has returned. A `NodeId.path` is
-//! captured and decoded on a heap worklist, so it has no fixed depth cap.
-//! This keeps an adverse deep term or path within the reader stack budget.
+//! `Value` only after that outer frame has returned. A `NodeId.path` contains
+//! fixed-depth string or graph-index segments, so a derived chain does not
+//! increase JSON nesting depth. Deep terms stay within the reader stack budget.
 //!
 //! The lossless-decode check (no member defaulted, nulled or dropped) compares
 //! borrowed source array items against their typed serialization one at a
-//! time, except structural node identities, which compare from raw slices
-//! to avoid recursive serialization.
+//! time, except structural node identities, which compare from raw slices.
 
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
@@ -157,8 +156,8 @@ pub(super) fn decode_borrowed_wire(
         if let ValidationFailure::Refused(ref mut refusal) = failure {
             if refusal.code == CheckedPackageRefusalCode::MalformedWire {
                 if let Some(at) = refusal.primary_path().cloned() {
-                    if let Some(ordinal) = invalid_node_id_ordinal(bytes, &at) {
-                        refusal.set_primary_path(Some(ordinal));
+                    if let Some(member) = invalid_node_id_field(bytes, &at) {
+                        refusal.set_primary_path(Some(member));
                     }
                 }
             }
@@ -234,33 +233,43 @@ pub(super) fn decode_borrowed_wire(
     })
 }
 
-/// Refine a buffered structural ID decode error to the actual ordinal member.
-/// Nested operand IDs are walked on the heap, without a path-depth cap.
+/// Refine a buffered node-ID decode error to an ordinal or path segment.
+/// V2 path objects are closed graph-local indices; nested IDs are refused at
+/// the segment itself, before semantic-graph admission.
 #[ix_trace_rs::string_edge]
-fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+fn invalid_node_id_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
     const MAX_SAFE: u64 = 9_007_199_254_740_991;
-    let mut pending = vec![(source_raw(bytes, at)?, at.clone())];
-    while let Some((raw, path)) = pending.pop() {
-        let members: BTreeMap<&str, &RawValue> = serde_json::from_str(raw).ok()?;
-        if !members.contains_key("package") || !members.contains_key("path") {
+    let members: BTreeMap<&str, &RawValue> = serde_json::from_str(source_raw(bytes, at)?).ok()?;
+    if !members.contains_key("package") || !members.contains_key("path") {
+        return None;
+    }
+    if let Some(ordinal) = members.get("ordinal") {
+        if serde_json::from_str::<u64>(ordinal.get())
+            .ok()
+            .is_none_or(|value| value > MAX_SAFE)
+        {
+            return Some(at.clone().key("ordinal"));
+        }
+    }
+    let segments: Vec<&RawValue> = serde_json::from_str(members.get("path")?.get()).ok()?;
+    for (index, segment) in segments.into_iter().enumerate() {
+        let raw = segment.get();
+        if raw.starts_with('"') {
             continue;
         }
-        if let Some(ordinal) = members.get("ordinal") {
-            if serde_json::from_str::<u64>(ordinal.get())
-                .ok()
-                .is_none_or(|value| value > MAX_SAFE)
+        if raw.starts_with('{') {
+            let object: BTreeMap<&str, &RawValue> = serde_json::from_str(raw).ok()?;
+            if object.len() == 1
+                && object.get("node").is_some_and(|value| {
+                    serde_json::from_str::<u64>(value.get())
+                        .ok()
+                        .is_some_and(|value| value <= MAX_SAFE)
+                })
             {
-                return Some(path.key("ordinal"));
+                continue;
             }
         }
-        if let Some(raw_path) = members.get("path") {
-            let segments: Vec<&RawValue> = serde_json::from_str(raw_path.get()).ok()?;
-            for (index, segment) in segments.into_iter().enumerate().rev() {
-                if segment.get().starts_with('{') {
-                    pending.push((segment.get(), path.clone().key("path").index(index)));
-                }
-            }
-        }
+        return Some(at.clone().key("path").index(index));
     }
     None
 }
@@ -591,28 +600,28 @@ mod ordinal_locus_tests {
     }
 
     #[test]
-    fn malformed_structural_ordinals_keep_their_exact_member_pointer() {
+    fn malformed_node_id_members_keep_their_exact_pointer() {
         let node = JsonPointer::parse("/semantic_graph/nodes/1/node_id").unwrap();
         for ordinal in ["9007199254740992", "1.5", "-1", "\"one\""] {
             let bytes = format!(
                 "{{\"semantic_graph\":{{\"nodes\":[null,{{\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":{ordinal}}}}}]}}}}"
             );
             assert_eq!(
-                invalid_node_id_ordinal(bytes.as_bytes(), &node),
+                invalid_node_id_field(bytes.as_bytes(), &node),
                 Some(node.clone().key("ordinal"))
             );
         }
 
         let nested = br#"{"semantic_graph":{"nodes":[null,{"node_id":{"package":"p","path":[{"package":"p","path":["x"],"ordinal":1.5}],"ordinal":0}}]}}"#;
         assert_eq!(
-            invalid_node_id_ordinal(nested, &node),
-            Some(node.key("path").index(0).key("ordinal"))
+            invalid_node_id_field(nested, &node),
+            Some(node.key("path").index(0))
         );
 
         let dependency = br#"{"semantic_graph":{"nodes":[{"dependencies":[{"package":"p","path":["x"],"ordinal":"one"}]}]}}"#;
         let reference = JsonPointer::parse("/semantic_graph/nodes/0/dependencies/0").unwrap();
         assert_eq!(
-            invalid_node_id_ordinal(dependency, &reference),
+            invalid_node_id_field(dependency, &reference),
             Some(reference.key("ordinal"))
         );
     }
