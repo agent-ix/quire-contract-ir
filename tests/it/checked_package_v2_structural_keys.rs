@@ -1293,6 +1293,180 @@ fn declared_list_group_admits_with_independent_node_ordinals() {
     );
 }
 
+/// The group identity is the retained structural id, including for anonymous
+/// members and an off-cycle member; graph order is independent of that id.
+#[trace("TC-226", "FR-046-AC-3", "FR-048-AC-3")]
+#[test]
+fn structural_group_members_retain_exact_paths_and_references() {
+    let (self_group, self_position) = self_option_group(7);
+    let self_node = &self_group["semantic_graph"]["nodes"][self_position];
+    let self_id = &self_node["node_id"];
+    assert_eq!(self_node["dependencies"][0], *self_id);
+    assert_eq!(self_node["body"]["members"][0]["target"], *self_id);
+    let CheckedPackageV2ReadResult::Admitted(self_read) = read(&self_group) else {
+        panic!("producer-chosen self-group path must admit");
+    };
+    let retained_self = &self_read.graph().nodes[self_position];
+    assert_eq!(
+        serde_json::to_value(&retained_self.node_id).expect("typed self id"),
+        *self_id
+    );
+    assert_eq!(
+        serde_json::to_value(&retained_self.dependencies).expect("typed self dependencies"),
+        self_node["dependencies"]
+    );
+    assert_eq!(
+        serde_json::to_value(&retained_self.body).expect("typed self body"),
+        self_node["body"]
+    );
+
+    let (list, option, record) = list_group();
+    let nodes = list["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("List nodes");
+    let option_id = nodes[option]["node_id"].clone();
+    let record_id = nodes[record]["node_id"].clone();
+    assert_eq!(nodes[option]["recursion_group"], json!("List"));
+    assert_eq!(nodes[record]["recursion_group"], json!("List"));
+    assert_eq!(
+        nodes[record]["declaration"]["qualified_name"],
+        json!(["List"])
+    );
+    assert_eq!(option_id["path"], record_id["path"]);
+    assert_eq!(option_id["ordinal"], json!(9));
+    assert_eq!(record_id["ordinal"], json!(4));
+    assert_eq!(nodes[option]["dependencies"][0], record_id);
+    assert_eq!(nodes[option]["body"]["members"][0]["target"], record_id);
+    assert_eq!(nodes[record]["dependencies"][0], option_id);
+    assert_eq!(
+        nodes[record]["body"]["members"][0]["value"]["members"][0]["value"]["target"],
+        option_id
+    );
+    let CheckedPackageV2ReadResult::Admitted(original) = read(&list) else {
+        panic!("declared and anonymous List members must admit");
+    };
+    for (position, expected_id) in [(option, &option_id), (record, &record_id)] {
+        assert_eq!(
+            serde_json::to_value(&original.graph().nodes[position].node_id).expect("typed id"),
+            *expected_id
+        );
+        assert_eq!(
+            serde_json::to_value(&original.graph().nodes[position].body).expect("typed body"),
+            nodes[position]["body"]
+        );
+    }
+    let mut permuted = list.clone();
+    permuted["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("List nodes")
+        .swap(option, record);
+    let CheckedPackageV2ReadResult::Admitted(changed) = read(&permuted) else {
+        panic!("List permutation must admit");
+    };
+    assert_ne!(original.graph().nodes, changed.graph().nodes);
+    assert_eq!(
+        original.graph().nodes[option],
+        changed.graph().nodes[record]
+    );
+    assert_eq!(
+        original.graph().nodes[record],
+        changed.graph().nodes[option]
+    );
+
+    let (tree, off_cycle) = off_cycle_tree_group();
+    let off_cycle_node = &tree["semantic_graph"]["nodes"][off_cycle];
+    assert_eq!(off_cycle_node["recursion_group"], json!("Tree"));
+    assert_eq!(
+        off_cycle_node["body"]["members"][0]["target"],
+        off_cycle_node["dependencies"][0]
+    );
+    let CheckedPackageV2ReadResult::Admitted(tree_read) = read(&tree) else {
+        panic!("off-cycle member under shared label must admit");
+    };
+    let retained_off_cycle = &tree_read.graph().nodes[off_cycle];
+    assert_eq!(
+        serde_json::to_value(&retained_off_cycle.node_id).expect("typed off-cycle id"),
+        off_cycle_node["node_id"]
+    );
+    assert_eq!(
+        serde_json::to_value(&retained_off_cycle.dependencies)
+            .expect("typed off-cycle dependencies"),
+        off_cycle_node["dependencies"]
+    );
+    assert_eq!(
+        serde_json::to_value(&retained_off_cycle.body).expect("typed off-cycle body"),
+        off_cycle_node["body"]
+    );
+
+    let mut unresolved = list.clone();
+    unresolved["semantic_graph"]["nodes"][option]["body"]["members"][0]["target"]["ordinal"] =
+        json!(99);
+    let CheckedPackageV2ReadResult::Refused(missing) = read(&unresolved) else {
+        panic!("unresolved exact group target must refuse");
+    };
+    assert_eq!(
+        missing.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        missing.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{option}/body/members/0/target"
+        )),
+        "{missing:?}"
+    );
+    let mut malformed_body = list.clone();
+    malformed_body["semantic_graph"]["nodes"][option]["body"]["members"] = json!([]);
+    assert_derived_refusal(&malformed_body, option);
+    let mut empty_label = list.clone();
+    empty_label["semantic_graph"]["nodes"][option]["recursion_group"] = json!("");
+    let CheckedPackageV2ReadResult::Refused(empty) = read(&empty_label) else {
+        panic!("empty recursion label must refuse");
+    };
+    assert_eq!(empty.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        empty.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{option}/recursion_group"))
+    );
+    let mut mismatched_label = list.clone();
+    mismatched_label["semantic_graph"]["nodes"][record]["recursion_group"] = json!("Other");
+    let CheckedPackageV2ReadResult::Refused(mismatched) = read(&mismatched_label) else {
+        panic!("cyclic members with distinct labels must refuse");
+    };
+    assert_eq!(
+        mismatched.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        mismatched.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{record}/recursion_group"))
+    );
+    let mut duplicate = list;
+    let repeated_node = duplicate["semantic_graph"]["nodes"][option].clone();
+    duplicate["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("List nodes")
+        .push(repeated_node);
+    let CheckedPackageV2ReadResult::Refused(repeated) = read(&duplicate) else {
+        panic!("repeated structural group id must refuse");
+    };
+    assert_eq!(
+        repeated.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        repeated.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{}/node_id",
+            duplicate["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .len()
+                - 1
+        ))
+    );
+}
+
 #[trace("TC-226", "FR-038-AC-147", "FR-038-AC-150")]
 #[test]
 fn malformed_group_member_structural_ordinals_refuse_at_the_ordinal() {

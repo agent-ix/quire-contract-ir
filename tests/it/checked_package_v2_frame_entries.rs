@@ -1174,10 +1174,20 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
     assert_eq!(read_back.graph(), admitted.graph());
 }
 
-#[trace("TC-056", "FR-040-AC-33", "FR-040-AC-34", "FR-066-AC-4")]
+#[trace("TC-056", "FR-040-AC-33", "FR-040-AC-34", "FR-066-AC-1", "FR-066-AC-4")]
 #[test]
 fn tc_056_model_clause_points_retain_name_and_structural_identity() {
     let absent = StatePackage::new();
+    let CheckedPackageV2ReadResult::Admitted(absent_read) = read(&absent.value) else {
+        panic!("unpointed invariant refused");
+    };
+    let absent_clause = absent.clause("invariant");
+    assert_eq!(
+        serde_json::to_value(&absent_read.graph().nodes[absent_clause].body)
+            .expect("typed unpointed invariant"),
+        absent.value["semantic_graph"]["nodes"][absent_clause]["body"]
+    );
+    assert_pointed_writer_round_trip(&absent, &[absent_clause]);
     let initialized = pointed_invariant(json!({"kind": "initialization", "name": "startup"}));
     let handled = pointed_invariant(json!({"kind": "handler", "name": "tick"}));
     for package in [&initialized, &handled] {
@@ -1347,6 +1357,7 @@ fn tc_056_duplicate_clause_point_precedes_version_and_identity_checks() {
     "FR-040-AC-36",
     "FR-066-AC-3"
 )]
+#[trace("TC-056", "FR-066-AC-1")]
 #[test]
 fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
     let absent = pointed_state_package(None, None);

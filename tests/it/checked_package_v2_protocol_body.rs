@@ -15,7 +15,7 @@ use quire_contract_model::{
     CheckedNodeId, CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedProtocolActivation, CheckedProtocolActivationRow,
-    CheckedProtocolRefusalDetail,
+    CheckedProtocolRefusalDetail, CheckedTerm,
 };
 use serde_json::{json, Value};
 
@@ -4133,7 +4133,7 @@ fn tc_946_predicate_join_function_cycle_uses_the_full_protocol_component() {
     assert_exact_protocol_cycle_group(admitted.graph().nodes.as_slice(), &positions);
 }
 
-#[trace("FR-038-AC-241", "TC-946")]
+#[trace("FR-038-AC-241", "FR-046-AC-3", "FR-048-AC-3", "TC-946")]
 #[test]
 fn tc_946_mixed_protocol_carrier_and_function_cycle_admits() {
     let (package, positions) = predicate_join_protocol_cycle(true);
@@ -4141,6 +4141,54 @@ fn tc_946_mixed_protocol_carrier_and_function_cycle_admits() {
         panic!("the mixed protocol cycle admits: {:?}", read(&package));
     };
     assert_exact_protocol_cycle_group(admitted.graph().nodes.as_slice(), &positions);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("mixed cycle nodes");
+    assert!(positions.iter().any(|&at| matches!(
+        admitted.graph().nodes[at].body,
+        CheckedTerm::Application { .. }
+    )));
+    assert!(positions.iter().any(|&at| !matches!(
+        admitted.graph().nodes[at].body,
+        CheckedTerm::Application { .. }
+    )));
+    let mut declared = 0;
+    let mut anonymous = 0;
+    for &at in &positions {
+        let id = &nodes[at]["node_id"];
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[at].node_id).expect("typed group id"),
+            *id
+        );
+        if nodes[at]["declaration"]["qualified_name"].is_array() {
+            declared += 1;
+            assert_eq!(id["path"], nodes[at]["declaration"]["qualified_name"]);
+        } else {
+            anonymous += 1;
+            assert!(id["path"].as_array().is_some_and(|path| !path.is_empty()));
+        }
+    }
+    assert!(
+        declared >= 3,
+        "the K14 cycle includes multiple declarations"
+    );
+    assert!(
+        anonymous >= 1,
+        "the mixed cycle includes an anonymous carrier"
+    );
+    let mut permuted = package.clone();
+    let first = positions[0];
+    let last = *positions.last().expect("cycle members");
+    permuted["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("mixed cycle nodes")
+        .swap(first, last);
+    let CheckedPackageV2ReadResult::Admitted(reordered) = read(&permuted) else {
+        panic!("permuted mixed cycle must admit");
+    };
+    assert_ne!(admitted.graph().nodes, reordered.graph().nodes);
+    assert_eq!(admitted.graph().nodes[first], reordered.graph().nodes[last]);
+    assert_eq!(admitted.graph().nodes[last], reordered.graph().nodes[first]);
 }
 
 fn assert_exact_protocol_cycle_group(
