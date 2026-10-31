@@ -22,7 +22,7 @@ emitter and strict-reader controls run in
 
 ## Test Procedure
 
-Lower a mixed request with represented and refused items. Read the emitted package as `quire.contract-package/v1`. Assert exactly six FR-330 members (`contract_version`, `package`, `semantic_graph`, `source_keys`, `source_map`, `feature_accounting`), one ordered semantic graph node collection, total source correspondence and one accounting record per request. Equivalent construction orders produce equal complete canonical bytes. Change a represented node, selected profile, accounting result and valid source-map region separately; compare the corresponding typed member and complete bytes, then require strict admission or the applicable independent refusal. An extra `identity` member, missing member, extra graph partition, duplicate/disordered key and wrong version refuse before artifact generation. No digest or hash is computed.
+Lower a mixed request with represented and refused items. Read the emitted package as `quire.contract-package/v1`. Assert exactly six FR-330 members (`contract_version`, `package`, `semantic_graph`, `source_keys`, `source_map`, `feature_accounting`), one producer-chosen semantic graph node collection, total source correspondence and one accounting record per request. For one fixed admitted source graph and request list, different traversal construction orders produce equal complete canonical bytes. Change a represented node, selected profile, accounting result and valid source-map region separately; compare the corresponding typed member and complete bytes, then require strict admission or the applicable independent refusal. An extra `identity` member, missing member, extra graph partition, duplicate key and wrong version refuse before artifact generation. A node permutation with all index references rewritten admits; it is not a disordered-key refusal. No digest or hash is computed.
 For the wire reader itself, change only `contract_version` to another string in
 an otherwise valid canonical package. Assert `Refused` with
 `unknown_contract_version`, path `/contract_version` and the exact supplied
@@ -115,6 +115,10 @@ raw indexed `CheckedNodeId` whose identical bytes occur in the two frames but
 whose rebuilt keys differ; passing the typed source key must not select the
 output node or its closure. An unresolved or malformed id cannot be converted
 into a typed source key, and the query accepts no unscoped raw id.
+The output-graph permutation is an admitted producer-chosen order under QSpec
+FR-330-AC-4/16 as merged in QSpec #548
+(`da7ecb373141693ccc32ecff76377ce453113570`); it may change canonical
+bytes while preserving the named structural-key joins and typed query result.
 
 Mutate one otherwise valid canonical package per reader-order case: an
 out-of-range output graph index segment, an out-of-range `source_keys` index
@@ -193,7 +197,15 @@ bytes before and after the typed queries.
 
 ## Expected Results
 
-One FR-330 package carries the exact represented node set and its reached local closure in structural key order. Its source map and accounting are complete. Equivalent construction order yields equal complete canonical bytes; changing a represented body, profile, accounting or valid source region changes the corresponding typed member. Corrupt correspondence, missing required properties, duplicate or disordered keys, extra graph partitions and wrong versions refuse before consumption.
+One FR-330 package carries the exact represented node set in producer-chosen
+graph order and its reached local closure in structural key order. Its source
+map and accounting are complete. Equivalent construction traversal for fixed
+admitted inputs yields equal complete canonical bytes; a valid graph permutation
+may change those bytes and still admits after index references are rewritten.
+Changing a represented body, profile, accounting or valid source region changes
+the corresponding typed member. Corrupt correspondence, missing required
+properties, duplicate keys, extra graph partitions and wrong versions refuse
+before consumption.
 The wrong-version reader refusal retains its exact typed code, path and supplied
 version. Every exhausted read limit returns the typed incomplete fields and
 admits no package. The mixed fixture admits at work limit 13 and occurrence

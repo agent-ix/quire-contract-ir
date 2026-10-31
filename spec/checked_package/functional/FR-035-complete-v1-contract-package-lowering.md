@@ -47,7 +47,7 @@ the originating checked-package exact `name` as `package.source.identity` and it
 exact lock, and the explicit closed
 `LoweringProfileRef` `{authority, identity}` separately from the lock's source
 profile selections. `semantic_graph` is one
-canonically ordered tagged-node collection containing all represented type,
+producer-ordered tagged-node collection containing all represented type,
 expression, model, relation, clause and analysis meaning. Node tags, typed
 keys, source occurrences and compatible reference targets follow QSpec
 FR-322. There are no independent type, expression, clause or protocol graphs.
@@ -89,12 +89,13 @@ lowering-profile value and retains the original checked source provenance under
 FR-330, without adding a requirement member, diagnostic payload or vocabulary.
 
 One call SHALL assemble the graph from its `lowered` records and the admitted
-local nodes those reach: each node once. An explicit recursion group's represented
-members SHALL retain their admitted graph order, because FR-322 includes each
-member's graph-order ordinal in its structural id. A group forms one block keyed
-by its least represented FR-322 typed key. The lowerer SHALL order group blocks
-and ungrouped nodes by that key. Thus a graph without recursion remains in
-ascending typed-key order.
+local nodes those reach: each node once. The lowerer SHALL choose a deterministic
+output order for fixed admitted inputs and requests, preserving the admitted
+relative order of represented members of an explicit recursion group. It SHALL
+rewrite every index segment to the referenced node's output position. The
+strict reader SHALL admit any producer-chosen output order whose rewritten
+references and other checks pass (QSpec FR-322-AC-95 and FR-330-AC-4); it SHALL
+NOT impose ascending typed-key order or infer a key from graph position.
 A refused request contributes no node of its own unless a lowered item reaches
 that node as exact represented meaning. Every local semantic-node reference SHALL resolve to a compatible node in this graph by its key, never by display
 name or array position. A `dependency_reference` SHALL retain its selected
@@ -204,7 +205,7 @@ operation facts to generate behavior SHALL use the authenticated handoff or
 propagate `NotAdmitted` rather than silently skip that behavior.
 
 The admitted package SHALL retain each represented local node's exact
-`CheckedNodeKind`, aligned with that node after canonical graph ordering,
+`CheckedNodeKind`, aligned with that node after the producer's graph ordering,
 including recursion-group member ordering. Lowering SHALL carry the kind from
 the admitted checked source; strict reading SHALL retain the kind validated
 from the canonical wire. A query by represented local typed key SHALL return
@@ -312,7 +313,7 @@ admit no `ContractPackageV1`.
 | FR-035-AC-16 | For an otherwise valid canonical package with source-map occurrences and regions, a limit one below the independently counted combined occurrence and region charges returns `Incomplete` with `limit_kind = Occurrences`, the selected limit, `consumed` equal to the count at the first failed charge, and `path` naming the particular occurrence value under `/source_map/nodes/<i>/occurrences/<j>`, `/source_map/requested_items/<i>/occurrences/<j>` or `/source_map/refusals/<i>/occurrences/<j>`, or its `/regions/<k>` member, whose charge crossed the limit. A limit equal to that total admits; a stop does not report only `/source_map`. | Test |
 | FR-035-AC-17 | Given an otherwise valid canonical `ContractPackageWireV1` with an `invalid_body.refusal` whose code is `unknown_contract_version` or `unknown_required_capability`, the reader admits that nested record when `cause` is absent and refuses a present `cause` as `invalid_package`/`invalid-value` at the nested `/cause` pointer, including `unsupported-wire` and `unsupported-feature` respectively, as QSpec FR-322-AC-78 and FR-330 require. | Test (TC-047) |
 | FR-035-AC-18 | PLANNED/UNRUN (IR-1141). If two dependency paths select one name but supply unequal complete JSON packages, ContractPackageWireV1::read refuses invalid_package/conflicting-definition before graph references. Its two ordered refusal `loci` name the exact importer-rooted selection paths in declaration order. Equal complete values through a diamond admit. | Test (TC-047) |
-| FR-035-AC-19 | For a lowered root whose represented source nodes are reordered by canonical typed key, including a recursion-group block sorted by its least typed key while its members retain admitted graph order, producer admission and strict reading of its canonical bytes return the same exact `CheckedNodeKind` for each represented local key, closure root and reached node. An absent or unrepresented local key returns no kind, and a selected dependency's kind is never substituted for a local kind. | Test |
+| FR-035-AC-19 | For a lowered root whose output nodes are in producer-chosen order, including represented recursion-group members in their admitted relative order, producer admission and strict reading of canonical bytes return the same exact `CheckedNodeKind` for each represented local key, closure root and reached node. Permuting the output nodes and rewriting every affected index segment retains that kind for each key. An absent or unrepresented local key returns no kind, and a selected dependency's kind is never substituted for a local kind. | Test |
 | FR-035-AC-20 | For mixed accounting with an `unsupported` request whose node is absent from the represented graph, producer admission and strict reading return its exact typed `CheckedNodeTag` at its zero-based FR-330 `feature_accounting` index. Querying an out-of-range index or any non-`unsupported` record returns no tag, even when its requested node is represented; interposed consumer context or excluded requests do not shift this accounting index. | Test |
 | FR-035-AC-21 | Retaining kinds and unsupported tags changes none of the six FR-330 wire members or canonical bytes; malformed node kind and unsupported tag preserve their strict reader refusal and exhausted limits return Incomplete without an admitted typed view. | Test |
 | FR-035-AC-22 | For every represented local key, the producer and strict reader return the exact node and same optional CheckedTerm admitted from its source body through keyed lookups, independent of graph ordinal. An absent key returns neither; retained lookups change no wire member or canonical byte. | Test (TC-047) |
@@ -328,7 +329,7 @@ admit no `ContractPackageV1`.
 | FR-035-AC-32 | PLANNED (IR-1186). Lowering an absent, derived requested key with an operand emits a `source_keys` entry equal to the source id by rebuilt structural key and the operand closure in that table; table-local index numbers may be rewritten from the source graph, and extra entries with unique rebuilt keys are allowed and validated. Every source-frame reference is a `{"source_key": i}` reference into that table, and an empty output graph with `invalid_input` and empty requested occurrences admits. An output-frame id resolves only in `semantic_graph`. Neither serialized frame resolves against the selected source checked package after emission. | Test (TC-047; QSpec TC-934, FR-330-AC-14) |
 | FR-035-AC-33 | PLANNED (IR-1186). After closed-shape checks and before source-map, accounting or graph-reference joins, strict reading checks output-graph segments, then `source_keys` segments, then source-key references. In either graph, an out-of-range index precedes a cycle; both refuse `malformed_wire` without cause at the offending `/node` member, including a self-cycle. An out-of-range source-key reference refuses there at its `/source_key` member. A malformed reference shape uses FR-330's `invalid_package` closed-shape cause and pointer, and duplicate rebuilt source keys refuse `invalid_package`/`invalid-value` at the later table entry. No partial package is admitted. | Test (TC-047; QSpec TC-937) |
 | FR-035-AC-34 | PLANNED (IR-1186). The lowered source id and output root id, every accounting/request pair, and a refusal's requested id compare by rebuilt structural key across their distinct frames. Permuting `source_keys` or the output graph while rewriting references and retaining keys leaves each comparison and refusal pointer unchanged; unequal keys refuse at the owning FR-330 join. | Test (TC-047; QSpec TC-934) |
-| FR-035-AC-35 | PLANNED (IR-1186). The public reached-closure query accepts a typed source-frame structural key rebuilt against its owning graph or read from the V1 `source_keys` table; it cannot confuse the same raw indexed `CheckedNodeId` in two frames. It finds `lowered`, non-`lowered`, unrequested and absent results by the source structural key, translates a `lowered` root to the equal rebuilt output key, and traverses only that output closure. Reordering output nodes and rewriting their references cannot change the selected request, returned root, closure, bound/claim subsets or source correspondence. A raw-id collision with unequal rebuilt source and output keys never returns the other node's closure. | Test (TC-047) |
+| FR-035-AC-35 | PLANNED (IR-1186). The public reached-closure query accepts a typed source-frame structural key rebuilt against its owning graph or read from the V1 `source_keys` table; it cannot confuse the same raw indexed `CheckedNodeId` in two frames. It finds `lowered`, non-`lowered`, unrequested and absent results by the source structural key, translates a `lowered` root to the equal rebuilt output key, and traverses only that output closure. Reordering output nodes in QSpec FR-330-AC-4/16's producer-chosen order and rewriting their references cannot change the selected request, returned root, closure, bound/claim subsets or source correspondence. A raw-id collision with unequal rebuilt source and output keys never returns the other node's closure. | Test (TC-047) |
 
 FR-035-AC-13 and FR-035-AC-14 retain tagged TC-047 reader controls in
 `tests/it/complete_v1_contract_package.rs`. AC-12 is retired with its full
