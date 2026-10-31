@@ -430,33 +430,50 @@ pub(super) fn rebuild_graph_keys(
     nodes: &[super::RawSemanticNodeV2],
     refuse: impl Fn(JsonPointer) -> ValidationFailure,
 ) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
-    let node_count = nodes.len();
-    for (position, node) in nodes.iter().enumerate() {
-        for (slot, segment) in node.node_id.path.iter().enumerate() {
+    rebuild_keys(
+        nodes
+            .iter()
+            .map(|node| &node.node_id)
+            .collect::<Vec<_>>()
+            .as_slice(),
+        |position, slot| {
+            JsonPointer::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+                .key("node_id")
+                .key("path")
+                .index(slot)
+                .key("node")
+        },
+        refuse,
+    )
+}
+
+/// Resolve one document-local table of indexed IDs without recursive key construction.
+/// The caller supplies the table-specific pointer for an indexed operand.
+pub(super) fn rebuild_keys(
+    ids: &[&super::CheckedNodeId],
+    pointer: impl Fn(usize, usize) -> JsonPointer,
+    refuse: impl Fn(JsonPointer) -> ValidationFailure,
+) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
+    let node_count = ids.len();
+    for (position, id) in ids.iter().enumerate() {
+        for (slot, segment) in id.path.iter().enumerate() {
             if let CheckedNodePathSegment::Index(index) = segment {
                 if usize::try_from(*index)
                     .ok()
                     .is_none_or(|index| index >= node_count)
                 {
-                    return Err(refuse(
-                        JsonPointer::root()
-                            .key("semantic_graph")
-                            .key("nodes")
-                            .index(position)
-                            .key("node_id")
-                            .key("path")
-                            .index(slot)
-                            .key("node"),
-                    ));
+                    return Err(refuse(pointer(position, slot)));
                 }
             }
         }
     }
-    let edges: Vec<Vec<(usize, usize)>> = nodes
+    let edges: Vec<Vec<(usize, usize)>> = ids
         .iter()
-        .map(|node| {
-            node.node_id
-                .path
+        .map(|id| {
+            id.path
                 .iter()
                 .enumerate()
                 .filter_map(|(slot, segment)| match segment {
@@ -515,22 +532,13 @@ pub(super) fn rebuild_graph_keys(
     for (node, outgoing) in edges.iter().enumerate() {
         for &(slot, target) in outgoing {
             if component[node] == component[target] {
-                return Err(refuse(
-                    JsonPointer::root()
-                        .key("semantic_graph")
-                        .key("nodes")
-                        .index(node)
-                        .key("node_id")
-                        .key("path")
-                        .index(slot)
-                        .key("node"),
-                ));
+                return Err(refuse(pointer(node, slot)));
             }
         }
     }
     let mut keys: Vec<Option<Arc<super::CheckedNodeId>>> = vec![None; node_count];
     for node in order {
-        let source = &nodes[node].node_id;
+        let source = ids[node];
         let path = source
             .path
             .iter()

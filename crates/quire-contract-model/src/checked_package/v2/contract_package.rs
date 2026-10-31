@@ -1533,11 +1533,15 @@ impl ContractPackageWireV1 {
             None => return Err(malformed(root, CheckedPackageRefusalCause::MissingMember)),
         }
         validate_shapes(&value)?;
+        let expanded = resolve_source_frames(&value)?;
         // CheckedNodeId uses RawValue for iterative nested-path decoding.
         // Deserializing it from an in-memory Value cannot provide that raw
         // token stream, so decode the already shape-checked input bytes.
         // The strict parse above has already enforced Serde's depth limit.
-        let mut decoder = serde_json::Deserializer::from_slice(bytes);
+        let expanded_bytes = serde_json::to_vec(&expanded).map_err(|_| {
+            ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire)
+        })?;
+        let mut decoder = serde_json::Deserializer::from_slice(&expanded_bytes);
         let wire: Self = serde_path_to_error::deserialize(&mut decoder).map_err(|error| {
             malformed(
                 crate::checked_package::common::decoder_pointer(JsonPointer::root(), error.path()),
@@ -1567,6 +1571,102 @@ impl ContractPackageWireV1 {
             unsupported_source_kinds: None,
         })
     }
+}
+
+/// Validate both document-local index tables and every source reference before
+/// expanding the source-frame references for the admitted in-memory views.
+fn resolve_source_frames(value: &Value) -> Result<Value, ValidationFailure> {
+    let graph_at = JsonPointer::root().key("semantic_graph").key("nodes");
+    let graph = value["semantic_graph"]["nodes"]
+        .as_array()
+        .ok_or_else(|| malformed(graph_at.clone(), CheckedPackageRefusalCause::WrongValueKind))?;
+    let output_ids = graph
+        .iter()
+        .enumerate()
+        .map(|(index, node)| {
+            CheckedNodeId::from_value(&node["node_id"]).ok_or_else(|| {
+                malformed(
+                    graph_at.clone().index(index).key("node_id"),
+                    CheckedPackageRefusalCause::WrongValueKind,
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    super::node_index::rebuild_keys(
+        &output_ids.iter().collect::<Vec<_>>(),
+        |position, slot| {
+            graph_at
+                .clone()
+                .index(position)
+                .key("node_id")
+                .key("path")
+                .index(slot)
+                .key("node")
+        },
+        |at| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at),
+    )?;
+    let table_at = JsonPointer::root().key("source_keys");
+    let table = value["source_keys"]
+        .as_array()
+        .ok_or_else(|| malformed(table_at.clone(), CheckedPackageRefusalCause::WrongValueKind))?;
+    let source_ids = table
+        .iter()
+        .enumerate()
+        .map(|(index, id)| {
+            CheckedNodeId::from_value(id).ok_or_else(|| {
+                malformed(
+                    table_at.clone().index(index),
+                    CheckedPackageRefusalCause::WrongValueKind,
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let source_keys = super::node_index::rebuild_keys(
+        &source_ids.iter().collect::<Vec<_>>(),
+        |position, slot| {
+            table_at
+                .clone()
+                .index(position)
+                .key("path")
+                .index(slot)
+                .key("node")
+        },
+        |at| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at),
+    )?;
+    let paths = source_ref_paths(value);
+    for at in &paths {
+        let index = value
+            .pointer(at.as_str())
+            .and_then(|reference| reference["source_key"].as_u64())
+            .and_then(|index| usize::try_from(index).ok());
+        if index.is_none_or(|index| index >= source_ids.len()) {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                at.clone().key("source_key"),
+            ));
+        }
+    }
+    let mut seen = BTreeSet::new();
+    for (position, key) in source_keys.iter().enumerate() {
+        if !seen.insert(key.as_ref()) {
+            return Err(malformed(
+                table_at.clone().index(position),
+                CheckedPackageRefusalCause::InvalidValue,
+            ));
+        }
+    }
+    let mut expanded = value.clone();
+    for at in paths {
+        let index = expanded
+            .pointer(at.as_str())
+            .and_then(|reference| reference["source_key"].as_u64())
+            .and_then(|index| usize::try_from(index).ok())
+            .expect("source-key reference checked in bounds");
+        if let Some(reference) = expanded.pointer_mut(at.as_str()) {
+            *reference = table[index].clone();
+        }
+    }
+    Ok(expanded)
 }
 
 fn malformed(path: JsonPointer, cause: CheckedPackageRefusalCause) -> ValidationFailure {
@@ -1703,6 +1803,66 @@ fn id_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFailure> {
         }
     }
     Ok(())
+}
+
+fn source_ref_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFailure> {
+    let object = shape(value, at.clone(), &["source_key"], &[])?;
+    let key_at = at.clone().key("source_key");
+    let key = member(object, "source_key", &at)?;
+    match key {
+        Value::Number(number) if number.as_u64().is_some_and(|n| n <= 9_007_199_254_740_991) => {
+            Ok(())
+        }
+        Value::Number(number) if number.as_i64().is_some() => {
+            Err(malformed(key_at, CheckedPackageRefusalCause::InvalidValue))
+        }
+        Value::Number(_) => Err(malformed(
+            key_at,
+            CheckedPackageRefusalCause::WrongValueKind,
+        )),
+        _ => Err(malformed(
+            key_at,
+            CheckedPackageRefusalCause::WrongValueKind,
+        )),
+    }
+}
+
+/// The exhaustive FR-330 source-frame positions. A caller runs closed-shape
+/// validation before using these pointers, so no unknown object is traversed.
+fn source_ref_paths(value: &Value) -> Vec<JsonPointer> {
+    let root = JsonPointer::root();
+    let mut paths = Vec::new();
+    let map = &value["source_map"];
+    for collection in ["nodes", "requested_items", "refusals"] {
+        if let Some(entries) = map[collection].as_array() {
+            for (index, entry) in entries.iter().enumerate() {
+                let at = root.clone().key("source_map").key(collection).index(index);
+                if collection != "nodes" {
+                    paths.push(at.clone().key("requested_item"));
+                }
+                if let Some(occurrences) = entry["occurrences"].as_array() {
+                    for ordinal in 0..occurrences.len() {
+                        paths.push(at.clone().key("occurrences").index(ordinal).key("node_id"));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(records) = value["feature_accounting"].as_array() {
+        for (index, record) in records.iter().enumerate() {
+            let at = root.clone().key("feature_accounting").index(index);
+            paths.push(at.clone().key("node_id"));
+            for member in ["unsupported_node_id", "unbounded_type", "body_node_id"] {
+                if record.get(member).is_some() {
+                    paths.push(at.clone().key(member));
+                }
+            }
+            if record["refusal"].get("locus").is_some() {
+                paths.push(at.key("refusal").key("locus"));
+            }
+        }
+    }
+    paths
 }
 
 #[ix_trace_rs::string_edge]
@@ -1860,6 +2020,13 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
             occurrences_at,
         )?;
     }
+    let source_keys_at = root.clone().key("source_keys");
+    for (index, key) in array(member(top, "source_keys", &root)?, source_keys_at.clone())?
+        .iter()
+        .enumerate()
+    {
+        id_shape(key, source_keys_at.clone().index(index))?;
+    }
     let map_at = root.clone().key("source_map");
     let map = shape(
         member(top, "source_map", &root)?,
@@ -1910,6 +2077,12 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
     {
         validate_record_shape(record, accounting_at.clone().index(index))?;
     }
+    for at in source_ref_paths(value) {
+        let Some(reference) = value.pointer(at.as_str()) else {
+            return Err(malformed(at, CheckedPackageRefusalCause::MissingMember));
+        };
+        source_ref_shape(reference, at)?;
+    }
     Ok(())
 }
 
@@ -1938,12 +2111,6 @@ fn validate_record_shape(value: &Value, at: JsonPointer) -> Result<(), Validatio
         .chain(payload.iter().copied())
         .collect();
     let record = shape(value, at.clone(), &required, &[])?;
-    id_shape(member(record, "node_id", &at)?, at.clone().key("node_id"))?;
-    for name in ["unsupported_node_id", "unbounded_type", "body_node_id"] {
-        if let Some(value) = record.get(name) {
-            id_shape(value, at.clone().key(name))?;
-        }
-    }
     if disposition == ContractDispositionV1::Failed {
         for counter in ["limit", "consumed"] {
             decimal(member(record, counter, &at)?, at.clone().key(counter))?;
@@ -1981,16 +2148,7 @@ fn validate_body_refusal(value: &Value, at: JsonPointer) -> Result<(), Validatio
     }
     if let Some(locus) = object.get("locus") {
         let locus_at = at.clone().key("locus");
-        id_shape(locus, locus_at.clone())?;
-        let id = CheckedNodeId::from_value(locus).ok_or_else(|| {
-            malformed(locus_at.clone(), CheckedPackageRefusalCause::WrongValueKind)
-        })?;
-        if !valid_node_id(&id) {
-            return Err(malformed(
-                locus_at,
-                CheckedPackageRefusalCause::InvalidValue,
-            ));
-        }
+        source_ref_shape(locus, locus_at)?;
     }
     if let Some(cause_value) = object.get("cause") {
         let cause_at = at.clone().key("cause");
