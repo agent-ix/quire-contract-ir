@@ -1930,7 +1930,8 @@ fn binder_matches_payload(
         .and_then(|target| graph.index.get(&target).copied())
         .is_some_and(|position| {
             graph.kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
-                && graph.structural_id(&graph.nodes[position].semantic_type) == Some(payload)
+                && graph.structural_id(&graph.nodes[position].semantic_type)
+                    == Some(graph.structural_id(payload).unwrap_or(payload))
         })
 }
 
@@ -7869,6 +7870,7 @@ mod tests {
             target: nodes[2].node_id.clone(),
         };
         assert!(super::binder_matches_payload(&bound, &generated, &graph));
+        assert!(super::binder_matches_payload(&bound, &indexed, &graph));
         assert!(!super::binder_matches_payload(
             &bound,
             &node_id('z'),
