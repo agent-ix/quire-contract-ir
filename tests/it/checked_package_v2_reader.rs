@@ -74,7 +74,8 @@ fn exact_scalar_projection_uses_publicly_admitted_package() {
     refresh_identity(&mut document);
 
     let package = admitted(&document);
-    let identities = SelectedExactIdentities::empty();
+    let identities = SelectedExactIdentities::from_stage_rows(&package, [], [])
+        .expect("empty selected rows for scalar reads");
     for (id, expected) in [
         (node_id(&family_key("aaaa")), "Boolean"),
         (node_id(&family_key("a3a3")), "Integer"),

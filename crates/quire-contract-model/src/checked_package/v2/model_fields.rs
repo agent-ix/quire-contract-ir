@@ -545,6 +545,37 @@ pub(super) struct OperationTypes {
 }
 
 impl RetainedModels {
+    pub(super) fn selected_declaration(
+        &self,
+        key: &CheckedNodeId,
+    ) -> Option<(&str, &str, DeclarationForm)> {
+        let declared = self.index.0.get(key)?;
+        let model = self.models.get(declared.selection)?;
+        Some((&model.identity, &declared.node, declared.form))
+    }
+
+    pub(super) fn selected_record_field(
+        &self,
+        record: &CheckedNodeId,
+        original_field: &str,
+    ) -> bool {
+        let Some(declared) = self.index.0.get(record) else {
+            return false;
+        };
+        if declared.form != DeclarationForm::RecordValueType {
+            return false;
+        }
+        self.models
+            .get(declared.selection)
+            .and_then(|model| model.fields.of(&declared.node))
+            .is_some_and(|table| {
+                table
+                    .ordered_exposed
+                    .iter()
+                    .any(|field| field.entry.identity.as_ref() == original_field)
+            })
+    }
+
     /// Selected documents retained by this already admitted package.
     pub(super) fn selected_models(&self) -> &[DomainModel] {
         &self.models

@@ -2,11 +2,134 @@
 //! Read-only projection of admitted checked types into Exact value types.
 
 use super::extension::integer_range_bounds;
+use super::model_members::DeclarationForm;
+use super::structural::reference_type_target_typed;
 use super::{
     BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedPackageV2, CompositeTypeForm,
     ModelForm, ScalarTypeForm,
 };
-use quire_exact::{Integer, IntegerInterval, ValueType};
+use quire_exact::{
+    EffectiveId, Integer, IntegerInterval, MemberId, MemberOwner, NodeKey, UnitId, ValueType,
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// The Exact identity produced for one selected declaration form.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SelectedExactIdentity {
+    /// A selected record declaration's structural key.
+    Record(NodeKey),
+    /// A selected object declaration's effective identity.
+    Object(EffectiveId),
+    /// A selected union declaration's structural key.
+    Union(NodeKey),
+    /// A selected declared unit's identity.
+    DeclaredUnit(UnitId),
+}
+
+/// The selected declaration form paired with its Exact identity.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SelectedExactDeclarationForm {
+    /// `model/record_value_type`.
+    RecordValueType,
+    /// `model/object_type`.
+    ObjectType,
+    /// `composite_type/union`.
+    Union,
+    /// `scalar_type/unit`.
+    DeclaredUnit,
+}
+
+impl SelectedExactDeclarationForm {
+    fn matches(self, identity: &SelectedExactIdentity) -> bool {
+        matches!(
+            (self, identity),
+            (Self::RecordValueType, SelectedExactIdentity::Record(_))
+                | (Self::ObjectType, SelectedExactIdentity::Object(_))
+                | (Self::Union, SelectedExactIdentity::Union(_))
+                | (Self::DeclaredUnit, SelectedExactIdentity::DeclaredUnit(_))
+        )
+    }
+
+    fn matches_admitted(self, form: DeclarationForm) -> bool {
+        matches!(
+            (self, form),
+            (Self::RecordValueType, DeclarationForm::RecordValueType)
+                | (Self::ObjectType, DeclarationForm::ObjectType)
+        )
+    }
+}
+
+/// One QSL-stage declaration row, keyed by selected original IR identity.
+///
+/// IR validates this row's structural join. The opaque Exact identity's
+/// provenance remains a producer fact; constructing a row in another caller
+/// does not make that identity authoritative.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedExactDeclarationRow {
+    /// The full structural node identity in the admitted package.
+    pub structural_node: CheckedNodeId,
+    /// The selected domain document identity.
+    pub selected_document: Box<str>,
+    /// The selected declaration form.
+    pub form: SelectedExactDeclarationForm,
+    /// The original IR declaration identity in that document.
+    pub original_identity: Box<str>,
+    /// The identity issued by the QSL checking/model stage.
+    pub exact_identity: SelectedExactIdentity,
+}
+
+impl SelectedExactDeclarationRow {
+    /// Carry a complete producer row; no bare Exact identity is accepted.
+    pub fn new(
+        structural_node: CheckedNodeId,
+        selected_document: impl Into<Box<str>>,
+        form: SelectedExactDeclarationForm,
+        original_identity: impl Into<Box<str>>,
+        exact_identity: SelectedExactIdentity,
+    ) -> Self {
+        Self {
+            structural_node,
+            selected_document: selected_document.into(),
+            form,
+            original_identity: original_identity.into(),
+            exact_identity,
+        }
+    }
+}
+
+/// One QSL-stage record field row, keyed by its selected original IR identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedExactFieldRow {
+    /// The selected record's structural node identity.
+    pub record_node: CheckedNodeId,
+    /// The selected domain document identity.
+    pub selected_document: Box<str>,
+    /// The original IR record declaration identity.
+    pub record_original_identity: Box<str>,
+    /// The selected IR field identity, including inherited fields.
+    pub field_original_identity: Box<str>,
+    /// The field identity issued by the QSL checking/model stage.
+    pub member_id: MemberId,
+}
+
+impl SelectedExactFieldRow {
+    /// Carry a complete producer field row; no bare member ID is accepted.
+    pub fn new(
+        record_node: CheckedNodeId,
+        selected_document: impl Into<Box<str>>,
+        record_original_identity: impl Into<Box<str>>,
+        field_original_identity: impl Into<Box<str>>,
+        member_id: MemberId,
+    ) -> Self {
+        Self {
+            record_node,
+            selected_document: selected_document.into(),
+            record_original_identity: record_original_identity.into(),
+            field_original_identity: field_original_identity.into(),
+            member_id,
+        }
+    }
+}
 
 /// Selected-model identities supplied by the checking stage alongside a package.
 ///
@@ -14,13 +137,135 @@ use quire_exact::{Integer, IntegerInterval, ValueType};
 /// until the selected-model stage supplies a complete identity witness.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SelectedExactIdentities {
-    _private: (),
+    declarations: BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>,
+    fields: Vec<SelectedExactFieldRow>,
 }
 
 impl SelectedExactIdentities {
     /// An empty selection for reads of types without declaration identities.
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// Validate the stage's selected rows against one admitted package.
+    ///
+    /// This checks structural, selected-document, form and original-identity
+    /// joins. IR cannot authenticate the opaque Exact payload. Production
+    /// callers obtain these rows from the QSL checking/model identity stage;
+    /// caller-created rows alone grant no authority.
+    pub fn from_stage_rows(
+        package: &CheckedPackageV2,
+        declarations: impl IntoIterator<Item = SelectedExactDeclarationRow>,
+        fields: impl IntoIterator<Item = SelectedExactFieldRow>,
+    ) -> Result<Self, ExactTypeProjectionError> {
+        let mut selected = Self::empty();
+        let mut owners = BTreeSet::new();
+        for row in declarations {
+            let node = &row.structural_node;
+            let Some((document, original, form)) = package.models.selected_declaration(node) else {
+                return Err(selected_declaration_error(package, node));
+            };
+            if document != row.selected_document.as_ref()
+                || original != row.original_identity.as_ref()
+                || !row.form.matches_admitted(form)
+                || !row.form.matches(&row.exact_identity)
+            {
+                return Err(witness_error(
+                    node,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                ));
+            }
+            if !owners.insert((
+                row.selected_document.clone(),
+                row.form,
+                row.original_identity.clone(),
+            )) || selected.declarations.contains_key(node)
+            {
+                return Err(witness_error(
+                    node,
+                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                ));
+            }
+            selected.declarations.insert(node.clone(), row);
+        }
+        let mut seen_fields = BTreeSet::new();
+        for row in fields {
+            let node = &row.record_node;
+            let Some((document, original, form)) = package.models.selected_declaration(node) else {
+                return Err(selected_declaration_error(package, node));
+            };
+            if document != row.selected_document.as_ref()
+                || original != row.record_original_identity.as_ref()
+                || form != DeclarationForm::RecordValueType
+                || !package
+                    .models
+                    .selected_record_field(node, &row.field_original_identity)
+            {
+                return Err(witness_error(
+                    node,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                ));
+            }
+            let Some(declaration) = selected.declarations.get(node) else {
+                return Err(witness_error(
+                    node,
+                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                ));
+            };
+            let SelectedExactIdentity::Record(record_key) = &declaration.exact_identity else {
+                return Err(witness_error(
+                    node,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                ));
+            };
+            if row.member_id.owner() != &MemberOwner::Node(record_key.clone()) {
+                return Err(witness_error(
+                    node,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                ));
+            }
+            if !seen_fields.insert((node.clone(), row.field_original_identity.clone())) {
+                return Err(witness_error(
+                    node,
+                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                ));
+            }
+            selected.fields.push(row);
+        }
+        Ok(selected)
+    }
+
+    /// The validated declaration rows, keyed by structural node identity.
+    pub fn declaration_rows(&self) -> impl Iterator<Item = &SelectedExactDeclarationRow> {
+        self.declarations.values()
+    }
+
+    /// The validated effective-field rows in producer order.
+    pub fn field_rows(&self) -> &[SelectedExactFieldRow] {
+        &self.fields
+    }
+
+    fn declaration_identity(
+        &self,
+        package: &CheckedPackageV2,
+        key: &CheckedNodeId,
+    ) -> Result<&SelectedExactIdentity, ExactTypeProjectionErrorCode> {
+        let (document, original, form) = package
+            .models
+            .selected_declaration(key)
+            .ok_or(ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration)?;
+        let row = self
+            .declarations
+            .get(key)
+            .ok_or(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)?;
+        if document != row.selected_document.as_ref()
+            || original != row.original_identity.as_ref()
+            || !row.form.matches_admitted(form)
+            || !row.form.matches(&row.exact_identity)
+        {
+            return Err(ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
+        }
+        Ok(&row.exact_identity)
     }
 }
 
@@ -58,6 +303,12 @@ pub enum ExactTypeProjectionErrorCode {
     ForeignNode,
     /// A selected declaration has no authoritative identity row.
     UnavailableIdentityWitness,
+    /// A selected declaration row disagrees with admission-retained facts.
+    MismatchedIdentityWitness,
+    /// Competing rows claim one selected declaration or structural node.
+    ConflictingIdentityWitness,
+    /// The selected declaration is not resolved in the admitted package.
+    UnresolvedSelectedDeclaration,
     /// The requested type has no faithful Exact representation yet.
     UnsupportedExactType,
     /// The caller's finite projection work limit was consumed.
@@ -71,6 +322,9 @@ impl ExactTypeProjectionErrorCode {
             Self::UnknownNode => "unknown_node",
             Self::ForeignNode => "foreign_node",
             Self::UnavailableIdentityWitness => "unavailable_identity_witness",
+            Self::MismatchedIdentityWitness => "mismatched_identity_witness",
+            Self::ConflictingIdentityWitness => "conflicting_identity_witness",
+            Self::UnresolvedSelectedDeclaration => "unresolved_selected_declaration",
             Self::UnsupportedExactType => "unsupported_exact_type",
             Self::ExhaustedWork => "exhausted_work",
         }
@@ -82,6 +336,9 @@ impl ExactTypeProjectionErrorCode {
             Self::UnknownNode,
             Self::ForeignNode,
             Self::UnavailableIdentityWitness,
+            Self::MismatchedIdentityWitness,
+            Self::ConflictingIdentityWitness,
+            Self::UnresolvedSelectedDeclaration,
             Self::UnsupportedExactType,
             Self::ExhaustedWork,
         ]
@@ -110,6 +367,33 @@ pub struct ExactTypeProjectionError {
     pub form: Box<str>,
     /// Work successfully charged before the refusal.
     pub work: u64,
+}
+
+fn witness_error(
+    node: &CheckedNodeId,
+    code: ExactTypeProjectionErrorCode,
+) -> ExactTypeProjectionError {
+    ExactTypeProjectionError {
+        code,
+        requested: Box::new(node.clone()),
+        at: Some(Box::new(node.clone())),
+        form: "selected_identity".into(),
+        work: 0,
+    }
+}
+
+fn selected_declaration_error(
+    package: &CheckedPackageV2,
+    node: &CheckedNodeId,
+) -> ExactTypeProjectionError {
+    let code = if package.node(node).is_some() {
+        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+    } else if node.package == package.wire.name {
+        ExactTypeProjectionErrorCode::UnknownNode
+    } else {
+        ExactTypeProjectionErrorCode::ForeignNode
+    };
+    witness_error(node, code)
 }
 
 fn charge_work(
@@ -152,7 +436,7 @@ impl CheckedPackageV2 {
     pub fn project_exact_type(
         &self,
         requested: &CheckedNodeId,
-        _identities: &SelectedExactIdentities,
+        identities: &SelectedExactIdentities,
         work_limit: u64,
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> {
         let mut work = 0;
@@ -203,12 +487,12 @@ impl CheckedPackageV2 {
                 u64::try_from(bytes).unwrap_or(u64::MAX),
             )?;
         }
-        let refuse = |code| ExactTypeProjectionError {
+        let refuse = |code, charged| ExactTypeProjectionError {
             code,
             requested: Box::new(requested.clone()),
             at: Some(Box::new(type_id.clone())),
             form: format!("{}/{}", type_node.node_tag, type_node.semantic_form).into(),
-            work,
+            work: charged,
         };
         let value_type = match kind {
             CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => ValueType::Boolean,
@@ -217,26 +501,76 @@ impl CheckedPackageV2 {
             CheckedNodeKind::ScalarType(ScalarTypeForm::Uuid) => ValueType::Uuid,
             CheckedNodeKind::ScalarType(ScalarTypeForm::Timestamp) => ValueType::Timestamp,
             CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => {
-                let (lower, upper) = range_bounds
-                    .ok_or_else(|| refuse(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
-                let lower = lower
-                    .parse::<Integer>()
-                    .map_err(|_| refuse(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
-                let upper = upper
-                    .parse::<Integer>()
-                    .map_err(|_| refuse(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
-                let interval = IntegerInterval::new(lower, upper)
-                    .map_err(|_| refuse(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
+                let (lower, upper) = range_bounds.ok_or_else(|| {
+                    refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                })?;
+                let lower = lower.parse::<Integer>().map_err(|_| {
+                    refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                })?;
+                let upper = upper.parse::<Integer>().map_err(|_| {
+                    refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                })?;
+                let interval = IntegerInterval::new(lower, upper).map_err(|_| {
+                    refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                })?;
                 ValueType::Int(interval)
             }
-            CheckedNodeKind::Model(ModelForm::RecordValueType)
-            | CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
-            | CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
+                let target = reference_type_target_typed(type_node).ok_or_else(|| {
+                    refuse(
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                        work,
+                    )
+                })?;
+                charge_work(
+                    requested,
+                    &target,
+                    "reference_target",
+                    &mut work,
+                    work_limit,
+                )?;
+                if self.node_kind(&target) != Some(CheckedNodeKind::Model(ModelForm::ObjectType)) {
+                    return Err(refuse(
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                        work,
+                    ));
+                }
+                match identities
+                    .declaration_identity(self, &target)
+                    .map_err(|code| refuse(code, work))?
+                {
+                    SelectedExactIdentity::Object(effective) => {
+                        ValueType::Reference(effective.clone())
+                    }
+                    _ => {
+                        return Err(refuse(
+                            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                            work,
+                        ))
+                    }
+                }
+            }
+            CheckedNodeKind::Model(ModelForm::RecordValueType) => {
+                identities
+                    .declaration_identity(self, type_id)
+                    .map_err(|code| refuse(code, work))?;
                 return Err(refuse(
-                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    ExactTypeProjectionErrorCode::UnsupportedExactType,
+                    work,
                 ));
             }
-            _ => return Err(refuse(ExactTypeProjectionErrorCode::UnsupportedExactType)),
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
+                return Err(refuse(
+                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    work,
+                ));
+            }
+            _ => {
+                return Err(refuse(
+                    ExactTypeProjectionErrorCode::UnsupportedExactType,
+                    work,
+                ))
+            }
         };
         Ok(ExactTypeProjection {
             node: requested.clone(),
@@ -403,7 +737,7 @@ mod tests {
         );
         assert_eq!(
             refusal(checked_id("receipt"), 2).code,
-            ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+            ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
         );
         let exhausted = refusal(checked_id("total"), 1);
         assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);

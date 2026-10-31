@@ -190,8 +190,9 @@ pub use checked_package::{
     ContractUnsupportedSourceKindError, CorrespondenceForm, DimensionTerm, ExactTypeProjection,
     ExactTypeProjectionError, ExactTypeProjectionErrorCode, ExpressionForm, FunctionForm,
     HybridForm, JsonPointer, LoweringProfileRef, ModelForm, NominalBody, ProtocolForm,
-    RelationForm, ScalarTypeForm, SelectedExactIdentities, StateForm, TemporalForm, TimedModelForm,
-    ValueForm, CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
+    RelationForm, ScalarTypeForm, SelectedExactDeclarationForm, SelectedExactDeclarationRow,
+    SelectedExactFieldRow, SelectedExactIdentities, SelectedExactIdentity, StateForm, TemporalForm,
+    TimedModelForm, ValueForm, CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
 };
 
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
