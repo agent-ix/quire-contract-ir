@@ -9,9 +9,10 @@ use super::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodePathSegment, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2ReadResult,
-    CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
-    ContractPackageReadResult, ContractPackageWireV1, LoweringProfileRef,
+    CheckedNodeKind, CheckedNodePathSegment, CheckedNodeTag, CheckedPackageReadLimits,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    ContractDependencies, ContractPackageReadResult, ContractPackageWireV1, ExpressionForm,
+    LoweringProfileRef,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -288,6 +289,74 @@ fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
         panic!("reader admits exact invalid-input record: {read_back:?}");
     };
     assert!(read_back.wire().semantic_graph.nodes.is_empty());
+}
+
+#[trace("TC-935", "FR-330-AC-2")]
+#[test]
+fn v1_indexed_unsupported_request_authenticates_its_source_kind() {
+    let wire = read_json(&fixtures_dir().join("positive-operation-identities.json"))
+        .expect("published indexed operations");
+    let source_outcome = read_package(&wire).expect("published source read");
+    let CheckedPackageV2ReadResult::Admitted(source) = source_outcome else {
+        panic!("published source admits: {source_outcome:?}");
+    };
+    let unsupported = source.graph().nodes[25].node_id.clone();
+    let supported = source.graph().nodes[34].node_id.clone();
+    let profile = CompleteLoweringProfileV2 {
+        reference: LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        required_source_selections: Vec::new(),
+        supported_tags: CheckedNodeTag::ALL
+            .iter()
+            .copied()
+            .filter(|tag| *tag != CheckedNodeTag::Expression)
+            .collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let result = source.lower(&[unsupported, supported], &profile);
+    assert!(
+        matches!(
+            result.records.as_slice(),
+            [
+                CompleteLoweringRecordV2::Unsupported { .. },
+                CompleteLoweringRecordV2::Lowered { .. }
+            ]
+        ),
+        "unsupported sibling and lowered operand: {:?}",
+        result.records
+    );
+    let bytes = result
+        .package
+        .canonical_bytes()
+        .expect("canonical V1 bytes");
+    assert_ne!(
+        result
+            .package
+            .wire()
+            .expect("producer package")
+            .wire()
+            .feature_accounting[0]
+            .node_id(),
+        &source.graph().nodes[25].node_id,
+        "unsupported key is genuinely reindexed in the V1 projection"
+    );
+    let handoff = ContractPackageWireV1::read_with_source(
+        bytes,
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+        &source,
+    )
+    .expect("indexed unsupported source correspondence");
+    let ContractPackageReadResult::Admitted(package) = handoff else {
+        panic!("indexed unsupported package admits: {handoff:?}");
+    };
+    assert_eq!(
+        package.unsupported_source_kind_at(0),
+        Ok(Some(CheckedNodeKind::Expression(ExpressionForm::Binary)))
+    );
 }
 
 /// Trace: FR-038-AC-376, FR-038-AC-96

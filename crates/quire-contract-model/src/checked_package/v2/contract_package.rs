@@ -1476,10 +1476,13 @@ impl ContractPackageWireV1 {
             .feature_accounting
             .iter()
             .map(|record| match record {
-                ContractFeatureRecordV1::Unsupported { node_id, .. } => source
-                    .node_kind(node_id)
-                    .map(Some)
-                    .ok_or_else(|| ContractSourceHandoffError::MissingNode(node_id.clone())),
+                ContractFeatureRecordV1::Unsupported { node_id, .. } => {
+                    remap_checked_id(node_id, &source_positions)
+                        .as_ref()
+                        .and_then(|id| source.node_kind(id))
+                        .map(Some)
+                        .ok_or_else(|| ContractSourceHandoffError::MissingNode(node_id.clone()))
+                }
                 _ => Ok(None),
             })
             .collect::<Result<Vec<_>, _>>()?;
