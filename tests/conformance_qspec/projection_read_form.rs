@@ -126,11 +126,17 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
         match row["expected"]["refused"]["code"].as_str() {
             Some("malformed_wire") => assert!(
                 matches!(
-                    result,
+                    &result,
                     CheckedPackageV2ReadResult::Refused(refusal)
                         if refusal.code == CheckedPackageRefusalCode::MalformedWire
                 ),
-                "{name}: expected malformed_wire"
+                "{name}: expected malformed_wire; got {}",
+                match &result {
+                    CheckedPackageV2ReadResult::Refused(refusal) =>
+                        format!("{:?} {:?}", refusal.code, refusal.loci),
+                    CheckedPackageV2ReadResult::Admitted(_) => "admitted".into(),
+                    CheckedPackageV2ReadResult::Incomplete(_) => "incomplete".into(),
+                }
             ),
             None => {
                 let CheckedPackageV2ReadResult::Admitted(package) = result else {
