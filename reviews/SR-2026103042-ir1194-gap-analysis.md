@@ -35,3 +35,13 @@ The two traced unit tests verify scalar values and several refusal codes through
 ## Evidence
 
 The fixture at lines 299-351 deserializes a private wire and directly initializes `CheckedPackageV2` with empty `structural_keys`, default retained models, and empty closure index. That bypasses `CheckedPackageV2::read` and its admission checks. Both new tests use this fixture. Consequently, the tests can pass if the new method works only on an unadmitted internal package and fails for a package returned by the public reader. A focused integration test through the public reader and public projection API would close the scalar-slice evidence gap. Semantic review beyond the changed code and test intent was not run.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | `tests/it/checked_package_v2_reader.rs:52-108` now admits a package through the public reader and calls the public projection with Boolean, Integer and Int[0,1000], checks clone equality and finite exhaustion, and verifies a malformed candidate refuses admission. |
+
+## Disposition Verdict
+
+**PASS for the original finding** — The public admitted-package scalar path is tested. Complete FR-352 record view and the QSL SelectedExactIdentities producer remain open outside this partial PR.

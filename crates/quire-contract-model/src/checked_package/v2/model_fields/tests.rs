@@ -80,13 +80,84 @@ fn exact_stage_rows_join_selected_original_declaration() {
     );
 }
 
+/// Trace: FR-352-AC-3, FR-352-AC-4
+#[trace("FR-352-AC-3", "FR-352-AC-4")]
+#[test]
+fn distinct_selected_objects_cannot_claim_one_exact_identity() {
+    use crate::checked_package::v2::{
+        ExactTypeProjectionErrorCode as Code, SelectedExactDeclarationForm as Form,
+        SelectedExactDeclarationRow as Row, SelectedExactIdentities, SelectedExactIdentity,
+    };
+
+    let first = format!("{ORDERS}First");
+    let second = format!("{ORDERS}Second");
+    let selected = document(vec![
+        object_type(&first, &[], vec![]),
+        object_type(&second, &[], vec![]),
+    ]);
+    let fixture = build_fixture(
+        &selected,
+        &[
+            ("First", DeclarationForm::ObjectType),
+            ("Second", DeclarationForm::ObjectType),
+        ],
+    );
+    let first_node = id_at(&fixture, 0);
+    let second_node = id_at(&fixture, 1);
+    let (document, _, _) = fixture
+        .package
+        .models
+        .selected_declaration(&first_node)
+        .expect("first");
+    let first_exact = EffectiveId::new(None, OriginalDeclarationKey::new(document, &first));
+    let first_row = Row::new(
+        first_node,
+        document,
+        Form::ObjectType,
+        &*first,
+        SelectedExactIdentity::Object(first_exact.clone()),
+    );
+    let duplicate = Row::new(
+        second_node.clone(),
+        document,
+        Form::ObjectType,
+        &*second,
+        SelectedExactIdentity::Object(first_exact),
+    );
+    let refusal = SelectedExactIdentities::from_stage_rows(
+        &fixture.package,
+        [first_row.clone(), duplicate],
+        [],
+    )
+    .expect_err("one Exact object cannot name two selected declarations");
+    assert_eq!(refusal.code, Code::ConflictingIdentityWitness);
+    assert_eq!(refusal.at.as_deref(), Some(&second_node));
+
+    let second_exact = EffectiveId::new(None, OriginalDeclarationKey::new(document, &second));
+    let distinct = Row::new(
+        second_node,
+        document,
+        Form::ObjectType,
+        &*second,
+        SelectedExactIdentity::Object(second_exact),
+    );
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(&fixture.package, [first_row, distinct], [])
+            .expect("distinct Exact identities")
+            .declaration_rows()
+            .count(),
+        2,
+    );
+}
+
 /// Trace: FR-352-AC-3, FR-352-AC-9
 #[trace("FR-352-AC-3", "FR-352-AC-9")]
 #[test]
 fn exact_reference_uses_the_selected_object_row() {
     use crate::checked_package::v2::{
-        CompositeTypeForm, ModelForm, SelectedExactDeclarationForm as Form,
-        SelectedExactDeclarationRow as Row, SelectedExactIdentities, SelectedExactIdentity,
+        CompositeTypeForm, ExactTypeProjectionErrorCode as Code, ModelForm,
+        SelectedExactDeclarationForm as Form, SelectedExactDeclarationRow as Row,
+        SelectedExactIdentities, SelectedExactIdentity,
     };
     use quire_exact::ValueType;
 
@@ -120,7 +191,9 @@ fn exact_reference_uses_the_selected_object_row() {
     reference_node.declaration = None;
     reference_node.owner = None;
     reference_node.body = super::super::CheckedTerm::Aggregate {
-        members: vec![super::super::CheckedTerm::Reference { target: object }],
+        members: vec![super::super::CheckedTerm::Reference {
+            target: object.clone(),
+        }],
     };
     fixture
         .package
@@ -141,6 +214,21 @@ fn exact_reference_uses_the_selected_object_row() {
         .project_exact_type(&reference, &rows, 3)
         .expect("witnessed reference");
     assert_eq!(projected.value_type(), &ValueType::Reference(effective));
+
+    fixture
+        .package
+        .models
+        .index
+        .0
+        .get_mut(&object)
+        .expect("selected row")
+        .node = "ix://acme/orders/Other".into();
+    let refusal = fixture
+        .package
+        .project_exact_type(&reference, &rows, 3)
+        .expect_err("witness for old selected declaration");
+    assert_eq!(refusal.code, Code::MismatchedIdentityWitness);
+    assert_eq!(refusal.at.as_deref(), Some(&object));
 }
 
 /// Trace: FR-352-AC-2, FR-352-AC-9

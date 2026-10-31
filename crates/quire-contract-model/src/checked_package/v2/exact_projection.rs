@@ -46,7 +46,10 @@ impl SelectedExactDeclarationForm {
             (Self::RecordValueType, SelectedExactIdentity::Record(_))
                 | (Self::ObjectType, SelectedExactIdentity::Object(_))
                 | (Self::Union, SelectedExactIdentity::Union(_))
-                | (Self::DeclaredUnit, SelectedExactIdentity::DeclaredUnit(_))
+                | (
+                    Self::DeclaredUnit,
+                    SelectedExactIdentity::DeclaredUnit(UnitId::Declared(_))
+                )
         )
     }
 
@@ -160,6 +163,9 @@ impl SelectedExactIdentities {
     ) -> Result<Self, ExactTypeProjectionError> {
         let mut selected = Self::empty();
         let mut owners = BTreeSet::new();
+        let mut node_identities = BTreeSet::new();
+        let mut object_identities = BTreeSet::new();
+        let mut unit_identities = BTreeSet::new();
         for row in declarations {
             let node = &row.structural_node;
             let Some((document, original, form)) = package.models.selected_declaration(node) else {
@@ -175,11 +181,25 @@ impl SelectedExactIdentities {
                     ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                 ));
             }
-            if !owners.insert((
-                row.selected_document.clone(),
-                row.form,
-                row.original_identity.clone(),
-            )) || selected.declarations.contains_key(node)
+            let unique_exact = match &row.exact_identity {
+                SelectedExactIdentity::Record(key) | SelectedExactIdentity::Union(key) => {
+                    node_identities.insert(key.clone())
+                }
+                SelectedExactIdentity::Object(effective) => {
+                    object_identities.insert(effective.clone())
+                }
+                SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => {
+                    unit_identities.insert(key.clone())
+                }
+                SelectedExactIdentity::DeclaredUnit(UnitId::Compound(_)) => false,
+            };
+            if !unique_exact
+                || !owners.insert((
+                    row.selected_document.clone(),
+                    row.form,
+                    row.original_identity.clone(),
+                ))
+                || selected.declarations.contains_key(node)
             {
                 return Err(witness_error(
                     node,
@@ -529,21 +549,31 @@ impl CheckedPackageV2 {
                     &mut work,
                     work_limit,
                 )?;
+                let refuse_target = |code, charged| ExactTypeProjectionError {
+                    code,
+                    requested: Box::new(requested.clone()),
+                    at: Some(Box::new(target.clone())),
+                    form: self.node(&target).map_or_else(
+                        || Box::<str>::from("unresolved_selected_declaration"),
+                        |node| format!("{}/{}", node.node_tag, node.semantic_form).into(),
+                    ),
+                    work: charged,
+                };
                 if self.node_kind(&target) != Some(CheckedNodeKind::Model(ModelForm::ObjectType)) {
-                    return Err(refuse(
+                    return Err(refuse_target(
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                         work,
                     ));
                 }
                 match identities
                     .declaration_identity(self, &target)
-                    .map_err(|code| refuse(code, work))?
+                    .map_err(|code| refuse_target(code, work))?
                 {
                     SelectedExactIdentity::Object(effective) => {
                         ValueType::Reference(effective.clone())
                     }
                     _ => {
-                        return Err(refuse(
+                        return Err(refuse_target(
                             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                             work,
                         ))

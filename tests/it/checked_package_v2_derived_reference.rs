@@ -87,6 +87,17 @@ fn admitted_reference_requires_selected_exact_identity_row() {
         refusal.code,
         ExactTypeProjectionErrorCode::UnavailableIdentityWitness
     );
+    let object: CheckedNodeId = serde_json::from_value(
+        document["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+            .expect("selected object")["node_id"]
+            .clone(),
+    )
+    .expect("object ID");
+    assert_eq!(refusal.at.as_deref(), Some(&object));
 }
 
 /// Trace: QSpec FR-322-AC-62, RM-REF-TARGET. Model and relationship
