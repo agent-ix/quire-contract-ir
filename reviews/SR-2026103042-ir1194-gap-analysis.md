@@ -93,3 +93,22 @@ Remove every `FR-352-AC-*` trace tag from the eight current test functions, in b
 | FND-008 | still-open | The FR-352-AC-7 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
 | FND-009 | still-open | The FR-352-AC-8 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
 | FND-010 | still-open | The FR-352-AC-9 tag remains on a test that verifies only part of the criterion; remove the tag until complete evidence exists. |
+
+
+## Dispositions (round 3)
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | The FR-352-AC-1 trace tags were removed from the partial tests at 5504b130be6b92f91cc828083105e932d3c63d0f; no `FR-352-AC-*` tag remains in Rust test code. The tests continue to assert their subcases without claiming full criterion coverage. |
+| FND-003 | fixed | The FR-352-AC-2 trace tags were removed from the partial tests at 5504b130be6b92f91cc828083105e932d3c63d0f; no `FR-352-AC-*` tag remains in Rust test code. The tests continue to assert their subcases without claiming full criterion coverage. |
+| FND-004 | fixed | The FR-352-AC-3 trace tags were removed from the partial tests at 5504b130be6b92f91cc828083105e932d3c63d0f; no `FR-352-AC-*` tag remains in Rust test code. The tests continue to assert their subcases without claiming full criterion coverage. |
+| FND-005 | fixed | The FR-352-AC-4 trace tags were removed from the partial tests at 5504b130be6b92f91cc828083105e932d3c63d0f; no `FR-352-AC-*` tag remains in Rust test code. The tests continue to assert their subcases without claiming full criterion coverage. |
+| FND-006 | fixed | The FR-352-AC-5 trace tags were removed from the partial tests at 5504b130be6b92f91cc828083105e932d3c63d0f; no `FR-352-AC-*` tag remains in Rust test code. The tests continue to assert their subcases without claiming full criterion coverage. |
+| FND-007 | fixed | The FR-352-AC-6 trace tags were removed from the partial tests at 5504b130be6b92f91cc828083105e932d3c63d0f; no `FR-352-AC-*` tag remains in Rust test code. The tests continue to assert their subcases without claiming full criterion coverage. |
+| FND-008 | fixed | The FR-352-AC-7 trace tags were removed from the partial tests at 5504b130be6b92f91cc828083105e932d3c63d0f; no `FR-352-AC-*` tag remains in Rust test code. The tests continue to assert their subcases without claiming full criterion coverage. |
+| FND-009 | fixed | The FR-352-AC-8 trace tags were removed from the partial tests at 5504b130be6b92f91cc828083105e932d3c63d0f; no `FR-352-AC-*` tag remains in Rust test code. The tests continue to assert their subcases without claiming full criterion coverage. |
+| FND-010 | fixed | The FR-352-AC-9 trace tags were removed from the partial tests at 5504b130be6b92f91cc828083105e932d3c63d0f; no `FR-352-AC-*` tag remains in Rust test code. The tests continue to assert their subcases without claiming full criterion coverage. |
+
+## Disposition Verdict (round 3)
+
+**PASS for this partial API slice** — FND-002 through FND-010 are fixed. The diff removes only the eight partial test functions' FR-352 trace comments and attributes and one now-unused import; test bodies and unrelated tags remain. The repository has prior untagged partial regression precedent (`SR-612063-ir1059-gap-analysis.md`), so this repair adds no new trace-policy defect. Full FR-352 acceptance remains open and should appear unbacked until complete tests and the QSL identity producer land. No aggregate gate was run by this reviewer.
