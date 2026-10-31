@@ -28,6 +28,7 @@ mod model_fields;
 mod model_members;
 mod model_root;
 mod natural;
+mod node_index;
 mod operation_catalog;
 mod operations;
 mod owner;
@@ -700,6 +701,8 @@ pub struct CheckedPackageV2 {
     terms: Vec<CheckedTerm>,
     /// Admission-derived lookup; excluded from content equality.
     node_index: BTreeMap<CheckedNodeId, usize>,
+    /// Graph-local wire IDs rebuilt as shared, document-independent keys.
+    structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
     /// Admission-derived position of each exact source occurrence.
     pub(in crate::checked_package) source_index:
         BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>,
@@ -725,6 +728,7 @@ impl std::fmt::Debug for CheckedPackageV2 {
             .field("wire", &self.wire)
             .field("kinds", &self.kinds)
             .field("node_index", &self.node_index)
+            .field("structural_key_count", &self.structural_keys.len())
             .field("source_index", &self.source_index)
             .field("bytes", &self.bytes)
             .field("models", &self.models)
@@ -1053,7 +1057,8 @@ impl CheckedPackageV2 {
             terms,
             models,
             lowering_facts,
-        } = validate(&wire, limits, evidence)?;
+            structural_keys,
+        } = validate(&wire, bytes, limits, evidence)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1115,6 +1120,7 @@ impl CheckedPackageV2 {
             kinds,
             terms,
             node_index,
+            structural_keys,
             source_index,
             lowering_facts,
             bytes: limits.bytes,
@@ -1137,6 +1143,18 @@ impl CheckedPackageV2 {
     /// The complete closed checked graph.
     pub fn graph(&self) -> &CheckedSemanticGraphV2 {
         &self.wire.semantic_graph
+    }
+
+    /// The graph node's document-independent structural key. Operand keys
+    /// share storage, regardless of the wire indices chosen by this document.
+    pub fn structural_key_at(&self, index: usize) -> Option<&CheckedNodeId> {
+        self.structural_keys.get(index).map(std::sync::Arc::as_ref)
+    }
+
+    /// Resolve an ID written by this package against this package's graph.
+    /// The ID's `package` names its owner and does not select the graph.
+    pub fn structural_key(&self, id: &CheckedNodeId) -> Option<&CheckedNodeId> {
+        self.structural_key_at(*self.node_index.get(id)?)
     }
 
     /// Each graph node's decoded family and form, in graph order.
@@ -1196,6 +1214,7 @@ struct ValidatedPackage {
     terms: Vec<CheckedTerm>,
     models: RetainedModels,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
+    structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
 }
 
 struct ValidatedGraph {
@@ -1207,6 +1226,7 @@ struct ValidatedGraph {
 
 fn validate(
     wire: &RawCheckedPackageWireV2,
+    bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
 ) -> Result<ValidatedPackage, ValidationFailure> {
@@ -1214,6 +1234,7 @@ fn validate(
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
     flat_wire::check(wire)?;
+    let structural_keys = node_index::check(bytes, wire, evidence)?;
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
         models,
@@ -1243,6 +1264,7 @@ fn validate(
         terms,
         models: RetainedModels::new(declarations, models),
         lowering_facts,
+        structural_keys,
     })
 }
 

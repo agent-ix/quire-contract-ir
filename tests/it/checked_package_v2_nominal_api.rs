@@ -337,11 +337,13 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
     );
     let invalid_id = CheckedNodeId {
         package: "units".into(),
-        path: vec![CheckedNodePathSegment::Node(Box::new(CheckedNodeId {
-            package: "".into(),
-            path: id.path.clone(),
-            ordinal: 0,
-        }))],
+        path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(
+            CheckedNodeId {
+                package: "".into(),
+                path: id.path.clone(),
+                ordinal: 0,
+            },
+        ))],
         ordinal: 0,
     };
     assert_malformed(

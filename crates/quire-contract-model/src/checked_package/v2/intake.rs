@@ -335,7 +335,7 @@ fn array_item(array: &[u8], target: usize) -> Option<&[u8]> {
 }
 
 /// End of one already validated JSON value, found with a heap stack.
-fn value_end(bytes: &[u8], start: usize) -> Option<usize> {
+pub(super) fn value_end(bytes: &[u8], start: usize) -> Option<usize> {
     let first = *bytes.get(start)?;
     if !matches!(first, b'{' | b'[' | b'"') {
         let mut at = start;

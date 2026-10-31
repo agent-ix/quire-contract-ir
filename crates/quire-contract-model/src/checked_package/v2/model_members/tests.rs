@@ -218,7 +218,7 @@ fn tc_048_member_type_ids_use_structural_paths() {
     );
     assert_eq!(
         reference.path[2],
-        CheckedNodePathSegment::Node(Box::new(selected))
+        CheckedNodePathSegment::Node(std::sync::Arc::new(selected))
     );
 }
 

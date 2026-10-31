@@ -743,26 +743,29 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
 }
 
 impl CheckedNodeId {
-    /// Read a structural ID already held as JSON without recursively cloning
-    /// its nested path operands.
+    /// Read a V2 node ID already held as JSON without accepting nested IDs
+    /// in its path.
     pub(crate) fn from_value(value: &serde_json::Value) -> Option<Self> {
         enum Task<'a> {
-            Parse(&'a serde_json::Value),
+            Parse(&'a serde_json::Value, bool),
             Finish {
                 package: Box<str>,
                 ordinal: u64,
                 path_len: usize,
             },
         }
-        let mut tasks = vec![Task::Parse(value)];
+        let mut tasks = vec![Task::Parse(value, true)];
         let mut segments = Vec::<CheckedNodePathSegment>::new();
         while let Some(task) = tasks.pop() {
             match task {
-                Task::Parse(serde_json::Value::String(name)) => {
+                Task::Parse(serde_json::Value::String(name), false) => {
                     segments.push(CheckedNodePathSegment::Name(name.as_str().into()));
                 }
-                Task::Parse(serde_json::Value::Object(object)) => {
-                    if object.len() == 1 {
+                Task::Parse(serde_json::Value::Object(object), is_root) => {
+                    if !is_root {
+                        if object.len() != 1 {
+                            return None;
+                        }
                         let index = object.get("node")?.as_u64()?;
                         if index > 9_007_199_254_740_991 {
                             return None;
@@ -784,9 +787,9 @@ impl CheckedNodeId {
                         ordinal,
                         path_len: path.len(),
                     });
-                    tasks.extend(path.iter().rev().map(Task::Parse));
+                    tasks.extend(path.iter().rev().map(|value| Task::Parse(value, false)));
                 }
-                Task::Parse(_) => return None,
+                Task::Parse(_, _) => return None,
                 Task::Finish {
                     package,
                     ordinal,
@@ -820,10 +823,14 @@ impl CheckedNodeId {
             {
                 return false;
             }
-            pending.extend(candidate.path.iter().filter_map(|segment| match segment {
-                CheckedNodePathSegment::Name(_) | CheckedNodePathSegment::Index(_) => None,
-                CheckedNodePathSegment::Node(node) => Some(node.as_ref()),
-            }));
+            for segment in &candidate.path {
+                match segment {
+                    CheckedNodePathSegment::Name(_) => {}
+                    CheckedNodePathSegment::Index(index) if *index <= 9_007_199_254_740_991 => {}
+                    CheckedNodePathSegment::Index(_) => return false,
+                    CheckedNodePathSegment::Node(node) => pending.push(node),
+                }
+            }
         }
         true
     }
@@ -844,39 +851,11 @@ impl Drop for CheckedNodeId {
 
 impl Clone for CheckedNodeId {
     fn clone(&self) -> Self {
-        enum Task<'a> {
-            Segment(&'a CheckedNodePathSegment),
-            Finish(&'a CheckedNodeId),
+        Self {
+            package: self.package.clone(),
+            path: self.path.clone(),
+            ordinal: self.ordinal,
         }
-        let mut tasks = vec![Task::Finish(self)];
-        tasks.extend(self.path.iter().rev().map(Task::Segment));
-        let mut segments = Vec::<CheckedNodePathSegment>::new();
-        while let Some(task) = tasks.pop() {
-            match task {
-                Task::Segment(CheckedNodePathSegment::Name(name)) => {
-                    segments.push(CheckedNodePathSegment::Name(name.clone()));
-                }
-                Task::Segment(CheckedNodePathSegment::Index(index)) => {
-                    segments.push(CheckedNodePathSegment::Index(*index));
-                }
-                Task::Segment(CheckedNodePathSegment::Node(node)) => {
-                    tasks.push(Task::Finish(node));
-                    tasks.extend(node.path.iter().rev().map(Task::Segment));
-                }
-                Task::Finish(node) => {
-                    let path = segments.split_off(segments.len() - node.path.len());
-                    segments.push(CheckedNodePathSegment::Node(std::sync::Arc::new(Self {
-                        package: node.package.clone(),
-                        path,
-                        ordinal: node.ordinal,
-                    })));
-                }
-            }
-        }
-        let Some(CheckedNodePathSegment::Node(root)) = segments.pop() else {
-            unreachable!("root clone is a node")
-        };
-        std::sync::Arc::try_unwrap(root).expect("cloned root has one owner")
     }
 }
 
