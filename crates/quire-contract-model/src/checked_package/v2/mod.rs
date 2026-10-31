@@ -2728,6 +2728,7 @@ fn validate_graph(
         &index,
         &wire.source_map,
         &owners,
+        models,
         meter,
     )?;
     protocol_body::validate_protocol_nodes(
