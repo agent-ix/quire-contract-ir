@@ -590,7 +590,9 @@ fn long_index_chain_admits_on_a_small_stack_with_shared_keys() {
                 ty["identity"] == "ix://acme/orders/OrderTotal"
                     && ty["scalar"] == "integer"
                     && ty["constraints"].as_array().is_some_and(|constraints| {
-                        constraints.iter().any(|row| row["keyword"] == "min")
+                        ["min", "max"]
+                            .iter()
+                            .all(|keyword| constraints.iter().any(|row| row["keyword"] == *keyword))
                     })
             }),
         "the 100k-node read exercises selected integer bounds"
