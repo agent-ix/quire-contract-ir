@@ -148,20 +148,13 @@ fn malformed_present_fields_are_typed_refusals() {
             expected,
         );
     }
-    for key in [
-        CheckedNodeId {
-            package: "".into(),
-            ..node_key()
-        },
-        CheckedNodeId {
-            path: Vec::new(),
-            ..node_key()
-        },
-        CheckedNodeId {
-            ordinal: 9_007_199_254_740_992,
-            ..node_key()
-        },
-    ] {
+    let mut empty_package = node_key();
+    empty_package.package = "".into();
+    let mut empty_path = node_key();
+    empty_path.path.clear();
+    let mut oversized_ordinal = node_key();
+    oversized_ordinal.ordinal = 9_007_199_254_740_992;
+    for key in [empty_package, empty_path, oversized_ordinal] {
         refuse(
             CheckedApplicationOperationFixture {
                 member_declaration: Some(key),
