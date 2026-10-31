@@ -25,7 +25,10 @@ fn malformed(at: JsonPointer) -> ValidationFailure {
 
 /// A source Time has a declared nominal body; a selected model Time is
 /// identified by its FCD declaration and has no declaration or body terms.
-fn is_base_time_dimension(node: &CheckedSemanticNodeV2, models: &[DomainModel]) -> bool {
+fn is_base_time_dimension(
+    node: &CheckedSemanticNodeV2,
+    models: &BTreeMap<&str, &DomainModel>,
+) -> bool {
     match node.owner.as_ref() {
         Some(CheckedNodeOwner::Model {
             identity,
@@ -33,8 +36,7 @@ fn is_base_time_dimension(node: &CheckedSemanticNodeV2, models: &[DomainModel]) 
         }) => {
             node.declaration.is_none()
                 && models
-                    .iter()
-                    .find(|model| model.identity == *identity)
+                    .get(identity.as_ref())
                     .and_then(|model| model.dimensions.get(fcd_id))
                     .is_some_and(|dimension| {
                         dimension.name.as_ref() == "Time" && dimension.terms.is_empty()
@@ -1802,6 +1804,12 @@ pub(super) fn validate_models<'a>(
         terms,
         index,
     };
+    // Index selected FCD packages once; looking one up for each timed root
+    // must not rescan every selected document.
+    let models_by_identity: BTreeMap<&str, &DomainModel> = models
+        .iter()
+        .map(|model| (model.identity.as_ref(), model))
+        .collect();
     let mut roots = Vec::new();
     let mut represented = BTreeSet::new();
     let mut root_of = BTreeMap::new();
@@ -1891,7 +1899,7 @@ pub(super) fn validate_models<'a>(
                     binding_at(source, 1),
                     |kind| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
                 )?;
-                let is_base_time = is_base_time_dimension(&nodes[dimension], models);
+                let is_base_time = is_base_time_dimension(&nodes[dimension], &models_by_identity);
                 if !is_base_time || nodes[unit].semantic_type != nodes[dimension].node_id {
                     return Err(graph.issue(
                         source,
@@ -2409,6 +2417,7 @@ mod tests {
             &std::sync::Arc::new(BTreeMap::new()),
         )
         .expect("selected FCD dimensions");
+        let models = BTreeMap::from([(model.identity.as_ref(), &model)]);
         let dimension = |owner: &str| {
             serde_json::from_value::<CheckedSemanticNodeV2>(json!({
                 "node_id":{"package":"acme/rpc","path":["scalar_type","dimension",owner],"ordinal":0},
@@ -2422,17 +2431,17 @@ mod tests {
             .expect("model-owned dimension node")
         };
         let time = dimension("ix://acme/rpc/dimension/Time");
-        assert!(is_base_time_dimension(&time, std::slice::from_ref(&model)));
+        assert!(is_base_time_dimension(&time, &models));
         assert!(!is_base_time_dimension(
             &dimension("ix://acme/rpc/dimension/Length"),
-            std::slice::from_ref(&model)
+            &models
         ));
         let mut wrong_package = time.clone();
         wrong_package.owner = Some(CheckedNodeOwner::Model {
             identity: "acme/other".into(),
             node: "ix://acme/rpc/dimension/Time".into(),
         });
-        assert!(!is_base_time_dimension(&wrong_package, &[model]));
+        assert!(!is_base_time_dimension(&wrong_package, &models));
     }
 
     /// Provenance: IR-1083, QSpec STD-526 SL-01..08 and SR-01..04.
