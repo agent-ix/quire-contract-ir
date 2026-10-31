@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-035/TC-047 and QSpec FR-330: the single five-field package value.
+//! FR-035/TC-047 and QSpec FR-330: the single six-member package value.
 
 use crate::support::checked_package::{
     self, canonical, evidence_for, refresh_identity, settle, typed_node_id, v2_all_families,
@@ -549,7 +549,7 @@ fn lowered_package_retains_typed_terms_by_admitted_node_key() {
     assert_eq!(reader.node(&missing()), None);
 }
 
-#[trace("TC-047", "FR-035-AC-12")]
+#[trace("TC-047", "FR-035-AC-31")]
 #[test]
 fn reader_refuses_each_missing_required_top_level_member() {
     let output = lower(&mixed_fixture(), &request());
@@ -558,6 +558,7 @@ fn reader_refuses_each_missing_required_top_level_member() {
         "contract_version",
         "package",
         "semantic_graph",
+        "source_keys",
         "source_map",
         "feature_accounting",
     ] {
@@ -576,6 +577,132 @@ fn reader_refuses_each_missing_required_top_level_member() {
             refusal.cause,
             Some(Cause::MissingMember),
             "missing {member}"
+        );
+    }
+}
+
+/// FR-035-AC-33 / QSpec FR-330-AC-15: the two index tables and the
+/// source-key references have a fixed refusal order before semantic joins.
+#[trace("TC-047", "FR-035-AC-33")]
+#[test]
+fn reader_checks_output_then_source_indexes_then_source_references() {
+    let output = lower(&mixed_fixture(), &request());
+    let wire: Value = serde_json::from_slice(bytes(&output)).expect("six-member wire");
+    assert!(matches!(
+        read(&canonical(&wire)),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    let graph_len = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph")
+        .len();
+    let source_len = wire["source_keys"].as_array().expect("source keys").len();
+    assert!(graph_len > 0 && source_len > 0);
+
+    let mut output_bad = wire.clone();
+    output_bad["semantic_graph"]["nodes"][0]["node_id"]["path"][0] = json!({"node": graph_len});
+    let mut source_bad = wire.clone();
+    source_bad["source_keys"][0]["path"][0] = json!({"node": source_len});
+    let mut reference_bad = wire.clone();
+    reference_bad["feature_accounting"][0]["node_id"]["source_key"] = json!(source_len);
+    let mut paired_output_source = output_bad.clone();
+    paired_output_source["source_keys"][0]["path"][0] = json!({"node": source_len});
+    let mut paired_source_reference = source_bad.clone();
+    paired_source_reference["feature_accounting"][0]["node_id"]["source_key"] = json!(source_len);
+    let cases = [
+        (output_bad, "/semantic_graph/nodes/0/node_id/path/0/node"),
+        (source_bad, "/source_keys/0/path/0/node"),
+        (reference_bad, "/feature_accounting/0/node_id/source_key"),
+        (
+            paired_output_source,
+            "/semantic_graph/nodes/0/node_id/path/0/node",
+        ),
+        (paired_source_reference, "/source_keys/0/path/0/node"),
+    ];
+    for (changed, path) in cases {
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
+            panic!("indexed defect at {path} must refuse");
+        };
+        assert_eq!(refusal.code, Code::MalformedWire, "{path}");
+        assert_eq!(refusal.cause, None, "{path}");
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(|at| at.as_str()),
+            Some(path)
+        );
+    }
+
+    let mut self_cycle = wire.clone();
+    self_cycle["source_keys"][0]["path"][0] = json!({"node": 0});
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&self_cycle)) else {
+        panic!("source-key self-cycle must refuse");
+    };
+    assert_eq!(refusal.code, Code::MalformedWire);
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|at| at.as_str()),
+        Some("/source_keys/0/path/0/node")
+    );
+
+    let mut duplicate = wire;
+    let first = duplicate["source_keys"][0].clone();
+    duplicate["source_keys"]
+        .as_array_mut()
+        .expect("table")
+        .push(first);
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&duplicate)) else {
+        panic!("duplicate structural source key must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue))
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|at| at.as_str()),
+        Some(format!("/source_keys/{source_len}").as_str())
+    );
+}
+
+#[trace("TC-047", "FR-035-AC-33")]
+#[test]
+fn reader_refuses_closed_source_reference_shapes_before_index_checks() {
+    let output = lower(&mixed_fixture(), &request());
+    let wire: Value = serde_json::from_slice(bytes(&output)).expect("six-member wire");
+    let cases = [
+        (
+            json!({"source_key": 0, "extra": true}),
+            Cause::UnknownMember,
+            "/feature_accounting/0/node_id",
+        ),
+        (
+            json!({}),
+            Cause::MissingMember,
+            "/feature_accounting/0/node_id",
+        ),
+        (
+            json!({"source_key": "0"}),
+            Cause::WrongValueKind,
+            "/feature_accounting/0/node_id/source_key",
+        ),
+        (
+            json!({"source_key": -1}),
+            Cause::InvalidValue,
+            "/feature_accounting/0/node_id/source_key",
+        ),
+    ];
+    for (reference, cause, path) in cases {
+        let mut changed = wire.clone();
+        changed["feature_accounting"][0]["node_id"] = reference;
+        changed["semantic_graph"]["nodes"][0]["node_id"]["path"][0] = json!({"node": 999});
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
+            panic!("closed source-reference shape must refuse at {path}");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(cause))
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(|at| at.as_str()),
+            Some(path)
         );
     }
 }
@@ -632,11 +759,12 @@ fn reader_refuses_first_accounting_record_for_later_requested_items() {
     assert_eq!(changed["feature_accounting"][0]["disposition"], "lowered");
     assert_eq!(changed["feature_accounting"][1]["disposition"], "lowered");
     let other_root = changed["source_map"]["requested_items"][1]["requested_item"].clone();
+    let other_source_index = other_root["source_key"].as_u64().expect("source reference") as usize;
     assert!(changed["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .any(|node| node["node_id"] == other_root));
+        .any(|node| node["node_id"] == changed["source_keys"][other_source_index]));
     changed["feature_accounting"][0]["node_id"] = other_root;
     let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
         panic!("first accounting record for another represented root must refuse");
@@ -1067,7 +1195,7 @@ fn reached_view_exposes_empty_subsets_and_absent_keys() {
 
 #[trace("TC-047", "FR-035-AC-3", "FR-035-AC-4")]
 #[test]
-fn one_call_emits_one_five_field_package_with_total_accounting_and_source_map() {
+fn one_call_emits_one_six_member_package_with_total_accounting_and_source_map() {
     let input = mixed_fixture();
     let admitted = admit(&input);
     let result = admitted.lower(&request(), &profile());
@@ -1317,7 +1445,8 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
     assert_eq!(producer.node_kind(&formula), None);
     assert!(producer.node_kind(&healthy).is_some());
     let mut represented_request: Value = serde_json::from_slice(wire_bytes).expect("wire json");
-    let represented = serde_json::to_value(&healthy).expect("represented node id");
+    let represented =
+        represented_request["source_map"]["requested_items"][1]["requested_item"].clone();
     let healthy_sources =
         represented_request["source_map"]["requested_items"][1]["occurrences"].clone();
     represented_request["feature_accounting"][0]["node_id"] = represented.clone();
@@ -1336,7 +1465,16 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         Err(ContractUnsupportedSourceKindError::NotAdmitted)
     );
     let mut missing_root: Value = serde_json::from_slice(wire_bytes).expect("wire json");
-    let absent = serde_json::to_value(missing()).expect("missing node id");
+    let absent_key = serde_json::to_value(missing()).expect("missing node id");
+    let absent_index = missing_root["source_keys"]
+        .as_array()
+        .expect("source keys")
+        .len();
+    missing_root["source_keys"]
+        .as_array_mut()
+        .expect("source keys")
+        .push(absent_key);
+    let absent = json!({"source_key": absent_index});
     missing_root["feature_accounting"][0]["node_id"] = absent.clone();
     missing_root["source_map"]["requested_items"][0]["requested_item"] = absent.clone();
     missing_root["source_map"]["requested_items"][0]["occurrences"] = json!([]);
@@ -1470,6 +1608,7 @@ fn canonical_package_retains_request_order_and_source_coordinates() {
             "feature_accounting",
             "package",
             "semantic_graph",
+            "source_keys",
             "source_map"
         ]
     );
@@ -1495,7 +1634,7 @@ fn canonical_package_retains_request_order_and_source_coordinates() {
     assert_ne!(first_wire.source_map, changed_wire.source_map);
 }
 
-#[trace("TC-047", "FR-035-AC-12")]
+#[trace("TC-047", "FR-035-AC-31")]
 #[test]
 fn reader_refuses_malformed_outer_shape_and_identity_member() {
     use quire_contract_model::{
@@ -1507,6 +1646,7 @@ fn reader_refuses_malformed_outer_shape_and_identity_member() {
         "contract_version",
         "package",
         "semantic_graph",
+        "source_keys",
         "source_map",
         "feature_accounting",
     ] {
@@ -1706,8 +1846,9 @@ fn refused_request_appears_only_if_reached_by_a_lowered_root() {
 fn failed_wire(limit: &str, consumed: &str) -> Value {
     let output = lower(&mixed_fixture(), &request());
     let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    let source_ref = wire["feature_accounting"][1]["node_id"].clone();
     wire["feature_accounting"][1] = json!({
-        "node_id": id("1010"), "disposition": "failed", "limit_kind": "work",
+        "node_id": source_ref, "disposition": "failed", "limit_kind": "work",
         "limit": limit, "consumed": consumed,
     });
     wire["source_map"]["refusals"][0]["disposition"] = json!("failed");
@@ -1755,8 +1896,9 @@ fn canonical_decimal_counters_keep_the_full_u64_range() {
 fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     use quire_contract_model::CheckedPackageRefusalCause;
     let mut wire = failed_wire("0", "0");
+    let source_ref = wire["feature_accounting"][1]["node_id"].clone();
     wire["feature_accounting"][1] = json!({
-        "node_id": id("1010"), "disposition": "body_incomplete", "body_node_id": id("1010"),
+        "node_id": source_ref, "disposition": "body_incomplete", "body_node_id": source_ref,
         "incomplete": {"limit_kind": "bytes", "limit": "8", "consumed": "8"},
     });
     wire["source_map"]["refusals"][0]["disposition"] = json!("body_incomplete");
@@ -1803,8 +1945,9 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     );
 
     let mut body = failed_wire("0", "0");
+    let source_ref = body["feature_accounting"][1]["node_id"].clone();
     body["feature_accounting"][1] = json!({
-        "node_id": id("1010"), "disposition": "invalid_body", "body_node_id": id("1010"),
+        "node_id": source_ref, "disposition": "invalid_body", "body_node_id": source_ref,
         "refusal": {"code": "invalid_package", "path": ""},
     });
     body["source_map"]["refusals"][0]["disposition"] = json!("invalid_body");
@@ -1860,12 +2003,13 @@ fn reader_refuses_causes_on_causeless_nested_reader_codes() {
         ("unknown_required_capability", None),
     ] {
         let mut wire = failed_wire("0", "0");
+        let source_ref = wire["feature_accounting"][1]["node_id"].clone();
         let mut nested = json!({"code": code, "path": ""});
         if let Some(version) = contract_version {
             nested["contract_version"] = json!(version);
         }
         wire["feature_accounting"][1] = json!({
-            "node_id": id("1010"), "disposition": "invalid_body", "body_node_id": id("1010"),
+            "node_id": source_ref, "disposition": "invalid_body", "body_node_id": source_ref,
             "refusal": nested,
         });
         wire["source_map"]["refusals"][0]["disposition"] = json!("invalid_body");

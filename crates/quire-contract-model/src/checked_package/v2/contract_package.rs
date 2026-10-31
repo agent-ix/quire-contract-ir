@@ -34,15 +34,16 @@ use crate::checked_package::common::{
     read_typed_prefix, strict_parse, Step, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedOccurrenceRole, CheckedPackageIncomplete, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole, CheckedPackageIncomplete,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
 use quire_canonical::{Encode, Error as CanonicalError, FixedShape, Sink, Writer};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Arc;
 
 /// The source package's exact admitted identity and lock.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
@@ -414,7 +415,7 @@ impl From<&CompleteLoweringRecordV2> for ContractFeatureRecordV1 {
 }
 
 /// The one closed six-member FR-330 package value.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractPackageWireV1 {
     /// Exactly `quire.contract-package/v1`.
@@ -431,18 +432,105 @@ pub struct ContractPackageWireV1 {
     pub feature_accounting: Vec<ContractFeatureRecordV1>,
 }
 
+#[derive(Serialize)]
+struct ExpandedContractWire<'a> {
+    contract_version: &'a str,
+    package: &'a ContractProvenanceV1,
+    semantic_graph: &'a ContractSemanticGraphV1,
+    source_keys: &'a [CheckedNodeId],
+    source_map: &'a ContractSourceMapV1,
+    feature_accounting: &'a [ContractFeatureRecordV1],
+}
+
+fn expanded_wire_value(wire: &ContractPackageWireV1) -> Result<Value, serde_json::Error> {
+    serde_json::to_value(ExpandedContractWire {
+        contract_version: &wire.contract_version,
+        package: &wire.package,
+        semantic_graph: &wire.semantic_graph,
+        source_keys: &wire.source_keys,
+        source_map: &wire.source_map,
+        feature_accounting: &wire.feature_accounting,
+    })
+}
+
+impl ContractPackageWireV1 {
+    fn raw_wire_value(&self) -> Result<Value, String> {
+        let mut value = expanded_wire_value(self).map_err(|error| error.to_string())?;
+        let positions = self
+            .source_keys
+            .iter()
+            .enumerate()
+            .map(|(position, id)| (id, position))
+            .collect::<BTreeMap<_, _>>();
+        for at in source_ref_paths(&value) {
+            let id = value
+                .pointer(at.as_str())
+                .and_then(CheckedNodeId::from_value)
+                .ok_or_else(|| format!("invalid source-frame id at {at}"))?;
+            let position = *positions
+                .get(&id)
+                .ok_or_else(|| format!("unlisted source-frame id at {at}"))?;
+            let reference = value
+                .pointer_mut(at.as_str())
+                .ok_or_else(|| format!("missing source-frame id at {at}"))?;
+            *reference = serde_json::json!({ "source_key": position });
+        }
+        Ok(value)
+    }
+}
+
+impl Serialize for ContractPackageWireV1 {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.raw_wire_value()
+            .map_err(serde::ser::Error::custom)?
+            .serialize(serializer)
+    }
+}
+
 /// A ContractPackage produced from an admitted source or admitted by the sole
 /// strict reader. Consumers take this type so a raw wire value cannot bypass
 /// admission.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractPackageV1 {
     wire: ContractPackageWireV1,
+    frames: ContractFrameKeys,
     node_kinds: Vec<CheckedNodeKind>,
     terms: Vec<Option<CheckedTerm>>,
     node_index: BTreeMap<CheckedNodeId, usize>,
     source_index: BTreeMap<CheckedNodeId, usize>,
     unsupported_tags: Vec<Option<CheckedNodeTag>>,
     unsupported_source_kinds: Option<Vec<Option<CheckedNodeKind>>>,
+}
+
+/// One admitted structural identity for each raw coordinate in the two
+/// independent FR-330 frames. The maps are shallow wire-key lookups; their
+/// values are shared Arc DAG keys rebuilt by the common FR-322 resolver.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ContractFrameKeys {
+    output: BTreeMap<CheckedNodeId, Arc<CheckedNodeId>>,
+    source: BTreeMap<CheckedNodeId, Arc<CheckedNodeId>>,
+}
+
+impl ContractFrameKeys {
+    fn output(&self, id: &CheckedNodeId) -> Option<&CheckedNodeId> {
+        self.output.get(id).map(Arc::as_ref)
+    }
+
+    fn source(&self, id: &CheckedNodeId) -> Option<&CheckedNodeId> {
+        self.source.get(id).map(Arc::as_ref)
+    }
+
+    fn source_equals_output(&self, source: &CheckedNodeId, output: &CheckedNodeId) -> bool {
+        self.source(source)
+            .zip(self.output(output))
+            .is_some_and(|(a, b)| a == b)
+    }
+
+    fn source_equals_source(&self, first: &CheckedNodeId, second: &CheckedNodeId) -> bool {
+        self.source(first)
+            .zip(self.source(second))
+            .is_some_and(|(a, b)| a == b)
+    }
 }
 
 /// The requested-root kind has no authenticated V2 source in a plain V1 read.
@@ -753,7 +841,7 @@ impl ContractPackageV1 {
         }))
     }
 
-    /// The exact five-field wire, available for read-only inspection.
+    /// The admitted six-member wire, available for read-only inspection.
     pub fn wire(&self) -> &ContractPackageWireV1 {
         &self.wire
     }
@@ -831,7 +919,7 @@ impl ContractPackageV1 {
     }
 
     /// Reads one exact requested key and, when lowered, its local reached
-    /// closure. The five-field wire is never changed.
+    /// closure. The six-member wire is never changed.
     pub fn reached_closure(
         &self,
         requested: &CheckedNodeId,
@@ -1027,14 +1115,9 @@ impl Encode for ContractPackageWireV1 {
         &self,
         writer: &mut Writer<'_, S>,
     ) -> Result<(), CanonicalError> {
-        writer.begin_object()?;
-        encode_member(writer, "contract_version", &self.contract_version)?;
-        encode_member(writer, "package", &self.package)?;
-        encoded(writer, "semantic_graph", &self.semantic_graph)?;
-        elements(writer, "source_keys", &self.source_keys)?;
-        encoded(writer, "source_map", &self.source_map)?;
-        elements(writer, "feature_accounting", &self.feature_accounting)?;
-        writer.end_object()
+        self.raw_wire_value()
+            .map_err(CanonicalError::Serialize)?
+            .encode_into(writer)
     }
 }
 
@@ -1315,28 +1398,19 @@ impl ContractPackageWireV1 {
         };
         // FR-322 indexes name positions in this projected document, not in
         // the originating checked package. Preserve provenance untouched.
-        let mut projected = serde_json::to_value(&wire).map_err(|_| ceiling.saturating_add(1))?;
+        let mut projected = expanded_wire_value(&wire).map_err(|_| ceiling.saturating_add(1))?;
         remap_projected_indexes(&mut projected["semantic_graph"], &projected_positions)
             .map_err(|()| ceiling.saturating_add(1))?;
-        remap_projected_indexes(&mut projected["source_map"], &projected_positions)
-            .map_err(|()| ceiling.saturating_add(1))?;
-        for record in projected["feature_accounting"]
+        for mapped in projected["source_map"]["nodes"]
             .as_array_mut()
-            .expect("constructed accounting array")
-            .iter_mut()
+            .expect("constructed source-map nodes")
         {
-            for member in [
-                "node_id",
-                "unsupported_node_id",
-                "unbounded_type",
-                "body_node_id",
-            ] {
-                if let Some(id) = record.get_mut(member) {
-                    remap_projected_indexes(id, &projected_positions)
-                        .map_err(|()| ceiling.saturating_add(1))?;
-                }
-            }
+            remap_projected_indexes(&mut mapped["node_id"], &projected_positions)
+                .map_err(|()| ceiling.saturating_add(1))?;
         }
+        let raw =
+            source_frame_wire(&mut projected, source).map_err(|()| ceiling.saturating_add(1))?;
+        let (_, frames) = resolve_source_frames(&raw).map_err(|_| ceiling.saturating_add(1))?;
         let wire_bytes = serde_json::to_vec(&projected).map_err(|_| ceiling.saturating_add(1))?;
         let wire: Self =
             serde_json::from_slice(&wire_bytes).map_err(|_| ceiling.saturating_add(1))?;
@@ -1371,11 +1445,12 @@ impl ContractPackageWireV1 {
             .enumerate()
             .map(|(position, node)| (node.node_id.clone(), position))
             .collect();
-        let bytes = canonical(&wire, ceiling)?.into_boxed_slice();
+        let bytes = canonical(&raw, ceiling)?.into_boxed_slice();
         Ok((
             ContractPackageV1 {
                 source_index: result_context::source_index(&wire.source_map.nodes),
                 wire,
+                frames,
                 node_kinds,
                 terms,
                 node_index,
@@ -1385,6 +1460,95 @@ impl ContractPackageWireV1 {
             bytes,
         ))
     }
+}
+
+/// Intern source-frame IDs and their operand closure without consulting output
+/// graph positions. The returned JSON has only source-key references in every
+/// source-frame position; `expanded` retains resolved IDs for in-memory views.
+fn source_frame_wire(expanded: &mut Value, source: &CheckedPackageV2) -> Result<Value, ()> {
+    let paths = source_ref_paths(expanded);
+    let direct = paths
+        .iter()
+        .map(|at| CheckedNodeId::from_value(expanded.pointer(at.as_str()).ok_or(())?).ok_or(()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let source_positions = source
+        .graph()
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| (&node.node_id, position))
+        .collect::<BTreeMap<_, _>>();
+    let mut included = vec![false; source.graph().nodes.len()];
+    let mut pending = VecDeque::new();
+    for id in &direct {
+        include_source_operands(id, &source_positions, &mut included, &mut pending)?;
+    }
+    while let Some(position) = pending.pop_front() {
+        include_source_operands(
+            &source.graph().nodes[position].node_id,
+            &source_positions,
+            &mut included,
+            &mut pending,
+        )?;
+    }
+    let mut table_positions = vec![None; included.len()];
+    let mut keys = Vec::new();
+    for (position, included) in included.into_iter().enumerate() {
+        if included {
+            table_positions[position] = Some(keys.len());
+            keys.push(source.graph().nodes[position].node_id.clone());
+        }
+    }
+    let mut key_positions = keys
+        .iter()
+        .enumerate()
+        .map(|(position, id)| (id.clone(), position))
+        .collect::<BTreeMap<_, _>>();
+    for id in &direct {
+        if !key_positions.contains_key(id) {
+            key_positions.insert(id.clone(), keys.len());
+            keys.push(id.clone());
+        }
+    }
+    let keys = keys
+        .iter()
+        .map(|id| remap_checked_id(id, &table_positions).ok_or(()))
+        .collect::<Result<Vec<_>, _>>()?;
+    expanded["source_keys"] = serde_json::to_value(&keys).map_err(|_| ())?;
+    let mut raw = expanded.clone();
+    for (at, id) in paths.into_iter().zip(&direct) {
+        let position = *key_positions.get(id).ok_or(())?;
+        *expanded.pointer_mut(at.as_str()).ok_or(())? =
+            serde_json::to_value(&keys[position]).map_err(|_| ())?;
+        *raw.pointer_mut(at.as_str()).ok_or(())? = serde_json::json!({ "source_key": position });
+    }
+    raw["source_keys"] = expanded["source_keys"].clone();
+    Ok(raw)
+}
+
+fn include_source_operands(
+    id: &CheckedNodeId,
+    source_positions: &BTreeMap<&CheckedNodeId, usize>,
+    included: &mut [bool],
+    pending: &mut VecDeque<usize>,
+) -> Result<(), ()> {
+    if let Some(&position) = source_positions.get(id) {
+        if !included[position] {
+            included[position] = true;
+            pending.push_back(position);
+        }
+    }
+    for segment in &id.path {
+        if let CheckedNodePathSegment::Index(index) = segment {
+            let position = usize::try_from(*index).map_err(|_| ())?;
+            let selected = included.get_mut(position).ok_or(())?;
+            if !*selected {
+                *selected = true;
+                pending.push_back(position);
+            }
+        }
+    }
+    Ok(())
 }
 
 impl ContractPackageWireV1 {
@@ -1480,13 +1644,14 @@ impl ContractPackageWireV1 {
             .feature_accounting
             .iter()
             .map(|record| match record {
-                ContractFeatureRecordV1::Unsupported { node_id, .. } => {
-                    remap_checked_id(node_id, &source_positions)
-                        .as_ref()
-                        .and_then(|id| source.node_kind(id))
-                        .map(Some)
-                        .ok_or_else(|| ContractSourceHandoffError::MissingNode(node_id.clone()))
-                }
+                ContractFeatureRecordV1::Unsupported { node_id, .. } => package
+                    .frames
+                    .source(node_id)
+                    .and_then(|key| source_nodes.get(key).copied())
+                    .and_then(|position| source.graph().nodes.get(position))
+                    .and_then(|node| source.node_kind(&node.node_id))
+                    .map(Some)
+                    .ok_or_else(|| ContractSourceHandoffError::MissingNode(node_id.clone())),
                 _ => Ok(None),
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1533,7 +1698,7 @@ impl ContractPackageWireV1 {
             None => return Err(malformed(root, CheckedPackageRefusalCause::MissingMember)),
         }
         validate_shapes(&value)?;
-        let expanded = resolve_source_frames(&value)?;
+        let (expanded, frames) = resolve_source_frames(&value)?;
         // CheckedNodeId uses RawValue for iterative nested-path decoding.
         // Deserializing it from an in-memory Value cannot provide that raw
         // token stream, so decode the already shape-checked input bytes.
@@ -1550,10 +1715,10 @@ impl ContractPackageWireV1 {
         })?;
         let mut work_meter = super::WorkMeter::new(limits.work);
         let (node_kinds, unsupported_tags) = wire.validate_values(limits, &mut work_meter)?;
-        wire.validate_correspondence(limits)?;
-        wire.validate_accounting()?;
+        wire.validate_correspondence(limits, &frames)?;
+        wire.validate_accounting(&frames)?;
         wire.validate_dependencies(dependencies, &mut work_meter)?;
-        let terms = wire.validate_references(dependencies, limits, &mut work_meter)?;
+        let terms = wire.validate_references(dependencies, limits, &mut work_meter, &frames)?;
         let node_index = wire
             .semantic_graph
             .nodes
@@ -1564,6 +1729,7 @@ impl ContractPackageWireV1 {
         Ok(ContractPackageV1 {
             source_index: result_context::source_index(&wire.source_map.nodes),
             wire,
+            frames,
             node_kinds,
             terms,
             node_index,
@@ -1575,7 +1741,7 @@ impl ContractPackageWireV1 {
 
 /// Validate both document-local index tables and every source reference before
 /// expanding the source-frame references for the admitted in-memory views.
-fn resolve_source_frames(value: &Value) -> Result<Value, ValidationFailure> {
+fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), ValidationFailure> {
     let graph_at = JsonPointer::root().key("semantic_graph").key("nodes");
     let graph = value["semantic_graph"]["nodes"]
         .as_array()
@@ -1592,7 +1758,7 @@ fn resolve_source_frames(value: &Value) -> Result<Value, ValidationFailure> {
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    super::node_index::rebuild_keys(
+    let output_keys = super::node_index::rebuild_keys(
         &output_ids.iter().collect::<Vec<_>>(),
         |position, slot| {
             graph_at
@@ -1666,7 +1832,13 @@ fn resolve_source_frames(value: &Value) -> Result<Value, ValidationFailure> {
             *reference = table[index].clone();
         }
     }
-    Ok(expanded)
+    Ok((
+        expanded,
+        ContractFrameKeys {
+            output: output_ids.into_iter().zip(output_keys).collect(),
+            source: source_ids.into_iter().zip(source_keys).collect(),
+        },
+    ))
 }
 
 fn malformed(path: JsonPointer, cause: CheckedPackageRefusalCause) -> ValidationFailure {
@@ -1813,7 +1985,7 @@ fn source_ref_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFail
         Value::Number(number) if number.as_u64().is_some_and(|n| n <= 9_007_199_254_740_991) => {
             Ok(())
         }
-        Value::Number(number) if number.as_i64().is_some() => {
+        Value::Number(number) if number.as_u64().is_some() || number.as_i64().is_some() => {
             Err(malformed(key_at, CheckedPackageRefusalCause::InvalidValue))
         }
         Value::Number(_) => Err(malformed(
@@ -1832,33 +2004,38 @@ fn source_ref_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFail
 fn source_ref_paths(value: &Value) -> Vec<JsonPointer> {
     let root = JsonPointer::root();
     let mut paths = Vec::new();
+    // Traverse these fixed positions in canonical object-member and array
+    // order. This also chooses the first out-of-range reference deterministically.
+    if let Some(records) = value["feature_accounting"].as_array() {
+        for (index, record) in records.iter().enumerate() {
+            let at = root.clone().key("feature_accounting").index(index);
+            if record.get("body_node_id").is_some() {
+                paths.push(at.clone().key("body_node_id"));
+            }
+            paths.push(at.clone().key("node_id"));
+            if record["refusal"].get("locus").is_some() {
+                paths.push(at.clone().key("refusal").key("locus"));
+            }
+            for member in ["unbounded_type", "unsupported_node_id"] {
+                if record.get(member).is_some() {
+                    paths.push(at.clone().key(member));
+                }
+            }
+        }
+    }
     let map = &value["source_map"];
-    for collection in ["nodes", "requested_items", "refusals"] {
+    for collection in ["nodes", "refusals", "requested_items"] {
         if let Some(entries) = map[collection].as_array() {
             for (index, entry) in entries.iter().enumerate() {
                 let at = root.clone().key("source_map").key(collection).index(index);
-                if collection != "nodes" {
-                    paths.push(at.clone().key("requested_item"));
-                }
                 if let Some(occurrences) = entry["occurrences"].as_array() {
                     for ordinal in 0..occurrences.len() {
                         paths.push(at.clone().key("occurrences").index(ordinal).key("node_id"));
                     }
                 }
-            }
-        }
-    }
-    if let Some(records) = value["feature_accounting"].as_array() {
-        for (index, record) in records.iter().enumerate() {
-            let at = root.clone().key("feature_accounting").index(index);
-            paths.push(at.clone().key("node_id"));
-            for member in ["unsupported_node_id", "unbounded_type", "body_node_id"] {
-                if record.get(member).is_some() {
-                    paths.push(at.clone().key(member));
+                if collection != "nodes" {
+                    paths.push(at.key("requested_item"));
                 }
-            }
-            if record["refusal"].get("locus").is_some() {
-                paths.push(at.key("refusal").key("locus"));
             }
         }
     }
@@ -2051,6 +2228,12 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
                 &[subject, "occurrences"]
             };
             let entry = shape(entry, entry_at.clone(), required, &[])?;
+            if collection == "nodes" {
+                id_shape(
+                    member(entry, "node_id", &entry_at)?,
+                    entry_at.clone().key("node_id"),
+                )?;
+            }
             if extra.is_some() {
                 enum_string::<ContractDispositionV1>(
                     member(entry, "disposition", &entry_at)?,
@@ -2486,6 +2669,7 @@ impl ContractPackageWireV1 {
     fn validate_correspondence(
         &self,
         limits: CheckedPackageReadLimits,
+        frames: &ContractFrameKeys,
     ) -> Result<(), ValidationFailure> {
         let source_map = &self.source_map;
         let mut count = 0_u64;
@@ -2578,12 +2762,16 @@ impl ContractPackageWireV1 {
                     CheckedPackageRefusalCause::InvalidValue,
                 ));
             }
-            self.validate_occurrences(&mapped.occurrences, &node.node_id, Some(node), at)?;
+            self.validate_occurrences(&mapped.occurrences, &node.node_id, Some(node), at, frames)?;
         }
         let node_sources: BTreeMap<_, _> = source_map
             .nodes
             .iter()
-            .map(|entry| (&entry.node_id, &entry.occurrences))
+            .filter_map(|entry| {
+                frames
+                    .output(&entry.node_id)
+                    .map(|key| (key, &entry.occurrences))
+            })
             .collect();
         for (index, mapped) in source_map.requested_items.iter().enumerate() {
             self.validate_occurrences(
@@ -2594,8 +2782,12 @@ impl ContractPackageWireV1 {
                     .key("source_map")
                     .key("requested_items")
                     .index(index),
+                frames,
             )?;
-            if let Some(occurrences) = node_sources.get(&mapped.requested_item) {
+            if let Some(occurrences) = frames
+                .source(&mapped.requested_item)
+                .and_then(|key| node_sources.get(key))
+            {
                 if *occurrences != &mapped.occurrences {
                     return Err(malformed(
                         JsonPointer::root()
@@ -2617,6 +2809,7 @@ impl ContractPackageWireV1 {
                     .key("source_map")
                     .key("refusals")
                     .index(index),
+                frames,
             )?;
         }
         Ok(())
@@ -2628,12 +2821,18 @@ impl ContractPackageWireV1 {
         subject: &CheckedNodeId,
         represented: Option<&CheckedSemanticNodeV2>,
         at: JsonPointer,
+        frames: &ContractFrameKeys,
     ) -> Result<(), ValidationFailure> {
         let mut keys = BTreeSet::new();
         for (index, entry) in entries.iter().enumerate() {
             let entry_at = at.clone().key("occurrences").index(index);
             let key = (&entry.role, entry.ordinal);
-            if &entry.node_id != subject || !keys.insert(key) {
+            let matching_subject = if represented.is_some() {
+                frames.source_equals_output(&entry.node_id, subject)
+            } else {
+                frames.source_equals_source(&entry.node_id, subject)
+            };
+            if !matching_subject || !keys.insert(key) {
                 return Err(malformed(
                     entry_at,
                     CheckedPackageRefusalCause::InvalidValue,
@@ -2703,7 +2902,7 @@ impl ContractPackageWireV1 {
         Ok(())
     }
 
-    fn validate_accounting(&self) -> Result<(), ValidationFailure> {
+    fn validate_accounting(&self, frames: &ContractFrameKeys) -> Result<(), ValidationFailure> {
         let accounting = &self.feature_accounting;
         if self.source_map.requested_items.len() != accounting.len() {
             return Err(malformed(
@@ -2715,18 +2914,21 @@ impl ContractPackageWireV1 {
             .semantic_graph
             .nodes
             .iter()
-            .map(|node| &node.node_id)
+            .filter_map(|node| frames.output(&node.node_id))
             .collect();
         let mut refusal = 0;
         for (record, mapped) in accounting.iter().zip(&self.source_map.requested_items) {
-            if record.node_id() != &mapped.requested_item {
+            if !frames.source_equals_source(record.node_id(), &mapped.requested_item) {
                 return Err(malformed(
                     JsonPointer::root().key("feature_accounting"),
                     CheckedPackageRefusalCause::InvalidValue,
                 ));
             }
             if record.disposition() == ContractDispositionV1::Lowered {
-                if !represented.contains(record.node_id()) {
+                if frames
+                    .source(record.node_id())
+                    .is_none_or(|key| !represented.contains(key))
+                {
                     return Err(malformed(
                         JsonPointer::root().key("feature_accounting"),
                         CheckedPackageRefusalCause::InvalidValue,
@@ -2739,7 +2941,7 @@ impl ContractPackageWireV1 {
                         CheckedPackageRefusalCause::InvalidValue,
                     ));
                 };
-                if mapped_refusal.requested_item != *record.node_id()
+                if !frames.source_equals_source(&mapped_refusal.requested_item, record.node_id())
                     || mapped_refusal.disposition != record.disposition()
                     || mapped_refusal.occurrences != mapped.occurrences
                 {
@@ -2810,6 +3012,7 @@ impl ContractPackageWireV1 {
         dependencies: &ContractDependencies<'_>,
         limits: CheckedPackageReadLimits,
         meter: &mut super::WorkMeter,
+        frames: &ContractFrameKeys,
     ) -> Result<Vec<Option<CheckedTerm>>, ValidationFailure> {
         let admitted: BTreeMap<&str, &CheckedPackageV2> = dependencies
             .iter()
@@ -3017,12 +3220,30 @@ impl ContractPackageWireV1 {
             &edge_pointer,
         )?;
         let mut reached = BTreeSet::new();
-        let mut queue = self
-            .feature_accounting
+        let output_by_key = frames
+            .output
             .iter()
-            .filter(|record| record.disposition() == ContractDispositionV1::Lowered)
-            .map(|record| record.node_id().clone())
-            .collect::<VecDeque<_>>();
+            .map(|(wire, key)| (key.as_ref(), wire))
+            .collect::<BTreeMap<_, _>>();
+        let mut queue = VecDeque::new();
+        for (index, record) in self.feature_accounting.iter().enumerate() {
+            if record.disposition() != ContractDispositionV1::Lowered {
+                continue;
+            }
+            let output = frames
+                .source(record.node_id())
+                .and_then(|key| output_by_key.get(key))
+                .ok_or_else(|| {
+                    malformed(
+                        JsonPointer::root()
+                            .key("feature_accounting")
+                            .index(index)
+                            .key("node_id"),
+                        CheckedPackageRefusalCause::InvalidValue,
+                    )
+                })?;
+            queue.push_back((*output).clone());
+        }
         while let Some(key) = queue.pop_front() {
             if reached.insert(key.clone()) {
                 if let Some(edges) = outgoing.get(&key) {
