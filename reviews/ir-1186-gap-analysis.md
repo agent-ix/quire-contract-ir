@@ -103,3 +103,7 @@ At frozen `667b6dfbd81d16ea794d8384a07520705436607d`, the changed NI and V1 test
 ## Recheck at nominal-body indexed-wire test head
 
 `a8172f0598231293bba79d02c6aeea3b49f59b6a`: The replaced test no longer claims that an inline 10,000-level nested node ID is valid V2 input. It now verifies indexed positive encoding and exact malformed-wire refusal for that old invalid form under FR-038-AC-24. NI-13 remains tagged for the genuine 100,000-node FR-038-AC-117/380 stack obligation, so no acceptance evidence was lost and no new test gap was established.
+
+## Recheck at model-lib indexed-fixture repair head
+
+`128dcf0fe01c6b5843b2e11b2bf23111f27c7c04`: The obsolete inline-wire positive was replaced by closed indexed-wire positive and malformed inline adverse assertions; the deep test now exercises the internal Arc-key operations rather than treating an invalid nested V2 wire value as readable. NI-13 remains the independent 100,000-node small-stack reader evidence for FR-038-AC-117/380. Synthetic lower, model-fields, and relationship fixtures now use graph-local indexes and retained structural-key state, matching the admitted reader contract. Trace claims were updated from retired FR-038-AC-364/FR-322-AC-270/271 to FR-038-AC-377/FR-322-AC-278. No acceptance obligation or assertion was removed, and no new test gap was established.
