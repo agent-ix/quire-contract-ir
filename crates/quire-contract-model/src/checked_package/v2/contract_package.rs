@@ -2197,6 +2197,7 @@ fn source_ref_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFail
 
 /// The exhaustive FR-330 source-frame positions. A caller runs closed-shape
 /// validation before using these pointers, so no unknown object is traversed.
+#[ix_trace_rs::string_edge]
 fn source_ref_paths(value: &Value) -> Vec<JsonPointer> {
     let root = JsonPointer::root();
     let mut paths = Vec::new();
@@ -2254,6 +2255,7 @@ fn optional_typed(
     Ok(())
 }
 
+#[ix_trace_rs::string_edge]
 fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
     let root = JsonPointer::root();
     let top = shape(
