@@ -101,7 +101,7 @@ fn model_key(form: &str, package: &str, node: &str) -> String {
 
 fn dependency_ids(keys: &[&str]) -> Vec<Value> {
     let mut ids = keys.iter().map(|key| node_id(key)).collect::<Vec<_>>();
-    ids.sort_by_key(|id| structural_fixture_id(id));
+    ids.sort_by_key(structural_fixture_id);
     ids
 }
 
