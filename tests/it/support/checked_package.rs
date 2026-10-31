@@ -24,9 +24,10 @@
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
 use quire_contract_model::{
-    CheckedNodeId, CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageEvidence, CheckedPackageIncomplete,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, JsonPointer,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -274,6 +275,28 @@ pub fn node_id(path_label: &str) -> Value {
 /// A structural fixture identity with an explicit package, path and ordinal.
 pub fn structural_id(package: &str, path: Vec<Value>, ordinal: u64) -> Value {
     json!({"package": package, "path": path, "ordinal": ordinal})
+}
+
+/// Builds a structural expected key from a test's authored pre-index identity.
+/// This is a fixture constructor, never a reader for the V2 wire.
+pub fn structural_fixture_id(value: &Value) -> CheckedNodeId {
+    let path = value["path"]
+        .as_array()
+        .expect("fixture structural path")
+        .iter()
+        .map(|segment| match segment {
+            Value::String(name) => CheckedNodePathSegment::Name(name.as_str().into()),
+            Value::Object(_) => {
+                CheckedNodePathSegment::Node(std::sync::Arc::new(structural_fixture_id(segment)))
+            }
+            _ => panic!("fixture structural path segment"),
+        })
+        .collect();
+    CheckedNodeId {
+        package: value["package"].as_str().expect("fixture package").into(),
+        path,
+        ordinal: value["ordinal"].as_u64().expect("fixture ordinal"),
+    }
 }
 
 /// Rewrites authored structural fixture identities into the V2 graph-local
@@ -1958,7 +1981,7 @@ pub fn rekey_application_node(package: &mut Value, position: usize) {
 /// Returns whether `term` holds an application.
 fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<CheckedNodeId>) -> bool {
     fn add(out: &mut std::collections::BTreeSet<CheckedNodeId>, id: &Value) {
-        out.insert(serde_json::from_value(id.clone()).expect("local structural node id"));
+        out.insert(structural_fixture_id(id));
     }
     let mut holds_application = false;
     match term["term"].as_str() {
