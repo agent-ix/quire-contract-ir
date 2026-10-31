@@ -158,7 +158,10 @@ fn fixture_structural_key_from_ids(ids: &[CheckedNodeId], position: usize) -> Ch
     }
 }
 
-fn fixture_structural_key(nodes: &[CheckedSemanticNodeV2], position: usize) -> CheckedNodeId {
+fn fixture_structural_key<Body>(
+    nodes: &[CheckedSemanticNodeV2<Body>],
+    position: usize,
+) -> CheckedNodeId {
     let ids = nodes
         .iter()
         .map(|node| node.node_id.clone())
@@ -288,7 +291,7 @@ fn contract_source_and_output_index_tables_permute_independently() {
             "lowered source root joins output graph"
         );
     }
-    for (output, source_table) in [(true, false), (false, true), (true, true)] {
+    for (output, source_table) in [(false, true), (true, false), (true, true)] {
         let mut wire = original_wire.clone();
         if output {
             wire["semantic_graph"]["nodes"]
@@ -531,16 +534,36 @@ fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
         .get(request_index)
         .expect("requested source key");
     assert_eq!(request_key["path"][0], "absent");
+    let source_ids = source_keys
+        .iter()
+        .map(|id| serde_json::from_value(id.clone()).expect("source-key shape"))
+        .collect::<Vec<_>>();
     for (segment, source_position) in [(2_usize, 34_usize), (7, 21)] {
         let operand = request_key["path"][segment]["node"]
             .as_u64()
             .expect("indexed operand") as usize;
-        let keyed_operand = source_keys.get(operand).expect("source operand in table");
+        assert!(
+            source_keys.get(operand).is_some(),
+            "source operand in table"
+        );
         assert_eq!(
-            keyed_operand, &fixture["semantic_graph"]["nodes"][source_position]["node_id"],
+            fixture_structural_key_from_ids(&source_ids, operand),
+            *source
+                .structural_key_at(source_position)
+                .expect("source operand key"),
             "path segment {segment} names its original source operand"
         );
     }
+    let mut expected_absent = source
+        .structural_key_at(25)
+        .expect("derived source key")
+        .clone();
+    expected_absent.path[0] = CheckedNodePathSegment::Name("absent".into());
+    assert_eq!(
+        fixture_source_ref_key(&emitted, &emitted["feature_accounting"][0]["node_id"]),
+        expected_absent,
+        "request retains the source-authored structural identity"
+    );
     assert_eq!(
         emitted["source_map"]["requested_items"][0]["requested_item"],
         json!({"source_key": request_index})
@@ -562,7 +585,10 @@ fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
         panic!("reader admits exact invalid-input record: {read_back:?}");
     };
     assert!(read_back.wire().semantic_graph.nodes.is_empty());
-    assert_eq!(read_back.wire().feature_accounting[0].node_id(), &absent);
+    assert!(matches!(
+        read_back.wire().feature_accounting[0].disposition(),
+        quire_contract_model::ContractDispositionV1::InvalidInput
+    ));
 }
 
 #[trace("TC-935", "FR-330-AC-2")]
