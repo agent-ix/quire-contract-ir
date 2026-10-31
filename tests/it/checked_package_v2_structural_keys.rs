@@ -1303,10 +1303,22 @@ fn structural_group_members_retain_exact_paths_and_references() {
     let self_id = &self_node["node_id"];
     assert_eq!(self_node["dependencies"][0], *self_id);
     assert_eq!(self_node["body"]["members"][0]["target"], *self_id);
-    assert!(matches!(
-        read(&self_group),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let CheckedPackageV2ReadResult::Admitted(self_read) = read(&self_group) else {
+        panic!("producer-chosen self-group path must admit");
+    };
+    let retained_self = &self_read.graph().nodes[self_position];
+    assert_eq!(
+        serde_json::to_value(&retained_self.node_id).expect("typed self id"),
+        *self_id
+    );
+    assert_eq!(
+        serde_json::to_value(&retained_self.dependencies).expect("typed self dependencies"),
+        self_node["dependencies"]
+    );
+    assert_eq!(
+        serde_json::to_value(&retained_self.body).expect("typed self body"),
+        self_node["body"]
+    );
 
     let (list, option, record) = list_group();
     let nodes = list["semantic_graph"]["nodes"]
@@ -1368,10 +1380,23 @@ fn structural_group_members_retain_exact_paths_and_references() {
         off_cycle_node["body"]["members"][0]["target"],
         off_cycle_node["dependencies"][0]
     );
-    assert!(matches!(
-        read(&tree),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let CheckedPackageV2ReadResult::Admitted(tree_read) = read(&tree) else {
+        panic!("off-cycle member under shared label must admit");
+    };
+    let retained_off_cycle = &tree_read.graph().nodes[off_cycle];
+    assert_eq!(
+        serde_json::to_value(&retained_off_cycle.node_id).expect("typed off-cycle id"),
+        off_cycle_node["node_id"]
+    );
+    assert_eq!(
+        serde_json::to_value(&retained_off_cycle.dependencies)
+            .expect("typed off-cycle dependencies"),
+        off_cycle_node["dependencies"]
+    );
+    assert_eq!(
+        serde_json::to_value(&retained_off_cycle.body).expect("typed off-cycle body"),
+        off_cycle_node["body"]
+    );
 
     let mut unresolved = list.clone();
     unresolved["semantic_graph"]["nodes"][option]["body"]["members"][0]["target"]["ordinal"] =

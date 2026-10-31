@@ -1,0 +1,32 @@
+---
+id: SR-2026103028
+title: "IR-1174 PR 734 base review"
+type: SpecReview
+analysis: base
+scope: "agent-ix/quire-contract-ir; PR #734 0af6a196 over 483e75d2; FR-046-AC-3, FR-048-AC-3, FR-066-AC-1; changed tests/spec"
+review_set: subset
+---
+
+## Summary
+
+FR-048-AC-3 removes PLANNED/UNRUN while the zero-declaration producer-chosen path clause still lacks a fail-capable test. FR-066-AC-1 status removal is supported by four point variants, absence, typed bodies, and writer readback.
+
+## Verdict
+
+**CONDITIONAL** — One evidence gap requires a same-PR fix.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | medium | FR-048-AC-3 status becomes current before all clauses are backed | spec/model/functional/FR-048-derive-structural-and-group-candidates.md:43 |
+
+## Scope
+
+- **FR-046-AC-3 (examined)**: A group containing declared application and nonapplication nodes admits with each declared member's own declaration path and one shared non-empty `recursion_group` label. An anonymous derived member uses the sole declared member's path when exactly one exists, or a producer-chosen path when zero or multiple exist. Self, internal, outside and dependency references resolve by exact structural node id. Permuting otherwise valid members retains their structural ids and references, including their producer-assigned ordinals, while changing the complete graph-array value.
+- **FR-048-AC-3 (examined)**: A group with declared structural and application members, including TC-946 K14's three-declared-member cycle and an off-cycle member, retains each declared member's own path under one shared label; an anonymous derived member has the sole declared member's path or a producer-chosen path for zero or multiple declared members. Permuting the group retains every structural id and exact reference while changing graph-array order; a body or reference change is checked by its own graph/body rule. A repeated id, invalid label, mismatched cyclic-component label or unresolved exact reference refuses at its independent locus.
+- **FR-066-AC-1 (examined)**: Complete reader-admissible clause and anchor fixtures retain each exact execution-point variant and name in CheckedSemanticNodeV2; an omitted point remains absent. The public typed writer preserves those same values and locations after read/write/read. No QSpec schema or vector is copied into IR.
+
+## Evidence
+
+Frozen PR head `0af6a1963470f3b945f914703b0e9765726f3fea`. Changed files: two FR status rows and three Rust integration-test files. Author reported four focused tests, rustfmt, test-only Clippy and changed-spec validation passing. The 15 Withdrawn strict-coverage rows are a separate quire-rs policy residual (PLAT-1236), not credited here. No full gate was run by this scoped reviewer. Plan completion: not assessed.
