@@ -2830,7 +2830,9 @@ fn tc_227_the_struct_members_are_reached_through_accessors() {
 #[test]
 fn model_fields_source_map_and_work_boundary_hold() {
     let (wire, evidence) = record_project_control();
-    let bytes = canonical(&wire);
+    let mut indexed_wire = wire.clone();
+    index_fixture_node_ids(&mut indexed_wire);
+    let bytes = canonical(&indexed_wire);
     let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("baseline admission: {other:?}"),
@@ -2846,7 +2848,7 @@ fn model_fields_source_map_and_work_boundary_hold() {
     let missing = admitted.model_object_fields(&declaration_id("Absent"));
     assert_eq!(missing, Err(CheckedModelFieldsError::UnknownNode));
     let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
-        serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
+        serde_json::from_value(indexed_wire["source_map"].clone()).expect("authored sources");
     assert_eq!(admitted.source_map(), authored_sources);
     let mut low = 0;
     let mut high = CheckedPackageReadLimits::bounded().work;
