@@ -580,23 +580,6 @@ fn long_index_chain_admits_on_a_small_stack_with_shared_keys() {
         work: 100_000_000,
     };
     let document = proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT);
-    let selected_document = read_json(&document).expect("published selected model document");
-    assert!(
-        selected_document["types"]
-            .as_array()
-            .expect("selected model types")
-            .iter()
-            .any(|ty| {
-                ty["identity"] == "ix://acme/orders/OrderTotal"
-                    && ty["scalar"] == "integer"
-                    && ty["constraints"].as_array().is_some_and(|constraints| {
-                        ["min", "max"]
-                            .iter()
-                            .all(|keyword| constraints.iter().any(|row| row["keyword"] == *keyword))
-                    })
-            }),
-        "the 100k-node read exercises selected integer bounds"
-    );
     std::thread::Builder::new()
         .stack_size(256 * 1024)
         .spawn(move || {

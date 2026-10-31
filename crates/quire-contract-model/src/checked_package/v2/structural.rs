@@ -347,6 +347,37 @@ pub(super) fn validate_structural_nodes_with_keys(
         kinds,
         index,
     };
+    // A rebuilt key can contain a long chain of operand keys. Equality of
+    // two references to that key must not descend the chain once per node.
+    let mut key_tokens = BTreeMap::new();
+    if !structural_keys.is_empty() {
+        let tokens = super::node_index::StructuralInterner::new()
+            .tokens(structural_keys)
+            .expect("reader-rebuilt graph keys contain only resolved operands");
+        for (key, token) in structural_keys.iter().zip(tokens) {
+            key_tokens.insert(std::sync::Arc::as_ptr(key), token);
+        }
+    }
+    let same_key = |left: &CheckedNodeId, right: &CheckedNodeId| {
+        if std::ptr::eq(left, right) {
+            return true;
+        }
+        match (
+            key_tokens.get(&std::ptr::from_ref(left)),
+            key_tokens.get(&std::ptr::from_ref(right)),
+        ) {
+            (Some(left), Some(right)) => left == right,
+            _ => left == right,
+        }
+    };
+    let matches_dependencies = |actual: &[CheckedNodeId], expected: BTreeSet<&CheckedNodeId>| {
+        actual.len() == expected.len()
+            && actual
+                .iter()
+                .map(|id| super::structural_key(id, index, structural_keys))
+                .zip(expected)
+                .all(|(left, right)| same_key(left, right))
+    };
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
@@ -393,12 +424,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if !node
-                    .dependencies
-                    .iter()
-                    .map(|id| super::structural_key(id, index, structural_keys))
-                    .eq(expected)
-                {
+                } else if !matches_dependencies(&node.dependencies, expected) {
                     Some(Defect::Dependencies)
                 } else {
                     None
@@ -432,12 +458,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if !node
-                    .dependencies
-                    .iter()
-                    .map(|id| super::structural_key(id, index, structural_keys))
-                    .eq(targets)
-                {
+                } else if !matches_dependencies(&node.dependencies, targets) {
                     Some(Defect::Dependencies)
                 } else {
                     None
@@ -506,12 +527,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                         .iter()
                         .map(|id| super::structural_key(id, index, structural_keys))
                         .collect::<BTreeSet<_>>();
-                    if !node
-                        .dependencies
-                        .iter()
-                        .map(|id| super::structural_key(id, index, structural_keys))
-                        .eq(expected)
-                    {
+                    if !matches_dependencies(&node.dependencies, expected) {
                         return Err(refuse(Defect::Dependencies));
                     }
                 }
@@ -523,12 +539,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                 .iter()
                 .map(|id| super::structural_key(id, index, structural_keys))
                 .collect::<BTreeSet<_>>();
-            if !node
-                .dependencies
-                .iter()
-                .map(|id| super::structural_key(id, index, structural_keys))
-                .eq(expected)
-            {
+            if !matches_dependencies(&node.dependencies, expected) {
                 return Err(refuse(Defect::Dependencies));
             }
         }
