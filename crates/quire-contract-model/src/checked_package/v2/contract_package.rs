@@ -731,6 +731,12 @@ impl ContractSourceKeyV1 {
     pub fn from_structural(key: &CheckedNodeId) -> Option<Self> {
         let mut pending = vec![key];
         while let Some(node) = pending.pop() {
+            if node.package.is_empty()
+                || node.path.is_empty()
+                || node.ordinal > 9_007_199_254_740_991
+            {
+                return None;
+            }
             for segment in &node.path {
                 match segment {
                     CheckedNodePathSegment::Name(_) => {}
@@ -740,6 +746,34 @@ impl ContractSourceKeyV1 {
             }
         }
         Some(Self(Arc::new(key.clone())))
+    }
+
+    /// Resolve an indexed request against the admitted V2 document's graph,
+    /// including when the requested node itself is absent from that graph.
+    /// The request's `package` names its owner, not the graph for its indexes.
+    pub fn from_v2_request(source: &CheckedPackageV2, request: &CheckedNodeId) -> Option<Self> {
+        if request.package.is_empty()
+            || request.path.is_empty()
+            || request.ordinal > 9_007_199_254_740_991
+        {
+            return None;
+        }
+        let mut path = Vec::with_capacity(request.path.len());
+        for segment in &request.path {
+            path.push(match segment {
+                CheckedNodePathSegment::Name(name) => CheckedNodePathSegment::Name(name.clone()),
+                CheckedNodePathSegment::Index(index) if *index <= 9_007_199_254_740_991 => {
+                    let position = usize::try_from(*index).ok()?;
+                    CheckedNodePathSegment::Node(source.structural_keys.get(position)?.clone())
+                }
+                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Node(_) => return None,
+            });
+        }
+        Some(Self(Arc::new(CheckedNodeId {
+            package: request.package.clone(),
+            path,
+            ordinal: request.ordinal,
+        })))
     }
 
     /// Borrow the resolved structural identity without entering a wire frame.

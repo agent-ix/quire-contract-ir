@@ -807,6 +807,36 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
         .expect("admitted structural key");
     let key = source_key(structural);
     assert!(ContractSourceKeyV1::from_structural(&root).is_none());
+    assert_eq!(
+        ContractSourceKeyV1::from_v2_request(&source, &root),
+        Some(key.clone())
+    );
+
+    let mut absent_indexed = root.clone();
+    absent_indexed
+        .path
+        .push(quire_contract_model::CheckedNodePathSegment::Name(
+            "absent".into(),
+        ));
+    assert!(source.structural_key(&absent_indexed).is_none());
+    assert!(ContractSourceKeyV1::from_structural(&absent_indexed).is_none());
+    let absent_key = ContractSourceKeyV1::from_v2_request(&source, &absent_indexed)
+        .expect("absent indexed request resolves in the source graph");
+    let mut out_of_range = absent_indexed.clone();
+    let index = out_of_range
+        .path
+        .iter_mut()
+        .find(|segment| {
+            matches!(
+                segment,
+                quire_contract_model::CheckedNodePathSegment::Index(_)
+            )
+        })
+        .expect("indexed fixture path");
+    *index = quire_contract_model::CheckedNodePathSegment::Index(
+        u64::try_from(source.graph().nodes.len()).expect("fixture graph size"),
+    );
+    assert!(ContractSourceKeyV1::from_v2_request(&source, &out_of_range).is_none());
 
     let output = source.lower(std::slice::from_ref(&root), &profile());
     let producer = output.package.wire().expect("producer V1");
@@ -928,6 +958,12 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
             .expect("absent view"),
         ContractRootViewV1::Absent
     ));
+    assert!(matches!(
+        reader
+            .reached_closure(&absent_key)
+            .expect("absent indexed view"),
+        ContractRootViewV1::Absent
+    ));
 
     let mut unsupported = profile();
     unsupported.supported_tags.clear();
@@ -942,6 +978,33 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
         ContractRootViewV1::NonLowered(record)
             if record.disposition() == ContractDispositionV1::Unsupported
     ));
+}
+
+#[trace("TC-047", "FR-035-AC-35")]
+#[test]
+fn typed_source_key_rejects_malformed_structural_ids() {
+    let valid = id("a3a3");
+    assert!(ContractSourceKeyV1::from_structural(&valid).is_some());
+
+    let mut empty_package = valid.clone();
+    empty_package.package = "".into();
+    assert!(ContractSourceKeyV1::from_structural(&empty_package).is_none());
+
+    let mut empty_path = valid.clone();
+    empty_path.path.clear();
+    assert!(ContractSourceKeyV1::from_structural(&empty_path).is_none());
+
+    let mut large_ordinal = valid.clone();
+    large_ordinal.ordinal = 9_007_199_254_740_992;
+    assert!(ContractSourceKeyV1::from_structural(&large_ordinal).is_none());
+
+    let mut malformed_operand = valid;
+    malformed_operand
+        .path
+        .push(quire_contract_model::CheckedNodePathSegment::Node(
+            std::sync::Arc::new(empty_package),
+        ));
+    assert!(ContractSourceKeyV1::from_structural(&malformed_operand).is_none());
 }
 
 #[trace("TC-047", "FR-035-AC-33")]
