@@ -1899,15 +1899,7 @@ fn union_arms_hold(
                 && binders
                     .iter()
                     .zip(&member.payload)
-                    .all(|(binder, payload)| {
-                        referenced_type(binder)
-                            .and_then(|target| index.get(&target).copied())
-                            .is_some_and(|position| {
-                                kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
-                                    && graph.structural_id(&nodes[position].semantic_type)
-                                        == Some(payload)
-                            })
-                    })
+                    .all(|(binder, payload)| binder_matches_payload(binder, payload, graph))
         });
         // Implements: FR-347. an arm body conforms to a record `result_type`; a binder is
         // bound to the payload type and stays exact.
@@ -1927,6 +1919,20 @@ fn union_arms_hold(
         }
     }
     Ok(true)
+}
+
+fn binder_matches_payload(
+    binder: &CheckedTerm,
+    payload: &CheckedNodeId,
+    graph: &Graph<'_>,
+) -> bool {
+    referenced_type(binder)
+        .and_then(|target| graph.index.get(&target).copied())
+        .is_some_and(|position| {
+            graph.kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
+                && graph.structural_id(&graph.nodes[position].semantic_type)
+                    == Some(graph.structural_id(payload).unwrap_or(payload))
+        })
 }
 
 /// Whether a node of this kind is a type node: a `scalar_type`,
@@ -7815,90 +7821,83 @@ mod tests {
 
     #[trace("TC-048", "FR-038-AC-224")]
     #[test]
-    fn union_binder_matches_rebuilt_payload_type() {
-        let mut application =
-            custom_application_node("case", plain_operation("quire.op.control.case"), Vec::new());
-        application.body["result_type"] = json!(node_id('i'));
-        application.body["arguments"] = json!([
-            reference_to('p'),
-            { "term": "binding", "name": "Only", "value": {
-                "term": "aggregate", "members": [
-                    { "term": "aggregate", "members": [reference_to('q')] },
-                    reference_to('r'),
-                ],
-            } },
-        ]);
-        let union = graph_node(
-            'U',
-            "composite_type",
-            "union",
-            &node_id('U'),
-            json!({ "term": "aggregate", "members": [{
-                "term": "binding", "name": "Only",
-                "value": { "term": "aggregate", "members": [reference_to('i')] },
-            }] }),
-        );
-        let mut nodes = vec![
-            application,
-            parameter_of('p', 'U'),
-            union,
-            parameter_of('q', 'x'),
-            parameter_of('r', 'i'),
-            scalar_type_node('i', "integer"),
-            scalar_type_node('x', "integer"),
+    fn union_binder_matches_rebuilt_indexed_payload_type() {
+        use crate::checked_package::shared::CheckedNodePathSegment;
+
+        let source = scalar_type_node('i', "integer");
+        let generated = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("scalar_type".into()),
+                CheckedNodePathSegment::Node(std::sync::Arc::new(source.node_id.clone())),
+            ],
+            ordinal: 0,
+        };
+        let indexed = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("scalar_type".into()),
+                CheckedNodePathSegment::Index(0),
+            ],
+            ordinal: 0,
+        };
+        let mut type_node = scalar_type_node('x', "integer");
+        type_node.node_id = indexed.clone();
+        type_node.semantic_type = indexed.clone();
+        let mut binder = parameter_of('q', 'x');
+        binder.semantic_type = indexed.clone();
+        let nodes = [source, type_node, binder];
+        let kinds = kinds_of(&nodes);
+        let index: BTreeMap<_, _> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let terms = decoded_terms(&nodes);
+        let structural_keys = [
+            std::sync::Arc::new(nodes[0].node_id.clone()),
+            std::sync::Arc::new(generated.clone()),
+            std::sync::Arc::new(nodes[2].node_id.clone()),
         ];
-        let check = |nodes: &[CheckedSemanticNodeV2]| {
-            let kinds = kinds_of(nodes);
-            let index: BTreeMap<_, _> = nodes
-                .iter()
-                .enumerate()
-                .map(|(position, node)| (&node.node_id, position))
-                .collect();
-            let terms = decoded_terms(nodes);
-            let structural_keys: Vec<_> = nodes
-                .iter()
-                .map(|node| {
-                    let key = if node.node_id == node_id('x') {
-                        node_id('i')
-                    } else {
-                        node.node_id.clone()
-                    };
-                    std::sync::Arc::new(key)
-                })
-                .collect();
-            let graph = Graph {
-                nodes,
-                kinds: &kinds,
-                index: &index,
-                structural_keys: &structural_keys,
-                terms: &terms,
-            };
-            let mut meter = WorkMeter::new(100);
-            let application = Application {
-                node: &nodes[0],
-                position: 0,
-            };
-            let result = super::union_arms_hold(
-                application,
-                0,
-                1,
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+            structural_keys: &structural_keys,
+            terms: &terms,
+        };
+        let bound = super::CheckedTerm::Reference {
+            target: nodes[2].node_id.clone(),
+        };
+        assert!(super::binder_matches_payload(&bound, &generated, &graph));
+        assert!(super::binder_matches_payload(&bound, &indexed, &graph));
+        assert!(!super::binder_matches_payload(
+            &bound,
+            &node_id('z'),
+            &graph
+        ));
+        let mut meter = WorkMeter::new(100);
+        assert_eq!(
+            super::conforms_to_type(
+                &generated,
+                Some(&indexed),
                 &graph,
                 &ModelOwners::default(),
                 &mut meter,
-                &mut StructuralTypes::default(),
-            );
-            let missing = super::conforms_to_type(
-                &node_id('i'),
+            ),
+            Ok(true),
+        );
+        assert_eq!(
+            super::conforms_to_type(
+                &node_id('z'),
                 Some(&node_id('z')),
                 &graph,
                 &ModelOwners::default(),
                 &mut meter,
-            );
-            (result, missing)
-        };
-        assert_eq!(check(&nodes), (Ok(true), Ok(false)));
-        nodes[3].semantic_type = node_id('z');
-        assert_eq!(check(&nodes).0, Ok(false));
+            ),
+            Ok(false),
+            "an unselected wire type cannot pass by fallback equality",
+        );
     }
 
     #[trace("TC-048", "FR-038-AC-224")]
