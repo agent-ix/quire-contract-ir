@@ -235,9 +235,8 @@ fn public_literal_and_binding_reads_preserve_exact_values() {
     for node in &admitted.graph().nodes {
         if let Some(literal) = node.body.literal_read() {
             assert_eq!(literal.type_id, &node.semantic_type);
-            match literal.value {
-                CheckedLiteralValue::Boolean(true) => saw_boolean = true,
-                _ => {}
+            if let CheckedLiteralValue::Boolean(true) = literal.value {
+                saw_boolean = true;
             }
         }
     }
