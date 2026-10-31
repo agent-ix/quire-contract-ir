@@ -193,6 +193,7 @@ pub use checked_package::{
     CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
 };
 
+pub use checked_package::CheckedFieldReadForm;
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 
 pub use checked_package::{

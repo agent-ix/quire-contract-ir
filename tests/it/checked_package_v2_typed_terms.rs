@@ -383,7 +383,10 @@ fn public_operation_read_exposes_admitted_records_and_rejects_forgery() {
                     .expect("admitted mode")
                     .map(|mode| (mode.kind, mode.value))
             );
-            if let Some(CheckedOperationMember::Field { declaration, name }) = read.member {
+            if let Some(CheckedOperationMember::Field {
+                declaration, name, ..
+            }) = read.member
+            {
                 assert_eq!(
                     operation.projection_field().expect("admitted field"),
                     Some((declaration, name.as_ref()))

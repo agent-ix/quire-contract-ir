@@ -582,31 +582,70 @@ fn package(
         ordered.push(node);
     }
     let mut read_nodes = Vec::new();
-    for read in reads {
+    let mut read_offsets = Vec::new();
+    for (read_index, read) in reads.iter().enumerate() {
         let ty = type_nodes(&read.ty, &mut nodes);
         let form = declared
             .iter()
             .find_map(|(short, form)| (*short == read.owner).then_some(*form))
             .expect("the read owner has a declaration");
         let owner = declaration_key(read.owner, form);
+        let (argument, dependencies, member) = if form == "record_value_type" {
+            (
+                reference(&owner),
+                vec![owner.clone()],
+                json!({"kind": "field", "declaration": node_id(&owner), "name": read.field}),
+            )
+        } else {
+            let reference_type = type_nodes(&Ty::Reference(owner.clone()), &mut nodes);
+            let deref_key = format!("expression/deref/{}/{read_index}", read.owner);
+            let deref_body = json!({
+                "term": "application", "operator": "deref",
+                "operation": {"identity": "quire.op.model.deref", "laws": [],
+                    "mode": null, "member": null, "leaves": []},
+                "result_type": node_id(&owner),
+                "arguments": [reference(&reference_type)]
+            });
+            read_nodes.push(wire_node(
+                &deref_key,
+                "expression",
+                "deref",
+                &owner,
+                &[&reference_type],
+                deref_body,
+            ));
+            (
+                reference(&deref_key),
+                vec![owner.clone(), deref_key],
+                json!({"kind": "field", "declaration": node_id(&owner),
+                    "name": read.field, "read_form": "bare"}),
+            )
+        };
         let body = json!({
             "term": "application",
             "operator": "query",
             "operation": {
                 "identity": "quire.op.record.project", "laws": [], "mode": null,
-                "member": {"kind": "field", "declaration": node_id(&owner), "name": read.field},
+                "member": member,
                 "leaves": [],
             },
             "result_type": node_id(&ty),
-            "arguments": [reference(&owner)],
+            "arguments": [argument],
         });
         let key = format!(
             "expression/query/{}/{}/{}",
-            read.owner,
-            read.field,
-            read_nodes.len()
+            read.owner, read.field, read_index
         );
-        read_nodes.push(wire_node(&key, "expression", "query", &ty, &[&owner], body));
+        read_offsets.push(read_nodes.len());
+        let dependencies = dependencies.iter().map(String::as_str).collect::<Vec<_>>();
+        read_nodes.push(wire_node(
+            &key,
+            "expression",
+            "query",
+            &ty,
+            &dependencies,
+            body,
+        ));
     }
     let mut graph: Vec<Value> = nodes.into_values().collect();
     graph.extend(ordered);
@@ -623,7 +662,8 @@ fn package(
     select_model(&mut package, IDENTITY);
     settle(&mut package);
     let evidence = evidence_with_document(&package, IDENTITY, document);
-    let positions = (0..reads.len())
+    let positions = read_offsets
+        .into_iter()
         .map(|offset| base + first_read + offset)
         .collect();
     (package, evidence, positions)
@@ -674,6 +714,45 @@ pub(crate) fn record_project_control() -> (Value, CheckedPackageEvidence) {
     };
     let (package, evidence, _) = self::package(&document, &[(ORDER, OBJECT)], &[read]);
     (package, evidence)
+}
+
+/// Trace: FR-349-AC-8, QSpec FR-322-AC-34.
+#[trace("FR-349-AC-8", "FR-322-AC-34")]
+#[test]
+fn model_field_reference_without_deref_refuses_by_read_form() {
+    let (mut wire, evidence) = record_project_control();
+    let projection = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
+        .expect("model projection");
+    let declaration = projection["body"]["operation"]["member"]["declaration"].clone();
+    projection["body"]["arguments"][0]["target"] = declaration;
+    settle(&mut wire);
+    let result = read_with(&wire, &evidence, CheckedPackageReadLimits::bounded());
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Refused(refusal)
+        if refusal.code == CheckedPackageRefusalCode::MalformedWire)
+    );
+
+    let projection = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
+        .expect("model projection");
+    projection["body"]["operation"]["member"]
+        .as_object_mut()
+        .expect("field member")
+        .remove("read_form");
+    settle(&mut wire);
+    let result = read_with(&wire, &evidence, CheckedPackageReadLimits::bounded());
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Refused(refusal)
+        if refusal.code == CheckedPackageRefusalCode::IllTyped
+            && refusal.cause == Some(CheckedPackageRefusalCause::OperatorIneligible))
+    );
 }
 
 /// An admitted package holding an `integer.add` application and a
@@ -2790,7 +2869,9 @@ fn tc_227_the_struct_members_are_reached_through_accessors() {
 #[test]
 fn model_fields_source_map_and_work_boundary_hold() {
     let (wire, evidence) = record_project_control();
-    let bytes = canonical(&wire);
+    let mut indexed_wire = wire.clone();
+    index_fixture_node_ids(&mut indexed_wire);
+    let bytes = canonical(&indexed_wire);
     let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("baseline admission: {other:?}"),
@@ -2806,7 +2887,7 @@ fn model_fields_source_map_and_work_boundary_hold() {
     let missing = admitted.model_object_fields(&declaration_id("Absent"));
     assert_eq!(missing, Err(CheckedModelFieldsError::UnknownNode));
     let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
-        serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
+        serde_json::from_value(indexed_wire["source_map"].clone()).expect("authored sources");
     assert_eq!(admitted.source_map(), authored_sources);
     let mut low = 0;
     let mut high = CheckedPackageReadLimits::bounded().work;

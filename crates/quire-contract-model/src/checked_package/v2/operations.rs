@@ -20,8 +20,8 @@ use super::operation_catalog::{
 use super::structural::{typed_union_type_body, typed_union_value_body, UnionMember};
 use super::temporal::member_is_well_formed;
 use super::typed_terms::{
-    CheckedOperationConstraint, CheckedOperationLaw, CheckedOperationLeaf, CheckedOperationMember,
-    CheckedOperationMode, CheckedOperationRecord, CheckedOperationViews,
+    CheckedFieldReadForm, CheckedOperationConstraint, CheckedOperationLaw, CheckedOperationLeaf,
+    CheckedOperationMember, CheckedOperationMode, CheckedOperationRecord, CheckedOperationViews,
 };
 use super::{
     ApplicationOperator, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
@@ -90,6 +90,12 @@ pub(super) struct OperationWire {
     leaves: Vec<OperationLeafWire>,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum FieldProjectionIdentity {
+    RecordProject,
+    Other,
+}
+
 impl OperationWire {
     /// The wire member's decoded `kind`: `None` when the operation carries no
     /// member (or one without a string `kind`), `Some(None)` when the `kind`
@@ -98,6 +104,15 @@ impl OperationWire {
     fn member_kind_class(&self) -> Option<Option<OperationMemberKind>> {
         let kind = self.member.as_ref()?.get("kind")?.as_str()?;
         Some(OperationMemberKind::from_wire(kind))
+    }
+
+    /// Classify the catalogued wire identity for field-read admission.
+    #[ix_trace_rs::string_edge]
+    fn field_projection_identity(&self) -> FieldProjectionIdentity {
+        match self.identity.as_ref() {
+            "quire.op.record.project" => FieldProjectionIdentity::RecordProject,
+            _ => FieldProjectionIdentity::Other,
+        }
     }
 
     fn admitted_views(&self, entry: &OperationCatalogEntry) -> Option<CheckedOperationViews> {
@@ -624,6 +639,19 @@ fn admitted_arguments<'g>(
     }
 }
 
+fn is_model_deref_argument(argument: &CheckedTerm, graph: &Graph<'_>) -> bool {
+    let deref = match argument {
+        CheckedTerm::Reference { target } => graph
+            .index
+            .get(target)
+            .and_then(|position| graph.terms.get(*position))
+            .and_then(Option::as_ref),
+        other => Some(other),
+    };
+    matches!(deref, Some(CheckedTerm::Application { operation, .. })
+        if operation.identity() == Some("quire.op.model.deref"))
+}
+
 /// Structural forwarding already paid for by one application's operation check.
 #[derive(Default)]
 struct StructuralTypes {
@@ -952,6 +980,30 @@ fn operation_defect(
             )
         }
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
+    }
+    if wire_member_kind == Some(Some(OperationMemberKind::Field)) {
+        let Some(member) = operation.member.as_ref() else {
+            return member_mismatch();
+        };
+        let read_form = member.get("read_form");
+        let model_projection = operation.field_projection_identity()
+            == FieldProjectionIdentity::RecordProject
+            && admitted_arguments(application, graph)
+                .and_then(|arguments| arguments.first())
+                .is_some_and(|argument| is_model_deref_argument(argument, graph));
+        let valid = match (model_projection, read_form) {
+            (true, Some(Value::String(value))) => CheckedFieldReadForm::from_wire(value).is_some(),
+            (false, None) => true,
+            _ => false,
+        };
+        if !valid {
+            return Ok(Some(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::MalformedWire,
+                application.body(&["operation", "member", "read_form"]),
+                None,
+                application.node.node_id.clone(),
+            )));
+        }
     }
     let profile_operator = operation
         .member
@@ -3311,6 +3363,14 @@ fn check_model_member(
         Ok(owner) => owner,
         Err(refusal) => return refuse(member_at("declaration"), refusal),
     };
+    if kind == MemberKind::Field
+        && owner.form != DeclarationForm::RecordValueType
+        && !arguments
+            .first()
+            .is_some_and(|argument| is_model_deref_argument(argument, graph))
+    {
+        return ineligible(argument_at(0));
+    }
     // Implements: FR-347. the operand is the declaring type, or a record that conforms to
     // it when that type is a record value type.
     if kind == MemberKind::Field

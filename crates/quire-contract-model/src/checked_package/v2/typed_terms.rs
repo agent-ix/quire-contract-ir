@@ -123,6 +123,8 @@ pub enum CheckedOperationMember {
         declaration: CheckedNodeId,
         /// Admitted field name.
         name: Box<str>,
+        /// Source read form for a model-object projection; absent for record fields.
+        read_form: Option<CheckedFieldReadForm>,
     },
     /// A declared tuple position.
     Position {
@@ -185,6 +187,26 @@ pub enum CheckedOperationMember {
         /// Fairness declaration name.
         name: Box<str>,
     },
+}
+
+/// Source syntax retained for a model-object field read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedFieldReadForm {
+    /// A direct source field read, such as `view.total`.
+    Bare,
+    /// A source field read with explicit dereference, such as `deref(view).total`.
+    ExplicitDeref,
+}
+
+impl CheckedFieldReadForm {
+    #[ix_trace_rs::string_edge]
+    pub(super) fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "bare" => Some(Self::Bare),
+            "explicit_deref" => Some(Self::ExplicitDeref),
+            _ => None,
+        }
+    }
 }
 
 /// A closed temporal interval shape.
@@ -379,6 +401,10 @@ impl CheckedOperationMember {
             OperationMemberKind::Field => Self::Field {
                 declaration: declaration()?,
                 name: name()?,
+                read_form: match value.get("read_form") {
+                    Some(value) => Some(CheckedFieldReadForm::from_wire(value.as_str()?)?),
+                    None => None,
+                },
             },
             OperationMemberKind::Position => {
                 let position = value.get("position")?;
