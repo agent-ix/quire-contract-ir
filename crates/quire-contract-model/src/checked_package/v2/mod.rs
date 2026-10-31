@@ -103,9 +103,7 @@ use dependency_references::{admit_dependencies, check_derived_closure, SuppliedD
 use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
-use structural::{
-    validate_derived_type_shapes, validate_selected_type_bounds, validate_structural_nodes,
-};
+use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
@@ -2466,6 +2464,17 @@ fn imported_node_matches(
         )
 }
 
+pub(super) fn structural_key<'a>(
+    id: &'a CheckedNodeId,
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
+) -> &'a CheckedNodeId {
+    index
+        .get(id)
+        .and_then(|&position| structural_keys.get(position))
+        .map_or(id, std::sync::Arc::as_ref)
+}
+
 fn validate_graph(
     wire: &RawCheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
@@ -2685,10 +2694,16 @@ fn validate_graph(
     // so an entry, anchor or clause reference naming no node is the step's
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
-    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
+    structural::validate_structural_nodes_with_keys(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+    )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index)?;
-    validate_selected_type_bounds(models, &terms, &index)?;
+    validate_selected_type_bounds(models, &terms, structural_keys)?;
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
@@ -2702,11 +2717,16 @@ fn validate_graph(
         let expected = references[position]
             .iter()
             .filter(|(_, site)| site.member == ReferenceMember::Target)
-            .map(|(target, _)| target.clone())
+            .map(|(target, _)| structural_key(target, &index, structural_keys).clone())
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
-        if node.dependencies != expected {
+        let actual = node
+            .dependencies
+            .iter()
+            .map(|id| structural_key(id, &index, structural_keys).clone())
+            .collect::<Vec<_>>();
+        if actual != expected {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 node_pointer(position).key("dependencies"),
@@ -2715,7 +2735,7 @@ fn validate_graph(
             ));
         }
     }
-    refinement::validate_dependencies(&graph.nodes, &kinds, &terms)?;
+    refinement::validate_dependencies(&graph.nodes, &kinds, &terms, &index, structural_keys)?;
     let imported_nominals = validate_nominal_nodes(
         &graph.nodes,
         &kinds,
@@ -2790,13 +2810,18 @@ fn validate_graph(
                         let source_root = JsonPointer::root().key("source_map");
                         if path == &source_root {
                             refinement::validate_occurrences(
-                                &graph.nodes,
-                                &kinds,
-                                &terms,
+                                refinement::RefinementGraph::new(
+                                    &graph.nodes,
+                                    &kinds,
+                                    &terms,
+                                    &index,
+                                    structural_keys,
+                                    dependencies,
+                                    &wire.name,
+                                ),
                                 &wire.source_map,
                                 wire.refinement_step_rows.as_deref(),
                                 &owners,
-                                dependencies,
                                 meter,
                             )?;
                         } else if let Some(entry) = path
@@ -2825,13 +2850,18 @@ fn validate_graph(
             return Err(failure);
         }
         refinement::validate_occurrences(
-            &graph.nodes,
-            &kinds,
-            &terms,
+            refinement::RefinementGraph::new(
+                &graph.nodes,
+                &kinds,
+                &terms,
+                &index,
+                structural_keys,
+                dependencies,
+                &wire.name,
+            ),
             &wire.source_map,
             wire.refinement_step_rows.as_deref(),
             &owners,
-            dependencies,
             meter,
         )?;
     }
@@ -2841,6 +2871,7 @@ fn validate_graph(
             &kinds,
             &terms,
             &index,
+            structural_keys,
             dependencies,
             &wire.name,
         ),
@@ -2876,6 +2907,7 @@ fn validate_graph(
             &kinds,
             &terms,
             &index,
+            structural_keys,
             dependencies,
             &wire.name,
         ),

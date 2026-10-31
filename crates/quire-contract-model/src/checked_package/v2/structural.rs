@@ -332,6 +332,16 @@ pub(super) fn validate_structural_nodes(
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Result<(), ValidationFailure> {
+    validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[])
+}
+
+pub(super) fn validate_structural_nodes_with_keys(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<super::CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
+) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
         kinds,
@@ -468,13 +478,25 @@ pub(super) fn validate_structural_nodes(
         }
         if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             if let Some(owner_model) = node.owner_model.as_ref() {
-                let ordered = node.dependencies.windows(2).all(|pair| pair[0] < pair[1]);
+                let ordered = node.dependencies.windows(2).all(|pair| {
+                    super::structural_key(&pair[0], index, structural_keys)
+                        < super::structural_key(&pair[1], index, structural_keys)
+                });
                 if !ordered || !node.dependencies.contains(owner_model) {
                     return Err(refuse(Defect::Dependencies));
                 }
                 if let Some(mut expected) = term.and_then(application_dependencies) {
                     expected.insert(owner_model.clone());
-                    if !node.dependencies.iter().eq(expected.iter()) {
+                    let expected = expected
+                        .iter()
+                        .map(|id| super::structural_key(id, index, structural_keys))
+                        .collect::<BTreeSet<_>>();
+                    if !node
+                        .dependencies
+                        .iter()
+                        .map(|id| super::structural_key(id, index, structural_keys))
+                        .eq(expected)
+                    {
                         return Err(refuse(Defect::Dependencies));
                     }
                 }
@@ -482,7 +504,16 @@ pub(super) fn validate_structural_nodes(
             continue;
         }
         if let Some(expected) = term.and_then(application_dependencies) {
-            if !node.dependencies.iter().eq(expected.iter()) {
+            let expected = expected
+                .iter()
+                .map(|id| super::structural_key(id, index, structural_keys))
+                .collect::<BTreeSet<_>>();
+            if !node
+                .dependencies
+                .iter()
+                .map(|id| super::structural_key(id, index, structural_keys))
+                .eq(expected)
+            {
                 return Err(refuse(Defect::Dependencies));
             }
         }
@@ -632,8 +663,13 @@ pub(super) fn validate_derived_type_shapes(
 pub(super) fn validate_selected_type_bounds(
     models: &[DomainModel],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
 ) -> Result<(), ValidationFailure> {
+    let index = structural_keys
+        .iter()
+        .enumerate()
+        .map(|(position, key)| (key.as_ref(), position))
+        .collect::<BTreeMap<_, _>>();
     for model in models {
         for bounds in model.value_types.values().flatten() {
             let ValueBounds::Integer(expected) = bounds else {
