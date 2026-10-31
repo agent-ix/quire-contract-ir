@@ -2466,6 +2466,17 @@ fn imported_node_matches(
         )
 }
 
+pub(super) fn structural_key<'a>(
+    id: &'a CheckedNodeId,
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
+) -> &'a CheckedNodeId {
+    index
+        .get(id)
+        .and_then(|&position| structural_keys.get(position))
+        .map_or(id, std::sync::Arc::as_ref)
+}
+
 fn validate_graph(
     wire: &RawCheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
@@ -2685,7 +2696,7 @@ fn validate_graph(
     // so an entry, anchor or clause reference naming no node is the step's
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
-    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
+    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index, structural_keys)?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index)?;
     validate_selected_type_bounds(models, &terms, &index)?;
@@ -2702,11 +2713,16 @@ fn validate_graph(
         let expected = references[position]
             .iter()
             .filter(|(_, site)| site.member == ReferenceMember::Target)
-            .map(|(target, _)| target.clone())
+            .map(|(target, _)| structural_key(target, &index, structural_keys).clone())
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
-        if node.dependencies != expected {
+        let actual = node
+            .dependencies
+            .iter()
+            .map(|id| structural_key(id, &index, structural_keys).clone())
+            .collect::<Vec<_>>();
+        if actual != expected {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 node_pointer(position).key("dependencies"),
@@ -2715,7 +2731,7 @@ fn validate_graph(
             ));
         }
     }
-    refinement::validate_dependencies(&graph.nodes, &kinds, &terms)?;
+    refinement::validate_dependencies(&graph.nodes, &kinds, &terms, &index, structural_keys)?;
     let imported_nominals = validate_nominal_nodes(
         &graph.nodes,
         &kinds,
@@ -2841,6 +2857,7 @@ fn validate_graph(
             &kinds,
             &terms,
             &index,
+            structural_keys,
             dependencies,
             &wire.name,
         ),
@@ -2876,6 +2893,7 @@ fn validate_graph(
             &kinds,
             &terms,
             &index,
+            structural_keys,
             dependencies,
             &wire.name,
         ),
