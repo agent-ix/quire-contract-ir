@@ -1311,13 +1311,6 @@ pub(super) fn validate_body(
 }
 
 impl RefinementKey {
-    fn node_id(&self) -> &CheckedNodeId {
-        match self {
-            Self::Local(node) => node,
-            Self::External(key) => &key.node,
-        }
-    }
-
     fn local(&self) -> Option<&CheckedNodeId> {
         match self {
             Self::Local(node) => Some(node),
