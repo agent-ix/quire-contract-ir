@@ -79,3 +79,7 @@ At frozen `667b6dfbd81d16ea794d8384a07520705436607d`, the changed NI and V1 test
 ## Recheck at operations lookup head
 
 `5079cbdb8c927ca315677f9fc61b7886c0a9a3ff`: The new unit controls compare flat and nested lookup results to the ordered index and show zero `CheckedNodeId::cmp` calls for 8,000 unresolved lookups against a flat index. This directly addresses the profiled `check_operands`/`argument_family` hot spot. The code lead reports 88 operation, 17 argument and 23 family focused tests, Clippy and format green. Existing NI-13 and structural-order tests remain; no independent coverage gap was established in this delta.
+
+## Recheck at string-edge annotation head
+
+`1346b77bf38870fa87ee3c981a757c98b3fd2baa`: The two source-frame annotation additions do not change behavior, trace tags, or assertions. Existing FR-035-AC-31..35 and FR-330-AC-14..16 controls remain bound; no additional coverage gap was established.
