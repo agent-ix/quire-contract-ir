@@ -10,7 +10,8 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, ExactTypeProjectionErrorCode,
+    SelectedExactIdentities,
 };
 use serde_json::{json, Value};
 
@@ -65,6 +66,36 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
     )
+}
+
+#[test]
+fn admitted_reference_requires_selected_exact_identity_row() {
+    let (document, reference, _) = reference_package("model", "object_type");
+    let admitted = match read(&document) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("reference fixture must admit: {other:?}"),
+    };
+    let id: CheckedNodeId = serde_json::from_value(reference).expect("reference ID");
+    let rows = SelectedExactIdentities::from_stage_rows(&admitted, [], [])
+        .expect("empty selected identity rows");
+    let refusal = admitted
+        .project_exact_type(&id, &rows, 3)
+        .expect_err("missing object row");
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    let object: CheckedNodeId = serde_json::from_value(
+        document["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+            .expect("selected object")["node_id"]
+            .clone(),
+    )
+    .expect("object ID");
+    assert_eq!(refusal.at.as_deref(), Some(&object));
 }
 
 /// Trace: QSpec FR-322-AC-62, RM-REF-TARGET. Model and relationship

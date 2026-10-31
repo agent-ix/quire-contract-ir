@@ -11,7 +11,309 @@ use super::*;
 use crate::checked_package::shared::CheckedPackageLimit;
 use crate::checked_package::v2::{CheckedNodeKind, ScalarTypeForm};
 use ix_trace_rs::trace;
+use quire_exact::{
+    EffectiveId, MemberId, MemberOwner, NodeKey, OriginalDeclarationKey, PathSegment,
+};
 use serde_json::{json, Value};
+
+#[test]
+fn exact_stage_rows_join_selected_original_declaration() {
+    use crate::checked_package::v2::{
+        ExactTypeProjectionErrorCode as Code, SelectedExactDeclarationForm as Form,
+        SelectedExactDeclarationRow as Row, SelectedExactIdentities, SelectedExactIdentity,
+    };
+
+    let fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
+    let structural = id_at(&fixture, 0);
+    let (document, original, form) = fixture
+        .package
+        .models
+        .selected_declaration(&structural)
+        .expect("selected declaration");
+    assert_eq!(form, DeclarationForm::ObjectType);
+    assert_eq!(original, format!("{ORDERS}Ledger"));
+    let row = Row::new(
+        structural.clone(),
+        document,
+        Form::ObjectType,
+        original,
+        SelectedExactIdentity::Object(EffectiveId::new(
+            None,
+            OriginalDeclarationKey::new(document, original),
+        )),
+    );
+    let selected = SelectedExactIdentities::from_stage_rows(&fixture.package, [row.clone()], [])
+        .expect("matching selected row");
+    assert_eq!(selected.declaration_rows().count(), 1);
+
+    let mut wrong_document = row.clone();
+    wrong_document.selected_document = "another/document".into();
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(&fixture.package, [wrong_document], [])
+            .expect_err("foreign selected document")
+            .code,
+        Code::MismatchedIdentityWitness,
+    );
+    let mut wrong_form = row.clone();
+    wrong_form.form = Form::RecordValueType;
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(&fixture.package, [wrong_form], [])
+            .expect_err("wrong form")
+            .code,
+        Code::MismatchedIdentityWitness,
+    );
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(&fixture.package, [row.clone(), row], [])
+            .expect_err("competing rows")
+            .code,
+        Code::ConflictingIdentityWitness,
+    );
+    let mut foreign = selected.declaration_rows().next().expect("row").clone();
+    foreign.structural_node.package = "foreign/package".into();
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(&fixture.package, [foreign], [])
+            .expect_err("foreign structural node")
+            .code,
+        Code::ForeignNode,
+    );
+}
+
+#[test]
+fn distinct_selected_objects_cannot_claim_one_exact_identity() {
+    use crate::checked_package::v2::{
+        ExactTypeProjectionErrorCode as Code, SelectedExactDeclarationForm as Form,
+        SelectedExactDeclarationRow as Row, SelectedExactIdentities, SelectedExactIdentity,
+    };
+
+    let first = format!("{ORDERS}First");
+    let second = format!("{ORDERS}Second");
+    let selected = document(vec![
+        object_type(&first, &[], vec![]),
+        object_type(&second, &[], vec![]),
+    ]);
+    let fixture = build_fixture(
+        &selected,
+        &[
+            ("First", DeclarationForm::ObjectType),
+            ("Second", DeclarationForm::ObjectType),
+        ],
+    );
+    let first_node = id_at(&fixture, 0);
+    let second_node = id_at(&fixture, 1);
+    let (document, _, _) = fixture
+        .package
+        .models
+        .selected_declaration(&first_node)
+        .expect("first");
+    let first_exact = EffectiveId::new(None, OriginalDeclarationKey::new(document, &first));
+    let first_row = Row::new(
+        first_node,
+        document,
+        Form::ObjectType,
+        &*first,
+        SelectedExactIdentity::Object(first_exact.clone()),
+    );
+    let duplicate = Row::new(
+        second_node.clone(),
+        document,
+        Form::ObjectType,
+        &*second,
+        SelectedExactIdentity::Object(first_exact),
+    );
+    let refusal = SelectedExactIdentities::from_stage_rows(
+        &fixture.package,
+        [first_row.clone(), duplicate],
+        [],
+    )
+    .expect_err("one Exact object cannot name two selected declarations");
+    assert_eq!(refusal.code, Code::ConflictingIdentityWitness);
+    assert_eq!(refusal.at.as_deref(), Some(&second_node));
+
+    let second_exact = EffectiveId::new(None, OriginalDeclarationKey::new(document, &second));
+    let distinct = Row::new(
+        second_node,
+        document,
+        Form::ObjectType,
+        &*second,
+        SelectedExactIdentity::Object(second_exact),
+    );
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(&fixture.package, [first_row, distinct], [])
+            .expect("distinct Exact identities")
+            .declaration_rows()
+            .count(),
+        2,
+    );
+}
+
+#[test]
+fn exact_reference_uses_the_selected_object_row() {
+    use crate::checked_package::v2::{
+        CompositeTypeForm, ExactTypeProjectionErrorCode as Code, ModelForm,
+        SelectedExactDeclarationForm as Form, SelectedExactDeclarationRow as Row,
+        SelectedExactIdentities, SelectedExactIdentity,
+    };
+    use quire_exact::ValueType;
+
+    let mut fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
+    let object = id_at(&fixture, 0);
+    let (document, original, _) = fixture
+        .package
+        .models
+        .selected_declaration(&object)
+        .expect("selected object");
+    let effective = EffectiveId::new(None, OriginalDeclarationKey::new(document, original));
+    let row = Row::new(
+        object.clone(),
+        document,
+        Form::ObjectType,
+        original,
+        SelectedExactIdentity::Object(effective.clone()),
+    );
+    let rows = SelectedExactIdentities::from_stage_rows(&fixture.package, [row], [])
+        .expect("matching object row");
+
+    let reference: CheckedNodeId = serde_json::from_value(json!({
+        "package": "checked", "path": ["reference-to-ledger"], "ordinal": 0,
+    }))
+    .expect("reference ID");
+    let mut reference_node = fixture.package.wire.semantic_graph.nodes[0].clone();
+    reference_node.node_id = reference.clone();
+    reference_node.semantic_type = reference.clone();
+    reference_node.node_tag = "composite_type".into();
+    reference_node.semantic_form = "reference".into();
+    reference_node.declaration = None;
+    reference_node.owner = None;
+    reference_node.body = super::super::CheckedTerm::Aggregate {
+        members: vec![super::super::CheckedTerm::Reference {
+            target: object.clone(),
+        }],
+    };
+    fixture
+        .package
+        .wire
+        .semantic_graph
+        .nodes
+        .push(reference_node.clone());
+    fixture.package.terms.push(reference_node.body);
+    fixture.package.kinds[0] = CheckedNodeKind::Model(ModelForm::ObjectType);
+    fixture
+        .package
+        .kinds
+        .push(CheckedNodeKind::CompositeType(CompositeTypeForm::Reference));
+    fixture.package.node_index = super::super::retained_node_index(&fixture.package.wire);
+
+    let projected = fixture
+        .package
+        .project_exact_type(&reference, &rows, 3)
+        .expect("witnessed reference");
+    assert_eq!(projected.value_type(), &ValueType::Reference(effective));
+
+    fixture
+        .package
+        .models
+        .index
+        .0
+        .get_mut(&object)
+        .expect("selected row")
+        .node = "ix://acme/orders/Other".into();
+    let refusal = fixture
+        .package
+        .project_exact_type(&reference, &rows, 3)
+        .expect_err("witness for old selected declaration");
+    assert_eq!(refusal.code, Code::MismatchedIdentityWitness);
+    assert_eq!(refusal.at.as_deref(), Some(&object));
+}
+
+#[test]
+fn exact_field_rows_require_selected_record_and_original_field() {
+    use crate::checked_package::v2::{
+        ExactTypeProjectionErrorCode as Code, SelectedExactDeclarationForm as Form,
+        SelectedExactDeclarationRow as Row, SelectedExactFieldRow as FieldRow,
+        SelectedExactIdentities, SelectedExactIdentity,
+    };
+
+    let original = format!("{ORDERS}Receipt");
+    let field_identity = format!("{original}/total");
+    let mut record = object_type(
+        original.as_str(),
+        &[],
+        vec![field(&original, "total", "ix://quire/native/Integer")],
+    );
+    record["kind"]["name"] = json!("record");
+    let mut selected_document = document(vec![record]);
+    selected_document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": "acme/orders", "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    let fixture = build_fixture(
+        &selected_document,
+        &[("Receipt", DeclarationForm::RecordValueType)],
+    );
+    let record_node = id_at(&fixture, 0);
+    let (document, retained_original, _) = fixture
+        .package
+        .models
+        .selected_declaration(&record_node)
+        .expect("record");
+    assert_eq!(retained_original, original);
+    let key = NodeKey::new("checked", vec![PathSegment::Text("Receipt".into())], 0)
+        .expect("Exact record key");
+    let declaration = Row::new(
+        record_node.clone(),
+        document,
+        Form::RecordValueType,
+        original.as_str(),
+        SelectedExactIdentity::Record(key.clone()),
+    );
+    let member = MemberId::new(MemberOwner::Node(key), "total").expect("field identity");
+    let field = FieldRow::new(
+        record_node,
+        document,
+        original.as_str(),
+        field_identity.as_str(),
+        member,
+    );
+    let rows = SelectedExactIdentities::from_stage_rows(
+        &fixture.package,
+        [declaration.clone()],
+        [field.clone()],
+    )
+    .expect("matching field row");
+    assert_eq!(rows.field_rows().len(), 1);
+
+    let mut wrong_field = field.clone();
+    wrong_field.field_original_identity = format!("{original}/other").into();
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(
+            &fixture.package,
+            [declaration.clone()],
+            [wrong_field]
+        )
+        .expect_err("wrong original field")
+        .code,
+        Code::MismatchedIdentityWitness,
+    );
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(&fixture.package, [], [field.clone()])
+            .expect_err("field has no declaration row")
+            .code,
+        Code::UnavailableIdentityWitness,
+    );
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(
+            &fixture.package,
+            [declaration],
+            [field.clone(), field]
+        )
+        .expect_err("competing field rows")
+        .code,
+        Code::ConflictingIdentityWitness,
+    );
+}
 
 /// [`read_semantic_ir`] without the field tables, which the lock stage builds.
 fn unbuilt(document: &Value) -> DomainModel {
