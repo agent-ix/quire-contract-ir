@@ -170,7 +170,7 @@ impl OperationWire {
                 .collect::<Option<Vec<_>>>()?,
         };
         Some(CheckedOperationViews {
-            record: Some(record),
+            record: Some(Box::new(record)),
             state_clause_kind,
             projection_field,
             member_declaration,

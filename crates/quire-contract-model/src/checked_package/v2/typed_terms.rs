@@ -276,7 +276,7 @@ pub struct CheckedOperationRead<'a> {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CheckedOperationViews {
-    pub(super) record: Option<CheckedOperationRecord>,
+    pub(super) record: Option<Box<CheckedOperationRecord>>,
     pub(super) state_clause_kind: Option<StateClauseKind>,
     pub(super) projection_field: Option<(CheckedNodeId, Box<str>)>,
     pub(super) member_declaration: Option<CheckedNodeId>,
