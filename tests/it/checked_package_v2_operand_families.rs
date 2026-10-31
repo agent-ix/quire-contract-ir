@@ -9,7 +9,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
+    CheckedLiteralValue, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
@@ -350,6 +350,38 @@ fn native_literal(package: &mut Value, ty: &str, kind: &str, value: Value) -> St
         .as_str()
         .expect("literal path")
         .to_owned()
+}
+
+#[trace("FR-349-AC-6", "FR-349-AC-9")]
+#[test]
+fn admitted_native_literals_expose_exact_public_values() {
+    let (base, _, native, _) = native_fixture();
+    for (index, kind, wire_value) in [
+        (0, "string", json!("é")),
+        (1, "uuid", json!("ffffffff-ffff-ffff-ffff-ffffffffffff")),
+        (2, "timestamp", json!(i128::MAX.to_string())),
+    ] {
+        let mut wire = base.clone();
+        let key = native_literal(&mut wire, &native[index], kind, wire_value.clone());
+        let CheckedPackageV2ReadResult::Admitted(admitted) = read(&wire) else {
+            panic!("{kind} control must admit");
+        };
+        let term = admitted
+            .term(&serde_json::from_value(node_id(&key)).unwrap())
+            .unwrap();
+        let literal = term.literal_read().expect("admitted native literal");
+        assert_eq!(literal.kind.as_wire(), kind);
+        assert_eq!(
+            serde_json::to_value(literal.type_id).unwrap(),
+            node_id(&native[index])
+        );
+        match (kind, literal.value) {
+            ("string", CheckedLiteralValue::String("é")) => {}
+            ("uuid", CheckedLiteralValue::Uuid("ffffffff-ffff-ffff-ffff-ffffffffffff")) => {}
+            ("timestamp", CheckedLiteralValue::Timestamp(value)) if value == i128::MAX => {}
+            (_, other) => panic!("{kind} produced {other:?}"),
+        }
+    }
 }
 
 fn native_comparison(
@@ -1268,7 +1300,7 @@ fn position_and_element_member_results_do_not_require_declaration_equality() {
         operation(
             "quire.op.tuple.project",
             Value::Null,
-            json!({"kind": "position", "declaration": node_id(&tuple), "index": 0}),
+            json!({"kind": "position", "declaration": node_id(&tuple), "position": 0}),
         ),
         &integer,
         vec![reference(&tuple)],

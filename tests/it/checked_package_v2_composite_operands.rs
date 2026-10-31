@@ -12,10 +12,38 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedAuthoredCompositeDomain as Domain, CheckedCollectionKind, CheckedCompositeDomainKey,
     CheckedCompositeOperandDomain as OperandDomain, CheckedCompositeOperandError as Error,
-    CheckedCompositeOperands, CheckedCompositeOperator, CheckedNodeId, CheckedOccurrence,
-    CheckedOccurrenceRole, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedScalarOperandChild,
+    CheckedCompositeOperands, CheckedCompositeOperator, CheckedLiteralValue, CheckedNodeId,
+    CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedScalarOperandChild, CheckedTerm,
 };
+
+#[trace("FR-349-AC-6", "FR-349-AC-9")]
+#[test]
+fn admitted_option_none_exposes_exact_public_value() {
+    let mut fixture = Fixture::new();
+    let boolean = fixture.boolean.clone();
+    let option = fixture.collection("option", &boolean);
+    let none =
+        json!({"term":"literal", "type":node_id(&option), "value_kind":"none", "value":null});
+    let application = fixture.application(vec![none.clone(), none], "quire.op.structural.eq");
+    let admitted = fixture.read();
+    let CheckedTerm::Application { arguments, .. } = admitted
+        .term(&typed_node_id(&application))
+        .expect("admitted option application")
+    else {
+        panic!("option application term")
+    };
+    assert_eq!(arguments.len(), 2);
+    for argument in arguments {
+        let read = argument.literal_read().expect("admitted inline none");
+        assert_eq!(read.kind.as_wire(), "none");
+        assert_eq!(
+            serde_json::to_value(read.type_id).unwrap(),
+            node_id(&option)
+        );
+        assert!(matches!(read.value, CheckedLiteralValue::None));
+    }
+}
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -297,6 +325,21 @@ fn project(package: &CheckedPackageV2, application: &str) -> CheckedCompositeOpe
         .expect("authored projection");
     inspect_public_fields(&result);
     result
+}
+
+pub(crate) fn admitted_sequence_control() -> CheckedPackageV2 {
+    let mut fixture = Fixture::new();
+    let integer = fixture.integer.clone();
+    let sequence = fixture.collection("sequence", &integer);
+    let literal = json!({"term":"literal", "type":node_id(&integer),
+        "value_kind":"integer", "value":"1"});
+    let body = json!({"term":"application", "operator":"collection",
+        "operation":{"identity":"quire.op.collection.sequence", "laws":[], "mode":null,
+            "member":null, "leaves":[]},
+        "result_type":node_id(&sequence), "arguments":[literal]});
+    let key = fixture.next_key("expression", "collection");
+    fixture.node(key, "expression", "collection", &sequence, body, vec![]);
+    fixture.read()
 }
 
 /// Exhaustive external patterns make every promised field and variant a

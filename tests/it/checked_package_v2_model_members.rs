@@ -2979,6 +2979,14 @@ fn reaches(
     )
 }
 
+pub(crate) fn admitted_reaches_field_control() -> CheckedPackageV2 {
+    let (wire, evidence, _) = reaches(ORDER, "parent", ORDER, ORDER);
+    match read(&wire, &evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("reference-edge control refused: {other:?}"),
+    }
+}
+
 /// FR-322 "Reaches over a field": an optional, a required and a bounded
 /// sequence reference to the owner are edges, including through a subtype
 /// declaring node, a subtype target and a target two levels down.

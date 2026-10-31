@@ -5,13 +5,17 @@
 //! has bounded term depth, so serde's recursion here is independent of input
 //! byte length.
 
-use super::{ApplicationOperator, BodyTerm, LiteralKind, OperationModeKind, StateClauseKind};
+use super::{
+    ApplicationOperator, BodyTerm, LawRole, LiteralKind, OperationConstraintKind,
+    OperationMemberKind, OperationModeKind, StateClauseKind,
+};
 use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
     RefinementPopulation, RefinementStep,
 };
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment};
 use crate::identity::ExecutionPoint;
+use num_bigint::BigInt;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
@@ -90,8 +94,220 @@ pub struct CheckedOperationModeView<'a> {
     pub value: &'a str,
 }
 
+/// One selected operation law, in wire order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedOperationLaw {
+    /// Closed law role.
+    pub role: LawRole,
+    /// Selected definition.
+    pub definition: CheckedArtifactRef,
+}
+
+/// One catalogued cross-operand constraint.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedOperationConstraint {
+    /// Closed constraint choice.
+    pub kind: OperationConstraintKind,
+    /// Operand positions, in catalog order.
+    pub operands: Vec<u64>,
+    /// Required family or group when the constraint names one.
+    pub family: Option<Box<str>>,
+}
+
+/// The closed shape of an admitted operation member.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CheckedOperationMember {
+    /// A named field of a declaration.
+    Field {
+        /// Declaring type node.
+        declaration: CheckedNodeId,
+        /// Admitted field name.
+        name: Box<str>,
+    },
+    /// A declared tuple position.
+    Position {
+        /// Declaring tuple node.
+        declaration: CheckedNodeId,
+        /// Exact position, including beyond the JSON safe integer range.
+        position: BigInt,
+    },
+    /// An element type of a collection.
+    Element {
+        /// Declaring collection node.
+        declaration: CheckedNodeId,
+    },
+    /// A named relationship end.
+    RelationshipEnd {
+        /// Declaring relationship node.
+        declaration: CheckedNodeId,
+        /// Named end role.
+        name: Box<str>,
+        /// Producer supplied destination type node.
+        destination_type: CheckedNodeId,
+        /// Population node, when the operation links one.
+        population: Option<CheckedNodeId>,
+    },
+    /// A named dispatched operation.
+    Operation {
+        /// Declaring model node.
+        declaration: CheckedNodeId,
+        /// Admitted operation name.
+        name: Box<str>,
+    },
+    /// An explicit type argument.
+    TypeArgument {
+        /// Type argument declaration node.
+        declaration: CheckedNodeId,
+    },
+    /// An operator selected by a profile.
+    ProfileOperator {
+        /// Explicit operator, when present in the admitted record.
+        operator: Option<Box<str>>,
+    },
+    /// A state clause.
+    StateClause {
+        /// Closed clause kind.
+        clause: StateClauseKind,
+    },
+    /// An optional temporal interval.
+    TemporalInterval {
+        /// Interval, or an unbounded interval when absent.
+        interval: Option<CheckedOperationInterval>,
+    },
+    /// A fairness clause.
+    Fairness {
+        /// Weak or strong fairness.
+        fairness_kind: CheckedFairnessKind,
+        /// Whole or per participant granularity.
+        granularity: CheckedFairnessGranularity,
+        /// Declaring transition node.
+        declaration: CheckedNodeId,
+        /// Fairness declaration name.
+        name: Box<str>,
+    },
+}
+
+/// A closed temporal interval shape.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum CheckedOperationInterval {
+    /// Integer positions, including an unbounded upper end.
+    Integer {
+        /// Inclusive lower position.
+        #[serde(deserialize_with = "decode_decimal_bigint")]
+        lower: BigInt,
+        /// Inclusive upper position, or no upper limit.
+        #[serde(deserialize_with = "decode_optional_decimal_bigint")]
+        upper: Option<BigInt>,
+    },
+    /// Time magnitudes with explicit open or closed ends.
+    Timed {
+        /// Lower time magnitude.
+        lower: CheckedOperationRational,
+        /// Upper time magnitude, when bounded.
+        upper: Option<CheckedOperationRational>,
+        /// Lower endpoint inclusion.
+        lower_end: CheckedIntervalEnd,
+        /// Upper endpoint inclusion.
+        upper_end: CheckedIntervalEnd,
+    },
+}
+
+/// An exact nonnegative rational interval bound.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedOperationRational {
+    /// Decimal numerator.
+    #[serde(deserialize_with = "decode_decimal_bigint")]
+    pub numerator: BigInt,
+    /// Decimal denominator.
+    #[serde(deserialize_with = "decode_decimal_bigint")]
+    pub denominator: BigInt,
+}
+
+/// Whether an interval includes its endpoint.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckedIntervalEnd {
+    /// Includes the endpoint.
+    Closed,
+    /// Excludes the endpoint.
+    Open,
+}
+
+/// The strength of a fairness clause.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckedFairnessKind {
+    /// Weak fairness.
+    Weak,
+    /// Strong fairness.
+    Strong,
+}
+
+/// Whether fairness applies to the whole or each participant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckedFairnessGranularity {
+    /// Whole transition.
+    Whole,
+    /// Each participant.
+    Each,
+}
+
+/// A leaf's selected mode.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedOperationMode {
+    /// Closed mode kind.
+    pub kind: OperationModeKind,
+    /// Catalogued mode value.
+    pub value: Box<str>,
+}
+
+/// One structural leaf, in the checked operation's order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedOperationLeaf {
+    /// Structural path segments.
+    pub path: Vec<Box<str>>,
+    /// Selected laws in order.
+    pub laws: Vec<CheckedOperationLaw>,
+    /// Mode selected for this leaf.
+    pub mode: Option<CheckedOperationMode>,
+}
+
+/// Complete owned admission data retained behind the borrowed read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct CheckedOperationRecord {
+    pub(super) identity: Box<str>,
+    pub(super) mode: Option<CheckedOperationMode>,
+    pub(super) laws: Vec<CheckedOperationLaw>,
+    pub(super) member: Option<CheckedOperationMember>,
+    pub(super) constraints: Vec<CheckedOperationConstraint>,
+    pub(super) leaves: Vec<CheckedOperationLeaf>,
+}
+
+/// One borrowed read of a reader-admitted operation and its catalog rules.
+#[derive(Clone, Copy, Debug)]
+pub struct CheckedOperationRead<'a> {
+    /// Catalogued identity.
+    pub identity: &'a str,
+    /// Admitted mode, when present.
+    pub mode: Option<CheckedOperationModeView<'a>>,
+    /// Ordered selected laws.
+    pub laws: &'a [CheckedOperationLaw],
+    /// Closed typed member.
+    pub member: Option<&'a CheckedOperationMember>,
+    /// State-clause execution point, when the member carries one.
+    pub execution_point: Option<&'a ExecutionPoint>,
+    /// Catalogued constraints in order.
+    pub constraints: &'a [CheckedOperationConstraint],
+    /// Ordered structural leaves.
+    pub leaves: &'a [CheckedOperationLeaf],
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CheckedOperationViews {
+    pub(super) record: Option<Box<CheckedOperationRecord>>,
     pub(super) state_clause_kind: Option<StateClauseKind>,
     pub(super) projection_field: Option<(CheckedNodeId, Box<str>)>,
     pub(super) member_declaration: Option<CheckedNodeId>,
@@ -101,6 +317,11 @@ pub(super) struct CheckedOperationViews {
 
 impl CheckedOperationViews {
     fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
+        if let Some(record) = &mut self.record {
+            if let Some(member) = &mut record.member {
+                member.replace_node_id(old, new);
+            }
+        }
         if let Some((declaration, _)) = &mut self.projection_field {
             if declaration == old {
                 *declaration = new.clone();
@@ -112,6 +333,155 @@ impl CheckedOperationViews {
             }
         }
     }
+}
+
+impl CheckedOperationMember {
+    pub(super) fn map_node_ids(
+        &mut self,
+        mut map: impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>,
+    ) -> Option<()> {
+        let mut replace = |id: &mut CheckedNodeId| {
+            *id = map(id)?;
+            Some(())
+        };
+        match self {
+            Self::Field { declaration, .. }
+            | Self::Position { declaration, .. }
+            | Self::Element { declaration }
+            | Self::Operation { declaration, .. }
+            | Self::TypeArgument { declaration }
+            | Self::Fairness { declaration, .. } => replace(declaration)?,
+            Self::RelationshipEnd {
+                declaration,
+                destination_type,
+                population,
+                ..
+            } => {
+                replace(declaration)?;
+                replace(destination_type)?;
+                if let Some(population) = population {
+                    replace(population)?;
+                }
+            }
+            Self::ProfileOperator { .. }
+            | Self::StateClause { .. }
+            | Self::TemporalInterval { .. } => {}
+        }
+        Some(())
+    }
+
+    pub(super) fn from_validated_value(value: &Value) -> Option<Self> {
+        let kind = OperationMemberKind::from_wire(value.get("kind")?.as_str()?)?;
+        let declaration = || CheckedNodeId::from_value(value.get("declaration")?);
+        let name = || Some(Box::<str>::from(value.get("name")?.as_str()?));
+        let node = |key| CheckedNodeId::from_value(value.get(key)?);
+        Some(match kind {
+            OperationMemberKind::Field => Self::Field {
+                declaration: declaration()?,
+                name: name()?,
+            },
+            OperationMemberKind::Position => {
+                let position = value.get("position")?;
+                let text = match position {
+                    Value::Number(number) => number.to_string(),
+                    Value::String(text) => text.clone(),
+                    _ => return None,
+                };
+                Self::Position {
+                    declaration: declaration()?,
+                    position: BigInt::parse_bytes(text.as_bytes(), 10)?,
+                }
+            }
+            OperationMemberKind::Element => Self::Element {
+                declaration: declaration()?,
+            },
+            OperationMemberKind::RelationshipEnd => Self::RelationshipEnd {
+                declaration: declaration()?,
+                name: name()?,
+                destination_type: node("destination_type")?,
+                population: match value.get("population") {
+                    Some(_) => Some(node("population")?),
+                    None => None,
+                },
+            },
+            OperationMemberKind::Operation => Self::Operation {
+                declaration: declaration()?,
+                name: name()?,
+            },
+            OperationMemberKind::TypeArgument => Self::TypeArgument {
+                declaration: declaration()?,
+            },
+            OperationMemberKind::ProfileOperator => Self::ProfileOperator {
+                operator: value
+                    .get("operator")
+                    .and_then(Value::as_str)
+                    .map(Into::into),
+            },
+            OperationMemberKind::StateClause => Self::StateClause {
+                clause: StateClauseKind::from_wire(value.get("clause")?.as_str()?)?,
+            },
+            OperationMemberKind::TemporalInterval => Self::TemporalInterval {
+                interval: match value.get("interval")? {
+                    Value::Null => None,
+                    interval => Some(serde_json::from_value(interval.clone()).ok()?),
+                },
+            },
+            OperationMemberKind::Fairness => Self::Fairness {
+                fairness_kind: serde_json::from_value(value.get("fairness_kind")?.clone()).ok()?,
+                granularity: serde_json::from_value(value.get("granularity")?.clone()).ok()?,
+                declaration: declaration()?,
+                name: name()?,
+            },
+        })
+    }
+
+    fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
+        let replace = |id: &mut CheckedNodeId| {
+            if id == old {
+                *id = new.clone();
+            }
+        };
+        match self {
+            Self::Field { declaration, .. }
+            | Self::Position { declaration, .. }
+            | Self::Element { declaration }
+            | Self::Operation { declaration, .. }
+            | Self::TypeArgument { declaration }
+            | Self::Fairness { declaration, .. } => replace(declaration),
+            Self::RelationshipEnd {
+                declaration,
+                destination_type,
+                population,
+                ..
+            } => {
+                replace(declaration);
+                replace(destination_type);
+                if let Some(population) = population {
+                    replace(population);
+                }
+            }
+            Self::ProfileOperator { .. }
+            | Self::StateClause { .. }
+            | Self::TemporalInterval { .. } => {}
+        }
+    }
+}
+
+fn decode_decimal_bigint<'de, D: Deserializer<'de>>(deserializer: D) -> Result<BigInt, D::Error> {
+    let text = Box::<str>::deserialize(deserializer)?;
+    BigInt::parse_bytes(text.as_bytes(), 10)
+        .ok_or_else(|| serde::de::Error::custom("expected a decimal integer"))
+}
+
+fn decode_optional_decimal_bigint<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<BigInt>, D::Error> {
+    let text = Option::<Box<str>>::deserialize(deserializer)?;
+    text.map(|text| {
+        BigInt::parse_bytes(text.as_bytes(), 10)
+            .ok_or_else(|| serde::de::Error::custom("expected a decimal integer"))
+    })
+    .transpose()
 }
 
 impl CheckedApplicationOperation {
@@ -266,6 +636,28 @@ impl CheckedApplicationOperation {
     /// Returns `NotAdmitted` when validated views were not installed.
     pub fn law_definitions(&self) -> Result<&[CheckedArtifactRef], CheckedOperationViewError> {
         Ok(&self.admitted_views()?.law_definitions)
+    }
+
+    /// Borrow the complete reader-admitted operation and catalog decisions.
+    /// Direct decoding and test fixtures return `NotAdmitted`.
+    pub fn read(&self) -> Result<CheckedOperationRead<'_>, CheckedOperationViewError> {
+        let record = self
+            .admitted_views()?
+            .record
+            .as_ref()
+            .ok_or(CheckedOperationViewError::NotAdmitted)?;
+        Ok(CheckedOperationRead {
+            identity: &record.identity,
+            mode: record.mode.as_ref().map(|mode| CheckedOperationModeView {
+                kind: mode.kind,
+                value: &mode.value,
+            }),
+            laws: &record.laws,
+            member: record.member.as_ref(),
+            execution_point: self.execution_point.as_ref(),
+            constraints: &record.constraints,
+            leaves: &record.leaves,
+        })
     }
 
     pub(super) fn admitted_views(
@@ -423,9 +815,35 @@ pub struct CheckedBindingName {
     kind: super::TermBindingName,
 }
 
+/// The contextual meaning of an admitted binding name.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedBindingNameKind<'a> {
+    /// The `parameters` binding.
+    Parameters,
+    /// The `body` binding.
+    Body,
+    /// The `optional` binding.
+    Optional,
+    /// The `clause` binding.
+    Clause,
+    /// Any other name, retained verbatim.
+    Other(&'a str),
+}
+
 impl CheckedBindingName {
-    pub(super) fn kind(&self) -> super::TermBindingName {
+    pub(super) fn internal_kind(&self) -> super::TermBindingName {
         self.kind
+    }
+
+    /// Read the contextual name without losing an unrecognized exact name.
+    pub fn kind(&self) -> CheckedBindingNameKind<'_> {
+        match self.kind {
+            super::TermBindingName::Parameters => CheckedBindingNameKind::Parameters,
+            super::TermBindingName::Body => CheckedBindingNameKind::Body,
+            super::TermBindingName::Optional => CheckedBindingNameKind::Optional,
+            super::TermBindingName::Clause => CheckedBindingNameKind::Clause,
+            super::TermBindingName::Other => CheckedBindingNameKind::Other(&self.raw),
+        }
     }
 }
 
@@ -477,6 +895,102 @@ impl<'de> Deserialize<'de> for CheckedBindingName {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Box::<str>::deserialize(deserializer).map(Self::from)
     }
+}
+
+/// A literal's decoded value. Exact numbers are retained without floating point conversion.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CheckedLiteralValue<'a> {
+    /// Boolean value.
+    Boolean(bool),
+    /// Arbitrary precision signed integer.
+    Integer(BigInt),
+    /// Reduced rational or quantity magnitude.
+    Rational {
+        numerator: BigInt,
+        denominator: BigInt,
+    },
+    /// Decimal coefficient and the exact written scale.
+    Decimal { coefficient: BigInt, scale: usize },
+    /// IEEE binary32 bits, including signed zero and NaN payloads.
+    Float32Bits(u32),
+    /// IEEE binary64 bits, including signed zero and NaN payloads.
+    Float64Bits(u64),
+    /// Text value.
+    Text(&'a str),
+    /// Native string value.
+    String(&'a str),
+    /// Canonical UUID spelling.
+    Uuid(&'a str),
+    /// Signed nanoseconds from the POSIX epoch.
+    Timestamp(i128),
+    /// Exact enumeration value.
+    Enum(&'a str),
+    /// Absent option value.
+    None,
+}
+
+/// A borrowed read of one literal's type, kind, and decoded value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedLiteralRead<'a> {
+    /// The literal's declared type node.
+    pub type_id: &'a CheckedNodeId,
+    /// The admitted literal kind.
+    pub kind: LiteralKind,
+    /// The decoded value.
+    pub value: CheckedLiteralValue<'a>,
+}
+
+fn rational_parts(value: &Value) -> Option<(BigInt, BigInt)> {
+    let text = value.as_str()?;
+    let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
+    Some((
+        BigInt::parse_bytes(numerator.as_bytes(), 10)?,
+        BigInt::parse_bytes(denominator.as_bytes(), 10)?,
+    ))
+}
+
+fn literal_value(kind: LiteralKind, value: &Value) -> Option<CheckedLiteralValue<'_>> {
+    Some(match kind {
+        LiteralKind::Boolean => CheckedLiteralValue::Boolean(value.as_bool()?),
+        LiteralKind::Integer => {
+            let text = match value {
+                Value::String(text) => text.clone(),
+                Value::Number(number) => number.to_string(),
+                _ => return None,
+            };
+            CheckedLiteralValue::Integer(BigInt::parse_bytes(text.as_bytes(), 10)?)
+        }
+        LiteralKind::Rational | LiteralKind::Quantity => {
+            let (numerator, denominator) = rational_parts(value)?;
+            CheckedLiteralValue::Rational {
+                numerator,
+                denominator,
+            }
+        }
+        LiteralKind::Decimal => {
+            let text = value.as_str()?;
+            let (whole, fractional) = text.split_once('.').unwrap_or((text, ""));
+            let scale = fractional.len();
+            let digits = format!("{whole}{fractional}");
+            CheckedLiteralValue::Decimal {
+                coefficient: BigInt::parse_bytes(digits.as_bytes(), 10)?,
+                scale,
+            }
+        }
+        LiteralKind::Float32Bits => {
+            CheckedLiteralValue::Float32Bits(u32::from_str_radix(value.as_str()?, 16).ok()?)
+        }
+        LiteralKind::Float64Bits => {
+            CheckedLiteralValue::Float64Bits(u64::from_str_radix(value.as_str()?, 16).ok()?)
+        }
+        LiteralKind::Text => CheckedLiteralValue::Text(value.as_str()?),
+        LiteralKind::String => CheckedLiteralValue::String(value.as_str()?),
+        LiteralKind::Uuid => CheckedLiteralValue::Uuid(value.as_str()?),
+        LiteralKind::Timestamp => CheckedLiteralValue::Timestamp(value.as_str()?.parse().ok()?),
+        LiteralKind::Enum => CheckedLiteralValue::Enum(value.as_str()?),
+        LiteralKind::None if value.is_null() => CheckedLiteralValue::None,
+        LiteralKind::None => return None,
+    })
 }
 
 /// A body term in an admitted checked-package V2 node.
@@ -622,6 +1136,24 @@ pub(in crate::checked_package) enum CheckedTermView<'a> {
 }
 
 impl CheckedTerm {
+    /// Read a scalar literal without inspecting its JSON wire payload.
+    /// Returns `None` for another term or a directly decoded malformed literal.
+    pub fn literal_read(&self) -> Option<CheckedLiteralRead<'_>> {
+        let Self::Literal {
+            type_id,
+            value_kind,
+            value,
+        } = self
+        else {
+            return None;
+        };
+        Some(CheckedLiteralRead {
+            type_id,
+            kind: *value_kind,
+            value: literal_value(*value_kind, value)?,
+        })
+    }
+
     pub(in crate::checked_package) fn view(value: &Value) -> Option<CheckedTermView<'_>> {
         Self::view_from_wire(crate::checked_package::common::WireTerm::decode(value))
     }
@@ -1509,7 +2041,10 @@ impl Encode for CheckedAbstractionFrame {
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckedBindingName, CheckedTerm, ExecutionPoint, TermConversionCause};
+    use super::{
+        CheckedBindingName, CheckedBindingNameKind, CheckedTerm, ExecutionPoint,
+        TermConversionCause,
+    };
     use ix_trace_rs::trace;
     use quire_canonical::{to_vec, Limits};
     use serde_json::{error::Category, json};
@@ -1542,10 +2077,10 @@ mod tests {
     #[test]
     fn admitted_binding_name_retains_its_class_without_changing_wire_text() {
         let known: CheckedBindingName = serde_json::from_value(json!("parameters")).unwrap();
-        assert_eq!(known.kind(), super::super::TermBindingName::Parameters);
+        assert_eq!(known.kind(), CheckedBindingNameKind::Parameters);
         assert_eq!(serde_json::to_value(&known).unwrap(), json!("parameters"));
         let open: CheckedBindingName = serde_json::from_value(json!("user-field")).unwrap();
-        assert_eq!(open.kind(), super::super::TermBindingName::Other);
+        assert_eq!(open.kind(), CheckedBindingNameKind::Other("user-field"));
         assert_eq!(open.as_ref(), "user-field");
     }
 

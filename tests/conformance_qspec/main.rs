@@ -25,12 +25,15 @@
 
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedArtifactRef, CheckedExtensionClauseSchema, CheckedExtensionDefinition,
-    CheckedExtensionGrammarSchema, CheckedExtensionNodeSchema, CheckedExtensionProduction,
-    CheckedExtensionTypedNodeSchema, CheckedNodeId, CheckedPackageEvidence,
+    encode_checked_package_v2, CheckedArtifactRef, CheckedExtensionClauseSchema,
+    CheckedExtensionDefinition, CheckedExtensionGrammarSchema, CheckedExtensionNodeSchema,
+    CheckedExtensionProduction, CheckedExtensionTypedNodeSchema, CheckedLiteralValue,
+    CheckedNodeId, CheckedNodeTag, CheckedOperationMember, CheckedPackageEvidence,
     CheckedPackageEvidenceInsertionError, CheckedPackageReadLimits,
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedTerm, CompleteLoweringProfileV2, ContractDependencies, ContractPackageReadResult,
+    ContractPackageWireV1,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -693,6 +696,563 @@ fn tc_048_qspec_positive_fixtures_admit() {
             read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
         let _ = (&package, &admitted);
     }
+}
+
+#[trace("FR-349-AC-6", "FR-349-AC-8", "FR-349-AC-9")]
+#[test]
+fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
+    let dir = fixtures_dir();
+    let proposal = proposal_dir_of(&dir);
+    let documents = vector_selected_documents(&proposal).expect("published document selections");
+    let catalog: Value = serde_json::from_str(
+        quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
+    )
+    .expect("authoritative operation catalog");
+    let mut operations = 0;
+    let mut constraints = 0;
+    let mut leaves = 0;
+    let mut literals = 0;
+    let mut literal_kinds = std::collections::BTreeSet::new();
+    for name in POSITIVE_ALL {
+        let document = proposal.join(positive_document(name, &documents));
+        let (wire, admitted) =
+            read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
+        let wire_nodes = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("published nodes");
+        assert_eq!(wire_nodes.len(), admitted.graph().nodes.len());
+        for (wire_node, node) in wire_nodes.iter().zip(&admitted.graph().nodes) {
+            assert_qspec_term_record(&node.body, &wire_node["body"], &catalog);
+        }
+        let mut pending: Vec<&CheckedTerm> = admitted
+            .graph()
+            .nodes
+            .iter()
+            .map(|node| &node.body)
+            .collect();
+        while let Some(term) = pending.pop() {
+            match term {
+                CheckedTerm::Literal {
+                    type_id,
+                    value_kind,
+                    ..
+                } => {
+                    let read = term
+                        .literal_read()
+                        .expect("QSpec-admitted literal has a typed read");
+                    assert_eq!(read.type_id, type_id);
+                    assert_eq!(read.kind, *value_kind);
+                    literal_kinds.insert(read.kind.as_wire());
+                    literals += 1;
+                }
+                CheckedTerm::Application {
+                    operation,
+                    arguments,
+                    ..
+                } => {
+                    let read = operation
+                        .read()
+                        .expect("QSpec-admitted operation has a complete typed read");
+                    assert_eq!(Some(read.identity), operation.identity());
+                    operations += 1;
+                    constraints += read.constraints.len();
+                    leaves += read.leaves.len();
+                    pending.extend(arguments);
+                }
+                CheckedTerm::Aggregate { members } => pending.extend(members),
+                CheckedTerm::Binding { value, .. } => pending.push(value),
+                _ => {}
+            }
+        }
+        let encoded = encode_checked_package_v2(
+            admitted.name(),
+            admitted.lock(),
+            admitted.graph(),
+            CheckedPackageSourceCorrespondenceRef {
+                source_map: admitted.source_map(),
+                refinement_step_rows: admitted.refinement_step_rows(),
+            },
+            admitted.capability_report(),
+            admitted.diagnostics(),
+            quire_canonical::Limits::new(1 << 24),
+        )
+        .expect("QSpec admitted package encodes");
+        assert_eq!(
+            encoded,
+            quire_canonical::to_vec(&wire, quire_canonical::Limits::new(1 << 24))
+                .expect("QSpec canonical bytes"),
+            "{name}: exact published bytes"
+        );
+    }
+    assert!(operations > 0, "published fixtures contain applications");
+    assert!(
+        constraints > 0,
+        "published catalog has exercised constraints"
+    );
+    assert!(leaves > 0, "published fixtures contain structural leaves");
+    assert!(literals > 0, "published fixtures contain literals");
+    assert_eq!(
+        literal_kinds,
+        [
+            "boolean",
+            "integer",
+            "rational",
+            "quantity",
+            "decimal",
+            "float32_bits",
+            "float64_bits",
+            "text",
+            "enum"
+        ]
+        .into_iter()
+        .collect(),
+        "published positives exercise every named QSpec literal kind"
+    );
+}
+
+fn assert_qspec_term_record(term: &CheckedTerm, wire: &Value, catalog: &Value) {
+    match term {
+        CheckedTerm::Literal { .. } => assert_qspec_literal_read(term, wire),
+        CheckedTerm::Application {
+            operation,
+            arguments,
+            ..
+        } => {
+            assert_qspec_operation_record(
+                operation.read().expect("admitted operation"),
+                &wire["operation"],
+                catalog,
+            );
+            let wire_arguments = wire["arguments"].as_array().expect("ordered arguments");
+            assert_eq!(arguments.len(), wire_arguments.len());
+            for (argument, expected) in arguments.iter().zip(wire_arguments) {
+                assert_qspec_term_record(argument, expected, catalog);
+            }
+        }
+        CheckedTerm::Aggregate { members } => {
+            let wire_members = wire["members"].as_array().expect("ordered members");
+            assert_eq!(members.len(), wire_members.len());
+            for (member, expected) in members.iter().zip(wire_members) {
+                assert_qspec_term_record(member, expected, catalog);
+            }
+        }
+        CheckedTerm::Binding { value, .. } => {
+            assert_qspec_term_record(value, &wire["value"], catalog);
+        }
+        _ => {}
+    }
+}
+
+fn assert_qspec_literal_read(term: &CheckedTerm, wire: &Value) {
+    let read = term.literal_read().expect("admitted literal read");
+    assert_eq!(serde_json::to_value(read.type_id).unwrap(), wire["type"]);
+    assert_eq!(read.kind.as_wire(), wire["value_kind"].as_str().unwrap());
+    let value = &wire["value"];
+    match read.value {
+        CheckedLiteralValue::Boolean(actual) => assert_eq!(Some(actual), value.as_bool()),
+        CheckedLiteralValue::Integer(actual) => {
+            let expected = value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.as_number().expect("integer wire").to_string());
+            assert_eq!(actual.to_string(), expected);
+        }
+        CheckedLiteralValue::Rational {
+            numerator,
+            denominator,
+        } => {
+            let wire = value.as_str().expect("rational wire");
+            let (expected_numerator, expected_denominator) =
+                wire.split_once('/').unwrap_or((wire, "1"));
+            assert_eq!(numerator.to_string(), expected_numerator);
+            assert_eq!(denominator.to_string(), expected_denominator);
+        }
+        CheckedLiteralValue::Decimal { coefficient, scale } => {
+            let wire = value.as_str().expect("decimal wire");
+            let (whole, fraction) = wire.split_once('.').expect("decimal scale");
+            assert_eq!(scale, fraction.len());
+            let negative = whole.starts_with('-');
+            let digits = format!("{}{fraction}", whole.trim_start_matches('-'));
+            let magnitude = digits.trim_start_matches('0');
+            let expected = if magnitude.is_empty() {
+                "0".to_owned()
+            } else if negative {
+                format!("-{magnitude}")
+            } else {
+                magnitude.to_owned()
+            };
+            assert_eq!(coefficient.to_string(), expected);
+        }
+        CheckedLiteralValue::Float32Bits(actual) => {
+            assert_eq!(format!("{actual:08x}"), value.as_str().unwrap())
+        }
+        CheckedLiteralValue::Float64Bits(actual) => {
+            assert_eq!(format!("{actual:016x}"), value.as_str().unwrap())
+        }
+        CheckedLiteralValue::Text(actual)
+        | CheckedLiteralValue::String(actual)
+        | CheckedLiteralValue::Uuid(actual)
+        | CheckedLiteralValue::Enum(actual) => assert_eq!(actual, value.as_str().unwrap()),
+        CheckedLiteralValue::Timestamp(actual) => {
+            assert_eq!(actual.to_string(), value.as_str().unwrap())
+        }
+        CheckedLiteralValue::None => assert!(value.is_null()),
+    }
+}
+
+fn assert_qspec_operation_record(
+    read: quire_contract_model::CheckedOperationRead<'_>,
+    wire: &Value,
+    catalog: &Value,
+) {
+    assert_eq!(
+        read.identity,
+        wire["identity"].as_str().expect("wire identity")
+    );
+    assert_eq!(
+        read.mode.map(|mode| (mode.kind.as_wire(), mode.value)),
+        wire["mode"].as_object().map(|mode| (
+            mode["kind"].as_str().expect("mode kind"),
+            mode["value"].as_str().expect("mode value")
+        ))
+    );
+    let laws = wire["laws"].as_array().expect("ordered laws");
+    assert_eq!(read.laws.len(), laws.len());
+    for (law, expected) in read.laws.iter().zip(laws) {
+        assert_eq!(law.role.as_wire(), expected["role"].as_str().unwrap());
+        assert_eq!(
+            law.definition.authority.as_ref(),
+            expected["definition"]["authority"].as_str().unwrap()
+        );
+        assert_eq!(
+            law.definition.identity.as_ref(),
+            expected["definition"]["identity"].as_str().unwrap()
+        );
+    }
+    let leaves = wire["leaves"].as_array().expect("ordered leaves");
+    assert_eq!(read.leaves.len(), leaves.len());
+    for (leaf, expected) in read.leaves.iter().zip(leaves) {
+        assert_eq!(
+            leaf.path
+                .iter()
+                .map(|part| part.as_ref())
+                .collect::<Vec<&str>>(),
+            expected["path"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|part| part.as_str().unwrap())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            leaf.mode
+                .as_ref()
+                .map(|mode| (mode.kind.as_wire(), mode.value.as_ref())),
+            expected["mode"].as_object().map(|mode| (
+                mode["kind"].as_str().unwrap(),
+                mode["value"].as_str().unwrap()
+            ))
+        );
+        assert_eq!(leaf.laws.len(), expected["laws"].as_array().unwrap().len());
+        for (law, expected_law) in leaf.laws.iter().zip(expected["laws"].as_array().unwrap()) {
+            assert_eq!(law.role.as_wire(), expected_law["role"].as_str().unwrap());
+            assert_eq!(
+                law.definition.authority.as_ref(),
+                expected_law["definition"]["authority"].as_str().unwrap()
+            );
+            assert_eq!(
+                law.definition.identity.as_ref(),
+                expected_law["definition"]["identity"].as_str().unwrap()
+            );
+        }
+    }
+    let entry = catalog["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["identity"] == read.identity)
+        .expect("catalog identity");
+    let constraints = entry["constraints"]
+        .as_array()
+        .expect("ordered constraints");
+    assert_eq!(
+        read.constraints.len(),
+        constraints.len(),
+        "{}",
+        read.identity
+    );
+    for (constraint, expected) in read.constraints.iter().zip(constraints) {
+        assert_eq!(
+            constraint.kind.as_wire(),
+            expected["kind"].as_str().unwrap()
+        );
+        assert_eq!(
+            constraint.operands,
+            expected["operands"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(constraint.family.as_deref(), expected["family"].as_str());
+    }
+    let member = &wire["member"];
+    let node = |value: &CheckedNodeId, key: &str| {
+        assert_eq!(serde_json::to_value(value).unwrap(), member[key]);
+    };
+    match read.member {
+        None => assert!(member.is_null()),
+        Some(CheckedOperationMember::Field { declaration, name }) => {
+            assert_eq!(member["kind"], "field");
+            node(declaration, "declaration");
+            assert_eq!(member["name"], name.as_ref());
+        }
+        Some(CheckedOperationMember::Position {
+            declaration,
+            position,
+        }) => {
+            assert_eq!(member["kind"], "position");
+            node(declaration, "declaration");
+            assert_eq!(
+                position.to_string(),
+                member["position"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| member["position"].to_string())
+            );
+        }
+        Some(CheckedOperationMember::Element { declaration }) => {
+            assert_eq!(member["kind"], "element");
+            node(declaration, "declaration");
+        }
+        Some(CheckedOperationMember::RelationshipEnd {
+            declaration,
+            name,
+            destination_type,
+            population,
+        }) => {
+            assert_eq!(member["kind"], "relationship_end");
+            node(declaration, "declaration");
+            node(destination_type, "destination_type");
+            assert_eq!(member["name"], name.as_ref());
+            match population {
+                Some(value) => node(value, "population"),
+                None => assert!(member.get("population").is_none()),
+            }
+        }
+        Some(CheckedOperationMember::Operation { declaration, name }) => {
+            assert_eq!(member["kind"], "operation");
+            node(declaration, "declaration");
+            assert_eq!(member["name"], name.as_ref());
+        }
+        Some(CheckedOperationMember::TypeArgument { declaration }) => {
+            assert_eq!(member["kind"], "type_argument");
+            node(declaration, "declaration");
+        }
+        Some(CheckedOperationMember::ProfileOperator { operator }) => {
+            assert_eq!(member["kind"], "profile_operator");
+            assert_eq!(operator.as_deref(), member["operator"].as_str());
+        }
+        Some(CheckedOperationMember::StateClause { clause }) => {
+            assert_eq!(member["kind"], "state_clause");
+            assert_eq!(member["clause"], clause.as_wire());
+        }
+        Some(CheckedOperationMember::TemporalInterval { interval }) => {
+            assert_eq!(member["kind"], "temporal_interval");
+            let expected = if member["interval"].is_null() {
+                None
+            } else {
+                Some(
+                    serde_json::from_value::<quire_contract_model::CheckedOperationInterval>(
+                        member["interval"].clone(),
+                    )
+                    .expect("published interval"),
+                )
+            };
+            assert_eq!(interval.as_ref(), expected.as_ref());
+        }
+        Some(CheckedOperationMember::Fairness {
+            fairness_kind,
+            granularity,
+            declaration,
+            name,
+        }) => {
+            assert_eq!(member["kind"], "fairness");
+            node(declaration, "declaration");
+            assert_eq!(member["name"], name.as_ref());
+            assert_eq!(
+                *fairness_kind,
+                serde_json::from_value(member["fairness_kind"].clone()).unwrap()
+            );
+            assert_eq!(
+                *granularity,
+                serde_json::from_value(member["granularity"].clone()).unwrap()
+            );
+        }
+    }
+}
+
+#[trace("FR-349-AC-6", "FR-349-AC-8", "FR-349-AC-9")]
+#[test]
+fn qspec_admitted_values_members_and_catalog_constraints_are_exact() {
+    let dir = fixtures_dir();
+    let proposal = proposal_dir_of(&dir);
+    let documents = vector_selected_documents(&proposal).expect("published document selections");
+    let document = proposal.join(positive_document(
+        "positive-operation-identities.json",
+        &documents,
+    ));
+    let (wire, admitted) = read_positive(&dir, "positive-operation-identities.json", &document)
+        .expect("published operation identities admit");
+    let mut saw_decimal = false;
+    let mut integers = Vec::new();
+    let mut saw_indexed_member = false;
+    let mut saw_constraints = false;
+    for (wire_node, node) in wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("wire nodes")
+        .iter()
+        .zip(&admitted.graph().nodes)
+    {
+        if let Some(literal) = node.body.literal_read() {
+            assert_eq!(literal.type_id, &node.semantic_type);
+            assert_eq!(
+                literal.kind.as_wire(),
+                wire_node["body"]["value_kind"].as_str().expect("kind")
+            );
+            match literal.value {
+                CheckedLiteralValue::Decimal { coefficient, scale } => {
+                    assert_eq!(wire_node["body"]["value"], "1.25");
+                    assert_eq!(coefficient.to_string(), "125");
+                    assert_eq!(scale, 2);
+                    saw_decimal = true;
+                }
+                CheckedLiteralValue::Integer(value) => {
+                    assert_eq!(
+                        value.to_string(),
+                        wire_node["body"]["value"].as_str().expect("integer")
+                    );
+                    integers.push(value.to_string());
+                }
+                _ => {}
+            }
+        }
+        let CheckedTerm::Application { operation, .. } = &node.body else {
+            continue;
+        };
+        let read = operation.read().expect("admitted typed operation");
+        if let Some(CheckedOperationMember::Field { declaration, .. }) = read.member {
+            saw_indexed_member |= declaration
+                .path
+                .iter()
+                .any(|part| matches!(part, quire_contract_model::CheckedNodePathSegment::Index(_)));
+        }
+        saw_constraints |= !read.constraints.is_empty();
+    }
+    assert!(saw_decimal && saw_indexed_member && saw_constraints);
+    assert!(integers.contains(&"7".to_owned()) && integers.contains(&"-2".to_owned()));
+    let encoded = encode_checked_package_v2(
+        admitted.name(),
+        admitted.lock(),
+        admitted.graph(),
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: admitted.source_map(),
+            refinement_step_rows: admitted.refinement_step_rows(),
+        },
+        admitted.capability_report(),
+        admitted.diagnostics(),
+        quire_canonical::Limits::new(u64::MAX),
+    )
+    .expect("encode admitted QSpec package");
+    assert_eq!(serde_json::from_slice::<Value>(&encoded).unwrap(), wire);
+}
+
+#[trace("FR-349-AC-8", "FR-349-AC-9")]
+#[test]
+fn qspec_indexed_operation_member_follows_projected_graph_positions() {
+    let dir = fixtures_dir();
+    let proposal = proposal_dir_of(&dir);
+    let documents = vector_selected_documents(&proposal).expect("published document selections");
+    let document = proposal.join(positive_document(
+        "positive-operation-identities.json",
+        &documents,
+    ));
+    let (_, admitted) = read_positive(&dir, "positive-operation-identities.json", &document)
+        .expect("published indexed operation admits");
+    let source_node = admitted.graph().nodes.iter().find(|node| matches!(&node.body,
+        CheckedTerm::Application { operation, .. } if operation.identity() == Some("quire.op.record.project")))
+        .expect("published record projection");
+    let source_member = match &source_node.body {
+        CheckedTerm::Application { operation, .. } => {
+            match operation.read().unwrap().member.unwrap() {
+                CheckedOperationMember::Field { declaration, .. } => declaration,
+                other => panic!("expected indexed field, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    };
+    let profile = CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "typed-projection-test".into(),
+        },
+        required_source_selections: Vec::new(),
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let lowered = admitted.lower(std::slice::from_ref(&source_node.node_id), &profile);
+    let producer = lowered.package.wire().expect("projected producer package");
+    let projected_wire: Value =
+        serde_json::from_slice(lowered.package.canonical_bytes().unwrap()).unwrap();
+    let projected_node = projected_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
+        .expect("projected operation");
+    let expected: CheckedNodeId = serde_json::from_value(
+        projected_node["body"]["operation"]["member"]["declaration"].clone(),
+    )
+    .unwrap();
+    let projected_key: CheckedNodeId =
+        serde_json::from_value(projected_node["node_id"].clone()).unwrap();
+    assert_ne!(
+        &expected, source_member,
+        "projection must reorder indexed declaration"
+    );
+    let producer_member = match producer.term(&projected_key).expect("producer term") {
+        CheckedTerm::Application { operation, .. } => {
+            match operation.read().unwrap().member.unwrap() {
+                CheckedOperationMember::Field { declaration, .. } => declaration,
+                other => panic!("expected projected field, got {other:?}"),
+            }
+        }
+        other => panic!("expected application, got {other:?}"),
+    };
+    assert_eq!(producer_member, &expected);
+    let ContractPackageReadResult::Admitted(authenticated) =
+        ContractPackageWireV1::read_with_source(
+            lowered.package.canonical_bytes().unwrap(),
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &admitted,
+        )
+        .expect("source correspondence")
+    else {
+        panic!("authenticated projected package must admit")
+    };
+    let authenticated_member = match authenticated.term(&projected_key).unwrap() {
+        CheckedTerm::Application { operation, .. } => {
+            match operation.read().unwrap().member.unwrap() {
+                CheckedOperationMember::Field { declaration, .. } => declaration,
+                other => panic!("expected authenticated field, got {other:?}"),
+            }
+        }
+        _ => panic!("authenticated operation missing"),
+    };
+    assert_eq!(authenticated_member, &expected);
 }
 
 #[trace("TC-048", "FR-038-AC-225")]

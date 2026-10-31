@@ -19,7 +19,10 @@ use super::operation_catalog::{
 };
 use super::structural::{typed_union_type_body, typed_union_value_body, UnionMember};
 use super::temporal::member_is_well_formed;
-use super::typed_terms::CheckedOperationViews;
+use super::typed_terms::{
+    CheckedOperationConstraint, CheckedOperationLaw, CheckedOperationLeaf, CheckedOperationMember,
+    CheckedOperationMode, CheckedOperationRecord, CheckedOperationViews,
+};
 use super::{
     ApplicationOperator, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
     CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm, CompositeTypeForm,
@@ -97,7 +100,7 @@ impl OperationWire {
         Some(OperationMemberKind::from_wire(kind))
     }
 
-    fn admitted_views(&self) -> CheckedOperationViews {
+    fn admitted_views(&self, entry: &OperationCatalogEntry) -> Option<CheckedOperationViews> {
         let member_declaration = member_declaration(self);
         let projection_field = (self.member_kind_class() == Some(Some(OperationMemberKind::Field)))
             .then(|| {
@@ -115,13 +118,65 @@ impl OperationWire {
             .mode
             .as_ref()
             .and_then(|mode| Some((mode.kind_class()?, mode.value.clone())));
-        CheckedOperationViews {
+        let read_mode = |mode: &OperationModeWire| {
+            Some(CheckedOperationMode {
+                kind: mode.kind_class()?,
+                value: mode.value.clone(),
+            })
+        };
+        let read_laws = |laws: &[OperationLawWire]| {
+            laws.iter()
+                .map(|law| {
+                    Some(CheckedOperationLaw {
+                        role: law.role_class()?,
+                        definition: law.definition.clone(),
+                    })
+                })
+                .collect::<Option<Vec<_>>>()
+        };
+        let record = CheckedOperationRecord {
+            identity: self.identity.clone(),
+            mode: match &self.mode {
+                Some(mode) => Some(read_mode(mode)?),
+                None => None,
+            },
+            laws: read_laws(&self.laws)?,
+            member: match &self.member {
+                Some(member) => Some(CheckedOperationMember::from_validated_value(member)?),
+                None => None,
+            },
+            constraints: entry
+                .constraints
+                .iter()
+                .map(|constraint| CheckedOperationConstraint {
+                    kind: constraint.kind,
+                    operands: constraint.operands.clone(),
+                    family: constraint.family.clone(),
+                })
+                .collect(),
+            leaves: self
+                .leaves
+                .iter()
+                .map(|leaf| {
+                    Some(CheckedOperationLeaf {
+                        path: leaf.path.clone(),
+                        laws: read_laws(&leaf.laws)?,
+                        mode: match &leaf.mode {
+                            Some(mode) => Some(read_mode(mode)?),
+                            None => None,
+                        },
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?,
+        };
+        Some(CheckedOperationViews {
+            record: Some(Box::new(record)),
             state_clause_kind,
             projection_field,
             member_declaration,
             mode,
             law_definitions: self.laws.iter().map(|law| law.definition.clone()).collect(),
-        }
+        })
     }
 }
 
@@ -1086,7 +1141,13 @@ fn operation_defect(
         )));
     }
     if leaf_defect.is_none() {
-        admitted_views.push((application.position, operation.admitted_views()));
+        let Some(views) = operation.admitted_views(entry) else {
+            return Ok(Some(ValidationFailure::refused(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                application.body(&["operation"]),
+            )));
+        };
+        admitted_views.push((application.position, views));
     }
     Ok(leaf_defect)
 }
@@ -2366,7 +2427,7 @@ fn body_root_defect(
             .iter()
             .find_map(|member| match member {
                 CheckedTerm::Binding { name, value }
-                    if name.kind() == super::TermBindingName::Body =>
+                    if name.internal_kind() == super::TermBindingName::Body =>
                 {
                     Some(value.as_ref())
                 }
@@ -2430,7 +2491,7 @@ fn check_function_call(
     };
     let Some(present) = members
         .iter()
-        .position(|member| matches!(member, CheckedTerm::Binding { name, .. } if name.kind() == super::TermBindingName::Parameters))
+        .position(|member| matches!(member, CheckedTerm::Binding { name, .. } if name.internal_kind() == super::TermBindingName::Parameters))
     else {
         return Ok(None);
     };
@@ -3927,7 +3988,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                         let [CheckedTerm::Binding { name, value }] = members.as_slice() else {
                             return None;
                         };
-                        if name.kind() != super::TermBindingName::Optional {
+                        if name.internal_kind() != super::TermBindingName::Optional {
                             return None;
                         }
                         let target = referenced_type(value)?;

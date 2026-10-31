@@ -198,14 +198,19 @@ pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefus
 pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
     CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
-    CheckedApplicationOperation, CheckedFieldScope, CheckedFrameModification,
-    CheckedOperationAnchorBody, CheckedScopedDeletion, CheckedTerm, LiteralKind, OperationModeKind,
-    RefinementAbstractClass, RefinementAssume, RefinementClassCatalog, RefinementConcreteClass,
-    RefinementDrain, RefinementEnsure, RefinementFairnessKind, RefinementField,
-    RefinementGranularity, RefinementHistory, RefinementHistoryUpdate, RefinementKey,
-    RefinementMemoryClass, RefinementMemoryModel, RefinementObject, RefinementOpen,
-    RefinementPackageNodeKey, RefinementPopulation, RefinementStep, RefinementStepArgument,
-    RefinementStepTarget, RefinementTsoModel, StateClauseKind,
+    CheckedApplicationOperation, CheckedBindingName, CheckedBindingNameKind,
+    CheckedFairnessGranularity, CheckedFairnessKind, CheckedFieldScope, CheckedFrameModification,
+    CheckedIntervalEnd, CheckedLiteralRead, CheckedLiteralValue, CheckedOperationAnchorBody,
+    CheckedOperationConstraint, CheckedOperationInterval, CheckedOperationLaw,
+    CheckedOperationLeaf, CheckedOperationMember, CheckedOperationMode, CheckedOperationRational,
+    CheckedOperationRead, CheckedScopedDeletion, CheckedTerm, LawRole, LiteralKind,
+    OperationConstraintKind, OperationMemberKind, OperationModeKind, RefinementAbstractClass,
+    RefinementAssume, RefinementClassCatalog, RefinementConcreteClass, RefinementDrain,
+    RefinementEnsure, RefinementFairnessKind, RefinementField, RefinementGranularity,
+    RefinementHistory, RefinementHistoryUpdate, RefinementKey, RefinementMemoryClass,
+    RefinementMemoryModel, RefinementObject, RefinementOpen, RefinementPackageNodeKey,
+    RefinementPopulation, RefinementStep, RefinementStepArgument, RefinementStepTarget,
+    RefinementTsoModel, StateClauseKind,
 };
 #[cfg(feature = "test-support")]
 pub use checked_package::{
