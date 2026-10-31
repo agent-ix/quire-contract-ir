@@ -12,10 +12,10 @@
 //! with fixture-authored structural identities; nothing of QSpec is copied in.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, evidence_with_document, node_id as fixture_node_id,
-    nominal_fixture_members, nominal_package, pointer, rebuild_source_map, refresh_identity,
-    refusal_bytes, refusal_cause, select_model, settle, ExpectedRefusal, COMPLETE_VALUE_FEATURE,
-    FIXTURE_PACKAGE,
+    canonical, evidence_for, evidence_with_document, index_fixture_node_ids,
+    node_id as fixture_node_id, nominal_fixture_members, nominal_package, pointer,
+    rebuild_source_map, refresh_identity, refusal_bytes, refusal_cause, select_model, settle,
+    structural_fixture_id, ExpectedRefusal, COMPLETE_VALUE_FEATURE, FIXTURE_PACKAGE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -101,9 +101,7 @@ fn model_key(form: &str, package: &str, node: &str) -> String {
 
 fn dependency_ids(keys: &[&str]) -> Vec<Value> {
     let mut ids = keys.iter().map(|key| node_id(key)).collect::<Vec<_>>();
-    ids.sort_by_key(|id| {
-        serde_json::from_value::<CheckedNodeId>(id.clone()).expect("dependency identity")
-    });
+    ids.sort_by_key(|id| structural_fixture_id(id));
     ids
 }
 
@@ -300,10 +298,16 @@ fn read(
     evidence: &quire_contract_model::CheckedPackageEvidence,
 ) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
-        &canonical(package),
+        &indexed_bytes(package),
         CheckedPackageReadLimits::bounded(),
         evidence,
     )
+}
+
+fn indexed_bytes(package: &Value) -> Vec<u8> {
+    let mut package = package.clone();
+    index_fixture_node_ids(&mut package);
+    canonical(&package)
 }
 
 #[trace("TC-048", "FR-038-AC-242")]
@@ -1739,7 +1743,7 @@ fn tc_048_reaches_multivalued_end_requires_boolean_result() {
 #[test]
 fn tc_048_relationship_navigation_total_work_limit_reports_its_first_unpayable_edge() {
     let (package, evidence) = relationship_package(authored_relationship(), "links");
-    let bytes = canonical(&package);
+    let bytes = indexed_bytes(&package);
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
@@ -2197,7 +2201,7 @@ fn tc_048_reading_a_domain_package_is_charged_to_the_work_limit() {
     let (package, evidence) = package_over(&domain_document(json!({})), "total");
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = 0;
-    match CheckedPackageV2::read(&canonical(&package), limits, &evidence) {
+    match CheckedPackageV2::read(&indexed_bytes(&package), limits, &evidence) {
         CheckedPackageV2ReadResult::Incomplete(CheckedPackageIncomplete {
             limit_kind,
             limit,
@@ -2648,7 +2652,7 @@ fn tc_048_a_number_below_the_double_range_refuses_inexact_number_on_its_text() {
 #[test]
 fn tc_048_a_package_stream_refusal_carries_no_document_pointer() {
     let package = package_selecting("total");
-    let mut bytes = canonical(&package);
+    let mut bytes = indexed_bytes(&package);
     bytes.push(b' ');
     match CheckedPackageV2::read(
         &bytes,
@@ -2674,7 +2678,7 @@ fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
     let bytes = canonical(&document);
     let length = u64::try_from(bytes.len()).expect("length");
     let package = package_selecting("total");
-    let package_bytes = canonical(&package);
+    let package_bytes = indexed_bytes(&package);
     assert!(
         u64::try_from(package_bytes.len()).expect("length") < length,
         "the package is shorter than the document"
@@ -3010,7 +3014,7 @@ fn tc_227_a_relationship_edge_read_charges_its_effective_table_end_to_end() {
         let read = |work| {
             let mut limits = CheckedPackageReadLimits::bounded();
             limits.work = work;
-            CheckedPackageV2::read(&canonical(&package), limits, &evidence)
+            CheckedPackageV2::read(&indexed_bytes(&package), limits, &evidence)
         };
         let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
         assert!(matches!(
@@ -3153,7 +3157,7 @@ fn admitted(
 }
 
 fn typed_id(key: &str) -> CheckedNodeId {
-    serde_json::from_value(node_id(key)).expect("a node id")
+    structural_fixture_id(&node_id(key))
 }
 
 /// The node of the first application of `operation` in the admitted graph.
@@ -3420,7 +3424,7 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     let second = admitted(&package, &evidence);
     let application = application_of(&first, "quire.op.model.reaches");
     let clone = first.clone();
-    let bytes = canonical(&package);
+    let bytes = indexed_bytes(&package);
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
