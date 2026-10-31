@@ -336,33 +336,81 @@ pub(super) fn validate_structural_nodes(
     validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[])
 }
 
-pub(super) fn validate_structural_nodes_with_keys(
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    terms: &[Option<super::CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+fn resolve_unlisted_dependency(
+    id: &CheckedNodeId,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
-) -> Result<(), ValidationFailure> {
-    let graph = Graph {
-        nodes,
-        kinds,
-        index,
-    };
-    // A rebuilt key can contain a long chain of operand keys. Equality of
-    // two references to that key must not descend the chain once per node.
-    let mut key_tokens = HashMap::new();
-    let mut key_ranks = HashMap::new();
-    if !structural_keys.is_empty() {
-        let tokens = super::node_index::StructuralInterner::new()
-            .tokens(structural_keys)
-            .expect("reader-rebuilt graph keys contain only resolved operands");
-        let ranks = rank_checked_node_ids(structural_keys);
-        for ((key, token), rank) in structural_keys.iter().zip(tokens).zip(ranks) {
-            key_tokens.insert(std::sync::Arc::as_ptr(key), token);
-            key_ranks.insert(std::sync::Arc::as_ptr(key), rank);
-        }
+) -> Option<std::sync::Arc<CheckedNodeId>> {
+    if id
+        .path
+        .iter()
+        .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
+    {
+        return (!id
+            .path
+            .iter()
+            .any(|segment| matches!(segment, CheckedNodePathSegment::Index(_))))
+        .then(|| std::sync::Arc::new(id.clone()));
     }
-    let matches_dependencies = |actual: &[CheckedNodeId], expected: BTreeSet<&CheckedNodeId>| {
+    super::node_index::resolve_id(id, structural_keys).map(std::sync::Arc::new)
+}
+
+/// One graph-wide ordering table for both present and absent dependency IDs.
+/// Missing IDs are still compared here; their body join owns the typed refusal.
+struct DependencyKeyOrder {
+    interner: super::node_index::StructuralInterner,
+    tokens: HashMap<*const CheckedNodeId, usize>,
+    ranks: HashMap<*const CheckedNodeId, usize>,
+    absent: HashMap<*const CheckedNodeId, std::sync::Arc<CheckedNodeId>>,
+    expected_roots: Vec<std::sync::Arc<CheckedNodeId>>,
+}
+
+impl DependencyKeyOrder {
+    fn new<'a>(
+        dependencies: impl IntoIterator<Item = &'a [CheckedNodeId]>,
+        index: &BTreeMap<&CheckedNodeId, usize>,
+        structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    ) -> Self {
+        let mut order = Self {
+            interner: super::node_index::StructuralInterner::new(),
+            tokens: HashMap::new(),
+            ranks: HashMap::new(),
+            absent: HashMap::new(),
+            expected_roots: Vec::new(),
+        };
+        if structural_keys.is_empty() {
+            return order;
+        }
+        let mut ranked_keys = structural_keys.to_vec();
+        for listed in dependencies {
+            for id in listed {
+                if index.contains_key(id) {
+                    continue;
+                }
+                if let Some(key) = resolve_unlisted_dependency(id, structural_keys) {
+                    ranked_keys.push(std::sync::Arc::clone(&key));
+                    order.absent.insert(std::ptr::from_ref(id), key);
+                }
+            }
+        }
+        let tokens = order
+            .interner
+            .tokens(&ranked_keys)
+            .expect("reader-rebuilt graph keys contain only resolved operands");
+        let ranks = rank_checked_node_ids(&ranked_keys);
+        for ((key, token), rank) in ranked_keys.iter().zip(tokens).zip(ranks) {
+            order.tokens.insert(std::sync::Arc::as_ptr(key), token);
+            order.ranks.insert(std::sync::Arc::as_ptr(key), rank);
+        }
+        order
+    }
+
+    fn matches(
+        &mut self,
+        actual: &[CheckedNodeId],
+        expected: BTreeSet<&CheckedNodeId>,
+        index: &BTreeMap<&CheckedNodeId, usize>,
+        structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    ) -> bool {
         let expected = expected.into_iter().collect::<Vec<_>>();
         let expected_keys = expected
             .iter()
@@ -376,54 +424,24 @@ pub(super) fn validate_structural_nodes_with_keys(
                     .zip(expected)
                     .all(|(left, right)| left == right);
         }
-        // A body may list a well-formed target that is absent from the graph.
-        // Its own body join owns the missing-target refusal, so the earlier
-        // dependency check must compare that key without requiring a graph
-        // token. This path is exceptional; present graph keys keep the compact
-        // token/rank comparison used by long derived chains.
-        if expected.iter().copied().chain(actual.iter()).any(|id| {
-            let key = super::structural_key(id, index, structural_keys);
-            !key_tokens.contains_key(&std::ptr::from_ref(key))
-        }) {
-            let resolve = |id: &CheckedNodeId| {
-                if let Some(&position) = index.get(id) {
-                    return structural_keys
-                        .get(position)
-                        .map(|key| key.as_ref().clone());
-                }
-                if id
-                    .path
-                    .iter()
-                    .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
-                {
-                    return (!id
-                        .path
-                        .iter()
-                        .any(|segment| matches!(segment, CheckedNodePathSegment::Index(_))))
-                    .then(|| id.clone());
-                }
-                super::node_index::resolve_id(id, structural_keys)
-            };
-            let Some(mut expected_resolved) = expected
-                .iter()
-                .map(|id| resolve(id))
-                .collect::<Option<Vec<_>>>()
-            else {
-                return false;
-            };
-            let Some(actual_resolved) = actual.iter().map(resolve).collect::<Option<Vec<_>>>()
-            else {
-                return false;
-            };
-            expected_resolved.sort();
-            expected_resolved.dedup();
-            return actual_resolved.len() == expected_resolved.len()
-                && actual_resolved.windows(2).all(|pair| pair[0] < pair[1])
-                && actual_resolved == expected_resolved;
-        }
         let mut expected_tokens = HashSet::new();
-        for key in expected_keys {
-            let Some(&token) = key_tokens.get(&std::ptr::from_ref(key)) else {
+        for (raw, key) in expected.iter().zip(expected_keys) {
+            let token = if let Some(&token) = self.tokens.get(&std::ptr::from_ref(key)) {
+                token
+            } else if let Some(resolved) = resolve_unlisted_dependency(raw, structural_keys) {
+                // The interner uses Arc pointers as its cache keys. Retain
+                // each root for the whole validation pass so an allocator
+                // cannot reuse an address for a different expected key.
+                self.expected_roots.push(resolved);
+                let Some(tokens) = self.interner.tokens(std::slice::from_ref(
+                    self.expected_roots
+                        .last()
+                        .expect("just pushed expected key"),
+                )) else {
+                    return false;
+                };
+                tokens[0]
+            } else {
                 return false;
             };
             expected_tokens.insert(token);
@@ -434,9 +452,13 @@ pub(super) fn validate_structural_nodes_with_keys(
         let mut previous_rank = None;
         let mut actual_tokens = HashSet::with_capacity(actual.len());
         for id in actual {
-            let key = super::structural_key(id, index, structural_keys);
-            let pointer = std::ptr::from_ref(key);
-            let (Some(&token), Some(&rank)) = (key_tokens.get(&pointer), key_ranks.get(&pointer))
+            let pointer = if let Some(key) = self.absent.get(&std::ptr::from_ref(id)) {
+                std::sync::Arc::as_ptr(key)
+            } else {
+                let key = super::structural_key(id, index, structural_keys);
+                std::ptr::from_ref(key)
+            };
+            let (Some(&token), Some(&rank)) = (self.tokens.get(&pointer), self.ranks.get(&pointer))
             else {
                 return false;
             };
@@ -447,7 +469,53 @@ pub(super) fn validate_structural_nodes_with_keys(
             actual_tokens.insert(token);
         }
         actual_tokens == expected_tokens
+    }
+
+    fn ordered(
+        &self,
+        actual: &[CheckedNodeId],
+        index: &BTreeMap<&CheckedNodeId, usize>,
+        structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    ) -> bool {
+        if structural_keys.is_empty() {
+            return actual.windows(2).all(|pair| pair[0] < pair[1]);
+        }
+        let rank = |id: &CheckedNodeId| {
+            let pointer = if let Some(key) = self.absent.get(&std::ptr::from_ref(id)) {
+                std::sync::Arc::as_ptr(key)
+            } else {
+                std::ptr::from_ref(super::structural_key(id, index, structural_keys))
+            };
+            self.ranks.get(&pointer)
+        };
+        actual
+            .windows(2)
+            .all(|pair| match (rank(&pair[0]), rank(&pair[1])) {
+                (Some(left), Some(right)) => left < right,
+                _ => false,
+            })
+    }
+}
+
+pub(super) fn validate_structural_nodes_with_keys(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<super::CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
+) -> Result<(), ValidationFailure> {
+    let graph = Graph {
+        nodes,
+        kinds,
+        index,
     };
+    // Rank once for this graph, including listed IDs absent from its nodes.
+    // All later comparisons use shallow tokens and ranks, not deep key walks.
+    let mut dependency_order = DependencyKeyOrder::new(
+        nodes.iter().map(|node| node.dependencies.as_slice()),
+        index,
+        structural_keys,
+    );
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
@@ -493,7 +561,12 @@ pub(super) fn validate_structural_nodes_with_keys(
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if !matches_dependencies(&node.dependencies, expected) {
+                } else if !dependency_order.matches(
+                    &node.dependencies,
+                    expected,
+                    index,
+                    structural_keys,
+                ) {
                     Some(Defect::Dependencies)
                 } else {
                     None
@@ -523,7 +596,12 @@ pub(super) fn validate_structural_nodes_with_keys(
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
-                } else if !matches_dependencies(&node.dependencies, targets) {
+                } else if !dependency_order.matches(
+                    &node.dependencies,
+                    targets,
+                    index,
+                    structural_keys,
+                ) {
                     Some(Defect::Dependencies)
                 } else {
                     None
@@ -579,23 +657,18 @@ pub(super) fn validate_structural_nodes_with_keys(
         }
         if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             if let Some(owner_model) = node.owner_model.as_ref() {
-                let ordered = node.dependencies.windows(2).all(|pair| {
-                    let left = super::structural_key(&pair[0], index, structural_keys);
-                    let right = super::structural_key(&pair[1], index, structural_keys);
-                    match (
-                        key_ranks.get(&std::ptr::from_ref(left)),
-                        key_ranks.get(&std::ptr::from_ref(right)),
-                    ) {
-                        (Some(left), Some(right)) => left < right,
-                        _ => left < right,
-                    }
-                });
+                let ordered = dependency_order.ordered(&node.dependencies, index, structural_keys);
                 if !ordered || !node.dependencies.contains(owner_model) {
                     return Err(refuse(Defect::Dependencies));
                 }
                 if let Some(mut expected) = term.and_then(application_dependencies) {
                     expected.insert(owner_model.clone());
-                    if !matches_dependencies(&node.dependencies, expected.iter().collect()) {
+                    if !dependency_order.matches(
+                        &node.dependencies,
+                        expected.iter().collect(),
+                        index,
+                        structural_keys,
+                    ) {
                         return Err(refuse(Defect::Dependencies));
                     }
                 }
@@ -603,7 +676,12 @@ pub(super) fn validate_structural_nodes_with_keys(
             continue;
         }
         if let Some(expected) = term.and_then(application_dependencies) {
-            if !matches_dependencies(&node.dependencies, expected.iter().collect()) {
+            if !dependency_order.matches(
+                &node.dependencies,
+                expected.iter().collect(),
+                index,
+                structural_keys,
+            ) {
                 return Err(refuse(Defect::Dependencies));
             }
         }
@@ -1394,8 +1472,82 @@ fn is_positive_integer(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checked_package::shared::checked_node_comparisons;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    #[trace("TC-048", "FR-038-AC-380")]
+    #[test]
+    fn absent_dependency_uses_shallow_order_on_a_deep_index_chain() {
+        const LENGTH: usize = 4_096;
+        let base = CheckedNodeId {
+            package: "structural-test".into(),
+            path: vec![CheckedNodePathSegment::Name("base".into())],
+            ordinal: 0,
+        };
+        let mut wire = Vec::with_capacity(LENGTH);
+        let mut structural = Vec::with_capacity(LENGTH);
+        wire.push(base.clone());
+        structural.push(std::sync::Arc::new(base));
+        for position in 1..LENGTH {
+            wire.push(CheckedNodeId {
+                package: "structural-test".into(),
+                path: vec![
+                    CheckedNodePathSegment::Name("derived".into()),
+                    CheckedNodePathSegment::Index(u64::try_from(position - 1).expect("index")),
+                ],
+                ordinal: 0,
+            });
+            structural.push(std::sync::Arc::new(CheckedNodeId {
+                package: "structural-test".into(),
+                path: vec![
+                    CheckedNodePathSegment::Name("derived".into()),
+                    CheckedNodePathSegment::Node(std::sync::Arc::clone(&structural[position - 1])),
+                ],
+                ordinal: 0,
+            }));
+        }
+        let index = wire
+            .iter()
+            .enumerate()
+            .map(|(position, id)| (id, position))
+            .collect();
+        let absent = CheckedNodeId {
+            package: "structural-test".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("missing".into()),
+                CheckedNodePathSegment::Index(u64::try_from(LENGTH - 1).expect("index")),
+            ],
+            ordinal: 0,
+        };
+        let mut actual = wire.clone();
+        actual.push(absent.clone());
+        let expected = wire.iter().chain(std::iter::once(&absent)).collect();
+        checked_node_comparisons::reset();
+        let mut order =
+            DependencyKeyOrder::new(std::iter::once(actual.as_slice()), &index, &structural);
+        assert!(order.matches(&actual, expected, &index, &structural,));
+        assert!(
+            checked_node_comparisons::count() < 64 * LENGTH as u64,
+            "one missing target must not compare the shared chain repeatedly: {}",
+            checked_node_comparisons::count()
+        );
+        assert!(!order.matches(&actual, wire.iter().collect(), &index, &structural,));
+        let wrong = CheckedNodeId {
+            package: "structural-test".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("other".into()),
+                CheckedNodePathSegment::Index(u64::try_from(LENGTH - 1).expect("index")),
+            ],
+            ordinal: 0,
+        };
+        assert!(!order.matches(
+            &actual,
+            wire.iter().chain(std::iter::once(&wrong)).collect(),
+            &index,
+            &structural,
+        ));
+    }
 
     #[trace("TC-048", "FR-038-AC-22")]
     #[test]
