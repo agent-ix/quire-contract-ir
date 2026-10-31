@@ -716,6 +716,45 @@ pub(crate) fn record_project_control() -> (Value, CheckedPackageEvidence) {
     (package, evidence)
 }
 
+/// Trace: FR-349-AC-8, QSpec FR-322-AC-34.
+#[trace("FR-349-AC-8", "FR-322-AC-34")]
+#[test]
+fn model_field_reference_without_deref_refuses_by_read_form() {
+    let (mut wire, evidence) = record_project_control();
+    let projection = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
+        .expect("model projection");
+    let declaration = projection["body"]["operation"]["member"]["declaration"].clone();
+    projection["body"]["arguments"][0]["target"] = declaration;
+    settle(&mut wire);
+    let result = read_with(&wire, &evidence, CheckedPackageReadLimits::bounded());
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Refused(refusal)
+        if refusal.code == CheckedPackageRefusalCode::MalformedWire)
+    );
+
+    let projection = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
+        .expect("model projection");
+    projection["body"]["operation"]["member"]
+        .as_object_mut()
+        .expect("field member")
+        .remove("read_form");
+    settle(&mut wire);
+    let result = read_with(&wire, &evidence, CheckedPackageReadLimits::bounded());
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Refused(refusal)
+        if refusal.code == CheckedPackageRefusalCode::IllTyped
+            && refusal.cause == Some(CheckedPackageRefusalCause::OperatorIneligible))
+    );
+}
+
 /// An admitted package holding an `integer.add` application and a
 /// `value`/`literal` node, for refusals that need neither a model member
 /// nor a relationship.

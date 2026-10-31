@@ -80,7 +80,7 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
     let cases = vectors["projection_cases"]
         .as_array()
         .expect("projection cases");
-    for name in ["RP-09", "RP-10", "RP-11", "RP-12", "RP-13"] {
+    for name in ["RP-09", "RP-10", "RP-11", "RP-12"] {
         let row = cases
             .iter()
             .find(|row| row["name"] == name)
@@ -97,19 +97,6 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                         == "object_type"
             })
             .expect("published model projection");
-        if name == "RP-13" {
-            let declaration = row["member"]["declaration"].clone();
-            // The vector's undereferenced operand names the declaring object.
-            // The positive package's field is the same object, so its existing
-            // selected graph node supplies the concrete structural identity.
-            let declaration = if declaration.is_string() {
-                projection["body"]["operation"]["member"]["declaration"].clone()
-            } else {
-                declaration
-            };
-            projection["body"]["arguments"][0]["target"] = declaration.clone();
-            projection["dependencies"] = Value::Array(vec![declaration]);
-        }
         let member = projection["body"]["operation"]["member"]
             .as_object_mut()
             .expect("field member");
