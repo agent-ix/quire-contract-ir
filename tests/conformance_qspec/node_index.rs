@@ -84,21 +84,26 @@ fn published_index_segment_refusals_precede_semantic_checks() {
 }
 
 fn reverse_graph_indexes(value: &mut Value, node_count: usize) -> usize {
+    let old_to_new = (0..node_count).rev().collect::<Vec<_>>();
+    remap_graph_indexes(value, &old_to_new)
+}
+
+fn remap_graph_indexes(value: &mut Value, old_to_new: &[usize]) -> usize {
     match value {
         Value::Object(map) if map.len() == 1 && map.contains_key("node") => {
             let old = map["node"].as_u64().expect("published index");
             let old: usize = old.try_into().expect("index fits usize");
-            assert!(old < node_count, "published index in range");
-            map.insert("node".into(), json!(node_count - 1 - old));
+            let new = old_to_new.get(old).expect("published index in range");
+            map.insert("node".into(), json!(new));
             1
         }
         Value::Object(map) => map
             .values_mut()
-            .map(|part| reverse_graph_indexes(part, node_count))
+            .map(|part| remap_graph_indexes(part, old_to_new))
             .sum(),
         Value::Array(items) => items
             .iter_mut()
-            .map(|part| reverse_graph_indexes(part, node_count))
+            .map(|part| remap_graph_indexes(part, old_to_new))
             .sum(),
         _ => 0,
     }
@@ -213,31 +218,57 @@ fn permutation_rebuilds_the_same_structural_keys_and_stale_operands_do_not() {
 #[test]
 fn two_semantic_defects_choose_structural_order_over_graph_order() {
     let fixtures = fixtures_dir();
-    let base = read_json(&fixtures.join("positive-operation-identities.json"))
+    let mut base = read_json(&fixtures.join("positive-operation-identities.json"))
         .expect("published local operation-identity package");
+    let count = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published graph nodes")
+        .len();
+    assert_eq!(count, 62, "selected QSpec operation fixture cardinality");
+    // Swap operand nodes 31 and 34, retaining application positions 25 and
+    // 26. Rewriting all indexes keeps the positive package's meaning intact.
+    base["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published graph nodes")
+        .swap(31, 34);
+    let mut old_to_new = (0..count).collect::<Vec<_>>();
+    old_to_new.swap(31, 34);
+    assert!(remap_graph_indexes(&mut base, &old_to_new) > 0);
     let nodes = base["semantic_graph"]["nodes"]
         .as_array()
         .expect("published graph nodes");
     assert_eq!(
-        nodes[13]["body"]["operation"]["identity"],
-        "quire.op.integer.rem"
+        nodes[25]["body"]["operation"]["identity"],
+        "quire.op.ieee.float64.add"
     );
     assert_eq!(
-        nodes[15]["body"]["operation"]["identity"],
-        "quire.op.integer.div"
+        nodes[26]["body"]["operation"]["identity"],
+        "quire.op.ieee.float64.add"
     );
-    assert_eq!(nodes[13]["node_id"]["package"], "example");
-    assert_eq!(nodes[15]["node_id"]["package"], "example");
+    assert_eq!(nodes[25]["node_id"]["package"], "example");
+    assert_eq!(nodes[26]["node_id"]["package"], "example");
+    assert_eq!(
+        &nodes[25]["node_id"]["path"].as_array().expect("path")[..2],
+        &nodes[26]["node_id"]["path"].as_array().expect("path")[..2],
+        "the first differing path element is an index operand"
+    );
+    assert_eq!(nodes[25]["node_id"]["path"][2], json!({"node":31}));
+    assert_eq!(nodes[26]["node_id"]["path"][2], json!({"node":34}));
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        read_package(&base).expect("permuted operation fixture read")
+    else {
+        panic!("valid operand permutation must admit");
+    };
     assert!(
-        nodes[15]["node_id"]["path"][4]
-            .as_str()
-            .expect("divide operation segment")
-            < nodes[13]["node_id"]["path"][4]
-                .as_str()
-                .expect("remainder operation segment"),
-        "Divide precedes Remainder structurally but follows it in the graph"
+        admitted
+            .structural_key_at(26)
+            .expect("second application key")
+            < admitted
+                .structural_key_at(25)
+                .expect("first application key"),
+        "node 26's resolved operand sorts first although graph and wire-index order put it later"
     );
-    for position in [13, 15] {
+    for position in [25, 26] {
         let mut single = base.clone();
         single["semantic_graph"]["nodes"][position]["body"]["operation"]["identity"] =
             json!("quire.op.not-catalogued");
@@ -257,7 +288,7 @@ fn two_semantic_defects_choose_structural_order_over_graph_order() {
         );
     }
     let mut package = base;
-    for position in [13, 15] {
+    for position in [25, 26] {
         package["semantic_graph"]["nodes"][position]["body"]["operation"]["identity"] =
             json!("quire.op.not-catalogued");
     }
@@ -270,8 +301,8 @@ fn two_semantic_defects_choose_structural_order_over_graph_order() {
     assert_eq!(refusal.cause.map(cause_word), Some("unknown-operation"));
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some("/semantic_graph/nodes/15/body/operation/identity".to_owned()),
-        "structurally first Divide defect must win over graph-first Remainder"
+        Some("/semantic_graph/nodes/26/body/operation/identity".to_owned()),
+        "resolved operand order must win over graph and wire-index order"
     );
 }
 
