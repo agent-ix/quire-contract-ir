@@ -73,8 +73,8 @@ use super::{
 };
 use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
-    rank_checked_node_ids, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode,
-    JsonPointer,
+    rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole,
+    CheckedPackageRefusalCode, JsonPointer,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -363,8 +363,9 @@ pub(super) fn validate_structural_nodes_with_keys(
         }
     }
     let matches_dependencies = |actual: &[CheckedNodeId], expected: BTreeSet<&CheckedNodeId>| {
+        let expected = expected.into_iter().collect::<Vec<_>>();
         let expected_keys = expected
-            .into_iter()
+            .iter()
             .map(|id| super::structural_key(id, index, structural_keys));
         if structural_keys.is_empty() {
             let expected = expected_keys.collect::<BTreeSet<_>>();
@@ -374,6 +375,51 @@ pub(super) fn validate_structural_nodes_with_keys(
                     .map(|id| super::structural_key(id, index, structural_keys))
                     .zip(expected)
                     .all(|(left, right)| left == right);
+        }
+        // A body may list a well-formed target that is absent from the graph.
+        // Its own body join owns the missing-target refusal, so the earlier
+        // dependency check must compare that key without requiring a graph
+        // token. This path is exceptional; present graph keys keep the compact
+        // token/rank comparison used by long derived chains.
+        if expected.iter().copied().chain(actual.iter()).any(|id| {
+            let key = super::structural_key(id, index, structural_keys);
+            !key_tokens.contains_key(&std::ptr::from_ref(key))
+        }) {
+            let resolve = |id: &CheckedNodeId| {
+                if let Some(&position) = index.get(id) {
+                    return structural_keys
+                        .get(position)
+                        .map(|key| key.as_ref().clone());
+                }
+                if id
+                    .path
+                    .iter()
+                    .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
+                {
+                    return (!id
+                        .path
+                        .iter()
+                        .any(|segment| matches!(segment, CheckedNodePathSegment::Index(_))))
+                    .then(|| id.clone());
+                }
+                super::node_index::resolve_id(id, structural_keys)
+            };
+            let Some(mut expected_resolved) = expected
+                .iter()
+                .map(|id| resolve(id))
+                .collect::<Option<Vec<_>>>()
+            else {
+                return false;
+            };
+            let Some(actual_resolved) = actual.iter().map(resolve).collect::<Option<Vec<_>>>()
+            else {
+                return false;
+            };
+            expected_resolved.sort();
+            expected_resolved.dedup();
+            return actual_resolved.len() == expected_resolved.len()
+                && actual_resolved.windows(2).all(|pair| pair[0] < pair[1])
+                && actual_resolved == expected_resolved;
         }
         let mut expected_tokens = HashSet::new();
         for key in expected_keys {

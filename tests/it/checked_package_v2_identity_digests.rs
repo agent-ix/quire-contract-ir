@@ -428,7 +428,9 @@ fn multi_request_lowering_preserves_independent_sibling_on_local_byte_failure() 
     let profile = CompleteLoweringProfileV2 {
         reference: LoweringProfileRef {
             authority: "quire".into(),
-            identity: "complete-v1".into(),
+            // Output-only text separates the two local V1 closure sizes while
+            // the source package remains admissible at its exact byte limit.
+            identity: format!("complete-v1-{}", "x".repeat(128)).into(),
         },
         required_source_selections: Vec::new(),
         supported_tags: package.node_kinds().iter().map(|kind| kind.tag()).collect(),
