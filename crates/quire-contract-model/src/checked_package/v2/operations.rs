@@ -34,14 +34,15 @@ use crate::checked_package::selected_population::{
     is_model_population, least_type_occurrence, population_maximum, population_object_type_typed,
 };
 use crate::checked_package::shared::{
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::One;
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 /// One application node under validation, and pointers into its body.
@@ -195,6 +196,7 @@ pub(super) fn validate_operations(
     dependencies: &SuppliedDependencies<'_>,
     meter: &mut WorkMeter,
 ) -> Result<Vec<(usize, CheckedOperationViews)>, ValidationFailure> {
+    let flat_index = FlatWireIndex::new(order.wire_index);
     let graph = Graph {
         nodes,
         kinds,
@@ -246,7 +248,10 @@ pub(super) fn validate_operations(
                 lock,
                 owners,
                 references,
-                operation_catalog(),
+                OperationResolution {
+                    catalog: operation_catalog(),
+                    fast_index: Some(&flat_index),
+                },
                 meter,
                 &mut admitted_views,
             )? {
@@ -272,6 +277,103 @@ pub(super) fn validate_operations(
         return Err(failure);
     }
     Ok(admitted_views)
+}
+
+/// The wire index admits only flat node IDs. Keep a hash lookup for repeated
+/// operand-family reads; ordering still comes from `wire_index` above.
+struct FlatWireIndex<'a> {
+    flat: HashMap<FlatNodeKey<'a>, usize>,
+    has_nested: bool,
+}
+
+#[derive(Clone, Copy)]
+struct FlatNodeKey<'a>(&'a CheckedNodeId);
+
+impl<'a> FlatNodeKey<'a> {
+    fn new(id: &'a CheckedNodeId) -> Option<Self> {
+        id.path
+            .iter()
+            .all(|segment| !matches!(segment, CheckedNodePathSegment::Node(_)))
+            .then_some(Self(id))
+    }
+}
+
+impl PartialEq for FlatNodeKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.package == other.0.package
+            && self.0.ordinal == other.0.ordinal
+            && self.0.path.len() == other.0.path.len()
+            && self
+                .0
+                .path
+                .iter()
+                .zip(&other.0.path)
+                .all(|(left, right)| match (left, right) {
+                    (CheckedNodePathSegment::Name(left), CheckedNodePathSegment::Name(right)) => {
+                        left == right
+                    }
+                    (CheckedNodePathSegment::Index(left), CheckedNodePathSegment::Index(right)) => {
+                        left == right
+                    }
+                    _ => false,
+                })
+    }
+}
+
+impl Eq for FlatNodeKey<'_> {}
+
+impl Hash for FlatNodeKey<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.package.hash(state);
+        self.0.ordinal.hash(state);
+        self.0.path.len().hash(state);
+        for segment in &self.0.path {
+            match segment {
+                CheckedNodePathSegment::Name(name) => {
+                    0_u8.hash(state);
+                    name.hash(state);
+                }
+                CheckedNodePathSegment::Index(index) => {
+                    1_u8.hash(state);
+                    index.hash(state);
+                }
+                CheckedNodePathSegment::Node(_) => unreachable!("flat node key"),
+            }
+        }
+    }
+}
+
+impl<'a> FlatWireIndex<'a> {
+    fn new(index: &BTreeMap<&'a CheckedNodeId, usize>) -> Self {
+        let mut flat = HashMap::with_capacity(index.len());
+        let mut has_nested = false;
+        for (&id, &position) in index {
+            if let Some(key) = FlatNodeKey::new(id) {
+                flat.insert(key, position);
+            } else {
+                has_nested = true;
+            }
+        }
+        Self { flat, has_nested }
+    }
+
+    fn get(&self, id: &CheckedNodeId, ordered: &BTreeMap<&CheckedNodeId, usize>) -> Option<usize> {
+        if let Some(key) = FlatNodeKey::new(id) {
+            self.flat.get(&key).copied()
+        } else if self.has_nested {
+            ordered.get(id).copied()
+        } else {
+            None
+        }
+    }
+}
+
+fn operand_position(
+    id: &CheckedNodeId,
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    fast: Option<&FlatWireIndex<'_>>,
+) -> Option<usize> {
+    fast.map_or_else(|| index.get(id).copied(), |fast| fast.get(id, index))
 }
 
 /// Check each literal type before native payload syntax, including body roots
@@ -593,16 +695,26 @@ fn check_type_argument_member_result(
     None
 }
 
+#[derive(Clone, Copy)]
+struct OperationResolution<'a> {
+    catalog: &'a OperationCatalog,
+    fast_index: Option<&'a FlatWireIndex<'a>>,
+}
+
 fn operation_defect(
     application: Application<'_>,
     graph: &Graph<'_>,
     lock: &CheckedPackageLockV2,
     owners: &ModelOwners<'_>,
     references: DependencyReferences<'_>,
-    catalog: &OperationCatalog,
+    resolution: OperationResolution<'_>,
     meter: &mut WorkMeter,
     admitted_views: &mut Vec<(usize, CheckedOperationViews)>,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let OperationResolution {
+        catalog,
+        fast_index,
+    } = resolution;
     let Graph {
         nodes,
         kinds,
@@ -847,6 +959,7 @@ fn operation_defect(
             graph,
             owners,
             catalog,
+            fast_index,
             &mut OperationWork {
                 meter: &mut *meter,
                 structural: &mut structural,
@@ -998,6 +1111,7 @@ fn argument_family(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    fast_index: Option<&FlatWireIndex<'_>>,
     catalog: &OperationCatalog,
     owners: Option<&ModelOwners<'_>>,
 ) -> Option<&'static str> {
@@ -1008,10 +1122,15 @@ fn argument_family(
         CheckedTerm::Reference { .. }
         | CheckedTerm::Literal { .. }
         | CheckedTerm::Application { .. } => {
-            let type_node = operand_type_node_typed(argument, nodes, kinds, index)?;
+            let type_node =
+                operand_type_node_typed_with_lookup(argument, nodes, kinds, index, fast_index)?;
             owners.map_or_else(
-                || resolve_family(&type_node, nodes, kinds, index),
-                |owners| resolve_family_from_selected(&type_node, nodes, kinds, index, owners),
+                || resolve_family_with_lookup(&type_node, nodes, kinds, index, fast_index),
+                |owners| {
+                    resolve_family_from_selected_with_lookup(
+                        &type_node, nodes, kinds, index, fast_index, owners,
+                    )
+                },
             )
         }
         CheckedTerm::Binding { .. } => Some("binder"),
@@ -1357,17 +1476,27 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
 /// the chain of bounded domains is. The walk is iterative and follows each node
 /// once, so a chain has no length limit and a cycle of bounded domains, which
 /// ends at no type, names no family (`None`), as an unresolved type does.
+#[cfg(test)]
 fn resolve_family(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<&'static str> {
+    resolve_family_with_lookup(type_id, nodes, kinds, index, None)
+}
+
+fn resolve_family_with_lookup(
+    type_id: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    fast_index: Option<&FlatWireIndex<'_>>,
+) -> Option<&'static str> {
     let result = resolve_family_with(type_id, |visit| {
         Ok::<_, std::convert::Infallible>(match visit {
-            FamilyVisit::Node(id) => index
-                .get(id)
-                .and_then(|position| Some((nodes.get(*position)?, *kinds.get(*position)?))),
+            FamilyVisit::Node(id) => operand_position(id, index, fast_index)
+                .and_then(|position| Some((nodes.get(position)?, *kinds.get(position)?))),
             FamilyVisit::Forward => None,
         })
     });
@@ -1395,13 +1524,23 @@ fn resolve_family_from_selected(
     index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
 ) -> Option<&'static str> {
+    resolve_family_from_selected_with_lookup(type_id, nodes, kinds, index, None, owners)
+}
+
+fn resolve_family_from_selected_with_lookup(
+    type_id: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    fast_index: Option<&FlatWireIndex<'_>>,
+    owners: &ModelOwners<'_>,
+) -> Option<&'static str> {
     let result = resolve_family_with_selected(
         type_id,
         |visit| {
             Ok::<_, std::convert::Infallible>(match visit {
-                FamilyVisit::Node(id) => index
-                    .get(id)
-                    .and_then(|position| Some((nodes.get(*position)?, *kinds.get(*position)?))),
+                FamilyVisit::Node(id) => operand_position(id, index, fast_index)
+                    .and_then(|position| Some((nodes.get(position)?, *kinds.get(position)?))),
                 FamilyVisit::Forward => None,
             })
         },
@@ -1521,6 +1660,7 @@ fn check_operands(
     graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
     catalog: &OperationCatalog,
+    fast_index: Option<&FlatWireIndex<'_>>,
     work: &mut OperationWork<'_>,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
@@ -1594,7 +1734,15 @@ fn check_operands(
             continue;
         }
         if let Some(actual) = typed_arguments.get(position).and_then(|argument| {
-            argument_family(argument, nodes, kinds, index, catalog, Some(owners))
+            argument_family(
+                argument,
+                nodes,
+                kinds,
+                index,
+                fast_index,
+                catalog,
+                Some(owners),
+            )
         }) {
             if !catalog.family_fits(actual, expected) {
                 if entry.mode == Some(OperationModeKind::TextProfile)
@@ -1614,9 +1762,15 @@ fn check_operands(
             .iter()
             .enumerate()
         {
-            if let Some(actual) =
-                argument_family(argument, nodes, kinds, index, catalog, Some(owners))
-            {
+            if let Some(actual) = argument_family(
+                argument,
+                nodes,
+                kinds,
+                index,
+                fast_index,
+                catalog,
+                Some(owners),
+            ) {
                 if !catalog.family_fits(actual, rest_family) {
                     if entry.mode == Some(OperationModeKind::TextProfile)
                         && FamilyClass::from_wire(actual) == FamilyClass::String
@@ -1657,7 +1811,15 @@ fn check_operands(
                     .iter()
                     .map(|position| {
                         typed_arguments.get(*position).and_then(|argument| {
-                            argument_family(argument, nodes, kinds, index, catalog, Some(owners))
+                            argument_family(
+                                argument,
+                                nodes,
+                                kinds,
+                                index,
+                                fast_index,
+                                catalog,
+                                Some(owners),
+                            )
                         })
                     })
                     .collect();
@@ -1672,7 +1834,9 @@ fn check_operands(
                     .iter()
                     .map(|position| {
                         typed_arguments.get(*position).and_then(|argument| {
-                            operand_type_node_typed(argument, nodes, kinds, index)
+                            operand_type_node_typed_with_lookup(
+                                argument, nodes, kinds, index, fast_index,
+                            )
                         })
                     })
                     .collect();
@@ -3247,13 +3411,33 @@ fn operand_type_node_typed(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<CheckedNodeId> {
+    operand_type_node_typed_with_lookup(argument, nodes, kinds, index, None)
+}
+
+fn operand_type_node_typed_with_lookup(
+    argument: &CheckedTerm,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    fast_index: Option<&FlatWireIndex<'_>>,
+) -> Option<CheckedNodeId> {
     let target = match argument {
         CheckedTerm::Literal { type_id, .. } => return Some(type_id.clone()),
         CheckedTerm::Application { result_type, .. } => return Some(result_type.clone()),
         CheckedTerm::Reference { target } => target,
         _ => return None,
     };
-    referenced_operand_type(target, nodes, kinds, index)
+    if let Some(fast_index) = fast_index {
+        let position = fast_index.get(target, index)?;
+        let target_node = &nodes[position];
+        if is_type_shaped(*kinds.get(position)?) {
+            Some(target.clone())
+        } else {
+            Some(target_node.semantic_type.clone())
+        }
+    } else {
+        referenced_operand_type(target, nodes, kinds, index)
+    }
 }
 
 /// The value a type node's own declaration pins for a type-pinned mode kind
@@ -5100,6 +5284,57 @@ mod tests {
         }
     }
 
+    #[trace("TC-048", "FR-038-AC-114")]
+    #[test]
+    fn operand_wire_lookup_matches_ordered_index_for_flat_and_nested_ids() {
+        use super::{CheckedNodePathSegment as Segment, FlatWireIndex};
+        let named = node_id('a');
+        let indexed = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![Segment::Index(1)],
+            ordinal: 0,
+        };
+        let nested = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![Segment::Node(std::sync::Arc::new(named.clone()))],
+            ordinal: 0,
+        };
+        let index = BTreeMap::from([(&named, 0), (&indexed, 1), (&nested, 2)]);
+        let fast = FlatWireIndex::new(&index);
+        for id in [&named, &indexed, &nested, &node_id('z')] {
+            assert_eq!(fast.get(id, &index), index.get(id).copied());
+        }
+        let flat_index = BTreeMap::from([(&named, 0), (&indexed, 1)]);
+        let flat = FlatWireIndex::new(&flat_index);
+        assert_eq!(flat.get(&nested, &flat_index), None);
+    }
+
+    #[trace("TC-048", "FR-038-AC-117")]
+    #[test]
+    fn operand_wire_lookup_avoids_deep_comparisons_for_unresolved_keys() {
+        use super::{CheckedNodePathSegment as Segment, FlatWireIndex};
+        use crate::checked_package::shared::checked_node_comparisons;
+        let ids: Vec<_> = (0..8_000)
+            .map(|ordinal| CheckedNodeId {
+                package: "checked".into(),
+                path: vec![Segment::Name("argument".into()), Segment::Index(ordinal)],
+                ordinal: 0,
+            })
+            .collect();
+        let index: BTreeMap<_, _> = ids.iter().enumerate().map(|(at, id)| (id, at)).collect();
+        let fast = FlatWireIndex::new(&index);
+        let deep = CheckedNodeId {
+            package: "checked".into(),
+            path: vec![Segment::Node(std::sync::Arc::new(ids[0].clone()))],
+            ordinal: 0,
+        };
+        checked_node_comparisons::reset();
+        for _ in 0..8_000 {
+            assert_eq!(fast.get(&deep, &index), None);
+        }
+        assert_eq!(checked_node_comparisons::count(), 0);
+    }
+
     /// The default `operation` wire shape every fixture below starts from:
     /// `identity`, zero laws, no mode, no member, no leaves. Individual
     /// tests override exactly the field their refusal needs to be wrong.
@@ -5313,7 +5548,10 @@ mod tests {
             &lock,
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
-            operation_catalog(),
+            super::OperationResolution {
+                catalog: operation_catalog(),
+                fast_index: None,
+            },
             &mut meter,
             &mut Vec::new(),
         )
@@ -5350,7 +5588,10 @@ mod tests {
             &empty_lock(),
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
-            operation_catalog(),
+            super::OperationResolution {
+                catalog: operation_catalog(),
+                fast_index: None,
+            },
             &mut WorkMeter::new(1_000),
             &mut Vec::new(),
         );
@@ -5441,7 +5682,10 @@ mod tests {
             lock,
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
-            operation_catalog(),
+            super::OperationResolution {
+                catalog: operation_catalog(),
+                fast_index: None,
+            },
             &mut meter,
             &mut Vec::new(),
         );
@@ -9078,7 +9322,10 @@ mod tests {
             &text_selecting_lock(),
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
-            operation_catalog(),
+            super::OperationResolution {
+                catalog: operation_catalog(),
+                fast_index: None,
+            },
             &mut meter,
             &mut Vec::new(),
         );
@@ -9870,7 +10117,8 @@ mod tests {
         let catalog = operation_catalog();
         let reference = super::CheckedTerm::decode_admitted(&reference_to('4'))
             .expect("reference fixture admits");
-        let family = super::argument_family(&reference, &nodes, &kinds, &index, catalog, None);
+        let family =
+            super::argument_family(&reference, &nodes, &kinds, &index, None, catalog, None);
         assert_eq!(family, Some("temporal"));
         assert!(catalog.family_fits("temporal", "temporal"));
         assert!(catalog.family_fits("temporal", "any_term"));
