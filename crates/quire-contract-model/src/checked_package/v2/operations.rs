@@ -967,7 +967,9 @@ fn operation_defect(
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
     }
     if wire_member_kind == Some(Some(OperationMemberKind::Field)) {
-        let member = operation.member.as_ref().expect("matched field member");
+        let Some(member) = operation.member.as_ref() else {
+            return member_mismatch();
+        };
         let read_form = member.get("read_form");
         let model_projection = operation.identity.as_ref() == "quire.op.record.project"
             && admitted_arguments(application, graph)
