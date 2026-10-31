@@ -5,9 +5,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedApplicationOperation, CheckedOperationViewError, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, ExecutionPoint, ExecutionPointName,
-    StateClauseKind,
+    CheckedApplicationOperation, CheckedBindingName, CheckedBindingNameKind, CheckedLiteralValue,
+    CheckedOperationMember, CheckedOperationViewError, CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedTerm, ExecutionPoint, ExecutionPointName, StateClauseKind,
 };
 use serde_json::json;
 
@@ -203,4 +203,118 @@ fn admitted_v2_bodies_are_closed_typed_terms() {
         admitted.name(),
         fixture["name"].as_str().expect("package name")
     );
+}
+
+#[trace("FR-349-AC-6", "FR-349-AC-7", "FR-349-AC-9")]
+#[test]
+fn public_literal_and_binding_reads_preserve_exact_values() {
+    for (name, expected) in [
+        ("parameters", CheckedBindingNameKind::Parameters),
+        ("body", CheckedBindingNameKind::Body),
+        ("optional", CheckedBindingNameKind::Optional),
+        ("clause", CheckedBindingNameKind::Clause),
+        ("other.name", CheckedBindingNameKind::Other("other.name")),
+    ] {
+        let binding = CheckedBindingName::from(name);
+        assert_eq!(binding.kind(), expected);
+        assert_eq!(binding.as_ref(), name);
+    }
+
+    let fixture = positive_operation_identities();
+    let bytes = canonical(&fixture);
+    let admitted = match CheckedPackageV2::read(
+        &bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&fixture),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("positive V2 fixture refused: {other:?}"),
+    };
+    let mut saw_decimal = false;
+    let mut saw_integer = false;
+    for node in &admitted.graph().nodes {
+        if let Some(literal) = node.body.literal_read() {
+            assert_eq!(literal.type_id, &node.semantic_type);
+            match literal.value {
+                CheckedLiteralValue::Decimal { coefficient, scale } => {
+                    saw_decimal = true;
+                    assert_eq!(coefficient.to_string(), "125");
+                    assert_eq!(scale, 2);
+                }
+                CheckedLiteralValue::Integer(magnitude) => {
+                    saw_integer = true;
+                    assert!(!magnitude.to_string().is_empty());
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(saw_decimal, "fixture contains a decimal literal");
+    assert!(saw_integer, "fixture contains integer literals");
+    assert_eq!(
+        serde_json::to_value(&admitted).expect("serialize admitted package"),
+        fixture
+    );
+}
+
+#[trace("FR-349-AC-8", "FR-349-AC-9")]
+#[test]
+fn public_operation_read_exposes_admitted_records_and_rejects_forgery() {
+    let fixture = positive_operation_identities();
+    let admitted = match CheckedPackageV2::read(
+        &canonical(&fixture),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&fixture),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("positive V2 fixture refused: {other:?}"),
+    };
+    let mut count = 0;
+    let mut saw_constraint = false;
+    for node in &admitted.graph().nodes {
+        if let CheckedTerm::Application { operation, .. } = &node.body {
+            let read = operation
+                .read()
+                .expect("reader installed complete admission view");
+            assert_eq!(Some(read.identity), operation.identity());
+            assert_eq!(
+                read.laws
+                    .iter()
+                    .map(|law| &law.definition)
+                    .collect::<Vec<_>>(),
+                operation
+                    .law_definitions()
+                    .expect("admitted laws")
+                    .iter()
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                read.mode.map(|mode| (mode.kind, mode.value)),
+                operation
+                    .mode()
+                    .expect("admitted mode")
+                    .map(|mode| (mode.kind, mode.value))
+            );
+            if let Some(CheckedOperationMember::Field { declaration, name }) = read.member {
+                assert_eq!(
+                    operation.projection_field().expect("admitted field"),
+                    Some((declaration, name.as_ref()))
+                );
+            }
+            saw_constraint |= !read.constraints.is_empty();
+            count += 1;
+        }
+    }
+    assert!(count > 0, "fixture contains applications");
+    assert!(saw_constraint, "catalog constraints are exposed");
+
+    let forged: CheckedApplicationOperation = serde_json::from_value(json!({
+        "identity": "quire.op.function.call", "laws": [], "mode": null,
+        "member": null, "leaves": []
+    }))
+    .expect("direct decode");
+    assert!(matches!(
+        forged.read(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    ));
 }

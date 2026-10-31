@@ -5,7 +5,10 @@
 //! has bounded term depth, so serde's recursion here is independent of input
 //! byte length.
 
-use super::{ApplicationOperator, BodyTerm, LiteralKind, OperationModeKind, StateClauseKind};
+use super::{
+    ApplicationOperator, BodyTerm, LawRole, LiteralKind, OperationConstraintKind,
+    OperationModeKind, StateClauseKind,
+};
 use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
     RefinementPopulation, RefinementStep,
@@ -91,8 +94,183 @@ pub struct CheckedOperationModeView<'a> {
     pub value: &'a str,
 }
 
+/// One selected operation law, in wire order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedOperationLaw {
+    /// Closed law role.
+    pub role: LawRole,
+    /// Selected definition.
+    pub definition: CheckedArtifactRef,
+}
+
+/// One catalogued cross-operand constraint.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedOperationConstraint {
+    /// Closed constraint choice.
+    pub kind: OperationConstraintKind,
+    /// Operand positions, in catalog order.
+    pub operands: Vec<u64>,
+    /// Required family or group when the constraint names one.
+    pub family: Option<Box<str>>,
+}
+
+/// The closed shape of an admitted operation member.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CheckedOperationMember {
+    /// A named field of a declaration.
+    Field {
+        declaration: CheckedNodeId,
+        name: Box<str>,
+    },
+    /// A declared tuple position.
+    Position {
+        declaration: CheckedNodeId,
+        #[serde(deserialize_with = "decode_position")]
+        position: BigInt,
+    },
+    /// An element type of a collection.
+    Element { declaration: CheckedNodeId },
+    /// A named relationship end.
+    RelationshipEnd {
+        declaration: CheckedNodeId,
+        name: Box<str>,
+        destination_type: CheckedNodeId,
+        population: Option<CheckedNodeId>,
+    },
+    /// A named dispatched operation.
+    Operation {
+        declaration: CheckedNodeId,
+        name: Box<str>,
+    },
+    /// An explicit type argument.
+    TypeArgument { declaration: CheckedNodeId },
+    /// An operator selected by a profile.
+    ProfileOperator { operator: Box<str> },
+    /// A state clause.
+    StateClause { clause: StateClauseKind },
+    /// An optional temporal interval.
+    TemporalInterval {
+        interval: Option<CheckedOperationInterval>,
+    },
+    /// A fairness clause.
+    Fairness {
+        fairness_kind: CheckedFairnessKind,
+        granularity: CheckedFairnessGranularity,
+        declaration: CheckedNodeId,
+        name: Box<str>,
+    },
+}
+
+/// A closed temporal interval shape.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum CheckedOperationInterval {
+    /// Integer positions, including an unbounded upper end.
+    Integer {
+        lower: Box<str>,
+        upper: Option<Box<str>>,
+    },
+    /// Time magnitudes with explicit open or closed ends.
+    Timed {
+        lower: CheckedOperationRational,
+        upper: Option<CheckedOperationRational>,
+        lower_end: CheckedIntervalEnd,
+        upper_end: CheckedIntervalEnd,
+    },
+}
+
+/// An exact nonnegative rational interval bound.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedOperationRational {
+    /// Decimal numerator.
+    pub numerator: Box<str>,
+    /// Decimal denominator.
+    pub denominator: Box<str>,
+}
+
+/// Whether an interval includes its endpoint.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckedIntervalEnd {
+    /// Includes the endpoint.
+    Closed,
+    /// Excludes the endpoint.
+    Open,
+}
+
+/// The strength of a fairness clause.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckedFairnessKind {
+    /// Weak fairness.
+    Weak,
+    /// Strong fairness.
+    Strong,
+}
+
+/// Whether fairness applies to the whole or each participant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckedFairnessGranularity {
+    /// Whole transition.
+    Whole,
+    /// Each participant.
+    Each,
+}
+
+/// A leaf's selected mode.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedOperationMode {
+    /// Closed mode kind.
+    pub kind: OperationModeKind,
+    /// Catalogued mode value.
+    pub value: Box<str>,
+}
+
+/// One structural leaf, in the checked operation's order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedOperationLeaf {
+    /// Structural path segments.
+    pub path: Vec<Box<str>>,
+    /// Selected laws in order.
+    pub laws: Vec<CheckedOperationLaw>,
+    /// Mode selected for this leaf.
+    pub mode: Option<CheckedOperationMode>,
+}
+
+/// Complete owned admission data retained behind the borrowed read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct CheckedOperationRecord {
+    pub(super) identity: Box<str>,
+    pub(super) mode: Option<CheckedOperationMode>,
+    pub(super) laws: Vec<CheckedOperationLaw>,
+    pub(super) member: Option<CheckedOperationMember>,
+    pub(super) constraints: Vec<CheckedOperationConstraint>,
+    pub(super) leaves: Vec<CheckedOperationLeaf>,
+}
+
+/// One borrowed read of a reader-admitted operation and its catalog rules.
+#[derive(Clone, Copy, Debug)]
+pub struct CheckedOperationRead<'a> {
+    /// Catalogued identity.
+    pub identity: &'a str,
+    /// Admitted mode, when present.
+    pub mode: Option<CheckedOperationModeView<'a>>,
+    /// Ordered selected laws.
+    pub laws: &'a [CheckedOperationLaw],
+    /// Closed typed member.
+    pub member: Option<&'a CheckedOperationMember>,
+    /// Catalogued constraints in order.
+    pub constraints: &'a [CheckedOperationConstraint],
+    /// Ordered structural leaves.
+    pub leaves: &'a [CheckedOperationLeaf],
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CheckedOperationViews {
+    pub(super) record: Option<CheckedOperationRecord>,
     pub(super) state_clause_kind: Option<StateClauseKind>,
     pub(super) projection_field: Option<(CheckedNodeId, Box<str>)>,
     pub(super) member_declaration: Option<CheckedNodeId>,
@@ -102,6 +280,11 @@ pub(super) struct CheckedOperationViews {
 
 impl CheckedOperationViews {
     fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
+        if let Some(record) = &mut self.record {
+            if let Some(member) = &mut record.member {
+                member.replace_node_id(old, new);
+            }
+        }
         if let Some((declaration, _)) = &mut self.projection_field {
             if declaration == old {
                 *declaration = new.clone();
@@ -113,6 +296,50 @@ impl CheckedOperationViews {
             }
         }
     }
+}
+
+impl CheckedOperationMember {
+    fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
+        let replace = |id: &mut CheckedNodeId| {
+            if id == old {
+                *id = new.clone();
+            }
+        };
+        match self {
+            Self::Field { declaration, .. }
+            | Self::Position { declaration, .. }
+            | Self::Element { declaration }
+            | Self::Operation { declaration, .. }
+            | Self::TypeArgument { declaration }
+            | Self::Fairness { declaration, .. } => replace(declaration),
+            Self::RelationshipEnd {
+                declaration,
+                destination_type,
+                population,
+                ..
+            } => {
+                replace(declaration);
+                replace(destination_type);
+                if let Some(population) = population {
+                    replace(population);
+                }
+            }
+            Self::ProfileOperator { .. }
+            | Self::StateClause { .. }
+            | Self::TemporalInterval { .. } => {}
+        }
+    }
+}
+
+fn decode_position<'de, D: Deserializer<'de>>(deserializer: D) -> Result<BigInt, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    let text = match value {
+        Value::Number(number) => number.to_string(),
+        Value::String(text) => text,
+        _ => return Err(serde::de::Error::custom("position must be an integer")),
+    };
+    BigInt::parse_bytes(text.as_bytes(), 10)
+        .ok_or_else(|| serde::de::Error::custom("position must be an integer"))
 }
 
 impl CheckedApplicationOperation {
@@ -267,6 +494,27 @@ impl CheckedApplicationOperation {
     /// Returns `NotAdmitted` when validated views were not installed.
     pub fn law_definitions(&self) -> Result<&[CheckedArtifactRef], CheckedOperationViewError> {
         Ok(&self.admitted_views()?.law_definitions)
+    }
+
+    /// Borrow the complete reader-admitted operation and catalog decisions.
+    /// Direct decoding and test fixtures return `NotAdmitted`.
+    pub fn read(&self) -> Result<CheckedOperationRead<'_>, CheckedOperationViewError> {
+        let record = self
+            .admitted_views()?
+            .record
+            .as_ref()
+            .ok_or(CheckedOperationViewError::NotAdmitted)?;
+        Ok(CheckedOperationRead {
+            identity: &record.identity,
+            mode: record.mode.as_ref().map(|mode| CheckedOperationModeView {
+                kind: mode.kind,
+                value: &mode.value,
+            }),
+            laws: &record.laws,
+            member: record.member.as_ref(),
+            constraints: &record.constraints,
+            leaves: &record.leaves,
+        })
     }
 
     pub(super) fn admitted_views(

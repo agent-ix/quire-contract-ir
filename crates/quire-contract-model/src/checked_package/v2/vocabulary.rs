@@ -418,7 +418,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed law role vocabulary of the operation catalog.
-    pub(in crate::checked_package) LawRole {
+    pub LawRole {
         IntegerDivision => "integer_division",
         IeeeProfile => "ieee_profile",
         TextProfile => "text_profile",
@@ -438,7 +438,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed operation `member.kind` vocabulary of the operation catalog.
-    pub(in crate::checked_package) OperationMemberKind {
+    pub OperationMemberKind {
         Field => "field",
         Position => "position",
         Element => "element",
@@ -454,7 +454,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed cross-operand constraint vocabulary of the operation catalog.
-    pub(in crate::checked_package) OperationConstraintKind {
+    pub OperationConstraintKind {
         SameFamily => "same_family",
         SameType => "same_type",
         ConformingReference => "conforming_reference",
