@@ -71,7 +71,7 @@ all optional inputs are absent and false for direct-serde and actual
 reader-admitted operations. Refuse empty present identity, empty present mode
 value, a law definition with empty authority or identity, and present member
 keys with an empty package, empty path, ordinal outside QSpec FR-322's range
-or a nested path node ID with an out-of-range ordinal with a typed error and
+or a malformed or out-of-range operand index segment with a typed error and
 no operation. Accept
 foreign and conflicting nonempty law identities
 as valid fixture shape. Serialize a fixture operation into complete package
