@@ -6,8 +6,8 @@
 //! The published multi-package and graph-order vectors run in conformance_qspec.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, evidence_with_document, family_model_document, reassign_node_id,
-    settle, structural_id, v2_all_families, v2_nominal, v2_reference_chain,
+    canonical, evidence_for, evidence_with_document, family_model_document, index_fixture_node_ids,
+    reassign_node_id, settle, structural_id, v2_all_families, v2_nominal, v2_reference_chain,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -609,9 +609,11 @@ fn selected_model_field_range_joins_exact_body_members() {
             json!(min);
         package["semantic_graph"]["nodes"][range]["body"]["members"][1]["value"]["value"] =
             json!(max);
-        let evidence = evidence_with_document(&package, identity, &document);
+        let mut wire = package.clone();
+        index_fixture_node_ids(&mut wire);
+        let evidence = evidence_with_document(&wire, identity, &document);
         let result = CheckedPackageV2::read(
-            &canonical(&package),
+            &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence,
         );
@@ -631,7 +633,7 @@ fn selected_model_field_range_joins_exact_body_members() {
             }),
         );
 
-        let mut altered = package.clone();
+        let mut altered = wire.clone();
         altered["semantic_graph"]["nodes"][range]["body"]["members"][1]["value"]["value"] =
             json!("1");
         let refusal = CheckedPackageV2::read(
@@ -641,7 +643,7 @@ fn selected_model_field_range_joins_exact_body_members() {
         );
         assert!(
             matches!(refusal, CheckedPackageV2ReadResult::Refused(_)),
-            "altered body bound must not satisfy selected field {min}..{max}"
+            "altered body bound must not satisfy selected field {min}..{max}: {refusal:?}"
         );
     }
 }
@@ -1512,7 +1514,7 @@ fn malformed_nested_semantic_type_ordinal_refuses_at_the_ordinal() {
 
 #[trace("TC-226", "FR-038-AC-147")]
 #[test]
-fn malformed_path_operand_ordinal_refuses_at_the_nested_ordinal() {
+fn inline_path_operand_refuses_at_the_segment() {
     let mut package = v2_all_families();
     let position = index_of(&package, "scalar_type", "boolean");
     let package_name = package["name"].clone();
@@ -1529,7 +1531,7 @@ fn malformed_path_operand_ordinal_refuses_at_the_nested_ordinal() {
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some(format!(
-            "/semantic_graph/nodes/{position}/semantic_type/path/0/ordinal"
+            "/semantic_graph/nodes/{position}/semantic_type/path/0"
         )),
         "{refusal:?}"
     );
