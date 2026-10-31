@@ -39,6 +39,13 @@ Plan completion: not assessed.
 | FND-001 | still-open | The added admitted QSpec fixture asserts exact Integer and Decimal, but the published positive set also admits Boolean, Rational, Quantity, Float32Bits, Float64Bits, Text and Enum. The general fixture sweep calls literal_read only for type and kind; those values and the remaining directly constructed String, Uuid, Timestamp and None still have no admitted-package exact-value oracle. |
 | FND-002 | still-open | The new exhaustive comparator checks exact values for member and constraint kinds present in the 19 QSpec positive fixtures. At c5deb110, the set has no Element or Fairness member and exercises only 7 of 16 catalog constraint kinds. AC-8 requires every admitted production; missing kinds still lack a reader-backed exact-value check. |
 
+| FND-001 | fixed | QSpec c5deb110 positive sweep compares every admitted literal read to its wire value across all nine published kinds and checks canonical bytes; admitted native and option controls assert String, UUID, Timestamp and None. |
+| FND-002 | fixed | QSpec positive sweep checks its eight member kinds and eight constraint kinds exactly; reader-admitted controls exercise Element, Fairness and the nine remaining authoritative catalog constraint kinds. |
+
 ## Disposition Verdict
 
 **FAIL** — Both original coverage findings remain partially open on d7a0f813.
+
+## Round 2 Verdict
+
+**PASS** — FND-001 and FND-002 are fixed on 047e5dd7b16e15700c88034a8f998545a65e5f1b. Focused tests passed against QSpec c5deb110.
