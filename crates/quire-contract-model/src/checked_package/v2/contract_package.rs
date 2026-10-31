@@ -1830,9 +1830,15 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
             ));
         }
     }
+    // Compare shallow interned descriptors: a long chain of source keys must
+    // not compare every deep prefix again during duplicate detection.
+    let mut interner = super::node_index::StructuralInterner::new();
+    let tokens = interner
+        .tokens(&source_keys)
+        .ok_or_else(|| malformed(table_at.clone(), CheckedPackageRefusalCause::InvalidValue))?;
     let mut seen = BTreeSet::new();
-    for (position, key) in source_keys.iter().enumerate() {
-        if !seen.insert(key.as_ref()) {
+    for (position, token) in tokens.into_iter().enumerate() {
+        if !seen.insert(token) {
             return Err(malformed(
                 table_at.clone().index(position),
                 CheckedPackageRefusalCause::InvalidValue,
@@ -2660,12 +2666,13 @@ impl ContractPackageWireV1 {
         let structural_keys = super::node_index::rebuild_graph_keys(nodes, |at| {
             malformed(at, CheckedPackageRefusalCause::InvalidValue)
         })?;
-        let canonical = canonical_node_order(
-            nodes
-                .iter()
-                .enumerate()
-                .map(|(position, node)| (structural_keys[position].as_ref(), node)),
-        );
+        let mut interner = super::node_index::StructuralInterner::new();
+        let structural_tokens = interner.tokens(&structural_keys).ok_or_else(|| {
+            malformed(
+                JsonPointer::root().key("semantic_graph").key("nodes"),
+                CheckedPackageRefusalCause::InvalidValue,
+            )
+        })?;
         let mut seen = BTreeSet::new();
         let mut edges = 0_u64;
         let mut node_kinds = Vec::with_capacity(nodes.len());
@@ -2674,10 +2681,7 @@ impl ContractPackageWireV1 {
                 .key("semantic_graph")
                 .key("nodes")
                 .index(index);
-            if !valid_node_id(&node.node_id)
-                || !seen.insert(structural_keys[index].as_ref())
-                || canonical[index].node_id != node.node_id
-            {
+            if !valid_node_id(&node.node_id) || !seen.insert(structural_tokens[index]) {
                 return Err(malformed(
                     at.key("node_id"),
                     CheckedPackageRefusalCause::InvalidValue,
