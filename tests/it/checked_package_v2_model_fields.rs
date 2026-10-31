@@ -582,7 +582,8 @@ fn package(
         ordered.push(node);
     }
     let mut read_nodes = Vec::new();
-    for read in reads {
+    let mut read_offsets = Vec::new();
+    for (read_index, read) in reads.iter().enumerate() {
         let ty = type_nodes(&read.ty, &mut nodes);
         let form = declared
             .iter()
@@ -597,15 +598,25 @@ fn package(
             )
         } else {
             let reference_type = type_nodes(&Ty::Reference(owner.clone()), &mut nodes);
+            let deref_key = format!("expression/deref/{}/{read_index}", read.owner);
+            let deref_body = json!({
+                "term": "application", "operator": "deref",
+                "operation": {"identity": "quire.op.model.deref", "laws": [],
+                    "mode": null, "member": null, "leaves": []},
+                "result_type": node_id(&owner),
+                "arguments": [reference(&reference_type)]
+            });
+            read_nodes.push(wire_node(
+                &deref_key,
+                "expression",
+                "deref",
+                &owner,
+                &[&reference_type],
+                deref_body,
+            ));
             (
-                json!({
-                    "term": "application", "operator": "deref",
-                    "operation": {"identity": "quire.op.model.deref", "laws": [],
-                        "mode": null, "member": null, "leaves": []},
-                    "result_type": node_id(&owner),
-                    "arguments": [reference(&reference_type)]
-                }),
-                vec![owner.clone(), reference_type],
+                reference(&deref_key),
+                vec![owner.clone(), deref_key],
                 json!({"kind": "field", "declaration": node_id(&owner),
                     "name": read.field, "read_form": "bare"}),
             )
@@ -623,10 +634,9 @@ fn package(
         });
         let key = format!(
             "expression/query/{}/{}/{}",
-            read.owner,
-            read.field,
-            read_nodes.len()
+            read.owner, read.field, read_index
         );
+        read_offsets.push(read_nodes.len());
         let dependencies = dependencies.iter().map(String::as_str).collect::<Vec<_>>();
         read_nodes.push(wire_node(
             &key,
@@ -652,7 +662,8 @@ fn package(
     select_model(&mut package, IDENTITY);
     settle(&mut package);
     let evidence = evidence_with_document(&package, IDENTITY, document);
-    let positions = (0..reads.len())
+    let positions = read_offsets
+        .into_iter()
         .map(|offset| base + first_read + offset)
         .collect();
     (package, evidence, positions)
