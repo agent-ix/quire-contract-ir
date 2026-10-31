@@ -31,3 +31,9 @@ Reviewed PR #743 documentation status corrections against FR-028 AC-1 through AC
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | FR-028-AC-4 is tagged only by an ignored build-lane test, so the new AC-1-through-AC-5 coverage statement overstates normal runnable evidence. | spec/model/matrix/tests.md:20,32 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Both changed matrix rows now identify AC-4 as tagged only by the ignored explicit build-lane test; the index also distinguishes the non-ignored AC-2/AC-5 tests from AC-4. The source test remains ignored. |
