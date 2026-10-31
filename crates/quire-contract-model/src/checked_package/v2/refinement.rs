@@ -1397,9 +1397,13 @@ fn canonical_order(
         }
     }
     for (index, pair) in histories.windows(2).enumerate() {
-        if (&pair[0].concrete_type, pair[0].name.as_ref())
-            >= (&pair[1].concrete_type, pair[1].name.as_ref())
-        {
+        if (
+            super::structural_key(&pair[0].concrete_type, graph.index, graph.structural_keys),
+            pair[0].name.as_ref(),
+        ) >= (
+            super::structural_key(&pair[1].concrete_type, graph.index, graph.structural_keys),
+            pair[1].name.as_ref(),
+        ) {
             return Err(order_defect(position, "histories", index + 1));
         }
     }
@@ -1416,10 +1420,17 @@ fn canonical_order(
                 RefinementGranularity::Whole => "whole",
             }
         }
-        fn key(row: &RefinementAssume) -> (&CheckedNodeId, &str, &str) {
-            (&row.operation, kind(row.kind), granularity(row.granularity))
+        fn key<'a>(
+            row: &'a RefinementAssume,
+            graph: &'a RefinementGraph<'_, '_>,
+        ) -> (&'a CheckedNodeId, &'static str, &'static str) {
+            (
+                super::structural_key(&row.operation, graph.index, graph.structural_keys),
+                kind(row.kind),
+                granularity(row.granularity),
+            )
         }
-        if key(&pair[0]) >= key(&pair[1]) {
+        if key(&pair[0], graph) >= key(&pair[1], graph) {
             return Err(order_defect(position, "assume", index + 1));
         }
     }
@@ -1436,14 +1447,17 @@ fn canonical_order(
                 RefinementGranularity::Whole => "whole",
             }
         }
-        fn key(row: &RefinementEnsure) -> (&CheckedNodeId, &str, &str) {
+        fn key<'a>(
+            row: &'a RefinementEnsure,
+            graph: &'a RefinementGraph<'_, '_>,
+        ) -> (&'a CheckedNodeId, &'static str, &'static str) {
             (
-                row.operation.node_id(),
+                graph.resolved_key(&row.operation),
                 kind(row.kind),
                 granularity(row.granularity),
             )
         }
-        if key(&pair[0]) >= key(&pair[1]) {
+        if key(&pair[0], graph) >= key(&pair[1], graph) {
             return Err(order_defect(position, "ensure", index + 1));
         }
     }
@@ -2513,6 +2527,7 @@ pub(super) fn validate_occurrences(
     nodes: &[super::RawSemanticNodeV2],
     kinds: &[super::CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
     source_map: &[CheckedSourceMapEntry],
     rows: Option<&[CheckedRefinementStepRowRegion]>,
     owners: &super::model_members::ModelOwners<'_>,
@@ -2544,7 +2559,7 @@ pub(super) fn validate_occurrences(
         })
         .collect();
     refinement_positions
-        .sort_unstable_by(|&left, &right| nodes[left].node_id.cmp(&nodes[right].node_id));
+        .sort_unstable_by(|&left, &right| structural_keys[left].cmp(&structural_keys[right]));
     for position in refinement_positions {
         let node = &nodes[position];
         let Some(body) = terms[position].as_ref() else {
