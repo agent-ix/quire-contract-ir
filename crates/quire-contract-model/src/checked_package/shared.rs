@@ -1281,13 +1281,11 @@ mod structural_node_identity_tests {
         assert!(encoded.get("actual_digest").is_none());
     }
 
-    /// Trace: FR-038-AC-364, FR-322-AC-270, FR-322-AC-271.
+    /// Trace: FR-038-AC-377, FR-322-AC-278.
     #[test]
     fn supplied_node_id_value_requires_the_exact_structural_shape() {
-        let valid = serde_json::json!({"package":"p","path":["owner",{
-            "package":"q","path":["type"],"ordinal":0
-        }],"ordinal":1});
-        let parsed = CheckedNodeId::from_value(&valid).expect("nested structural ID");
+        let valid = serde_json::json!({"package":"p","path":["owner",{"node":0}],"ordinal":1});
+        let parsed = CheckedNodeId::from_value(&valid).expect("indexed structural ID");
         assert_eq!(serde_json::to_value(&parsed).expect("encode ID"), valid);
         for malformed in [
             serde_json::json!("p/owner"),
@@ -1295,6 +1293,8 @@ mod structural_node_identity_tests {
             serde_json::json!({"package":"p","path":["owner"],"ordinal":"0"}),
             serde_json::json!({"package":"p","path":["owner"],"ordinal":0,"version":1}),
             serde_json::json!({"package":"p","path":[{"package":"q","path":[],"ordinal":0}],"ordinal":0}),
+            serde_json::json!({"package":"p","path":[{"package":"q","path":["type"],"ordinal":0}],"ordinal":0}),
+            serde_json::json!({"package":"p","path":[{"node":0,"extra":1}],"ordinal":0}),
         ] {
             assert!(
                 CheckedNodeId::from_value(&malformed).is_none(),
@@ -1442,24 +1442,29 @@ mod structural_node_identity_tests {
         assert!(!id.is_well_formed());
     }
 
-    /// Trace: FR-038-AC-117, FR-038-AC-364.
+    /// Trace: FR-038-AC-117, FR-038-AC-380.
     #[test]
-    fn ten_thousand_nested_node_paths_decode_encode_and_drop_iteratively() {
+    fn ten_thousand_rebuilt_node_paths_encode_compare_and_drop_iteratively() {
         const NESTING: usize = 10_000;
-        let prefix = r#"{"package":"p","path":["#;
-        let suffix = r#"],"ordinal":0}"#;
-        let text = format!(
-            "{}\"leaf\"{}",
-            prefix.repeat(NESTING),
-            suffix.repeat(NESTING)
-        );
-        let id: CheckedNodeId = serde_json::from_str(&text).expect("decode deep structural id");
+        let mut id = std::sync::Arc::new(CheckedNodeId {
+            package: "p".into(),
+            path: vec![CheckedNodePathSegment::Name("leaf".into())],
+            ordinal: 0,
+        });
+        for _ in 1..NESTING {
+            id = std::sync::Arc::new(CheckedNodeId {
+                package: "p".into(),
+                path: vec![CheckedNodePathSegment::Node(id)],
+                ordinal: 0,
+            });
+        }
+        let id = std::sync::Arc::try_unwrap(id).expect("unique root");
         assert!(id.is_well_formed());
         let copy = id.clone();
         assert_eq!(id.cmp(&copy), std::cmp::Ordering::Equal);
         let canonical = quire_canonical::to_vec(&id, quire_canonical::Limits::new(1 << 20))
-            .expect("encode deep structural id");
-        assert_eq!(canonical.len(), text.len());
+            .expect("encode rebuilt structural id");
+        assert!(canonical.len() > 100_000);
         // The ordinary drop path also has to consume no native recursion.
         drop(id);
         drop(copy);
