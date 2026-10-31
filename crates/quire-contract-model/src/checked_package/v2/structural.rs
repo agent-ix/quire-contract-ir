@@ -663,8 +663,13 @@ pub(super) fn validate_derived_type_shapes(
 pub(super) fn validate_selected_type_bounds(
     models: &[DomainModel],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
 ) -> Result<(), ValidationFailure> {
+    let index = structural_keys
+        .iter()
+        .enumerate()
+        .map(|(position, key)| (key.as_ref(), position))
+        .collect::<BTreeMap<_, _>>();
     for model in models {
         for bounds in model.value_types.values().flatten() {
             let ValueBounds::Integer(expected) = bounds else {

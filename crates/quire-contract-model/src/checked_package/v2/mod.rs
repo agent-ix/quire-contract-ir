@@ -103,9 +103,7 @@ use dependency_references::{admit_dependencies, check_derived_closure, SuppliedD
 use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
-use structural::{
-    validate_derived_type_shapes, validate_selected_type_bounds,
-};
+use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
@@ -2705,7 +2703,7 @@ fn validate_graph(
     )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index)?;
-    validate_selected_type_bounds(models, &terms, &index)?;
+    validate_selected_type_bounds(models, &terms, structural_keys)?;
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
