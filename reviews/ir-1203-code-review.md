@@ -33,3 +33,13 @@ Ticket: IR-1203. Reviewed frozen PR #745 at 6880ab2a against origin/main. Rust r
 - QSpec FR-322-AC-34, role: examined. Excerpt: “Its field member carries `read_form: bare` for `view.total` and `read_form: explicit_deref` for `deref(view).total`; otherwise identical operand, field and result data yield distinct member values, and a reader preserves each value.” The PR exercises both admitted forms and the published malformed outcomes.
 - FR-038-AC-107, role: context_only. The existing positive fixture sweep remains outside `make ci`; QSpec's positive-state-transition fixture at the referenced upstream revision omits the newly required form. This is an upstream fixture inconsistency, not a second IR code finding.
 - Plan completion: not assessed.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 2a0acc4848a782f1dab9ac1f901562f20a92de3d, `OperationWire::field_projection_identity` is a marked wire-to-enum conversion, `operation_defect` branches on its typed `FieldProjectionIdentity`, and `CheckedFieldReadForm::from_wire` is marked as the closed wire-to-enum conversion. Local `make string-edge` reports no unmarked or unlisted decisions. |
+
+## Disposition verdict
+
+Round 1 at 2a0acc4848a782f1dab9ac1f901562f20a92de3d: FND-001 fixed on source inspection and a focused string-edge rerun. The original review finding and verdict remain as recorded above. No new finding or still-open finding was found. The lead owns the final aggregate gate.
