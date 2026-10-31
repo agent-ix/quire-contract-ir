@@ -4,7 +4,7 @@
 //! QSpec NI-01..NI-12 indexed node-path vectors through the production V2 reader.
 
 use super::{
-    code_word, fixtures_dir, proposal_dir_of, read_json, read_package,
+    cause_word, code_word, fixtures_dir, proposal_dir_of, read_json, read_package,
     read_package_with_document_and_extensions_at_limit, DOMAIN_DOCUMENT,
 };
 use ix_trace_rs::trace;
@@ -211,41 +211,65 @@ fn permutation_rebuilds_the_same_structural_keys_and_stale_operands_do_not() {
 #[test]
 fn two_semantic_defects_choose_structural_order_over_graph_order() {
     let fixtures = fixtures_dir();
-    let mut package = read_json(&fixtures.join("positive-operation-identities.json"))
+    let base = read_json(&fixtures.join("positive-operation-identities.json"))
         .expect("published local operation-identity package");
-    let nodes = package["semantic_graph"]["nodes"]
-        .as_array_mut()
+    let nodes = base["semantic_graph"]["nodes"]
+        .as_array()
         .expect("published graph nodes");
-    assert_eq!(nodes[16]["semantic_form"], "integer");
-    assert_eq!(nodes[17]["semantic_form"], "float64");
-    assert_eq!(nodes[16]["node_id"]["package"], "example");
-    assert_eq!(nodes[17]["node_id"]["package"], "example");
-    assert!(
-        nodes[17]["node_id"]["path"][1]
-            .as_str()
-            .expect("Float64 segment")
-            < nodes[16]["node_id"]["path"][1]
-                .as_str()
-                .expect("Integer segment"),
-        "Float64 precedes Integer structurally but follows it in the graph"
+    assert_eq!(
+        nodes[13]["body"]["operation"]["identity"],
+        "quire.op.integer.rem"
     );
-    for position in [16, 17] {
-        let node = &mut nodes[position];
-        node["body"]["members"] = json!([{
-            "term":"reference",
-            "target":{"package":"example","path":["missing"],"ordinal":0}
-        }]);
+    assert_eq!(
+        nodes[15]["body"]["operation"]["identity"],
+        "quire.op.integer.div"
+    );
+    assert_eq!(nodes[13]["node_id"]["package"], "example");
+    assert_eq!(nodes[15]["node_id"]["package"], "example");
+    assert!(
+        nodes[15]["node_id"]["path"][4]
+            .as_str()
+            .expect("divide operation segment")
+            < nodes[13]["node_id"]["path"][4]
+                .as_str()
+                .expect("remainder operation segment"),
+        "Divide precedes Remainder structurally but follows it in the graph"
+    );
+    for position in [13, 15] {
+        let mut single = base.clone();
+        single["semantic_graph"]["nodes"][position]["body"]["operation"]["identity"] =
+            json!("quire.op.not-catalogued");
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package(&single).expect("single operation-defect read")
+        else {
+            panic!("one unknown operation must refuse");
+        };
+        assert_eq!(code_word(refusal.code), "invalid_package");
+        assert_eq!(refusal.cause.map(cause_word), Some("unknown-operation"));
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(format!(
+                "/semantic_graph/nodes/{position}/body/operation/identity"
+            )),
+            "each defect independently reaches the operation step"
+        );
+    }
+    let mut package = base;
+    for position in [13, 15] {
+        package["semantic_graph"]["nodes"][position]["body"]["operation"]["identity"] =
+            json!("quire.op.not-catalogued");
     }
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&package).expect("two-defect package read")
     else {
-        panic!("two invalid scalar bodies must refuse");
+        panic!("two unknown operation identities must refuse");
     };
-    assert_eq!(code_word(refusal.code), "invalid_semantic_graph");
+    assert_eq!(code_word(refusal.code), "invalid_package");
+    assert_eq!(refusal.cause.map(cause_word), Some("unknown-operation"));
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some("/semantic_graph/nodes/17/body".to_owned()),
-        "structurally first Float64 defect must win"
+        Some("/semantic_graph/nodes/15/body/operation/identity".to_owned()),
+        "structurally first Divide defect must win over graph-first Remainder"
     );
 }
 
