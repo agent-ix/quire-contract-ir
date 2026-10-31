@@ -9,8 +9,8 @@ use super::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedFieldReadForm, CheckedOperationMember,
-    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2ReadResult,
-    CheckedTerm,
+    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedTerm,
 };
 use serde_json::Value;
 
@@ -45,6 +45,22 @@ fn fill_model_read_forms(value: &mut Value) {
     }
 }
 
+fn first_projection_read_form(package: &CheckedPackageV2) -> Option<CheckedFieldReadForm> {
+    package.graph().nodes.iter().find_map(|node| {
+        let CheckedTerm::Application { operation, .. } = &node.body else {
+            return None;
+        };
+        if operation.identity() != Some("quire.op.record.project") {
+            return None;
+        }
+        let read = operation.read().ok()?;
+        match read.member? {
+            CheckedOperationMember::Field { read_form, .. } => *read_form,
+            _ => None,
+        }
+    })
+}
+
 /// Trace: FR-349-AC-8, QSpec FR-322-AC-34.
 #[trace("FR-349-AC-8", "FR-322-AC-34")]
 #[test]
@@ -64,7 +80,7 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
     let cases = vectors["projection_cases"]
         .as_array()
         .expect("projection cases");
-    for name in ["RP-09", "RP-10", "RP-11", "RP-12"] {
+    for name in ["RP-09", "RP-10", "RP-11", "RP-12", "RP-13"] {
         let row = cases
             .iter()
             .find(|row| row["name"] == name)
@@ -81,6 +97,19 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                         == "object_type"
             })
             .expect("published model projection");
+        if name == "RP-13" {
+            let declaration = row["member"]["declaration"].clone();
+            // The vector's undereferenced operand names the declaring object.
+            // The positive package's field is the same object, so its existing
+            // selected graph node supplies the concrete structural identity.
+            let declaration = if declaration.is_string() {
+                projection["body"]["operation"]["member"]["declaration"].clone()
+            } else {
+                declaration
+            };
+            projection["body"]["arguments"][0]["target"] = declaration.clone();
+            projection["dependencies"] = Value::Array(vec![declaration]);
+        }
         let member = projection["body"]["operation"]["member"]
             .as_object_mut()
             .expect("field member");
@@ -112,20 +141,11 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                     Some("explicit_deref") => CheckedFieldReadForm::ExplicitDeref,
                     other => panic!("{name}: unknown published read form {other:?}"),
                 };
-                let found = package.graph().nodes.iter().find_map(|node| {
-                    let CheckedTerm::Application { operation, .. } = &node.body else {
-                        return None;
-                    };
-                    if operation.identity() != Some("quire.op.record.project") {
-                        return None;
-                    }
-                    let read = operation.read().ok()?;
-                    match read.member? {
-                        CheckedOperationMember::Field { read_form, .. } => *read_form,
-                        _ => None,
-                    }
-                });
-                assert_eq!(found, Some(expected), "{name}: typed read form");
+                assert_eq!(
+                    first_projection_read_form(&package),
+                    Some(expected),
+                    "{name}: typed read form"
+                );
                 let encoded = encode_checked_package_v2(
                     package.name(),
                     package.lock(),
@@ -144,8 +164,56 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                     encoded["semantic_graph"]["nodes"], wire["semantic_graph"]["nodes"],
                     "{name}: graph round trip"
                 );
+                let CheckedPackageV2ReadResult::Admitted(read_back) =
+                    read_package_with_document(&encoded, name, &document)
+                        .expect("read encoded package")
+                else {
+                    panic!("{name}: encoded package must admit");
+                };
+                assert_eq!(
+                    first_projection_read_form(&read_back),
+                    Some(expected),
+                    "{name}: read-back form"
+                );
             }
             other => panic!("{name}: unsupported published outcome {other:?}"),
         }
     }
+}
+
+/// Trace: FR-349-AC-8, QSpec FR-322-AC-34.
+#[trace("FR-349-AC-8", "FR-322-AC-34")]
+#[test]
+fn published_record_projection_rejects_inapplicable_read_form() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let selections = super::vector_selected_documents(&proposal).expect("document selections");
+    let document = proposal.join(positive_document(
+        "positive-operation-identities.json",
+        &selections,
+    ));
+    let vectors = read_json(&proposal.join("model-member-type-vectors.json"))
+        .expect("published model member vectors");
+    let row = vectors["projection_cases"]
+        .as_array()
+        .expect("projection cases")
+        .iter()
+        .find(|row| row["name"] == "RP-14")
+        .expect("RP-14");
+    let mut wire = read_json(&fixtures.join("positive-operation-identities.json"))
+        .expect("published record projection package");
+    let projection = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .iter_mut()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
+        .expect("record projection");
+    projection["body"]["operation"]["member"]["read_form"] = row["member"]["read_form"].clone();
+    let result = read_package_with_document(&wire, "RP-14", &document)
+        .expect("read published record mutation");
+    assert_eq!(row["expected"]["refused"]["code"], "malformed_wire");
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Refused(refusal)
+        if refusal.code == CheckedPackageRefusalCode::MalformedWire)
+    );
 }
