@@ -92,7 +92,9 @@ fn transition_profile_wire_shape(operation: &Value) -> bool {
 /// grammar, nodes first, in document order, then the diagnostics' `details`.
 /// Closed node headers refuse before checking the single shipped graph, using
 /// the same header decoder as the graph stage.
-pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
+pub(super) fn check(
+    wire: &CheckedPackageWireV2,
+) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     let mut kinds = Vec::with_capacity(wire.semantic_graph.nodes.len());
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         let kind = super::decode_node_kind(node, |member| {
@@ -332,7 +334,7 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
             check_term(detail, &Trail::Base(&steps), Place::Member, true)?;
         }
     }
-    check_interval_bounds(wire, &kinds)
+    Ok(kinds)
 }
 
 /// The fourth anchor binding is a bare point object, outside the term grammar.
@@ -371,7 +373,7 @@ fn check_anchor_flat_wire(body: &Value, at: &Trail<'_>) -> Result<(), Validation
 /// first in member order and in node position order, after the nested-application
 /// refusals above (the spec is silent on the order of the two wire checks, an IR
 /// reading). One flat loop over the nodes: no recursion.
-fn check_interval_bounds(
+pub(super) fn check_interval_bounds(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
 ) -> Result<(), ValidationFailure> {

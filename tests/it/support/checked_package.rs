@@ -24,9 +24,10 @@
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
 use quire_contract_model::{
-    CheckedNodeId, CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageEvidence, CheckedPackageIncomplete,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, JsonPointer,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -274,6 +275,85 @@ pub fn node_id(path_label: &str) -> Value {
 /// A structural fixture identity with an explicit package, path and ordinal.
 pub fn structural_id(package: &str, path: Vec<Value>, ordinal: u64) -> Value {
     json!({"package": package, "path": path, "ordinal": ordinal})
+}
+
+/// Builds a structural expected key from a test's authored pre-index identity.
+/// This is a fixture constructor, never a reader for the V2 wire.
+pub fn structural_fixture_id(value: &Value) -> CheckedNodeId {
+    let path = value["path"]
+        .as_array()
+        .expect("fixture structural path")
+        .iter()
+        .map(|segment| match segment {
+            Value::String(name) => CheckedNodePathSegment::Name(name.as_str().into()),
+            Value::Object(_) => {
+                CheckedNodePathSegment::Node(std::sync::Arc::new(structural_fixture_id(segment)))
+            }
+            _ => panic!("fixture structural path segment"),
+        })
+        .collect();
+    CheckedNodeId {
+        package: value["package"].as_str().expect("fixture package").into(),
+        path,
+        ordinal: value["ordinal"].as_u64().expect("fixture ordinal"),
+    }
+}
+
+/// Rewrites authored structural fixture identities into the V2 graph-local
+/// index wire. Every nested operand must name a node in this document's graph;
+/// a missing fixture node is an error in the test construction.
+pub fn index_fixture_node_ids(package: &mut Value) {
+    let ids = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("semantic graph nodes")
+        .iter()
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+
+    fn rewrite(value: &mut Value, ids: &[Value]) {
+        if let Some(path) = value
+            .as_object_mut()
+            .filter(|object| {
+                object.len() == 3
+                    && object.contains_key("package")
+                    && object.contains_key("path")
+                    && object.contains_key("ordinal")
+            })
+            .and_then(|object| object.get_mut("path"))
+            .and_then(Value::as_array_mut)
+        {
+            for segment in path {
+                if segment.is_object() {
+                    if segment.as_object().is_some_and(|object| {
+                        object.len() == 1 && object.get("node").and_then(Value::as_u64).is_some()
+                    }) {
+                        continue;
+                    }
+                    let index = ids
+                        .iter()
+                        .position(|id| id == segment)
+                        .expect("nested fixture operand must be a graph node");
+                    *segment = json!({"node": index});
+                }
+            }
+        }
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    rewrite(item, ids);
+                }
+            }
+            Value::Object(object) => {
+                for member in object.values_mut() {
+                    rewrite(member, ids);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    rewrite(package, &ids);
+    refresh_identity(package);
 }
 
 /// Renames one structural identity throughout a synthetic package, including
@@ -1904,14 +1984,55 @@ pub fn rekey_application_node(package: &mut Value, position: usize) {
 /// Collects the targets FR-322's application-node dependency join names in
 /// `term`: references and an application's declaration or population link.
 /// Returns whether `term` holds an application.
-fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<CheckedNodeId>) -> bool {
-    fn add(out: &mut std::collections::BTreeSet<CheckedNodeId>, id: &Value) {
-        out.insert(serde_json::from_value(id.clone()).expect("local structural node id"));
+fn structural_fixture_id_in_graph(
+    value: &Value,
+    ids: &[Value],
+    visiting: &mut std::collections::BTreeSet<usize>,
+) -> CheckedNodeId {
+    let path = value["path"]
+        .as_array()
+        .expect("fixture structural path")
+        .iter()
+        .map(|segment| match segment {
+            Value::String(name) => CheckedNodePathSegment::Name(name.as_str().into()),
+            Value::Object(object) if object.len() == 1 && object.contains_key("node") => {
+                let index = usize::try_from(object["node"].as_u64().expect("fixture node index"))
+                    .expect("fixture node index fits usize");
+                assert!(visiting.insert(index), "fixture node index cycle");
+                let operand = structural_fixture_id_in_graph(
+                    ids.get(index).expect("fixture node index in graph"),
+                    ids,
+                    visiting,
+                );
+                visiting.remove(&index);
+                CheckedNodePathSegment::Node(std::sync::Arc::new(operand))
+            }
+            Value::Object(_) => CheckedNodePathSegment::Node(std::sync::Arc::new(
+                structural_fixture_id_in_graph(segment, ids, visiting),
+            )),
+            _ => panic!("fixture structural path segment"),
+        })
+        .collect();
+    CheckedNodeId {
+        package: value["package"].as_str().expect("fixture package").into(),
+        path,
+        ordinal: value["ordinal"].as_u64().expect("fixture ordinal"),
+    }
+}
+
+fn join_targets(
+    term: &Value,
+    ids: &[Value],
+    out: &mut std::collections::BTreeMap<CheckedNodeId, Value>,
+) -> bool {
+    fn add(out: &mut std::collections::BTreeMap<CheckedNodeId, Value>, id: &Value, ids: &[Value]) {
+        let key = structural_fixture_id_in_graph(id, ids, &mut Default::default());
+        out.insert(key, id.clone());
     }
     let mut holds_application = false;
     match term["term"].as_str() {
         Some("reference") => {
-            add(out, &term["target"]);
+            add(out, &term["target"], ids);
         }
         Some("application") => {
             holds_application = true;
@@ -1919,7 +2040,7 @@ fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<CheckedNodeId
                 .get("declaration")
                 .filter(|value| !value.is_null())
             {
-                add(out, declaration);
+                add(out, declaration, ids);
             }
             if matches!(
                 term["operation"]["identity"].as_str(),
@@ -1929,19 +2050,19 @@ fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<CheckedNodeId
                     .get("population")
                     .filter(|value| !value.is_null())
                 {
-                    add(out, population);
+                    add(out, population, ids);
                 }
             }
             for argument in term["arguments"].as_array().into_iter().flatten() {
-                join_targets(argument, out);
+                join_targets(argument, ids, out);
             }
         }
         Some("aggregate") => {
             for member in term["members"].as_array().into_iter().flatten() {
-                holds_application |= join_targets(member, out);
+                holds_application |= join_targets(member, ids, out);
             }
         }
-        Some("binding") => holds_application |= join_targets(&term["value"], out),
+        Some("binding") => holds_application |= join_targets(&term["value"], ids, out),
         _ => {}
     }
     holds_application
@@ -1950,21 +2071,24 @@ fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<CheckedNodeId
 /// Gives every node whose body holds an `application` exactly the
 /// `dependencies` FR-322's join names in structural node-id order.
 fn join_application_dependencies(package: &mut Value) {
+    let ids = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
     for node in package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
     {
-        let mut targets = std::collections::BTreeSet::new();
-        if join_targets(&node["body"], &mut targets) {
+        let mut targets = std::collections::BTreeMap::new();
+        if join_targets(&node["body"], &ids, &mut targets) {
             if let Some(owner_model) = node.get("owner_model") {
-                targets.insert(serde_json::from_value(owner_model.clone()).expect("owner model"));
+                let key =
+                    structural_fixture_id_in_graph(owner_model, &ids, &mut Default::default());
+                targets.insert(key, owner_model.clone());
             }
-            node["dependencies"] = Value::Array(
-                targets
-                    .iter()
-                    .map(|id| serde_json::to_value(id).expect("id"))
-                    .collect(),
-            );
+            node["dependencies"] = Value::Array(targets.into_values().collect());
         }
     }
 }

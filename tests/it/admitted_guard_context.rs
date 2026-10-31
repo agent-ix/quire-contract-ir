@@ -419,7 +419,7 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
             .as_object()
             .expect("closed wire object")
             .len(),
-        5
+        6
     );
     assert!(matches!(
         application_only.guard_context(
@@ -435,7 +435,10 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
 
     let before_wire = contextual.wire().clone();
     let before_closure = contextual
-        .reached_closure(&app_id)
+        .reached_closure(
+            &quire_contract_model::ContractSourceKeyV1::from_structural(&app_id)
+                .expect("structural source key"),
+        )
         .expect("application closure")
         .clone();
     let then_guards = [
@@ -518,7 +521,12 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
     ));
     assert_eq!(contextual.wire(), &before_wire);
     assert_eq!(
-        contextual.reached_closure(&app_id).expect("same closure"),
+        contextual
+            .reached_closure(
+                &quire_contract_model::ContractSourceKeyV1::from_structural(&app_id)
+                    .expect("structural source key")
+            )
+            .expect("same closure"),
         before_closure
     );
 }

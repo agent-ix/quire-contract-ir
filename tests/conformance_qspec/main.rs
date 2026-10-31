@@ -45,6 +45,7 @@ mod grouped_ordinal;
 mod hybrid;
 mod model_root;
 mod model_tuple_union;
+mod node_index;
 mod node_ordinal;
 mod protocol_vectors;
 mod reaches_population;

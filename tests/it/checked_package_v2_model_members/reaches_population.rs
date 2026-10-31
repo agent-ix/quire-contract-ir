@@ -23,13 +23,26 @@ use std::collections::BTreeSet;
 /// an explicitly authored structural node id. Neither form derives an id from
 /// the node body.
 fn fixture_id(handle: &str) -> Value {
-    serde_json::from_str::<CheckedNodeId>(handle)
-        .map(|id| serde_json::to_value(id).expect("node id"))
-        .unwrap_or_else(|_| node_id(handle))
+    serde_json::from_str::<Value>(handle)
+        .ok()
+        .filter(|value| value.get("package").is_some() && value.get("path").is_some())
+        .unwrap_or_else(|| node_id(handle))
 }
 
 fn typed_fixture_id(handle: &str) -> CheckedNodeId {
-    serde_json::from_value(fixture_id(handle)).expect("typed fixture id")
+    structural_fixture_id(&fixture_id(handle))
+}
+
+fn wire_fixture_id(package: &CheckedPackageV2, handle: &str) -> CheckedNodeId {
+    let expected = typed_fixture_id(handle);
+    package
+        .graph()
+        .nodes
+        .iter()
+        .enumerate()
+        .find(|(position, _)| package.structural_key_at(*position) == Some(&expected))
+        .map(|(_, node)| node.node_id.clone())
+        .expect("authored fixture node in admitted graph")
 }
 
 fn handle(id: &Value) -> String {
@@ -325,7 +338,7 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
         selector,
         Selector {
             package_name: package.name().into(),
-            binding: typed_fixture_id(&population),
+            binding: wire_fixture_id(&package, &population),
             occurrence: occurrence.clone(),
         }
     );
@@ -356,7 +369,7 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
             assert_eq!(finite.maximum.as_str(), "3");
             assert_eq!(finite.minimum, 0);
             assert_eq!(finite.object_type, order_declaration_id());
-            assert_eq!(finite.binding, typed_fixture_id(&population));
+            assert_eq!(finite.binding, wire_fixture_id(&package, &population));
             assert_eq!(finite.occurrence, occurrence);
         }
         other => panic!("expected a finite population, got {other:?}"),
@@ -378,7 +391,7 @@ fn tc_048_reaches_population_is_none_without_a_key_and_distinguishes_populations
         .reaches_population(&reaches_id(&package))
         .expect("first")
         .expect("a selector");
-    assert_eq!(first.binding, typed_fixture_id(&small));
+    assert_eq!(first.binding, wire_fixture_id(&package, &small));
     assert_eq!(
         package
             .reaches_population(&swapped_same)
@@ -390,7 +403,7 @@ fn tc_048_reaches_population_is_none_without_a_key_and_distinguishes_populations
         .reaches_population(&other_population)
         .expect("other")
         .expect("a selector");
-    assert_eq!(other.binding, typed_fixture_id(&large));
+    assert_eq!(other.binding, wire_fixture_id(&package, &large));
     assert_ne!(other.binding, first.binding);
     // The graph holds a population of the receiver end's declared type, and the
     // application that names none still has none.
@@ -409,7 +422,7 @@ fn tc_048_reaches_population_refuses_every_node_that_is_not_a_reaches_applicatio
     );
     for (label, node) in [
         ("relationship", relationship_id()),
-        ("population", typed_fixture_id(&population)),
+        ("population", wire_fixture_id(&package, &population)),
         ("object declaration", order_declaration_id()),
     ] {
         assert_eq!(package.reaches_population(&node), refusal, "{label}");
@@ -736,11 +749,24 @@ fn tc_048_the_dependency_join_lists_exactly_the_named_population() {
         .find(|node| node.node_id == reaches_id(&package))
         .expect("application");
     let listed: Vec<_> = application.dependencies.to_vec();
-    let mut sorted = listed.clone();
-    sorted.sort();
-    sorted.dedup();
-    assert_eq!(listed, sorted, "unique and structural-id ascending");
-    assert!(listed.contains(&typed_fixture_id(&population)));
+    let structural = |id: &CheckedNodeId| {
+        let position = package
+            .graph()
+            .nodes
+            .iter()
+            .position(|node| &node.node_id == id)
+            .expect("listed dependency node");
+        package
+            .structural_key_at(position)
+            .expect("rebuilt dependency key")
+    };
+    assert!(
+        listed
+            .windows(2)
+            .all(|pair| structural(&pair[0]) < structural(&pair[1])),
+        "unique and structural-id ascending"
+    );
+    assert!(listed.contains(&wire_fixture_id(&package, &population)));
 
     // The population id omitted from the list.
     let mut omitted = Scenario::standard();
@@ -782,7 +808,7 @@ fn tc_048_the_dependency_join_lists_exactly_the_named_population() {
 
 /// The least `work` limit that admits the package and its first unpaid site.
 fn least_admitting_work(scenario: &Scenario) -> (u64, String) {
-    let bytes = canonical(&scenario.package);
+    let bytes = indexed_bytes(&scenario.package);
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
@@ -936,7 +962,7 @@ fn tc_048_population_maximum_is_canonical_or_explicitly_unbounded() {
         selector,
     }) {
         Outcome::AdmittedUnbounded(result) => {
-            assert_eq!(result.binding, typed_fixture_id(&unbounded));
+            assert_eq!(result.binding, wire_fixture_id(&package, &unbounded));
             assert_eq!(result.object_type, order_declaration_id());
         }
         other => panic!("expected admitted unbounded population, got {other:?}"),
@@ -959,7 +985,7 @@ fn tc_048_population_maximum_is_canonical_or_explicitly_unbounded() {
         }) {
             Outcome::Finite(finite) => {
                 assert_eq!(finite.maximum.as_str(), max);
-                assert_eq!(finite.binding, typed_fixture_id(&population));
+                assert_eq!(finite.binding, wire_fixture_id(&package, &population));
             }
             other => panic!("expected a finite population for {max}, got {other:?}"),
         }
@@ -1030,7 +1056,7 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
 #[test]
 fn selected_population_result_provenance_and_work_boundary_hold() {
     let (scenario, population) = linked(ORDER, "3", &[2, 0]);
-    let bytes = canonical(&scenario.package);
+    let bytes = indexed_bytes(&scenario.package);
     let package = scenario.admitted();
     let selected = reaches_id(&package);
     let result = package
@@ -1038,7 +1064,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         .expect("reaches result")
         .expect("selected population");
     assert_eq!(result.package_name.as_ref(), package.name());
-    assert_eq!(result.binding, typed_fixture_id(&population));
+    assert_eq!(result.binding, wire_fixture_id(&package, &population));
     assert_eq!(
         result.occurrence,
         CheckedOccurrence {
@@ -1048,7 +1074,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
     );
     let missing = Selector {
         package_name: package.name().into(),
-        binding: typed_fixture_id(&population),
+        binding: wire_fixture_id(&package, &population),
         occurrence: CheckedOccurrence {
             role: CheckedOccurrenceRole::Type,
             ordinal: 99,
@@ -1066,7 +1092,7 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         panic!("finite selected population")
     };
     assert_eq!(finite.package_name.as_ref(), package.name());
-    assert_eq!(finite.binding, typed_fixture_id(&population));
+    assert_eq!(finite.binding, wire_fixture_id(&package, &population));
     assert_eq!(
         finite.occurrence,
         CheckedOccurrence {
@@ -1076,8 +1102,10 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
     );
     assert_eq!(finite.object_type, order_declaration_id());
     assert_eq!((finite.minimum, finite.maximum.as_str()), (0, "3"));
+    let mut authored_wire = scenario.package.clone();
+    index_fixture_node_ids(&mut authored_wire);
     let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
-        serde_json::from_value(scenario.package["source_map"].clone()).expect("authored sources");
+        serde_json::from_value(authored_wire["source_map"].clone()).expect("authored sources");
     assert_eq!(package.source_map(), authored_sources);
     let selected_source = authored_sources
         .iter()

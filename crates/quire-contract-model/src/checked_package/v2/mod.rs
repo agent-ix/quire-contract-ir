@@ -28,6 +28,7 @@ mod model_fields;
 mod model_members;
 mod model_root;
 mod natural;
+mod node_index;
 mod operation_catalog;
 mod operations;
 mod owner;
@@ -70,8 +71,8 @@ pub use contract_package::{
     ContractResultContextV1, ContractResultViewV1, ContractRootViewError, ContractRootViewV1,
     ContractScalarOperandChildV1, ContractScalarOperandErrorV1, ContractScalarOperandV1,
     ContractScalarOperandViewV1, ContractScalarOwnRangeV1, ContractSelectedReferenceV1,
-    ContractSemanticGraphV1, ContractSourceHandoffError, ContractSourceMapV1, ContractSourceV1,
-    ContractUnsupportedSourceKindError,
+    ContractSemanticGraphV1, ContractSourceHandoffError, ContractSourceKeyV1, ContractSourceMapV1,
+    ContractSourceV1, ContractUnsupportedSourceKindError,
 };
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;
@@ -100,11 +101,9 @@ use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use ix_trace_rs::string_edge;
-use operations::validate_operations;
+use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
-use structural::{
-    validate_derived_type_shapes, validate_selected_type_bounds, validate_structural_nodes,
-};
+use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
@@ -660,6 +659,20 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
     diagnostics: &CheckedDiagnosticsV2,
     limits: quire_canonical::Limits,
 ) -> Result<Vec<u8>, quire_canonical::Error> {
+    if semantic_graph.nodes.iter().any(|node| {
+        [&node.node_id, &node.semantic_type]
+            .into_iter()
+            .chain(node.dependencies.iter())
+            .any(|id| {
+                id.path
+                    .iter()
+                    .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
+            })
+    }) {
+        return Err(quire_canonical::Error::Internal {
+            invariant: "checked-package V2 paths require graph-local operand indices",
+        });
+    }
     let envelope = CheckedPackageEnvelope {
         contract_version: CHECKED_PACKAGE_V2,
         name,
@@ -670,7 +683,13 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         capability_report,
         diagnostics,
     };
-    quire_canonical::to_vec(&envelope, limits)
+    let bytes = quire_canonical::to_vec(&envelope, limits)?;
+    if node_index::contains_inline_node_path(&bytes) {
+        return Err(quire_canonical::Error::Internal {
+            invariant: "checked-package V2 paths cannot embed node IDs",
+        });
+    }
+    Ok(bytes)
 }
 
 /// The closed result of reading untrusted bytes as V2.
@@ -700,6 +719,8 @@ pub struct CheckedPackageV2 {
     terms: Vec<CheckedTerm>,
     /// Admission-derived lookup; excluded from content equality.
     node_index: BTreeMap<CheckedNodeId, usize>,
+    /// Graph-local wire IDs rebuilt as shared, document-independent keys.
+    structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
     /// Admission-derived position of each exact source occurrence.
     pub(in crate::checked_package) source_index:
         BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>,
@@ -725,6 +746,7 @@ impl std::fmt::Debug for CheckedPackageV2 {
             .field("wire", &self.wire)
             .field("kinds", &self.kinds)
             .field("node_index", &self.node_index)
+            .field("structural_key_count", &self.structural_keys.len())
             .field("source_index", &self.source_index)
             .field("bytes", &self.bytes)
             .field("models", &self.models)
@@ -1053,7 +1075,8 @@ impl CheckedPackageV2 {
             terms,
             models,
             lowering_facts,
-        } = validate(&wire, limits, evidence)?;
+            structural_keys,
+        } = validate(&wire, bytes, limits, evidence)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1115,6 +1138,7 @@ impl CheckedPackageV2 {
             kinds,
             terms,
             node_index,
+            structural_keys,
             source_index,
             lowering_facts,
             bytes: limits.bytes,
@@ -1137,6 +1161,18 @@ impl CheckedPackageV2 {
     /// The complete closed checked graph.
     pub fn graph(&self) -> &CheckedSemanticGraphV2 {
         &self.wire.semantic_graph
+    }
+
+    /// The graph node's document-independent structural key. Operand keys
+    /// share storage, regardless of the wire indices chosen by this document.
+    pub fn structural_key_at(&self, index: usize) -> Option<&CheckedNodeId> {
+        self.structural_keys.get(index).map(std::sync::Arc::as_ref)
+    }
+
+    /// Resolve an ID written by this package against this package's graph.
+    /// The ID's `package` names its owner and does not select the graph.
+    pub fn structural_key(&self, id: &CheckedNodeId) -> Option<&CheckedNodeId> {
+        self.structural_key_at(*self.node_index.get(id)?)
     }
 
     /// Each graph node's decoded family and form, in graph order.
@@ -1196,6 +1232,7 @@ struct ValidatedPackage {
     terms: Vec<CheckedTerm>,
     models: RetainedModels,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
+    structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
 }
 
 struct ValidatedGraph {
@@ -1207,13 +1244,16 @@ struct ValidatedGraph {
 
 fn validate(
     wire: &RawCheckedPackageWireV2,
+    bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
 ) -> Result<ValidatedPackage, ValidationFailure> {
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
-    flat_wire::check(wire)?;
+    let flat_kinds = flat_wire::check(wire)?;
+    let structural_keys = node_index::check(bytes, wire, evidence)?;
+    flat_wire::check_interval_bounds(wire, &flat_kinds)?;
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
         models,
@@ -1224,7 +1264,15 @@ fn validate(
         terms,
         declarations,
         lowering_facts,
-    } = validate_graph(wire, limits, &mut meter, &models, &dependencies, evidence)?;
+    } = validate_graph(
+        wire,
+        limits,
+        &mut meter,
+        &models,
+        &dependencies,
+        evidence,
+        &structural_keys,
+    )?;
     validate_source_map_entries(
         wire.semantic_graph
             .nodes
@@ -1243,6 +1291,7 @@ fn validate(
         terms,
         models: RetainedModels::new(declarations, models),
         lowering_facts,
+        structural_keys,
     })
 }
 
@@ -2371,6 +2420,61 @@ fn decode_node_kind<Body>(
     })
 }
 
+/// Compare a selected import's complete content after resolving each graph-
+/// local operand in its own document. Both packages may choose different node
+/// order and thus different wire index spellings for the same structural key.
+fn imported_node_matches(
+    importer: &RawSemanticNodeV2,
+    selected: &RawSemanticNodeV2,
+    importer_keys: &[std::sync::Arc<CheckedNodeId>],
+    selected_keys: &[std::sync::Arc<CheckedNodeId>],
+) -> bool {
+    let same_id = |left: &CheckedNodeId, right: &CheckedNodeId| match (
+        node_index::resolve_id(left, importer_keys),
+        node_index::resolve_id(right, selected_keys),
+    ) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    };
+    same_id(&importer.node_id, &selected.node_id)
+        && importer.schema_version == selected.schema_version
+        && importer.node_tag == selected.node_tag
+        && importer.semantic_form == selected.semantic_form
+        && same_id(&importer.semantic_type, &selected.semantic_type)
+        && importer.dependencies.len() == selected.dependencies.len()
+        && importer
+            .dependencies
+            .iter()
+            .zip(&selected.dependencies)
+            .all(|(left, right)| same_id(left, right))
+        && importer.occurrences == selected.occurrences
+        && importer.recursion_group == selected.recursion_group
+        && importer.declaration == selected.declaration
+        && importer.owner == selected.owner
+        && match (&importer.owner_model, &selected.owner_model) {
+            (Some(left), Some(right)) => same_id(left, right),
+            (None, None) => true,
+            _ => false,
+        }
+        && node_index::equivalent_values(
+            &importer.body,
+            &selected.body,
+            importer_keys,
+            selected_keys,
+        )
+}
+
+pub(super) fn structural_key<'a>(
+    id: &'a CheckedNodeId,
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
+) -> &'a CheckedNodeId {
+    index
+        .get(id)
+        .and_then(|&position| structural_keys.get(position))
+        .map_or(id, std::sync::Arc::as_ref)
+}
+
 fn validate_graph(
     wire: &RawCheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
@@ -2378,6 +2482,7 @@ fn validate_graph(
     models: &[DomainModel],
     dependencies: &SuppliedDependencies<'_>,
     evidence: &CheckedPackageEvidence,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
 ) -> Result<ValidatedGraph, ValidationFailure> {
     let graph = &wire.semantic_graph;
     check_graph_version(graph)?;
@@ -2407,6 +2512,7 @@ fn validate_graph(
     // Each frame node's typed body, read once here and joined by the frame step.
     let mut frames = Vec::new();
     let mut edges = 0_u64;
+    let mut import_index = None;
     for (position, node) in graph.nodes.iter().enumerate() {
         let at = |member: &str| node_pointer(position).key(member);
         validate_node_id(&node.node_id, || at("node_id"))?;
@@ -2416,17 +2522,41 @@ fn validate_graph(
             ) => identity.as_ref(),
             _ => wire.name.as_ref(),
         };
-        if node.node_id.package.as_ref() != expected_package
-            && (node.owner.is_some()
-                || node.declaration.is_some()
-                || !dependencies
-                    .selected_node(&node.node_id)
-                    .is_some_and(|selected| selected.to_raw() == *node))
-        {
-            return Err(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                at("node_id").key("package"),
-            ));
+        if node.node_id.package.as_ref() != expected_package {
+            let imported = if node.owner.is_none()
+                && node.declaration.is_none()
+                && dependencies
+                    .selected_package(&node.node_id.package)
+                    .is_some()
+            {
+                if import_index.is_none() {
+                    import_index =
+                        Some(dependencies.structural_import_index(structural_keys, meter)?);
+                }
+                import_index
+                    .as_ref()
+                    .and_then(
+                        |lookup: &dependency_references::StructuralImportIndex<'_>| {
+                            lookup.lookup(&node.node_id.package, position)
+                        },
+                    )
+                    .is_some_and(|(selected_position, selected_package)| {
+                        imported_node_matches(
+                            node,
+                            &selected_package.graph().nodes[selected_position].to_raw(),
+                            structural_keys,
+                            &selected_package.structural_keys,
+                        )
+                    })
+            } else {
+                false
+            };
+            if !imported {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at("node_id").key("package"),
+                ));
+            }
         }
         // Charge the graph-node visit before checking identity uniqueness so
         // a denied visit cannot proceed to the duplicate-id refusal.
@@ -2564,10 +2694,16 @@ fn validate_graph(
     // so an entry, anchor or clause reference naming no node is the step's
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
-    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
+    structural::validate_structural_nodes_with_keys(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+    )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index)?;
-    validate_selected_type_bounds(models, &terms, &index)?;
+    validate_selected_type_bounds(models, &terms, structural_keys)?;
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
@@ -2581,11 +2717,16 @@ fn validate_graph(
         let expected = references[position]
             .iter()
             .filter(|(_, site)| site.member == ReferenceMember::Target)
-            .map(|(target, _)| target.clone())
+            .map(|(target, _)| structural_key(target, &index, structural_keys).clone())
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
-        if node.dependencies != expected {
+        let actual = node
+            .dependencies
+            .iter()
+            .map(|id| structural_key(id, &index, structural_keys).clone())
+            .collect::<Vec<_>>();
+        if actual != expected {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 node_pointer(position).key("dependencies"),
@@ -2594,7 +2735,7 @@ fn validate_graph(
             ));
         }
     }
-    refinement::validate_dependencies(&graph.nodes, &kinds, &terms)?;
+    refinement::validate_dependencies(&graph.nodes, &kinds, &terms, &index, structural_keys)?;
     let imported_nominals = validate_nominal_nodes(
         &graph.nodes,
         &kinds,
@@ -2619,7 +2760,15 @@ fn validate_graph(
     extension::validate(wire, &kinds, &terms, &index, evidence, &owners, meter)?;
     let declarations = owners.index();
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
-    state::validate_state(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    state::validate_state(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+        &owners,
+        meter,
+    )?;
     claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners)?;
     validate_temporal(
         &graph.nodes,
@@ -2661,13 +2810,18 @@ fn validate_graph(
                         let source_root = JsonPointer::root().key("source_map");
                         if path == &source_root {
                             refinement::validate_occurrences(
-                                &graph.nodes,
-                                &kinds,
-                                &terms,
+                                refinement::RefinementGraph::new(
+                                    &graph.nodes,
+                                    &kinds,
+                                    &terms,
+                                    &index,
+                                    structural_keys,
+                                    dependencies,
+                                    &wire.name,
+                                ),
                                 &wire.source_map,
                                 wire.refinement_step_rows.as_deref(),
                                 &owners,
-                                dependencies,
                                 meter,
                             )?;
                         } else if let Some(entry) = path
@@ -2696,13 +2850,18 @@ fn validate_graph(
             return Err(failure);
         }
         refinement::validate_occurrences(
-            &graph.nodes,
-            &kinds,
-            &terms,
+            refinement::RefinementGraph::new(
+                &graph.nodes,
+                &kinds,
+                &terms,
+                &index,
+                structural_keys,
+                dependencies,
+                &wire.name,
+            ),
             &wire.source_map,
             wire.refinement_step_rows.as_deref(),
             &owners,
-            dependencies,
             meter,
         )?;
     }
@@ -2712,6 +2871,7 @@ fn validate_graph(
             &kinds,
             &terms,
             &index,
+            structural_keys,
             dependencies,
             &wire.name,
         ),
@@ -2747,6 +2907,7 @@ fn validate_graph(
             &kinds,
             &terms,
             &index,
+            structural_keys,
             dependencies,
             &wire.name,
         ),
@@ -2756,7 +2917,10 @@ fn validate_graph(
     let admitted_views = validate_operations(
         &graph.nodes,
         &kinds,
-        &index,
+        OperationNodeOrder {
+            wire_index: &index,
+            structural_keys,
+        },
         &terms,
         &wire.lock,
         &owners,

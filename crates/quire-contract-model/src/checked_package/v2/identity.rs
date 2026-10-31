@@ -964,6 +964,7 @@ fn model_record_from_node(
         .map(|part| match part {
             Segment::Name(name) => Some(name.as_ref()),
             Segment::Node(_) => None,
+            Segment::Index(_) => None,
         })
         .collect::<Option<Vec<_>>>();
     require(
@@ -2346,9 +2347,31 @@ mod tests {
         ));
     }
 
-    #[trace("TC-048", "FR-038-AC-117")]
+    #[trace("TC-048", "FR-038-AC-24")]
     #[test]
-    fn nominal_body_node_ref_has_no_fixed_path_depth() {
+    fn nominal_body_node_ref_requires_graph_local_index() {
+        let valid = json!({
+            "term": "dimension",
+            "terms": [{
+                "dimension_node_id": {
+                    "package": "example",
+                    "path": ["dimension", {"node": 0}],
+                    "ordinal": 0
+                },
+                "exponent": "1"
+            }]
+        });
+        let parsed = NominalBody::from_value(&valid, JsonPointer::root()).expect("indexed ref");
+        let term = super::super::CheckedTerm::NominalBody(Box::new(parsed));
+        let encoded = quire_canonical::to_vec(&term, quire_canonical::Limits::new(1 << 22))
+            .expect("indexed encoding");
+        assert!(encoded
+            .windows(b"\"node\":0".len())
+            .any(|part| part == b"\"node\":0"));
+
+        // The old inline operand spelling is not a V2 node ID. The NI-13
+        // conformance control covers 100,001 valid graph-local indexed keys
+        // on a 256 KiB stack (FR-038-AC-117/380).
         let mut id = json!({"package":"example","path":["base"],"ordinal":0});
         for _ in 0..10_000 {
             let mut wrapper = serde_json::Map::new();
@@ -2364,11 +2387,14 @@ mod tests {
         body_members.insert("term".into(), Value::String("dimension".into()));
         body_members.insert("terms".into(), Value::Array(vec![Value::Object(term)]));
         let body = Value::Object(body_members);
-        let parsed = NominalBody::from_value(&body, JsonPointer::root()).expect("deep reference");
-        let term = super::super::CheckedTerm::NominalBody(Box::new(parsed));
-        let encoded = quire_canonical::to_vec(&term, quire_canonical::Limits::new(1 << 22))
-            .expect("iterative encoding");
-        assert!(encoded.len() > 100_000);
+        assert!(matches!(
+            NominalBody::from_value(&body, JsonPointer::root()),
+            Err(ValidationFailure::Refused(refusal))
+                if refusal.code == CheckedPackageRefusalCode::MalformedWire
+                    && refusal.loci[0].path.as_ref().is_some_and(
+                        |path| path.as_str() == "/terms/0/dimension_node_id"
+                    )
+        ));
         quire_canonical::drop_value(body);
     }
 

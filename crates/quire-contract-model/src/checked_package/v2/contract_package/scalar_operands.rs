@@ -122,7 +122,7 @@ impl ContractPackageV1 {
         application: &CheckedNodeId,
         occurrence: &ContractOccurrenceKeyV1,
     ) -> Result<ContractScalarOperandViewV1<'_>, ContractScalarOperandErrorV1> {
-        let reached = match self.reached_closure(application)? {
+        let reached = match self.reached_closure_source_wire(application)? {
             ContractRootViewV1::Absent => return Ok(ContractScalarOperandViewV1::Absent),
             ContractRootViewV1::NonLowered(record) => {
                 return Ok(ContractScalarOperandViewV1::NonLowered(record));
