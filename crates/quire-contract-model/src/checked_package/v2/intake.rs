@@ -241,7 +241,7 @@ fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer
     const MAX_SAFE: u64 = 9_007_199_254_740_991;
     let mut pending = vec![(source_raw(bytes, at)?, at.clone())];
     while let Some((raw, path)) = pending.pop() {
-        let members: BTreeMap<&str, &RawValue> = serde_json::from_str(raw.get()).ok()?;
+        let members: BTreeMap<&str, &RawValue> = serde_json::from_str(raw).ok()?;
         if !members.contains_key("package") || !members.contains_key("path") {
             continue;
         }
@@ -257,7 +257,7 @@ fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer
             let segments: Vec<&RawValue> = serde_json::from_str(raw_path.get()).ok()?;
             for (index, segment) in segments.into_iter().enumerate().rev() {
                 if segment.get().starts_with('{') {
-                    pending.push((segment, path.clone().key("path").index(index)));
+                    pending.push((segment.get(), path.clone().key("path").index(index)));
                 }
             }
         }
@@ -268,30 +268,117 @@ fn invalid_node_id_ordinal(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer
 /// Read only the JSON value named by `pointer`. Borrowed raw subtrees retain
 /// slices of the caller's bytes; no ancestor is decoded into a `Value`.
 pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value> {
-    serde_json::from_str(source_raw(bytes, pointer)?.get()).ok()
+    serde_json::from_str(source_raw(bytes, pointer)?).ok()
 }
 
-fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a RawValue> {
-    let mut current: &RawValue = serde_json::from_slice(bytes).ok()?;
+/// Locate a source value without deserializing its ancestors. A package can
+/// contain a valid term near serde_json's depth limit even when the requested
+/// member is shallow; deserializing the root as RawValue would reject it.
+fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a str> {
+    let mut current = bytes;
     let path = pointer.as_str();
     if !path.is_empty() {
         for token in path.strip_prefix('/')?.split('/') {
             let key = token.replace("~1", "/").replace("~0", "~");
-            current = match current.get().as_bytes().first()? {
-                b'{' => {
-                    let members: BTreeMap<String, &RawValue> =
-                        serde_json::from_str(current.get()).ok()?;
-                    *members.get(&key)?
-                }
-                b'[' => {
-                    let items: Vec<&RawValue> = serde_json::from_str(current.get()).ok()?;
-                    *items.get(key.parse::<usize>().ok()?)?
-                }
+            current = match current.first()? {
+                b'{' => object_member(current, &key)?,
+                b'[' => array_item(current, key.parse::<usize>().ok()?)?,
                 _ => return None,
             };
         }
     }
-    Some(current)
+    std::str::from_utf8(current).ok()
+}
+
+/// The strict and canonical scans precede every source lookup. These local
+/// scans only delimit a child span and do not materialize skipped subtrees.
+fn object_member<'a>(object: &'a [u8], key: &str) -> Option<&'a [u8]> {
+    let mut at = 1;
+    while object.get(at) != Some(&b'}') {
+        let end = value_end(object, at)?;
+        let member: &str = serde_json::from_slice(object.get(at..end)?).ok()?;
+        at = end;
+        if object.get(at) != Some(&b':') {
+            return None;
+        }
+        at += 1;
+        let end = value_end(object, at)?;
+        if member == key {
+            return object.get(at..end);
+        }
+        at = end;
+        match object.get(at)? {
+            b',' => at += 1,
+            b'}' => return None,
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn array_item(array: &[u8], target: usize) -> Option<&[u8]> {
+    let mut at = 1;
+    let mut index = 0;
+    while array.get(at) != Some(&b']') {
+        let end = value_end(array, at)?;
+        if index == target {
+            return array.get(at..end);
+        }
+        at = end;
+        if array.get(at) != Some(&b',') {
+            return None;
+        }
+        at += 1;
+        index += 1;
+    }
+    None
+}
+
+/// End of one already validated JSON value, found with a heap stack.
+fn value_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let first = *bytes.get(start)?;
+    if !matches!(first, b'{' | b'[' | b'"') {
+        let mut at = start;
+        while !matches!(bytes.get(at), None | Some(b',' | b'}' | b']')) {
+            at += 1;
+        }
+        return Some(at);
+    }
+    let mut at = start;
+    let mut closers = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    loop {
+        let byte = *bytes.get(at)?;
+        at += 1;
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+                if closers.is_empty() {
+                    return Some(at);
+                }
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' => closers.push(b'}'),
+            b'[' => closers.push(b']'),
+            b'}' | b']' => {
+                if closers.pop() != Some(byte) {
+                    return None;
+                }
+                if closers.is_empty() {
+                    return Some(at);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// `malformed_wire` at `at`.
@@ -482,6 +569,26 @@ fn raw_array<'a>(
 #[cfg(test)]
 mod ordinal_locus_tests {
     use super::*;
+
+    #[test]
+    fn source_lookup_skips_deep_sibling_without_deserializing_it() {
+        let deep = format!("{}0{}", "[".repeat(120), "]".repeat(120));
+        let bytes = format!(
+            "{{\"semantic_graph\":{{\"nodes\":[{{\"body\":{deep},\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":0}}}}]}}}}"
+        );
+        let pointer = JsonPointer::parse("/semantic_graph/nodes/0/node_id/ordinal").unwrap();
+        assert_eq!(
+            source_value(bytes.as_bytes(), &pointer),
+            Some(Value::from(0))
+        );
+    }
+
+    #[test]
+    fn source_lookup_handles_escaped_member_and_string_contents() {
+        let bytes = br#"{"a/b":{"~name":["quoted \" { [ }",{"node":3}]}}"#;
+        let pointer = JsonPointer::parse("/a~1b/~0name/1/node").unwrap();
+        assert_eq!(source_value(bytes, &pointer), Some(Value::from(3)));
+    }
 
     #[test]
     fn malformed_structural_ordinals_keep_their_exact_member_pointer() {
