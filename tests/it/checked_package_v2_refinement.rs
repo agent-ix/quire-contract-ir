@@ -2119,7 +2119,8 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
         };
         assert_eq!(
             serde_json::to_value(&steps[0].target).expect("reread target"),
-            target
+            indexed_package(&package)["semantic_graph"]["nodes"][position]["body"]["steps"][0]
+                ["target"]
         );
         assert_eq!(admitted.graph(), reread.graph());
     }
@@ -2228,7 +2229,7 @@ fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     assert_eq!(admitted.graph(), reread.graph());
     assert_eq!(
         serde_json::to_value(reread.term(&key)).expect("reread refinement"),
-        package["semantic_graph"]["nodes"][position]["body"]
+        indexed_package(&package)["semantic_graph"]["nodes"][position]["body"]
     );
 }
 
@@ -7829,7 +7830,16 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
         id["package"] = json!("test/abstract-model");
         id
     };
-    let external_receiver = dependency_id(receiver.clone());
+    let receiver_id = dependency_id(receiver.clone());
+    let receiver_position = dependency_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("dependency nodes")
+        .iter()
+        .position(|node| node["node_id"] == receiver_id)
+        .expect("dependency receiver node");
+    let external_receiver = indexed_package(&dependency_wire)["semantic_graph"]["nodes"]
+        [receiver_position]["node_id"]
+        .clone();
     let external_integer = dependency_id(integer.clone());
     let external_boolean = dependency_id(model_boolean.clone());
     let CheckedPackageV2ReadResult::Admitted(dependency) =
