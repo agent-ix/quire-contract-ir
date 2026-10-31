@@ -211,26 +211,29 @@ fn permutation_rebuilds_the_same_structural_keys_and_stale_operands_do_not() {
 #[test]
 fn two_semantic_defects_choose_structural_order_over_graph_order() {
     let fixtures = fixtures_dir();
-    let mut package = read_json(&fixtures.join("positive-dependency-call.json"))
-        .expect("published importing package");
+    let mut package = read_json(&fixtures.join("positive-operation-identities.json"))
+        .expect("published local operation-identity package");
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("published graph nodes");
-    assert_eq!(nodes[0]["semantic_form"], "integer");
-    assert_eq!(nodes[1]["semantic_form"], "boolean");
+    assert_eq!(nodes[16]["semantic_form"], "integer");
+    assert_eq!(nodes[17]["semantic_form"], "float64");
+    assert_eq!(nodes[16]["node_id"]["package"], "example");
+    assert_eq!(nodes[17]["node_id"]["package"], "example");
     assert!(
-        nodes[1]["node_id"]["path"][1]
+        nodes[17]["node_id"]["path"][1]
             .as_str()
-            .expect("Boolean segment")
-            < nodes[0]["node_id"]["path"][1]
+            .expect("Float64 segment")
+            < nodes[16]["node_id"]["path"][1]
                 .as_str()
                 .expect("Integer segment"),
-        "Boolean precedes Integer structurally but follows it in the graph"
+        "Float64 precedes Integer structurally but follows it in the graph"
     );
-    for node in nodes.iter_mut().take(2) {
+    for position in [16, 17] {
+        let node = &mut nodes[position];
         node["body"]["members"] = json!([{
             "term":"reference",
-            "target":{"package":"test/predicates","path":["missing"],"ordinal":0}
+            "target":{"package":"example","path":["missing"],"ordinal":0}
         }]);
     }
     let CheckedPackageV2ReadResult::Refused(refusal) =
@@ -241,8 +244,8 @@ fn two_semantic_defects_choose_structural_order_over_graph_order() {
     assert_eq!(code_word(refusal.code), "invalid_semantic_graph");
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some("/semantic_graph/nodes/1/body".to_owned()),
-        "structurally first Boolean defect must win"
+        Some("/semantic_graph/nodes/17/body".to_owned()),
+        "structurally first Float64 defect must win"
     );
 }
 
