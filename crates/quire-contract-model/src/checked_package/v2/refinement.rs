@@ -2517,14 +2517,10 @@ fn invalid_step_rows(index: Option<usize>) -> ValidationFailure {
 
 /// Check the source-map occurrences against declaration and step-row regions.
 pub(super) fn validate_occurrences(
-    nodes: &[super::RawSemanticNodeV2],
-    kinds: &[super::CheckedNodeKind],
-    terms: &[Option<CheckedTerm>],
-    structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    graph: RefinementGraph<'_, '_>,
     source_map: &[CheckedSourceMapEntry],
     rows: Option<&[CheckedRefinementStepRowRegion]>,
     owners: &super::model_members::ModelOwners<'_>,
-    dependencies: &super::SuppliedDependencies<'_>,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut row_regions = BTreeMap::new();
@@ -2543,22 +2539,26 @@ pub(super) fn validate_occurrences(
             declarations.insert(&entry.node_id, entry.regions.as_slice());
         }
     }
-    let mut refinement_positions: Vec<_> = nodes
+    let mut refinement_positions: Vec<_> = graph
+        .nodes
         .iter()
         .enumerate()
         .filter_map(|(position, _)| {
-            (kinds[position] == super::CheckedNodeKind::Relation(super::RelationForm::Refinement))
-                .then_some(position)
+            (graph.kinds[position]
+                == super::CheckedNodeKind::Relation(super::RelationForm::Refinement))
+            .then_some(position)
         })
         .collect();
-    refinement_positions
-        .sort_unstable_by(|&left, &right| structural_keys[left].cmp(&structural_keys[right]));
+    refinement_positions.sort_unstable_by(|&left, &right| {
+        graph.structural_keys[left].cmp(&graph.structural_keys[right])
+    });
     for position in refinement_positions {
-        let node = &nodes[position];
-        let Some(body) = terms[position].as_ref() else {
+        let node = &graph.nodes[position];
+        let Some(body) = graph.terms[position].as_ref() else {
             continue;
         };
-        let Some(generated_count) = proof_eligible(body, owners, dependencies, meter, position)?
+        let Some(generated_count) =
+            proof_eligible(body, owners, graph.dependencies, meter, position)?
         else {
             continue;
         };

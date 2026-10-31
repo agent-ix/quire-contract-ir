@@ -2810,14 +2810,18 @@ fn validate_graph(
                         let source_root = JsonPointer::root().key("source_map");
                         if path == &source_root {
                             refinement::validate_occurrences(
-                                &graph.nodes,
-                                &kinds,
-                                &terms,
-                                structural_keys,
+                                refinement::RefinementGraph::new(
+                                    &graph.nodes,
+                                    &kinds,
+                                    &terms,
+                                    &index,
+                                    structural_keys,
+                                    dependencies,
+                                    &wire.name,
+                                ),
                                 &wire.source_map,
                                 wire.refinement_step_rows.as_deref(),
                                 &owners,
-                                dependencies,
                                 meter,
                             )?;
                         } else if let Some(entry) = path
@@ -2846,14 +2850,18 @@ fn validate_graph(
             return Err(failure);
         }
         refinement::validate_occurrences(
-            &graph.nodes,
-            &kinds,
-            &terms,
-            structural_keys,
+            refinement::RefinementGraph::new(
+                &graph.nodes,
+                &kinds,
+                &terms,
+                &index,
+                structural_keys,
+                dependencies,
+                &wire.name,
+            ),
             &wire.source_map,
             wire.refinement_step_rows.as_deref(),
             &owners,
-            dependencies,
             meter,
         )?;
     }
