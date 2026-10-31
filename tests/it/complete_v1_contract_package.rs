@@ -597,7 +597,7 @@ fn reader_checks_output_then_source_indexes_then_source_references() {
         .expect("graph")
         .len();
     let source_len = wire["source_keys"].as_array().expect("source keys").len();
-    assert!(graph_len > 0 && source_len > 0);
+    assert!(graph_len >= 2 && source_len >= 2);
 
     let mut output_bad = wire.clone();
     output_bad["semantic_graph"]["nodes"][0]["node_id"]["path"][0] = json!({"node": graph_len});
@@ -609,6 +609,8 @@ fn reader_checks_output_then_source_indexes_then_source_references() {
     paired_output_source["source_keys"][0]["path"][0] = json!({"node": source_len});
     let mut paired_source_reference = source_bad.clone();
     paired_source_reference["feature_accounting"][0]["node_id"]["source_key"] = json!(source_len);
+    let mut output_map_bad = wire.clone();
+    output_map_bad["source_map"]["nodes"][0]["node_id"]["path"][0] = json!({"node": graph_len});
     let cases = [
         (output_bad, "/semantic_graph/nodes/0/node_id/path/0/node"),
         (source_bad, "/source_keys/0/path/0/node"),
@@ -618,6 +620,7 @@ fn reader_checks_output_then_source_indexes_then_source_references() {
             "/semantic_graph/nodes/0/node_id/path/0/node",
         ),
         (paired_source_reference, "/source_keys/0/path/0/node"),
+        (output_map_bad, "/source_map/nodes/0/node_id/path/0/node"),
     ];
     for (changed, path) in cases {
         let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
@@ -631,10 +634,48 @@ fn reader_checks_output_then_source_indexes_then_source_references() {
         );
     }
 
+    let mut output_cycle = wire.clone();
+    output_cycle["semantic_graph"]["nodes"][0]["node_id"]["path"][0] = json!({"node": 0});
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&output_cycle)) else {
+        panic!("output self-cycle must refuse");
+    };
+    assert_eq!(refusal.code, Code::MalformedWire);
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|at| at.as_str()),
+        Some("/semantic_graph/nodes/0/node_id/path/0/node")
+    );
+    let mut out_of_range_before_cycle = output_cycle;
+    out_of_range_before_cycle["semantic_graph"]["nodes"][1]["node_id"]["path"][0] =
+        json!({"node": graph_len});
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&out_of_range_before_cycle))
+    else {
+        panic!("out-of-range output index must precede output cycle");
+    };
+    assert_eq!(refusal.code, Code::MalformedWire);
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|at| at.as_str()),
+        Some("/semantic_graph/nodes/1/node_id/path/0/node")
+    );
+
     let mut self_cycle = wire.clone();
     self_cycle["source_keys"][0]["path"][0] = json!({"node": 0});
     let ContractPackageReadResult::Refused(refusal) = read(&canonical(&self_cycle)) else {
         panic!("source-key self-cycle must refuse");
+    };
+    assert_eq!(refusal.code, Code::MalformedWire);
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|at| at.as_str()),
+        Some("/source_keys/0/path/0/node")
+    );
+
+    let mut two_cycle = wire.clone();
+    two_cycle["source_keys"][0]["path"][0] = json!({"node": 1});
+    two_cycle["source_keys"][1]["path"][0] = json!({"node": 0});
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&two_cycle)) else {
+        panic!("two-key source cycle must refuse");
     };
     assert_eq!(refusal.code, Code::MalformedWire);
     assert_eq!(refusal.cause, None);

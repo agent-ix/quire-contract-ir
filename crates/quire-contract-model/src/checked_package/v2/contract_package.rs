@@ -1746,6 +1746,24 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
     let graph = value["semantic_graph"]["nodes"]
         .as_array()
         .ok_or_else(|| malformed(graph_at.clone(), CheckedPackageRefusalCause::WrongValueKind))?;
+    check_output_index_sites(
+        &value["semantic_graph"],
+        JsonPointer::root().key("semantic_graph"),
+        graph.len(),
+    )?;
+    if let Some(mapped) = value["source_map"]["nodes"].as_array() {
+        for (index, entry) in mapped.iter().enumerate() {
+            check_output_index_sites(
+                &entry["node_id"],
+                JsonPointer::root()
+                    .key("source_map")
+                    .key("nodes")
+                    .index(index)
+                    .key("node_id"),
+                graph.len(),
+            )?;
+        }
+    }
     let output_ids = graph
         .iter()
         .enumerate()
@@ -1839,6 +1857,65 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
             source: source_ids.into_iter().zip(source_keys).collect(),
         },
     ))
+}
+
+/// Inspect all output-frame ID positions before checking own-path cycles.
+/// External `{package,node}` keys are scoped to their selected dependency,
+/// never to this ContractPackage's output graph.
+fn check_output_index_sites(
+    value: &Value,
+    at: JsonPointer,
+    graph_len: usize,
+) -> Result<(), ValidationFailure> {
+    let mut pending = vec![(value, at)];
+    while let Some((value, at)) = pending.pop() {
+        match value {
+            Value::Object(members)
+                if members.len() == 2
+                    && members.contains_key("package")
+                    && members.contains_key("node") => {}
+            Value::Object(members)
+                if members.len() == 3
+                    && members.contains_key("package")
+                    && members.contains_key("path")
+                    && members.contains_key("ordinal") =>
+            {
+                if let Some(path) = members["path"].as_array() {
+                    for (slot, segment) in path.iter().enumerate() {
+                        let Some(index) = segment
+                            .as_object()
+                            .filter(|object| object.len() == 1)
+                            .and_then(|object| object.get("node"))
+                            .and_then(Value::as_u64)
+                        else {
+                            continue;
+                        };
+                        if usize::try_from(index)
+                            .ok()
+                            .is_none_or(|index| index >= graph_len)
+                        {
+                            return Err(ValidationFailure::refused(
+                                CheckedPackageRefusalCode::MalformedWire,
+                                at.clone().key("path").index(slot).key("node"),
+                            ));
+                        }
+                    }
+                }
+            }
+            Value::Object(members) => {
+                for (name, child) in members.iter().rev() {
+                    pending.push((child, at.clone().key(name)));
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate().rev() {
+                    pending.push((child, at.clone().index(index)));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn malformed(path: JsonPointer, cause: CheckedPackageRefusalCause) -> ValidationFailure {
