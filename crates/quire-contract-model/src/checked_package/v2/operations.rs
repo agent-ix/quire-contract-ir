@@ -624,6 +624,19 @@ fn admitted_arguments<'g>(
     }
 }
 
+fn is_model_deref_argument(argument: &CheckedTerm, graph: &Graph<'_>) -> bool {
+    let deref = match argument {
+        CheckedTerm::Reference { target } => graph
+            .index
+            .get(target)
+            .and_then(|position| graph.terms.get(*position))
+            .and_then(Option::as_ref),
+        other => Some(other),
+    };
+    matches!(deref, Some(CheckedTerm::Application { operation, .. })
+        if operation.identity() == Some("quire.op.model.deref"))
+}
+
 /// Structural forwarding already paid for by one application's operation check.
 #[derive(Default)]
 struct StructuralTypes {
@@ -959,10 +972,7 @@ fn operation_defect(
         let model_projection = operation.identity.as_ref() == "quire.op.record.project"
             && admitted_arguments(application, graph)
                 .and_then(|arguments| arguments.first())
-                .is_some_and(|argument| {
-                    matches!(argument, CheckedTerm::Application { operation, .. }
-                        if operation.identity() == Some("quire.op.model.deref"))
-                });
+                .is_some_and(|argument| is_model_deref_argument(argument, graph));
         let valid = match (model_projection, read_form) {
             (true, Some(Value::String(value))) => CheckedFieldReadForm::from_wire(value).is_some(),
             (false, None) => true,
@@ -3335,6 +3345,14 @@ fn check_model_member(
         Ok(owner) => owner,
         Err(refusal) => return refuse(member_at("declaration"), refusal),
     };
+    if kind == MemberKind::Field
+        && owner.form != DeclarationForm::RecordValueType
+        && !arguments
+            .first()
+            .is_some_and(|argument| is_model_deref_argument(argument, graph))
+    {
+        return ineligible(argument_at(0));
+    }
     // Implements: FR-347. the operand is the declaring type, or a record that conforms to
     // it when that type is a record value type.
     if kind == MemberKind::Field

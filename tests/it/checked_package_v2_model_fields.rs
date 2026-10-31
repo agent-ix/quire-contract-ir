@@ -589,16 +589,37 @@ fn package(
             .find_map(|(short, form)| (*short == read.owner).then_some(*form))
             .expect("the read owner has a declaration");
         let owner = declaration_key(read.owner, form);
+        let (argument, dependencies, member) = if form == "record_value_type" {
+            (
+                reference(&owner),
+                vec![owner.clone()],
+                json!({"kind": "field", "declaration": node_id(&owner), "name": read.field}),
+            )
+        } else {
+            let reference_type = type_nodes(&Ty::Reference(owner.clone()), &mut nodes);
+            (
+                json!({
+                    "term": "application", "operator": "deref",
+                    "operation": {"identity": "quire.op.model.deref", "laws": [],
+                        "mode": null, "member": null, "leaves": []},
+                    "result_type": node_id(&owner),
+                    "arguments": [reference(&reference_type)]
+                }),
+                vec![owner.clone(), reference_type],
+                json!({"kind": "field", "declaration": node_id(&owner),
+                    "name": read.field, "read_form": "bare"}),
+            )
+        };
         let body = json!({
             "term": "application",
             "operator": "query",
             "operation": {
                 "identity": "quire.op.record.project", "laws": [], "mode": null,
-                "member": {"kind": "field", "declaration": node_id(&owner), "name": read.field},
+                "member": member,
                 "leaves": [],
             },
             "result_type": node_id(&ty),
-            "arguments": [reference(&owner)],
+            "arguments": [argument],
         });
         let key = format!(
             "expression/query/{}/{}/{}",
@@ -606,7 +627,15 @@ fn package(
             read.field,
             read_nodes.len()
         );
-        read_nodes.push(wire_node(&key, "expression", "query", &ty, &[&owner], body));
+        let dependencies = dependencies.iter().map(String::as_str).collect::<Vec<_>>();
+        read_nodes.push(wire_node(
+            &key,
+            "expression",
+            "query",
+            &ty,
+            &dependencies,
+            body,
+        ));
     }
     let mut graph: Vec<Value> = nodes.into_values().collect();
     graph.extend(ordered);
