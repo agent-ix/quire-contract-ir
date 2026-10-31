@@ -11,9 +11,10 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedMemberType, CheckedNodeId, CheckedPackageEvidence, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, ContractBodyRefusalV1, ContractFeatureRecordV1,
+    CheckedFieldReadForm, CheckedMemberType, CheckedNodeId, CheckedOperationMember,
+    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedTerm, ContractBodyRefusalV1, ContractFeatureRecordV1,
 };
 use serde_json::{json, Value};
 
@@ -528,6 +529,8 @@ fn selected_model_field_range_joins_exact_body_members() {
     let object = index_of(&package, "model", "object_type");
     let range_id = package["semantic_graph"]["nodes"][range]["node_id"].clone();
     let object_id = package["semantic_graph"]["nodes"][object]["node_id"].clone();
+    let reference = index_of(&package, "composite_type", "reference");
+    let reference_id = package["semantic_graph"]["nodes"][reference]["node_id"].clone();
     let typed_object: CheckedNodeId =
         serde_json::from_value(object_id.clone()).expect("Account id");
     let mut document = family_model_document();
@@ -561,20 +564,38 @@ fn selected_model_field_range_joins_exact_body_members() {
             ]
         }));
 
+    let mut deref = package["semantic_graph"]["nodes"][0].clone();
+    deref["node_id"] = structural_id(identity, vec![json!("expression"), json!("count-deref")], 0);
+    deref["node_tag"] = json!("expression");
+    deref["semantic_form"] = json!("deref");
+    deref["semantic_type"] = object_id.clone();
+    deref["dependencies"] = json!([reference_id]);
+    deref["occurrences"] = json!([{"role":"expression", "ordinal":0}]);
+    deref["body"] = json!({
+        "term":"application", "operator":"deref",
+        "operation":{"identity":"quire.op.model.deref","laws":[],"mode":null,
+            "member":null,"leaves":[]},
+        "result_type":object_id,
+        "arguments":[{"term":"reference","target":reference_id}]
+    });
+    let deref_id = deref["node_id"].clone();
+    append_authored(&mut package, deref);
+
     let mut query = package["semantic_graph"]["nodes"][0].clone();
     query["node_id"] = structural_id(identity, vec![json!("expression"), json!("count-query")], 0);
     query["node_tag"] = json!("expression");
     query["semantic_form"] = json!("query");
     query["semantic_type"] = range_id.clone();
-    query["dependencies"] = json!([object_id]);
+    query["dependencies"] = json!([deref_id]);
     query["body"] = json!({
         "term":"application", "operator":"query",
         "operation":{"identity":"quire.op.record.project","laws":[],"mode":null,
-            "member":{"kind":"field","declaration":object_id,"name":"count"},
+            "member":{"kind":"field","declaration":object_id,"name":"count",
+                "read_form":"bare"},
             "leaves":[]},
-        "result_type":range_id,"arguments":[{"term":"reference","target":object_id}]
+        "result_type":range_id,"arguments":[{"term":"reference","target":deref_id}]
     });
-    append_authored(&mut package, query);
+    let query_position = append_authored(&mut package, query);
     let integer = index_of(&package, "scalar_type", "integer");
     let original_integer = package["semantic_graph"]["nodes"][integer]["node_id"].clone();
     let integer_id = structural_id(identity, vec![json!("scalar_type"), json!("integer")], 0);
@@ -620,6 +641,18 @@ fn selected_model_field_range_joins_exact_body_members() {
         let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
             panic!("selected field {min}..{max} must admit: {result:?}");
         };
+        let CheckedTerm::Application { operation, .. } =
+            &admitted.graph().nodes[query_position].body
+        else {
+            panic!("selected field read must be an application");
+        };
+        assert!(matches!(
+            operation.read().expect("admitted field read").member,
+            Some(CheckedOperationMember::Field {
+                read_form: Some(CheckedFieldReadForm::Bare),
+                ..
+            })
+        ));
         let selected = admitted
             .model_object_fields(&typed_object)
             .expect("Account fields");

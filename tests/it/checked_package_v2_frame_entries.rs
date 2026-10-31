@@ -19,9 +19,10 @@ use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
-    CheckedComparisonRefusal, CheckedExecutionPointRefusal, CheckedMemberType, CheckedNodeId,
-    CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole, CheckedOperationAnchorBody,
-    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedComparisonRefusal, CheckedExecutionPointRefusal, CheckedFieldReadForm,
+    CheckedMemberType, CheckedNodeId, CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedOperationAnchorBody, CheckedOperationMember, CheckedPackageEvidence,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedStepRelationCapability, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName,
@@ -4489,7 +4490,8 @@ fn step_relation_package() -> Value {
             "query",
             "query",
             "quire.op.record.project",
-            json!({"kind": "field", "declaration": object, "name": "l"}),
+            json!({"kind": "field", "declaration": object, "name": "l",
+                "read_form": "bare"}),
             node_id("model-scalar:integer"),
             deref,
         ));
@@ -4712,6 +4714,13 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
             panic!("field read must be an application");
         };
         assert_eq!(operation.identity(), Some("quire.op.record.project"));
+        assert!(matches!(
+            operation.read().expect("admitted projection").member,
+            Some(CheckedOperationMember::Field {
+                read_form: Some(CheckedFieldReadForm::Bare),
+                ..
+            })
+        ));
         assert_eq!(
             operation
                 .projection_field()
