@@ -30,3 +30,13 @@ FR-048-AC-3 removes PLANNED/UNRUN while the zero-declaration producer-chosen pat
 ## Evidence
 
 Frozen PR head `0af6a1963470f3b945f914703b0e9765726f3fea`. Changed files: two FR status rows and three Rust integration-test files. Author reported four focused tests, rustfmt, test-only Clippy and changed-spec validation passing. The 15 Withdrawn strict-coverage rows are a separate quire-rs policy residual (PLAT-1236), not credited here. No full gate was run by this scoped reviewer. Plan completion: not assessed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | On 2a02a246df3d4acf2cc7af2ffffcc2acbfabd1e8, the tagged test compares admitted typed self-group node ID, dependencies and body to the authored values; off-cycle readback does likewise. |
+
+## Disposition Verdict
+
+**PASS** — FND-001 is fixed on the frozen head; the original finding is retained above.
