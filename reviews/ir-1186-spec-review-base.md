@@ -39,3 +39,7 @@ At `17e961d90fc76f55df4eefcf0f0c1250aac1ba52`, the changed fixture conversions, 
 ## Recheck of FR-035 source-frame criteria
 
 At `4b8280cc8703f110cb76ba21e9a15ba00ee58970`, reviewed FR-035-AC-31..35 and retired AC-12 against current QSpec FR-330-AC-14..16 and FR-322-AC-95. The six-member wire, split graph/source frame, index-check precedence, rebuilt-key joins and producer-chosen output order are stated without narrowing QSpec. The replacement preserves AC-12's omission and extra-member controls. No independent spec-text defect was established. EARS does not apply to this delta because the FR requirement statement was unchanged; only acceptance rows and test case text changed.
+
+## Recheck of FR-019 public inventory
+
+`ba08b8ddb7dcb3b2432f956b5f88488090daefef`: The only FR-019 change adds `ContractSourceKeyV1` to the implemented `checked_package` ContractPackage-v1 public items row. That type is publicly re-exported by both the checked-package module and model crate root. FR-019-AC-5 continues to require exact inventory equality and no glob export; its wording and test method are unchanged. No spec-text defect was established. EARS is inapplicable to this table-only delta.

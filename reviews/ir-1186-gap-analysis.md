@@ -63,6 +63,8 @@ The current-head computed Test Matrix reports `tagged` for all six changed crite
 | FND-002 | still-open | The frozen head has no absent-derived indexed query or unequal rebuilt-key collision control. |
 | FND-002 | still-open | At `4b8280cc`, the absent derived indexed request and malformed constructor controls were added, but no test creates equal raw indexed IDs in two frames whose rebuilt structural keys differ. |
 | FND-002 | fixed | At `965fd7b3`, the AC-35 test uses the exact output root raw indexed ID as a source-frame query, proves it resolves to an unequal structural key in the admitted V2 graph, and asserts `Absent` instead of the output closure. |
+| FND-003 | still-open | At `ba08b8dd`, no adverse control pairs an absent body target with many indexed deep dependencies and verifies bounded comparison work or preserved typed refusal precedence. |
+| FND-003 | fixed | At `d222f8c9`, a focused 4,096-link absent indexed dependency test bounds deep ID comparisons and checks matching and unequal expected sets; the existing eight missing-target cases verify typed refusal precedence. |
 
 ## Recheck at source-frame and producer-order head
 
@@ -83,3 +85,17 @@ At frozen `667b6dfbd81d16ea794d8384a07520705436607d`, the changed NI and V1 test
 ## Recheck at string-edge annotation head
 
 `1346b77bf38870fa87ee3c981a757c98b3fd2baa`: The two source-frame annotation additions do not change behavior, trace tags, or assertions. Existing FR-035-AC-31..35 and FR-330-AC-14..16 controls remain bound; no additional coverage gap was established.
+
+## New findings (disposition pass 11)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | medium | The eight named missing-target tests assert their typed refusal precedence, but none combines an absent target with a long indexed chain and many dependencies to catch the fallback's unmetered deep comparisons. A focused comparison-count adverse should cover that new branch. | crates/quire-contract-model/src/checked_package/v2/structural.rs:384-422; FR-038-AC-3/117 |
+
+## Recheck at eleven-regression fix head
+
+`ba08b8ddb7dcb3b2432f956b5f88488090daefef`: The 11 previously failed tests comprise eight missing-target precedence cases, one output byte-limit sibling case, and two FR-019 public inventory cases. All are still present with their original assertions; the code lead reports all 11 now pass. The structural fallback is the new path requiring an adverse resource control (FND-003).
+
+## Recheck at bounded missing-target fix head
+
+`d222f8c9c8b786128139dd55e78d23865fc548ff`: The new 4,096-link test exercises the formerly unmetered fallback with an absent indexed target and caps deep comparisons. Its positive, missing-key and unequal-key assertions cover the tokenized branch; existing protocol, population and temporal controls cover the exact typed refusal path. FND-003 is fixed. No test assertion was weakened or compatibility path added.

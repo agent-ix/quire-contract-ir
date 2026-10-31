@@ -30,3 +30,7 @@ Reviewed FR-035-AC-31..35, retired AC-12 and TC-047 against the merged QSpec sou
 - FR-035-AC-34: cross-frame joins use rebuilt structural keys and tolerate frame permutations.
 - FR-035-AC-35: typed reached-closure queries use source-frame structural identity and preserve results across output permutations.
 - TC-047: test method for each changed AC; the executable adverse gap is tracked separately.
+
+## Recheck of FR-019 inventory edit
+
+`ba08b8ddb7dcb3b2432f956b5f88488090daefef`: The table-only addition of `ContractSourceKeyV1` agrees with the actual model crate-root export and repairs exact-inventory consistency under FR-019-AC-5. It creates no new requirement, dependency edge, or incompatible duplicate row. No independent integrity finding was established.

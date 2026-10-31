@@ -60,3 +60,7 @@ Evidence review of the implemented-status rows at head `17e961d90fc76f55df4eefcf
 ## Recheck of FR-035 evidence status
 
 At `4b8280cc8703f110cb76ba21e9a15ba00ee58970`, FR-035-AC-31..35 remain explicitly `PLANNED (IR-1186)` and TC-047 names the wire and typed query controls. No status is prematurely promoted. The AC-35 raw-collision adverse is recorded as gap-analysis FND-002; this evidence-status method establishes no separate finding. FR-038-AC-380's implemented row remains supported by the previously inspected NI-13 path.
+
+## Recheck of FR-019 evidence
+
+`ba08b8ddb7dcb3b2432f956b5f88488090daefef`: FR-019-AC-5's exact public-inventory method remains TC-058. The table change is an implemented-item correction backed by the two named public-interface tests, reported passing by the code lead. No evidence-status defect was established. FND-004's structural resource concern is recorded in code-review; it does not alter the FR-019 inventory claim.
