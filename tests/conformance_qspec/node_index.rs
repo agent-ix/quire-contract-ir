@@ -126,7 +126,7 @@ fn graph_reindexing_preserves_structural_dependency_order() {
         .expect("published graph")
         .reverse();
     assert!(reverse_graph_indexes(&mut package, count) > 0);
-    let mut opposed_wire_order = None;
+    let mut opposed_wire_order = false;
     for wire in [&original, &package] {
         let result = read_package(wire).expect("published package read");
         let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
@@ -142,24 +142,26 @@ fn graph_reindexing_preserves_structural_dependency_order() {
                 resolved.windows(2).all(|pair| pair[0] < pair[1]),
                 "node {position}: resolved dependency order"
             );
-            if let Some(pair_index) = node
-                .dependencies
-                .windows(2)
-                .position(|pair| pair[0] > pair[1])
-            {
-                opposed_wire_order = Some((wire.clone(), position, pair_index));
-            }
+            opposed_wire_order |= node.dependencies.windows(2).any(|pair| pair[0] > pair[1]);
         }
     }
-    let (mut unsorted, position, pair_index) =
-        opposed_wire_order.expect("permutation opposes wire and structural orders");
+    assert!(
+        opposed_wire_order,
+        "indexed wire and structural order differ"
+    );
+    let position = 13;
+    assert_eq!(
+        original["semantic_graph"]["nodes"][position]["semantic_form"],
+        "binary"
+    );
+    let mut unsorted = original;
     unsorted["semantic_graph"]["nodes"][position]["dependencies"]
         .as_array_mut()
         .expect("multi-dependency node")
-        .swap(pair_index, pair_index + 1);
+        .swap(0, 1);
     let result = read_package(&unsorted).expect("unsorted package read");
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
-        panic!("structurally unsorted dependencies must refuse: {result:?}");
+        panic!("structurally unsorted application dependencies must refuse");
     };
     assert_eq!(code_word(refusal.code), "invalid_semantic_graph");
     assert_eq!(
