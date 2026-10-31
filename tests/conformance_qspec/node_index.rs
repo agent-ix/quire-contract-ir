@@ -183,6 +183,8 @@ fn fixture_source_ref_key(wire: &Value, reference: &Value) -> CheckedNodeId {
 }
 
 /// Trace: FR-330-AC-16
+/// QSpec FR-330-AC-4 follows FR-322-AC-95's producer-chosen graph order at
+/// agent-ix/quire-specification@da7ecb373141693ccc32ecff76377ce453113570.
 #[trace("TC-934", "FR-330-AC-16")]
 #[test]
 fn contract_source_and_output_index_tables_permute_independently() {
@@ -361,7 +363,7 @@ fn contract_source_and_output_index_tables_permute_independently() {
 
 #[trace("TC-047", "FR-035-AC-23")]
 #[test]
-fn v1_indexed_graph_order_uses_resolved_node_keys() {
+fn v1_indexed_frame_joins_use_resolved_node_keys() {
     let mut wire = read_json(&fixtures_dir().join("positive-operation-identities.json"))
         .expect("published indexed operations");
     wire["semantic_graph"]["nodes"]
@@ -413,7 +415,7 @@ fn v1_indexed_graph_order_uses_resolved_node_keys() {
     assert_eq!(
         later,
         earlier + 1,
-        "resolved node order opposes wire-index order"
+        "producer emits resolved-key order, despite wire-index order"
     );
     let bytes = lowered
         .package
@@ -472,7 +474,9 @@ fn v1_indexed_graph_order_uses_resolved_node_keys() {
         &ContractDependencies::new(),
     );
     let ContractPackageReadResult::Refused(refusal) = wrong_result else {
-        panic!("V1 reader must refuse index-ordered graph: {wrong_result:?}");
+        panic!(
+            "V1 reader must refuse an unrepaired output/source-map permutation: {wrong_result:?}"
+        );
     };
     assert_eq!(code_word(refusal.code), "invalid_package");
     assert_eq!(
@@ -481,7 +485,8 @@ fn v1_indexed_graph_order_uses_resolved_node_keys() {
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{earlier}/node_id"))
+        Some(format!("/source_map/nodes/{earlier}/node_id")),
+        "swapping output nodes without the corresponding source-map entries breaks their join"
     );
 }
 
