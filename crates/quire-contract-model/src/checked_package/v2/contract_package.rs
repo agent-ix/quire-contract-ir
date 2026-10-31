@@ -413,7 +413,7 @@ impl From<&CompleteLoweringRecordV2> for ContractFeatureRecordV1 {
     }
 }
 
-/// The one closed five-member FR-330 package value.
+/// The one closed six-member FR-330 package value.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractPackageWireV1 {
@@ -423,6 +423,8 @@ pub struct ContractPackageWireV1 {
     pub package: ContractProvenanceV1,
     /// One canonically ordered semantic node collection.
     pub semantic_graph: ContractSemanticGraphV1,
+    /// Source-frame node identities, closed under their indexed operands.
+    pub source_keys: Vec<CheckedNodeId>,
     /// Total source correspondence.
     pub source_map: ContractSourceMapV1,
     /// One result per request, in request order.
@@ -1029,6 +1031,7 @@ impl Encode for ContractPackageWireV1 {
         encode_member(writer, "contract_version", &self.contract_version)?;
         encode_member(writer, "package", &self.package)?;
         encoded(writer, "semantic_graph", &self.semantic_graph)?;
+        elements(writer, "source_keys", &self.source_keys)?;
         encoded(writer, "source_map", &self.source_map)?;
         elements(writer, "feature_accounting", &self.feature_accounting)?;
         writer.end_object()
@@ -1306,6 +1309,7 @@ impl ContractPackageWireV1 {
             contract_version: CONTRACT_PACKAGE_VERSION.into(),
             package,
             semantic_graph,
+            source_keys: Vec::new(),
             source_map,
             feature_accounting: accounting,
         };
@@ -1726,6 +1730,7 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
             "contract_version",
             "package",
             "semantic_graph",
+            "source_keys",
             "source_map",
             "feature_accounting",
         ],
