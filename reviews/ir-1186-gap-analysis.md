@@ -99,3 +99,7 @@ At frozen `667b6dfbd81d16ea794d8384a07520705436607d`, the changed NI and V1 test
 ## Recheck at bounded missing-target fix head
 
 `d222f8c9c8b786128139dd55e78d23865fc548ff`: The new 4,096-link test exercises the formerly unmetered fallback with an absent indexed target and caps deep comparisons. Its positive, missing-key and unequal-key assertions cover the tokenized branch; existing protocol, population and temporal controls cover the exact typed refusal path. FND-003 is fixed. No test assertion was weakened or compatibility path added.
+
+## Recheck at nominal-body indexed-wire test head
+
+`a8172f0598231293bba79d02c6aeea3b49f59b6a`: The replaced test no longer claims that an inline 10,000-level nested node ID is valid V2 input. It now verifies indexed positive encoding and exact malformed-wire refusal for that old invalid form under FR-038-AC-24. NI-13 remains tagged for the genuine 100,000-node FR-038-AC-117/380 stack obligation, so no acceptance evidence was lost and no new test gap was established.
