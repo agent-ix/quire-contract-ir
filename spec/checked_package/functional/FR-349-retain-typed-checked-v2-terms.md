@@ -67,8 +67,8 @@ fixture do not confer package admission.
 QSL [FR-400](ix://agent-ix/quire-spec-language/FR-400) places QSL checked
 expression terms in `quire-checked`, with construction restricted to the QSL
 checker. Contract IR SHALL retain and read the QSpec checked-package V2 wire
-through its own admitted `CheckedTerm` vocabulary and expose read-only
-projections for QSL to build trusted evaluation input. Contract IR SHALL NOT
+through its own admitted `CheckedTerm` vocabulary and expose read-only typed
+projections at its public boundary. Contract IR SHALL NOT
 construct a QSL checked expression, duplicate the QSL checker or evaluator,
 export a QSL `TermOperation` mirror, or require `quire-checked` to depend on
 IR. QSL owns conversion of admitted IR reads into its checked expression
@@ -86,7 +86,7 @@ input and owns execution semantics; IR owns V2 admission and typed reads.
 | FR-349-AC-6 | For every admitted QSpec FR-322 literal kind, an external crate reads its closed kind, typed value and type node without inspecting `serde_json::Value` or parsing a display string. Exact numeric magnitude and decimal scale survive the read; serializing the package still yields the QSpec bytes. | Test |
 | FR-349-AC-7 | An external crate reads `CheckedBindingName::kind` for `parameters`, `body`, `optional`, `clause`, and an admitted other name; the other name remains available verbatim, and the first four cannot be mistaken for `other`. | Test |
 | FR-349-AC-8 | An external crate reads every admitted operation member and constraint production, identity, mode, ordered laws and ordered leaves through one borrowed typed view. The view contains no JSON payload or map-key lookup; a direct-deserialized or `test-support` fixture operation returns `NotAdmitted`, while the existing specific getters retain their prior results. | Test |
-| FR-349-AC-9 | Compile-time and source checks show that IR exports no QSL checked-expression constructor, `TermOperation` mirror, checker, or evaluator, and `quire-checked` does not depend on IR. QSL can form its evaluation input from admitted IR read views without parsing IR JSON, while only its checker constructs QSL checked terms under FR-400. | Test |
+| FR-349-AC-9 | The FR-019 exact public-item inventory and external compile probes show that IR exports the admitted read views but no QSL checked-expression constructor, `TermOperation` mirror, checker, or evaluator. Dependency-graph checks show that `quire-contract-model` does not depend on `quire-checked` or QSL and `quire-checked` does not depend on IR. | Test |
 
 ## Dependencies
 
