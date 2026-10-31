@@ -938,6 +938,20 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
         reordered_view.selected_references,
         read_back.selected_references
     );
+    // This exact raw ID names the output root, but its index points at a
+    // different operand in the admitted source graph. A source-frame query
+    // must not borrow the output frame's lowered closure for that spelling.
+    let collision_raw = &reordered_view.root.node_id;
+    assert!(reordered.node(collision_raw).is_some());
+    let collision_source_key = ContractSourceKeyV1::from_v2_request(&source, collision_raw)
+        .expect("same indexed spelling resolves in the source graph");
+    assert_ne!(collision_source_key, reordered_view.root_structural_key);
+    assert!(matches!(
+        reordered
+            .reached_closure(&collision_source_key)
+            .expect("unequal source-frame key"),
+        ContractRootViewV1::Absent
+    ));
     let unrequested = source
         .graph()
         .nodes
