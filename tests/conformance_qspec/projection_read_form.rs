@@ -120,7 +120,7 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                     }
                     let read = operation.read().ok()?;
                     match read.member? {
-                        CheckedOperationMember::Field { read_form, .. } => read_form,
+                        CheckedOperationMember::Field { read_form, .. } => *read_form,
                         _ => None,
                     }
                 });
