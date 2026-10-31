@@ -597,13 +597,29 @@ pub struct CheckedArtifactLocator {
 }
 
 /// One segment of a checked node's structural path.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum CheckedNodePathSegment {
     /// An authored or derived path spelling.
     Name(Box<str>),
     /// An operand node's structural identity.
-    Node(Box<CheckedNodeId>),
+    Node(std::sync::Arc<CheckedNodeId>),
+    /// A graph-local operand index on the V2 wire, before key resolution.
+    Index(u64),
+}
+
+impl Serialize for CheckedNodePathSegment {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::Name(name) => serializer.serialize_str(name),
+            Self::Index(index) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("node", index)?;
+                map.end()
+            }
+            Self::Node(node) => node.serialize(serializer),
+        }
+    }
 }
 
 /// A checked semantic graph node identity.
@@ -628,24 +644,41 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
         // frames, never the call stack.
         let raw = Box::<RawValue>::deserialize(deserializer)?;
         enum Task<'a> {
-            Parse(&'a RawValue),
+            Parse(&'a RawValue, bool),
             Finish {
                 package: Box<str>,
                 ordinal: u64,
                 path_len: usize,
             },
         }
-        let mut tasks = vec![Task::Parse(&raw)];
+        let mut tasks = vec![Task::Parse(&raw, true)];
         let mut segments = Vec::<CheckedNodePathSegment>::new();
         while let Some(task) = tasks.pop() {
             match task {
-                Task::Parse(value) if value.get().starts_with('"') => {
+                Task::Parse(value, false) if value.get().starts_with('"') => {
                     let name = serde_json::from_str(value.get()).map_err(D::Error::custom)?;
                     segments.push(CheckedNodePathSegment::Name(name));
                 }
-                Task::Parse(value) => {
+                Task::Parse(value, is_root) => {
                     let mut members: std::collections::BTreeMap<&str, &RawValue> =
                         serde_json::from_str(value.get()).map_err(D::Error::custom)?;
+                    if !is_root {
+                        if members.len() != 1 {
+                            return Err(D::Error::custom("path segment requires only node"));
+                        }
+                        let index: u64 = serde_json::from_str(
+                            members
+                                .remove("node")
+                                .ok_or_else(|| D::Error::custom("missing node index"))?
+                                .get(),
+                        )
+                        .map_err(D::Error::custom)?;
+                        if index > 9_007_199_254_740_991 {
+                            return Err(D::Error::custom("node index exceeds I-JSON bound"));
+                        }
+                        segments.push(CheckedNodePathSegment::Index(index));
+                        continue;
+                    }
                     if members.len() != 3 {
                         return Err(D::Error::custom("node id requires package, path, ordinal"));
                     }
@@ -675,7 +708,11 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                         ordinal,
                         path_len: path.len(),
                     });
-                    tasks.extend(path.into_iter().rev().map(Task::Parse));
+                    tasks.extend(
+                        path.into_iter()
+                            .rev()
+                            .map(|value| Task::Parse(value, false)),
+                    );
                 }
                 Task::Finish {
                     package,
@@ -687,7 +724,7 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                         .checked_sub(path_len)
                         .ok_or_else(|| D::Error::custom("malformed node path"))?;
                     let path = segments.split_off(start);
-                    segments.push(CheckedNodePathSegment::Node(Box::new(Self {
+                    segments.push(CheckedNodePathSegment::Node(std::sync::Arc::new(Self {
                         package,
                         path,
                         ordinal,
@@ -696,7 +733,10 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
             }
         }
         match segments.pop() {
-            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => Ok(*node),
+            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => {
+                std::sync::Arc::try_unwrap(node)
+                    .map_err(|_| D::Error::custom("unshared decoded node id"))
+            }
             _ => Err(D::Error::custom("malformed node id")),
         }
     }
@@ -722,6 +762,14 @@ impl CheckedNodeId {
                     segments.push(CheckedNodePathSegment::Name(name.as_str().into()));
                 }
                 Task::Parse(serde_json::Value::Object(object)) => {
+                    if object.len() == 1 {
+                        let index = object.get("node")?.as_u64()?;
+                        if index > 9_007_199_254_740_991 {
+                            return None;
+                        }
+                        segments.push(CheckedNodePathSegment::Index(index));
+                        continue;
+                    }
                     if object.len() != 3 {
                         return None;
                     }
@@ -746,7 +794,7 @@ impl CheckedNodeId {
                 } => {
                     let start = segments.len().checked_sub(path_len)?;
                     let path = segments.split_off(start);
-                    segments.push(CheckedNodePathSegment::Node(Box::new(Self {
+                    segments.push(CheckedNodePathSegment::Node(std::sync::Arc::new(Self {
                         package,
                         path,
                         ordinal,
@@ -755,7 +803,9 @@ impl CheckedNodeId {
             }
         }
         match segments.pop() {
-            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => Some(*node),
+            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => {
+                std::sync::Arc::try_unwrap(node).ok()
+            }
             _ => None,
         }
     }
@@ -771,7 +821,7 @@ impl CheckedNodeId {
                 return false;
             }
             pending.extend(candidate.path.iter().filter_map(|segment| match segment {
-                CheckedNodePathSegment::Name(_) => None,
+                CheckedNodePathSegment::Name(_) | CheckedNodePathSegment::Index(_) => None,
                 CheckedNodePathSegment::Node(node) => Some(node.as_ref()),
             }));
         }
@@ -783,8 +833,10 @@ impl Drop for CheckedNodeId {
     fn drop(&mut self) {
         let mut pending = std::mem::take(&mut self.path);
         while let Some(segment) = pending.pop() {
-            if let CheckedNodePathSegment::Node(mut node) = segment {
-                pending.append(&mut node.path);
+            if let CheckedNodePathSegment::Node(node) = segment {
+                if let Ok(mut node) = std::sync::Arc::try_unwrap(node) {
+                    pending.append(&mut node.path);
+                }
             }
         }
     }
@@ -804,13 +856,16 @@ impl Clone for CheckedNodeId {
                 Task::Segment(CheckedNodePathSegment::Name(name)) => {
                     segments.push(CheckedNodePathSegment::Name(name.clone()));
                 }
+                Task::Segment(CheckedNodePathSegment::Index(index)) => {
+                    segments.push(CheckedNodePathSegment::Index(*index));
+                }
                 Task::Segment(CheckedNodePathSegment::Node(node)) => {
                     tasks.push(Task::Finish(node));
                     tasks.extend(node.path.iter().rev().map(Task::Segment));
                 }
                 Task::Finish(node) => {
                     let path = segments.split_off(segments.len() - node.path.len());
-                    segments.push(CheckedNodePathSegment::Node(Box::new(Self {
+                    segments.push(CheckedNodePathSegment::Node(std::sync::Arc::new(Self {
                         package: node.package.clone(),
                         path,
                         ordinal: node.ordinal,
@@ -821,7 +876,7 @@ impl Clone for CheckedNodeId {
         let Some(CheckedNodePathSegment::Node(root)) = segments.pop() else {
             unreachable!("root clone is a node")
         };
-        *root
+        std::sync::Arc::try_unwrap(root).expect("cloned root has one owner")
     }
 }
 
@@ -877,6 +932,25 @@ impl Ord for CheckedNodeId {
                             (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Node(_)) => {
                                 return Ordering::Less
                             }
+                            (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Index(_)) => {
+                                return Ordering::Less
+                            }
+                            (CheckedNodePathSegment::Index(_), CheckedNodePathSegment::Name(_)) => {
+                                return Ordering::Greater
+                            }
+                            (
+                                CheckedNodePathSegment::Index(a),
+                                CheckedNodePathSegment::Index(b),
+                            ) => match a.cmp(b) {
+                                Ordering::Equal => {}
+                                order => return order,
+                            },
+                            (CheckedNodePathSegment::Index(_), CheckedNodePathSegment::Node(_)) => {
+                                return Ordering::Less
+                            }
+                            (CheckedNodePathSegment::Node(_), CheckedNodePathSegment::Index(_)) => {
+                                return Ordering::Greater
+                            }
                             (CheckedNodePathSegment::Node(_), CheckedNodePathSegment::Name(_)) => {
                                 return Ordering::Greater
                             }
@@ -919,6 +993,12 @@ impl Encode for CheckedNodeId {
                     pending.extend(node.path.iter().rev().map(Event::Segment));
                 }
                 Event::Segment(CheckedNodePathSegment::Name(name)) => writer.string(name)?,
+                Event::Segment(CheckedNodePathSegment::Index(index)) => {
+                    writer.begin_object()?;
+                    writer.name("node")?;
+                    writer.integer(i128::from(*index))?;
+                    writer.end_object()?;
+                }
                 Event::Segment(CheckedNodePathSegment::Node(node)) => {
                     pending.push(Event::Node(node));
                 }
@@ -1046,7 +1126,9 @@ mod structural_node_identity_tests {
         };
         let nested = CheckedNodeId {
             package: named.package.clone(),
-            path: vec![CheckedNodePathSegment::Node(Box::new(named.clone()))],
+            path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(
+                named.clone(),
+            ))],
             ordinal: named.ordinal,
         };
         assert!(named < longer);

@@ -964,6 +964,7 @@ fn model_record_from_node(
         .map(|part| match part {
             Segment::Name(name) => Some(name.as_ref()),
             Segment::Node(_) => None,
+            Segment::Index(_) => None,
         })
         .collect::<Option<Vec<_>>>();
     require(
