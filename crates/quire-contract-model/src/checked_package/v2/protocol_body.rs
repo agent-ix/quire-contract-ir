@@ -2989,7 +2989,8 @@ fn validate_protocol_membership(
     index: &BTreeMap<&CheckedNodeId, usize>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let (owners, repeated) = collect_protocol_membership(nodes, kinds, validated, index, meter)?;
+    let (owners, mut repeated) =
+        collect_protocol_membership(nodes, kinds, validated, index, meter)?;
 
     validate_protocol_fairness(
         &ProtocolFairnessContext {
