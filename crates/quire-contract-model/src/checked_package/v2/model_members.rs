@@ -505,8 +505,8 @@ pub(super) struct DomainModel {
     pub(super) value_types: BTreeMap<Box<str>, Option<ValueBounds>>,
     /// Core Semantic IR aliases, resolved before model member type mapping.
     aliases: BTreeMap<Box<str>, Box<str>>,
-    /// Exact semantic cases and optional payload types of selected variants.
-    pub(super) variant_types: BTreeMap<Box<str>, BTreeMap<Box<str>, Option<SelectedTypeRef>>>,
+    /// Exact semantic cases, original identities, and authored positions.
+    pub(super) variant_types: BTreeMap<Box<str>, BTreeMap<Box<str>, SelectedVariantCase>>,
     /// Selected FCD dimension declarations by their exact identity.
     pub(super) dimensions: BTreeMap<Box<str>, SelectedDimension>,
     /// Selected FCD unit declarations by their exact identity.
@@ -531,6 +531,14 @@ pub(super) struct DomainModel {
     /// The field tables of [`Self::object_types`], empty until the lock stage
     /// builds them (`build_field_tables`).
     pub(super) fields: FieldTables,
+}
+
+/// One case retained from an admitted selected variant document.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct SelectedVariantCase {
+    pub(super) identity: Box<str>,
+    pub(super) position: usize,
+    pub(super) payload: Option<SelectedTypeRef>,
 }
 
 /// An admitted FCD dimension, retained for its structural checked-node join.
@@ -1497,7 +1505,7 @@ impl<'m> ModelOwners<'m> {
             return None;
         }
         let cases = owner.package.variant_types.get(owner.node)?;
-        Some(if cases.values().any(Option::is_some) {
+        Some(if cases.values().any(|case| case.payload.is_some()) {
             "union"
         } else {
             "enum"
@@ -3553,6 +3561,17 @@ pub(super) fn read_semantic_ir(
                         )?
                         .into());
                     }
+                    let identity = match text(case, "identity") {
+                        Ok(identity) if !identity.is_empty() => identity,
+                        _ => {
+                            return Err(SelectionRefusal::located(
+                                ModelRefusal::malformed(),
+                                case,
+                                budget,
+                            )?
+                            .into());
+                        }
+                    };
                     let payload = match case.get("payloadType") {
                         None | Some(Value::Null) => None,
                         Some(Value::String(reference)) => {
@@ -3609,7 +3628,14 @@ pub(super) fn read_semantic_ir(
                             .into());
                         }
                     }
-                    names.insert(name.into(), payload);
+                    names.insert(
+                        name.into(),
+                        SelectedVariantCase {
+                            identity: identity.into(),
+                            position: case_index,
+                            payload,
+                        },
+                    );
                 }
                 if names.is_empty() {
                     return Err(SelectionRefusal::located(

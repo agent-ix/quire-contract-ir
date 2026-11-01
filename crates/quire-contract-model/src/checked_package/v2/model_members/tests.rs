@@ -371,8 +371,8 @@ fn selected_tuple_positions_and_variant_payloads_are_retained() {
     let variant = json!({
         "identity": MAYBE, "kind": {"module": "acme/orders", "name": "variant"},
         "variants": [
-            {"identity": format!("{MAYBE}/None"), "name": "None"},
             {"identity": format!("{MAYBE}/Some"), "name": "Some", "payloadType": PAIR},
+            {"identity": format!("{MAYBE}/None"), "name": "None"},
         ]
     });
     let mut selected = document(vec![tuple.clone(), variant.clone()]);
@@ -396,11 +396,20 @@ fn selected_tuple_positions_and_variant_payloads_are_retained() {
         )
     );
     let cases = model.variant_types.get(MAYBE).expect("selected variant");
-    assert_eq!(cases.get("None"), Some(&None));
     assert_eq!(
-        cases.get("Some"),
-        Some(&Some(SelectedTypeRef::Declared(PAIR.into())))
+        cases.get("None").and_then(|case| case.payload.as_ref()),
+        None
     );
+    assert_eq!(cases.get("None").map(|case| case.position), Some(1));
+    assert_eq!(
+        cases.get("None").map(|case| case.identity.as_ref()),
+        Some("ix://acme/orders/Maybe/None")
+    );
+    assert_eq!(
+        cases.get("Some").and_then(|case| case.payload.as_ref()),
+        Some(&SelectedTypeRef::Declared(PAIR.into()))
+    );
+    assert_eq!(cases.get("Some").map(|case| case.position), Some(0));
 
     selected["types"][0]["positions"][1]["identity"] = json!(format!("{PAIR}/p0"));
     assert_eq!(
