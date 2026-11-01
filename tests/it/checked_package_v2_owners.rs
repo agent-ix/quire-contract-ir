@@ -880,10 +880,11 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
             .expect("QSpec selected domain document"),
     )
     .expect("QSpec selected domain JSON");
-    assert!(matches!(
-        read_with_selected_model(&package, "acme/orders", &document),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let result = read_with_selected_model(&package, "acme/orders", &document);
+    assert!(
+        matches!(&result, CheckedPackageV2ReadResult::Admitted(_)),
+        "published population binding fixture: {result:?}"
+    );
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -1063,6 +1064,22 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
             retarget_qspec_application_argument(&mut package, &also, &population);
         }
         settle(&mut package);
+        // Model-owned population IDs gain their package during projection.
+        // Order dependencies by those final structural IDs.
+        let nodes = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("graph nodes")
+            .clone();
+        for node in package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("graph nodes")
+        {
+            node["dependencies"]
+                .as_array_mut()
+                .expect("node dependencies")
+                .sort_by_cached_key(|dependency| resolved_fixture_id(dependency, &nodes));
+        }
+        refresh_identity(&mut package);
         let source = package["lock"]["sources"][0].clone();
         package["source_map"] = Value::Array(
             package["semantic_graph"]["nodes"]
