@@ -63,6 +63,13 @@ name = "conformance_qsl_ir760"
 path = "tests/conformance_qsl_ir760/main.rs"
 test = false
 
+# FR-058-AC-1/6 and FR-067-AC-7: read fresh QSL producer output in a named
+# external lane after the QSL source-reference carrier matches this reader.
+[[test]]
+name = "conformance_qsl_ir1013_ir1052"
+path = "tests/conformance_qsl_ir1013_ir1052.rs"
+test = false
+
 # FR-038-AC-214: 177 MB fixture and three isolated reader processes.
 # Explicitly invoked for the memory gate, excluded from ordinary `make test`.
 [[test]]
