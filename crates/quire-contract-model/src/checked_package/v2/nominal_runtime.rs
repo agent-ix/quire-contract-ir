@@ -258,10 +258,10 @@ impl CheckedPackageV2 {
         for row in rows {
             budget.charge(1, row.node)?;
             let node = declaration(self, row, &mut budget)?;
-            let NominalIdentity::Unit(identity @ UnitId::Declared(_)) = row.identity else {
+            let NominalIdentity::Unit(identity @ UnitId::Declared(key)) = row.identity else {
                 return Err(budget.error(NominalReadCode::UnsupportedForm, row.node));
             };
-            if !nodes.insert(row.node) || !identities.insert(identity) {
+            if !nodes.insert(row.node) || !identities.insert(key) {
                 return Err(budget.error(NominalReadCode::ConflictingWitness, row.node));
             }
             let CheckedTerm::NominalBody(body) = &node.body else {
