@@ -324,7 +324,7 @@ pub(super) enum NominalBodyKind {
     },
     /// Exact ratio between two structurally ordered dimensions.
     DimensionEquivalence {
-        /// The ordered pair of dimension IDs.
+        /// The authored local or selected-package operand pair.
         dimension_node_ids: [CheckedDimensionOperand; 2],
         /// Exact positive ratio of their canonical roots.
         root_scale: CheckedRational,
@@ -413,8 +413,8 @@ impl NominalBody {
         )
     }
 
-    /// Construct an equivalence body with two well-formed structural IDs and
-    /// a positive root-scale numerator.
+    /// Construct an equivalence body with two well-formed dimension operands
+    /// and a positive root-scale numerator.
     pub fn try_dimension_equivalence(
         dimension_node_ids: [CheckedDimensionOperand; 2],
         root_scale: CheckedRational,
@@ -1103,9 +1103,9 @@ fn record_from_node(
                         authority,
                         identity,
                     },
-                    dimension_node_ids: dimension_node_ids
-                        .clone()
-                        .map(|operand| operand.node_id().clone()),
+                    dimension_node_ids: std::array::from_fn(|index| {
+                        dimension_node_ids[index].node_id().clone()
+                    }),
                     operands: dimension_node_ids,
                     root_scale,
                 },
