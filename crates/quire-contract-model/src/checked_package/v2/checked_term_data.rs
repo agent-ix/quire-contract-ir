@@ -27,6 +27,8 @@ pub struct CheckedEqualityDecision {
     pub application: CheckedNodeId,
     /// Exact source occurrence of the application.
     pub occurrence: CheckedOccurrence,
+    /// Child steps from the application's body root to the compared application.
+    pub term_path: Vec<CheckedEqualityTermPathStep>,
     /// Equality operation selected by the producer.
     pub operator: CheckedEqualityOperator,
     /// Left operand decision.
@@ -39,6 +41,24 @@ pub struct CheckedEqualityDecision {
     pub units: Vec<CheckedResolvedEqualityUnit>,
     /// Only the compared enum's retained members.
     pub enum_members: Vec<CheckedEqualityEnumMember>,
+}
+
+/// One typed step from a node body root to a nested equality application.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CheckedEqualityTermPathStep {
+    /// An application argument by position.
+    Argument {
+        /// Zero-based argument index.
+        index: CheckedKeyOrdinal,
+    },
+    /// An aggregate member by position.
+    Member {
+        /// Zero-based member index.
+        index: CheckedKeyOrdinal,
+    },
+    /// The value of a named aggregate binding.
+    BindingValue,
 }
 
 /// The closed equality operation vocabulary.
