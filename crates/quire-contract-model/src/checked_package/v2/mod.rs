@@ -7,6 +7,7 @@
 //! definition selections retain the owning names and exact structure.
 
 mod abstraction;
+mod callable;
 mod checked_term_data;
 mod claim_terminal;
 mod closure_index;
@@ -53,6 +54,10 @@ mod timed_model;
 mod typed_terms;
 mod vocabulary;
 
+pub use callable::{
+    CheckedCallable, CheckedCallableIdentity, CheckedCallableReadError,
+    CheckedCallableReadErrorCode, CheckedCallableTable,
+};
 pub use checked_term_data::*;
 pub use comparison_operands::{
     CheckedClauseComparison, CheckedComparisonClauseKind, CheckedComparisonError,

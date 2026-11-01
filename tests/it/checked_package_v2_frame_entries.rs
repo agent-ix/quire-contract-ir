@@ -18,16 +18,17 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
-    CheckedComparisonRefusal, CheckedExecutionPointRefusal, CheckedFieldReadForm,
-    CheckedMemberType, CheckedNodeId, CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole,
-    CheckedOperationAnchorBody, CheckedOperationMember, CheckedPackageEvidence,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedStepRelationCapability, CheckedTerm,
-    CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName,
-    ModelForm, SelectedOperationIdentity, SelectedOperationMemberErrorCode,
-    SelectedOperationMemberRow, SelectedOperationMembers, StateClauseKind,
+    encode_checked_package_v2, CheckedApplicationOperation, CheckedCallableIdentity,
+    CheckedCallableReadErrorCode, CheckedComparisonPath, CheckedComparisonRefusal,
+    CheckedExecutionPointRefusal, CheckedFieldReadForm, CheckedMemberType, CheckedNodeId,
+    CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole, CheckedOperationAnchorBody,
+    CheckedOperationMember, CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedStepRelationCapability, CheckedTerm, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName, ModelForm,
+    SelectedOperationIdentity, SelectedOperationMemberErrorCode, SelectedOperationMemberRow,
+    SelectedOperationMembers, StateClauseKind,
 };
 use quire_exact::{EffectiveId, OriginalDeclarationKey};
 use serde_json::{json, Value};
@@ -5218,7 +5219,7 @@ fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
 }
 
 /// The public stage-row join uses admitted member identities.
-#[trace("TC-056")]
+#[trace("TC-056", "FR-352-AC-10")]
 #[test]
 fn selected_operation_member_rows_join_only_admitted_model_anchors() {
     let fixture = ModelPackage::new();
@@ -5268,6 +5269,23 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
             .expect_err("wrong selected document")
             .code,
         SelectedOperationMemberErrorCode::MismatchedWitness
+    );
+    let mut wrong_form = row.clone();
+    wrong_form.declaring_form = ModelForm::StateMachine;
+    assert_eq!(
+        SelectedOperationMembers::from_stage_rows(&admitted, [wrong_form], 16)
+            .expect_err("wrong declaring form")
+            .code,
+        SelectedOperationMemberErrorCode::MismatchedWitness
+    );
+    let mut foreign_anchor = row.clone();
+    foreign_anchor.anchor =
+        serde_json::from_value(node_id(&"ee".repeat(32))).expect("foreign anchor identity");
+    assert_eq!(
+        SelectedOperationMembers::from_stage_rows(&admitted, [foreign_anchor], 16)
+            .expect_err("foreign anchor")
+            .code,
+        SelectedOperationMemberErrorCode::UnknownAnchor
     );
     let mut wrong_member = row.clone();
     wrong_member.original_operation_identity = format!("{ORDER_NODE}/reset").into();
@@ -5356,5 +5374,246 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
             .expect_err("source anchor has no selected model member")
             .code,
         SelectedOperationMemberErrorCode::UnavailableWitness
+    );
+}
+
+/// Trace: FR-354-AC-3, FR-354-AC-7.
+#[trace("FR-352-AC-10", "FR-354-AC-3", "FR-354-AC-7")]
+#[test]
+fn model_operation_callable_joins_selected_body_and_frame() {
+    let mut fixture = ModelPackage::new();
+    let parameters = [fixture.parameter_key("self"), fixture.parameter_key("n")];
+    let expression = nodes(&fixture.value)
+        .iter()
+        .find(|node| node["node_tag"] == "expression")
+        .expect("fixture expression")
+        .clone();
+    let body_target = expression["node_id"].clone();
+    let operation = format!("{ORDER_NODE}/scaled");
+    let function_id = structural_id(
+        ORDERS,
+        vec![
+            json!("function"),
+            json!("pure_function"),
+            json!(operation),
+            json!("body"),
+        ],
+        0,
+    );
+    let mut dependencies = [
+        node_id(&parameters[0]),
+        node_id(&parameters[1]),
+        body_target.clone(),
+    ];
+    dependencies.sort_by(id_order);
+    let function = json!({
+        "node_id": function_id,
+        "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "function", "semantic_form": "pure_function",
+        "semantic_type": body_target,
+        "dependencies": dependencies,
+        "occurrences": [{"role": "expression", "ordinal": 0}],
+        "owner": {"kind": "model", "identity": ORDERS, "node": operation},
+        "body": {"term": "aggregate", "members": [
+            binding("clause", text("body")),
+            binding("parameters", json!({"term": "aggregate", "members": [
+                reference(&parameters[0]), reference(&parameters[1])
+            ]})),
+            binding("body", json!({"term": "reference", "target": body_target})),
+        ]},
+    });
+    fixture.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(function);
+    let first_anchor = position(&fixture.value, "state", "operation_anchor");
+    let pre_point = json!({"kind": "pre", "operation": "scaled"});
+    fixture.value["semantic_graph"]["nodes"][first_anchor]["body"]["members"]
+        .as_array_mut()
+        .expect("anchor members")
+        .push(binding("execution_point", pre_point.clone()));
+    let precondition = nodes(&fixture.value)
+        .iter()
+        .position(|node| node["body"]["operation"]["member"]["clause"] == "precondition")
+        .expect("precondition clause");
+    fixture.value["semantic_graph"]["nodes"][precondition]["body"]["operation"]["member"]
+        ["execution_point"] = pre_point;
+    let mut second_anchor = nodes(&fixture.value)[first_anchor].clone();
+    second_anchor["node_id"] = node_id(&"d9".repeat(32));
+    second_anchor["body"]["members"][3]["value"]["kind"] = json!("post");
+    fixture.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_anchor);
+    let postcondition = nodes(&fixture.value)
+        .iter()
+        .position(|node| node["body"]["operation"]["member"]["clause"] == "postcondition")
+        .expect("postcondition clause");
+    fixture.value["semantic_graph"]["nodes"][postcondition]["body"]["operation"]["member"]
+        ["execution_point"] = json!({"kind": "post", "operation": "scaled"});
+    let second_id = node_id(&"d9".repeat(32));
+    let original_id = nodes(&fixture.value)[first_anchor]["node_id"].clone();
+    fixture.value["semantic_graph"]["nodes"][postcondition]["body"]["arguments"][1]["target"] =
+        second_id.clone();
+    for dependency in fixture.value["semantic_graph"]["nodes"][postcondition]["dependencies"]
+        .as_array_mut()
+        .expect("postcondition dependencies")
+    {
+        if *dependency == original_id {
+            *dependency = second_id.clone();
+        }
+    }
+    fixture.value["semantic_graph"]["nodes"][postcondition]["dependencies"]
+        .as_array_mut()
+        .expect("postcondition dependencies")
+        .sort_by(id_order);
+    settle(&mut fixture.value);
+    let admitted = match read_model(&fixture.value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("body function fixture admission: {other:?}"),
+    };
+    let anchor = nodes(&fixture.value)
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("anchor");
+    let anchor_id: CheckedNodeId =
+        serde_json::from_value(anchor["node_id"].clone()).expect("anchor id");
+    let row = SelectedOperationMemberRow {
+        anchor: anchor_id.clone(),
+        selected_document: ORDERS.into(),
+        declaring_form: ModelForm::ObjectType,
+        original_model_identity: ORDER_NODE.into(),
+        original_operation_identity: format!("{ORDER_NODE}/scaled").into(),
+        selected_operation_identity: SelectedOperationIdentity::new(
+            EffectiveId::new(None, OriginalDeclarationKey::new(ORDERS, ORDER_NODE)),
+            "scaled",
+        ),
+    };
+    let other_anchor_id = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "operation_anchor" && node.node_id != anchor_id)
+        .expect("second execution point")
+        .node_id
+        .clone();
+    let mut other_row = row.clone();
+    other_row.anchor = other_anchor_id.clone();
+    let selected =
+        SelectedOperationMembers::from_stage_rows(&admitted, [row.clone(), other_row.clone()], 32)
+            .expect("selected operation witness");
+    let table = admitted
+        .callable_table(&selected, 100_000)
+        .expect("joined callables");
+    let cloned = admitted.clone();
+    let cloned_selected =
+        SelectedOperationMembers::from_stage_rows(&cloned, [row.clone(), other_row.clone()], 32)
+            .expect("clone witness");
+    assert_eq!(
+        admitted.callable_table(&selected, 100_000),
+        cloned.callable_table(&cloned_selected, 100_000)
+    );
+    let one_under = admitted
+        .callable_table(&selected, table.work() - 1)
+        .expect_err("operation work one under");
+    assert_eq!(one_under.code, CheckedCallableReadErrorCode::WorkLimit);
+    assert_eq!(one_under.work, table.work());
+    let missing = SelectedOperationMembers::from_stage_rows(&admitted, [], 0).unwrap();
+    assert_eq!(
+        admitted
+            .callable_table(&missing, 100_000)
+            .expect_err("missing row")
+            .code,
+        CheckedCallableReadErrorCode::UnavailableWitness
+    );
+    assert_eq!(
+        admitted
+            .callable_table(&cloned_selected, 100_000)
+            .expect_err("foreign package witness")
+            .code,
+        CheckedCallableReadErrorCode::ForeignSelectedJoin
+    );
+    let operation_row = table.rows().iter().find(|row| {
+        matches!(&row.identity, CheckedCallableIdentity::Operation { anchor, .. } if anchor == &anchor_id)
+    }).expect("selected operation row");
+    assert_eq!(
+        operation_row.identity,
+        CheckedCallableIdentity::Operation {
+            anchor: anchor_id.clone(),
+            member: row.original_operation_identity.clone(),
+            selected: row.selected_operation_identity.clone(),
+        }
+    );
+    assert_eq!(operation_row.parameters.len(), 2);
+    let other_operation = table.rows().iter().find(|row| {
+        matches!(&row.identity, CheckedCallableIdentity::Operation { anchor, .. } if anchor == &other_anchor_id)
+    }).expect("second execution-point row");
+    assert_eq!(other_operation.body, operation_row.body);
+    assert_ne!(other_anchor_id, anchor_id);
+    let frame = operation_row.frame.as_ref().expect("admitted frame handle");
+    assert!(matches!(
+        admitted.term(frame),
+        Some(CheckedTerm::Frame { .. })
+    ));
+    assert!(admitted.term(&operation_row.body).is_some());
+
+    let mut empty_frame = fixture.value.clone();
+    let frame_at = position(&empty_frame, "state", "frame");
+    empty_frame["semantic_graph"]["nodes"][frame_at]["body"] = json!({
+        "term": "frame", "modifies": [], "creates": [],
+        "deletes": [], "deletes_scoped": []
+    });
+    settle(&mut empty_frame);
+    let empty_admitted = match read_model(&empty_frame) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("empty frame fixture admission: {other:?}"),
+    };
+    let empty_selected = SelectedOperationMembers::from_stage_rows(
+        &empty_admitted,
+        [row.clone(), other_row.clone()],
+        32,
+    )
+    .expect("empty frame witness");
+    let empty_table = empty_admitted
+        .callable_table(&empty_selected, 100_000)
+        .expect("empty frame callable");
+    let operation = empty_table.rows().iter().find(|row| {
+        matches!(&row.identity, CheckedCallableIdentity::Operation { anchor, .. } if anchor == &anchor_id)
+    }).expect("operation with empty frame");
+    let empty_id = operation
+        .frame
+        .as_ref()
+        .expect("empty frame remains present");
+    assert!(
+        matches!(empty_admitted.term(empty_id), Some(CheckedTerm::Frame {
+        modifies, creates, deletes, deletes_scoped
+    }) if modifies.is_empty() && creates.is_empty() && deletes.is_empty() && deletes_scoped.is_empty())
+    );
+
+    let mut bodyless = fixture.value.clone();
+    let function_at = nodes(&bodyless)
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "function"
+                && node["owner"]["node"] == format!("{ORDER_NODE}/scaled")
+        })
+        .expect("selected body function");
+    bodyless["semantic_graph"]["nodes"][function_at]["body"]["members"] =
+        json!([binding("clause", text("body"))]);
+    bodyless["semantic_graph"]["nodes"][function_at]["dependencies"] = json!([]);
+    settle(&mut bodyless);
+    let bodyless_admitted = match read_model(&bodyless) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("bodyless clause fixture admission: {other:?}"),
+    };
+    let bodyless_selected =
+        SelectedOperationMembers::from_stage_rows(&bodyless_admitted, [row, other_row], 32)
+            .expect("bodyless witness");
+    assert_eq!(
+        bodyless_admitted
+            .callable_table(&bodyless_selected, 100_000)
+            .expect_err("operation body is absent")
+            .code,
+        CheckedCallableReadErrorCode::MissingBody,
     );
 }
