@@ -9717,7 +9717,7 @@ fn with_protocol_fairness(mut package: Value, member: Value) -> (Value, usize) {
     (package, fair)
 }
 
-#[trace("TC-048", "FR-038-AC-98", "FR-038-AC-324", "FR-349-AC-9")]
+#[trace("TC-048", "FR-038-AC-98", "FR-038-AC-103", "FR-349-AC-9")]
 #[test]
 fn typed_protocol_fairness_preserves_each_selected_target() {
     let vectors = typed_fairness_cases();
@@ -9777,7 +9777,7 @@ fn typed_protocol_fairness_preserves_each_selected_target() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-98", "FR-038-AC-324")]
+#[trace("TC-048", "FR-038-AC-98", "FR-038-AC-103")]
 #[test]
 fn typed_protocol_fairness_checks_identity_then_kind_then_branch() {
     let vectors = typed_fairness_cases();
