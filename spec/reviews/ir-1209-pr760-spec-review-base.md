@@ -34,8 +34,21 @@ Reviewed FR-353 nested-path identity, producer authority, refusal behavior, work
 
 FR-353-AC-1 requires two equalities under one `and` root, one under `or`, and aggregate/binding paths to be readable. Merged QSpec FR-322 Body grammar still requires every composite subterm to be a separate node reached by reference; its schema MemberTerm does not admit application, and IR FR-038 explicitly refuses nested applications as malformed_wire. The new QSpec `term_path` sidecar selector cannot make those bodies admissible. The positive cases cannot pass until the authoritative body grammar/schema and IR admission rule are extended, or the AC is scoped to valid top-level terms.
 
-QSpec #558 merged at `6ce98f66`: FR-322 Body grammar says applications never stand inside application arguments, aggregate members or binding values. The schema `MemberTerm` accepts only leaf, group or binding terms. IR FR-038 lines 632-641 refuses nested non-`case` applications during admission.
+QSpec #558 merged: FR-322 Body grammar says applications never stand inside application arguments, aggregate members or binding values. The schema `MemberTerm` accepts only leaf, group or binding terms. IR FR-038 lines 632-641 refuses nested non-`case` applications during admission.
 
 ## Verdict
 
 FAIL: FND-001 blocks the nested positive acceptance cases.
+
+## Author Disposition
+
+FND-001 addressed in PR #760 after QSpec STD-619 merged in QSpec #560.
+FR-322-AC-288/289/292 now require each equality record to name its own
+equality application `NodeRef` and occurrence with an
+empty `term_path`; an `and`, `or`, aggregate or binding parent references that
+child node. FR-353 now joins directly to the child application, refuses a
+non-empty path and retains TC-1070 Fixture E rows 8, 12, 15 and 17 as four
+distinct child application rows. The earlier evidence above records the
+contract state at review time. FR-038's existing nested-application refusal
+remains in force. Independent reviewer verification of this disposition is
+pending.
