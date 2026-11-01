@@ -1959,10 +1959,17 @@ fixes, with these entry-specific rules and no `unsupported_construct`:
   missing member, a member of another kind, an unknown member name or a value
   outside those words refuses `operation-member-mismatch` at `operation.member`.
   A `fairness` member on any other entry refuses the same way.
-  Protocol targets resolve through the protocol clause's retained `requirements`
-  relation and the same membership used by protocol controls. Package identity
-  and same-clause ownership precede kind/operator checks and branch-label
-  membership. An absent, foreign or other-clause target refuses
+  Protocol-root, attempt and parallel-branch targets resolve through the
+  protocol clause's retained `requirements` relation and the same membership
+  used by protocol controls. A compensation-template target in an admitted
+  external temporal clause's fairness argument may instead resolve through
+  the template's unique owning protocol clause, even when that clause has no
+  `requirements` back-edge to the temporal clause. A fairness node with no
+  admitted temporal clause reference remains unowned by a fairness argument;
+  a valid compensation target alone does not admit it. Package identity and
+  same-clause ownership precede kind/operator checks and branch-label
+  membership. An absent or foreign target, or a target of another clause when
+  the temporal claim is requirement-linked, refuses
   `missing_declaration`/`missing-name` at `target.node` or `target.parallel`;
   a local owned target of the wrong kind or operator refuses
   `invalid_model_binding`/`malformed-declaration` there. An absent branch label
@@ -4533,7 +4540,7 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-381 | Implemented; evidence: `node_index::long_index_chain_admits_on_a_small_stack_with_shared_keys`, `checked_package_v2_flat_wire::tc_048_a_syntax_or_duplicate_defect_is_refused_before_the_parse_limit`, and intake source-span inspection.  The intake source-raw pass and its per-pointer reparse accept the canonical NI-13 package under the default serde_json recursion limit without allocating a full-document JSON value or disabling the limit. A malformed node-id segment deep in the graph is reported at its own pointer, and syntax, duplicate-member and noncanonical-byte precedence from AC-24 and AC-214 remains unchanged. An actually nested body past the closed grammar still receives its existing typed refusal. | Test, Inspection (TC-048) |
 | FR-038-AC-382 | A public-reader mutation that relabels an integer-range node as `text_bounds` while retaining its Integer semantic base and body refuses `invalid_package`, no cause, at `/semantic_graph/nodes/<n>/body`, with that node as locus. A `text_bounds` node over Text retains its own minimum, maximum and text profile unchanged. | Test (TC-226) |
 | FR-038-AC-383 | An external `temporal` clause with a fairness argument targeting a compensation template owned by protocol clause `Pay` admits when `Pay.compensations` lists that template exactly once and `Pay.requirements` is empty. The selected protocol and temporal profiles, all ordinary graph dependencies and every other body member are valid; the admitted fairness target retains the template's exact structural node id. Admission does not require a `Pay.requirements` back-edge to the external temporal clause. | Test (TC-048) |
-| FR-038-AC-384 | For the external temporal clause of AC-383, a compensation target not listed by any protocol clause, named in another package or naming a node of the wrong protocol form retains AC-103's missing-name or malformed-declaration refusal at the fairness target's `node` field, with the fairness node as locus. A temporal clause listed in one protocol clause's `requirements` still refuses a compensation target owned only by another clause; the ownership join does not change the requirement association of protocol-root, attempt or parallel-branch fairness targets. | Test (TC-048) |
+| FR-038-AC-384 | For the external temporal clause of AC-383, a compensation target not listed by any protocol clause, named in another package or naming a node of the wrong protocol form retains AC-103's missing-name or malformed-declaration refusal at the fairness target's `node` field, with the fairness node as locus. A fairness node omitted from every admitted temporal clause's fairness argument also refuses missing-name there even when its compensation target has a unique valid owner. A temporal clause listed in one protocol clause's `requirements` still refuses a compensation target owned only by another clause; the ownership join does not change the requirement association of protocol-root, attempt or parallel-branch fairness targets. | Test (TC-048) |
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-050) |
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those six finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
