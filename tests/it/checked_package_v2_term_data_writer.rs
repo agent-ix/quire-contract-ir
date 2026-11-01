@@ -81,7 +81,7 @@ fn typed_sidecar_preserves_all_arrays_candidate_order_and_byte_ceiling() {
     let package = v2_all_families();
     let node = package["semantic_graph"]["nodes"][0]["node_id"].clone();
     let occurrence = json!({"role": "expression", "ordinal": 0});
-    let raw = json!({
+    let mut raw = json!({
         "equality_decisions": [{
             "application": node,
             "occurrence": occurrence,
@@ -127,6 +127,18 @@ fn typed_sidecar_preserves_all_arrays_candidate_order_and_byte_ceiling() {
             ]
         }]
     });
+    let mut second_equality = raw["equality_decisions"][0].clone();
+    second_equality["occurrence"]["ordinal"] = json!(1);
+    raw["equality_decisions"]
+        .as_array_mut()
+        .expect("equality array")
+        .insert(0, second_equality);
+    let mut second_protocol = raw["protocol_locations"][0].clone();
+    second_protocol["term_ordinal"] = json!(1);
+    raw["protocol_locations"]
+        .as_array_mut()
+        .expect("protocol array")
+        .insert(0, second_protocol);
     let term_data: CheckedTermDataV2 =
         serde_json::from_value(raw.clone()).expect("closed typed sidecar");
     let bytes =
@@ -135,6 +147,14 @@ fn typed_sidecar_preserves_all_arrays_candidate_order_and_byte_ceiling() {
     expected["checked_term_data"] = raw;
     assert_eq!(bytes, canonical(&expected));
     let written: Value = serde_json::from_slice(&bytes).expect("canonical JSON");
+    assert_eq!(
+        written["checked_term_data"]["equality_decisions"][0]["occurrence"]["ordinal"],
+        1
+    );
+    assert_eq!(
+        written["checked_term_data"]["protocol_locations"][0]["term_ordinal"],
+        1
+    );
     assert_eq!(
         written["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["selection_key"]
             ["original"]["node"],
