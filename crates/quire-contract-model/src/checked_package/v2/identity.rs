@@ -1,6 +1,10 @@
 //! Structural nominal bodies (enum declaration, enum value, dimension,
 //! dimension equivalence and unit) and their semantic and cross-field rules.
 
+/// Borrowed, bounded unit and enum runtime projections.
+#[path = "nominal_runtime.rs"]
+pub mod nominal_runtime;
+
 use super::dependency_references::SuppliedDependencies;
 use super::model_members::DomainModel;
 use super::natural::coprime;
