@@ -43,3 +43,23 @@ Parent-reported validation: Rust 1.98.1 formatting and workspace lib/tests Clipp
 - public_term_deserialization_retains_node_ids_from_text_and_buffered_values (examined), crates/quire-contract-model/tests/typed_terms_deserialize.rs: `assert_eq!(text, buffered);
         assert_eq!(serde_json::to_value(&buffered).unwrap(), wire);`
 - public_term_deserialization_rejects_malformed_node_ids_and_unknown_members (examined), crates/quire-contract-model/tests/typed_terms_deserialize.rs: `assert!(serde_json::from_str::<CheckedTerm>(text).is_err());`
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Root decoding now calls deserialize_map; NodeVisitor implements only visit_map and delegates closed fields through MapAccessDeserializer. Positional arrays cannot reach the derived struct sequence visitor. Added standalone CheckedNodeId and CheckedTerm text/value array-root refusal controls, plus the private supplied-value control. |
+
+### Disposition round 1 verdict
+
+**PASS** — FND-001 is fixed; no new defect found in the fix. Original findings above remain unchanged. Inspected the map-only root gate, reused strict-field decode and adverse array tests. The string_edge annotation marks the existing segment string-key boundary without changing its runtime wire grammar. Parent reports focused tests, workspace lib/tests Clippy and formatting passed. Local qsl-string-edge was unavailable; CI rerun is queued, and no local gate pass is claimed. No Cargo commands, implementation edits or whole-suite/Kani runs were performed by this reviewer.
+
+Fixed excerpt:
+
+```rust
+fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<WireNodeId, A::Error> {
+                WireNodeId::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+            }
+        }
+        let wire = deserializer.deserialize_map(NodeVisitor)?;
+```
