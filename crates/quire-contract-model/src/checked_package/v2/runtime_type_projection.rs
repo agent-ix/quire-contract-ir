@@ -119,12 +119,12 @@ pub struct SelectedRuntimeTypes {
 }
 
 impl SelectedRuntimeTypes {
-    /// Selected records in structural node order.
+    /// Selected records in structural identity order.
     pub fn records(&self) -> &[SelectedRuntimeRecord] {
         &self.records
     }
 
-    /// Selected objects in structural node order.
+    /// Selected objects in structural identity order.
     pub fn objects(&self) -> &[SelectedRuntimeObject] {
         &self.objects
     }

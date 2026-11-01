@@ -564,7 +564,7 @@ impl RetainedModels {
         })
     }
 
-    /// All selected declaration joins in structural-node order.
+    /// All selected declaration joins in structural identity order.
     pub(super) fn selected_declarations(
         &self,
     ) -> impl Iterator<Item = (&CheckedNodeId, &DeclaredNode)> {
