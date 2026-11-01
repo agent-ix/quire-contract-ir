@@ -826,6 +826,34 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     );
     assert!(complete.work() > 0);
 
+    let mut extra_selected = selected.clone();
+    extra_selected["types"]
+        .as_array_mut()
+        .expect("selected types")
+        .push(object("Unrepresented", &[], &[]));
+    let incomplete_graph = admit(
+        &extra_selected,
+        &[
+            ("Receipt", "record_value_type"),
+            ("Base", OBJECT),
+            ("Child", OBJECT),
+        ],
+        &[],
+    );
+    let same_rows = SelectedExactIdentities::from_stage_rows(
+        &incomplete_graph,
+        [record_row.clone(), base_row.clone(), child_row.clone()],
+        [record_field.clone()],
+    )
+    .expect("represented rows still join");
+    let unrepresented = incomplete_graph
+        .project_selected_runtime_types(&same_rows, 1000)
+        .expect_err("an unrepresented selected object refuses the whole view");
+    assert_eq!(
+        unrepresented.code,
+        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+    );
+
     let missing_child =
         SelectedExactIdentities::from_stage_rows(&admitted, [record_row, base_row], [record_field])
             .expect("other selected rows join");

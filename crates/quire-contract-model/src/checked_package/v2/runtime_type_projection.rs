@@ -262,10 +262,20 @@ impl CheckedPackageV2 {
         let mut by_original = BTreeMap::new();
         for (id, declaration) in self.models.selected_declarations() {
             charge(&mut work, work_limit, id, "selected_declaration")?;
-            by_original.insert(
-                (declaration.selection, declaration.node.as_ref()),
-                (id, declaration.form),
-            );
+            if by_original
+                .insert(
+                    (declaration.selection, declaration.node.as_ref()),
+                    (id, declaration.form),
+                )
+                .is_some()
+            {
+                return Err(SelectedRuntimeTypesError::at(
+                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                    id,
+                    "selected_declaration",
+                    work,
+                ));
+            }
             if matches!(
                 declaration.form,
                 DeclarationForm::TupleValueType | DeclarationForm::VariantType
@@ -274,6 +284,60 @@ impl CheckedPackageV2 {
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                     id,
                     declaration.form.form(),
+                    work,
+                ));
+            }
+        }
+
+        // An admitted selected document can declare types that no graph node
+        // currently names. Such a document cannot yield a complete runtime
+        // environment from this graph and must refuse as a whole.
+        for (selection, model) in self.models.selected_models().iter().enumerate() {
+            let root = &self
+                .graph()
+                .nodes
+                .get(model.root)
+                .expect("admitted selected model root is a graph node")
+                .node_id;
+            for original in model.record_types.keys().chain(model.object_types.keys()) {
+                if model.end_declaration_form(original) == Some(DeclarationForm::SystemsInterface)
+                    || model.state_machines.contains(original)
+                    || model.processes.contains(original)
+                {
+                    continue;
+                }
+                charge(&mut work, work_limit, root, "selected_document_type")?;
+                if !by_original.contains_key(&(selection, original.as_ref())) {
+                    return Err(SelectedRuntimeTypesError::at(
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                        root,
+                        "selected_document_type",
+                        work,
+                    ));
+                }
+            }
+            if let Some(original) = model
+                .tuple_types
+                .keys()
+                .chain(model.variant_types.keys())
+                .next()
+            {
+                charge(&mut work, work_limit, root, "selected_document_type")?;
+                return Err(SelectedRuntimeTypesError::at(
+                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    by_original
+                        .get(&(selection, original.as_ref()))
+                        .map_or(root, |(id, _)| id),
+                    "selected_tuple_or_variant",
+                    work,
+                ));
+            }
+            if !model.units.is_empty() {
+                charge(&mut work, work_limit, root, "selected_unit")?;
+                return Err(SelectedRuntimeTypesError::at(
+                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    root,
+                    "selected_unit",
                     work,
                 ));
             }
