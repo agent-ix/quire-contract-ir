@@ -310,3 +310,21 @@ fn valid_large_child_indices_remain_exact_canonical_owner_values() {
         ])
     );
 }
+
+#[test]
+#[trace("TC-058", "FR-354-AC-9")]
+fn reversed_distinct_term_keys_refuse_at_the_first_out_of_order_row() {
+    let (wire, _) = fixture(vec![positive("PL-02-child"), positive("PL-01-root")]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wire) else {
+        panic!("reversed distinct keys must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidValue)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        "/checked_term_data/protocol_locations/1"
+    );
+}
