@@ -12,10 +12,10 @@
 //! with fixture-authored structural identities; nothing of QSpec is copied in.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, evidence_with_document, index_fixture_node_ids,
+    canonical, evidence_for, evidence_with_document, fixture_source, index_fixture_node_ids,
     node_id as fixture_node_id, nominal_fixture_members, nominal_package, pointer,
     rebuild_source_map, refresh_identity, refusal_bytes, refusal_cause, select_model, settle,
-    structural_fixture_id, ExpectedRefusal, COMPLETE_VALUE_FEATURE, FIXTURE_PACKAGE,
+    source_owner, structural_fixture_id, ExpectedRefusal, COMPLETE_VALUE_FEATURE, FIXTURE_PACKAGE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -302,6 +302,287 @@ fn read(
         CheckedPackageReadLimits::bounded(),
         evidence,
     )
+}
+
+fn add_dispatch_body(package: &mut Value) -> Value {
+    let key = "qualified:dispatch_body";
+    let body = json!({"term":"aggregate", "members":[
+        {"term":"binding", "name":"parameters", "value":{"term":"aggregate", "members":[]}},
+        {"term":"binding", "name":"body", "value":literal(&INTEGER, "integer", "1")}
+    ]});
+    let mut node = wire_node(key, "function", "pure_function", &INTEGER, &[], body);
+    node["occurrences"] = json!([{"role":"declaration", "ordinal":0}]);
+    node["declaration"] = json!({"qualified_name":["dispatch_body"]});
+    node["owner"] = source_owner(&fixture_source());
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(node);
+    rebuild_source_map(package);
+    refresh_identity(package);
+    node_id(key)
+}
+
+/// Trace: FR-322-AC-288, FR-322-AC-290, FR-354-AC-4, TC-233.
+#[trace("TC-233", "FR-322-AC-288", "FR-322-AC-290", "FR-354-AC-4")]
+#[test]
+fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
+    let document = domain_document(json!({}));
+    let (mut package, evidence) = package_over(&document, "total");
+    let CheckedPackageV2ReadResult::Admitted(without_sidecar) = read(&package, &evidence) else {
+        panic!("baseline package must admit");
+    };
+    assert!(without_sidecar.checked_term_data().is_none());
+    let absent_call = without_sidecar.graph().nodes[CALL].node_id.clone();
+    let absent_occurrence = without_sidecar.graph().nodes[CALL].occurrences[0].clone();
+    assert_eq!(
+        without_sidecar.dispatch_candidates(&absent_call, &absent_occurrence, 1),
+        Err(quire_contract_model::CheckedDispatchReadError::Unavailable)
+    );
+    let call = package["semantic_graph"]["nodes"][CALL]["node_id"].clone();
+    let declaring = package["semantic_graph"]["nodes"][2]["node_id"].clone();
+    let occurrence = json!({"role":"type", "ordinal":0});
+    let table = json!({
+        "application":call,
+        "occurrence":occurrence,
+        "operation":{"declaring":declaring, "operation":"total"},
+        "context":declaring,
+        "candidates":[]
+    });
+    package["checked_term_data"] = json!({
+        "equality_decisions":[], "protocol_locations":[], "dispatch_tables":[table]
+    });
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!("empty producer candidate set must admit");
+    };
+    assert!(admitted.checked_term_data().is_some());
+    let call = admitted.graph().nodes[CALL].node_id.clone();
+    let occurrence = admitted.graph().nodes[CALL].occurrences[0].clone();
+    assert!(admitted
+        .dispatch_candidates(&call, &occurrence, 1)
+        .unwrap()
+        .candidates()
+        .is_empty());
+    assert!(matches!(
+        admitted.dispatch_candidates(&call, &occurrence, 0),
+        Err(
+            quire_contract_model::CheckedDispatchReadError::WorkExhausted {
+                row: 0,
+                candidate: None,
+                consumed: 1,
+                ..
+            }
+        )
+    ));
+    let mut foreign = call.clone();
+    foreign.package = "foreign".into();
+    assert_eq!(
+        admitted.dispatch_candidates(&foreign, &occurrence, 1),
+        Err(quire_contract_model::CheckedDispatchReadError::ForeignApplication)
+    );
+    let mut unknown = call.clone();
+    unknown.ordinal += 1;
+    assert_eq!(
+        admitted.dispatch_candidates(&unknown, &occurrence, 1),
+        Err(quire_contract_model::CheckedDispatchReadError::UnknownApplication)
+    );
+
+    let function = add_dispatch_body(&mut package);
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"] = json!([{
+        "selection_key": {
+            "owner_effective_type": null,
+            "original": {"package": IDENTITY, "node": ORDER}
+        },
+        "operation_body": function,
+        "effective_precondition": null
+    }]);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/candidates/0".to_owned())
+    );
+}
+
+/// Trace: FR-322-AC-290, FR-354-AC-4, TC-233.
+#[trace("TC-233", "FR-322-AC-290", "FR-354-AC-4")]
+#[test]
+fn checked_dispatch_sidecar_refuses_wrong_witness_and_duplicate_key() {
+    let mut document = domain_document(json!({}));
+    let mut unrelated = document["types"][0].clone();
+    unrelated["identity"] = json!(CUSTOMER);
+    unrelated["displayName"] = json!("Customer");
+    unrelated["operations"][0]["identity"] = json!(format!("{CUSTOMER}/total"));
+    document["types"].as_array_mut().unwrap().push(unrelated);
+    let mut subtype = document["types"][0].clone();
+    subtype["identity"] = json!(PRIORITY_ORDER);
+    subtype["displayName"] = json!("PriorityOrder");
+    subtype["supertypes"] = json!([ORDER]);
+    subtype["operations"] = json!([]);
+    document["types"].as_array_mut().unwrap().push(subtype);
+    let (mut package, evidence) = package_over(&document, "total");
+    let call = package["semantic_graph"]["nodes"][CALL]["node_id"].clone();
+    let declaring = package["semantic_graph"]["nodes"][2]["node_id"].clone();
+    let function = add_dispatch_body(&mut package);
+    let candidate = json!({
+        "selection_key": {
+            "owner_effective_type": null,
+            "original": {"package": IDENTITY, "node": ORDER}
+        },
+        "operation_body": function,
+        "effective_precondition": null
+    });
+    package["checked_term_data"] = json!({
+        "equality_decisions": [],
+        "protocol_locations": [],
+        "dispatch_tables": [{
+            "application": call,
+            "occurrence": {"role":"type", "ordinal":0},
+            "operation": {"declaring":declaring, "operation":"invented"},
+            "context": declaring,
+            "candidates": [candidate]
+        }]
+    });
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/operation".to_owned())
+    );
+
+    package["checked_term_data"]["dispatch_tables"][0]["operation"]["operation"] = json!("total");
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["selection_key"]
+        ["original"]["node"] = json!(CUSTOMER);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/candidates/0/selection_key".to_owned())
+    );
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["selection_key"]
+        ["original"]["node"] = json!(PRIORITY_ORDER);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/candidates/0".to_owned())
+    );
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["selection_key"]
+        ["original"]["node"] = json!(ORDER);
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["operation_body"] =
+        call.clone();
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/candidates/0/operation_body".to_owned())
+    );
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["operation_body"] =
+        function;
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["effective_precondition"] =
+        call.clone();
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/candidates/0/effective_precondition".to_owned())
+    );
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["effective_precondition"] =
+        Value::Null;
+    let candidate = package["checked_term_data"]["dispatch_tables"][0]["candidates"][0].clone();
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"] =
+        json!([candidate.clone(), candidate]);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::ConflictingDefinition)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/candidates/1/selection_key".to_owned())
+    );
+
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"] = json!([]);
+    package["checked_term_data"]["dispatch_tables"][0]["context"] = call.clone();
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/context".to_owned())
+    );
+    package["checked_term_data"]["dispatch_tables"][0]["context"] = declaring;
+    let table = package["checked_term_data"]["dispatch_tables"][0].clone();
+    package["checked_term_data"]["dispatch_tables"] = json!([table.clone(), table]);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::ConflictingDefinition)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/1".to_owned())
+    );
+}
+
+/// Trace: FR-322-AC-288, FR-322-AC-289, TC-233.
+#[trace("TC-233", "FR-322-AC-288", "FR-322-AC-289")]
+#[test]
+fn checked_term_sidecar_refuses_unowned_equality_and_protocol_rows() {
+    let document = domain_document(json!({}));
+    let (mut package, evidence) = package_over(&document, "total");
+    let call = package["semantic_graph"]["nodes"][CALL]["node_id"].clone();
+    let integer = package["semantic_graph"]["nodes"][0]["node_id"].clone();
+    let operand = json!({"operand":0, "source_type":integer, "conversion_target":null});
+    package["checked_term_data"] = json!({
+        "equality_decisions":[{
+            "application":call, "occurrence":{"role":"type", "ordinal":0},
+            "term_path":[], "operator":"equal", "left":operand,
+            "right":{"operand":1, "source_type":integer, "conversion_target":null},
+            "schedule":"text", "units":[], "enum_members":[]
+        }],
+        "protocol_locations":[], "dispatch_tables":[]
+    });
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/equality_decisions/0".to_owned())
+    );
+
+    package["checked_term_data"]["equality_decisions"][0]["term_path"] =
+        json!([{"kind":"argument", "index":0}]);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/equality_decisions/0/term_path/0".to_owned())
+    );
+
+    package["checked_term_data"]["equality_decisions"] = json!([]);
+    package["checked_term_data"]["protocol_locations"] = json!([{
+        "application":call, "occurrence":{"role":"type", "ordinal":0},
+        "term_ordinal":0,
+        "location":{"origin":{"kind":"type_declaration", "name":"Example"}, "path":[]}
+    }]);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/protocol_locations/0".to_owned())
+    );
 }
 
 fn indexed_bytes(package: &Value) -> Vec<u8> {

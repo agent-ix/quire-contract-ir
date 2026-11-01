@@ -1053,6 +1053,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
         semantic_graph: graph,
         source_map: raw.source_map,
         refinement_step_rows: raw.refinement_step_rows,
+        checked_term_data: None,
         capability_report: raw.capability_report,
         diagnostics: raw.diagnostics,
     };

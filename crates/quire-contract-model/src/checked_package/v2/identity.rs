@@ -152,7 +152,7 @@ struct UnitRecord {
 }
 
 /// A canonical decimal rational.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, quire_canonical::FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedRational {
     /// Canonical integer string.

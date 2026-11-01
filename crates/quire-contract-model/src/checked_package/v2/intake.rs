@@ -86,6 +86,7 @@ type BorrowedWire<'a> = CheckedPackageEnvelope<
     BorrowedGraph<'a>,
     Vec<CheckedSourceMapEntry>,
     Vec<super::refinement::CheckedRefinementStepRowRegion>,
+    super::checked_term_data::CheckedTermDataV2,
     Vec<CheckedCapability>,
     BorrowedDiagnostics<'a>,
 >;
@@ -209,6 +210,7 @@ pub(super) fn decode_borrowed_wire(
         },
         source_map: wire.source_map,
         refinement_step_rows: wire.refinement_step_rows,
+        checked_term_data: wire.checked_term_data,
         capability_report: wire.capability_report,
         diagnostics: CheckedDiagnosticsV2 {
             catalog: diagnostics.catalog,
@@ -491,6 +493,11 @@ pub(super) fn check_lossless_source(
         }
     } else if root.contains_key("refinement_step_rows") {
         return Err(malformed(JsonPointer::root().key("refinement_step_rows")));
+    }
+    if let Some(data) = &wire.checked_term_data {
+        compare_root(&root, "checked_term_data", data, &[])?;
+    } else if root.contains_key("checked_term_data") {
+        return Err(malformed(JsonPointer::root().key("checked_term_data")));
     }
     compare_items(
         &["diagnostics", "entries"],

@@ -192,8 +192,9 @@ IR-1141; until its code lands, FR-019-AC-5 remains unbacked for these rows.
 
 FR-051 specifies `CheckedPackageSourceCorrespondenceRef` and
 `encode_checked_package_v2`, which are exported by the default-feature model
-crate. FR-061 specifies the planned `CheckedTermDataV2` writer sidecar and
-optional encoder input; these are not exported until IR-1219's code lands.
+crate. FR-322 and FR-354 specify the exported `CheckedTermDataV2` reader
+sidecar and bounded dispatch view. FR-051 specifies its planned optional
+encoder input; that writer argument is not exported until IR-1219's code lands.
 FR-052 and FR-053 specify additional public
 model APIs; their owning requirements retain those API obligations, including
 the planned IR-1141 structural selection controls of FR-053.
@@ -236,6 +237,7 @@ operation has its own owning requirement, as listed below.
 | `checked_package` (V2 refinement catalog and source rows) | types `CheckedRefinementInternal`, `CheckedRefinementStepRowRegion`, `RefinementAbstractClass`, `RefinementClassCatalog`, `RefinementConcreteClass`, `RefinementDrain`, `RefinementMemoryClass`, `RefinementMemoryModel`, `RefinementTsoModel` | FR-061 |
 | `checked_package` (V2 extension evidence) | types `CheckedExtensionClauseSchema`, `CheckedExtensionDefinition`, `CheckedExtensionGrammarSchema`, `CheckedExtensionNodeSchema`, `CheckedExtensionProduction`, `CheckedExtensionRefusalDetail`, `CheckedExtensionTypedNodeSchema` | FR-348 |
 | `checked_package` (V2 envelope encoder) | type `CheckedPackageSourceCorrespondenceRef`; function `encode_checked_package_v2` | FR-051 |
+| `checked_package` (V2 checked-term sidecar reader) | types `CheckedCompoundEqualityUnitTerm`, `CheckedDispatchCandidate`, `CheckedDispatchCandidateTable`, `CheckedDispatchReadError`, `CheckedDispatchView`, `CheckedEffectiveId`, `CheckedEqualityDecision`, `CheckedEqualityEnumMember`, `CheckedEqualityOperandDecision`, `CheckedEqualityOperator`, `CheckedEqualitySchedule`, `CheckedEqualityTermPathStep`, `CheckedKeyOrdinal`, `CheckedOriginalDeclarationId`, `CheckedProtocolLocation`, `CheckedProtocolLocationOrigin`, `CheckedProtocolSemanticLocation`, `CheckedResolvedEqualityUnit`, `CheckedResolvedEqualityUnitForm`, `CheckedSelectedOperationWitness`, `CheckedTermDataV2`, `CheckedUnitConversionEdge`, `CheckedUnitDimensionTerm`; associated checked_term_data and dispatch_candidates reads | FR-322, FR-354 |
 | `checked_package` (V2 scalar operands) | types `CheckedScalarOperand`, `CheckedScalarOperandChild`, `CheckedScalarOperandError`, `CheckedScalarOperandRange` | FR-038 |
 | `checked_package` (V2 parameter declaration) | types `CheckedParameterDeclaration`, `CheckedParameterDeclarationError` | FR-038 |
 | `checked_package` (V2 step relation claim) | types `CheckedStepExecution`, `CheckedStepRelationBody`, `CheckedStepRelationCapability`, `CheckedStepRelationObligationIdentity` | FR-351 |
