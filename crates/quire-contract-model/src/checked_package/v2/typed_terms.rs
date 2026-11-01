@@ -2521,7 +2521,8 @@ impl Encode for CheckedAbstractionFrame {
 mod tests {
     use super::{
         ApplicationOperator, CheckedApplicationOperation, CheckedBindingName,
-        CheckedBindingNameKind, CheckedOperationMember, CheckedOperationRecord,
+        CheckedBindingNameKind, CheckedFairnessGranularity, CheckedFairnessKind,
+        CheckedFairnessTarget, CheckedOperationMember, CheckedOperationRecord,
         CheckedOperationViews, CheckedTerm, ExecutionPoint, TermConversionCause,
     };
     use crate::checked_package::shared::{CheckedNodeId, CheckedNodePathSegment};
