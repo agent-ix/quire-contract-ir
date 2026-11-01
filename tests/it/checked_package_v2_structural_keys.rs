@@ -1890,3 +1890,66 @@ fn recursive_group_reader_has_an_exact_work_boundary() {
         assert!(incomplete.path.is_some(), "{name}: failing visit position");
     }
 }
+
+#[trace("TC-226", "FR-038-AC-382")]
+#[test]
+fn text_bounds_refuses_an_integer_range_base_and_body() {
+    let (mut package, _) = all_ten_shapes();
+    let position = index_of(&package, "bounded_domain", "integer_range");
+    package["semantic_graph"]["nodes"][position]["semantic_form"] = json!("text_bounds");
+    let result = read(&package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("text bounds over an integer-range base must refuse: {result:?}");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{position}/body"))
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(
+            serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+                .expect("checked node")
+        )
+    );
+}
+
+#[trace("TC-226", "FR-038-AC-382")]
+#[test]
+fn text_bounds_preserves_its_text_base_and_own_bounds() {
+    let (mut package, _) = all_ten_shapes();
+    let integer = index_of(&package, "scalar_type", "integer");
+    let scalar = package["semantic_graph"]["nodes"][integer].clone();
+    let text = append_shape(&mut package, "scalar_type", "text", scalar);
+    let text_id = package["semantic_graph"]["nodes"][text]["node_id"].clone();
+    let range = index_of(&package, "bounded_domain", "integer_range");
+    let mut bound = package["semantic_graph"]["nodes"][range].clone();
+    bound["semantic_type"] = text_id.clone();
+    bound["dependencies"] = json!([text_id]);
+    bound["body"]["members"][0]["value"]["value"] = json!("0");
+    bound["body"]["members"][1]["value"]["value"] = json!("16");
+    bound["body"]["members"]
+        .as_array_mut()
+        .expect("bound members")
+        .push(json!({
+            "term": "binding", "name": "text_profile", "value": {
+                "term": "literal", "type": text_id, "value_kind": "text", "value": "nfc"
+            }
+        }));
+    let position = append_shape(&mut package, "bounded_domain", "text_bounds", bound);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+        panic!("text bounds must admit: {:?}", read(&package));
+    };
+    let node = &admitted.graph().nodes[position];
+    assert_eq!(
+        serde_json::to_value(&node.semantic_type).expect("type"),
+        text_id
+    );
+    assert_eq!(
+        serde_json::to_value(&node.body).expect("body"),
+        package["semantic_graph"]["nodes"][position]["body"]
+    );
+}
