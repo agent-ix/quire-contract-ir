@@ -16,7 +16,7 @@ Reviewed PR #752 initially at 998f2e7fc9efd7cf2ad0b268e22fde3315984dde, against 
 
 ## Verdict
 
-CONDITIONAL. All findings below are fixed by source inspection at the disposition head; compilation and execution remain pending the host-wide Cargo lock. No test-pass or unconditional mergeability claim is made.
+PASS for the reviewed PR slice at 76f0d596e82e5353378cd5b22b90a4f27377528e. All findings are fixed and dispositioned, and final-source workspace Clippy, focused nominal runtime tests (8/8), and formatting checks passed. The PR is mergeable under the assigned focused-check speed rule; this is not repository-wide assurance.
 
 ## Findings
 
@@ -35,7 +35,7 @@ Reviewed public module exposure in identity.rs/lib.rs, the new nominal_runtime.r
 
 Reconciliation: quoin matrix 0.29.1 plus quire matrix, explicit repository scope. The computed repository matrix has 872 criteria: 712 tagged, 138 untagged, 1 tagged only by ignored tests and 21 method-without-symbol. All 872 have no run evidence in the quoin store. These are baseline context, not a claim of repository-wide assurance. In this PR slice AC-5, AC-6 and AC-7 are tagged by ordinary new tests; AC-8 is Inspection/method-without-symbol. AC-1 through AC-4 belong to other IR-1212..1214 lanes and remain outside this diff. Quire coverage reports no stale trace IDs in the new test file; unrelated repository diagnostics are retained in the captured output and are not treated as PR regressions.
 
-No Cargo, compiler, Clippy, focused test or Kani process was run by this reviewer, per the shared thermal lock instruction. Source review and static matrix data cannot establish runtime pass. Parent owns final validation; the source disposition below is conditional on those checks passing.
+No Cargo, compiler, Clippy, focused test or Kani process was run by this reviewer, per the shared thermal lock instruction. The initial source disposition was conditional on parent-owned validation. The final-source validation receipts inspected below satisfy that condition.
 
 - FR-354-AC-5, role: examined. Excerpt: With QSL-stage unit rows for source-owned declarations, a selected root and converted unit yield exact dimension, target, scale, offset and witnessed identity sufficient for `UnitTable`; absent rows, a dangling target, foreign identity or unresolved conversion return a typed outcome without a partial resolver.
 - FR-354-AC-6, role: examined. Excerpt: With QSL-stage enum declaration and member rows, an ordered and an unordered selected enum each yield exact case order, member identity and position sufficient for `EnumMemberIndex`; absent, duplicate, mismatched-case or foreign member witnesses refuse before any partial index.
@@ -59,3 +59,15 @@ Source follow-up at c8383879223d4b14317c0ec72c73bcf44a6993ee inspected the same 
 | FND-002 | fixed | Earlier borrowed refusal loci remain unchanged by c8383879. |
 
 The parent reports the first workspace Clippy invocation reached the code and raised `mutable_key_type`; this reviewer did not execute Cargo or independently claim a clean Clippy result. The rerun and focused tests remain pending, so the verdict remains CONDITIONAL on actual validation passing.
+
+## Final validation disposition
+
+Final reviewed source: 76f0d596e82e5353378cd5b22b90a4f27377528e. The only source change since the prior c8383879 disposition replaces a one-element cloned-row slice in a negative test with `std::slice::from_ref(&converted_row)`. Both forms pass the same one-element row contents to the same missing-target-witness assertion. Production code, selected identity semantics, trace tags and acceptance criteria are unchanged; no new finding.
+
+The parent reports all following commands completed with exit 0 on that source head, and the reviewer inspected their retained outputs:
+
+- Workspace all-targets Clippy: `/home/peter/dev/qualification-logs/titan-ir1215/clippy-final.log` contains the successful finished dev-profile result.
+- Workspace focused nominal runtime tests: `/home/peter/dev/qualification-logs/titan-ir1215/focused-tests.log` records eight tests passed, zero failed, zero ignored, including malformed-row budget/locus, unit target closure, derived dimension, enum order and foreign-member controls.
+- Cargo formatting check: `/home/peter/dev/qualification-logs/titan-ir1215/fmt-check.log` is empty on success; exit 0 is retained by the parent execution result. No new Cargo invocation was made by this reviewer.
+
+All prior findings remain fixed. Earlier pending-validation statements in this artifact describe their historical source-disposition checkpoints and are superseded by this final disposition. The same review is now mergeable under the task's focused-check speed rule. No Kani proof was required or run, and no aggregate/repository-wide test pass is claimed.
