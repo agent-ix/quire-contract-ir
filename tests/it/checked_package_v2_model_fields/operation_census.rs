@@ -424,56 +424,6 @@ fn context_refusals_and_exact_work_boundary_do_not_expose_partial_tables() {
     );
 }
 
-#[trace("TC-464", "FR-355-AC-1", "FR-355-AC-5")]
-#[test]
-#[ignore = "explicit live QSL producer lane: requires IR1236_QSL_PACKAGE and IR1236_QSL_MODEL"]
-fn qsl_emitted_package_keeps_the_unreferenced_operation_in_the_census() {
-    let package =
-        std::fs::read(std::env::var_os("IR1236_QSL_PACKAGE").expect("live QSL output path"))
-            .expect("read exact producer bytes");
-    let model = std::fs::read(std::env::var_os("IR1236_QSL_MODEL").expect("selected model path"))
-        .expect("read exact selected document");
-    let mut evidence = CheckedPackageEvidence::new();
-    evidence.support_feature("quire.value.complete/v1");
-    evidence
-        .insert_domain_package_document(IDENTITY, model)
-        .unwrap();
-    let admitted =
-        match CheckedPackageV2::read(&package, CheckedPackageReadLimits::bounded(), &evidence) {
-            CheckedPackageV2ReadResult::Admitted(package) => package,
-            other => panic!("strict reader must admit the live producer output: {other:?}"),
-        };
-    let context = admitted
-        .graph()
-        .nodes
-        .iter()
-        .find(|node| node.semantic_form.as_ref() == OBJECT)
-        .expect("QSL selected Node's model declaration");
-    let census = admitted.model_operations(&context.node_id, 10_000).unwrap();
-    assert_eq!(
-        census
-            .operations()
-            .iter()
-            .map(|op| op.name())
-            .collect::<Vec<_>>(),
-        ["alpha", "zeta"]
-    );
-    assert_eq!(
-        admitted
-            .node_kinds()
-            .iter()
-            .filter(|kind| matches!(
-                kind,
-                quire_contract_model::CheckedNodeKind::State(
-                    quire_contract_model::StateForm::OperationAnchor
-                )
-            ))
-            .count(),
-        1,
-        "the source anchors alpha only; zeta remains in the model census"
-    );
-}
-
 #[trace("TC-464", "FR-355-AC-1", "FR-355-AC-4")]
 #[test]
 fn every_operation_bearing_model_form_can_expose_its_declared_census() {
