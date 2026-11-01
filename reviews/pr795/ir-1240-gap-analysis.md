@@ -42,6 +42,7 @@ The new external test obtains a real admitted `quire.op.collection.index` operat
 | --- | --- | --- |
 | FND-001 | fixed | Commit `b1be4b10` adds one external `CheckedPackageV2::read` census test for every currently admissible named member-ID site: the five declaration variants, both relationship-end population shapes, and operation/protocol-root/attempt-node/parallel-branch/compensation-template fairness targets. Each maps flat to nested to another whole ID and checks callback count/order plus raw and borrowed typed mirrors. HybridTransition remains in the nested unit test; this IR reader has no `temporal_bindings` support for the QSpec hybrid fixture, so no currently admitted hybrid control exists. |
 | FND-002 | still-open | Add the admitted QSpec hybrid fairness operation to the external mapper census and assert its nested declaration maps once into the raw record and typed view. |
+| FND-002 | fixed | Commit `850180dc` adds an admitted QSpec HybridTransition external mapper test that exercises a whole nested declaration through two mapping passes and checks callback count, raw and typed mirrors, `member_declaration`, and name preservation. |
 
 ## New findings (disposition pass 2)
 
@@ -52,3 +53,8 @@ The new external test obtains a real admitted `quire.op.collection.index` operat
 ## Round 2 evidence
 
 Commit `f3867a52` adds only `#[ix_trace_rs::string_edge]` to `CheckedFairnessTarget::from_validated_value`. The annotation matches neighboring closed-vocabulary decoders and does not change mapper behavior. Fresh main includes the temporal-binding reader from PR #788. In `tests/conformance_qspec/hybrid.rs`, `qspec_hybrid_restored_model_and_claims_admit_from_published_nodes` reads QSpec's package, matches `CheckedPackageV2ReadResult::Admitted`, and asserts a typed `CheckedFairnessTarget::HybridTransition`. Thus round 1's stated reason for omitting this external mapper case no longer holds. The new external mapper census enumerates other fairness target kinds but no hybrid transition.
+
+## Round 3 evidence
+
+Commit `850180dc` adds `qspec_admitted_hybrid_fairness_maps_whole_nested_member_id` to the external QSpec conformance test. `restored_package()` reads the owning QSpec checkout's positive package and hybrid vectors and obtains an admitted typed `HybridTransition`. The new test maps its declaration from flat A to nested B, then B to C through public `CheckedTerm::map_node_ids`, checking one callback for the whole nested slot, no cascade, raw record, borrowed typed target, `member_declaration`, and unchanged target name. The pre-PR mapper would skip B on the second pass because `CheckedNodeId::from_value` accepts only flat paths.
+
