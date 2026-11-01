@@ -155,11 +155,22 @@ pub struct UnitRead<'a> {
     pub offset: &'a CheckedRational,
 }
 
+/// One canonical dimension in the selected units' transitive dimension closure.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DimensionRead<'a> {
+    /// Admitted dimension node with original owner and declaration.
+    pub node: &'a CheckedSemanticNodeV2,
+    /// Canonical powers, borrowed without rebuilding the dimension expression.
+    pub terms: &'a [DimensionTerm],
+}
+
 /// A complete selected unit closure, not a second unit graph implementation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnitResolverRead<'a> {
     /// Units in the caller's selected order; every target has a witnessed row.
     pub units: Vec<UnitRead<'a>>,
+    /// Complete dimension dependency closure, in first-encounter order.
+    pub dimensions: Vec<DimensionRead<'a>>,
     /// Charged bounded work, for reproducible exact-limit controls.
     pub work: u64,
 }
@@ -316,8 +327,34 @@ impl CheckedPackageV2 {
                 }
             }
         }
+        let mut dimensions = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut pending = units.iter().map(|unit| unit.dimension).collect::<Vec<_>>();
+        let mut next = 0;
+        while let Some(dimension) = pending.get(next).copied() {
+            next += 1;
+            budget.identity(&dimension.node_id)?;
+            if !seen.insert(&dimension.node_id) {
+                continue;
+            }
+            let CheckedTerm::NominalBody(body) = &dimension.body else {
+                return Err(budget.error(NominalReadCode::UnresolvedConversion, &dimension.node_id));
+            };
+            let NominalBodyKind::Dimension { terms } = &body.kind else {
+                return Err(budget.error(NominalReadCode::UnresolvedConversion, &dimension.node_id));
+            };
+            for term in terms {
+                budget.charge(term.exponent.len().saturating_add(1), &dimension.node_id)?;
+                pending.push(budget.node(self, &term.dimension_node_id)?);
+            }
+            dimensions.push(DimensionRead {
+                node: dimension,
+                terms,
+            });
+        }
         Ok(UnitResolverRead {
             units,
+            dimensions,
             work: budget.work,
         })
     }
