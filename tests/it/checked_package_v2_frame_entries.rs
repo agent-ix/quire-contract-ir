@@ -19,15 +19,16 @@ use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedApplicationOperation, CheckedCallableIdentity,
-    CheckedComparisonPath, CheckedComparisonRefusal, CheckedExecutionPointRefusal,
-    CheckedFieldReadForm, CheckedMemberType, CheckedNodeId, CheckedNodeTag, CheckedOccurrence,
-    CheckedOccurrenceRole, CheckedOperationAnchorBody, CheckedOperationMember,
-    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedStepRelationCapability, CheckedTerm,
-    CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName,
-    ModelForm, SelectedOperationIdentity, SelectedOperationMemberErrorCode,
-    SelectedOperationMemberRow, SelectedOperationMembers, StateClauseKind,
+    CheckedCallableReadErrorCode, CheckedComparisonPath, CheckedComparisonRefusal,
+    CheckedExecutionPointRefusal, CheckedFieldReadForm, CheckedMemberType, CheckedNodeId,
+    CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole, CheckedOperationAnchorBody,
+    CheckedOperationMember, CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedStepRelationCapability, CheckedTerm, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName, ModelForm,
+    SelectedOperationIdentity, SelectedOperationMemberErrorCode, SelectedOperationMemberRow,
+    SelectedOperationMembers, StateClauseKind,
 };
 use quire_exact::{EffectiveId, OriginalDeclarationKey};
 use serde_json::{json, Value};
@@ -5414,6 +5415,15 @@ fn model_operation_callable_joins_selected_body_and_frame() {
         other => panic!("body function fixture admission: {other:?}"),
     };
     let table = admitted.callable_table(100_000).expect("joined callables");
+    assert_eq!(
+        admitted.callable_table(100_000),
+        admitted.clone().callable_table(100_000)
+    );
+    let one_under = admitted
+        .callable_table(table.work() - 1)
+        .expect_err("operation work one under");
+    assert_eq!(one_under.code, CheckedCallableReadErrorCode::WorkLimit);
+    assert_eq!(one_under.work, table.work());
     let anchor = nodes(&fixture.value)
         .iter()
         .find(|node| node["semantic_form"] == "operation_anchor")
@@ -5442,12 +5452,19 @@ fn model_operation_callable_joins_selected_body_and_frame() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("empty frame fixture admission: {other:?}"),
     };
-    let empty_table = empty_admitted.callable_table(100_000).expect("empty frame callable");
+    let empty_table = empty_admitted
+        .callable_table(100_000)
+        .expect("empty frame callable");
     let operation = empty_table.rows().iter().find(|row| {
         matches!(&row.identity, CheckedCallableIdentity::Operation { anchor, .. } if anchor == &anchor_id)
     }).expect("operation with empty frame");
-    let empty_id = operation.frame.as_ref().expect("empty frame remains present");
-    assert!(matches!(empty_admitted.term(empty_id), Some(CheckedTerm::Frame {
+    let empty_id = operation
+        .frame
+        .as_ref()
+        .expect("empty frame remains present");
+    assert!(
+        matches!(empty_admitted.term(empty_id), Some(CheckedTerm::Frame {
         modifies, creates, deletes, deletes_scoped
-    }) if modifies.is_empty() && creates.is_empty() && deletes.is_empty() && deletes_scoped.is_empty()));
+    }) if modifies.is_empty() && creates.is_empty() && deletes.is_empty() && deletes_scoped.is_empty())
+    );
 }

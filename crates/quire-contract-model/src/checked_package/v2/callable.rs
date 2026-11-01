@@ -392,12 +392,17 @@ impl CheckedPackageV2 {
             {
                 return Err(budget.error(CheckedCallableReadErrorCode::MissingFrame, &node.node_id));
             }
+            let mut parameters = Vec::new();
+            for parameter in &function.parameters {
+                budget.charge(&node.node_id)?;
+                parameters.push(parameter.clone());
+            }
             rows.push(CheckedCallable {
                 identity: CheckedCallableIdentity::Operation {
                     anchor: node.node_id.clone(),
                     member: operation.identity.clone(),
                 },
-                parameters: function.parameters.clone(),
+                parameters,
                 body: function.body.clone(),
                 context: Some(anchor.context),
                 frame: Some(anchor.frame),
