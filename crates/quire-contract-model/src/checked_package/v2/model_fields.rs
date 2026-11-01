@@ -19,7 +19,7 @@
 use super::model_members::{
     check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
     DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, Owner,
-    RelationshipDecl,
+    RelationshipDecl, SelectedVariantCase,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
@@ -682,6 +682,23 @@ impl RetainedModels {
         } else {
             "enum"
         })
+    }
+
+    /// The admitted selected variant case for this declaration and exact case label.
+    pub(super) fn selected_variant_case(
+        &self,
+        key: &CheckedNodeId,
+        case: &str,
+    ) -> Option<&SelectedVariantCase> {
+        let declared = self.index.0.get(key)?;
+        if declared.form != DeclarationForm::VariantType {
+            return None;
+        }
+        self.models
+            .get(declared.selection)?
+            .variant_types
+            .get(&declared.node)?
+            .get(case)
     }
 
     pub(super) fn refinement_object_fields(

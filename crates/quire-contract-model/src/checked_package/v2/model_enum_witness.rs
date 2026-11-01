@@ -259,26 +259,10 @@ impl<'a> SelectedModelEnums<'a> {
                     consumed,
                 ));
             }
-            let Some(model) = package
+            let Some(case) = package
                 .models
-                .selected_models()
-                .iter()
-                .find(|model| model.identity == row.selected_document)
+                .selected_variant_case(&row.declaration_node, &row.case)
             else {
-                return Err(refusal(
-                    SelectedModelEnumErrorCode::UnavailableWitness,
-                    node,
-                    consumed,
-                ));
-            };
-            let Some(cases) = model.variant_types.get(&row.enum_original_identity) else {
-                return Err(refusal(
-                    SelectedModelEnumErrorCode::UnavailableWitness,
-                    node,
-                    consumed,
-                ));
-            };
-            let Some(case) = cases.get(&row.case) else {
                 return Err(refusal(
                     SelectedModelEnumErrorCode::MismatchedWitness,
                     node,
