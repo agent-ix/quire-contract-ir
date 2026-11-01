@@ -58,6 +58,7 @@ mod protocol_vectors;
 mod reaches_population;
 mod selection_vectors;
 mod single_body;
+mod temporal_clock_bindings;
 mod timed_model;
 mod timed_slots;
 mod transition;

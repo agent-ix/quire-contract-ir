@@ -56,6 +56,7 @@ mod state;
 mod step_relation;
 mod structural;
 mod temporal;
+mod temporal_binding;
 mod timed_model;
 mod typed_terms;
 mod vocabulary;
@@ -139,6 +140,7 @@ pub use step_relation::{
     CheckedStepExecution, CheckedStepRelationBody, CheckedStepRelationCapability,
     CheckedStepRelationObligationIdentity,
 };
+pub use temporal_binding::{ClockConfiguration, ClockExactNumber, TemporalBinding};
 pub use typed_terms::*;
 pub use vocabulary::*;
 
@@ -663,6 +665,8 @@ macro_rules! checked_package_envelope {
             refinement_step_rows: Option<R>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             checked_term_data: Option<T>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            temporal_bindings: Option<Vec<temporal_binding::TemporalBinding>>,
         }
 
         impl<Body: quire_canonical::Encode> quire_canonical::Encode for CheckedPackageEnvelope<
@@ -685,6 +689,9 @@ macro_rules! checked_package_envelope {
                 encode_envelope_field!(writer, "refinement_step_rows", self.refinement_step_rows, optional_elements);
                 if let Some(data) = self.checked_term_data {
                     encode::encoded(writer, "checked_term_data", data)?;
+                }
+                if let Some(rows) = &self.temporal_bindings {
+                    encode::elements(writer, "temporal_bindings", rows)?;
                 }
                 writer.end_object()
             }
@@ -760,6 +767,7 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         source_map: sources.source_map,
         refinement_step_rows: sources.refinement_step_rows,
         checked_term_data,
+        temporal_bindings: None,
         capability_report,
         diagnostics,
     };
@@ -1183,6 +1191,7 @@ impl CheckedPackageV2 {
             source_map,
             refinement_step_rows,
             checked_term_data,
+            temporal_bindings,
             capability_report,
             diagnostics,
         } = wire;
@@ -1209,6 +1218,7 @@ impl CheckedPackageV2 {
             source_map,
             refinement_step_rows,
             checked_term_data,
+            temporal_bindings,
             capability_report,
             diagnostics,
         };
@@ -1284,6 +1294,11 @@ impl CheckedPackageV2 {
     /// Admitted checked-term sidecar, absent when the producer supplied none.
     pub fn checked_term_data(&self) -> Option<&CheckedTermDataV2> {
         self.wire.checked_term_data.as_ref()
+    }
+
+    /// Admitted temporal clock rows, keyed by exact clause declaration ID.
+    pub fn temporal_bindings(&self) -> Option<&[TemporalBinding]> {
+        self.wire.temporal_bindings.as_deref()
     }
 
     /// The reported capabilities.
@@ -2780,6 +2795,14 @@ fn validate_graph(
         });
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
+    temporal_binding::validate(
+        wire.temporal_bindings.as_deref(),
+        &graph.nodes,
+        &kinds,
+        &index,
+        &wire.lock,
+        meter,
+    )?;
     // Graph-shape body and dependency rules precede declaration, frame, state
     // and operation checks. All of them
     // run before the dependency and body-reference edges below are resolved,
