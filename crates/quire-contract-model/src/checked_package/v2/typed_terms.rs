@@ -11,7 +11,7 @@ use super::{
 };
 use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
-    RefinementPopulation, RefinementStep,
+    RefinementPopulation, RefinementStep, RefinementStepArgument, RefinementStepTarget,
 };
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment};
 use crate::identity::ExecutionPoint;
@@ -1134,6 +1134,129 @@ pub enum CheckedTerm {
     OperationAnchorBody(Box<CheckedOperationAnchorBody>),
 }
 
+enum NodeMapWork<'a> {
+    Term(&'a mut CheckedTerm),
+    Id(&'a mut CheckedNodeId),
+    Operation(&'a mut CheckedApplicationOperation),
+    Nominal(&'a mut super::identity::NominalBody),
+}
+
+fn push_refinement_key<'a>(work: &mut Vec<NodeMapWork<'a>>, key: &'a mut RefinementKey) {
+    match key {
+        RefinementKey::Local(node) => work.push(NodeMapWork::Id(node)),
+        RefinementKey::External(external) => work.push(NodeMapWork::Id(&mut external.node)),
+    }
+}
+
+#[ix_trace_rs::string_edge]
+fn map_operation_ids(
+    operation: &mut CheckedApplicationOperation,
+    map: &mut impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>,
+) {
+    let Some(member) = operation
+        .record
+        .get_mut("member")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    let kind = member
+        .get("kind")
+        .and_then(Value::as_str)
+        .and_then(OperationMemberKind::from_wire);
+    let is_field = kind == Some(OperationMemberKind::Field);
+    let fields: &[&str] = match kind {
+        Some(OperationMemberKind::RelationshipEnd) => {
+            &["declaration", "destination_type", "population"]
+        }
+        Some(
+            OperationMemberKind::Field
+            | OperationMemberKind::Position
+            | OperationMemberKind::Element
+            | OperationMemberKind::Operation
+            | OperationMemberKind::TypeArgument
+            | OperationMemberKind::Fairness,
+        ) => &["declaration"],
+        Some(
+            OperationMemberKind::ProfileOperator
+            | OperationMemberKind::StateClause
+            | OperationMemberKind::TemporalInterval,
+        )
+        | None => &[],
+    };
+    let mut mapped_declaration = None;
+    let mut mapped_destination = None;
+    let mut mapped_population = None;
+    for field in fields {
+        if let Some(value) = member.get_mut(*field) {
+            if let Some(original) = CheckedNodeId::from_value(value) {
+                let replacement = map(&original);
+                if let Some(replacement) = &replacement {
+                    *value = serde_json::to_value(replacement)
+                        .expect("checked node ID serialization is infallible");
+                }
+                let mapped = replacement.unwrap_or(original);
+                match *field {
+                    "declaration" => mapped_declaration = Some(mapped),
+                    "destination_type" => mapped_destination = Some(mapped),
+                    "population" => mapped_population = Some(mapped),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let Some(views) = &mut operation.views else {
+        return;
+    };
+    if let Some(record) = &mut views.record {
+        if let Some(member) = &mut record.member {
+            match member {
+                CheckedOperationMember::Field { declaration, .. }
+                | CheckedOperationMember::Position { declaration, .. }
+                | CheckedOperationMember::Element { declaration }
+                | CheckedOperationMember::Operation { declaration, .. }
+                | CheckedOperationMember::TypeArgument { declaration }
+                | CheckedOperationMember::Fairness { declaration, .. } => {
+                    if let Some(mapped) = &mapped_declaration {
+                        *declaration = mapped.clone();
+                    }
+                }
+                CheckedOperationMember::RelationshipEnd {
+                    declaration,
+                    destination_type,
+                    population,
+                    ..
+                } => {
+                    if let Some(mapped) = &mapped_declaration {
+                        *declaration = mapped.clone();
+                    }
+                    if let Some(mapped) = &mapped_destination {
+                        *destination_type = mapped.clone();
+                    }
+                    if let (Some(population), Some(mapped)) = (population, &mapped_population) {
+                        *population = mapped.clone();
+                    }
+                }
+                CheckedOperationMember::ProfileOperator { .. }
+                | CheckedOperationMember::StateClause { .. }
+                | CheckedOperationMember::TemporalInterval { .. } => {}
+            }
+        }
+    }
+    if let (Some((declaration, _)), Some(mapped)) =
+        (&mut views.projection_field, &mapped_declaration)
+    {
+        if is_field {
+            *declaration = mapped.clone();
+        }
+    }
+    if let (Some(declaration), Some(mapped)) = (&mut views.member_declaration, &mapped_declaration)
+    {
+        *declaration = mapped.clone();
+    }
+}
+
 /// Borrowed, one-level decoding for early family wire checks. Children are
 /// checked in their original order, with their own refusal pointers, before
 /// the complete admitted tree is constructed.
@@ -1383,6 +1506,190 @@ impl CheckedTerm {
             }
             Self::Refinement { .. } => {
                 super::refinement::replace_node_ids(self, old, new);
+            }
+        }
+    }
+
+    /// Rewrite each logical typed node identity slot once, in term preorder.
+    ///
+    /// The walk uses an explicit stack so term nesting does not consume the
+    /// call stack. Replacements are applied only at their original slots and
+    /// are not passed through the callback again.
+    pub fn map_node_ids(&mut self, mut map: impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>) {
+        let mut work = vec![NodeMapWork::Term(self)];
+        while let Some(item) = work.pop() {
+            match item {
+                NodeMapWork::Id(id) => {
+                    if let Some(replacement) = map(id) {
+                        *id = replacement;
+                    }
+                }
+                NodeMapWork::Operation(operation) => map_operation_ids(operation, &mut map),
+                NodeMapWork::Nominal(body) => body.map_node_ids(&mut map),
+                NodeMapWork::Term(term) => match term {
+                    Self::Literal { type_id, .. } => work.push(NodeMapWork::Id(type_id)),
+                    Self::Reference { target } => work.push(NodeMapWork::Id(target)),
+                    Self::Application {
+                        operation,
+                        result_type,
+                        arguments,
+                        ..
+                    } => {
+                        work.extend(arguments.iter_mut().rev().map(NodeMapWork::Term));
+                        work.push(NodeMapWork::Id(result_type));
+                        work.push(NodeMapWork::Operation(operation));
+                    }
+                    Self::Aggregate { members } => {
+                        work.extend(members.iter_mut().rev().map(NodeMapWork::Term));
+                    }
+                    Self::Binding { value, .. } => work.push(NodeMapWork::Term(value)),
+                    Self::DependencyReference { node, .. } => work.push(NodeMapWork::Id(node)),
+                    Self::Frame {
+                        modifies,
+                        creates,
+                        deletes,
+                        ..
+                    } => {
+                        work.extend(deletes.iter_mut().rev().map(NodeMapWork::Id));
+                        work.extend(creates.iter_mut().rev().map(NodeMapWork::Id));
+                        for modification in modifies.iter_mut().rev() {
+                            let declaration = match modification {
+                                CheckedFrameModification::Relationship { declaration }
+                                | CheckedFrameModification::Field { declaration, .. } => {
+                                    declaration
+                                }
+                            };
+                            work.push(NodeMapWork::Id(declaration));
+                        }
+                    }
+                    Self::AbstractionRelation {
+                        objects,
+                        populations,
+                        frames,
+                    } => {
+                        for frame in frames.iter_mut().rev() {
+                            work.push(NodeMapWork::Id(&mut frame.context));
+                        }
+                        for population in populations.iter_mut().rev() {
+                            work.push(NodeMapWork::Id(&mut population.population));
+                        }
+                        for object in objects.iter_mut().rev() {
+                            work.push(NodeMapWork::Id(&mut object.type_id));
+                        }
+                    }
+                    Self::ExtensionForm { clauses, .. } => {
+                        work.extend(clauses.iter_mut().rev().map(NodeMapWork::Term));
+                    }
+                    Self::OperationAnchorBody(body) => {
+                        work.extend(body.members.iter_mut().rev().map(NodeMapWork::Term));
+                    }
+                    Self::NominalBody(body) => work.push(NodeMapWork::Nominal(body)),
+                    Self::Refinement {
+                        abstract_key,
+                        populations,
+                        objects,
+                        steps,
+                        histories,
+                        assume,
+                        ensure,
+                        protocol,
+                        class_catalog,
+                        ..
+                    } => {
+                        if let Some(catalog) = class_catalog {
+                            for entry in catalog.r#abstract.iter_mut().rev() {
+                                if let super::refinement::RefinementAbstractClass::Declared {
+                                    node,
+                                    binder_types,
+                                    ..
+                                } = entry
+                                {
+                                    for binder in binder_types.iter_mut().rev() {
+                                        push_refinement_key(&mut work, binder);
+                                    }
+                                    push_refinement_key(&mut work, node);
+                                }
+                            }
+                            for entry in catalog.concrete.iter_mut().rev() {
+                                if let super::refinement::RefinementConcreteClass::Declared {
+                                    node,
+                                    binder_types,
+                                    ..
+                                } = entry
+                                {
+                                    work.extend(binder_types.iter_mut().rev().map(NodeMapWork::Id));
+                                    work.push(NodeMapWork::Id(node));
+                                }
+                            }
+                        }
+                        if let Some(key) = protocol {
+                            push_refinement_key(&mut work, key);
+                        }
+                        for row in ensure.iter_mut().rev() {
+                            push_refinement_key(&mut work, &mut row.operation);
+                        }
+                        for row in assume.iter_mut().rev() {
+                            work.push(NodeMapWork::Id(&mut row.operation));
+                        }
+                        for row in histories.iter_mut().rev() {
+                            for update in row.updates.iter_mut().rev() {
+                                work.push(NodeMapWork::Term(&mut update.expression));
+                                work.push(NodeMapWork::Id(&mut update.operation));
+                            }
+                            work.push(NodeMapWork::Term(&mut row.initial));
+                            work.push(NodeMapWork::Id(&mut row.type_id));
+                            work.push(NodeMapWork::Id(&mut row.concrete_type));
+                        }
+                        for row in steps.iter_mut().rev() {
+                            match &mut row.target {
+                                RefinementStepTarget::Operation {
+                                    operation,
+                                    receiver,
+                                    arguments,
+                                } => {
+                                    for argument in arguments.iter_mut().rev() {
+                                        if let RefinementStepArgument::Term(term) = argument {
+                                            work.push(NodeMapWork::Term(term));
+                                        }
+                                    }
+                                    work.push(NodeMapWork::Term(receiver));
+                                    push_refinement_key(&mut work, operation);
+                                }
+                                RefinementStepTarget::ProtocolStep {
+                                    node, arguments, ..
+                                } => {
+                                    for argument in arguments.iter_mut().rev() {
+                                        if let RefinementStepArgument::Term(term) = argument {
+                                            work.push(NodeMapWork::Term(term));
+                                        }
+                                    }
+                                    if let Some(key) = node {
+                                        push_refinement_key(&mut work, key);
+                                    }
+                                }
+                                RefinementStepTarget::Stutter | RefinementStepTarget::Any => {}
+                            }
+                            if let Some(node) = &mut row.source_node {
+                                work.push(NodeMapWork::Id(node));
+                            }
+                        }
+                        for row in objects.iter_mut().rev() {
+                            work.extend(
+                                row.fields
+                                    .iter_mut()
+                                    .rev()
+                                    .map(|field| NodeMapWork::Term(&mut field.expression)),
+                            );
+                            work.push(NodeMapWork::Id(&mut row.concrete_type));
+                            push_refinement_key(&mut work, &mut row.abstract_type);
+                        }
+                        for row in populations.iter_mut().rev() {
+                            work.push(NodeMapWork::Id(&mut row.concrete));
+                            push_refinement_key(&mut work, &mut row.r#abstract);
+                        }
+                        push_refinement_key(&mut work, abstract_key);
+                    }
+                },
             }
         }
     }
@@ -2068,12 +2375,186 @@ impl Encode for CheckedAbstractionFrame {
 #[cfg(test)]
 mod tests {
     use super::{
-        CheckedBindingName, CheckedBindingNameKind, CheckedTerm, ExecutionPoint,
-        TermConversionCause,
+        ApplicationOperator, CheckedApplicationOperation, CheckedBindingName,
+        CheckedBindingNameKind, CheckedOperationMember, CheckedOperationRecord,
+        CheckedOperationViews, CheckedTerm, ExecutionPoint, TermConversionCause,
     };
+    use crate::checked_package::shared::{CheckedNodeId, CheckedNodePathSegment};
     use ix_trace_rs::trace;
     use quire_canonical::{to_vec, Limits};
     use serde_json::{error::Category, json};
+
+    #[trace("FR-048-AC-7")]
+    #[test]
+    fn application_member_rewrite_keeps_wire_and_admitted_views_in_step() {
+        let original = CheckedNodeId {
+            package: "operation-map".into(),
+            path: vec![CheckedNodePathSegment::Name("old".into())],
+            ordinal: 0,
+        };
+        let replacement = CheckedNodeId {
+            package: original.package.clone(),
+            path: vec![CheckedNodePathSegment::Name("new".into())],
+            ordinal: original.ordinal,
+        };
+        let member = CheckedOperationMember::Field {
+            declaration: original.clone(),
+            name: "field".into(),
+            read_form: None,
+        };
+        let operation = CheckedApplicationOperation {
+            record: json!({
+                "identity": "quire.op.field.read", "laws": [], "mode": null,
+                "member": {"kind": "field", "declaration": original, "name": "field"},
+                "leaves": []
+            }),
+            execution_point: None,
+            views: Some(CheckedOperationViews {
+                record: Some(Box::new(CheckedOperationRecord {
+                    identity: "quire.op.field.read".into(),
+                    mode: None,
+                    laws: Vec::new(),
+                    member: Some(member),
+                    constraints: Vec::new(),
+                    leaves: Vec::new(),
+                })),
+                projection_field: Some((original.clone(), "field".into())),
+                member_declaration: Some(original.clone()),
+                ..CheckedOperationViews::default()
+            }),
+            #[cfg(feature = "test-support")]
+            test_fixture: false,
+        };
+        let mut term = CheckedTerm::Application {
+            operator: ApplicationOperator::Call,
+            operation,
+            result_type: original.clone(),
+            arguments: Vec::new(),
+        };
+        let mut visits = 0;
+        term.map_node_ids(|id| {
+            assert_eq!(id, &original);
+            visits += 1;
+            Some(replacement.clone())
+        });
+        assert_eq!(visits, 2, "member and result are distinct logical slots");
+        let CheckedTerm::Application {
+            operation,
+            result_type,
+            ..
+        } = term
+        else {
+            panic!("application changed form");
+        };
+        assert_eq!(result_type, replacement);
+        assert_eq!(operation.member_declaration(), Ok(Some(&replacement)));
+        assert_eq!(
+            operation.projection_field(),
+            Ok(Some((&replacement, "field")))
+        );
+        assert!(matches!(operation.read().expect("admitted view").member,
+            Some(CheckedOperationMember::Field { declaration, .. }) if declaration == &replacement));
+        assert_eq!(
+            serde_json::to_value(&operation).expect("operation wire")["member"]["declaration"],
+            serde_json::to_value(&replacement).expect("node ID wire")
+        );
+    }
+
+    #[trace("FR-048-AC-7")]
+    #[test]
+    fn relationship_end_uses_one_callback_per_member_slot() {
+        let original = CheckedNodeId {
+            package: "operation-map".into(),
+            path: vec![CheckedNodePathSegment::Name("shared".into())],
+            ordinal: 0,
+        };
+        let member = CheckedOperationMember::RelationshipEnd {
+            declaration: original.clone(),
+            name: "original".into(),
+            destination_type: original.clone(),
+            population: Some(original.clone()),
+        };
+        let operation = CheckedApplicationOperation {
+            record: json!({
+                "identity": "quire.op.relationship.read", "laws": [], "mode": null,
+                "member": {"kind": "relationship_end", "declaration": original,
+                    "name": "original", "destination_type": original, "population": original},
+                "leaves": []
+            }),
+            execution_point: None,
+            views: Some(CheckedOperationViews {
+                record: Some(Box::new(CheckedOperationRecord {
+                    identity: "quire.op.relationship.read".into(),
+                    mode: None,
+                    laws: Vec::new(),
+                    member: Some(member),
+                    constraints: Vec::new(),
+                    leaves: Vec::new(),
+                })),
+                member_declaration: Some(original.clone()),
+                ..CheckedOperationViews::default()
+            }),
+            #[cfg(feature = "test-support")]
+            test_fixture: false,
+        };
+        let mut term = CheckedTerm::Application {
+            operator: ApplicationOperator::Call,
+            operation,
+            result_type: original.clone(),
+            arguments: Vec::new(),
+        };
+        let mut visits = 0;
+        term.map_node_ids(|seen| {
+            assert_eq!(seen, &original);
+            visits += 1;
+            Some(CheckedNodeId {
+                package: original.package.clone(),
+                path: original.path.clone(),
+                ordinal: visits,
+            })
+        });
+        assert_eq!(visits, 4, "three member slots and the result type");
+        let CheckedTerm::Application {
+            operation,
+            result_type,
+            ..
+        } = term
+        else {
+            panic!("application changed form");
+        };
+        let read = operation.read().expect("admitted operation view");
+        let Some(CheckedOperationMember::RelationshipEnd {
+            declaration,
+            destination_type,
+            population: Some(population),
+            name,
+        }) = read.member
+        else {
+            panic!("relationship member changed form");
+        };
+        assert_eq!(
+            (
+                declaration.ordinal,
+                destination_type.ordinal,
+                population.ordinal
+            ),
+            (1, 2, 3)
+        );
+        assert_eq!(result_type.ordinal, 4);
+        assert_eq!(operation.member_declaration(), Ok(Some(declaration)));
+        assert_eq!(name.as_ref(), "original");
+        let wire = serde_json::to_value(&operation).expect("operation wire");
+        for (field, id) in [
+            ("declaration", declaration),
+            ("destination_type", destination_type),
+            ("population", population),
+        ] {
+            assert_eq!(
+                wire["member"][field],
+                serde_json::to_value(id).expect("node ID wire")
+            );
+        }
+    }
 
     #[trace("FR-040-AC-31", "FR-040-AC-32", "FR-040-AC-36")]
     #[test]

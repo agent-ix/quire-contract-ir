@@ -312,6 +312,31 @@ impl RawSemanticNodeV2 {
 }
 
 impl CheckedSemanticNodeV2 {
+    /// Rewrite each typed node identity slot once in deterministic node order.
+    ///
+    /// `None` keeps the original identity. A replacement is not visited again;
+    /// the package reader remains responsible for validating a rewritten graph.
+    pub fn map_node_ids(&mut self, mut map: impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>) {
+        fn visit(
+            id: &mut CheckedNodeId,
+            map: &mut impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>,
+        ) {
+            if let Some(replacement) = map(id) {
+                *id = replacement;
+            }
+        }
+
+        visit(&mut self.node_id, &mut map);
+        visit(&mut self.semantic_type, &mut map);
+        for dependency in &mut self.dependencies {
+            visit(dependency, &mut map);
+        }
+        if let Some(owner_model) = &mut self.owner_model {
+            visit(owner_model, &mut map);
+        }
+        self.body.map_node_ids(map);
+    }
+
     /// Replace an exact node identity throughout this admitted, cloned node.
     /// This does not derive a replacement key or validate the resulting graph.
     pub fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
