@@ -7,8 +7,8 @@ use super::exact_projection::project_record_field_type;
 use super::model_members::{DeclarationForm, MemberType};
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedPackageV2, ExactTypeProjectionError,
-    ExactTypeProjectionErrorCode, ModelForm, ScalarTypeForm, SelectedExactIdentities,
-    SelectedExactIdentity, SelectedRecordView,
+    ExactTypeProjectionErrorCode, ScalarTypeForm, SelectedExactIdentities, SelectedExactIdentity,
+    SelectedRecordView,
 };
 use quire_exact::{EffectiveId, NodeKey, Presence, ValueType};
 use std::collections::BTreeMap;
