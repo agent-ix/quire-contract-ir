@@ -96,7 +96,7 @@ pub use contract_package::{
 pub use dispatch_projection::{CheckedDispatchReadError, CheckedDispatchView};
 pub use equality_projection::{
     AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, EqualityDimensionRole,
-    EqualityFactWitness, EqualityOperandTypeRole, EqualityWitnessKind,
+    EqualityFactWitness, EqualityOperandTypeRole, EqualityUnitRole, EqualityWitnessKind,
     SelectedEqualityApplicationRow, SelectedEqualityFactRow,
 };
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};

@@ -80,7 +80,8 @@ fn key(name: &str) -> NodeKey {
 fn equality_source_unit_row_joins_before_missing_dimension_key() {
     use quire_contract_model::{
         AdmittedEqualityReadErrorCode, CheckedOccurrence, CheckedOccurrenceRole,
-        EqualityWitnessKind, SelectedEqualityApplicationRow,
+        EqualityFactWitness, EqualityUnitRole, EqualityWitnessKind, SelectedEqualityApplicationRow,
+        SelectedEqualityFactRow,
     };
     use quire_exact::{Location, Origin, Role};
 
@@ -178,11 +179,28 @@ fn equality_source_unit_row_joins_before_missing_dimension_key() {
             .clone(),
         UnitId::Declared(key("Metre")),
     );
+    let fact_row = SelectedEqualityFactRow {
+        application: app_row.node_key.clone(),
+        checked_application: app_row.application.clone(),
+        occurrence: occurrence.clone(),
+        source_map_entry: app_row.source_map_entry.clone(),
+        structural_key: key("Metre"),
+        structural_node: metre.node_id.clone(),
+        owner: metre.owner.clone(),
+        value_type: None,
+        fact: EqualityFactWitness::Unit {
+            unit_id: UnitId::Declared(key("Metre")),
+            quantity_type: metre.node_id.clone(),
+            operand_position: 0,
+            role: EqualityUnitRole::Source,
+        },
+    };
     let missing = package
         .admitted_equality(
             &app_row.application,
             &occurrence,
             std::slice::from_ref(&app_row),
+            std::slice::from_ref(&fact_row),
             &[],
             10_000,
         )
@@ -199,6 +217,7 @@ fn equality_source_unit_row_joins_before_missing_dimension_key() {
             &app_row.application,
             &occurrence,
             std::slice::from_ref(&app_row),
+            std::slice::from_ref(&fact_row),
             std::slice::from_ref(&unit_row),
             10_000,
         )

@@ -1862,7 +1862,7 @@ mod tests {
                         unit_id: unit_id.clone(),
                         quantity_type: ids[&'a'].clone(),
                         operand_position: position,
-                        role: super::super::EqualityOperandTypeRole::Source,
+                        role: super::super::EqualityUnitRole::Source,
                     },
                     None,
                 ),
@@ -2080,7 +2080,7 @@ mod tests {
                         unit_id: unit_id.clone(),
                         quantity_type: unit_node.clone(),
                         operand_position: position,
-                        role: super::super::EqualityOperandTypeRole::Source,
+                        role: super::super::EqualityUnitRole::Source,
                     },
                     unit_key.clone(),
                     unit_node.clone(),
@@ -2185,6 +2185,39 @@ mod tests {
             .expect("joined declared quantity decision");
         assert_eq!(admitted.schedule(), EqualitySchedule::Quantity);
         assert_eq!(admitted.units()[0].id, unit_id);
+        let mut changed = facts.clone();
+        let edge = changed
+            .iter_mut()
+            .find(|row| {
+                matches!(
+                    row.fact,
+                    super::super::EqualityFactWitness::ConversionEdge {
+                        operand_position: 0,
+                        ..
+                    }
+                )
+            })
+            .expect("source edge row");
+        let super::super::EqualityFactWitness::ConversionEdge { target_node, .. } = &mut edge.fact
+        else {
+            panic!("source edge fact");
+        };
+        *target_node = dimension_node.clone();
+        let mismatch = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &changed,
+                std::slice::from_ref(&source_row),
+                1000,
+            )
+            .expect_err("changed conversion target refuses");
+        assert_eq!(
+            mismatch.code,
+            super::super::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness
+        );
+        assert_eq!(*mismatch.at, unit_node);
         facts.retain(|row| {
             !matches!(
                 row.fact,

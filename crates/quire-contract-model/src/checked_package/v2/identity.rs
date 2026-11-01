@@ -255,6 +255,31 @@ impl NominalBody {
         }
     }
 
+    /// Borrow the selected dimension, target and exact affine data of a source unit.
+    pub(crate) fn unit_details(
+        &self,
+    ) -> Option<(
+        &CheckedNodeId,
+        Option<&CheckedNodeId>,
+        &CheckedRational,
+        &CheckedRational,
+    )> {
+        match &self.kind {
+            NominalBodyKind::Unit {
+                dimension_node_id,
+                target_unit_node_id,
+                scale,
+                offset,
+            } => Some((
+                dimension_node_id,
+                target_unit_node_id.as_ref(),
+                scale,
+                offset,
+            )),
+            _ => None,
+        }
+    }
+
     /// Borrow an enum's ordered flag and members in their admitted order.
     /// Other nominal body forms have no enum view.
     pub fn enum_details(&self) -> Option<(bool, &[Box<str>])> {
