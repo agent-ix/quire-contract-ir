@@ -23,9 +23,9 @@ requirement does not move locus serialization into the model crate.
 
 ## Inputs
 
-The authoritative external source is a `quire-specification` checkout at
-commit `65d14b984108733f1988fbc48ed9fe279acfe5bd` or later, specifically
-`proposals/backend-provider-v1/schema.json` and FR-331-AC-46. Its
+The authoritative external source is the configured `quire-specification`
+checkout, specifically `proposals/backend-provider-v1/schema.json` and
+FR-331-AC-46. Its
 `$defs.CertificateRejected.oneOf` branch with `rule: malformed` and
 `at.properties.member.enum` supplies the published spellings. The property
 closure is computed from `$defs.ProbabilityCertificate` and
@@ -51,8 +51,8 @@ exactly once. Each variant's `as_str()` SHALL return its exact schema spelling
 without a path, index, or alias. The type SHALL support `Clone`, `Copy`,
 `Debug`, `Eq`, and `PartialEq`.
 
-The model type supplies the spelling used by QSL's `{ "member": spelling }`
-certificate locus. The locus remains one member name with no path. A name
+The model type supplies the canonical member spelling to downstream
+consumers. It exposes no certificate-locus structure or serializer. A name
 outside the published set cannot be represented by this type.
 
 ## Behavior
@@ -80,9 +80,9 @@ reorder restores this IR check without changing the FR-331 set rule.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-070-AC-1 | A default-feature consumer imports `quire_contract_model::CertificateMember` directly, can enumerate its closed `ALL` slice and obtain the exact schema spelling of every variant with `as_str()`, and sees the specified derives. The model crate has no QSL or backend dependency. | Test, Inspection |
-| FR-070-AC-2 | With a QSpec checkout at the stated commit or later, a conformance test reads the referenced schema and computes the `ProbabilityCertificate`/`ZoneCertificate` certificate-owned property-name set and the `malformed` member enum set. Both sets and the unique `CertificateMember::ALL` spelling set are equal, with exactly 51 names at the stated commit; a schema add, removal, rename, duplicate, or malformed/missing source fails the check. This is the FR-331-AC-46 and TC-431 BP-42 set obligation. | Test |
+| FR-070-AC-2 | With the configured QSpec checkout, a conformance test reads the referenced schema and computes the `ProbabilityCertificate`/`ZoneCertificate` certificate-owned property-name set and the `malformed` member enum set. Both sets and the unique `CertificateMember::ALL` spelling set are equal; a schema add, removal, rename, duplicate, or malformed/missing source fails the check. This is the FR-331-AC-46 and TC-431 BP-42 set obligation. | Test |
 | FR-070-AC-3 | The ordered `CertificateMember::ALL` spellings equal the published schema enum sequence. A schema-only reorder fails this IR repository choice until the model enumeration is updated, even though FR-331-AC-46 set equality still holds. | Test |
-| FR-070-AC-4 | For each variant, `as_str()` is the sole canonical name used in QSL's one-member `{ "member": spelling }` locus; no path, index, alias, or additional locus member is derived from the model type. QSL's locus serialization remains QSL-owned. | Test, Inspection |
+| FR-070-AC-4 | For each variant, `as_str()` returns only its canonical member spelling, with no path, index, or alias. The model type exposes no certificate-locus structure or serializer. | Test, Inspection |
 
 ## Dependencies
 
