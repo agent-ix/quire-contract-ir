@@ -1458,11 +1458,11 @@ mod tests {
                 minimum - 1,
             )
             .expect_err("one less work unit refuses");
-        assert!(matches!(
+        assert_eq!(
             short.code,
             super::super::AdmittedEqualityReadErrorCode::WorkLimit
-                | super::super::AdmittedEqualityReadErrorCode::Materialization
-        ));
+        );
+        assert_eq!(short.attempted_work, 1);
         assert_eq!(
             package
                 .admitted_equality(&application, &occurrence, &[], &[], 100)

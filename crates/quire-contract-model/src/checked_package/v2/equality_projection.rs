@@ -16,7 +16,7 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
 use quire_exact::{
-    Integer, IntegerInterval, Location, Meter, NodeKey, ScalarLimits, UnitId, ValueType,
+    Integer, IntegerInterval, LimitKind, Location, Meter, NodeKey, ScalarLimits, UnitId, ValueType,
 };
 use quire_semantic_value::declaration::{
     AdmittedEqualityDecision, EqualityDecisionDescriptor, EqualityOperand, EqualityOperator,
@@ -273,6 +273,9 @@ pub enum AdmittedEqualityReadErrorCode {
     /// A read charge exceeded the finite work limit.
     #[error("equality read work limit exhausted")]
     WorkLimit,
+    /// QSV refused a non-work resource charge while materializing admitted facts.
+    #[error("equality materialization resource limit exhausted")]
+    Resource,
     /// The already joined descriptor could not be materialized by QSV.
     #[error("equality materialization failed")]
     Materialization,
@@ -464,6 +467,36 @@ fn exact_meter(work_limit: u64) -> Meter {
         work_units: work_limit,
         result_units: u64::MAX,
     })
+}
+
+fn materialization_refusal(
+    application: &CheckedNodeId,
+    ir_work: u64,
+    exact_work: u64,
+    cause: EqualityMaterializationError,
+) -> AdmittedEqualityReadError {
+    let (code, attempted_work) = match &cause {
+        EqualityMaterializationError::Resource { cause, .. } => (
+            if cause.limit_kind == LimitKind::WorkUnits {
+                AdmittedEqualityReadErrorCode::WorkLimit
+            } else {
+                AdmittedEqualityReadErrorCode::Resource
+            },
+            // The nested QSV Incomplete retains the mathematical integer if
+            // a denied charge cannot be represented by this u64 summary.
+            cause.next_charge.to_u64().unwrap_or(u64::MAX),
+        ),
+        _ => (AdmittedEqualityReadErrorCode::Materialization, 0),
+    };
+    let mut error = read_error(
+        code,
+        application,
+        application,
+        ir_work.saturating_add(exact_work),
+        attempted_work,
+    );
+    error.materialization = Some(Box::new(cause));
+    error
 }
 
 fn join_source_unit(
@@ -819,21 +852,14 @@ impl CheckedPackageV2 {
             enum_declarations: Vec::new(),
             enum_members: Vec::new(),
         };
-        mint_admitted_equality_decision(
-            ReaderSeal,
-            descriptor,
-            &mut exact_meter(work.limit - work.consumed),
-        )
-        .map_err(|cause| {
-            let mut error = read_error(
-                AdmittedEqualityReadErrorCode::Materialization,
-                application,
+        let mut meter = exact_meter(work.limit - work.consumed);
+        mint_admitted_equality_decision(ReaderSeal, descriptor, &mut meter).map_err(|cause| {
+            materialization_refusal(
                 application,
                 work.consumed,
-                0,
-            );
-            error.materialization = Some(Box::new(cause));
-            error
+                meter.consumed(LimitKind::WorkUnits),
+                cause,
+            )
         })
     }
 }
@@ -846,5 +872,50 @@ fn occurrence_role(role: &CheckedOccurrenceRole) -> &'static str {
         CheckedOccurrenceRole::Anchor => "anchor",
         CheckedOccurrenceRole::Claim => "claim",
         CheckedOccurrenceRole::Generated => "generated",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quire_exact::{ChargePoint, Incomplete};
+    use quire_semantic_value::reader_admission::EqualityMaterializationLocus;
+
+    /// Trace: FR-353-AC-4.
+    /// Provenance: IR-1209 QSV resource translation at the admitted boundary.
+    #[test]
+    fn qsv_work_denial_keeps_exact_charge_and_locus() {
+        let application = super::super::test_support::node_id('a');
+        let cause = EqualityMaterializationError::Resource {
+            locus: EqualityMaterializationLocus::Unit { row: 0 },
+            cause: Incomplete {
+                limit_kind: LimitKind::WorkUnits,
+                limit: 3,
+                consumed: 3,
+                next_charge: Integer::from(2_u64),
+                charge_point: ChargePoint::UnitIdentityRead,
+            },
+        };
+        let refused = materialization_refusal(&application, 5, 3, cause.clone());
+        assert_eq!(refused.code, AdmittedEqualityReadErrorCode::WorkLimit);
+        assert_eq!(refused.consumed_work, 8);
+        assert_eq!(refused.attempted_work, 2);
+        assert_eq!(refused.materialization.as_deref(), Some(&cause));
+
+        let resource = EqualityMaterializationError::Resource {
+            locus: EqualityMaterializationLocus::EnumMember { row: 1 },
+            cause: Incomplete {
+                limit_kind: LimitKind::TextInputBytes,
+                limit: 4,
+                consumed: 4,
+                next_charge: Integer::from(7_u64),
+                charge_point: ChargePoint::EnumIdentityRead,
+            },
+        };
+        let refused = materialization_refusal(&application, 5, 2, resource.clone());
+        assert_eq!(refused.code, AdmittedEqualityReadErrorCode::Resource);
+        assert_eq!(refused.consumed_work, 7);
+        assert_eq!(refused.attempted_work, 7);
+        assert_eq!(refused.materialization.as_deref(), Some(&resource));
     }
 }
