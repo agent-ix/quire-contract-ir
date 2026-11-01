@@ -86,4 +86,3 @@ mod string_edge_gate;
 
 mod nominal_runtime;
 
-mod protocol_locations;
