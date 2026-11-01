@@ -1014,7 +1014,7 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
     let row = SelectedTupleDeclarationRow::new(node.clone(), IDENTITY, tuple.clone(), key.clone());
     let identities = SelectedExactIdentities::empty();
     let view = admitted
-        .project_selected_type_declarations(&identities, &[row.clone()], &[], 1000)
+        .project_selected_type_declarations(&identities, std::slice::from_ref(&row), &[], 1000)
         .unwrap();
     assert_eq!(view.tuples().len(), 1);
     assert_eq!(view.tuples()[0].node_key(), &key);
@@ -1024,9 +1024,12 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
     );
     assert_eq!(view.tuples()[0].original_identity(), tuple);
     assert_eq!(
-        admitted
-            .clone()
-            .project_selected_type_declarations(&identities, &[row.clone()], &[], 1000),
+        admitted.clone().project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&row),
+            &[],
+            1000
+        ),
         Ok(view.clone())
     );
     let missing = admitted
@@ -1063,6 +1066,52 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
         .project_selected_type_declarations(&identities, &[row], &[], view.work() - 1)
         .unwrap_err();
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+
+    let long_key =
+        NodeKey::new("tuple-stage", vec![PathSegment::Text("x".repeat(4096))], 0).unwrap();
+    let long_row = SelectedTupleDeclarationRow::new(
+        serde_json::from_value(node_id(&declaration_key("Pair", "tuple_value_type"))).unwrap(),
+        IDENTITY,
+        orders("Pair"),
+        long_key,
+    );
+    let long_view = admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&long_row),
+            &[],
+            20_000,
+        )
+        .unwrap();
+    assert!(long_view.work() > view.work() + 4000);
+    assert!(admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&long_row),
+            &[],
+            long_view.work()
+        )
+        .is_ok());
+    let one_less = admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&long_row),
+            &[],
+            long_view.work() - 1,
+        )
+        .unwrap_err();
+    assert_eq!(one_less.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    let tight = admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&long_row),
+            &[],
+            view.work() + 100,
+        )
+        .unwrap_err();
+    assert_eq!(tight.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(tight.at.as_ref(), &long_row.structural_node);
+    assert_eq!(tight.form.as_ref(), "selected_tuple_row");
 }
 
 #[test]
@@ -1123,7 +1172,12 @@ fn selected_record_field_uses_witnessed_tuple_key() {
     let tuple_row =
         SelectedTupleDeclarationRow::new(tuple_node, IDENTITY, tuple, tuple_key.clone());
     let view = admitted
-        .project_selected_type_declarations(&identities, &[tuple_row.clone()], &[], 1000)
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&tuple_row),
+            &[],
+            1000,
+        )
         .unwrap();
     assert_eq!(view.tuples()[0].positions(), &[ValueType::Boolean]);
     assert_eq!(

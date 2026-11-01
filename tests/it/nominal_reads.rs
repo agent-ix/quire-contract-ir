@@ -143,7 +143,12 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
         Ok(view.clone())
     );
     let missing = package
-        .project_selected_type_declarations(&identities, &[], &[root_row.clone()], 10_000)
+        .project_selected_type_declarations(
+            &identities,
+            &[],
+            std::slice::from_ref(&root_row),
+            10_000,
+        )
         .unwrap_err();
     assert_eq!(
         missing.code,
@@ -206,6 +211,41 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
         .project_selected_type_declarations(&identities, &[], &rows, view.work() - 1)
         .unwrap_err();
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+
+    let mut long_rows = rows.clone();
+    long_rows[1].unit_id = UnitId::Declared(
+        NodeKey::new("unit-stage", vec![PathSegment::Text("x".repeat(4096))], 0).unwrap(),
+    );
+    let long_view = package
+        .project_selected_type_declarations(&identities, &[], &long_rows, 20_000)
+        .unwrap();
+    assert!(long_view.work() > view.work() + 4000);
+    assert!(package
+        .project_selected_type_declarations(&identities, &[], &long_rows, long_view.work())
+        .is_ok());
+    let one_less = package
+        .project_selected_type_declarations(&identities, &[], &long_rows, long_view.work() - 1)
+        .unwrap_err();
+    assert_eq!(one_less.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    let tight = package
+        .project_selected_type_declarations(&identities, &[], &long_rows, view.work() + 100)
+        .unwrap_err();
+    assert_eq!(tight.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(tight.at.as_ref(), &converted.node_id);
+    assert_eq!(tight.form.as_ref(), "selected_source_unit_row");
+    let mut long_declaration = converted_row;
+    long_declaration.qualified_declaration = vec!["x".repeat(4096).into()];
+    let refusal = package
+        .project_selected_type_declarations(
+            &identities,
+            &[],
+            &[rows[0].clone(), long_declaration],
+            view.work() + 100,
+        )
+        .unwrap_err();
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(refusal.at.as_ref(), &converted.node_id);
+    assert_eq!(refusal.form.as_ref(), "selected_source_unit_row");
 }
 fn row<'a>(
     node: &'a CheckedSemanticNodeV2,

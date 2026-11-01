@@ -7,12 +7,12 @@ use super::exact_projection::project_record_field_type;
 use super::model_members::{DeclarationForm, MemberType};
 use super::nominal_reads::{NominalDeclarationRow, NominalIdentity, NominalReadCode};
 use super::{
-    CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2, CheckedRational,
-    DimensionTerm, ExactTypeProjectionError, ExactTypeProjectionErrorCode, ScalarTypeForm,
-    SelectedExactIdentities, SelectedExactIdentity, SelectedRecordView, SelectedSourceUnitRow,
-    SelectedTupleDeclarationRow,
+    CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedNodePathSegment, CheckedPackageV2,
+    CheckedRational, DimensionTerm, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
+    ScalarTypeForm, SelectedExactIdentities, SelectedExactIdentity, SelectedRecordView,
+    SelectedSourceUnitRow, SelectedTupleDeclarationRow,
 };
-use quire_exact::{EffectiveId, NodeKey, Presence, UnitId, ValueType};
+use quire_exact::{EffectiveId, NodeKey, PathSegmentView, Presence, UnitId, ValueType};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One admitted effective object field in selected declaration order.
@@ -268,6 +268,82 @@ fn charge(
     Ok(())
 }
 
+fn charge_amount(
+    work: &mut u64,
+    limit: u64,
+    at: &CheckedNodeId,
+    form: &str,
+    amount: usize,
+) -> Result<(), SelectedTypeDeclarationsError> {
+    let Some(next) = u64::try_from(amount)
+        .ok()
+        .and_then(|amount| work.checked_add(amount))
+    else {
+        return Err(SelectedTypeDeclarationsError::at(
+            ExactTypeProjectionErrorCode::ExhaustedWork,
+            at,
+            form,
+            *work,
+        ));
+    };
+    if next > limit {
+        return Err(SelectedTypeDeclarationsError::at(
+            ExactTypeProjectionErrorCode::ExhaustedWork,
+            at,
+            form,
+            *work,
+        ));
+    }
+    *work = next;
+    Ok(())
+}
+
+fn charge_structural_id(
+    work: &mut u64,
+    limit: u64,
+    at: &CheckedNodeId,
+    form: &str,
+) -> Result<(), SelectedTypeDeclarationsError> {
+    let mut pending = vec![at];
+    while let Some(id) = pending.pop() {
+        charge_amount(work, limit, at, form, id.package.len())?;
+        charge_amount(work, limit, at, form, 8)?;
+        for segment in &id.path {
+            charge(work, limit, at, form)?;
+            match segment {
+                CheckedNodePathSegment::Name(name) => {
+                    charge_amount(work, limit, at, form, name.len())?
+                }
+                CheckedNodePathSegment::Index(_) => charge_amount(work, limit, at, form, 8)?,
+                CheckedNodePathSegment::Node(child) => pending.push(child),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn charge_node_key(
+    work: &mut u64,
+    limit: u64,
+    at: &CheckedNodeId,
+    form: &str,
+    key: &NodeKey,
+) -> Result<(), SelectedTypeDeclarationsError> {
+    let mut pending = vec![key.view()];
+    while let Some(view) = pending.pop() {
+        charge_amount(work, limit, at, form, view.package().len())?;
+        charge_amount(work, limit, at, form, 8)?;
+        for segment in view.path() {
+            charge(work, limit, at, form)?;
+            match segment {
+                PathSegmentView::Text(text) => charge_amount(work, limit, at, form, text.len())?,
+                PathSegmentView::Node(child) => pending.push(child),
+            }
+        }
+    }
+    Ok(())
+}
+
 fn projected_field_type(
     package: &CheckedPackageV2,
     identities: &SelectedExactIdentities,
@@ -326,6 +402,7 @@ impl CheckedPackageV2 {
             if *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
                 && matches!(node.owner, Some(CheckedNodeOwner::Source { .. }))
             {
+                charge_structural_id(&mut work, work_limit, &node.node_id, "selected_source_unit")?;
                 selected_source_units.push(node.node_id.clone());
             } else if matches!(
                 kind,
@@ -447,6 +524,13 @@ impl CheckedPackageV2 {
                 | SelectedExactIdentity::DeclaredUnit(UnitId::Compound(_)) => None,
             };
             if let Some(key) = key {
+                charge_node_key(
+                    &mut work,
+                    work_limit,
+                    &row.structural_node,
+                    "selected_exact_key",
+                    key,
+                )?;
                 exact_keys.insert(key.clone());
             }
         }
@@ -456,6 +540,33 @@ impl CheckedPackageV2 {
                 work_limit,
                 &row.structural_node,
                 "selected_tuple_row",
+            )?;
+            charge_structural_id(
+                &mut work,
+                work_limit,
+                &row.structural_node,
+                "selected_tuple_row",
+            )?;
+            charge_amount(
+                &mut work,
+                work_limit,
+                &row.structural_node,
+                "selected_tuple_row",
+                row.selected_document.len(),
+            )?;
+            charge_amount(
+                &mut work,
+                work_limit,
+                &row.structural_node,
+                "selected_tuple_row",
+                row.original_identity.len(),
+            )?;
+            charge_node_key(
+                &mut work,
+                work_limit,
+                &row.structural_node,
+                "selected_tuple_row",
+                &row.node_key,
             )?;
             let Some((document, original, form)) =
                 self.models.selected_declaration(&row.structural_node)
@@ -505,6 +616,50 @@ impl CheckedPackageV2 {
                 &row.structural_node,
                 "selected_source_unit_row",
             )?;
+            charge_structural_id(
+                &mut work,
+                work_limit,
+                &row.structural_node,
+                "selected_source_unit_row",
+            )?;
+            charge_amount(
+                &mut work,
+                work_limit,
+                &row.structural_node,
+                "selected_source_unit_row",
+                row.source_authority.len(),
+            )?;
+            charge_amount(
+                &mut work,
+                work_limit,
+                &row.structural_node,
+                "selected_source_unit_row",
+                row.source_identity.len(),
+            )?;
+            for segment in &row.qualified_declaration {
+                charge(
+                    &mut work,
+                    work_limit,
+                    &row.structural_node,
+                    "selected_source_unit_row",
+                )?;
+                charge_amount(
+                    &mut work,
+                    work_limit,
+                    &row.structural_node,
+                    "selected_source_unit_row",
+                    segment.len(),
+                )?;
+            }
+            if let UnitId::Declared(key) = &row.unit_id {
+                charge_node_key(
+                    &mut work,
+                    work_limit,
+                    &row.structural_node,
+                    "selected_source_unit_row",
+                    key,
+                )?;
+            }
             let Some(node) = self.node(&row.structural_node) else {
                 let code = if row.structural_node.package.as_ref() != self.name() {
                     ExactTypeProjectionErrorCode::ForeignNode
