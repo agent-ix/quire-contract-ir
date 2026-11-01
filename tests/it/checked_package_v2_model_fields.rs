@@ -2883,8 +2883,17 @@ fn tc_227_the_effective_set_is_the_one_admission_resolves() {
         fields.field("limit").and_then(|f| f.member_type()),
         Some(&range(0, 10))
     );
-    assert_eq!(fields.field("limit").expect("limit").declaring_node_id(), &declaration_id(ORDER));
-    assert_eq!(fields.field("inherited").expect("inherited").declaring_node_id(), &declaration_id("Base"));
+    assert_eq!(
+        fields.field("limit").expect("limit").declaring_node_id(),
+        &declaration_id(ORDER)
+    );
+    assert_eq!(
+        fields
+            .field("inherited")
+            .expect("inherited")
+            .declaring_node_id(),
+        &declaration_id("Base")
+    );
     assert_eq!(
         fields.field("inherited").and_then(|f| f.member_type()),
         Some(&range(0, 1000))
@@ -4000,14 +4009,22 @@ fn tc_227_missing_and_ambiguous_declaring_nodes_refuse_without_partial_fields() 
 fn tc_227_declaring_node_errors_follow_field_order_before_name_order() {
     let ty = orders("Thousand");
     for supers in [["Base", "Other"], ["Other", "Base"]] {
-        let document = document(vec![thousand_type(),
+        let document = document(vec![
+            thousand_type(),
             object("Base", &[], &[field("z", &ty)]),
             object("Other", &[], &[field("a", &ty)]),
             object("Leaf", &supers, &[]),
         ]);
-        let (mut wire, evidence, _) = package(&document, &[("Leaf", OBJECT), ("Base", OBJECT)], &[]);
-        let nodes = wire["semantic_graph"]["nodes"].as_array_mut().expect("nodes");
-        let mut duplicate = nodes.iter().find(|node| node["owner"]["node"] == orders("Base")).expect("Base").clone();
+        let (mut wire, evidence, _) =
+            package(&document, &[("Leaf", OBJECT), ("Base", OBJECT)], &[]);
+        let nodes = wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        let mut duplicate = nodes
+            .iter()
+            .find(|node| node["owner"]["node"] == orders("Base"))
+            .expect("Base")
+            .clone();
         duplicate["node_id"]["ordinal"] = json!(1);
         duplicate["semantic_type"] = duplicate["node_id"].clone();
         nodes.push(duplicate);
@@ -4017,11 +4034,21 @@ fn tc_227_declaring_node_errors_follow_field_order_before_name_order() {
             other => panic!("mixed absent and repeated owners admit: {other:?}"),
         };
         let expected = if supers[0] == "Base" {
-            CheckedModelFieldsError::AmbiguousDeclaringNode { field_identity: format!("{}/z", orders("Base")).into() }
+            CheckedModelFieldsError::AmbiguousDeclaringNode {
+                field_identity: format!("{}/z", orders("Base")).into(),
+            }
         } else {
-            CheckedModelFieldsError::MissingDeclaringNode { field_identity: format!("{}/a", orders("Other")).into() }
+            CheckedModelFieldsError::MissingDeclaringNode {
+                field_identity: format!("{}/a", orders("Other")).into(),
+            }
         };
-        assert_eq!(package.model_object_fields(&declaration_id("Leaf")), Err(expected));
-        assert_eq!(package.model_object_fields(&declaration_id("Unknown")), Err(CheckedModelFieldsError::UnknownNode));
+        assert_eq!(
+            package.model_object_fields(&declaration_id("Leaf")),
+            Err(expected)
+        );
+        assert_eq!(
+            package.model_object_fields(&declaration_id("Unknown")),
+            Err(CheckedModelFieldsError::UnknownNode)
+        );
     }
 }
