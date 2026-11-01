@@ -2901,7 +2901,17 @@ fn validate_protocol_membership(
         }
     }
 
-    validate_protocol_fairness(terms, nodes, kinds, validated, index, &owners, meter)?;
+    validate_protocol_fairness(
+        &ProtocolFairnessContext {
+            terms,
+            nodes,
+            kinds,
+            validated,
+            index,
+            owners: &owners,
+        },
+        meter,
+    )?;
 
     let mut queue_count = vec![0u8; nodes.len()];
     for &position in index.values() {
@@ -2951,16 +2961,28 @@ fn validate_protocol_membership(
     Ok(())
 }
 
+struct ProtocolFairnessContext<'a> {
+    terms: &'a [Option<CheckedTerm>],
+    nodes: &'a [RawSemanticNodeV2],
+    kinds: &'a [CheckedNodeKind],
+    validated: &'a [Option<(&'a str, &'a [CheckedTerm])>],
+    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    owners: &'a [Option<usize>],
+}
+
 /// Join fairness through the same retained clause membership used by controls.
 fn validate_protocol_fairness(
-    terms: &[Option<CheckedTerm>],
-    nodes: &[RawSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    validated: &[Option<(&str, &[CheckedTerm])>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-    owners: &[Option<usize>],
+    context: &ProtocolFairnessContext<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let &ProtocolFairnessContext {
+        terms,
+        nodes,
+        kinds,
+        validated,
+        index,
+        ..
+    } = context;
     let mut checked = BTreeSet::new();
     for &clause in index.values() {
         if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
@@ -3000,9 +3022,7 @@ fn validate_protocol_fairness(
                     continue;
                 }
                 checked.insert(fair);
-                validate_protocol_fairness_target(
-                    &target, fair, clause, nodes, kinds, validated, index, owners, meter,
-                )?;
+                validate_protocol_fairness_target(context, &target, fair, clause, meter)?;
             }
         }
     }
@@ -3076,18 +3096,21 @@ fn fairness_defect(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_protocol_fairness_target(
+    context: &ProtocolFairnessContext<'_>,
     target: &CheckedFairnessTarget,
     fair: usize,
     clause: usize,
-    nodes: &[RawSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    validated: &[Option<(&str, &[CheckedTerm])>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-    owners: &[Option<usize>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let &ProtocolFairnessContext {
+        nodes,
+        kinds,
+        validated,
+        index,
+        owners,
+        ..
+    } = context;
     let (identity, field) = target_identity(target);
     meter.charge(1, || node_pointer(fair))?;
     if identity.package != nodes[clause].node_id.package {
@@ -3124,8 +3147,8 @@ fn validate_protocol_fairness_target(
             if let Some(branches) = binding_value(arguments, "branches").and_then(members) {
                 for record in branches {
                     meter.charge(1, || node_pointer(fair))?;
-                    found |= group_value(record, "label").and_then(|value| argument_text(value, 0))
-                        == Some(branch.as_ref());
+                    found |=
+                        group_value(record, "label").and_then(text_value) == Some(branch.as_ref());
                 }
             }
         }
