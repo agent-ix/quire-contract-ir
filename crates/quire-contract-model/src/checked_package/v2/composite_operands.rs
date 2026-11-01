@@ -1343,6 +1343,305 @@ mod tests {
         )
     }
 
+    fn boolean_equality_wire() -> Value {
+        let (original, ids) = fixture();
+        let mut wire = original.clone();
+        wire["semantic_graph"]["nodes"][5]["body"]["operation"]["identity"] =
+            json!("quire.op.boolean.eq");
+        wire["semantic_graph"]["nodes"][5]["body"]["arguments"] = json!([
+            {"term":"reference","target":ids[&'1']},
+            {"term":"reference","target":ids[&'1']}
+        ]);
+        wire["semantic_graph"]["nodes"][5]["dependencies"] = json!([ids[&'1']]);
+        wire["checked_term_data"] = json!({
+            "equality_decisions":[{
+                "application":ids[&'6'],
+                "occurrence":{"role":"expression","ordinal":0},
+                "term_path":[],"operator":"equal","schedule":"plan",
+                "left":{"operand":0,"source_type":ids[&'1'],"conversion_target":null},
+                "right":{"operand":1,"source_type":ids[&'1'],"conversion_target":null},
+                "units":[],"enum_members":[]
+            }],
+            "protocol_locations":[],"dispatch_tables":[]
+        });
+        wire
+    }
+
+    /// Trace: FR-353-AC-2, FR-353-AC-3, FR-353-AC-4.
+    /// Provenance: IR-1209 scoped application and primitive Plan path.
+    #[test]
+    fn admitted_equality_joins_application_and_bounds_read() {
+        use quire_exact::{Location, NodeKey, Origin, PathSegment, Role, ValueType};
+        use quire_semantic_value::declaration::{
+            CheckedEquality, EqualityOperator, EqualitySchedule,
+        };
+
+        let wire = boolean_equality_wire();
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("equality application must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("original-equality".into())],
+            0,
+        )
+        .expect("original producer key");
+        let row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).expect("source row"),
+            original.clone(),
+            Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
+        );
+        let admitted = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                100,
+            )
+            .expect("joined Plan decision");
+        assert_eq!(admitted.application(), &original);
+        assert_eq!(admitted.operator(), EqualityOperator::Equal);
+        assert_eq!(admitted.schedule(), EqualitySchedule::Plan);
+        assert_eq!(admitted.left().source(), &ValueType::Boolean);
+        assert_eq!(admitted.right().source(), &ValueType::Boolean);
+        assert_eq!(
+            CheckedEquality::from_admitted_decision(&admitted).schedule(),
+            EqualitySchedule::Plan
+        );
+
+        let mut minimum = 0;
+        for limit in 0..=100 {
+            if package
+                .admitted_equality(
+                    &application,
+                    &occurrence,
+                    std::slice::from_ref(&row),
+                    &[],
+                    limit,
+                )
+                .is_ok()
+            {
+                minimum = limit;
+                break;
+            }
+        }
+        assert!(minimum > 0);
+        assert_eq!(
+            package.admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                minimum
+            ),
+            Ok(admitted.clone())
+        );
+        let short = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                minimum - 1,
+            )
+            .expect_err("one less work unit refuses");
+        assert_eq!(
+            short.code,
+            super::super::AdmittedEqualityReadErrorCode::WorkLimit
+        );
+        assert_eq!(short.attempted_work, 1);
+        assert_eq!(short.at.as_ref(), &id('1'));
+        assert_eq!(
+            package
+                .admitted_equality(&application, &occurrence, &[], &[], 100)
+                .unwrap_err()
+                .code,
+            super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityWitness
+        );
+        let duplicate = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                &[row.clone(), row.clone()],
+                &[],
+                100,
+            )
+            .expect_err("duplicate stage rows refuse");
+        assert_eq!(
+            duplicate.code,
+            super::super::AdmittedEqualityReadErrorCode::DuplicateEqualityWitness
+        );
+        let mut changed_location = row.clone();
+        changed_location.location = Location::new(
+            NodeKey::new("composite", vec![PathSegment::Text("other".into())], 0)
+                .expect("other original key"),
+            Origin::new(Role::from("expression"), 0),
+        );
+        let mismatch = package
+            .admitted_equality(&application, &occurrence, &[changed_location], &[], 100)
+            .expect_err("conflicting original location refuses");
+        assert_eq!(
+            mismatch.code,
+            super::super::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness
+        );
+        let mut foreign = row;
+        foreign.application.package = "foreign".into();
+        let foreign = package
+            .admitted_equality(&application, &occurrence, &[foreign], &[], 100)
+            .expect_err("foreign stage row refuses");
+        assert_eq!(
+            foreign.code,
+            super::super::AdmittedEqualityReadErrorCode::ForeignEqualityWitness
+        );
+        let wrong_occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 1,
+        };
+        assert_eq!(
+            package
+                .admitted_equality(&application, &wrong_occurrence, &[], &[], 100)
+                .expect_err("wrong occurrence refuses")
+                .code,
+            super::super::AdmittedEqualityReadErrorCode::WrongOccurrence
+        );
+        assert_eq!(
+            self::package()
+                .admitted_equality(&application, &occurrence, &[], &[], 100)
+                .expect_err("application without producer decision refuses")
+                .code,
+            super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityDecision
+        );
+    }
+
+    /// Trace: FR-353-AC-2.
+    /// Provenance: IR-1209 application and operand admission join.
+    #[test]
+    fn equality_sidecar_refuses_first_mismatching_member() {
+        use crate::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
+
+        let baseline = boolean_equality_wire();
+        let cases: Vec<(&str, Value, &str, CheckedPackageRefusalCause)> = vec![
+            (
+                "nonempty path",
+                {
+                    let mut wire = baseline.clone();
+                    wire["checked_term_data"]["equality_decisions"][0]["term_path"] =
+                        json!([{"kind":"argument","index":0}]);
+                    wire
+                },
+                "/checked_term_data/equality_decisions/0/term_path/0",
+                CheckedPackageRefusalCause::InvalidValue,
+            ),
+            (
+                "wrong operator",
+                {
+                    let mut wire = baseline.clone();
+                    wire["checked_term_data"]["equality_decisions"][0]["operator"] =
+                        json!("not_equal");
+                    wire
+                },
+                "/checked_term_data/equality_decisions/0/operator",
+                CheckedPackageRefusalCause::InvalidValue,
+            ),
+            (
+                "wrong position",
+                {
+                    let mut wire = baseline.clone();
+                    wire["checked_term_data"]["equality_decisions"][0]["left"]["operand"] =
+                        json!(1);
+                    wire
+                },
+                "/checked_term_data/equality_decisions/0/left/operand",
+                CheckedPackageRefusalCause::InvalidValue,
+            ),
+            (
+                "wrong source type",
+                {
+                    let mut wire = baseline.clone();
+                    wire["checked_term_data"]["equality_decisions"][0]["right"]["source_type"] =
+                        json!(id('2'));
+                    wire
+                },
+                "/checked_term_data/equality_decisions/0/right/source_type",
+                CheckedPackageRefusalCause::InvalidValue,
+            ),
+            (
+                "wrong occurrence",
+                {
+                    let mut wire = baseline.clone();
+                    wire["checked_term_data"]["equality_decisions"][0]["occurrence"]["ordinal"] =
+                        json!(1);
+                    wire
+                },
+                "/checked_term_data/equality_decisions/0/occurrence",
+                CheckedPackageRefusalCause::InvalidValue,
+            ),
+            (
+                "wrong application",
+                {
+                    let mut wire = baseline.clone();
+                    wire["checked_term_data"]["equality_decisions"][0]["application"] =
+                        json!(id('5'));
+                    wire
+                },
+                "/checked_term_data/equality_decisions/0/application",
+                CheckedPackageRefusalCause::InvalidValue,
+            ),
+            (
+                "duplicate",
+                {
+                    let mut wire = baseline.clone();
+                    let row = wire["checked_term_data"]["equality_decisions"][0].clone();
+                    wire["checked_term_data"]["equality_decisions"]
+                        .as_array_mut()
+                        .expect("rows")
+                        .push(row);
+                    wire
+                },
+                "/checked_term_data/equality_decisions/1",
+                CheckedPackageRefusalCause::ConflictingDefinition,
+            ),
+        ];
+        for (name, wire, path, cause) in cases {
+            let result = CheckedPackageV2::read(
+                &serde_json::to_vec(&wire).expect("wire bytes"),
+                CheckedPackageReadLimits::bounded(),
+                &CheckedPackageEvidence::new(),
+            );
+            let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+                panic!("{name} must refuse at admission: {result:?}");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::InvalidPackage,
+                "{name}"
+            );
+            assert_eq!(refusal.cause, Some(cause), "{name}");
+            assert_eq!(
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .expect("primary pointer")
+                    .to_string(),
+                path,
+                "{name}"
+            );
+        }
+    }
+
     fn application_arguments(package: &mut CheckedPackageV2) -> &mut Vec<CheckedTerm> {
         let CheckedTerm::Application { arguments, .. } = &mut package.terms[5] else {
             panic!("admitted composite application term");

@@ -38,6 +38,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -820,7 +826,7 @@ dependencies = [
 [[package]]
 name = "quire-canonical"
 version = "0.3.0"
-source = "git+https://github.com/agent-ix/quire-canonical?branch=main#5dc4e12db63b8fae647825b4e4b78df9b6dcadfe"
+source = "git+https://github.com/agent-ix/quire-canonical?branch=main#35987f1dea33edf13bdf8e6a39153a802503f5a0"
 dependencies = [
  "quire-canonical-derive",
  "ryu-js",
@@ -833,7 +839,7 @@ dependencies = [
 [[package]]
 name = "quire-canonical-derive"
 version = "0.3.0"
-source = "git+https://github.com/agent-ix/quire-canonical?branch=main#5dc4e12db63b8fae647825b4e4b78df9b6dcadfe"
+source = "git+https://github.com/agent-ix/quire-canonical?branch=main#35987f1dea33edf13bdf8e6a39153a802503f5a0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -869,6 +875,7 @@ dependencies = [
  "num-traits",
  "quire-canonical",
  "quire-exact",
+ "quire-semantic-value",
  "quire-verification-contracts",
  "quire-walk",
  "serde",
@@ -885,9 +892,10 @@ dependencies = [
 [[package]]
 name = "quire-exact"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-exact?branch=main#82e8f9b4d9583ba4eee505550ff80a211333696f"
+source = "git+https://github.com/agent-ix/quire-exact?branch=main#eb07c1043ddf63703f90d5a922a1bf5514d0333f"
 dependencies = [
  "allocator-api2",
+ "arrayvec",
  "num-bigint",
  "num-integer",
  "num-traits",
@@ -896,6 +904,16 @@ dependencies = [
  "thiserror",
  "triomphe",
  "unicode-normalization",
+]
+
+[[package]]
+name = "quire-semantic-value"
+version = "0.1.0"
+source = "git+https://github.com/agent-ix/quire-semantic-value?branch=main#e8efdea0b0ea74f3367ebbf4804847e1f83f9d95"
+dependencies = [
+ "quire-canonical",
+ "quire-exact",
+ "thiserror",
 ]
 
 [[package]]

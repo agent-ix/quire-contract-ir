@@ -553,22 +553,10 @@ fn checked_term_sidecar_refuses_unowned_equality_and_admits_protocol_rows() {
         "protocol_locations":[], "dispatch_tables":[]
     });
     let refusal = refused(&package, &evidence);
-    assert_eq!(
-        refusal.code,
-        CheckedPackageRefusalCode::UnsupportedConstruct
-    );
-    assert_eq!(
-        refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some("/checked_term_data/equality_decisions/0".to_owned())
-    );
-
-    package["checked_term_data"]["equality_decisions"][0]["term_path"] =
-        json!([{"kind":"argument", "index":0}]);
-    let refusal = refused(&package, &evidence);
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some("/checked_term_data/equality_decisions/0/term_path/0".to_owned())
+        Some("/checked_term_data/equality_decisions/0/application".to_owned())
     );
 
     package["checked_term_data"]["equality_decisions"] = json!([]);

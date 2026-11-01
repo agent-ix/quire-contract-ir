@@ -29,8 +29,6 @@ fn unsupported(path: JsonPointer) -> ValidationFailure {
 }
 
 /// Checks the producer-captured sidecar after graph and source-map admission.
-/// Equality rows await their separate semantic owner slice and therefore
-/// refuse before the package can expose any partial sidecar.
 pub(super) fn validate_checked_term_data(
     data: &CheckedTermDataV2,
     wire: &RawCheckedPackageWireV2,
@@ -40,16 +38,7 @@ pub(super) fn validate_checked_term_data(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let root = JsonPointer::root().key("checked_term_data");
-    if !data.equality_decisions.is_empty() {
-        let path = root.clone().key("equality_decisions").index(0);
-        meter.charge(1, || path.clone())?;
-        if !data.equality_decisions[0].term_path.is_empty() {
-            let segment = path.clone().key("term_path").index(0);
-            meter.charge(1, || segment.clone())?;
-            return Err(invalid(segment));
-        }
-        return Err(unsupported(path));
-    }
+    super::equality_projection::validate(data, wire, kinds, terms, meter)?;
     super::protocol_locations::validate(wire, kinds, terms, meter)?;
 
     let nodes = &wire.semantic_graph.nodes;

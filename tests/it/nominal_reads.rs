@@ -74,6 +74,149 @@ fn key(name: &str) -> NodeKey {
     NodeKey::new("stage-row-fixture", vec![PathSegment::Text(name.into())], 0).unwrap()
 }
 
+/// Trace: FR-353-AC-7, FR-352-AC-11.
+/// Provenance: IR-1209 scoped source-unit join before unavailable dimension identity.
+#[test]
+fn equality_source_unit_row_joins_before_missing_dimension_key() {
+    use quire_contract_model::{
+        AdmittedEqualityReadErrorCode, CheckedOccurrence, CheckedOccurrenceRole,
+        EqualityWitnessKind, SelectedEqualityApplicationRow,
+    };
+    use quire_exact::{Location, Origin, Role};
+
+    let members = nominal_fixture_members()
+        .into_iter()
+        .skip(2)
+        .collect::<Vec<_>>();
+    let mut wire = nominal_package(&members);
+    let boolean = json!({"package":wire["name"],"path":["scalar_type","boolean"],"ordinal":0});
+    let application = node_id("equality-application");
+    let unit = node_id("qualified:Example/Metre");
+    let dimension = node_id("qualified:Example/Length");
+    let source = wire["lock"]["sources"][0].clone();
+    let graph_nodes = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    graph_nodes.push(json!({
+        "node_id":boolean,"schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"scalar_type","semantic_form":"boolean","semantic_type":boolean,
+        "dependencies":[],"occurrences":[{"role":"type","ordinal":0}],
+        "body":{"term":"aggregate","members":[]}
+    }));
+    graph_nodes.push(json!({
+        "node_id":application,"schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"expression","semantic_form":"binary","semantic_type":boolean,
+        "dependencies":[unit],"occurrences":[{"role":"expression","ordinal":0}],
+        "body":{"term":"application","operator":"binary",
+            "operation":{"identity":"quire.op.quantity.eq","laws":[],"mode":null,
+                "member":null,"leaves":[]},
+            "result_type":boolean,
+            "arguments":[{"term":"reference","target":unit},{"term":"reference","target":unit}]}
+    }));
+    let source_map = wire["source_map"].as_array_mut().expect("source map");
+    source_map.push(json!({"node_id":boolean,"role":"type","ordinal":0,
+        "regions":[{"source":source,"start":0,"end":1}]}));
+    source_map.push(
+        json!({"node_id":application,"role":"expression","ordinal":0,
+        "regions":[{"source":source,"start":1,"end":2}]}),
+    );
+    wire["checked_term_data"] = json!({"equality_decisions":[{
+        "application":application,"occurrence":{"role":"expression","ordinal":0},
+        "term_path":[],"operator":"equal","schedule":"quantity",
+        "left":{"operand":0,"source_type":unit,"conversion_target":null},
+        "right":{"operand":1,"source_type":unit,"conversion_target":null},
+        "units":[{"quantity_type":unit,"unit":unit,"form":{
+            "kind":"declared","dimension_node":dimension,"dimension_terms":[],
+            "root_unit":unit,"path":[]}}],"enum_members":[]
+    }],"protocol_locations":[],"dispatch_tables":[]});
+    let package = match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("quantity equality fixture admits: {other:?}"),
+    };
+    let application = serde_json::from_value(application).expect("application node");
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let original = key("quantity-equality");
+    let app_row = SelectedEqualityApplicationRow::new(
+        application,
+        occurrence.clone(),
+        serde_json::from_value(
+            wire["source_map"]
+                .as_array()
+                .expect("source map")
+                .last()
+                .expect("app source")
+                .clone(),
+        )
+        .expect("app source row"),
+        original.clone(),
+        Location::new(original, Origin::new(Role::from("expression"), 0)),
+    );
+    let metre = node(&package, "unit", "Metre");
+    let CheckedNodeOwner::Source {
+        authority,
+        identity,
+    } = metre.owner.as_ref().expect("source owner")
+    else {
+        panic!("Metre has source owner")
+    };
+    let unit_row = SelectedSourceUnitRow::new(
+        metre.node_id.clone(),
+        authority.clone(),
+        identity.clone(),
+        metre
+            .declaration
+            .as_ref()
+            .expect("unit declaration")
+            .qualified_name
+            .clone(),
+        UnitId::Declared(key("Metre")),
+    );
+    let missing = package
+        .admitted_equality(
+            &app_row.application,
+            &occurrence,
+            std::slice::from_ref(&app_row),
+            &[],
+            10_000,
+        )
+        .expect_err("source UnitId is required");
+    assert_eq!(
+        missing.code,
+        AdmittedEqualityReadErrorCode::UnavailableEqualityWitness
+    );
+    assert_eq!(missing.witness, Some(EqualityWitnessKind::SourceUnit));
+    assert_eq!(*missing.at, metre.node_id);
+
+    let missing = package
+        .admitted_equality(
+            &app_row.application,
+            &occurrence,
+            std::slice::from_ref(&app_row),
+            std::slice::from_ref(&unit_row),
+            10_000,
+        )
+        .expect_err("dimension key is unavailable");
+    assert_eq!(
+        missing.code,
+        AdmittedEqualityReadErrorCode::UnavailableEqualityWitness
+    );
+    assert_eq!(
+        missing.witness,
+        Some(EqualityWitnessKind::DimensionDeclaration)
+    );
+    assert_eq!(
+        *missing.at,
+        serde_json::from_value(dimension).expect("dimension node")
+    );
+}
+
 #[test]
 #[trace("FR-354-AC-1", "FR-354-AC-2", "FR-354-AC-5", "FR-354-AC-7")]
 fn selected_source_units_join_owner_declaration_and_complete_conversion() {

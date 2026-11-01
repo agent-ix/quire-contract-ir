@@ -213,6 +213,10 @@ pub use checked_package::{
 };
 
 pub use checked_package::CheckedFieldReadForm;
+pub use checked_package::{
+    AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, EqualityWitnessKind,
+    SelectedEqualityApplicationRow,
+};
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 
 pub use checked_package::{

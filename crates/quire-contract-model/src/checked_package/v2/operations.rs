@@ -1438,7 +1438,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
 /// Whether an argument naming a node of this kind names a type itself
 /// rather than a value of its semantic type: every form of the five type
 /// families, and of the expressions only `reference`. Every form is listed.
-fn is_type_shaped(kind: CheckedNodeKind) -> bool {
+pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
         K::Extension(_) | K::Hybrid(_) | K::TimedModel(_) => false,
