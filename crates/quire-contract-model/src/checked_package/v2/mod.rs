@@ -56,6 +56,7 @@ mod state;
 mod step_relation;
 mod structural;
 mod temporal;
+mod temporal_binding;
 mod timed_model;
 mod typed_terms;
 mod vocabulary;
@@ -139,6 +140,7 @@ pub use step_relation::{
     CheckedStepExecution, CheckedStepRelationBody, CheckedStepRelationCapability,
     CheckedStepRelationObligationIdentity,
 };
+pub use temporal_binding::{ClockConfiguration, ClockExactNumber, TemporalBinding};
 pub use typed_terms::*;
 pub use vocabulary::*;
 
@@ -657,12 +659,14 @@ macro_rules! checked_package_envelope {
     ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
         #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, A, D> {
+        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, A, D> {
             $($name: $parameter,)+
             #[serde(default, skip_serializing_if = "Option::is_none")]
             refinement_step_rows: Option<R>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             checked_term_data: Option<T>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            temporal_bindings: Option<B>,
         }
 
         impl<Body: quire_canonical::Encode> quire_canonical::Encode for CheckedPackageEnvelope<
@@ -673,6 +677,7 @@ macro_rules! checked_package_envelope {
             &[CheckedSourceMapEntry],
             &[refinement::CheckedRefinementStepRowRegion],
             &checked_term_data::CheckedTermDataV2,
+            &[temporal_binding::TemporalBinding],
             &[CheckedCapability],
             &CheckedDiagnosticsV2,
         > {
@@ -685,6 +690,9 @@ macro_rules! checked_package_envelope {
                 encode_envelope_field!(writer, "refinement_step_rows", self.refinement_step_rows, optional_elements);
                 if let Some(data) = self.checked_term_data {
                     encode::encoded(writer, "checked_term_data", data)?;
+                }
+                if let Some(rows) = &self.temporal_bindings {
+                    encode::elements(writer, "temporal_bindings", rows)?;
                 }
                 writer.end_object()
             }
@@ -710,6 +718,7 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     Vec<CheckedSourceMapEntry>,
     Vec<refinement::CheckedRefinementStepRowRegion>,
     checked_term_data::CheckedTermDataV2,
+    Vec<temporal_binding::TemporalBinding>,
     Vec<CheckedCapability>,
     CheckedDiagnosticsV2,
 >;
@@ -725,15 +734,24 @@ pub struct CheckedPackageSourceCorrespondenceRef<'a> {
     pub refinement_step_rows: Option<&'a [CheckedRefinementStepRowRegion]>,
 }
 
+/// Optional typed sidecars supplied to the complete V2 writer.
+#[derive(Clone, Copy, Debug)]
+pub struct CheckedPackageSidecarsRef<'a> {
+    /// Admitted application and dispatch decision rows, when present.
+    pub checked_term_data: Option<&'a CheckedTermDataV2>,
+    /// Exact temporal declaration clock rows, when present.
+    pub temporal_bindings: Option<&'a [TemporalBinding]>,
+}
+
 /// Canonically encodes a complete checked-package V2 envelope under the
 /// caller's byte limits. The supplied name is the package's identity. An
-/// absent checked-term sidecar is omitted; a present empty one is written.
+/// absent checked-term or temporal sidecar is omitted.
 pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
     name: &str,
     lock: &CheckedPackageLockV2,
     semantic_graph: &CheckedSemanticGraphV2<Body>,
     sources: CheckedPackageSourceCorrespondenceRef<'_>,
-    checked_term_data: Option<&CheckedTermDataV2>,
+    sidecars: CheckedPackageSidecarsRef<'_>,
     capability_report: &[CheckedCapability],
     diagnostics: &CheckedDiagnosticsV2,
     limits: quire_canonical::Limits,
@@ -759,7 +777,8 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         semantic_graph,
         source_map: sources.source_map,
         refinement_step_rows: sources.refinement_step_rows,
-        checked_term_data,
+        checked_term_data: sidecars.checked_term_data,
+        temporal_bindings: sidecars.temporal_bindings,
         capability_report,
         diagnostics,
     };
@@ -1183,6 +1202,7 @@ impl CheckedPackageV2 {
             source_map,
             refinement_step_rows,
             checked_term_data,
+            temporal_bindings,
             capability_report,
             diagnostics,
         } = wire;
@@ -1209,6 +1229,7 @@ impl CheckedPackageV2 {
             source_map,
             refinement_step_rows,
             checked_term_data,
+            temporal_bindings,
             capability_report,
             diagnostics,
         };
@@ -1284,6 +1305,11 @@ impl CheckedPackageV2 {
     /// Admitted checked-term sidecar, absent when the producer supplied none.
     pub fn checked_term_data(&self) -> Option<&CheckedTermDataV2> {
         self.wire.checked_term_data.as_ref()
+    }
+
+    /// Admitted temporal clock rows, keyed by exact clause declaration ID.
+    pub fn temporal_bindings(&self) -> Option<&[TemporalBinding]> {
+        self.wire.temporal_bindings.as_deref()
     }
 
     /// The reported capabilities.
@@ -2780,6 +2806,15 @@ fn validate_graph(
         });
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
+    temporal_binding::validate(
+        wire.temporal_bindings.as_deref(),
+        &graph.nodes,
+        &kinds,
+        &index,
+        structural_keys,
+        &wire.lock,
+        meter,
+    )?;
     // Graph-shape body and dependency rules precede declaration, frame, state
     // and operation checks. All of them
     // run before the dependency and body-reference edges below are resolved,
@@ -3980,7 +4015,10 @@ mod tests {
                     source_map: &wire.source_map,
                     refinement_step_rows: wire.refinement_step_rows.as_deref(),
                 },
-                wire.checked_term_data.as_ref(),
+                super::CheckedPackageSidecarsRef {
+                    checked_term_data: wire.checked_term_data.as_ref(),
+                    temporal_bindings: wire.temporal_bindings.as_deref(),
+                },
                 &wire.capability_report,
                 &wire.diagnostics,
                 quire_canonical::Limits::new(u64::MAX),
@@ -4049,7 +4087,10 @@ mod tests {
                             source_map: &wire.source_map,
                             refinement_step_rows: wire.refinement_step_rows.as_deref(),
                         },
-                        wire.checked_term_data.as_ref(),
+                        super::CheckedPackageSidecarsRef {
+                            checked_term_data: wire.checked_term_data.as_ref(),
+                            temporal_bindings: wire.temporal_bindings.as_deref(),
+                        },
                         &wire.capability_report,
                         &wire.diagnostics,
                         limits,

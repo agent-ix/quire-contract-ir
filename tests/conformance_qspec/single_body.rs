@@ -66,7 +66,10 @@ fn published_single_body_packages_round_trip_through_the_writer() {
                 source_map: read.source_map(),
                 refinement_step_rows: read.refinement_step_rows(),
             },
-            read.checked_term_data(),
+            quire_contract_model::CheckedPackageSidecarsRef {
+                checked_term_data: read.checked_term_data(),
+                temporal_bindings: read.temporal_bindings(),
+            },
             read.capability_report(),
             read.diagnostics(),
             Limits::new(1 << 24),

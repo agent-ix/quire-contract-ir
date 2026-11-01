@@ -87,7 +87,10 @@ fn encode(
             source_map,
             refinement_step_rows: None,
         },
-        None,
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: None,
+            temporal_bindings: None,
+        },
         &[],
         diagnostics,
         Limits::new(limit),

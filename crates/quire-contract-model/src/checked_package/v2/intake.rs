@@ -87,6 +87,7 @@ type BorrowedWire<'a> = CheckedPackageEnvelope<
     Vec<CheckedSourceMapEntry>,
     Vec<super::refinement::CheckedRefinementStepRowRegion>,
     super::checked_term_data::CheckedTermDataV2,
+    Vec<super::temporal_binding::TemporalBinding>,
     Vec<CheckedCapability>,
     BorrowedDiagnostics<'a>,
 >;
@@ -174,6 +175,8 @@ pub(super) fn decode_borrowed_wire(
                 if let Some(at) = refusal.primary_path().cloned() {
                     if let Some(member) = invalid_node_id_field(bytes, &at) {
                         refusal.set_primary_path(Some(member));
+                    } else if let Some(member) = invalid_clock_field(bytes, &at) {
+                        refusal.set_primary_path(Some(member));
                     }
                 }
             }
@@ -226,6 +229,7 @@ pub(super) fn decode_borrowed_wire(
         source_map: wire.source_map,
         refinement_step_rows: wire.refinement_step_rows,
         checked_term_data: wire.checked_term_data,
+        temporal_bindings: wire.temporal_bindings,
         capability_report: wire.capability_report,
         diagnostics: CheckedDiagnosticsV2 {
             catalog: diagnostics.catalog,
@@ -248,6 +252,24 @@ pub(super) fn decode_borrowed_wire(
                 .collect::<Result<Vec<_>, ValidationFailure>>()?,
         },
     })
+}
+
+#[ix_trace_rs::string_edge]
+fn invalid_clock_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+    if !at.as_str().starts_with("/temporal_bindings/") || !at.as_str().ends_with("/clock") {
+        return None;
+    }
+    let clock: Value = serde_json::from_str(source_raw(bytes, at)?).ok()?;
+    let field = match clock.get("kind")?.as_str()? {
+        "event_position" => "sequence_authority",
+        "timestamped_event" => "timestamp_unit",
+        "fixed_sample" => "unit",
+        _ => return None,
+    };
+    clock
+        .get(field)
+        .filter(|value| !value.is_string())
+        .map(|_| at.clone().key(field))
 }
 
 /// Refine a buffered node-ID decode error to an ordinal or path segment.
@@ -513,6 +535,22 @@ pub(super) fn check_lossless_source(
         compare_root(&root, "checked_term_data", data, &[])?;
     } else if root.contains_key("checked_term_data") {
         return Err(malformed(JsonPointer::root().key("checked_term_data")));
+    }
+    if let Some(rows) = &wire.temporal_bindings {
+        let originals = raw_array(
+            root.get("temporal_bindings").copied(),
+            &["temporal_bindings"],
+        )?;
+        if rows.is_empty() || originals.len() != rows.len() {
+            return Err(malformed(JsonPointer::root().key("temporal_bindings")));
+        }
+        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
+            let at = JsonPointer::root().key("temporal_bindings").index(index);
+            super::lossless::compare(original, row, at.clone(), &["declaration"])?;
+            compare_id_member(original, "declaration", &row.declaration, at)?;
+        }
+    } else if root.contains_key("temporal_bindings") {
+        return Err(malformed(JsonPointer::root().key("temporal_bindings")));
     }
     compare_items(
         &["diagnostics", "entries"],

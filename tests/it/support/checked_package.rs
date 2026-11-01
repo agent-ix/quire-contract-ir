@@ -544,9 +544,10 @@ pub fn identity_input(package: &Value) -> Value {
     input
 }
 
-/// Rebuilds the identity projection from the graph and re-derives the package id.
+/// Rebuilds the identity projection and configured clock rows after graph edits.
 pub fn refresh_identity(package: &mut Value) {
     refresh_identity_projection(package);
+    refresh_temporal_bindings(package);
 }
 
 /// The identity of every domain package a synthetic package selects: one per
@@ -2145,6 +2146,71 @@ pub fn settle(package: &mut Value) {
     join_application_dependencies(package);
     rebuild_source_map(package);
     refresh_identity(package);
+}
+
+/// Keep the synthetic package's clock rows paired with its configured clauses
+/// after fixture mutations have changed profile laws or structural node IDs.
+#[ix_trace_rs::string_edge]
+pub fn refresh_temporal_bindings(package: &mut Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let mut rows = nodes
+        .iter()
+        .filter_map(|node| {
+            if node["node_tag"] != "temporal" || node["semantic_form"] != "temporal_clause" {
+                return None;
+            }
+            let [law] = node["body"]["operation"]["laws"].as_array()?.as_slice() else {
+                return None;
+            };
+            if law["role"] != "temporal_profile" {
+                return None;
+            }
+            let profile = law["definition"]["identity"].as_str()?;
+            let clock = match profile {
+                "quire.temporal.event-position.false-extension/v1" => {
+                    json!({"kind": "event_position", "sequence_authority": "fixture-events"})
+                }
+                "quire.temporal.fixed-sample.false-extension/v1" => json!({
+                    "kind": "fixed_sample",
+                    "epoch": {"kind": "integer", "decimal": "0"},
+                    "period": {"kind": "integer", "decimal": "1"},
+                    "unit": "tick",
+                }),
+                "quire.temporal.timestamped-event.finite-window/v1" => {
+                    json!({"kind": "timestamped_event", "timestamp_unit": "tick"})
+                }
+                _ => return None,
+            };
+            let name = node["body"]["arguments"][1]["value"].as_str()?;
+            Some((
+                node["node_id"].clone(),
+                json!({
+                    "declaration": node["node_id"],
+                    "clock_name": name,
+                    "clock": clock,
+                }),
+            ))
+        })
+        .collect::<Vec<_>>();
+    if rows.len() > 1 {
+        let ids = nodes
+            .iter()
+            .map(|node| node["node_id"].clone())
+            .collect::<Vec<_>>();
+        rows.sort_by_cached_key(|(declaration, _)| {
+            structural_fixture_id_in_graph(declaration, &ids, &mut Default::default())
+        });
+    }
+    if rows.is_empty() {
+        package
+            .as_object_mut()
+            .expect("package")
+            .remove("temporal_bindings");
+    } else {
+        package["temporal_bindings"] = Value::Array(rows.into_iter().map(|(_, row)| row).collect());
+    }
 }
 
 /// One entry per node, sourced from the node's own single occurrence rather

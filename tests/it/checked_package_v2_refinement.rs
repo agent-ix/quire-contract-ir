@@ -795,6 +795,9 @@ fn writer_bytes(package: &Value) -> Vec<u8> {
         serde_json::from_value(package["capability_report"].clone()).expect("capabilities");
     let diagnostics: CheckedDiagnosticsV2 =
         serde_json::from_value(package["diagnostics"].clone()).expect("diagnostics");
+    let temporal_bindings: Option<Vec<quire_contract_model::TemporalBinding>> = package
+        .get("temporal_bindings")
+        .map(|value| serde_json::from_value(value.clone()).expect("temporal bindings"));
     encode_checked_package_v2(
         name,
         &lock,
@@ -803,7 +806,10 @@ fn writer_bytes(package: &Value) -> Vec<u8> {
             source_map: &source_map,
             refinement_step_rows: rows.as_deref(),
         },
-        None,
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: None,
+            temporal_bindings: temporal_bindings.as_deref(),
+        },
         &capabilities,
         &diagnostics,
         quire_canonical::Limits::new(u64::MAX),

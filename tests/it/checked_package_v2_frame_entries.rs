@@ -1157,7 +1157,10 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
             source_map: admitted.source_map(),
             refinement_step_rows: admitted.refinement_step_rows(),
         },
-        admitted.checked_term_data(),
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: admitted.checked_term_data(),
+            temporal_bindings: admitted.temporal_bindings(),
+        },
         admitted.capability_report(),
         admitted.diagnostics(),
         Limits::new(u64::MAX),
@@ -4778,7 +4781,10 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
             source_map: admitted.source_map(),
             refinement_step_rows: admitted.refinement_step_rows(),
         },
-        admitted.checked_term_data(),
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: admitted.checked_term_data(),
+            temporal_bindings: admitted.temporal_bindings(),
+        },
         admitted.capability_report(),
         admitted.diagnostics(),
         Limits::new(u64::MAX),

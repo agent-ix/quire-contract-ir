@@ -168,7 +168,10 @@ fn tc_048_envelope_writes_index_and_refuses_inline_node_path() {
                 source_map: &source_map,
                 refinement_step_rows: None,
             },
-            None,
+            quire_contract_model::CheckedPackageSidecarsRef {
+                checked_term_data: None,
+                temporal_bindings: None,
+            },
             &capabilities,
             &diagnostics,
             Limits::new(FIXTURE_CEILING),
@@ -217,7 +220,10 @@ fn tc_048_envelope_refuses_indexed_dependency_reference_node() {
             source_map: &source_map,
             refinement_step_rows: None,
         },
-        None,
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: None,
+            temporal_bindings: None,
+        },
         &capabilities,
         &diagnostics,
         Limits::new(FIXTURE_CEILING),
@@ -238,6 +244,8 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
         let source_map: Vec<CheckedSourceMapEntry> = typed_each(&package["source_map"]);
         let capabilities: Vec<CheckedCapability> = typed_each(&package["capability_report"]);
         let diagnostics: CheckedDiagnosticsV2 = typed(&package["diagnostics"]);
+        let temporal_bindings: Option<Vec<quire_contract_model::TemporalBinding>> =
+            package.get("temporal_bindings").map(typed_each);
         let encoded = encode_checked_package_v2(
             package["name"].as_str().expect("structural name"),
             &lock,
@@ -246,7 +254,10 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
                 source_map: &source_map,
                 refinement_step_rows: None,
             },
-            None,
+            quire_contract_model::CheckedPackageSidecarsRef {
+                checked_term_data: None,
+                temporal_bindings: temporal_bindings.as_deref(),
+            },
             &capabilities,
             &diagnostics,
             Limits::new(FIXTURE_CEILING),
@@ -619,7 +630,10 @@ fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
                 source_map: &source_map,
                 refinement_step_rows: None,
             },
-            None,
+            quire_contract_model::CheckedPackageSidecarsRef {
+                checked_term_data: None,
+                temporal_bindings: None,
+            },
             &capabilities,
             &diagnostics,
             Limits::new(u64::MAX),
@@ -654,7 +668,10 @@ fn tc_451_deep_closed_graph_encodes_once_with_exact_byte_limits() {
                     source_map: &source_map,
                     refinement_step_rows: None,
                 },
-                None,
+                quire_contract_model::CheckedPackageSidecarsRef {
+                    checked_term_data: None,
+                    temporal_bindings: None,
+                },
                 &capabilities,
                 &diagnostics,
                 Limits::new(limit),

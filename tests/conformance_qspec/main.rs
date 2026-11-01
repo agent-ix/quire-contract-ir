@@ -58,6 +58,7 @@ mod protocol_vectors;
 mod reaches_population;
 mod selection_vectors;
 mod single_body;
+mod temporal_clock_bindings;
 mod timed_model;
 mod timed_slots;
 mod transition;
@@ -777,7 +778,10 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
                 source_map: admitted.source_map(),
                 refinement_step_rows: admitted.refinement_step_rows(),
             },
-            admitted.checked_term_data(),
+            quire_contract_model::CheckedPackageSidecarsRef {
+                checked_term_data: admitted.checked_term_data(),
+                temporal_bindings: admitted.temporal_bindings(),
+            },
             admitted.capability_report(),
             admitted.diagnostics(),
             quire_canonical::Limits::new(1 << 24),
@@ -1175,7 +1179,10 @@ fn qspec_admitted_values_members_and_catalog_constraints_are_exact() {
             source_map: admitted.source_map(),
             refinement_step_rows: admitted.refinement_step_rows(),
         },
-        admitted.checked_term_data(),
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: admitted.checked_term_data(),
+            temporal_bindings: admitted.temporal_bindings(),
+        },
         admitted.capability_report(),
         admitted.diagnostics(),
         quire_canonical::Limits::new(u64::MAX),
@@ -1513,7 +1520,10 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
             source_map: admitted.source_map(),
             refinement_step_rows: admitted.refinement_step_rows(),
         },
-        admitted.checked_term_data(),
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: admitted.checked_term_data(),
+            temporal_bindings: admitted.temporal_bindings(),
+        },
         admitted.capability_report(),
         admitted.diagnostics(),
         quire_canonical::Limits::new(1 << 24),

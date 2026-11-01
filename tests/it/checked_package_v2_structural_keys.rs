@@ -30,6 +30,7 @@ fn local_package() -> Value {
         .filter(|entry| entry["node_id"] == id)
         .cloned()
         .collect::<Vec<_>>());
+    crate::support::checked_package::refresh_temporal_bindings(&mut package);
     package
 }
 

@@ -1646,6 +1646,7 @@ fn tc_048_self_typed_literal_root_is_exempt_but_nested_self_references_refuse() 
         .clone();
     package["semantic_graph"]["nodes"] = json!([scalar.clone()]);
     package["source_map"] = json!([scalar_map.clone()]);
+    checked_package::refresh_temporal_bindings(&mut package);
     admitted(&package);
 
     let mut value = scalar;
