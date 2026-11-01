@@ -37,6 +37,14 @@ fn fixture(ordered: bool) -> Box<CheckedPackageV2> {
         member["case"] = json!(case);
         members.push((member, format!("value/enum_value/OtherStatus/{case}")));
     }
+    let mut area = members[3].0.clone();
+    area["qualified_declaration"] = json!(["Example", "Area"]);
+    area["terms"] = json!([{"dimension_node_id": node_id(&members[3].1), "exponent": "2"}]);
+    members.push((area, "qualified:Example/Area".to_owned()));
+    let mut square = members[2].0.clone();
+    square["qualified_declaration"] = json!(["Example", "SquareMetre"]);
+    square["dimension_node_id"] = node_id("qualified:Example/Area");
+    members.push((square, "qualified:Example/SquareMetre".to_owned()));
     let wire = nominal_package(&members);
     match CheckedPackageV2::read(
         &canonical(&wire),
@@ -397,4 +405,28 @@ fn malformed_rows_cannot_walk_empty_segments_or_copy_a_locus_after_exhaustion() 
         .unwrap_err();
     assert_eq!(error.code, NominalReadCode::LimitReached);
     assert!(std::ptr::eq(error.node, &root.node_id));
+}
+
+#[test]
+#[trace("FR-354-AC-5", "FR-354-AC-7")]
+fn derived_dimension_dependencies_are_returned_as_borrowed_canonical_terms() {
+    let package = fixture(false);
+    let square = node(&package, "unit", "SquareMetre");
+    let area = node(&package, "dimension", "Area");
+    let length = node(&package, "dimension", "Length");
+    let identity = UnitId::Declared(key("SquareMetre"));
+    let requested = [square.node_id.clone()];
+    let rows = [row(square, NominalIdentity::Unit(&identity))];
+    let view = package
+        .read_unit_resolver(&requested, &rows, 10_000)
+        .unwrap();
+    assert_eq!(view.dimensions.len(), 2);
+    assert!(std::ptr::eq(view.dimensions[0].node, area));
+    assert!(std::ptr::eq(view.dimensions[1].node, length));
+    assert_eq!(
+        view.dimensions[0].terms[0].dimension_node_id,
+        length.node_id
+    );
+    assert_eq!(view.dimensions[0].terms[0].exponent.as_ref(), "2");
+    assert!(view.dimensions[1].terms.is_empty());
 }
