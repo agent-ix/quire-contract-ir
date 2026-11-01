@@ -3,8 +3,8 @@
 //! the QSL stage; a caller-created row alone grants no producer authority.
 
 use super::super::{
-    CheckedDeclaration, CheckedLiteralValue, CheckedNodeId, CheckedNodeOwner, CheckedPackageV2,
-    CheckedSemanticNodeV2, CheckedTerm,
+    CheckedDeclaration, CheckedLiteralValue, CheckedNodeId, CheckedNodeOwner,
+    CheckedNodePathSegment, CheckedPackageV2, CheckedSemanticNodeV2, CheckedTerm,
 };
 use super::{CheckedRational, DimensionTerm, NominalBodyKind};
 use quire_exact::{NodeKey, UnitId};
@@ -94,11 +94,29 @@ impl Budget {
         }
     }
     fn charge(&mut self, amount: usize, node: &CheckedNodeId) -> Result<(), NominalReadError> {
-        self.work = self
-            .work
-            .saturating_add(u64::try_from(amount).unwrap_or(u64::MAX));
+        let amount = u64::try_from(amount).unwrap_or(u64::MAX);
+        let Some(work) = self.work.checked_add(amount) else {
+            self.work = u64::MAX;
+            return Err(self.error(NominalReadCode::LimitReached, node));
+        };
+        self.work = work;
         if self.work > self.limit {
             return Err(self.error(NominalReadCode::LimitReached, node));
+        }
+        Ok(())
+    }
+    fn identity(&mut self, root: &CheckedNodeId) -> Result<(), NominalReadError> {
+        let mut pending = vec![root];
+        while let Some(node) = pending.pop() {
+            self.charge(node.package.len().saturating_add(1), root)?;
+            for segment in &node.path {
+                self.charge(1, root)?;
+                match segment {
+                    CheckedNodePathSegment::Name(name) => self.charge(name.len(), root)?,
+                    CheckedNodePathSegment::Node(child) => pending.push(child),
+                    CheckedNodePathSegment::Index(_) => {}
+                }
+            }
         }
         Ok(())
     }
@@ -107,7 +125,7 @@ impl Budget {
         package: &'a CheckedPackageV2,
         id: &CheckedNodeId,
     ) -> Result<&'a CheckedSemanticNodeV2, NominalReadError> {
-        self.charge(1, id)?;
+        self.identity(id)?;
         package
             .node(id)
             .ok_or_else(|| self.error(NominalReadCode::MissingNode, id))
@@ -267,7 +285,7 @@ impl CheckedPackageV2 {
         }
         let mut requests = BTreeSet::new();
         for id in requested {
-            budget.charge(1, id)?;
+            budget.identity(id)?;
             if !requests.insert(id) {
                 return Err(budget.error(NominalReadCode::ConflictingWitness, id));
             }
@@ -320,6 +338,7 @@ impl CheckedPackageV2 {
         let mut nodes = BTreeSet::new();
         let mut keys = BTreeSet::new();
         for row in rows {
+            budget.identity(row.declaration)?;
             budget.charge(row.case.len().saturating_add(1), row.node)?;
             let mut declared = false;
             for case in cases {
