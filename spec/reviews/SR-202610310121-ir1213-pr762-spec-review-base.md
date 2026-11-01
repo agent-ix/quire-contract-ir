@@ -30,3 +30,13 @@ Reviewed the changed FR-019 public-item row against the actual public associated
 ## Evidence
 
 `CheckedPackageV2::source_callable` is public at `callable.rs:213`, and is the direct pure-function read. The changed FR-019 row names only `callable_table`; TC-058 checks exported type names, not associated method completeness.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head 275cf8e3 names both `source_callable` and `callable_table` associated reads in the FR-019 public-item row. |
+
+## Disposition verdict
+
+**PASS** — the inventory now names the complete public callable read surface.
