@@ -47,6 +47,7 @@ mod fairness_targets;
 mod fixture_support;
 mod grouped_ordinal;
 mod hybrid;
+mod model_option_types;
 mod model_root;
 mod model_tuple_union;
 mod node_index;

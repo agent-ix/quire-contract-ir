@@ -79,6 +79,7 @@ pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, CheckedNodeId>>;
 pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/";
 
 mod intake_origin;
+mod option_types;
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
 
 const NATIVE_PREFIX: &str = "ix://quire/native/";
@@ -91,6 +92,8 @@ mod meaning {
     pub(super) enum Kind {
         SequenceType,
         MapType,
+        OptionType,
+        ReferenceType,
         ObjectType,
         ValueType,
         RecordValueType,
@@ -218,17 +221,20 @@ pub(super) enum SelectedTypeRef {
     Map(Box<str>, Box<str>),
 }
 
-/// An FCD collection type definition selected by a model document.
+/// A core value definition selected by an admitted model document.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) enum SelectedCollectionDefinition {
+pub(super) enum SelectedTypeDefinition {
     Sequence(SelectedTypeRef),
     Map(SelectedTypeRef),
+    Option(SelectedTypeRef),
+    Reference(SelectedTypeRef),
 }
 
 #[derive(Clone, Copy)]
-enum SelectedCollectionLayer {
+enum SelectedValueLayer {
     Sequence,
     Map,
+    Option,
 }
 
 /// The closed native names accepted by the selected model grammar.
@@ -513,8 +519,8 @@ pub(super) struct DomainModel {
     pub(super) dimensions: BTreeMap<Box<str>, SelectedDimension>,
     /// Selected FCD unit declarations by their exact identity.
     pub(super) units: BTreeMap<Box<str>, SelectedUnit>,
-    /// FCD sequence (`items`) and map (`values`) type definitions.
-    pub(super) collection_types: BTreeMap<Box<str>, SelectedCollectionDefinition>,
+    /// Selected sequence, map, option and reference value definitions.
+    pub(super) collection_types: BTreeMap<Box<str>, SelectedTypeDefinition>,
     /// Checked-package unit `typeRef` to the exact admitted unit node ID.
     pub(super) unit_refs: UnitRefs,
     /// Whether this selection declares its own `s`; such a declaration
@@ -1141,7 +1147,7 @@ impl DomainModel {
     pub(super) fn element_type(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
         let mut current = type_ref;
         let mut seen = BTreeSet::new();
-        let mut sequence_layers = 0;
+        let mut layers = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
             let Some(definition) = self.collection_types.get(name) else {
                 break;
@@ -1150,19 +1156,30 @@ impl DomainModel {
                 return None;
             }
             match definition {
-                SelectedCollectionDefinition::Sequence(items) => {
-                    sequence_layers += 1;
+                SelectedTypeDefinition::Sequence(items) => {
+                    layers.push(SelectedValueLayer::Sequence);
                     current = items;
                 }
-                SelectedCollectionDefinition::Map(_) => return None,
+                SelectedTypeDefinition::Option(inner) => {
+                    layers.push(SelectedValueLayer::Option);
+                    current = inner;
+                }
+                SelectedTypeDefinition::Reference(target) => {
+                    current = target;
+                }
+                SelectedTypeDefinition::Map(_) => return None,
             }
         }
         let mut element = self.element_type_leaf(current)?;
-        for _ in 0..sequence_layers {
-            element = MemberType::Collection {
-                kind: CollectionKind::Sequence,
-                element: Box::new(element),
-                bounds: None,
+        for layer in layers.into_iter().rev() {
+            element = match layer {
+                SelectedValueLayer::Option => MemberType::Option(Box::new(element)),
+                SelectedValueLayer::Sequence => MemberType::Collection {
+                    kind: CollectionKind::Sequence,
+                    element: Box::new(element),
+                    bounds: None,
+                },
+                SelectedValueLayer::Map => return None,
             };
         }
         Some(element)
@@ -1178,7 +1195,9 @@ impl DomainModel {
                 return false;
             }
             match self.collection_types.get(name) {
-                Some(SelectedCollectionDefinition::Sequence(items)) => current = items,
+                Some(
+                    SelectedTypeDefinition::Sequence(items) | SelectedTypeDefinition::Option(items),
+                ) => current = items,
                 _ => break,
             }
         }
@@ -1291,13 +1310,16 @@ impl DomainModel {
                 return None;
             }
             match definition {
-                SelectedCollectionDefinition::Sequence(items) => {
-                    layers.push(SelectedCollectionLayer::Sequence);
+                SelectedTypeDefinition::Sequence(items) => {
+                    layers.push(SelectedValueLayer::Sequence);
                     current = items;
                 }
-                SelectedCollectionDefinition::Map(values) => {
-                    layers.push(SelectedCollectionLayer::Map);
+                SelectedTypeDefinition::Map(values) => {
+                    layers.push(SelectedValueLayer::Map);
                     current = values;
+                }
+                SelectedTypeDefinition::Option(_) | SelectedTypeDefinition::Reference(_) => {
+                    return None
                 }
             }
         }
@@ -1315,8 +1337,9 @@ impl DomainModel {
         }?;
         for layer in layers.into_iter().rev() {
             rendered = match layer {
-                SelectedCollectionLayer::Sequence => format!("Sequence<{rendered}>"),
-                SelectedCollectionLayer::Map => format!("Map<Text, {rendered}>"),
+                SelectedValueLayer::Sequence => format!("Sequence<{rendered}>"),
+                SelectedValueLayer::Map => format!("Map<Text, {rendered}>"),
+                SelectedValueLayer::Option => return None,
             };
         }
         Some(rendered)
@@ -2854,6 +2877,10 @@ type ClassifiedType<'v> = Result<(&'v Value, meaning::Kind), ModelRefusal>;
 struct Scope<'v> {
     /// Every classified type identity, for wrong-kind versus absent references.
     all_types: BTreeSet<&'v str>,
+    /// Named option definitions, known before any member body is read.
+    option_types: BTreeSet<&'v str>,
+    /// Declared value-definition forms, including yet-unread option/collection bodies.
+    value_definitions: BTreeSet<&'v str>,
     /// Object-identity forms accepted as declared field types.
     objects: BTreeSet<&'v str>,
     /// Object and systems-interface supertypes, excluding process/state forms.
@@ -2895,6 +2922,8 @@ fn classify<'v>(
         let meaning = match declared.get("kind") {
             Some(Value::String(kind)) if kind == "sequence" => Some(meaning::Kind::SequenceType),
             Some(Value::String(kind)) if kind == "map" => Some(meaning::Kind::MapType),
+            Some(Value::String(kind)) if kind == "option" => Some(meaning::Kind::OptionType),
+            Some(Value::String(kind)) if kind == "reference" => Some(meaning::Kind::ReferenceType),
             Some(kind) if kind.is_object() => {
                 let module = kind.get("module").and_then(Value::as_str);
                 let name = kind.get("name").and_then(Value::as_str);
@@ -2946,7 +2975,7 @@ fn node_size(value: &Value) -> u64 {
     }
     if matches!(
         value.get("kind").and_then(Value::as_str),
-        Some("sequence" | "map")
+        Some("sequence" | "map" | "option" | "reference")
     ) {
         total = total.saturating_add(1);
     }
@@ -3145,6 +3174,8 @@ pub(super) fn read_semantic_ir(
     }
     let mut scope = Scope {
         all_types: BTreeSet::new(),
+        option_types: BTreeSet::new(),
+        value_definitions: BTreeSet::new(),
         objects: BTreeSet::new(),
         nominal_objects: BTreeSet::new(),
         object_types: BTreeSet::new(),
@@ -3167,7 +3198,13 @@ pub(super) fn read_semantic_ir(
         };
         scope.all_types.insert(node);
         match meaning {
-            meaning::Kind::SequenceType | meaning::Kind::MapType => {}
+            meaning::Kind::SequenceType | meaning::Kind::MapType | meaning::Kind::ReferenceType => {
+                scope.value_definitions.insert(node);
+            }
+            meaning::Kind::OptionType => {
+                scope.value_definitions.insert(node);
+                scope.option_types.insert(node);
+            }
             meaning::Kind::ObjectType
             | meaning::Kind::StateMachine
             | meaning::Kind::Process
@@ -3266,6 +3303,14 @@ pub(super) fn read_semantic_ir(
         };
         budget.charge(node_size(declared))?;
         match meaning {
+            meaning::Kind::OptionType | meaning::Kind::ReferenceType => {
+                let type_index = *document_positions
+                    .get(node)
+                    .ok_or_else(ModelRefusal::malformed)?;
+                let definition =
+                    option_types::read(declared, meaning, type_index, &model, &scope, budget)?;
+                model.collection_types.insert(node.into(), definition);
+            }
             meaning::Kind::SequenceType | meaning::Kind::MapType => {
                 let member = if meaning == meaning::Kind::SequenceType {
                     "items"
@@ -3273,7 +3318,8 @@ pub(super) fn read_semantic_ir(
                     "values"
                 };
                 let reference = text(declared, member)?;
-                let selected = SelectedTypeRef::from_admitted_name(reference)
+                let selected = model
+                    .selected_type_ref(reference)
                     .ok_or_else(ModelRefusal::malformed)?;
                 let refusal = match &selected {
                     SelectedTypeRef::Map(..) => Some(ModelRefusal::malformed()),
@@ -3294,9 +3340,9 @@ pub(super) fn read_semantic_ir(
                     return Err(SelectionRefusal::located(refusal, declared, budget)?.into());
                 }
                 let definition = if meaning == meaning::Kind::SequenceType {
-                    SelectedCollectionDefinition::Sequence(selected)
+                    SelectedTypeDefinition::Sequence(selected)
                 } else {
-                    SelectedCollectionDefinition::Map(selected)
+                    SelectedTypeDefinition::Map(selected)
                 };
                 model.collection_types.insert(node.into(), definition);
             }
@@ -3323,6 +3369,18 @@ pub(super) fn read_semantic_ir(
                 if let Some(refusal) = defects.first() {
                     let mut selected =
                         SelectionRefusal::located(refusal.refusal, refusal.declaration, budget)?;
+                    let mut pointer = JsonPointer::root().key("types").index(
+                        *document_positions
+                            .get(node)
+                            .ok_or_else(ModelRefusal::malformed)?,
+                    );
+                    for step in &refusal.path {
+                        pointer = match step {
+                            Segment::Name(name) => pointer.key(name),
+                            Segment::Index(index) => pointer.index(*index),
+                        };
+                    }
+                    selected.document_pointer = Some(pointer);
                     selected.declaration_path = Some(refusal.path);
                     if refusal.row == Row::ParameterDuplicate {
                         selected.declaration_origin = None;
@@ -3484,7 +3542,8 @@ pub(super) fn read_semantic_ir(
                                 && !scope.records.contains(name.as_ref())
                                 && !model.tuple_types.contains_key(name)
                                 && !model.variant_types.contains_key(name)
-                                && !model.value_types.contains_key(name) =>
+                                && !model.value_types.contains_key(name)
+                                && !scope.option_types.contains(name.as_ref()) =>
                         {
                             false
                         }
@@ -3511,6 +3570,7 @@ pub(super) fn read_semantic_ir(
                                 || scope.records.contains(name.as_ref())
                                 || model.tuple_types.contains_key(name)
                                 || model.variant_types.contains_key(name)
+                                || scope.option_types.contains(name.as_ref())
                         }
                         SelectedTypeRef::Map(..) => false,
                     };
@@ -3546,6 +3606,18 @@ pub(super) fn read_semantic_ir(
                 if let Some(refusal) = defects.first() {
                     let mut selected =
                         SelectionRefusal::located(refusal.refusal, refusal.declaration, budget)?;
+                    let mut pointer = JsonPointer::root().key("types").index(
+                        *document_positions
+                            .get(node)
+                            .ok_or_else(ModelRefusal::malformed)?,
+                    );
+                    for step in &refusal.path {
+                        pointer = match step {
+                            Segment::Name(name) => pointer.key(name),
+                            Segment::Index(index) => pointer.index(*index),
+                        };
+                    }
+                    selected.document_pointer = Some(pointer);
                     selected.declaration_path = Some(refusal.path);
                     return Err(selected.into());
                 }
@@ -3637,6 +3709,7 @@ pub(super) fn read_semantic_ir(
                                     || scope.records.contains(name.as_ref())
                                     || model.tuple_types.contains_key(name)
                                     || model.variant_types.contains_key(name)
+                                    || scope.option_types.contains(name.as_ref())
                             }
                         };
                         if !valid {
@@ -3685,6 +3758,7 @@ pub(super) fn read_semantic_ir(
             .map(|(node, record)| (Box::from(node), record)),
     );
     model.relationships = relationships;
+    option_types::check_constraints(document, &model, &scope, budget)?;
     Ok(model)
 }
 
@@ -3756,9 +3830,18 @@ impl References<'_> {
     // Reads a selected domain package document's type reference prefix.
     fn check_type_ref(&self, type_ref: &str, path: &[Segment], defects: &mut Defects) {
         let path = joined(path, Segment::Name("typeRef"));
-        match CheckedTypeRefInput::from_wire(type_ref) {
+        let resolved = self.model.selected_type_ref(type_ref);
+        let resolved_name = match &resolved {
+            Some(SelectedTypeRef::Declared(name) | SelectedTypeRef::Unit(name)) => name.as_ref(),
+            _ => type_ref,
+        };
+        let input = match resolved {
+            Some(SelectedTypeRef::Native(_)) => CheckedTypeRefInput::Native,
+            _ => CheckedTypeRefInput::from_wire(resolved_name),
+        };
+        match input {
             CheckedTypeRefInput::MapValue(value) => self.check_type_ref(&value, &[], defects),
-            CheckedTypeRefInput::Unit if self.model.unit_refs.contains_key(type_ref) => {}
+            CheckedTypeRefInput::Unit if self.model.unit_refs.contains_key(resolved_name) => {}
             CheckedTypeRefInput::Unit => {
                 defects.push(Row::Reference, &path, ModelRefusal::missing_name());
             }
@@ -3766,11 +3849,11 @@ impl References<'_> {
             CheckedTypeRefInput::Malformed => {
                 defects.push(Row::Meaning, &path, ModelRefusal::malformed());
             }
-            CheckedTypeRefInput::Declared if self.scope.relationships.contains(type_ref) => {
+            CheckedTypeRefInput::Declared if self.scope.relationships.contains(resolved_name) => {
                 defects.push(Row::Meaning, &path, ModelRefusal::malformed());
             }
-            CheckedTypeRefInput::Declared if self.scope.all_types.contains(type_ref) => {}
-            CheckedTypeRefInput::Declared if self.scope.refused.contains(type_ref) => {}
+            CheckedTypeRefInput::Declared if self.scope.all_types.contains(resolved_name) => {}
+            CheckedTypeRefInput::Declared if self.scope.refused.contains(resolved_name) => {}
             CheckedTypeRefInput::Declared => {
                 defects.push(Row::Reference, &path, ModelRefusal::missing_name());
             }
@@ -3882,7 +3965,7 @@ impl References<'_> {
         };
         TypedSlot {
             name: value.get("name").and_then(Value::as_str).map(Box::from),
-            type_ref: SelectedTypeRef::from_admitted_name(type_ref),
+            type_ref: self.model.selected_type_ref(type_ref),
             multiplicity,
         }
     }
@@ -4184,9 +4267,20 @@ fn semantic_ir_object_type<'v>(
             }
         };
         let redefines = references.redefinition(field, &base, defects);
+        let slot = references.slot(field, &base, defects);
+        if optional
+            && (slot.multiplicity.lower, slot.multiplicity.upper) == (1, Some(1))
+            && matches!(&slot.type_ref, Some(SelectedTypeRef::Declared(name)) if references.scope.option_types.contains(name.as_ref()))
+        {
+            defects.push(
+                Row::Meaning,
+                &joined(&base, Segment::Name("presence")),
+                ModelRefusal::malformed(),
+            );
+        }
         fields.push(FieldDecl {
             identity: identity_of(field, node, &base, defects),
-            slot: references.slot(field, &base, defects),
+            slot,
             optional,
             redefines,
         });
