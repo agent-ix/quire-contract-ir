@@ -37,6 +37,7 @@ mod operations;
 mod owner;
 mod parameter_declaration;
 mod protocol_body;
+mod protocol_locations;
 mod reaches_population;
 mod refinement;
 mod relationship_end;
@@ -81,6 +82,7 @@ pub use contract_package::{
 pub use dispatch_projection::{CheckedDispatchReadError, CheckedDispatchView};
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;
+pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use lower::*;
 pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,

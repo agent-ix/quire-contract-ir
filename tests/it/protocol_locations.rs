@@ -4,7 +4,7 @@
 
 use crate::support::checked_package::{canonical, evidence_for, refresh_identity, v2_all_families};
 use ix_trace_rs::trace;
-use quire_contract_model::protocol_locations::CheckedProtocolLocationReadError;
+use quire_contract_model::CheckedProtocolLocationReadError;
 use quire_contract_model::{
     CheckedOccurrence, CheckedPackageReadLimits, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
