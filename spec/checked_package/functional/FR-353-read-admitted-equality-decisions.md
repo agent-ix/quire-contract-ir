@@ -36,7 +36,7 @@ as that decision.
 - An equality decision from the same checking stage that produced the package,
   carried into package admission under an authoritative producer contract.
   The producer decision identifies the package, application node,
-  occurrence, operator, both original operands and any conversions, selected schedule,
+  occurrence, operator, both original operand positions and source types, any conversions, selected schedule,
   and the complete resolved `UnitTable` and filtered `EnumMemberIndex` facts
   retained by the checked equality. The unit facts include every compound-unit
   dimension, canonical root-unit term and exponent, and exact conversion datum
@@ -72,9 +72,9 @@ path exists in the current V2 carrier, and this FR requires no new wire member.
 The reader SHALL retain a producer decision only during admission of the
 corresponding complete package. It SHALL join the decision to the admitted
 application by package and full application node identity, check occurrence
-ownership, and compare its operator and operand identities to the admitted `CheckedTerm::Application`
+ownership, and compare its operator, operand positions and source types to the admitted `CheckedTerm::Application`
 and its reader-admitted operation record. A missing application, wrong
-occurrence, wrong operator, changed operand identity, duplicate decision, or
+occurrence, wrong operator, changed operand position or source type, duplicate decision, or
 decision for another package SHALL refuse the decision at admission with a
 named typed outcome. No decision for a different application or one of two
 competing rows may be attached to the admitted application. Distinct
