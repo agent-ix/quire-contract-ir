@@ -125,7 +125,9 @@ pub(super) fn validate_checked_term_data(
                 ))
             )
         });
-        if !context_is_model {
+        // Operation admission already requires argument zero to be Reference
+        // of the selected member's declaring model node.
+        if table.context != table.operation.declaring || !context_is_model {
             return Err(invalid(row.clone().key("context")));
         }
         let mut seen_keys = BTreeSet::new();
