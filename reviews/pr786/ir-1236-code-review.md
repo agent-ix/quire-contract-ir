@@ -42,3 +42,20 @@ It SHALL read the retained selected model declarations and use FR-322's effectiv
 member and most-derived-redefiner rules, without inferring operations from bodies.
 - TC-464 — role: examined; path: spec/checked_package/matrix/TC-464-model-operation-census.md; excerpt: Exercise the admitted model operation census independently of executable bodies, operation anchors and dispatch sidecars.
 - FR-019 — role: examined; path: spec/model/functional/FR-019-rust-library-interface.md; excerpt: types `CheckedModelOperation`, `CheckedModelOperations`, `CheckedOperationParameter`, `CheckedOperationReadError`, `CheckedOperationReadErrorCode`; associated model_operations read
+
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | Live QSL environment-dependent control was placed in ordinary integration tests despite make test including ignored tests; missing producer input panicked and failed CI. | tests/it/checked_package_v2_model_fields/operation_census.rs:430 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | Moved the unchanged control into the explicitly registered conformance_qsl_ir1236 target with test = false; removed it from it and removed ignore, preserving required-input failure in the explicit lane. |
+
+## Disposition pass 1 evidence
+
+Narrow correction review only: Cargo.toml, moved control, and TC-464 producer-lane procedure. Original Findings and original review comment are preserved. Makefile uses --all-targets (including --tests); Cargo documents --tests as selecting test=true targets, so this test=false integration target is excluded from ordinary tests and remains selectable by its explicit --test name. See https://doc.rust-lang.org/cargo/commands/cargo-test.html#target-selection. The new function body equals the original control, with local imports/constants replacing parent-module imports and no ignore or missing-environment success. No production or semantic acceptance criterion changes. Explicit new-target execution and full CI remain pending with the lead; no Cargo or source edits were performed by this reviewer. Final scoped disposition: PASS with FND-002 fixed by inspection.

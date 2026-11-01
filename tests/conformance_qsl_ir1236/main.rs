@@ -59,4 +59,3 @@ fn qsl_emitted_package_keeps_the_unreferenced_operation_in_the_census() {
         "the source anchors alpha only; zeta remains in the model census"
     );
 }
-
