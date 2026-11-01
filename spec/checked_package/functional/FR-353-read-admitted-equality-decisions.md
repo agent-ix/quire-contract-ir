@@ -21,10 +21,10 @@ relationships:
 ## Description
 
 When a consumer reads an equality application from an admitted
-`CheckedPackageV2`, Contract IR SHALL expose a public, typed, read-only view of
-the equality decision made by the producing checking stage. The view SHALL
-preserve the decision needed to form the consumer's checked equality node
-without running a type checker in the reader. An operation identity, operand
+`CheckedPackageV2`, Contract IR SHALL return QSV's opaque
+`AdmittedEqualityDecision` for the decision made by the producing checking
+stage. That value SHALL preserve the decision needed to form the consumer's
+`CheckedEquality` node without running a type checker in the reader. An operation identity, operand
 types, structural domain projection, or catalog law alone SHALL NOT be treated
 as that decision.
 
@@ -44,21 +44,32 @@ as that decision.
   that the selected equality schedule uses; the enum facts include declaration
   and member identities, ordered flag, cases and ranks.
   A caller-created operation name or pair of type nodes is not such a decision.
+- Selected QSL-stage Exact identity and descriptor rows supplied alongside the
+  admitted package to the IR read, not added to QSpec V2 wire. The rows name
+  the source declared `UnitId`, compound `UnitId`, model enum declaration
+  `NodeKey`, model enum member `NodeKey`, Text type identity and Plan type
+  identity needed by the selected equality's operand source/conversion types
+  and resolved unit/enum facts. Each row carries its admitted structural node,
+  selected source or model document, original declaration or member identity,
+  and the QSL-issued Exact identity or descriptor. A bare Exact id, display
+  name or caller-created row is a claim, not evidence of QSL-stage provenance.
 
 ## Outputs
 
-The public read SHALL return a complete IR-owned typed equality decision view
-or a closed typed refusal. A successful view SHALL carry the admitted equality
-application node, occurrence, equality or inequality operator, each operand's
-source type and optional conversion target, the selected text, enum, quantity
-or plan schedule, and the complete resolved unit-table and filtered enum-member
-closure retained for that schedule. A quantity view SHALL preserve compound
+The public read SHALL return a complete QSV-owned opaque
+`AdmittedEqualityDecision` or a closed typed refusal. The value's read-only
+typed API SHALL expose the admitted equality application node and occurrence
+as provenance getters, together with the equality or inequality operator,
+each operand's source type and optional
+conversion target, the selected text, enum, quantity or plan schedule, and
+the complete resolved unit-table and filtered enum-member closure retained
+for that schedule. A quantity value SHALL preserve compound
 unit dimensions, canonical root-unit terms/exponents and exact conversion
-data as well as top-level operand units. An enum view SHALL preserve the
+data as well as top-level operand units. An enum value SHALL preserve the
 compared declaration and member identities, ordered flag, cases and ranks.
-The view SHALL preserve source order and the
-producer's selected identities. It SHALL expose no `serde_json::Value` body,
-QSL `CheckedEquality` value, or partial view.
+The value SHALL preserve source order and the producer's selected identities.
+The read SHALL expose no `serde_json::Value` body, raw wire carrier as an
+admission proof, or partial decision.
 
 ## Behavior
 
@@ -75,7 +86,12 @@ follow a parent reference or infer an equality identity from a path, display
 name, source position or operand type. This FR requires no new wire member.
 
 The reader SHALL retain a producer decision only during admission of the
-corresponding complete package. It SHALL join the decision to the admitted
+corresponding complete package. The existing public, deserializable IR
+`CheckedEqualityDecision` SHALL remain the raw V2 wire carrier. The existing
+`checked_term_data()` read may still expose that row.
+The FR-353 admitted read SHALL NOT return a raw `CheckedEqualityDecision` or
+treat construction of that raw value as proof of admission.
+The reader SHALL join the wire decision to the admitted
 equality application by package, full application node identity and exact
 occurrence, and compare its operator, operand positions and source types to
 the admitted `CheckedTerm::Application` and its reader-admitted operation
@@ -90,9 +106,71 @@ operator and operand types.
 The schedule, conversion targets, complete resolved `UnitTable` facts
 and filtered `EnumMemberIndex` facts remain
 facts of the producing checking stage. IR SHALL preserve those facts exactly.
-IR SHALL NOT regenerate them by
-type-checking the graph, projecting `ValueType`s, or inferring a schedule from
-the operation catalog.
+The IR read SHALL join each selected QSL-stage row to this admitted package's
+selected source or model document, exact structural type/unit/enum node,
+original declaration or member identity, and the equality decision's
+referenced source/conversion type or resolved unit/enum fact. It SHALL reject
+foreign, duplicate, conflicting, wrong-form or mismatched rows at the first
+structural locus. A missing selected identity or descriptor needed by the
+chosen Text, Enum, Quantity or Plan schedule SHALL return typed
+`UnavailableEqualityWitness` with the missing structural node and witness
+kind, without minting a QSV value. No caller-supplied row becomes
+authoritative merely because its Exact payload is well formed.
+
+The IR read SHALL perform bounded representation mapping from those admitted
+structural facts and joined QSL-stage identities to QSV-owned operand
+`ValueType` descriptors, the selected schedule, a complete held-identity
+`UnitTable`, and the compared enum's filtered `EnumMemberIndex`. It SHALL
+preserve the QSL-issued identities, original operand and member order, enum
+cases/ranks/ordered flag, unit dimensions, canonical root terms/exponents and
+conversion data exactly. The read SHALL charge each visited type, witness,
+unit, conversion edge and enum member before use and return typed exhaustion
+without a partial descriptor or admitted value. The read SHALL NOT derive an
+Exact identity from a structural node or name, infer a schedule from the
+operation catalog, run semantic type checking, or treat a general FR-352
+`project_exact_type` call as a substitute for a missing witness. Mapping an
+admitted representation with joined producer identities is permitted; it
+does not select a new semantic type, conversion or comparison plan.
+The IR read SHALL include QSV descriptor materialization in the same finite
+work allowance, passing the remaining allowance through QSV's Exact meter.
+It SHALL preserve QSV's original typed `Incomplete` outcome and first failing
+locus on exhaustion, and the QSV typed materialization cause and locus on an
+arithmetic failure, without returning a partial descriptor or opaque value.
+QSV SHALL mechanically fold the sidecar's already selected ordered exact
+affine conversion-edge path with exact arithmetic when its private
+`Unit.canonical` representation requires a scalar. The fold SHALL preserve that
+path's order and result without selecting another root or conversion route.
+An arithmetic impossibility or exhausted work allowance SHALL return a typed
+failure before minting; no identity or schedule is synthesized by the fold.
+
+QSV SHALL own `AdmittedEqualityDecision` with private fields and no public
+constructor from raw decision fields. QSV SHALL expose a `#[doc(hidden)]`
+mint requiring a QSV-defined `ReaderSeal`.
+The admitted Contract IR reader SHALL call that mint only for a decision it
+has joined, mapped and validated. QSV SHALL construct the opaque value from
+joined admitted descriptors through its hidden mint, retaining the supplied
+Exact identities and building the full held-ID unit table and filtered enum
+member index using its private construction boundary, without exposing
+raw-field constructors. The public read SHALL return the QSV value. QSV
+`CheckedEquality::from_admitted_decision(&AdmittedEqualityDecision)` SHALL
+construct the checked value from the retained decision without calling
+`TypeEnvironment::check_equality` or another checking pass. The exact mint
+signature and type mappings depend on QSV IR-1223's published API; this FR
+does not assign them to an IR-owned wrapper.
+
+The hidden mint is a public Rust item and can be called by another crate that
+obtains a `ReaderSeal`; `#[doc(hidden)]` does not make it inaccessible. The
+admission provenance claim SHALL be an audited API discipline, not a claim of
+language-level cross-crate unforgeability.
+A structural public-API audit SHALL establish that the admitted value's fields
+and raw-field constructors are private, that the hidden mint and seal are not re-exported through IR's
+public API, and that no other public admission constructor is exposed.
+Cargo metadata and public-API evidence SHALL establish the dependency
+direction QSV -> Contract IR model -> Contract IR root, with no QSL dependency
+in either IR package. The IR audit SHALL use visibility, API surface and
+dependency data; it SHALL NOT substitute text search or a hand-maintained
+caller ledger for that evidence. QSL's corresponding layering check is owned
+downstream.
 
 The public accessor SHALL read only a retained admitted decision. When the
 package has no admitted decision for the requested equality, it SHALL return
@@ -108,20 +186,28 @@ work and first failing locus without a partial view. Repeated reads and reads
 from an equal clone SHALL return equal complete views or equal typed refusals,
 without reparsing wire or source documents or changing package equality.
 
-Contract IR SHALL own only the neutral admitted decision and its structural
-join. QSL SHALL own construction of its `CheckedEquality` from that trusted
-view and SHALL NOT call `TypeEnvironment::check_equality` in a package reader.
-The model crate SHALL acquire no dependency on QSL, its checker or evaluator.
+Contract IR SHALL own the raw wire carrier, the admitted structural join and
+the read returning QSV's opaque value. QSV SHALL own construction of its
+`CheckedEquality`; QSL's package reader SHALL consume that checked value
+without calling `TypeEnvironment::check_equality`. The model crate SHALL
+acquire no dependency on QSL, its checker or evaluator.
 
 ## Acceptance Criteria
 
+The positive equality cases below have the selected QSL-stage witnesses
+required by their operand and schedule shapes. Missing witnesses follow
+FR-353-AC-7 rather than yielding a partial admitted value.
+
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-353-AC-1 | A public external consumer reads admitted `=` and `!=` applications by each equality application's full node identity and exact occurrence, and receives the producer-selected operator, original operand positions, source and conversion target types, and exact schedule in source order. Two equalities referenced by one `and` parent, one referenced by `or`, and equality children referenced by aggregate-member and binding-value forms remain distinct, with an empty `term_path` in each equality row. The four TC-1070 Fixture E expressions at rows 8, 12, 15 and 17 are readable as four separate child application rows. Text, enum, quantity and plan cases retain their respective schedule; the enum case retains the complete filtered index for its compared declaration, including declaration/member identities, ordered flag, cases and ranks, while the quantity case retains every resolved `UnitTable` fact used by its schedule, including compound-unit dimensions, canonical root-unit terms/exponents and exact conversion data. The result contains no JSON body, top-level-only unit truncation, unrelated enum members or partial decision. | Test |
+| FR-353-AC-1 | A public external consumer reads admitted `=` and `!=` applications by each equality application's full node identity and exact occurrence and receives QSV `AdmittedEqualityDecision`; its read-only typed API exposes the producer-selected operator, original operand positions, source and conversion target types, and exact schedule in source order. `CheckedEquality::from_admitted_decision` consumes that value without a checking pass. Two equalities referenced by one `and` parent, one referenced by `or`, and equality children referenced by aggregate-member and binding-value forms remain distinct, with an empty `term_path` in each equality row. The four TC-1070 Fixture E expressions at rows 8, 12, 15 and 17 are readable as four separate child application rows. Text, enum, quantity and plan cases retain their respective schedule; the enum case retains the complete filtered index for its compared declaration, including declaration/member identities, ordered flag, cases and ranks, while the quantity case retains every resolved `UnitTable` fact used by its schedule, including compound-unit dimensions, canonical root-unit terms/exponents and exact conversion data. The result contains no JSON body, top-level-only unit truncation, unrelated enum members or partial decision. | Test |
 | FR-353-AC-2 | Admission refuses a decision whose package, equality application node, occurrence, operator, operand position or source type differs from the complete admitted application, and refuses duplicate (`application`, `occurrence`) equality rows. An absent or foreign application, non-application node, non-equality application, or non-empty `term_path` is a named typed refusal at the first mismatching sidecar member; neither decision becomes readable. Distinct equality application nodes retain distinct decisions even when they share an operator and operand types. A parent reference, display name or type equality does not establish the join. | Test |
 | FR-353-AC-3 | An admitted equality application with no authoritative producer decision returns `UnavailableEqualityDecision`; unknown or foreign application, non-application node, non-equality application, ineligible operation and wrong occurrence return their distinct typed outcomes. A non-empty sidecar `term_path` refuses at admission. None returns a fabricated schedule, an empty unit or enum snapshot in place of a required one, or a partial view. | Test |
 | FR-353-AC-4 | A finite work limit equal to the charged read succeeds and one less returns typed exhaustion at the first uncharged application, operand or decision entry, with attempted work. Repeated reads and a package clone give equal outcomes and do not reparse package or selected source bytes. | Test |
-| FR-353-AC-5 | Code inspection shows the accessor reads an admission-retained decision, performs no `TypeEnvironment::check_equality` or equivalent type-checking pass, exports no QSL checker or evaluator type from the IR model crate, and leaves construction of QSL `CheckedEquality` to QSL's trusted checked-stage boundary. | Inspection |
+| FR-353-AC-5 | Structural public-API evidence shows that IR's public `CheckedEqualityDecision` remains a raw wire carrier, while the admitted read returns QSV `AdmittedEqualityDecision` with private fields, no public raw-field constructor and a `#[doc(hidden)]` mint requiring QSV `ReaderSeal`; neither mint nor seal is re-exported through IR's public API. Cargo metadata and public-API evidence show QSV below the IR model, no QSL crate dependency in either IR package, and no IR-owned opaque wrapper. The audit records that the public hidden mint remains callable from another crate with a seal, so provenance is an API discipline rather than language-level cross-crate unforgeability; it uses no grep/source scan or hand-maintained caller ledger. QSL's corresponding public-API layering check belongs downstream. | Inspection |
+| FR-353-AC-6 | With selected QSL-stage source `UnitId`, compound `UnitId`, model enum declaration and member `NodeKey`s, Text type identity and Plan type identity rows joined to their exact admitted nodes and selected documents, the reader maps the sidecar's source/conversion types and schedule into QSV admitted descriptors without a checking pass. The QSV opaque value's read-only provenance getters return the exact equality application and occurrence, and its fact getters retain the issued identities, operand/member order, enum cases/ranks/ordered flag, complete held unit facts and conversion data. `CheckedEquality::from_admitted_decision` consumes the value without rebuilding any identity or schedule. | Test |
+| FR-353-AC-7 | For each required witness kind, an absent row returns typed `UnavailableEqualityWitness` naming the missing structural node and kind before QSV minting; a foreign-document, wrong-form, duplicate, conflicting or mismatched row returns a typed refusal at its first structural locus. A work limit equal to the complete type/witness/unit/enum representation mapping admits, and one less returns typed exhaustion before the next charge with no partial descriptor or opaque value. Neither path fabricates an Exact key, substitutes a display name, uses an unsupported general FR-352 projection, or runs semantic checking. | Test |
+| FR-353-AC-8 | For a declared quantity whose selected unit has an ordered exact affine conversion path, QSV's private admitted construction folds that path to the required canonical scalar with exact arithmetic and preserves the selected root and edge order. Changing an edge or root refuses the admitted join; arithmetic impossibility or one-less work returns a typed failure before an opaque decision exists. The fold does not choose another route, invent a unit identity, change a conversion target or recompute the selected equality schedule. | Test |
 
 ## Dependencies
 
@@ -135,9 +221,19 @@ admission does not yet retain
 the producer's schedule, conversion choices, complete resolved unit-table
 closure or filtered enum member index. This FR allocates no further V2 wire
 member and grants no authority to reconstruct a decision from type or catalog data.
-QSL [QSL-1390](https://linear.app/agent-ix/issue/QSL-1390) owns the emitter and
-trusted construction boundary for its private `CheckedEquality` fields after
-the IR read are available. QSL producer rows are needed for an end-to-end
-successful read; IR can verify the carrier with QSpec vectors and locally built
-fixtures meanwhile. This FR uses the child's existing node identity and adds
-no second identity domain.
+QSL [QSL-1398](https://linear.app/agent-ix/issue/QSL-1398) supplies the
+selected source `UnitId` and model enum declaration/member key rows.
+QSL [QSL-1390](https://linear.app/agent-ix/issue/QSL-1390) supplies selected
+compound `UnitId`, Text type identity and Plan type identity rows after
+QSL-1398, the equality emitter, and package-reader use of QSV's
+`CheckedEquality::from_admitted_decision` after the IR read is available.
+These stage rows travel alongside the admitted package to the IR read, not in
+a new QSpec wire member. A missing row leaves the corresponding successful
+read unavailable; IR cannot fill it by inventing an Exact key.
+QSV [IR-1223](https://linear.app/agent-ix/issue/IR-1223)
+owns the opaque admitted value, hidden mint, `ReaderSeal`, no-recheck
+constructor and admitted descriptor path for held unit and filtered enum
+facts. QSV's exact public signatures and type mappings must be published
+before IR fixes its read return signature. IR can verify the raw carrier with
+QSpec vectors and locally built fixtures meanwhile. This FR uses the child's
+existing node identity and adds no second identity domain.
