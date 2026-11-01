@@ -35,3 +35,9 @@ Reviewed the IR-1240 spec, tagged tests, and changed mapper code without selecti
 ## Evidence
 
 The new external test obtains a real admitted `quire.op.collection.index` operation and matches only `CheckedOperationMember::Element`; its second map of the nested ID would fail under the previous flat-only implementation. The four other declaration variants, relationship-end member, and six fairness targets are tested in `typed_terms.rs` by directly constructing `CheckedApplicationOperation` with populated `views`. These unit tests do not prove that each named variant can be obtained from `CheckedPackageV2::read` and remapped through the public API with its borrowed view intact. Quoin's computed matrix confirms tags but cannot distinguish this semantic gap. An external consumer should cover the complete named census with admitted operations or explicitly establish why a variant cannot be admitted.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Commit `b1be4b10` adds one external `CheckedPackageV2::read` census test for every currently admissible named member-ID site: the five declaration variants, both relationship-end population shapes, and operation/protocol-root/attempt-node/parallel-branch/compensation-template fairness targets. Each maps flat to nested to another whole ID and checks callback count/order plus raw and borrowed typed mirrors. HybridTransition remains in the nested unit test; this IR reader has no `temporal_bindings` support for the QSpec hybrid fixture, so no currently admitted hybrid control exists. |
