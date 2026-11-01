@@ -1789,7 +1789,7 @@ mod tests {
         assert_eq!(admitted.left().source(), &ValueType::Composite(declaration));
     }
 
-    /// Trace: FR-353-AC-1, FR-353-AC-3.
+    /// Trace: FR-353-AC-1, FR-353-AC-3, FR-353-AC-6.
     /// Provenance: IR-1209 compound quantity UnitId per-fact rows.
     #[test]
     fn compound_quantity_equality_reads_unit_rows() {
@@ -1798,6 +1798,96 @@ mod tests {
 
         let mut wire = boolean_equality_wire();
         let ids = &fixture().1;
+        let source_dimension =
+            json!({"package":"composite","path":["fixture","source_dimension"],"ordinal":0});
+        let source_root =
+            json!({"package":"composite","path":["fixture","source_root"],"ordinal":0});
+        let model_dimension_identity = "ix://composite/dimension/Area";
+        let model_unit_identity = "ix://composite/unit/Area";
+        let model_dimension = json!({"package":"composite","path":["scalar_type","dimension",model_dimension_identity],"ordinal":0});
+        let model_root = json!({"package":"composite","path":["scalar_type","unit",model_unit_identity],"ordinal":0});
+        let selected_model = json!({
+            "contractVersion":"2.0.0",
+            "package":{"identity":"composite","version":"1.0.0"},
+            "constructs":[],"types":[],
+            "dimensions":[{"identity":model_dimension_identity,"name":"Area","base":true,"terms":[]}],
+            "units":[{"identity":model_unit_identity,"name":"Area","dimension":model_dimension_identity,
+                "scale":"1","offset":"0"}]
+        });
+        let source = wire["lock"]["sources"][0].clone();
+        let nodes = wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        nodes.extend([
+            json!({"node_id":{"package":"composite","path":["model","model_root","composite"],"ordinal":0},
+                "schema_version":"quire.checked-semantic-graph/v2","node_tag":"model","semantic_form":"model_root",
+                "semantic_type":{"package":"composite","path":["model","model_root","composite"],"ordinal":0},
+                "dependencies":[],"occurrences":[{"role":"generated","ordinal":0}],
+                "owner":{"kind":"model_root","identity":"composite"},"body":{"term":"aggregate","members":[]}}),
+            json!({"node_id":source_dimension,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"scalar_type","semantic_form":"dimension","semantic_type":source_dimension,
+                "dependencies":[],"occurrences":[{"role":"declaration","ordinal":0}],
+                "owner":{"kind":"source","authority":"test","identity":"composite"},
+                "declaration":{"qualified_name":["fixture","source_dimension"]},
+                "body":{"term":"dimension","terms":[]}}),
+            json!({"node_id":model_dimension,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"scalar_type","semantic_form":"dimension","semantic_type":model_dimension,
+                "dependencies":[],"occurrences":[{"role":"generated","ordinal":0}],
+                "owner":{"kind":"model","identity":"composite","node":model_dimension_identity},
+                "body":{"term":"aggregate","members":[]}}),
+            json!({"node_id":source_root,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"scalar_type","semantic_form":"unit","semantic_type":source_dimension,
+                "dependencies":[source_dimension],"occurrences":[{"role":"declaration","ordinal":0}],
+                "owner":{"kind":"source","authority":"test","identity":"composite"},
+                "declaration":{"qualified_name":["fixture","source_root"]},
+                "body":{"term":"unit","dimension_node_id":source_dimension,"target_unit_node_id":null,
+                    "scale":{"numerator":"1","denominator":"1"},"offset":{"numerator":"0","denominator":"1"}}}),
+            json!({"node_id":model_root,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"scalar_type","semantic_form":"unit","semantic_type":model_dimension,
+                "dependencies":[model_dimension],"occurrences":[{"role":"generated","ordinal":0}],
+                "owner":{"kind":"model","identity":"composite","node":model_unit_identity},
+                "body":{"term":"aggregate","members":[]}})
+        ]);
+        for (node, at, role) in [
+            (&source_dimension, 10, "declaration"),
+            (&source_root, 13, "declaration"),
+        ] {
+            wire["source_map"]
+                .as_array_mut()
+                .expect("source map")
+                .push(json!({
+                    "node_id":node,"role":role,"ordinal":0,
+                    "regions":[{"source":source,"start":at,"end":at+1}]
+                }));
+        }
+        wire["source_map"].as_array_mut().expect("source map").push(json!({
+            "node_id":{"package":"composite","path":["model","model_root","composite"],"ordinal":0},
+            "role":"generated","ordinal":0,
+            "regions":[{"source":source,"start":9,"end":10}]
+        }));
+        for (node, at) in [(&model_dimension, 11), (&model_root, 14)] {
+            wire["source_map"]
+                .as_array_mut()
+                .expect("source map")
+                .push(json!({
+                    "node_id":node,"role":"generated","ordinal":0,
+                    "regions":[{"source":source,"start":at,"end":at+1}]
+                }));
+        }
+        let mut roots: Vec<CheckedNodeId> = [source_root.clone(), model_root.clone()]
+            .into_iter()
+            .map(|value| serde_json::from_value(value).expect("root id"))
+            .collect();
+        roots.sort();
+        wire["semantic_graph"]["nodes"][8]["dependencies"] = json!(roots);
+        wire["semantic_graph"]["nodes"][8]["body"] = json!({"term":"aggregate","members":[
+            {"term":"aggregate","members":[
+                {"term":"binding","name":"unit","value":{"term":"reference","target":source_root}},
+                {"term":"binding","name":"exponent","value":{"term":"literal","type":ids[&'2'],"value_kind":"integer","value":"2"}}]},
+            {"term":"aggregate","members":[
+                {"term":"binding","name":"unit","value":{"term":"reference","target":model_root}},
+                {"term":"binding","name":"exponent","value":{"term":"literal","type":ids[&'2'],"value_kind":"integer","value":"-1"}}]}
+        ]});
         wire["semantic_graph"]["nodes"][5]["body"]["operation"]["identity"] =
             json!("quire.op.quantity.eq");
         wire["semantic_graph"]["nodes"][5]["body"]["arguments"] = json!([
@@ -1812,12 +1902,21 @@ mod tests {
         }
         wire["checked_term_data"]["equality_decisions"][0]["units"] = json!([{
             "quantity_type":ids[&'a'], "unit":ids[&'a'],
-            "form":{"kind":"compound","dimension_terms":[],"terms":[]}
+            "form":{"kind":"compound","dimension_terms":[],"terms":[
+                {"root_unit":source_root,"exponent":"2"},
+                {"root_unit":model_root,"exponent":"-1"}]}
         }]);
+        let mut evidence = CheckedPackageEvidence::new();
+        evidence
+            .insert_domain_package_document(
+                "composite",
+                serde_json::to_vec(&selected_model).expect("model bytes"),
+            )
+            .expect("selected model evidence");
         let package = match CheckedPackageV2::read(
             &serde_json::to_vec(&wire).expect("wire bytes"),
             CheckedPackageReadLimits::bounded(),
-            &CheckedPackageEvidence::new(),
+            &evidence,
         ) {
             CheckedPackageV2ReadResult::Admitted(package) => package,
             other => panic!("compound quantity package must admit: {other:?}"),
@@ -1846,7 +1945,22 @@ mod tests {
             original.clone(),
             Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
         );
-        let unit_id = UnitId::compound(Vec::new());
+        let source_key = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("a-source-root".into())],
+            0,
+        )
+        .expect("source key");
+        let model_key = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("b-model-root".into())],
+            0,
+        )
+        .expect("model key");
+        let unit_id = UnitId::compound(vec![
+            (source_key.clone(), "2".parse().expect("source exponent")),
+            (model_key.clone(), "-1".parse().expect("model exponent")),
+        ]);
         let mut facts = Vec::new();
         for position in 0..2 {
             for (fact, value_type) in [
@@ -1880,22 +1994,82 @@ mod tests {
                 });
             }
         }
+        let source_row = super::super::SelectedSourceUnitRow::new(
+            serde_json::from_value(source_root.clone()).expect("source root id"),
+            "test",
+            "composite",
+            vec!["fixture".into(), "source_root".into()],
+            UnitId::declared(source_key.clone()),
+        );
         let admitted = package
             .admitted_equality(
                 &application,
                 &occurrence,
-                &[application_row],
+                std::slice::from_ref(&application_row),
                 &facts,
-                &[],
+                std::slice::from_ref(&source_row),
                 1000,
             )
             .expect("joined compound quantity decision");
         assert_eq!(admitted.schedule(), EqualitySchedule::Quantity);
         assert_eq!(admitted.left().source(), &ValueType::Quantity(unit_id));
         assert_eq!(admitted.units().len(), 1);
+        assert_eq!(
+            admitted.units()[0]
+                .id
+                .compound_terms()
+                .expect("compound roots")
+                .len(),
+            2
+        );
+        let missing_source = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &facts,
+                &[],
+                1000,
+            )
+            .expect_err("source-owned root requires its selected source row");
+        assert_eq!(
+            missing_source.witness,
+            Some(super::super::EqualityWitnessKind::SourceUnit)
+        );
+        assert_eq!(
+            *missing_source.at,
+            serde_json::from_value(source_root.clone()).expect("source root id")
+        );
+        let mut reversed = facts.clone();
+        for row in &mut reversed {
+            if let super::super::EqualityFactWitness::Unit { unit_id, .. } = &mut row.fact {
+                *unit_id = UnitId::compound(vec![
+                    (model_key.clone(), "-1".parse().expect("model exponent")),
+                    (source_key.clone(), "2".parse().expect("source exponent")),
+                ]);
+            }
+        }
+        let wrong_order = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &reversed,
+                std::slice::from_ref(&source_row),
+                1000,
+            )
+            .expect_err("wrong ordered root identities refuse");
+        assert_eq!(
+            wrong_order.code,
+            super::super::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness
+        );
+        assert_eq!(
+            *wrong_order.at,
+            serde_json::from_value(source_root).expect("source root id")
+        );
     }
 
-    /// Trace: FR-353-AC-1, FR-353-AC-3, FR-353-AC-7.
+    /// Trace: FR-353-AC-1, FR-353-AC-3, FR-353-AC-7, FR-353-AC-8.
     /// Provenance: IR-1209 declared unit and dimension identity rows.
     #[test]
     fn declared_quantity_equality_reads_dimension_rows() {
@@ -2185,6 +2359,54 @@ mod tests {
             .expect("joined declared quantity decision");
         assert_eq!(admitted.schedule(), EqualitySchedule::Quantity);
         assert_eq!(admitted.units()[0].id, unit_id);
+        let quire_semantic_value::declaration::EqualityUnitForm::Declared { path, .. } =
+            &admitted.units()[0].form
+        else {
+            panic!("declared unit form")
+        };
+        assert_eq!(path.len(), 1);
+        assert_eq!(path[0].target, root_key);
+        assert_eq!(path[0].scale.numerator().to_string(), "2");
+        assert_eq!(path[0].scale.denominator().to_string(), "1");
+        assert_eq!(path[0].offset.numerator().to_string(), "1");
+        assert_eq!(path[0].offset.denominator().to_string(), "1");
+        let mut low = 0;
+        let mut high = 1000;
+        while low + 1 < high {
+            let mid = low + (high - low) / 2;
+            match package.admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &facts,
+                std::slice::from_ref(&source_row),
+                mid,
+            ) {
+                Ok(_) => high = mid,
+                Err(error)
+                    if error.code == super::super::AdmittedEqualityReadErrorCode::WorkLimit =>
+                {
+                    low = mid;
+                }
+                Err(error) => panic!("unexpected bounded read refusal: {error:?}"),
+            }
+        }
+        assert!(high > 1);
+        let one_less = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &facts,
+                std::slice::from_ref(&source_row),
+                high - 1,
+            )
+            .expect_err("one less than the exact work threshold refuses");
+        assert_eq!(
+            one_less.code,
+            super::super::AdmittedEqualityReadErrorCode::WorkLimit
+        );
+        assert!(one_less.attempted_work > 0);
         let mut changed = facts.clone();
         let edge = changed
             .iter_mut()

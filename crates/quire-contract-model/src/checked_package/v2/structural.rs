@@ -118,6 +118,7 @@ struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    models: Option<&'a [super::model_members::DomainModel]>,
 }
 
 impl Graph<'_> {
@@ -333,7 +334,7 @@ pub(super) fn validate_structural_nodes(
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Result<(), ValidationFailure> {
-    validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[])
+    validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[], None)
 }
 
 fn resolve_unlisted_dependency(
@@ -503,11 +504,13 @@ pub(super) fn validate_structural_nodes_with_keys(
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    models: Option<&[super::model_members::DomainModel]>,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
         kinds,
         index,
+        models,
     };
     // Rank once for this graph, including listed IDs absent from its nodes.
     // All later comparisons use shallow tokens and ranks, not deep key walks.
@@ -696,11 +699,13 @@ pub(super) fn validate_derived_type_shapes(
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    models: &[super::model_members::DomainModel],
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
         kinds,
         index,
+        models: Some(models),
     };
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
@@ -1080,21 +1085,37 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
         return None;
     };
     let unit = typed_binding(unit, "unit").and_then(typed_reference)?;
-    // A dimension's canonical root unit has no target unit in its body;
-    // the nominal stage admits exactly one such unit.
+    // A dimension's canonical root has no target. Source units carry that
+    // fact in their nominal body; model units carry it in the selected model.
     let is_root_unit = graph.node(unit).is_some_and(|(node, kind)| {
         kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
-            && super::identity::NominalBody::from_value(&node.body, JsonPointer::root()).is_ok_and(
-                |body| {
-                    matches!(
-                        body.kind(),
-                        super::identity::NominalBodyKind::Unit {
-                            target_unit_node_id: None,
-                            ..
-                        }
-                    )
-                },
-            )
+            && match node.owner.as_ref() {
+                Some(super::CheckedNodeOwner::Source { .. }) => {
+                    super::identity::NominalBody::from_value(&node.body, JsonPointer::root())
+                        .is_ok_and(|body| {
+                            matches!(
+                                body.kind(),
+                                super::identity::NominalBodyKind::Unit {
+                                    target_unit_node_id: None,
+                                    ..
+                                }
+                            )
+                        })
+                }
+                Some(super::CheckedNodeOwner::Model {
+                    identity,
+                    node: original,
+                }) => graph.models.is_some_and(|models| {
+                    models.iter().any(|model| {
+                        model.identity == *identity
+                            && model
+                                .units
+                                .get(original)
+                                .is_some_and(|unit| unit.target.is_none())
+                    })
+                }),
+                _ => false,
+            }
     });
     let exponent_ok = typed_binding(exponent, "exponent")
         .and_then(|value| {

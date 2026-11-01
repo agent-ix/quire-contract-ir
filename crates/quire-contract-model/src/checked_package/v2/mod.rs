@@ -2828,9 +2828,10 @@ fn validate_graph(
         &terms,
         &index,
         structural_keys,
+        Some(models),
     )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
-    validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index)?;
+    validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index, models)?;
     validate_selected_type_bounds(models, &terms, structural_keys)?;
     for &position in index.values() {
         if !matches!(

@@ -1103,6 +1103,55 @@ fn join_source_unit(
     Ok(())
 }
 
+fn join_compound_root(
+    package: &CheckedPackageV2,
+    application: &CheckedNodeId,
+    root: &CheckedNodeId,
+    key: &NodeKey,
+    source_rows: &[SelectedSourceUnitRow],
+    work: &mut ReadWork,
+) -> Result<(), AdmittedEqualityReadError> {
+    work.charge(application, root)?;
+    let owner = package.node(root).and_then(|node| node.owner.as_ref());
+    match owner {
+        Some(CheckedNodeOwner::Source { .. }) => join_source_unit(
+            package,
+            application,
+            root,
+            &UnitId::declared(key.clone()),
+            source_rows,
+            work,
+        ),
+        Some(CheckedNodeOwner::Model { identity, node }) => {
+            let mut selected = false;
+            for model in package.models.selected_models() {
+                work.charge(application, root)?;
+                if model.identity == *identity && model.units.contains_key(node) {
+                    selected = true;
+                }
+            }
+            if package.node_kind(root) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+                && selected
+            {
+                Ok(())
+            } else {
+                Err(missing_witness(
+                    application,
+                    root,
+                    EqualityWitnessKind::QuantityType,
+                    work,
+                ))
+            }
+        }
+        _ => Err(missing_witness(
+            application,
+            root,
+            EqualityWitnessKind::QuantityType,
+            work,
+        )),
+    }
+}
+
 fn checked_rational(
     value: &super::CheckedRational,
     application: &CheckedNodeId,
@@ -1581,11 +1630,11 @@ fn quantity_unit(
                 ));
             }
             for ((root_key, exponent), term) in root_terms.iter().zip(terms) {
-                join_source_unit(
+                join_compound_root(
                     package,
                     application,
                     &term.root_unit,
-                    &UnitId::declared(root_key.clone()),
+                    root_key,
                     source_rows,
                     work,
                 )?;
