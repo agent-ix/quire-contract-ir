@@ -335,7 +335,7 @@ const FIVE_PROFILES: [&str; 5] = [
 
 /// Selects `identity` as the temporal profile, in the lock and in every law of
 /// the `temporal_profile` role.
-fn select_profile(package: &mut Value, identity: &str) {
+pub(super) fn select_profile(package: &mut Value, identity: &str) {
     for selection in package["lock"]["profile_selections"]
         .as_array_mut()
         .expect("selections")
@@ -431,7 +431,7 @@ fn fairness_member(declaration: &str, name: &str) -> Value {
 }
 
 /// A `temporal`/`fairness` node applying `quire.op.temporal.fair` with `member`.
-fn fairness(member: Value) -> Value {
+pub(super) fn fairness(member: Value) -> Value {
     node_with_key(
         &fresh(),
         "temporal",

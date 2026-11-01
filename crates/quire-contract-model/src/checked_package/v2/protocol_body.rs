@@ -4,10 +4,10 @@
 
 use super::model_members::{Budget, ModelOwners};
 use super::{
-    ApplicationOperator, CheckedFairnessTarget, CheckedNodeKind, CheckedOperationMember,
-    CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole, CheckedTerm, CompositeTypeForm,
-    LiteralKind, ModelForm, ProtocolForm, RawSemanticNodeV2, RelationForm, ScalarTypeForm,
-    StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
+    ApplicationOperator, CheckedFairnessTarget, CheckedNodeKind, CheckedPackageLockV2,
+    CheckedPackageV2, CheckedSelectionRole, CheckedTerm, CompositeTypeForm, LiteralKind, ModelForm,
+    ProtocolForm, RawSemanticNodeV2, RelationForm, ScalarTypeForm, StateClauseKind, StateForm,
+    TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -3001,7 +3001,7 @@ fn validate_protocol_fairness(
                 }
                 checked.insert(fair);
                 validate_protocol_fairness_target(
-                    target, fair, clause, nodes, kinds, validated, index, owners, meter,
+                    &target, fair, clause, nodes, kinds, validated, index, owners, meter,
                 )?;
             }
         }
@@ -3021,7 +3021,7 @@ fn validate_protocol_fairness(
             return Err(fairness_defect(
                 fair,
                 nodes,
-                target_identity(target).1,
+                target_identity(&target).1,
                 false,
             ));
         }
@@ -3029,15 +3029,11 @@ fn validate_protocol_fairness(
     Ok(())
 }
 
-fn fairness_target(term: Option<&CheckedTerm>) -> Option<&CheckedFairnessTarget> {
+fn fairness_target(term: Option<&CheckedTerm>) -> Option<CheckedFairnessTarget> {
     let CheckedTerm::Application { operation, .. } = term? else {
         return None;
     };
-    let read = operation.read().ok()?;
-    match read.member? {
-        CheckedOperationMember::Fairness { target, .. } => Some(target),
-        _ => None,
-    }
+    super::temporal::fairness_target(&operation.record()["member"])
 }
 
 fn target_identity(target: &CheckedFairnessTarget) -> (&CheckedNodeId, &'static str) {

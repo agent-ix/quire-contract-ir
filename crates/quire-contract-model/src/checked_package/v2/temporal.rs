@@ -446,6 +446,11 @@ fn read_fairness_member(member: &Value) -> Option<FairnessMember> {
     (member.kind == OperationMemberKind::Fairness && named).then_some(member)
 }
 
+/// Read the canonical fairness target during admission, before public views exist.
+pub(super) fn fairness_target(member: &Value) -> Option<super::CheckedFairnessTarget> {
+    Some(read_fairness_member(member)?.target)
+}
+
 /// Closed type-argument member; the declaration is validated as a node id.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
