@@ -147,7 +147,7 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                         source_map: package.source_map(),
                         refinement_step_rows: package.refinement_step_rows(),
                     },
-                    None,
+                    package.checked_term_data(),
                     package.capability_report(),
                     package.diagnostics(),
                     quire_canonical::Limits::new(u64::MAX),

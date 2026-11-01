@@ -1167,7 +1167,7 @@ fn encode_package(package: &CheckedPackageV2) -> Vec<u8> {
             source_map: package.source_map(),
             refinement_step_rows: package.refinement_step_rows(),
         },
-        None,
+        package.checked_term_data(),
         package.capability_report(),
         package.diagnostics(),
         Limits::new(1 << 24),
