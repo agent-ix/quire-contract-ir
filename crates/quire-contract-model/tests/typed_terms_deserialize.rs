@@ -3,7 +3,7 @@
 //! Public serde decoding of terms containing flat wire node IDs.
 
 use ix_trace_rs::trace;
-use quire_contract_model::{CheckedOperationViewError, CheckedTerm};
+use quire_contract_model::{CheckedNodeId, CheckedOperationViewError, CheckedTerm};
 use serde_json::{json, Value};
 
 fn node() -> Value {
@@ -46,6 +46,7 @@ fn public_term_deserialization_retains_node_ids_from_text_and_buffered_values() 
 #[test]
 fn public_term_deserialization_rejects_malformed_node_ids_and_unknown_members() {
     for id in [
+        json!(["fixture", ["expression", {"node":7}], 2]),
         json!({"package":"fixture","path":[{"node":-1}],"ordinal":0}),
         json!({"package":"fixture","path":[{"node":9_007_199_254_740_992_u64}],"ordinal":0}),
         json!({"package":"fixture","path":[{"node":0,"extra":true}],"ordinal":0}),
@@ -53,6 +54,14 @@ fn public_term_deserialization_rejects_malformed_node_ids_and_unknown_members() 
         json!({"package":"fixture","path":["x"],"ordinal":"0"}),
         json!({"package":"fixture","path":["x"],"ordinal":0,"extra":true}),
     ] {
+        assert!(
+            serde_json::from_value::<CheckedNodeId>(id.clone()).is_err(),
+            "{id}"
+        );
+        assert!(
+            serde_json::from_str::<CheckedNodeId>(&id.to_string()).is_err(),
+            "{id}"
+        );
         let wire = json!({"term":"reference","target":id});
         assert!(
             serde_json::from_value::<CheckedTerm>(wire.clone()).is_err(),

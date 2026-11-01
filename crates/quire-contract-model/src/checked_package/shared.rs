@@ -742,6 +742,7 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                 Ok(Segment(CheckedNodePathSegment::Name(value.into())))
             }
 
+            #[ix_trace_rs::string_edge]
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Segment, A::Error> {
                 let name: String = map
                     .next_key()?
@@ -775,7 +776,19 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
             path: Vec<Segment>,
             ordinal: u64,
         }
-        let wire = WireNodeId::deserialize(deserializer)?;
+        struct NodeVisitor;
+        impl<'de> Visitor<'de> for NodeVisitor {
+            type Value = WireNodeId;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a flat node ID object")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<WireNodeId, A::Error> {
+                WireNodeId::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+            }
+        }
+        let wire = deserializer.deserialize_map(NodeVisitor)?;
         Ok(Self {
             package: wire.package,
             path: wire.path.into_iter().map(|segment| segment.0).collect(),
@@ -1268,6 +1281,7 @@ mod structural_node_identity_tests {
         let parsed = CheckedNodeId::from_value(&valid).expect("indexed structural ID");
         assert_eq!(serde_json::to_value(&parsed).expect("encode ID"), valid);
         for malformed in [
+            serde_json::json!(["p", ["owner"], 0]),
             serde_json::json!("p/owner"),
             serde_json::json!({"package":"p","path":[],"ordinal":0}),
             serde_json::json!({"package":"p","path":["owner"],"ordinal":"0"}),
