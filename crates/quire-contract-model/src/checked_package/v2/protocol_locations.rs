@@ -70,6 +70,7 @@ fn validate_rows(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut previous: Option<&CheckedProtocolSemanticLocation> = None;
+    let mut missing_predecessor = false;
     for (index, row) in rows.iter().enumerate() {
         meter.charge(1, || at(index))?;
         intake_local_application(&row.application, name, index)?;
@@ -88,6 +89,10 @@ fn validate_rows(
                 return Err(invalid(at(index)));
             }
         }
+        let expected = previous
+            .filter(|before| before.application == row.application && before.occurrence == row.occurrence)
+            .map_or(0, |before| before.term_ordinal + 1);
+        missing_predecessor |= term_ordinal != expected;
         previous = Some(row);
         let mut selected = None;
         for (position, node) in nodes.iter().enumerate() {
@@ -122,6 +127,11 @@ fn validate_rows(
             return Err(invalid(at(index).key("occurrence")));
         }
         intake_location_value(row, index, meter)?;
+    }
+    // A retained successor witnesses the gap; a final row cannot witness an absent successor.
+    // Existing row shape, join, duplicate and ordering refusals retain their precedence.
+    if missing_predecessor {
+        return Err(invalid(JsonPointer::root().key("checked_term_data").key("protocol_locations")));
     }
     Ok(())
 }
