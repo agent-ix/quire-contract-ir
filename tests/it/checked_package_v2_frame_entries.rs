@@ -5430,4 +5430,24 @@ fn model_operation_callable_joins_selected_body_and_frame() {
         Some(CheckedTerm::Frame { .. })
     ));
     assert!(admitted.term(&operation_row.body).is_some());
+
+    let mut empty_frame = fixture.value.clone();
+    let frame_at = position(&empty_frame, "state", "frame");
+    empty_frame["semantic_graph"]["nodes"][frame_at]["body"] = json!({
+        "term": "frame", "modifies": [], "creates": [],
+        "deletes": [], "deletes_scoped": []
+    });
+    settle(&mut empty_frame);
+    let empty_admitted = match read_model(&empty_frame) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("empty frame fixture admission: {other:?}"),
+    };
+    let empty_table = empty_admitted.callable_table(100_000).expect("empty frame callable");
+    let operation = empty_table.rows().iter().find(|row| {
+        matches!(&row.identity, CheckedCallableIdentity::Operation { anchor, .. } if anchor == &anchor_id)
+    }).expect("operation with empty frame");
+    let empty_id = operation.frame.as_ref().expect("empty frame remains present");
+    assert!(matches!(empty_admitted.term(empty_id), Some(CheckedTerm::Frame {
+        modifies, creates, deletes, deletes_scoped
+    }) if modifies.is_empty() && creates.is_empty() && deletes.is_empty() && deletes_scoped.is_empty()));
 }

@@ -119,12 +119,17 @@ impl Budget {
     }
 }
 
+struct ParsedFunction<'a> {
+    parameters: Vec<CheckedNodeId>,
+    body: Option<CheckedNodeId>,
+    clause: Option<&'a str>,
+}
+
 fn function_body<'a>(
     package: &'a CheckedPackageV2,
     node: &CheckedNodeId,
     budget: &mut Budget,
-) -> Result<(Vec<CheckedNodeId>, Option<CheckedNodeId>, Option<&'a str>), CheckedCallableReadError>
-{
+) -> Result<ParsedFunction<'a>, CheckedCallableReadError> {
     let Some(CheckedTerm::Aggregate { members }) = package.term(node) else {
         return Err(budget.error(CheckedCallableReadErrorCode::MalformedBody, node));
     };
@@ -141,7 +146,7 @@ fn function_body<'a>(
                 let CheckedTerm::Aggregate { members } = value.as_ref() else {
                     return Err(budget.error(CheckedCallableReadErrorCode::MalformedBody, node));
                 };
-                let mut ordered = Vec::with_capacity(members.len());
+                let mut ordered = Vec::new();
                 for parameter in members {
                     budget.charge(node)?;
                     let CheckedTerm::Reference { target } = parameter else {
@@ -187,7 +192,11 @@ fn function_body<'a>(
             CheckedBindingNameKind::Optional | CheckedBindingNameKind::Other(_) => {}
         }
     }
-    Ok((parameters.unwrap_or_default(), body, clause))
+    Ok(ParsedFunction {
+        parameters: parameters.unwrap_or_default(),
+        body,
+        clause,
+    })
 }
 
 impl CheckedPackageV2 {
@@ -210,7 +219,9 @@ impl CheckedPackageV2 {
             let Some(root) = self.graph().nodes.get(model.root) else {
                 continue;
             };
+            budget.charge(&root.node_id)?;
             for declaration in model.object_types.values() {
+                budget.charge(&root.node_id)?;
                 for operation in &declaration.operations {
                     budget.charge(&root.node_id)?;
                     selected_operations.insert((&model.identity, &operation.identity));
@@ -234,7 +245,11 @@ impl CheckedPackageV2 {
             if !selected {
                 continue;
             }
-            let (parameters, body, clause) = function_body(self, &node.node_id, &mut budget)?;
+            let ParsedFunction {
+                parameters,
+                body,
+                clause,
+            } = function_body(self, &node.node_id, &mut budget)?;
             if let Some(CheckedNodeOwner::Model {
                 identity,
                 node: member,
