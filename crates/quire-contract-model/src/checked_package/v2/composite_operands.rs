@@ -2370,6 +2370,18 @@ mod tests {
         assert_eq!(path[0].scale.denominator().to_string(), "1");
         assert_eq!(path[0].offset.numerator().to_string(), "1");
         assert_eq!(path[0].offset.denominator().to_string(), "1");
+        let quire_semantic_value::quantity::QuantityUnit::Declared(resolved) = admitted
+            .resolved_units()
+            .get(unit_id.clone())
+            .expect("QSV materialized the declared unit")
+        else {
+            panic!("QSV declared unit")
+        };
+        let canonical = resolved.canonical();
+        assert_eq!(canonical.scale().numerator().to_string(), "2");
+        assert_eq!(canonical.scale().denominator().to_string(), "1");
+        assert_eq!(canonical.offset().numerator().to_string(), "1");
+        assert_eq!(canonical.offset().denominator().to_string(), "1");
         let mut low = 0;
         let mut high = 1000;
         while low + 1 < high {
