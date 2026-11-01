@@ -17,6 +17,7 @@ mod contract_package;
 mod dependency_references;
 mod dispatch_projection;
 pub(in crate::checked_package) mod encode;
+mod equality_projection;
 mod execution_point;
 mod execution_point_accessor;
 mod extension;
@@ -87,6 +88,10 @@ pub use contract_package::{
     ContractSourceV1, ContractUnsupportedSourceKindError,
 };
 pub use dispatch_projection::{CheckedDispatchReadError, CheckedDispatchView};
+pub use equality_projection::{
+    AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, EqualityWitnessKind,
+    SelectedEqualityApplicationRow,
+};
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;
 pub use lower::*;

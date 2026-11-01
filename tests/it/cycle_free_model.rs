@@ -47,6 +47,168 @@ fn package<'a>(metadata: &'a Value, name: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("metadata must contain {name}"))
 }
 
+/// Trace: FR-353-AC-5.
+/// Provenance: IR-1209 scoped model dependency and public boundary.
+#[test]
+fn equality_admission_api_and_resolved_dependency_direction() {
+    use syn::{Fields, FnArg, Item, Meta, ReturnType, Type, Visibility};
+
+    let graph = metadata(&[]);
+    let model = package(&graph, "quire-contract-model");
+    let root = package(&graph, "quire-contract-ir");
+    let qsv = package(&graph, "quire-semantic-value");
+    let exact = package(&graph, "quire-exact");
+    let resolved = |id: &Value| {
+        graph["resolve"]["nodes"]
+            .as_array()
+            .expect("resolved nodes")
+            .iter()
+            .find(|node| &node["id"] == id)
+            .expect("resolved package node")
+    };
+    let edge = |from: &Value, to: &Value| {
+        resolved(&from["id"])["deps"]
+            .as_array()
+            .expect("resolved dependencies")
+            .iter()
+            .any(|dependency| dependency["pkg"] == to["id"])
+    };
+    assert!(edge(root, model));
+    assert!(edge(model, qsv));
+    assert!(edge(qsv, exact));
+    assert!(!edge(root, qsv));
+    assert!(!edge(qsv, model));
+    for ir in [root, model] {
+        assert!(resolved(&ir["id"])["deps"]
+            .as_array()
+            .expect("dependencies")
+            .iter()
+            .all(
+                |dependency| !dependency["name"].as_str().unwrap_or("").starts_with("qsl")
+                    && dependency["name"] != "quire_spec_language"
+            ));
+    }
+
+    let raw_carrier = syn::parse_file(include_str!(
+        "../../crates/quire-contract-model/src/checked_package/v2/checked_term_data.rs"
+    ))
+    .expect("IR raw sidecar syntax");
+    let raw = raw_carrier
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Struct(value) if value.ident == "CheckedEqualityDecision" => Some(value),
+            _ => None,
+        })
+        .expect("IR raw equality carrier");
+    assert!(matches!(raw.vis, Visibility::Public(_)));
+    let Fields::Named(raw_fields) = &raw.fields else {
+        panic!("raw carrier has named fields")
+    };
+    assert!(raw_fields
+        .named
+        .iter()
+        .all(|field| matches!(field.vis, Visibility::Public(_))));
+    assert!(raw
+        .attrs
+        .iter()
+        .any(|attribute| attribute.path().is_ident("derive")
+            && matches!(&attribute.meta, Meta::List(meta) if meta.tokens.to_string().split(',')
+            .any(|trait_name| trait_name.trim() == "Deserialize"))));
+
+    let qsv_root = PathBuf::from(qsv["manifest_path"].as_str().expect("QSV manifest"))
+        .parent()
+        .expect("QSV directory")
+        .to_path_buf();
+    let admitted = syn::parse_file(
+        &fs::read_to_string(qsv_root.join("src/declaration/admitted.rs"))
+            .expect("QSV admitted API source"),
+    )
+    .expect("QSV admitted API syntax");
+    let value = admitted
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Struct(value) if value.ident == "AdmittedEqualityDecision" => Some(value),
+            _ => None,
+        })
+        .expect("QSV admitted type");
+    assert!(matches!(value.vis, Visibility::Public(_)));
+    let Fields::Named(fields) = &value.fields else {
+        panic!("admitted value has named private fields")
+    };
+    assert!(fields
+        .named
+        .iter()
+        .all(|field| matches!(field.vis, Visibility::Inherited)));
+    for item in &admitted.items {
+        if let Item::Impl(implementation) = item {
+            let Type::Path(path) = implementation.self_ty.as_ref() else {
+                continue;
+            };
+            if !path.path.is_ident("AdmittedEqualityDecision") {
+                continue;
+            }
+            for member in &implementation.items {
+                if let syn::ImplItem::Fn(method) = member {
+                    if matches!(method.vis, Visibility::Public(_)) {
+                        assert!(
+                            !matches!(&method.sig.output, ReturnType::Type(_, ty)
+                            if matches!(ty.as_ref(), Type::Path(returned) if returned.path.is_ident("Self")
+                                || returned.path.is_ident("AdmittedEqualityDecision"))),
+                            "public raw-field constructor must not appear"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    let reader = syn::parse_file(
+        &fs::read_to_string(qsv_root.join("src/reader_admission.rs"))
+            .expect("QSV reader API source"),
+    )
+    .expect("QSV reader API syntax");
+    let mint = reader
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Fn(function) if function.sig.ident == "mint_admitted_equality_decision" => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .expect("hidden mint");
+    assert!(matches!(mint.vis, Visibility::Public(_)));
+    assert!(mint.attrs.iter().any(|attribute| matches!(&attribute.meta,
+        Meta::List(meta) if meta.path.is_ident("doc") && meta.tokens.to_string() == "hidden")));
+    assert!(
+        matches!(mint.sig.inputs.first(), Some(FnArg::Typed(argument))
+        if matches!(argument.ty.as_ref(), Type::Path(path) if path.path.is_ident("ReaderSeal")))
+    );
+
+    fn exports(tree: &syn::UseTree, name: &str) -> bool {
+        match tree {
+            syn::UseTree::Path(path) => exports(&path.tree, name),
+            syn::UseTree::Name(item) => item.ident == name,
+            syn::UseTree::Rename(item) => item.rename == name,
+            syn::UseTree::Group(group) => group.items.iter().any(|item| exports(item, name)),
+            syn::UseTree::Glob(_) => panic!("public API export must be explicit"),
+        }
+    }
+    let ir_api = syn::parse_file(include_str!("../../crates/quire-contract-model/src/lib.rs"))
+        .expect("IR public API syntax");
+    for item in ir_api.items {
+        if let Item::Use(export) = item {
+            if matches!(export.vis, Visibility::Public(_)) {
+                assert!(
+                    !exports(&export.tree, "ReaderSeal")
+                        && !exports(&export.tree, "mint_admitted_equality_decision")
+                );
+            }
+        }
+    }
+}
+
 fn forbidden(package: &Value) -> bool {
     let name = package["name"].as_str().unwrap();
     [
