@@ -188,8 +188,8 @@ pub enum CheckedOperationMember {
 }
 
 /// A closed fairness subject carrying its admitted structural identity.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CheckedFairnessTarget {
     /// An effective model operation.
     Operation {
@@ -227,6 +227,76 @@ pub enum CheckedFairnessTarget {
         /// Original transition name.
         name: Box<str>,
     },
+}
+
+impl<'de> Deserialize<'de> for CheckedFairnessTarget {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct TargetVisitor;
+        impl<'de> serde::de::Visitor<'de> for TargetVisitor {
+            type Value = CheckedFairnessTarget;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("one closed typed fairness target")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Self::Value, M::Error> {
+                use serde::de::Error as _;
+                let (mut kind, mut declaration, mut node, mut parallel, mut name, mut branch) = (
+                    None::<Box<str>>,
+                    None::<CheckedNodeId>,
+                    None::<CheckedNodeId>,
+                    None::<CheckedNodeId>,
+                    None::<Box<str>>,
+                    None::<Box<str>>,
+                );
+                while let Some(key) = map.next_key::<Box<str>>()? {
+                    match key.as_ref() {
+                        "kind" if kind.is_none() => kind = Some(map.next_value()?),
+                        "declaration" if declaration.is_none() => {
+                            declaration = Some(map.next_value()?)
+                        }
+                        "node" if node.is_none() => node = Some(map.next_value()?),
+                        "parallel" if parallel.is_none() => parallel = Some(map.next_value()?),
+                        "name" if name.is_none() => name = Some(map.next_value()?),
+                        "branch" if branch.is_none() => branch = Some(map.next_value()?),
+                        _ => {
+                            return Err(M::Error::custom(
+                                "unknown or duplicate fairness target member",
+                            ))
+                        }
+                    }
+                }
+                match (kind.as_deref(), declaration, node, parallel, name, branch) {
+                    (Some("operation"), Some(declaration), None, None, Some(name), None) => {
+                        Ok(CheckedFairnessTarget::Operation { declaration, name })
+                    }
+                    (
+                        Some("hybrid_transition"),
+                        Some(declaration),
+                        None,
+                        None,
+                        Some(name),
+                        None,
+                    ) => Ok(CheckedFairnessTarget::HybridTransition { declaration, name }),
+                    (Some("protocol_root"), None, Some(node), None, None, None) => {
+                        Ok(CheckedFairnessTarget::ProtocolRoot { node })
+                    }
+                    (Some("attempt_node"), None, Some(node), None, None, None) => {
+                        Ok(CheckedFairnessTarget::AttemptNode { node })
+                    }
+                    (Some("compensation_template"), None, Some(node), None, None, None) => {
+                        Ok(CheckedFairnessTarget::CompensationTemplate { node })
+                    }
+                    (Some("parallel_branch"), None, None, Some(parallel), None, Some(branch)) => {
+                        Ok(CheckedFairnessTarget::ParallelBranch { parallel, branch })
+                    }
+                    _ => Err(M::Error::custom("invalid fairness target shape")),
+                }
+            }
+        }
+        deserializer.deserialize_map(TargetVisitor)
+    }
 }
 
 impl CheckedFairnessTarget {
