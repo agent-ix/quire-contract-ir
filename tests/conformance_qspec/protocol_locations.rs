@@ -155,12 +155,22 @@ fn missing_selected_mapping_is_not_substituted_by_a_sibling_term() {
         .iter()
         .find(|row| row["id"] == "PL-R2-missing-term-mapping")
         .unwrap();
-    let (wire, position) = fixture(vector["value"].as_array().unwrap().clone());
-    let package = admitted(&wire);
-    let node = &package.graph().nodes[position];
+    let (wire, _) = fixture(vector["value"].as_array().unwrap().clone());
+    let result = read(&wire);
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("QSpec missing-term vector requires its recorded refusal, got {result:?}");
+    };
     assert_eq!(
-        package.protocol_location(&node.node_id, &node.occurrences[0], 1, 100),
-        Err(CheckedProtocolLocationReadError::Missing)
+        serde_json::to_value(refusal.code).unwrap(),
+        vector["expected_code"]
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.cause).unwrap(),
+        vector["expected_cause"]
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        vector["locus"].as_str().unwrap()
     );
 }
 

@@ -110,7 +110,9 @@ from case text or display names.
 When a consumer requests a protocol semantic location, Contract IR SHALL
 borrow the canonical producer-captured row keyed by exact local application,
 source occurrence and per-term ordinal from the admitted checked-term sidecar.
-Admission SHALL validate local application and source-occurrence joins, sorted
+Admission SHALL refuse an omitted required term mapping with the exact QSpec
+FR-322/STD-614 invalid-package outcome; it SHALL NOT invent a required-term
+census from graph shape or source text. Admission SHALL validate local application and source-occurrence joins, sorted
 unique per-term keys, the closed origin and canonical child ordinals under
 QSpec FR-322/STD-614. A row preserves its named type-declaration or protocol
 attempt origin and complete child-index path. The read SHALL distinguish an
