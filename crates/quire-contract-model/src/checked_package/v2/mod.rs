@@ -660,7 +660,9 @@ macro_rules! checked_package_envelope {
                 writer.begin_object()?;
                 $(encode_envelope_field!(writer, stringify!($name), self.$name, $encoding);)+
                 encode_envelope_field!(writer, "refinement_step_rows", self.refinement_step_rows, optional_elements);
-                encode::present_encoded(writer, "checked_term_data", &self.checked_term_data)?;
+                if let Some(data) = self.checked_term_data {
+                    encode::encoded(writer, "checked_term_data", data)?;
+                }
                 writer.end_object()
             }
         }
