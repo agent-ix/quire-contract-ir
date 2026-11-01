@@ -131,6 +131,11 @@ operation catalog, run semantic type checking, or treat a general FR-352
 `project_exact_type` call as a substitute for a missing witness. Mapping an
 admitted representation with joined producer identities is permitted; it
 does not select a new semantic type, conversion or comparison plan.
+The IR read SHALL include QSV descriptor materialization in the same finite
+work allowance, passing the remaining allowance through QSV's Exact meter.
+It SHALL preserve QSV's original typed `Incomplete` outcome and first failing
+locus on exhaustion, and the QSV typed materialization cause and locus on an
+arithmetic failure, without returning a partial descriptor or opaque value.
 QSV SHALL mechanically fold the sidecar's already selected ordered exact
 affine conversion-edge path with exact arithmetic when its private
 `Unit.canonical` representation requires a scalar. The fold SHALL preserve that
