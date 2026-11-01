@@ -564,6 +564,13 @@ impl RetainedModels {
         })
     }
 
+    /// All selected declaration joins in structural identity order.
+    pub(super) fn selected_declarations(
+        &self,
+    ) -> impl Iterator<Item = (&CheckedNodeId, &DeclaredNode)> {
+        self.index.0.iter()
+    }
+
     /// The complete effective record fields in selected declaration order.
     pub(super) fn selected_record_fields(
         &self,
@@ -574,6 +581,35 @@ impl RetainedModels {
     )> {
         let declared = self.index.0.get(record)?;
         if declared.form != DeclarationForm::RecordValueType {
+            return None;
+        }
+        let table = self
+            .models
+            .get(declared.selection)?
+            .fields
+            .of(&declared.node)?;
+        let fields = table
+            .ordered_exposed
+            .iter()
+            .map(|field| SelectedRecordField {
+                identity: &field.entry.identity,
+                name: field.entry.name(),
+                member_type: field.entry.member_type.as_ref(),
+                optional: field.entry.decl.optional,
+            });
+        Some((table.ambiguous.as_deref(), fields))
+    }
+
+    /// Complete effective object fields in selected declaration order.
+    pub(super) fn selected_object_fields(
+        &self,
+        object: &CheckedNodeId,
+    ) -> Option<(
+        Option<&str>,
+        impl ExactSizeIterator<Item = SelectedRecordField<'_>>,
+    )> {
+        let declared = self.index.0.get(object)?;
+        if declared.form != DeclarationForm::ObjectType {
             return None;
         }
         let table = self

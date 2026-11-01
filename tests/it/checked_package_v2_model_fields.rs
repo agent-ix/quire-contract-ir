@@ -577,6 +577,7 @@ fn package(
                 | INTERFACE
                 | "relationship"
                 | "record_value_type"
+                | "tuple_value_type"
                 | "process"
                 | "state_machine"
                 | "persistence_interface"
@@ -707,6 +708,289 @@ fn admit(document: &Value, declared: &[(&str, &str)], reads: &[Read]) -> Checked
     }
 }
 
+/// The public runtime projection returns selected record and object facts.
+#[test]
+fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
+    let mut selected = document(vec![
+        typed_object(
+            "Receipt",
+            "record",
+            &[],
+            &[field("total", "ix://quire/native/Integer")],
+        ),
+        object(
+            "Base",
+            &[],
+            &[field("enabled", "ix://quire/native/Boolean")],
+        ),
+        object(
+            "Child",
+            &["Base"],
+            &[field("count", "ix://quire/native/Integer")],
+        ),
+    ]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct catalog")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    let admitted = admit(
+        &selected,
+        &[
+            ("Receipt", "record_value_type"),
+            ("Base", OBJECT),
+            ("Child", OBJECT),
+        ],
+        &[],
+    );
+    let structural = |short, form| -> CheckedNodeId {
+        serde_json::from_value(node_id(&declaration_key(short, form)))
+            .expect("structural declaration")
+    };
+    let record = structural("Receipt", "record_value_type");
+    let base = structural("Base", OBJECT);
+    let child = structural("Child", OBJECT);
+    let record_key =
+        NodeKey::new("checked", vec![PathSegment::Text("Receipt".into())], 0).expect("record key");
+    let base_key = EffectiveId::new(None, OriginalDeclarationKey::new(IDENTITY, orders("Base")));
+    let child_key = EffectiveId::new(None, OriginalDeclarationKey::new(IDENTITY, orders("Child")));
+    let record_row = SelectedExactDeclarationRow::new(
+        record.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        orders("Receipt"),
+        SelectedExactIdentity::Record(record_key.clone()),
+    );
+    let base_row = SelectedExactDeclarationRow::new(
+        base.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::ObjectType,
+        orders("Base"),
+        SelectedExactIdentity::Object(base_key.clone()),
+    );
+    let child_row = SelectedExactDeclarationRow::new(
+        child.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::ObjectType,
+        orders("Child"),
+        SelectedExactIdentity::Object(child_key.clone()),
+    );
+    let record_field = SelectedExactFieldRow::new(
+        record.clone(),
+        IDENTITY,
+        orders("Receipt"),
+        format!("{}/total", orders("Receipt")),
+        MemberId::new(MemberOwner::Node(record_key.clone()), "total").expect("member id"),
+    );
+    let witnessed = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [record_row.clone(), base_row.clone(), child_row.clone()],
+        [record_field.clone()],
+    )
+    .expect("selected rows join");
+    let complete = admitted
+        .project_selected_type_declarations(&witnessed, 1000)
+        .expect("selected record/object view");
+    assert_eq!(complete.records().len(), 1);
+    assert_eq!(complete.records()[0].view().record_key(), &record_key);
+    assert_eq!(complete.records()[0].view().fields()[0].name(), "total");
+    assert_eq!(
+        complete.records()[0].view().fields()[0].value_type(),
+        &ValueType::Integer
+    );
+    assert_eq!(complete.objects().len(), 2);
+    let projected_child = complete
+        .objects()
+        .iter()
+        .find(|object| object.effective_id() == &child_key)
+        .expect("selected child");
+    assert_eq!(projected_child.supertypes(), &[base_key]);
+    assert_eq!(
+        projected_child
+            .declared_fields()
+            .iter()
+            .map(|field| field.name())
+            .collect::<Vec<_>>(),
+        ["count"]
+    );
+    assert_eq!(
+        projected_child
+            .fields()
+            .iter()
+            .map(|field| (field.name(), field.value_type()))
+            .collect::<Vec<_>>(),
+        [
+            ("enabled", &ValueType::Boolean),
+            ("count", &ValueType::Integer)
+        ]
+    );
+    assert_eq!(
+        admitted
+            .clone()
+            .project_selected_type_declarations(&witnessed, 1000),
+        Ok(complete.clone())
+    );
+    assert!(complete.work() > 0);
+
+    let mut extra_selected = selected.clone();
+    extra_selected["types"]
+        .as_array_mut()
+        .expect("selected types")
+        .push(object("Unrepresented", &[], &[]));
+    let incomplete_graph = admit(
+        &extra_selected,
+        &[
+            ("Receipt", "record_value_type"),
+            ("Base", OBJECT),
+            ("Child", OBJECT),
+        ],
+        &[],
+    );
+    let same_rows = SelectedExactIdentities::from_stage_rows(
+        &incomplete_graph,
+        [record_row.clone(), base_row.clone(), child_row.clone()],
+        [record_field.clone()],
+    )
+    .expect("represented rows still join");
+    let unrepresented = incomplete_graph
+        .project_selected_type_declarations(&same_rows, 1000)
+        .expect_err("an unrepresented selected object refuses the whole view");
+    assert_eq!(
+        unrepresented.code,
+        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+    );
+
+    let missing_child =
+        SelectedExactIdentities::from_stage_rows(&admitted, [record_row, base_row], [record_field])
+            .expect("other selected rows join");
+    let refusal = admitted
+        .project_selected_type_declarations(&missing_child, 1000)
+        .expect_err("missing object witness refuses the whole view");
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    assert_eq!(refusal.at.as_ref(), &child);
+    let exhausted = admitted
+        .project_selected_type_declarations(&witnessed, 1)
+        .expect_err("finite work limit is charged before a view exists");
+    assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(exhausted.work, 1);
+}
+
+/// A flattened field set cannot stand in for an authored redefinition link.
+#[test]
+fn selected_runtime_types_refuse_unprojected_object_redefinition() {
+    let selected = document(vec![
+        object(
+            "Base",
+            &[],
+            &[field("enabled", "ix://quire/native/Boolean")],
+        ),
+        object(
+            "Child",
+            &["Base"],
+            &[field("active", "ix://quire/native/Boolean")
+                .redefining(&format!("{}/enabled", orders("Base")))],
+        ),
+    ]);
+    let admitted = admit(&selected, &[("Base", OBJECT), ("Child", OBJECT)], &[]);
+    let rows = ["Base", "Child"].map(|short| {
+        SelectedExactDeclarationRow::new(
+            serde_json::from_value(node_id(&declaration_key(short, OBJECT)))
+                .expect("structural declaration"),
+            IDENTITY,
+            SelectedExactDeclarationForm::ObjectType,
+            orders(short),
+            SelectedExactIdentity::Object(EffectiveId::new(
+                None,
+                OriginalDeclarationKey::new(IDENTITY, orders(short)),
+            )),
+        )
+    });
+    let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, rows, [])
+        .expect("selected object rows join");
+    let error = admitted
+        .project_selected_type_declarations(&witnessed, 1000)
+        .expect_err("redefinition needs its own admitted join");
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    assert_eq!(error.form.as_ref(), "object_field_redefinition");
+}
+
+/// An object's operations need admitted callable facts before a type view can succeed.
+#[test]
+fn selected_runtime_types_refuse_object_operations_without_callable_facts() {
+    let mut operated = object("Runner", &[], &[]);
+    operated["operations"] = json!([{
+        "identity": format!("{}/run", orders("Runner")),
+        "name": "run",
+        "params": []
+    }]);
+    let admitted = admit(&document(vec![operated]), &[("Runner", OBJECT)], &[]);
+    let witnessed = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [SelectedExactDeclarationRow::new(
+            serde_json::from_value(node_id(&declaration_key("Runner", OBJECT)))
+                .expect("structural declaration"),
+            IDENTITY,
+            SelectedExactDeclarationForm::ObjectType,
+            orders("Runner"),
+            SelectedExactIdentity::Object(EffectiveId::new(
+                None,
+                OriginalDeclarationKey::new(IDENTITY, orders("Runner")),
+            )),
+        )],
+        [],
+    )
+    .expect("selected object row joins");
+    let error = admitted
+        .project_selected_type_declarations(&witnessed, 1000)
+        .expect_err("operation-bearing object cannot yield a partial type view");
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    assert_eq!(error.form.as_ref(), "object_operations");
+}
+
+/// A selected tuple needs its producer's tuple identity row.
+#[test]
+fn selected_runtime_types_refuse_tuple_without_stage_identity() {
+    let tuple = orders("Pair");
+    let mut selected = document(vec![json!({
+        "identity": tuple,
+        "displayName": "Pair",
+        "kind": {"module": IDENTITY, "name": "tuple"},
+        "positions": [{
+            "identity": format!("{tuple}/p0"),
+            "typeRef": "ix://quire/native/Boolean"
+        }]
+    })]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct catalog")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "tuple"},
+            "construct": {"meaning": "quire.meaning.model.tuple-value-type/v1"}
+        }));
+    let admitted = admit(&selected, &[("Pair", "tuple_value_type")], &[]);
+    let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, [], [])
+        .expect("no supplied row can witness a tuple yet");
+    let error = admitted
+        .project_selected_type_declarations(&witnessed, 1000)
+        .expect_err("a tuple cannot produce a partial environment view");
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+}
+
+#[trace("FR-352-AC-5")]
 #[test]
 fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
     let mut selected = document(vec![typed_object(
@@ -803,6 +1087,13 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
         other => panic!("selected declared unit fixture must admit: {other:?}"),
     };
+    let runtime_refusal = admitted
+        .project_selected_type_declarations(&SelectedExactIdentities::empty(), 1000)
+        .expect_err("a unit-bearing package cannot claim a complete runtime type view yet");
+    assert_eq!(
+        runtime_refusal.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
     let unit: CheckedNodeId = serde_json::from_value(unit).unwrap();
     let parameter: CheckedNodeId = serde_json::from_value(parameter).unwrap();
     let record: CheckedNodeId =

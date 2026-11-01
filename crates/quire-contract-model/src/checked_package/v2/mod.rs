@@ -41,6 +41,7 @@ mod protocol_body;
 mod reaches_population;
 mod refinement;
 mod relationship_end;
+mod runtime_type_projection;
 mod rust_spelling;
 mod scalar_operands;
 mod state;
@@ -108,6 +109,10 @@ pub use protocol_body::{CheckedProtocolActivation, CheckedProtocolActivationRow}
 pub use reaches_population::CheckedReachesPopulationError;
 pub use refinement::*;
 pub use relationship_end::{CheckedRelationshipEnd, CheckedRelationshipEndError};
+pub use runtime_type_projection::{
+    SelectedTypeDeclarations, SelectedTypeDeclarationsError, SelectedTypeObject,
+    SelectedTypeObjectField, SelectedTypeRecord,
+};
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
     CheckedScalarOperandRange,

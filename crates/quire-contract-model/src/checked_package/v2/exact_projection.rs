@@ -455,7 +455,7 @@ impl SelectedExactIdentities {
         &self.fields
     }
 
-    fn declaration_identity(
+    pub(super) fn declaration_identity(
         &self,
         package: &CheckedPackageV2,
         key: &CheckedNodeId,
@@ -555,6 +555,7 @@ pub struct ExactTypeProjection {
     type_node: CheckedNodeId,
     value_type: ValueType,
     record_view: Option<SelectedRecordView>,
+    work: u64,
 }
 
 impl ExactTypeProjection {
@@ -576,6 +577,11 @@ impl ExactTypeProjection {
     /// The complete selected record view, when this projection is a record.
     pub fn record_view(&self) -> Option<&SelectedRecordView> {
         self.record_view.as_ref()
+    }
+
+    /// Work units charged by this complete projection.
+    pub fn work(&self) -> u64 {
+        self.work
     }
 }
 
@@ -726,7 +732,7 @@ fn exact_integer_interval(
         .map_err(|_| ExactTypeProjectionErrorCode::UnsupportedExactType)
 }
 
-fn project_record_field_type(
+pub(super) fn project_record_field_type(
     package: &CheckedPackageV2,
     identities: &SelectedExactIdentities,
     member_type: &MemberType,
@@ -1083,6 +1089,7 @@ impl CheckedPackageV2 {
             type_node: type_id.clone(),
             value_type,
             record_view,
+            work,
         })
     }
 }
