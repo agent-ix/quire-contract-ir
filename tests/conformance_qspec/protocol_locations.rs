@@ -2,7 +2,9 @@
 //! Instantiate QSpec's symbolic protocol-location vectors in an admitted graph.
 //! Vector origin/path/term facts remain authoritative owner data, read in place.
 
-use crate::fixture_support::{canonical, evidence_for, refresh_identity, v2_all_families};
+use crate::fixture_support::{
+    canonical, evidence_for, positive_operation_identities, refresh_identity,
+};
 use ix_trace_rs::trace;
 use quire_contract_model::CheckedProtocolLocationReadError;
 use quire_contract_model::{
@@ -33,7 +35,7 @@ fn positive(id: &str) -> Value {
     row
 }
 fn fixture(mut rows: Vec<Value>) -> (Value, usize) {
-    let mut wire = v2_all_families();
+    let mut wire = positive_operation_identities();
     let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
     let position = nodes
         .iter()
