@@ -2970,12 +2970,20 @@ pub(super) fn validate_temporal_fairness(
         }
     }
     if !matched {
-        return Err(fairness_defect(
-            fair,
-            graph.nodes,
-            target_identity(target).1,
-            false,
-        ));
+        if let Some(clause) =
+            external_compensation_owner_clause(&context, target).filter(|&clause| {
+                graph.nodes[clause].node_id.package == graph.nodes[requirement].node_id.package
+            })
+        {
+            validate_protocol_fairness_target(&context, target, fair, clause, meter)?;
+        } else {
+            return Err(fairness_defect(
+                fair,
+                graph.nodes,
+                target_identity(target).1,
+                false,
+            ));
+        }
     }
     Ok(())
 }
@@ -3117,27 +3125,84 @@ fn validate_protocol_fairness(
             }
         }
     }
+    let mut external_references = None;
     for &fair in index.values() {
         let Some(target) = fairness_target(terms[fair].as_ref()) else {
             continue;
         };
-        if !checked.contains(&fair)
-            && !matches!(
+        if checked.contains(&fair)
+            || matches!(
                 target,
                 CheckedFairnessTarget::Operation { .. }
                     | CheckedFairnessTarget::HybridTransition { .. }
             )
         {
-            meter.charge(1, || node_pointer(fair))?;
-            return Err(fairness_defect(
-                fair,
-                nodes,
-                target_identity(&target).1,
-                false,
-            ));
+            continue;
         }
+        if matches!(target, CheckedFairnessTarget::CompensationTemplate { .. }) {
+            if external_references.is_none() {
+                external_references = Some(external_temporal_fairness_references(context, meter)?);
+            }
+            if external_references
+                .as_ref()
+                .is_some_and(|references| references.contains(&fair))
+            {
+                continue;
+            }
+        }
+        meter.charge(1, || node_pointer(fair))?;
+        return Err(fairness_defect(
+            fair,
+            nodes,
+            target_identity(&target).1,
+            false,
+        ));
     }
     Ok(())
+}
+
+fn external_compensation_owner_clause(
+    context: &ProtocolFairnessContext<'_>,
+    target: &CheckedFairnessTarget,
+) -> Option<usize> {
+    let CheckedFairnessTarget::CompensationTemplate { node } = target else {
+        return None;
+    };
+    let &position = context.index.get(node)?;
+    if context.kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause) {
+        return Some(position);
+    }
+    context.owners[position]
+}
+
+fn external_temporal_fairness_references(
+    context: &ProtocolFairnessContext<'_>,
+    meter: &mut WorkMeter,
+) -> Result<BTreeSet<usize>, ValidationFailure> {
+    let mut references = BTreeSet::new();
+    for &clause in context.index.values() {
+        if context.kinds.get(clause)
+            != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
+        {
+            continue;
+        }
+        let Some(CheckedTerm::Application { arguments, .. }) =
+            context.terms.get(clause).and_then(Option::as_ref)
+        else {
+            continue;
+        };
+        let Some(fairness) = arguments.get(4) else {
+            continue;
+        };
+        meter.charge(1, || node_pointer(clause))?;
+        for key in listed_targets(fairness) {
+            meter.charge(1, || node_pointer(clause))?;
+            if let Some(&fair) = context.index.get(key) {
+                references.insert(fair);
+            }
+        }
+    }
+    Ok(references)
 }
 
 fn fairness_target(term: Option<&CheckedTerm>) -> Option<CheckedFairnessTarget> {
