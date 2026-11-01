@@ -41,3 +41,14 @@ The new external test obtains a real admitted `quire.op.collection.index` operat
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | fixed | Commit `b1be4b10` adds one external `CheckedPackageV2::read` census test for every currently admissible named member-ID site: the five declaration variants, both relationship-end population shapes, and operation/protocol-root/attempt-node/parallel-branch/compensation-template fairness targets. Each maps flat to nested to another whole ID and checks callback count/order plus raw and borrowed typed mirrors. HybridTransition remains in the nested unit test; this IR reader has no `temporal_bindings` support for the QSpec hybrid fixture, so no currently admitted hybrid control exists. |
+| FND-002 | still-open | Add the admitted QSpec hybrid fairness operation to the external mapper census and assert its nested declaration maps once into the raw record and typed view. |
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The external mapper census omits fairness `hybrid_transition`, although fresh main now admits QSpec's hybrid fairness fixture and exposes its typed target. | tests/it/checked_package_v2_node_map.rs:441 |
+
+## Round 2 evidence
+
+Commit `f3867a52` adds only `#[ix_trace_rs::string_edge]` to `CheckedFairnessTarget::from_validated_value`. The annotation matches neighboring closed-vocabulary decoders and does not change mapper behavior. Fresh main includes the temporal-binding reader from PR #788. In `tests/conformance_qspec/hybrid.rs`, `qspec_hybrid_restored_model_and_claims_admit_from_published_nodes` reads QSpec's package, matches `CheckedPackageV2ReadResult::Admitted`, and asserts a typed `CheckedFairnessTarget::HybridTransition`. Thus round 1's stated reason for omitting this external mapper case no longer holds. The new external mapper census enumerates other fairness target kinds but no hybrid transition.
