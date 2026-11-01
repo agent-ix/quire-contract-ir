@@ -753,6 +753,24 @@ fn operand_type(
         .as_ref()
         .ok_or_else(|| missing_witness(application, type_id, witness, work))?;
     if decision.schedule == super::CheckedEqualitySchedule::Text
+        && (!matches!(value, ValueType::Text(_))
+            || !matches!(
+                package.node_kind(type_id),
+                Some(
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Text)
+                        | CheckedNodeKind::BoundedDomain(BoundedDomainForm::TextBounds)
+                )
+            ))
+    {
+        return Err(read_error(
+            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+            application,
+            type_id,
+            work.consumed,
+            0,
+        ));
+    }
+    if decision.schedule == super::CheckedEqualitySchedule::Text
         && package.node_kind(type_id)
             == Some(CheckedNodeKind::BoundedDomain(
                 BoundedDomainForm::TextBounds,
@@ -1276,6 +1294,23 @@ fn quantity_unit(
     let EqualityFactWitness::Unit { unit_id, .. } = &row.fact else {
         unreachable!()
     };
+    let expected_kind = match &unit.form {
+        CheckedResolvedEqualityUnitForm::Declared { .. } => {
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
+        }
+        CheckedResolvedEqualityUnitForm::Compound { .. } => {
+            CheckedNodeKind::ScalarType(ScalarTypeForm::CompoundUnit)
+        }
+    };
+    if package.node_kind(&unit.unit) != Some(expected_kind) {
+        return Err(read_error(
+            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+            application,
+            &unit.unit,
+            work.consumed,
+            0,
+        ));
+    }
     if matches!(
         package
             .node(&unit.unit)
@@ -1497,6 +1532,11 @@ fn enum_descriptors(
             work,
         ));
     }
+    let compared_node = decision
+        .left
+        .conversion_target
+        .as_ref()
+        .unwrap_or(&decision.left.source_type);
     for wire in &decision.enum_members {
         let row = selected_fact(
             package,
@@ -1530,7 +1570,8 @@ fn enum_descriptors(
             &wire.member,
             u64::try_from(case.len()).unwrap_or(u64::MAX),
         )?;
-        if source_declaration_node != &wire.enum_type
+        if &wire.enum_type != compared_node
+            || source_declaration_node != &wire.enum_type
             || member_node != &wire.member
             || member != &row.structural_key
             || case != &wire.case
