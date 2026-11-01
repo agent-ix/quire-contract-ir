@@ -27,3 +27,11 @@ Checked the changed rule against its AD decision, the computed matrix, the tests
 - Computed `quoin matrix --repo . --json` reports FR-028-AC-1 tagged by three TC-041 test functions, including the new `model_graph_refuses_downstream_crate_names`; FR-028-AC-3 remains tagged by the root manifest test. The latter still asserts its QSL requirement, so that binding remains valid.
 - No source stub, duplicate renderer, or new unowned runtime behavior was found in the diff. The finding concerns the new trace claim, not the ban's behavior.
 
+## Dispositions
+
+Round 1 at `d9b818af0197c57831a73768089bcd1089ed014e`. Rechecked the sole finding against the fix diff and the complete changed test. No new finding was introduced; the latest outcome is fixed and this review is mergeable.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The new test now traces TC-041 alone and records AD-005 D-2 as provenance. FR-028-AC-1 remains bound to the existing owner/TL graph tests and no longer receives credit from the downstream-name control. |
+
