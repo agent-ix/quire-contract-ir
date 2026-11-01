@@ -37,7 +37,11 @@ as that decision.
   carried into package admission under an authoritative producer contract.
   The producer decision identifies the package, owning node, application term,
   occurrence, operator, both original operands and any conversions, selected schedule,
-  and the exact unit and enum member facts retained by the checked equality.
+  and the complete resolved `UnitTable` and filtered `EnumMemberIndex` facts
+  retained by the checked equality. The unit facts include every compound-unit
+  dimension, canonical root-unit term and exponent, and exact conversion datum
+  that the selected equality schedule uses; the enum facts include declaration
+  and member identities, ordered flag, cases and ranks.
   A caller-created operation name or pair of type nodes is not such a decision.
 
 ## Outputs
@@ -46,8 +50,12 @@ The public read SHALL return a complete IR-owned typed equality decision view
 or a closed typed refusal. A successful view SHALL carry the admitted
 owning node, application term identity and occurrence, equality or inequality
 operator, each operand's source type and optional conversion target, the selected text, enum, quantity
-or plan schedule, and the exact resolved top-level unit and filtered enum
-member facts needed by that schedule. It SHALL preserve source order and the
+or plan schedule, and the complete resolved unit-table and filtered enum-member
+closure retained for that schedule. A quantity view SHALL preserve compound
+unit dimensions, canonical root-unit terms/exponents and exact conversion
+data as well as top-level operand units. An enum view SHALL preserve the
+compared declaration and member identities, ordered flag, cases and ranks.
+The view SHALL preserve source order and the
 producer's selected identities. It SHALL expose no `serde_json::Value` body,
 QSL `CheckedEquality` value, or partial view.
 
@@ -79,7 +87,8 @@ named typed outcome. No decision for a different application or one of two
 competing rows may be attached to the admitted application. Two distinct
 applications in one body, including applications with the same operation,
 operand types and node occurrence, SHALL keep distinct decisions by their term
-paths. The schedule, conversion targets, resolved unit facts and filtered enum member facts remain
+paths. The schedule, conversion targets, complete resolved `UnitTable` facts
+and filtered `EnumMemberIndex` facts remain
 facts of the producing checking stage. IR SHALL preserve those facts exactly.
 IR SHALL NOT regenerate them by
 type-checking the graph, projecting `ValueType`s, or inferring a schedule from
@@ -107,7 +116,7 @@ The model crate SHALL acquire no dependency on QSL, its checker or evaluator.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-353-AC-1 | A public external consumer reads admitted `=` and `!=` applications by owning node, producer-owned application term identity and occurrence, and receives the producer-selected operator, original operand identities, source and conversion target types, and exact schedule in source order. Text, enum, quantity and plan cases retain their respective schedule; the enum case has only its compared declaration's member index and the quantity case has the resolved top-level units. The result contains no JSON body or partial decision. | Test |
+| FR-353-AC-1 | A public external consumer reads admitted `=` and `!=` applications by owning node, producer-owned application term identity and occurrence, and receives the producer-selected operator, original operand identities, source and conversion target types, and exact schedule in source order. Text, enum, quantity and plan cases retain their respective schedule; the enum case retains the complete filtered index for its compared declaration, including declaration/member identities, ordered flag, cases and ranks, while the quantity case retains every resolved `UnitTable` fact used by its schedule, including compound-unit dimensions, canonical root-unit terms/exponents and exact conversion data. The result contains no JSON body, top-level-only unit truncation, unrelated enum members or partial decision. | Test |
 | FR-353-AC-2 | Admission refuses a decision whose package, full owning node, producer-carried application term path, occurrence, operator or operand identity differs from the complete admitted application, and refuses two decisions claiming one application term identity. An absent path or a path to a non-application is a named typed refusal at the first mismatching term step; neither decision becomes readable. Distinct decisions for two applications within one admitted body remain distinct even when they share the same operation, operand types and node occurrence; changing one path to the other's occupied path refuses a duplicate, and changing it to an absent path refuses an unmatched term. Until QSpec admits nested applications, the existing wire admission refuses that two-application body before the decision join. Display-name, type or occurrence equality does not establish the join. | Test |
 | FR-353-AC-3 | An admitted equality application with no authoritative producer decision returns `UnavailableEqualityDecision`; unknown or foreign node, absent or non-application term path, ineligible operation and wrong occurrence return their distinct typed outcomes. None returns a fabricated schedule, an empty unit or enum snapshot in place of a required one, or a partial view. | Test |
 | FR-353-AC-4 | A finite work limit equal to the charged read succeeds and one less returns typed exhaustion at the first uncharged application, operand or decision entry, with attempted work. Repeated reads and a package clone give equal outcomes and do not reparse package or selected source bytes. | Test |
@@ -117,8 +126,8 @@ The model crate SHALL acquire no dependency on QSL, its checker or evaluator.
 
 Current V2 admission retains the application term, operation identity, catalog
 constraints and structural operand domains, but it does not retain the
-producer's equality schedule, conversion choices, resolved top-level unit
-table or filtered enum member index. QSpec [STD-613](https://linear.app/agent-ix/issue/STD-613)
+producer's equality schedule, conversion choices, complete resolved unit-table
+closure or filtered enum member index. QSpec [STD-613](https://linear.app/agent-ix/issue/STD-613)
 owns the FR-322 wire, schema and vectors for an authoritative, bounded carrier
 of these checked-stage facts. This FR allocates no V2 wire member and grants
 no authority to reconstruct a decision from existing type or catalog data.
