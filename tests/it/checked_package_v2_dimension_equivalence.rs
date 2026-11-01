@@ -5,7 +5,8 @@
 //! three-package XP-01 graph runs in the conformance target.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, fixture_source, index_fixture_node_ids, pointer, v2_all_families,
+    admitted_dependency, canonical, evidence_for, fixture_source, index_fixture_node_ids, pointer,
+    read_with_dependencies, refresh_identity, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -88,6 +89,107 @@ fn expect_refusal(value: &Value, code: Code, cause: Option<Cause>, at: &str) {
     assert_eq!(refusal.code, code, "{refusal:?}");
     assert_eq!(refusal.cause, cause, "{refusal:?}");
     assert_eq!(refusal.loci[0].path, Some(pointer(at)), "{refusal:?}");
+}
+
+fn rename_package(value: &mut Value, old: &str, new: &str) {
+    match value {
+        Value::String(text) if text == old => *text = new.to_owned(),
+        Value::Array(items) => {
+            for item in items {
+                rename_package(item, old, new);
+            }
+        }
+        Value::Object(members) => {
+            for item in members.values_mut() {
+                rename_package(item, old, new);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn mixed_package() -> (Value, String, CheckedPackageV2) {
+    let (dependency_name, dependency) = admitted_dependency(&package());
+    let mut importer = package();
+    rename_package(&mut importer, "test/families", "test/importer");
+    let local = importer["semantic_graph"]["nodes"][1]["node_id"].clone();
+    let foreign = dependency.graph().nodes[2].node_id.clone();
+    let foreign = serde_json::to_value(foreign).expect("foreign id");
+    let equivalence = &mut importer["semantic_graph"]["nodes"][3];
+    let pair = json!([{"package":dependency_name,"node":foreign}, local]);
+    let id = json!({
+        "package":"test/importer",
+        "path":["scalar_type","dimension_equivalence",foreign,local],
+        "ordinal":0
+    });
+    equivalence["node_id"] = id.clone();
+    equivalence["semantic_type"] = id.clone();
+    equivalence["dependencies"] = json!([local]);
+    equivalence["body"]["dimension_node_ids"] = pair;
+    importer["source_map"][3]["node_id"] = id;
+    importer["lock"]["dependency_selections"] = json!([{"identity":dependency_name}]);
+    index_fixture_node_ids(&mut importer);
+    refresh_identity(&mut importer);
+    (importer, dependency_name, dependency)
+}
+
+#[trace("TC-280", "FR-038-AC-387", "FR-322-AC-299")]
+#[test]
+fn selected_dimension_operand_admits_and_retains_package_form() {
+    let (wire, name, dependency) = mixed_package();
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        read_with_dependencies(&wire, &[(name.as_str(), &dependency)])
+    else {
+        panic!("directly selected foreign dimension must admit");
+    };
+    let retained = serde_json::to_value(&admitted.graph().nodes[3]).expect("retained node");
+    assert_eq!(
+        retained["body"]["dimension_node_ids"],
+        wire["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"]
+    );
+    assert_eq!(
+        retained["dependencies"],
+        wire["semantic_graph"]["nodes"][3]["dependencies"]
+    );
+}
+
+#[trace("TC-280", "FR-038-AC-388")]
+#[test]
+fn package_operand_requires_direct_selection_and_declared_node() {
+    let (wire, name, dependency) = mixed_package();
+    let mut unselected = wire.clone();
+    unselected["lock"]["dependency_selections"] = json!([]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_dependencies(&unselected, &[])
+    else {
+        panic!("unselected package operand must refuse");
+    };
+    assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::MissingSelection), "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path,
+        Some(pointer(
+            "/semantic_graph/nodes/3/body/dimension_node_ids/0/package"
+        )),
+        "{refusal:?}"
+    );
+
+    let mut missing = wire;
+    missing["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"][0]["node"]["path"] =
+        json!(["Missing"]);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_dependencies(&missing, &[(name.as_str(), &dependency)])
+    else {
+        panic!("absent selected node must refuse");
+    };
+    assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::MissingName), "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path,
+        Some(pointer(
+            "/semantic_graph/nodes/3/body/dimension_node_ids/0/node"
+        )),
+        "{refusal:?}"
+    );
 }
 
 /// A typed equivalence retains its exact structural id, pair, reduced scale,

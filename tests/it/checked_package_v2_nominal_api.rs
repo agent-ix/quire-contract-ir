@@ -9,9 +9,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedDimensionOperand, CheckedNodeId, CheckedNodePathSegment, CheckedPackageReadLimits,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRational,
-    CheckedTerm, DimensionTerm, NominalBody,
+    CheckedDeclaredNodeId, CheckedDimensionOperand, CheckedNodeId, CheckedNodePathSegment,
+    CheckedPackageNodeRef, CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedRational, CheckedTerm, DimensionTerm, NominalBody,
 };
 use serde_json::{json, Value};
 
@@ -21,6 +21,30 @@ fn node_id(value: &Value) -> CheckedNodeId {
 
 fn rational(value: &Value) -> CheckedRational {
     serde_json::from_value(value.clone()).expect("fixture rational")
+}
+
+/// The public constructor keeps local and selected-package operand shapes distinct.
+#[trace("TC-058", "FR-019-AC-17")]
+#[test]
+fn public_dimension_operands_keep_distinct_wire_forms() {
+    let local = node_id(&json!({"package":"test/families","path":["Time"],"ordinal":0}));
+    let foreign = node_id(&json!({"package":"acme/clock","path":["Time"],"ordinal":0}));
+    let package = CheckedPackageNodeRef {
+        package: "acme/clock".into(),
+        node: CheckedDeclaredNodeId::try_new(foreign.clone()).expect("declared id"),
+    };
+    let body = NominalBody::try_dimension_equivalence(
+        [
+            CheckedDimensionOperand::Local(local.clone()),
+            CheckedDimensionOperand::Package(package),
+        ],
+        rational(&json!({"numerator":"1","denominator":"1"})),
+    )
+    .expect("closed operands");
+    assert_eq!(
+        serde_json::to_value(body).expect("serialize body")["dimension_node_ids"],
+        json!([local, {"package":"acme/clock","node":foreign}]),
+    );
 }
 
 fn constructor(body: &Value) -> NominalBody {
