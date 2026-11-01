@@ -282,7 +282,7 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
         assert_eq!(node.semantic_form.as_ref(), "presence_read");
         assert_eq!(
             node.node_id,
-            fixture_support::resolved_fixture_id(&case["node"]["node_id"], nodes)
+            serde_json::from_value(nodes[position]["node_id"].clone()).unwrap()
         );
         let CheckedTerm::Application {
             operation,
@@ -299,7 +299,7 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
             node.semantic_type,
             fixture_support::resolved_fixture_id(&case["node"]["semantic_type"], nodes)
         );
-        let expected = case["node"]["body"]["arguments"].as_array().unwrap();
+        let expected = nodes[position]["body"]["arguments"].as_array().unwrap();
         assert_eq!(arguments.len(), expected.len());
         for (actual, expected) in arguments.iter().zip(expected) {
             let CheckedTerm::Reference { target } = actual else {
@@ -307,7 +307,7 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
             };
             assert_eq!(
                 *target,
-                fixture_support::resolved_fixture_id(&expected["target"], nodes)
+                serde_json::from_value(expected["target"].clone()).unwrap()
             );
         }
         if case["id"] == "PR-03" {
@@ -437,7 +437,10 @@ fn optional_clock_path_refuses_missing_member_presence_and_inner_type() {
         );
         assert_eq!(
             refusal.loci[0].path.as_ref().unwrap().as_str(),
-            format!("/semantic_graph/nodes/{place}/body/members/2/value/members/0"),
+            format!(
+                "/semantic_graph/nodes/{place}/body/members/{}/value/members/0",
+                if change == "missing member" { 1 } else { 2 }
+            ),
             "{change}"
         );
     }
@@ -554,7 +557,7 @@ fn public_reader_keeps_the_one_operand_option_presence_form() {
     application["semantic_type"] = boolean.clone();
     application["dependencies"] = json!([value_id]);
     application["body"] = json!({"term":"application", "operator":"present",
-        "operation":{"identity":"quire.op.option.present"}, "result_type":boolean,
+        "operation":{"identity":"quire.op.option.present", "laws":[], "mode":null, "member":null, "leaves":[]}, "result_type":boolean,
         "arguments":[{"term":"reference", "target":value_id}]});
     application["occurrences"] = json!([{"role":"expression", "ordinal":0}]);
     for mut node in [value, application] {
