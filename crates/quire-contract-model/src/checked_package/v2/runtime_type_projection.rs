@@ -50,6 +50,7 @@ pub struct SelectedRuntimeObject {
     original_identity: Box<str>,
     effective_id: EffectiveId,
     supertypes: Vec<EffectiveId>,
+    declared_fields: Vec<SelectedRuntimeObjectField>,
     fields: Vec<SelectedRuntimeObjectField>,
 }
 
@@ -67,6 +68,11 @@ impl SelectedRuntimeObject {
     /// Direct witnessed object supertypes in selected declaration order.
     pub fn supertypes(&self) -> &[EffectiveId] {
         &self.supertypes
+    }
+
+    /// This declaration's own fields in authored order.
+    pub fn declared_fields(&self) -> &[SelectedRuntimeObjectField] {
+        &self.declared_fields
     }
 
     /// Every effective field in selected declaration order.
@@ -452,6 +458,25 @@ impl CheckedPackageV2 {
                 }
                 DeclarationForm::ObjectType => {
                     charge(&mut work, work_limit, id, "object_type")?;
+                    let declared = model.object_types.get(&declaration.node).ok_or_else(|| {
+                        SelectedRuntimeTypesError::at(
+                            ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                            id,
+                            "object_type",
+                            work,
+                        )
+                    })?;
+                    for field in &declared.fields {
+                        charge(&mut work, work_limit, id, "declared_object_field")?;
+                        if field.redefines.is_some() {
+                            return Err(SelectedRuntimeTypesError::at(
+                                ExactTypeProjectionErrorCode::UnsupportedExactType,
+                                id,
+                                "object_field_redefinition",
+                                work,
+                            ));
+                        }
+                    }
                     let effective_id =
                         match identities.declaration_identity(self, id).map_err(|code| {
                             SelectedRuntimeTypesError::at(code, id, "object_type", work)
@@ -505,10 +530,40 @@ impl CheckedPackageV2 {
                             },
                         });
                     }
+                    let mut by_identity = BTreeMap::new();
+                    for field in &projected_fields {
+                        charge(&mut work, work_limit, id, "object_field_join")?;
+                        if by_identity
+                            .insert(field.original_identity(), field)
+                            .is_some()
+                        {
+                            return Err(SelectedRuntimeTypesError::at(
+                                ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                                id,
+                                "object_field_join",
+                                work,
+                            ));
+                        }
+                    }
+                    let mut declared_fields = Vec::new();
+                    for field in &declared.fields {
+                        charge(&mut work, work_limit, id, "declared_object_field")?;
+                        let projected =
+                            by_identity.get(field.identity.as_ref()).ok_or_else(|| {
+                                SelectedRuntimeTypesError::at(
+                                    ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                                    id,
+                                    "declared_object_field",
+                                    work,
+                                )
+                            })?;
+                        declared_fields.push((*projected).clone());
+                    }
                     objects.push(SelectedRuntimeObject {
                         original_identity: declaration.node.clone(),
                         effective_id,
                         supertypes: object_parents,
+                        declared_fields,
                         fields: projected_fields,
                     });
                 }

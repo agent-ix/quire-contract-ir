@@ -707,7 +707,7 @@ fn admit(document: &Value, declared: &[(&str, &str)], reads: &[Read]) -> Checked
     }
 }
 
-/// The public runtime projection returns one complete selected model view.
+/// The public runtime projection returns selected record and object facts.
 #[trace("FR-354-AC-1", "FR-354-AC-2", "FR-354-AC-7")]
 #[test]
 fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
@@ -792,7 +792,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     .expect("selected rows join");
     let complete = admitted
         .project_selected_runtime_types(&witnessed, 1000)
-        .expect("complete record/object environment view");
+        .expect("selected record/object view");
     assert_eq!(complete.records().len(), 1);
     assert_eq!(complete.records()[0].view().record_key(), &record_key);
     assert_eq!(complete.records()[0].view().fields()[0].name(), "total");
@@ -807,6 +807,14 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
         .find(|object| object.effective_id() == &child_key)
         .expect("selected child");
     assert_eq!(projected_child.supertypes(), &[base_key]);
+    assert_eq!(
+        projected_child
+            .declared_fields()
+            .iter()
+            .map(|field| field.name())
+            .collect::<Vec<_>>(),
+        ["count"]
+    );
     assert_eq!(
         projected_child
             .fields()
