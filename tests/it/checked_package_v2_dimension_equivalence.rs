@@ -10,8 +10,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
+    encode_checked_package_v2, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
+    CheckedPackageRefusalCode as Code, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -149,6 +150,34 @@ fn selected_dimension_operand_admits_and_retains_package_form() {
     assert_eq!(
         retained["dependencies"],
         wire["semantic_graph"]["nodes"][3]["dependencies"]
+    );
+    let encoded = encode_checked_package_v2(
+        admitted.name(),
+        admitted.lock(),
+        admitted.graph(),
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: admitted.source_map(),
+            refinement_step_rows: admitted.refinement_step_rows(),
+        },
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: admitted.checked_term_data(),
+            temporal_bindings: admitted.temporal_bindings(),
+        },
+        admitted.capability_report(),
+        admitted.diagnostics(),
+        quire_canonical::Limits::new(u64::MAX),
+    )
+    .expect("canonical writer admits the mixed dimension operands");
+    let encoded: Value = serde_json::from_slice(&encoded).expect("canonical package JSON");
+    assert_eq!(
+        encoded["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"],
+        wire["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"],
+        "canonical writer preserves both authored operand forms"
+    );
+    assert_eq!(
+        encoded["semantic_graph"]["nodes"][3]["dependencies"],
+        wire["semantic_graph"]["nodes"][3]["dependencies"],
+        "canonical writer lists only the local operand as a graph dependency"
     );
 }
 
