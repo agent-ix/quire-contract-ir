@@ -156,7 +156,7 @@ fn invalid_option_inners_and_single_presence_retain_document_loci() {
     );
 }
 
-#[trace("TC-465", "FR-356-AC-3", "FR-356-AC-4")]
+#[trace("TC-465", "FR-356-AC-4")]
 #[test]
 fn option_shape_precedes_constraints_and_inner_kind() {
     let mut doc = options(json!("ix://quire/native/Clock"), false);
