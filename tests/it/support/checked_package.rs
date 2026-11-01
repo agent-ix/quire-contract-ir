@@ -1984,6 +1984,15 @@ pub fn rekey_application_node(package: &mut Value, position: usize) {
 /// Collects the targets FR-322's application-node dependency join names in
 /// `term`: references and an application's declaration or population link.
 /// Returns whether `term` holds an application.
+/// Resolve one authored indexed identity against its fixture's own graph table.
+pub fn resolved_fixture_id(value: &Value, nodes: &[Value]) -> CheckedNodeId {
+    let ids = nodes
+        .iter()
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+    structural_fixture_id_in_graph(value, &ids, &mut Default::default())
+}
+
 fn structural_fixture_id_in_graph(
     value: &Value,
     ids: &[Value],
