@@ -4,9 +4,10 @@ use super::checked_term_data::{
     CheckedDispatchCandidate, CheckedDispatchCandidateTable, CheckedTermDataV2,
 };
 use super::model_fields::RetainedModels;
+use super::model_members::Budget;
 use super::{
-    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ExpressionForm, ModelForm,
-    RawCheckedPackageWireV2, WorkMeter,
+    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ExpressionForm,
+    FunctionForm, ModelForm, RawCheckedPackageWireV2, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -42,6 +43,11 @@ pub(super) fn validate_checked_term_data(
     if !data.equality_decisions.is_empty() {
         let path = root.clone().key("equality_decisions").index(0);
         meter.charge(1, || path.clone())?;
+        if !data.equality_decisions[0].term_path.is_empty() {
+            let segment = path.clone().key("term_path").index(0);
+            meter.charge(1, || segment.clone())?;
+            return Err(invalid(segment));
+        }
         return Err(unsupported(path));
     }
     if !data.protocol_locations.is_empty() {
@@ -114,9 +120,10 @@ pub(super) fn validate_checked_term_data(
         {
             return Err(invalid(row.clone().key("operation")));
         }
-        let context_is_model = index.get(&table.context).is_some_and(|position| {
+        let context_position = index.get(&table.context).copied();
+        let context_is_model = context_position.is_some_and(|position| {
             matches!(
-                kinds.get(*position),
+                kinds.get(position),
                 Some(CheckedNodeKind::Model(
                     ModelForm::ObjectType
                         | ModelForm::Process
@@ -145,26 +152,47 @@ pub(super) fn validate_checked_term_data(
                 return Err(unsupported(at.clone().key("selection_key")));
             }
             let original = &candidate.selection_key.original;
-            let selected = models.selected_models().iter().any(|model| {
-                model.identity.as_ref() == original.package.as_ref()
-                    && model.object_types.contains_key(original.node.as_ref())
-            });
-            if !selected {
+            let Some(context_owner) = models.owner_by_key(&table.context) else {
+                return Err(invalid(row.clone().key("context")));
+            };
+            let model = context_owner.package;
+            if model.identity.as_ref() != original.package.as_ref()
+                || !model.object_types.contains_key(original.node.as_ref())
+            {
                 return Err(invalid(at.clone().key("selection_key")));
             }
-            for (member, handle) in [
-                ("operation_body", Some(&candidate.operation_body)),
-                (
-                    "effective_precondition",
-                    candidate.effective_precondition.as_ref(),
-                ),
-            ] {
-                if handle.is_some_and(|handle| {
-                    handle.package.as_ref() != wire.name.as_ref() || !index.contains_key(handle)
-                }) {
-                    return Err(invalid(at.clone().key(member)));
+            let mut budget = Budget::new(meter, model.root, model.bytes);
+            if !model.conforms_to(&original.node, context_owner.node, &mut budget)?
+                || !model
+                    .effective_operation_names(&original.node, &mut budget)?
+                    .contains(&table.operation.operation)
+            {
+                return Err(invalid(at.clone().key("selection_key")));
+            }
+            let body_kind = index
+                .get(&candidate.operation_body)
+                .and_then(|position| kinds.get(*position));
+            if candidate.operation_body.package.as_ref() != wire.name.as_ref()
+                || !matches!(body_kind, Some(CheckedNodeKind::Function(_)))
+            {
+                return Err(invalid(at.clone().key("operation_body")));
+            }
+            if let Some(precondition) = candidate.effective_precondition.as_ref() {
+                let precondition_kind = index
+                    .get(precondition)
+                    .and_then(|position| kinds.get(*position));
+                if precondition.package.as_ref() != wire.name.as_ref()
+                    || precondition_kind
+                        != Some(&CheckedNodeKind::Function(FunctionForm::Predicate))
+                {
+                    return Err(invalid(at.clone().key("effective_precondition")));
                 }
             }
+        }
+        if !table.candidates.is_empty() {
+            // The wire has no producer witness binding each candidate's
+            // effective type and selected operation to its function bodies.
+            return Err(unsupported(row.key("candidates").index(0)));
         }
     }
     Ok(())
@@ -190,6 +218,15 @@ pub enum CheckedDispatchReadError {
     /// The producer retained no checked-term sidecar.
     #[error("checked-term dispatch data is unavailable")]
     Unavailable,
+    /// The requested application belongs to another checked package.
+    #[error("dispatch application belongs to another checked package")]
+    ForeignApplication,
+    /// The requested application does not name an admitted graph node.
+    #[error("dispatch application is not admitted")]
+    UnknownApplication,
+    /// The requested admitted node is not a call application.
+    #[error("dispatch application is not a call")]
+    WrongApplication,
     /// No admitted table names the requested application and occurrence.
     #[error("no dispatch table names the requested occurrence")]
     Missing,
@@ -218,6 +255,15 @@ impl CheckedPackageV2 {
         occurrence: &CheckedOccurrence,
         work_limit: u64,
     ) -> Result<CheckedDispatchView<'_>, CheckedDispatchReadError> {
+        if application.package != self.wire.name {
+            return Err(CheckedDispatchReadError::ForeignApplication);
+        }
+        let Some(&position) = self.node_index.get(application) else {
+            return Err(CheckedDispatchReadError::UnknownApplication);
+        };
+        if self.kinds.get(position) != Some(&CheckedNodeKind::Expression(ExpressionForm::Call)) {
+            return Err(CheckedDispatchReadError::WrongApplication);
+        }
         let Some(data) = self.wire.checked_term_data.as_ref() else {
             return Err(CheckedDispatchReadError::Unavailable);
         };

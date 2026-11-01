@@ -28,7 +28,7 @@ pub struct CheckedEqualityDecision {
     pub application: CheckedNodeId,
     /// Exact source occurrence of the application.
     pub occurrence: CheckedOccurrence,
-    /// Child steps from the application's body root to the compared application.
+    /// Empty for an equality application; nonempty paths are refused at admission.
     pub term_path: Vec<CheckedEqualityTermPathStep>,
     /// Equality operation selected by the producer.
     pub operator: CheckedEqualityOperator,
@@ -44,7 +44,7 @@ pub struct CheckedEqualityDecision {
     pub enum_members: Vec<CheckedEqualityEnumMember>,
 }
 
-/// One typed step from a node body root to a nested equality application.
+/// Closed wire shape for a term path. Current checked graph rows require it empty.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedEqualityTermPathStep {

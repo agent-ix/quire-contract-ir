@@ -193,7 +193,7 @@ IR-1141; until its code lands, FR-019-AC-5 remains unbacked for these rows.
 FR-051 specifies `CheckedPackageSourceCorrespondenceRef` and
 `encode_checked_package_v2`, which are exported by the default-feature model
 crate. FR-322 and FR-354 specify the exported `CheckedTermDataV2` reader
-sidecar and bounded dispatch view. FR-061 specifies its planned optional
+sidecar and bounded dispatch view. FR-051 specifies its planned optional
 encoder input; that writer argument is not exported until IR-1219's code lands.
 FR-052 and FR-053 specify additional public
 model APIs; their owning requirements retain those API obligations, including
