@@ -20,8 +20,8 @@ use quire_contract_model::{
     SelectedExactIdentities, SelectedExactIdentity,
 };
 use quire_exact::{
-    record, ConstructionCause, FieldValue, Integer, MemberId, MemberOwner, NodeKey, PathSegment,
-    Presence, Value as ExactValue, ValueType,
+    record, ConstructionCause, EffectiveId, FieldValue, Integer, MemberId, MemberOwner, NodeKey,
+    OriginalDeclarationKey, PathSegment, Presence, Value as ExactValue, ValueType,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -986,6 +986,131 @@ fn admitted_record_with_unsupported_field_refuses_without_view() {
         ExactTypeProjectionErrorCode::UnsupportedExactType
     );
     assert_eq!(refusal.at.as_deref(), Some(&structural));
+}
+
+/// A selected record's nested record and object-reference fields resolve by
+/// admitted target declaration and consume work at each target.
+#[test]
+fn admitted_nested_record_and_reference_fields_require_target_witnesses_and_work() {
+    let mut selected = document(vec![
+        typed_object("Address", "record", &[], &[]),
+        object("Person", &[], &[]),
+        typed_object(
+            "Envelope",
+            "record",
+            &[],
+            &[
+                field("address", &orders("Address")),
+                field("person", &orders("Person")),
+            ],
+        ),
+    ]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct catalog")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    let admitted = admit(
+        &selected,
+        &[
+            ("Address", "record_value_type"),
+            ("Person", OBJECT),
+            ("Envelope", "record_value_type"),
+        ],
+        &[],
+    );
+    let structural = |short, form| -> CheckedNodeId {
+        serde_json::from_value(node_id(&declaration_key(short, form)))
+            .expect("admitted structural declaration")
+    };
+    let address = structural("Address", "record_value_type");
+    let person = structural("Person", OBJECT);
+    let envelope = structural("Envelope", "record_value_type");
+    let key = |short: &str| {
+        NodeKey::new("checked", vec![PathSegment::Text(short.into())], 0)
+            .expect("Exact declaration key")
+    };
+    let address_key = key("Address");
+    let envelope_key = key("Envelope");
+    let person_id = EffectiveId::new(
+        None,
+        OriginalDeclarationKey::new(IDENTITY, orders("Person")),
+    );
+    let address_row = SelectedExactDeclarationRow::new(
+        address.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        orders("Address"),
+        SelectedExactIdentity::Record(address_key.clone()),
+    );
+    let person_row = SelectedExactDeclarationRow::new(
+        person.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::ObjectType,
+        orders("Person"),
+        SelectedExactIdentity::Object(person_id.clone()),
+    );
+    let envelope_row = SelectedExactDeclarationRow::new(
+        envelope.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        orders("Envelope"),
+        SelectedExactIdentity::Record(envelope_key.clone()),
+    );
+    let field_rows = ["address", "person"].map(|name| {
+        SelectedExactFieldRow::new(
+            envelope.clone(),
+            IDENTITY,
+            orders("Envelope"),
+            format!("{}/{name}", orders("Envelope")),
+            MemberId::new(MemberOwner::Node(envelope_key.clone()), name)
+                .expect("Exact field member"),
+        )
+    });
+    let complete = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [
+            address_row.clone(),
+            person_row.clone(),
+            envelope_row.clone(),
+        ],
+        field_rows.clone(),
+    )
+    .expect("selected target and field rows");
+    let projection = admitted
+        .project_exact_type(&envelope, &complete, 100)
+        .expect("complete nested field types");
+    let fields = projection.record_view().expect("record view").fields();
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].value_type(), &ValueType::Composite(address_key));
+    assert_eq!(fields[1].value_type(), &ValueType::Reference(person_id));
+
+    for (declarations, failed_target) in [
+        (vec![person_row.clone(), envelope_row.clone()], &address),
+        (vec![address_row, envelope_row], &person),
+    ] {
+        let missing =
+            SelectedExactIdentities::from_stage_rows(&admitted, declarations, field_rows.clone())
+                .expect("incomplete target rows retain valid field joins");
+        let refusal = admitted
+            .project_exact_type(&envelope, &missing, 100)
+            .expect_err("missing target witness refuses the complete view");
+        assert_eq!(
+            refusal.code,
+            ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+        );
+        assert_eq!(refusal.at.as_deref(), Some(failed_target));
+    }
+    for (limit, failed_target) in [(5, &address), (7, &person)] {
+        let refusal = admitted
+            .project_exact_type(&envelope, &complete, limit)
+            .expect_err("nested target read must consume the remaining work");
+        assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+        assert_eq!(refusal.at.as_deref(), Some(failed_target));
+        assert_eq!(refusal.work, limit);
+    }
 }
 
 pub(crate) fn record_project_control() -> (Value, CheckedPackageEvidence) {

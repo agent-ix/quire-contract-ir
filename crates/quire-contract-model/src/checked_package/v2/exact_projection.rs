@@ -802,6 +802,16 @@ impl CheckedPackageV2 {
                     } else {
                         member_type
                     };
+                    if let MemberType::Reference(target) | MemberType::Record(target) = member_type
+                    {
+                        charge_work(
+                            requested,
+                            target,
+                            "record_field_target",
+                            &mut work,
+                            work_limit,
+                        )?;
+                    }
                     let value_type = project_record_field_type(self, identities, member_type)
                         .map_err(|(code, target)| {
                             let mut error = refuse(code, work);
