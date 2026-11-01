@@ -233,9 +233,6 @@ impl CheckedDimensionOperand {
             let node =
                 CheckedDeclaredNodeId::try_new(CheckedNodeId::from_value(object.get("node")?)?)
                     .ok()?;
-            if node.node_id().package.as_ref() != package {
-                return None;
-            }
             Some(Self::Package(CheckedPackageNodeRef {
                 package: package.into(),
                 node,
@@ -506,9 +503,7 @@ impl NominalBody {
                     let path = at.clone().key("dimension_node_ids").index(index);
                     valid_id(operand.node_id(), path.clone())?;
                     if let CheckedDimensionOperand::Package(reference) = operand {
-                        if reference.package.is_empty()
-                            || reference.package != reference.node.node_id().package
-                        {
+                        if reference.package.is_empty() {
                             return Err(malformed(path));
                         }
                     }

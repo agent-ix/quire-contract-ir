@@ -172,13 +172,31 @@ fn package_operand_requires_direct_selection_and_declared_node() {
         "{refusal:?}"
     );
 
-    let mut missing = wire;
+    let mut missing = wire.clone();
     missing["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"][0]["node"]["path"] =
         json!(["Missing"]);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_with_dependencies(&missing, &[(name.as_str(), &dependency)])
     else {
         panic!("absent selected node must refuse");
+    };
+    assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::MissingName), "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path,
+        Some(pointer(
+            "/semantic_graph/nodes/3/body/dimension_node_ids/0/node"
+        )),
+        "{refusal:?}"
+    );
+
+    let mut wrong_package = wire;
+    wrong_package["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"][0]["node"]
+        ["package"] = json!("another/package");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_dependencies(&wrong_package, &[(name.as_str(), &dependency)])
+    else {
+        panic!("a node outside the selected package must refuse");
     };
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingName), "{refusal:?}");
