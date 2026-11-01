@@ -21,7 +21,7 @@ relationships:
 When a consumer builds the sealed runtime adapter for an admitted
 `CheckedPackageV2`, Contract IR SHALL expose read-only, typed projections of
 the package's selected type declarations, callable bodies and frames, dispatch
-candidates and effective preconditions, units, and enum members.
+candidates and effective preconditions, units, enum members, and captured protocol semantic locations.
 Contract IR SHALL return complete admitted facts or a typed refusal before exposing a
 partial view. Contract IR SHALL neither create a second checker nor reconstruct QSL
 `Scope` or `CheckedGraph`. QSL [FR-390](ix://agent-ix/quire-spec-language/FR-390)
@@ -107,6 +107,17 @@ case order, and each member's witnessed identity and position, sufficient to
 form a semantic-value `EnumMemberIndex`. Neither view SHALL derive identity
 from case text or display names.
 
+When a consumer requests a protocol semantic location, Contract IR SHALL
+borrow the canonical producer-captured row keyed by exact local application,
+source occurrence and per-term ordinal from the admitted checked-term sidecar.
+Admission SHALL validate local application and source-occurrence joins, sorted
+unique per-term keys, the closed origin and canonical child ordinals under
+QSpec FR-322/STD-614. A row preserves its named type-declaration or protocol
+attempt origin and complete child-index path. The read SHALL distinguish an
+absent sidecar from a present sidecar missing the requested row, and SHALL
+bound work before returning a complete borrowed row. It SHALL NOT infer a
+location from a source region, display name or sibling term.
+
 All projections SHALL use admission-retained typed graph and selected-document
 facts. They SHALL NOT parse source or wire again, attach an arbitrary source
 package, broaden the package's admitted vocabulary, or hide absent producer
@@ -127,6 +138,7 @@ typed outcomes.
 | FR-354-AC-6 | With QSL-stage enum declaration and member rows, an ordered and an unordered selected enum each yield exact case order, member identity and position sufficient for `EnumMemberIndex`; absent, duplicate, mismatched-case or foreign member witnesses refuse before any partial index. | Test |
 | FR-354-AC-7 | Repeated bounded reads of an admitted package and its clone agree; an insufficient limit reports the charged work and locus without a partial view, source recheck, wire reparse or stack growth with term depth. | Test |
 | FR-354-AC-8 | Public API and dependency inspection finds the runtime projections in IR model, no QSL `Scope`, `CheckedGraph`, evaluator, supplied-state admission or mirror expression type in IR, and no claimed success for a producer decision absent from the package. | Inspection |
+| FR-354-AC-9 | Captured protocol semantic location reads preserve the exact application, occurrence, per-term ordinal, closed origin and child path; two terms sharing one application occurrence remain distinct. Foreign, absent or non-application targets, missing source occurrences, duplicate keys and malformed origin or ordinal shapes refuse before admission. An absent sidecar and an absent selected row return distinct typed outcomes; a bounded read returns the complete borrowed row at its exact work limit and reports charged exhaustion one below without a partial value or source-region inference. | Test |
 
 ## Dependencies
 

@@ -67,7 +67,7 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
 }
 
 #[test]
-#[trace("TC-058", "FR-322-AC-288", "FR-322-AC-291")]
+#[trace("TC-058", "FR-354-AC-9")]
 fn published_locations_preserve_distinct_semantic_terms_on_one_application() {
     let originals = [positive("PL-01-root"), positive("PL-02-child")];
     let (wire, position) = fixture(originals.to_vec());
@@ -105,7 +105,7 @@ fn published_locations_preserve_distinct_semantic_terms_on_one_application() {
 }
 
 #[test]
-#[trace("TC-058", "FR-322-AC-288", "FR-322-AC-291")]
+#[trace("TC-058", "FR-354-AC-9")]
 fn published_named_type_origin_is_returned_without_source_region_inference() {
     let original = positive("PL-03-declaration");
     let (wire, position) = fixture(vec![original.clone()]);
@@ -121,7 +121,7 @@ fn published_named_type_origin_is_returned_without_source_region_inference() {
 }
 
 #[test]
-#[trace("TC-058", "FR-322-AC-291")]
+#[trace("TC-058", "FR-354-AC-9")]
 fn published_duplicate_term_key_refuses_at_the_second_captured_row() {
     let all = vectors();
     let vector = all["reader_refusals"]
@@ -146,7 +146,7 @@ fn published_duplicate_term_key_refuses_at_the_second_captured_row() {
 }
 
 #[test]
-#[trace("TC-058", "FR-322-AC-291")]
+#[trace("TC-058", "FR-354-AC-9")]
 fn missing_selected_mapping_is_not_substituted_by_a_sibling_term() {
     let all = vectors();
     let vector = all["reader_refusals"]
@@ -165,7 +165,7 @@ fn missing_selected_mapping_is_not_substituted_by_a_sibling_term() {
 }
 
 #[test]
-#[trace("TC-058", "FR-322-AC-291")]
+#[trace("TC-058", "FR-354-AC-9")]
 fn foreign_application_missing_occurrence_and_non_application_each_refuse() {
     let (wire, position) = fixture(vec![positive("PL-01-root")]);
     let mut foreign = wire.clone();
@@ -200,7 +200,7 @@ fn foreign_application_missing_occurrence_and_non_application_each_refuse() {
 }
 
 #[test]
-#[trace("TC-058", "FR-322-AC-291")]
+#[trace("TC-058", "FR-354-AC-9")]
 fn unknown_origin_and_noncanonical_child_ordinals_never_admit() {
     let all = vectors();
     let vector = all["schema_invalid"]
@@ -230,7 +230,7 @@ fn unknown_origin_and_noncanonical_child_ordinals_never_admit() {
 }
 
 #[test]
-#[trace("TC-058", "FR-322-AC-291")]
+#[trace("TC-058", "FR-354-AC-9")]
 fn bounded_read_returns_complete_borrowed_path_only_at_the_exact_work_limit() {
     let (wire, position) = fixture(vec![positive("PL-01-root"), positive("PL-02-child")]);
     let package = admitted(&wire);
@@ -259,7 +259,7 @@ fn bounded_read_returns_complete_borrowed_path_only_at_the_exact_work_limit() {
 }
 
 #[test]
-#[trace("TC-058", "FR-322-AC-288", "FR-322-AC-291")]
+#[trace("TC-058", "FR-354-AC-9")]
 fn absent_capture_and_present_empty_capture_have_distinct_typed_reads() {
     let (mut wire, position) = fixture(Vec::new());
     let empty = admitted(&wire);
@@ -278,7 +278,7 @@ fn absent_capture_and_present_empty_capture_have_distinct_typed_reads() {
 }
 
 #[test]
-#[trace("TC-058", "FR-322-AC-291")]
+#[trace("TC-058", "FR-354-AC-9")]
 fn valid_large_child_indices_remain_exact_canonical_owner_values() {
     let (mut wire, position) = fixture(vec![positive("PL-02-child")]);
     wire["checked_term_data"]["protocol_locations"][0]["location"]["path"] = json!([
