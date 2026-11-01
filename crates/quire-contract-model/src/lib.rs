@@ -206,7 +206,7 @@ pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
     CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
     CheckedApplicationOperation, CheckedBindingName, CheckedBindingNameKind,
-    CheckedFairnessGranularity, CheckedFairnessKind, CheckedFieldScope, CheckedFrameModification,
+    CheckedFairnessGranularity, CheckedFairnessTarget, CheckedFairnessKind, CheckedFieldScope, CheckedFrameModification,
     CheckedIntervalEnd, CheckedLiteralRead, CheckedLiteralValue, CheckedOperationAnchorBody,
     CheckedOperationConstraint, CheckedOperationInterval, CheckedOperationLaw,
     CheckedOperationLeaf, CheckedOperationMember, CheckedOperationMode, CheckedOperationRational,

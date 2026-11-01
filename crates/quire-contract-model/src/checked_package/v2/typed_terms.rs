@@ -182,11 +182,65 @@ pub enum CheckedOperationMember {
         fairness_kind: CheckedFairnessKind,
         /// Whole or per participant granularity.
         granularity: CheckedFairnessGranularity,
-        /// Declaring transition node.
+        /// Exact producer-selected fairness subject.
+        target: CheckedFairnessTarget,
+    },
+}
+
+/// A closed fairness subject carrying its admitted structural identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CheckedFairnessTarget {
+    /// An effective model operation.
+    Operation {
+        /// Declaring model node.
         declaration: CheckedNodeId,
-        /// Fairness declaration name.
+        /// Original operation name.
         name: Box<str>,
     },
+    /// The owning protocol clause.
+    ProtocolRoot {
+        /// Protocol clause node.
+        node: CheckedNodeId,
+    },
+    /// An attempt control in the owning protocol.
+    AttemptNode {
+        /// Attempt control node.
+        node: CheckedNodeId,
+    },
+    /// One named branch of a parallel control.
+    ParallelBranch {
+        /// Exact parallel control node.
+        parallel: CheckedNodeId,
+        /// Authored branch label.
+        branch: Box<str>,
+    },
+    /// An owning protocol's compensation template.
+    CompensationTemplate {
+        /// Compensation node.
+        node: CheckedNodeId,
+    },
+    /// A transition of a hybrid model or mode.
+    HybridTransition {
+        /// Declaring hybrid model or mode.
+        declaration: CheckedNodeId,
+        /// Original transition name.
+        name: Box<str>,
+    },
+}
+
+impl CheckedFairnessTarget {
+    pub(super) fn node_mut(&mut self) -> &mut CheckedNodeId {
+        match self {
+            Self::Operation { declaration, .. } | Self::HybridTransition { declaration, .. } => {
+                declaration
+            }
+            Self::ProtocolRoot { node }
+            | Self::AttemptNode { node }
+            | Self::CompensationTemplate { node } => node,
+            Self::ParallelBranch { parallel, .. } => parallel,
+        }
+    }
 }
 
 /// Source syntax retained for a model-object field read.
@@ -371,8 +425,8 @@ impl CheckedOperationMember {
             | Self::Position { declaration, .. }
             | Self::Element { declaration }
             | Self::Operation { declaration, .. }
-            | Self::TypeArgument { declaration }
-            | Self::Fairness { declaration, .. } => replace(declaration)?,
+            | Self::TypeArgument { declaration } => replace(declaration)?,
+            Self::Fairness { target, .. } => replace(target.node_mut())?,
             Self::RelationshipEnd {
                 declaration,
                 destination_type,
@@ -455,8 +509,7 @@ impl CheckedOperationMember {
             OperationMemberKind::Fairness => Self::Fairness {
                 fairness_kind: serde_json::from_value(value.get("fairness_kind")?.clone()).ok()?,
                 granularity: serde_json::from_value(value.get("granularity")?.clone()).ok()?,
-                declaration: declaration()?,
-                name: name()?,
+                target: serde_json::from_value(value.get("target")?.clone()).ok()?,
             },
         })
     }
@@ -472,8 +525,8 @@ impl CheckedOperationMember {
             | Self::Position { declaration, .. }
             | Self::Element { declaration }
             | Self::Operation { declaration, .. }
-            | Self::TypeArgument { declaration }
-            | Self::Fairness { declaration, .. } => replace(declaration),
+            | Self::TypeArgument { declaration } => replace(declaration),
+            Self::Fairness { target, .. } => replace(target.node_mut()),
             Self::RelationshipEnd {
                 declaration,
                 destination_type,

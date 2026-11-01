@@ -9884,8 +9884,7 @@ mod tests {
                 "kind": "fairness",
                 "fairness_kind": "weak",
                 "granularity": "whole",
-                "declaration": node_ref_of('f'),
-                "name": "Step",
+                "target": {"kind":"operation", "declaration": node_ref_of('f'), "name": "Step"},
             }),
         }
     }

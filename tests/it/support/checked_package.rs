@@ -2042,6 +2042,13 @@ fn join_targets(
             {
                 add(out, declaration, ids);
             }
+            if term["operation"]["member"]["kind"] == "fairness" {
+                for field in ["declaration", "node", "parallel"] {
+                    if let Some(id) = term["operation"]["member"]["target"].get(field) {
+                        add(out, id, ids);
+                    }
+                }
+            }
             if matches!(
                 term["operation"]["identity"].as_str(),
                 Some("quire.op.model.reaches" | "quire.op.model.navigate")

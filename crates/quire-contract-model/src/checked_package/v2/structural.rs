@@ -1386,6 +1386,13 @@ pub(super) fn application_dependencies(
                         .and_then(CheckedNodeId::from_value)
                 };
                 join.extend(member_id("declaration"));
+                if member.and_then(|m| m.get("kind")).and_then(Value::as_str) == Some("fairness") {
+                    if let Some(target) = member.and_then(|m| m.get("target")) {
+                        for field in ["declaration", "node", "parallel"] {
+                            join.extend(target.get(field).and_then(CheckedNodeId::from_value));
+                        }
+                    }
+                }
                 // Only a relationship application names a population.
                 let relationship = operation
                     .get("identity")

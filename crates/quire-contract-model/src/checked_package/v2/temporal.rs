@@ -431,14 +431,19 @@ struct FairnessMember {
     _fairness_kind: FairnessKind,
     #[serde(rename = "granularity")]
     _granularity: FairnessGranularity,
-    declaration: CheckedNodeId,
-    name: Box<str>,
+    target: super::CheckedFairnessTarget,
 }
 
 /// The fairness member `member` is, `None` for any other shape.
 fn read_fairness_member(member: &Value) -> Option<FairnessMember> {
     let member = FairnessMember::deserialize(member).ok()?;
-    (member.kind == OperationMemberKind::Fairness && is_identifier(&member.name)).then_some(member)
+    let named = match &member.target {
+        super::CheckedFairnessTarget::Operation { name, .. }
+        | super::CheckedFairnessTarget::HybridTransition { name, .. } => is_identifier(name),
+        super::CheckedFairnessTarget::ParallelBranch { branch, .. } => is_identifier(branch),
+        _ => true,
+    };
+    (member.kind == OperationMemberKind::Fairness && named).then_some(member)
 }
 
 /// Closed type-argument member; the declaration is validated as a node id.
@@ -895,20 +900,21 @@ fn check_clause(
         let Some((fair, member)) = fairness_member(reference, graph) else {
             continue;
         };
-        if hybrid_claim {
+        let super::CheckedFairnessTarget::Operation { declaration, name } = &member.target else {
             continue;
-        }
-        if let Err(failure) = resolve_fairness(&member, graph, meter)? {
+        };
+        if let Err(failure) = resolve_fairness(declaration, name, graph, meter)? {
             return Err(ValidationFailure::refused_at(
                 failure.refusal.code,
                 node_pointer(fair)
                     .key("body")
                     .key("operation")
                     .key("member")
+                    .key("target")
                     .key(failure.member),
                 Some(failure.refusal.cause),
                 if failure.locus_is_target {
-                    member.declaration.clone()
+                    declaration.clone()
                 } else {
                     graph.nodes[fair].node_id.clone()
                 },
@@ -1017,14 +1023,15 @@ impl FairnessRefusal {
 /// operation matches is `missing-name` and two matches `ambiguous-name`, at the
 /// `name`.
 fn resolve_fairness(
-    member: &FairnessMember,
+    declaration: &CheckedNodeId,
+    name: &str,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<Result<(), FairnessRefusal>, ValidationFailure> {
     // A `declaration` that names no node is a target that is no
     // `model`/`object_type` node (merged FR-370 "Fairness resolution" step 1),
     // located at the key as named.
-    let Some((declaring, kind)) = graph.node(&member.declaration) else {
+    let Some((declaring, kind)) = graph.node(declaration) else {
         return Ok(Err(FairnessRefusal::at_declaration(
             ModelRefusal::malformed(),
             true,
@@ -1046,7 +1053,7 @@ fn resolve_fairness(
     Ok(
         match graph
             .owners
-            .resolve_member(declaring, MemberKind::Operation, &member.name, meter)?
+            .resolve_member(declaring, MemberKind::Operation, name, meter)?
         {
             Ok((_, Resolved::Operation(_))) => Ok(()),
             Ok((_, Resolved::Field(_))) => {

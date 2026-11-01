@@ -1135,8 +1135,11 @@ pub(super) fn validate_claims(
                 continue;
             };
             let member = &operation.record()["member"];
-            let declaration = CheckedNodeId::from_value(&member["declaration"]);
-            let name = member["name"].as_str().unwrap_or_default();
+            let target = &member["target"];
+            let declaration = (target["kind"] == "hybrid_transition")
+                .then(|| CheckedNodeId::from_value(&target["declaration"]))
+                .flatten();
+            let name = target["name"].as_str().unwrap_or_default();
             let mut resolved = false;
             for mode_key in &mode_keys {
                 let Some((mode_position, mode)) = node_at(mode_key, nodes, index) else {
@@ -1186,6 +1189,7 @@ pub(super) fn validate_claims(
                         .key("body")
                         .key("operation")
                         .key("member")
+                        .key("target")
                         .key("name"),
                     fair,
                 ));

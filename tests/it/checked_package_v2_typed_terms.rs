@@ -571,8 +571,7 @@ fn admitted_controls_expose_element_and_fairness_members() {
     let CheckedOperationMember::Fairness {
         fairness_kind,
         granularity,
-        declaration,
-        name,
+        target,
     } = operation.read().unwrap().member.unwrap()
     else {
         panic!("admitted fair member must be Fairness")
@@ -580,10 +579,9 @@ fn admitted_controls_expose_element_and_fairness_members() {
     let wire = serde_json::to_value(operation).unwrap();
     assert_eq!(*fairness_kind, CheckedFairnessKind::Weak);
     assert_eq!(*granularity, CheckedFairnessGranularity::Whole);
-    assert_eq!(name.as_ref(), "scaled");
     assert_eq!(
-        serde_json::to_value(declaration).unwrap(),
-        wire["member"]["declaration"]
+        serde_json::to_value(target).unwrap(),
+        wire["member"]["target"]
     );
     let member_kinds: BTreeSet<&str> = OperationMemberKind::ALL
         .iter()
