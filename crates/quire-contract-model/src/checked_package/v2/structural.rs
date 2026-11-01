@@ -738,6 +738,18 @@ pub(super) fn validate_derived_type_shapes(
                         .and_then(typed_aggregate)
                         .is_some_and(|members| matches!(members, [CheckedTerm::Reference { target }] if target.is_well_formed()))
             }
+            CheckedNodeKind::BoundedDomain(BoundedDomainForm::TextBounds) => {
+                // A bound's form selects its own base, regardless of its authored identity.
+                if !graph.type_matches(&node.semantic_type, ScalarTypeForm::Text) {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::InvalidPackage,
+                        node_pointer(position).key("body"),
+                        None,
+                        node_id.clone(),
+                    ));
+                }
+                continue;
+            }
             CheckedNodeKind::BoundedDomain(
                 BoundedDomainForm::IntegerRange | BoundedDomainForm::CollectionBounds,
             ) => {

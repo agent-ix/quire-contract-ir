@@ -2602,6 +2602,13 @@ strings without narrowing to a host integer. A `scalar_type` or
 type is the declared base type. Its semantic and dependency joins are checked
 separately from identity.
 
+A `bounded_domain`/`text_bounds` node SHALL have a `scalar_type`/`text`
+semantic base. An integer-range base and body do not become text bounds when
+only the form label changes. A wrong base refuses `invalid_package` with no
+cause at the node's `body`, located at that node; its authored identifier
+does not bypass this join. A valid text base retains the node's own body
+without consulting another bound node.
+
 A labelled recursion group contains every node carrying its shared non-empty
 string label, including application and off-cycle members. Both in-group and
 outside references carry exact structural target IDs. A repeated structural
@@ -4918,3 +4925,5 @@ FR-038-AC-80, FR-038-AC-89 through FR-038-AC-95 and FR-038-AC-109 through FR-038
 [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
 QSpec FR-340 `modifies` entry shape, scope and `deletes_scoped`, the FR-341 state clause and FR-342
 operation anchor bodies, and the `model` form set.
+
+| FR-038-AC-382 | A public-reader mutation that relabels an integer-range node as `text_bounds` while retaining its Integer semantic base and body refuses `invalid_package`, no cause, at `/semantic_graph/nodes/<n>/body`, with that node as locus. A `text_bounds` node over Text retains its own minimum, maximum and text profile unchanged. | Test (TC-226) |
