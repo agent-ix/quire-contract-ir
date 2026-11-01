@@ -576,6 +576,42 @@ impl NominalBody {
         }
     }
 
+    pub(super) fn map_node_ids(
+        &mut self,
+        map: &mut impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>,
+    ) {
+        let mut visit = |id: &mut CheckedNodeId| {
+            if let Some(replacement) = map(id) {
+                *id = replacement;
+            }
+        };
+        match &mut self.kind {
+            NominalBodyKind::Enum { .. } => {}
+            NominalBodyKind::Dimension { terms } => {
+                for term in terms {
+                    visit(&mut term.dimension_node_id);
+                }
+            }
+            NominalBodyKind::Unit {
+                dimension_node_id,
+                target_unit_node_id,
+                ..
+            } => {
+                visit(dimension_node_id);
+                if let Some(id) = target_unit_node_id {
+                    visit(id);
+                }
+            }
+            NominalBodyKind::DimensionEquivalence {
+                dimension_node_ids, ..
+            } => {
+                for id in dimension_node_ids {
+                    visit(id);
+                }
+            }
+        }
+    }
+
     pub(super) fn visit_reference_targets<'a>(
         &'a self,
         visitor: &mut impl FnMut(&'a CheckedNodeId),

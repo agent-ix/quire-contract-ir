@@ -45,6 +45,7 @@ mod checked_package_v2_lowering;
 mod checked_package_v2_model_fields;
 mod checked_package_v2_model_members;
 mod checked_package_v2_model_root;
+mod checked_package_v2_node_map;
 mod checked_package_v2_nominal_api;
 mod checked_package_v2_operand_families;
 mod checked_package_v2_operation_arguments;
