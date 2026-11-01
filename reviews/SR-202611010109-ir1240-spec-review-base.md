@@ -32,3 +32,9 @@ Reviewed the amended FR-048 behavior and AC-6/7 against the closed operation-mem
 ## Evidence
 
 Scoped `quire validate --scope . spec/model/functional/FR-048-derive-structural-and-group-candidates.md --summary` passed with 0 grammar findings. The spec introduced no hash, digest, version pin, new dependency edge, or compatibility layer. No applicable AssuranceProfile was found under `spec/`.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-6 and AC-7 now explicitly mark the newly named nested operation-member coverage PLANNED/UNRUN (IR-1240) until the external-consumer test lands. |
