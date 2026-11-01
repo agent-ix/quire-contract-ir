@@ -1135,11 +1135,11 @@ pub(super) fn validate_claims(
                 continue;
             };
             let member = &operation.record()["member"];
-            let target = &member["target"];
-            let declaration = (target["kind"] == "hybrid_transition")
-                .then(|| CheckedNodeId::from_value(&target["declaration"]))
+            let selected_target = &member["target"];
+            let declaration = (selected_target["kind"] == "hybrid_transition")
+                .then(|| CheckedNodeId::from_value(&selected_target["declaration"]))
                 .flatten();
-            let name = target["name"].as_str().unwrap_or_default();
+            let name = selected_target["name"].as_str().unwrap_or_default();
             let mut resolved = false;
             for mode_key in &mode_keys {
                 let Some((mode_position, mode)) = node_at(mode_key, nodes, index) else {
