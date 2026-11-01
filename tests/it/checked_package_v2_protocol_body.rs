@@ -9683,11 +9683,13 @@ fn await_after_later_sibling_cycles_before_clause_guard_slot() {
     assert_eq!(controls, &expected);
 }
 
-fn typed_fairness_vectors() -> Value {
-    let root = std::env::var_os("QSPEC_DIR").expect("QSPEC_DIR selects QSpec fairness vectors");
-    let path = std::path::PathBuf::from(root)
-        .join("proposals/checked-package-v2/temporal-fairness-target-vectors.json");
-    serde_json::from_slice(&std::fs::read(path).expect("owning QSpec vectors")).unwrap()
+fn typed_fairness_cases() -> Value {
+    json!({"positive": [
+        {"id":"root", "member":{"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":{"kind":"protocol_root", "node":null}}},
+        {"id":"attempt", "member":{"kind":"fairness", "fairness_kind":"strong", "granularity":"each", "target":{"kind":"attempt_node", "node":null}}},
+        {"id":"parallel", "member":{"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":{"kind":"parallel_branch", "parallel":null, "branch":"Right"}}},
+        {"id":"compensation", "member":{"kind":"fairness", "fairness_kind":"weak", "granularity":"each", "target":{"kind":"compensation_template", "node":null}}}
+    ]})
 }
 
 fn with_protocol_fairness(mut package: Value, member: Value) -> (Value, usize) {
@@ -9718,7 +9720,7 @@ fn with_protocol_fairness(mut package: Value, member: Value) -> (Value, usize) {
 #[trace("TC-048", "FR-038-AC-98", "FR-038-AC-324", "FR-349-AC-9")]
 #[test]
 fn typed_protocol_fairness_preserves_each_selected_target() {
-    let vectors = typed_fairness_vectors();
+    let vectors = typed_fairness_cases();
     for vector in vectors["positive"].as_array().unwrap().iter().filter(|v| {
         matches!(
             v["member"]["target"]["kind"].as_str(),
@@ -9778,12 +9780,12 @@ fn typed_protocol_fairness_preserves_each_selected_target() {
 #[trace("TC-048", "FR-038-AC-98", "FR-038-AC-324")]
 #[test]
 fn typed_protocol_fairness_checks_identity_then_kind_then_branch() {
-    let vectors = typed_fairness_vectors();
+    let vectors = typed_fairness_cases();
     let positive = vectors["positive"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|v| v["id"] == "FT-04-branch")
+        .find(|v| v["id"] == "parallel")
         .unwrap()["member"]
         .clone();
     for (case, kind, field, code, cause) in [

@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 mod dependency_call;
 mod dimension_equivalence;
 mod extension;
+mod fairness_targets;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;
 mod grouped_ordinal;
