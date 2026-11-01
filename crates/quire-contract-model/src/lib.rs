@@ -269,3 +269,6 @@ pub use output_mapping::{
 
 #[cfg(feature = "fault-injection")]
 pub use output_mapping::MappingAllocationPoint;
+
+/// Borrowed admitted unit and enum projections with producer identity rows.
+pub use checked_package::nominal_runtime;
