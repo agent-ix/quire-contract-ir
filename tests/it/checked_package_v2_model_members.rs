@@ -307,15 +307,14 @@ fn read(
     )
 }
 
-fn add_dispatch_body(package: &mut Value) -> Value {
-    let key = "qualified:dispatch_body";
+fn add_dispatch_body_named(package: &mut Value, key: &str, name: &str, value: &str) -> Value {
     let body = json!({"term":"aggregate", "members":[
         {"term":"binding", "name":"parameters", "value":{"term":"aggregate", "members":[]}},
-        {"term":"binding", "name":"body", "value":literal(&INTEGER, "integer", "1")}
+        {"term":"binding", "name":"body", "value":literal(&INTEGER, "integer", value)}
     ]});
     let mut node = wire_node(key, "function", "pure_function", &INTEGER, &[], body);
     node["occurrences"] = json!([{"role":"declaration", "ordinal":0}]);
-    node["declaration"] = json!({"qualified_name":["dispatch_body"]});
+    node["declaration"] = json!({"qualified_name":[name]});
     node["owner"] = source_owner(&fixture_source());
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -326,14 +325,53 @@ fn add_dispatch_body(package: &mut Value) -> Value {
     node_id(key)
 }
 
-/// Trace: FR-322-AC-288, FR-322-AC-290, FR-322-AC-296, FR-354-AC-4, FR-494-AC-1.
+fn add_dispatch_body(package: &mut Value) -> Value {
+    add_dispatch_body_named(package, "qualified:dispatch_body", "dispatch_body", "1")
+}
+
+fn add_dispatch_boolean_type(package: &mut Value) -> Value {
+    let key = "scalar/boolean";
+    let node = wire_node(key, "scalar_type", "boolean", key, &[], empty());
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(node);
+    rebuild_source_map(package);
+    refresh_identity(package);
+    node_id(key)
+}
+
+fn add_dispatch_precondition(
+    package: &mut Value,
+    key: &str,
+    name: &str,
+    boolean_type: &Value,
+    value: bool,
+) -> Value {
+    let body = json!({"term":"aggregate", "members":[
+        {"term":"binding", "name":"parameters", "value":{"term":"aggregate", "members":[]}},
+        {"term":"binding", "name":"body", "value":{"term":"literal", "type":boolean_type, "value_kind":"boolean", "value":value}}
+    ]});
+    let mut node = wire_node(key, "function", "predicate", "scalar/boolean", &[], body);
+    node["occurrences"] = json!([{"role":"declaration", "ordinal":0}]);
+    node["declaration"] = json!({"qualified_name":[name]});
+    node["owner"] = source_owner(&fixture_source());
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(node);
+    rebuild_source_map(package);
+    refresh_identity(package);
+    node_id(key)
+}
+
+/// Trace: FR-322-AC-288, FR-322-AC-290, FR-322-AC-296, FR-354-AC-4.
 #[trace(
     "TC-233",
     "FR-322-AC-288",
     "FR-322-AC-290",
     "FR-322-AC-296",
-    "FR-354-AC-4",
-    "FR-494-AC-1"
+    "FR-354-AC-4"
 )]
 #[test]
 fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
@@ -403,7 +441,33 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
         Err(quire_contract_model::CheckedDispatchReadError::UnknownApplication)
     );
 
-    let function = add_dispatch_body(&mut package);
+    let first_body = add_dispatch_body_named(
+        &mut package,
+        "qualified:dispatch_body_first",
+        "dispatch_body_first",
+        "1",
+    );
+    let second_body = add_dispatch_body_named(
+        &mut package,
+        "qualified:dispatch_body_second",
+        "dispatch_body_second",
+        "2",
+    );
+    let boolean_type = add_dispatch_boolean_type(&mut package);
+    let first_precondition = add_dispatch_precondition(
+        &mut package,
+        "qualified:dispatch_precondition_first",
+        "dispatch_precondition_first",
+        &boolean_type,
+        true,
+    );
+    let second_precondition = add_dispatch_precondition(
+        &mut package,
+        "qualified:dispatch_precondition_second",
+        "dispatch_precondition_second",
+        &boolean_type,
+        false,
+    );
     let witness = json!({"declaring":declaring, "operation":"total"});
     package["checked_term_data"]["dispatch_tables"][0]["candidates"] = json!([
         {
@@ -412,8 +476,8 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
                 "owner_effective_type": null,
                 "original": {"package": IDENTITY, "node": ORDER}
             },
-            "operation_body": function,
-            "effective_precondition": null
+            "operation_body": first_body,
+            "effective_precondition": first_precondition
         },
         {
             "selected_operation": witness.clone(),
@@ -421,8 +485,8 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
                 "owner_effective_type": null,
                 "original": {"package": IDENTITY, "node": PRIORITY_ORDER}
             },
-            "operation_body": function,
-            "effective_precondition": null
+            "operation_body": second_body,
+            "effective_precondition": second_precondition
         }
     ]);
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
@@ -444,10 +508,25 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
     );
     assert_eq!(
         candidates[0].operation_body,
-        serde_json::from_value(function).unwrap()
+        serde_json::from_value(first_body).unwrap()
     );
-    assert_eq!(candidates[0].effective_precondition, None);
-    assert_eq!(candidates[1].effective_precondition, None);
+    assert_eq!(
+        candidates[0].effective_precondition,
+        Some(serde_json::from_value(first_precondition).unwrap())
+    );
+    assert_eq!(
+        candidates[1].operation_body,
+        serde_json::from_value(second_body).unwrap()
+    );
+    assert_eq!(
+        candidates[1].effective_precondition,
+        Some(serde_json::from_value(second_precondition).unwrap())
+    );
+    assert_ne!(candidates[0].operation_body, candidates[1].operation_body);
+    assert_ne!(
+        candidates[0].effective_precondition,
+        candidates[1].effective_precondition
+    );
     assert!(matches!(
         admitted.dispatch_candidates(&call, &occurrence, 2),
         Err(
