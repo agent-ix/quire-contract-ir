@@ -18,7 +18,7 @@
 
 use super::model_members::{
     check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
-    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass,
+    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, Owner,
     RelationshipDecl,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
@@ -553,6 +553,17 @@ pub(super) struct OperationTypes {
 }
 
 impl RetainedModels {
+    /// Admission-retained owner of a selected model declaration key.
+    pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'_>> {
+        let declared = self.index.0.get(key)?;
+        Some(Owner {
+            package: self.models.get(declared.selection)?,
+            form: declared.form,
+            node: &declared.node,
+            selection: declared.selection,
+        })
+    }
+
     /// The complete effective record fields in selected declaration order.
     pub(super) fn selected_record_fields(
         &self,
