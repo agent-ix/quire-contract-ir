@@ -255,12 +255,14 @@ impl CheckedPackageV2 {
         };
         let mut rows = Vec::new();
         let mut model_bodies = BTreeMap::<(&str, &str), usize>::new();
+        let mut selected_models = BTreeMap::new();
         let mut selected_operations = BTreeSet::<(&str, &str)>::new();
         for model in self.models.selected_models() {
             let Some(root) = self.graph().nodes.get(model.root) else {
                 continue;
             };
             budget.charge(&root.node_id)?;
+            selected_models.insert(model.identity.as_ref(), model);
             for declaration in model.object_types.values() {
                 budget.charge(&root.node_id)?;
                 for operation in &declaration.operations {
@@ -353,17 +355,12 @@ impl CheckedPackageV2 {
                         &node.node_id,
                     )
                 })?;
-            let model = self
-                .models
-                .selected_models()
-                .iter()
-                .find(|model| model.identity.as_ref() == document)
-                .ok_or_else(|| {
-                    budget.error(
-                        CheckedCallableReadErrorCode::MissingSelectedJoin,
-                        &node.node_id,
-                    )
-                })?;
+            let model = selected_models.get(document).copied().ok_or_else(|| {
+                budget.error(
+                    CheckedCallableReadErrorCode::MissingSelectedJoin,
+                    &node.node_id,
+                )
+            })?;
             let operation = model
                 .object_types
                 .get(original_context)
