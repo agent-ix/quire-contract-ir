@@ -5414,22 +5414,48 @@ fn model_operation_callable_joins_selected_body_and_frame() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("body function fixture admission: {other:?}"),
     };
-    let table = admitted.callable_table(100_000).expect("joined callables");
-    assert_eq!(
-        admitted.callable_table(100_000),
-        admitted.clone().callable_table(100_000)
-    );
-    let one_under = admitted
-        .callable_table(table.work() - 1)
-        .expect_err("operation work one under");
-    assert_eq!(one_under.code, CheckedCallableReadErrorCode::WorkLimit);
-    assert_eq!(one_under.work, table.work());
     let anchor = nodes(&fixture.value)
         .iter()
         .find(|node| node["semantic_form"] == "operation_anchor")
         .expect("anchor");
     let anchor_id: CheckedNodeId =
         serde_json::from_value(anchor["node_id"].clone()).expect("anchor id");
+    let row = SelectedOperationMemberRow {
+        anchor: anchor_id.clone(),
+        selected_document: ORDERS.into(),
+        declaring_form: ModelForm::ObjectType,
+        original_model_identity: ORDER_NODE.into(),
+        original_operation_identity: format!("{ORDER_NODE}/scaled").into(),
+        selected_operation_identity: SelectedOperationIdentity::new(
+            EffectiveId::new(None, OriginalDeclarationKey::new(ORDERS, ORDER_NODE)),
+            "scaled",
+        ),
+    };
+    let selected = SelectedOperationMembers::from_stage_rows(&admitted, [row.clone()], 16)
+        .expect("selected operation witness");
+    let table = admitted
+        .callable_table(&selected, 100_000)
+        .expect("joined callables");
+    let cloned = admitted.clone();
+    let cloned_selected = SelectedOperationMembers::from_stage_rows(&cloned, [row.clone()], 16)
+        .expect("clone witness");
+    assert_eq!(
+        admitted.callable_table(&selected, 100_000),
+        cloned.callable_table(&cloned_selected, 100_000)
+    );
+    let one_under = admitted
+        .callable_table(&selected, table.work() - 1)
+        .expect_err("operation work one under");
+    assert_eq!(one_under.code, CheckedCallableReadErrorCode::WorkLimit);
+    assert_eq!(one_under.work, table.work());
+    let missing = SelectedOperationMembers::from_stage_rows(&admitted, [], 0).unwrap();
+    assert_eq!(
+        admitted
+            .callable_table(&missing, 100_000)
+            .expect_err("missing row")
+            .code,
+        CheckedCallableReadErrorCode::UnavailableWitness
+    );
     let operation_row = table.rows().iter().find(|row| {
         matches!(&row.identity, CheckedCallableIdentity::Operation { anchor, .. } if anchor == &anchor_id)
     }).expect("selected operation row");
@@ -5452,8 +5478,11 @@ fn model_operation_callable_joins_selected_body_and_frame() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("empty frame fixture admission: {other:?}"),
     };
+    let empty_selected =
+        SelectedOperationMembers::from_stage_rows(&empty_admitted, [row.clone()], 16)
+            .expect("empty frame witness");
     let empty_table = empty_admitted
-        .callable_table(100_000)
+        .callable_table(&empty_selected, 100_000)
         .expect("empty frame callable");
     let operation = empty_table.rows().iter().find(|row| {
         matches!(&row.identity, CheckedCallableIdentity::Operation { anchor, .. } if anchor == &anchor_id)
@@ -5484,9 +5513,12 @@ fn model_operation_callable_joins_selected_body_and_frame() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("bodyless clause fixture admission: {other:?}"),
     };
+    let bodyless_selected =
+        SelectedOperationMembers::from_stage_rows(&bodyless_admitted, [row], 16)
+            .expect("bodyless witness");
     assert_eq!(
         bodyless_admitted
-            .callable_table(100_000)
+            .callable_table(&bodyless_selected, 100_000)
             .expect_err("operation body is absent")
             .code,
         CheckedCallableReadErrorCode::MissingBody,

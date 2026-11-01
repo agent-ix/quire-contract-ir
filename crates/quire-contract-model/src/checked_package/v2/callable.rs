@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Bounded read of admitted callable bodies and operation frames (FR-354).
 
-use super::model_members::member_name;
 use super::structural::typed_anchor_body;
 use super::{
     CheckedBindingNameKind, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
-    CheckedTerm, FunctionForm, LiteralKind, StateForm, ValueForm,
+    CheckedTerm, FunctionForm, LiteralKind, SelectedOperationIdentity,
+    SelectedOperationMemberErrorCode, SelectedOperationMembers, StateForm, ValueForm,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
@@ -15,12 +15,14 @@ use thiserror::Error;
 pub enum CheckedCallableIdentity {
     /// A declared function or a selected model-owned body function.
     Function(CheckedNodeId),
-    /// An operation anchor joined to its selected original member identity.
+    /// An operation anchor joined to its original and stage-selected member identities.
     Operation {
         /// The admitted operation anchor.
         anchor: CheckedNodeId,
-        /// The selected model operation member identity.
+        /// Original IR identity of the selected model operation member.
         member: Box<str>,
+        /// Operation identity selected by the checking stage.
+        selected: SelectedOperationIdentity,
     },
 }
 
@@ -72,6 +74,8 @@ pub enum CheckedCallableReadErrorCode {
     AmbiguousBody,
     /// An operation anchor has no selected operation identity in the package.
     UnsupportedSelectedOperation,
+    /// A model-owned anchor has no canonical selected-operation witness row.
+    UnavailableWitness,
     /// A selected model operation has no matching body function.
     MissingSelectedJoin,
     /// A body function or anchor claims a different selected owner.
@@ -247,6 +251,7 @@ impl CheckedPackageV2 {
     /// return `UnsupportedSelectedOperation`. No row is exposed after any refusal.
     pub fn callable_table(
         &self,
+        selected_operations: &SelectedOperationMembers<'_>,
         work_limit: u64,
     ) -> Result<CheckedCallableTable, CheckedCallableReadError> {
         let mut budget = Budget {
@@ -255,19 +260,17 @@ impl CheckedPackageV2 {
         };
         let mut rows = Vec::new();
         let mut model_bodies = BTreeMap::<(&str, &str), usize>::new();
-        let mut selected_models = BTreeMap::new();
-        let mut selected_operations = BTreeSet::<(&str, &str)>::new();
+        let mut admitted_operations = BTreeSet::<(&str, &str)>::new();
         for model in self.models.selected_models() {
             let Some(root) = self.graph().nodes.get(model.root) else {
                 continue;
             };
             budget.charge(&root.node_id)?;
-            selected_models.insert(model.identity.as_ref(), model);
             for declaration in model.object_types.values() {
                 budget.charge(&root.node_id)?;
                 for operation in &declaration.operations {
                     budget.charge(&root.node_id)?;
-                    selected_operations.insert((&model.identity, &operation.identity));
+                    admitted_operations.insert((&model.identity, &operation.identity));
                 }
             }
         }
@@ -301,7 +304,7 @@ impl CheckedPackageV2 {
                 if clause != Some("body") {
                     continue;
                 }
-                if !selected_operations.contains(&(identity.as_ref(), member.as_ref())) {
+                if !admitted_operations.contains(&(identity.as_ref(), member.as_ref())) {
                     return Err(budget.error(
                         CheckedCallableReadErrorCode::ForeignSelectedJoin,
                         &node.node_id,
@@ -346,37 +349,40 @@ impl CheckedPackageV2 {
                 .ok_or_else(|| {
                     budget.error(CheckedCallableReadErrorCode::MalformedBody, &node.node_id)
                 })?;
-            let (document, original_context, _) = self
-                .models
-                .selected_declaration(&anchor.context)
-                .ok_or_else(|| {
-                    budget.error(
-                        CheckedCallableReadErrorCode::UnsupportedSelectedOperation,
-                        &node.node_id,
-                    )
-                })?;
-            let model = selected_models.get(document).copied().ok_or_else(|| {
-                budget.error(
-                    CheckedCallableReadErrorCode::MissingSelectedJoin,
+            if self.models.selected_declaration(&anchor.context).is_none() {
+                return Err(budget.error(
+                    CheckedCallableReadErrorCode::UnsupportedSelectedOperation,
                     &node.node_id,
-                )
-            })?;
-            let operation = model
-                .object_types
-                .get(original_context)
-                .and_then(|decl| {
-                    decl.operations
-                        .iter()
-                        .find(|operation| member_name(&operation.identity) == anchor.operation)
-                })
-                .ok_or_else(|| {
-                    budget.error(
-                        CheckedCallableReadErrorCode::MissingSelectedJoin,
-                        &node.node_id,
-                    )
+                ));
+            }
+            let witness = selected_operations
+                .read(self, &node.node_id)
+                .map_err(|error| {
+                    let code = match error.code {
+                        SelectedOperationMemberErrorCode::UnavailableWitness
+                        | SelectedOperationMemberErrorCode::UnavailableModelMember => {
+                            CheckedCallableReadErrorCode::UnavailableWitness
+                        }
+                        SelectedOperationMemberErrorCode::ForeignPackage
+                        | SelectedOperationMemberErrorCode::MismatchedWitness
+                        | SelectedOperationMemberErrorCode::ConflictingWitness => {
+                            CheckedCallableReadErrorCode::ForeignSelectedJoin
+                        }
+                        SelectedOperationMemberErrorCode::UnknownAnchor
+                        | SelectedOperationMemberErrorCode::WrongAnchorForm => {
+                            CheckedCallableReadErrorCode::MalformedBody
+                        }
+                        SelectedOperationMemberErrorCode::WorkLimit => {
+                            CheckedCallableReadErrorCode::WorkLimit
+                        }
+                    };
+                    budget.error(code, &node.node_id)
                 })?;
             let function = model_bodies
-                .get(&(document, operation.identity.as_ref()))
+                .get(&(
+                    witness.selected_document.as_ref(),
+                    witness.original_operation_identity.as_ref(),
+                ))
                 .and_then(|index| rows.get(*index))
                 .ok_or_else(|| {
                     budget.error(
@@ -397,7 +403,8 @@ impl CheckedPackageV2 {
             rows.push(CheckedCallable {
                 identity: CheckedCallableIdentity::Operation {
                     anchor: node.node_id.clone(),
-                    member: operation.identity.clone(),
+                    member: witness.original_operation_identity.clone(),
+                    selected: witness.selected_operation_identity.clone(),
                 },
                 parameters,
                 body: function.body.clone(),
@@ -526,7 +533,10 @@ mod tests {
     #[test]
     fn selected_function_body_is_ordered_bounded_and_clone_stable() {
         let package = fixture(false);
-        let table = package.callable_table(100).expect("selected function");
+        let selected = SelectedOperationMembers::from_stage_rows(&package, [], 0).unwrap();
+        let table = package
+            .callable_table(&selected, 100)
+            .expect("selected function");
         assert_eq!(table.rows().len(), 1);
         assert_eq!(
             table.rows()[0].identity,
@@ -535,12 +545,14 @@ mod tests {
         assert_eq!(table.rows()[0].parameters, vec![node_id('2')]);
         assert_eq!(table.rows()[0].body, node_id('3'));
         assert_eq!(table.rows()[0].frame, None);
+        let cloned = package.clone();
+        let cloned_selected = SelectedOperationMembers::from_stage_rows(&cloned, [], 0).unwrap();
         assert_eq!(
-            package.callable_table(100),
-            package.clone().callable_table(100)
+            package.callable_table(&selected, 100),
+            cloned.callable_table(&cloned_selected, 100)
         );
         let denied = package
-            .callable_table(table.work() - 1)
+            .callable_table(&selected, table.work() - 1)
             .expect_err("one under work");
         assert_eq!(denied.code, CheckedCallableReadErrorCode::WorkLimit);
         assert_eq!(denied.work, table.work());
@@ -552,11 +564,13 @@ mod tests {
     fn bodyless_declaration_is_not_a_callable_and_dangling_body_refuses() {
         let mut package = fixture(false);
         package.terms[3] = CheckedTerm::Aggregate { members: vec![] };
+        let selected = SelectedOperationMembers::from_stage_rows(&package, [], 0).unwrap();
         assert!(package
-            .callable_table(100)
+            .callable_table(&selected, 100)
             .expect("declaration only")
             .rows()
             .is_empty());
+        drop(selected);
         package.terms[3] = CheckedTerm::Aggregate {
             members: vec![CheckedTerm::Binding {
                 name: "body".into(),
@@ -565,8 +579,12 @@ mod tests {
                 }),
             }],
         };
+        let selected = SelectedOperationMembers::from_stage_rows(&package, [], 0).unwrap();
         assert_eq!(
-            package.callable_table(100).expect_err("dangling body").code,
+            package
+                .callable_table(&selected, 100)
+                .expect_err("dangling body")
+                .code,
             CheckedCallableReadErrorCode::MalformedBody,
         );
     }
@@ -576,12 +594,15 @@ mod tests {
     #[test]
     fn source_owned_anchor_refuses_without_a_selected_operation_witness() {
         let package = fixture(true);
+        let selected = SelectedOperationMembers::from_stage_rows(&package, [], 0).unwrap();
         let function = package
             .source_callable(&node_id('4'), 100)
             .expect("source function read")
             .expect("body function");
         assert_eq!(function.body, node_id('3'));
-        let error = package.callable_table(100).expect_err("source anchor");
+        let error = package
+            .callable_table(&selected, 100)
+            .expect_err("source anchor");
         assert_eq!(
             error.code,
             CheckedCallableReadErrorCode::UnsupportedSelectedOperation
