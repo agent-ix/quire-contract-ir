@@ -31,3 +31,14 @@ Reviewed FR-038-AC-383 and AC-384 against the unchanged FR-038 normative fairnes
 ## Evidence
 
 At the frozen head, `protocol_body.rs::validate_temporal_fairness` scans only protocol clause `requirements` to find the temporal node. `validate_protocol_fairness` also marks only fairness nodes reached through those requirements and refuses any other non-operation target. These two checks explain the existing refusal, while `validate_protocol_fairness_target` already checks retained clause ownership and target form. The proposed exception must be reachable from an admitted external temporal clause and cannot authorize an orphan fairness node solely because its target has a retained owner.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head 6187f1c1 narrows the retained requirements rule to protocol-root, attempt and parallel-branch targets, and states the compensation-template owner join only for an admitted external temporal clause. |
+| FND-002 | fixed | Head 6187f1c1 adds a specific missing-name refusal for a fairness node absent from every admitted temporal clause's fairness argument, even with a uniquely owned compensation target. |
+
+## Disposition verdict
+
+**PASS** — both findings are fixed in the same PR; no new inconsistency appears in the changed text.
