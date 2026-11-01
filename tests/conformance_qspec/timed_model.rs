@@ -113,7 +113,7 @@ fn model_owned_time_dimension_reads_and_wrong_fcd_name_refuses_at_source_unit() 
     );
 }
 
-fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
+pub(super) fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
     let path = patch["path"].as_str().expect("published patch path");
     let (parent, member) = path.rsplit_once('/').expect("published patch member");
     let target = package.pointer_mut(parent).expect("published patch parent");

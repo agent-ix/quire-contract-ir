@@ -58,6 +58,7 @@ mod reaches_population;
 mod selection_vectors;
 mod single_body;
 mod timed_model;
+mod timed_slots;
 mod transition;
 
 /// The environment variable naming the root of a `quire-specification` checkout.
