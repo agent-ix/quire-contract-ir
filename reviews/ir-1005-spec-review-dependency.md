@@ -1,31 +1,33 @@
 ---
-id: SR-612085
-title: "Dependency review of IR-1005 PR #643"
+id: SR-202610310113
+title: "IR-1005 PR 749 dependency analysis"
 type: SpecReview
 analysis: dependency
-scope: "agent-ix/quire-contract-ir; spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md; spec/temporal/matrix/TC-461-native-temporal-tl-correspondence.md"
+scope: "agent-ix/quire-contract-ir; PR #749; FR-350, TC-461, TM-010 placement correction"
 review_set: subset
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/FR-350
+    type: references
 ---
 
 ## Summary
 
-Independent review of draft PR #643 at 6a43e12d419c8c7f8f6551c8b8aa397c2fe7ee5e against main 6e07ee81. Ticket: IR-1005. The new FR-004 and TC-461 reference edges point to the owner of both opaque request identities; the IR dependency remains one-way.
+Ticket IR-1005. Checked ownership: `quire-integration` consumes QSL classification and TL owner readers; Contract IR model/root remain free of QSL dependencies under FR-028-AC-3/TC-041. IR-358 is the downstream implementation/test owner, not a new Contract IR Cargo dependency. No cycle or copied owner surface is introduced.
 
 ## Verdict
 
-**PASS** — The new FR-004 and TC-461 reference edges point to the owner of both opaque request identities; the IR dependency remains one-way.
-
-## Scope
-
-- FR-350-AC-1 (examined): Given a strict `/2` package and QSL `Supported` classification, the projection takes its target from the classification, emits the required formula and valuation request for each supported row, and each generated artifact is admitted by its selected owner reader. Each bounded past operator defined by QSpec FR-092 is projected alone under both false-extension profiles with origin-complete history; a history cutoff yields `incomplete`/`missing-history`.
-- FR-350-AC-5 (examined): Every join decision row is reached; only an equal-final pair carries a Boolean; every non-final pair preserves its causes and all result axes, and a correction is accepted only with its exact direct predecessor.
-- FR-350-AC-6 (examined): Missing, duplicate, swapped, replayed or foreign valuation cells; owner-reader rejection; malformed or noncanonical projection/join data; and each one-over resource limit return one deterministic non-admitted/incomplete result, with no partial artifact and no evaluator invocation. Exact limits admit.
-- FR-350-AC-7 (examined): The canonical correspondence record matches the complete field inventory and fixed 1429-byte vector specified in the Wire section; interval, model binding and bridge-definition mutations match the stated digests; reordered or whitespace-altered bytes are refused.
-- FR-350-AC-8 (examined): Each `TlLimits` setting uses its stated default, charges before work, admits exactly at the setting and returns `incomplete` one past it with `limit-reached{limit, value, setting}` and no partial artifact.
-- TC-461 (examined): Steps 1 and 6–8, including request identity, ordered join causes, seven limit boundaries and fixed byte vector.
+PASS for dependency placement; base review FND-001 remains open.
 
 ## Findings
 
-| ID | Severity | Summary | Refs |
-| --- | --- | --- | --- |
-| FND-001 | low | No findings (placeholder) | - |
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-001 | low | No findings (placeholder) | - | correct-requirement-no-evidence |
+
+## Coverage
+
+| Unit | Role | Excerpt |
+| --- | --- | --- |
+| FR-350 | examined | `agent-ix/quire-integration` (IR-358) owns the QSL-typed `project_tl` bridge, |
+| FR-028-AC-3 | context_only | The root package's own manifest names no dependency in any kind on a crate from the agent-ix/quire-spec-language repository, by name or by git source. |
+| TC-461 | examined | Verify the `agent-ix/quire-integration` temporal bridge (IR-358) against QSL |
