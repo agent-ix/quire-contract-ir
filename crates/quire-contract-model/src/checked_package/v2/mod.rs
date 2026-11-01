@@ -38,6 +38,7 @@ mod operations;
 mod owner;
 mod parameter_declaration;
 mod protocol_body;
+mod protocol_locations;
 mod reaches_population;
 mod refinement;
 mod relationship_end;
@@ -92,6 +93,7 @@ pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
     CheckedModelObjectFields,
 };
+pub use protocol_locations::CheckedProtocolLocationReadError;
 mod exact_projection;
 pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,

@@ -52,6 +52,7 @@ mod model_tuple_union;
 mod node_index;
 mod node_ordinal;
 mod projection_read_form;
+mod protocol_locations;
 mod protocol_vectors;
 mod reaches_population;
 mod selection_vectors;

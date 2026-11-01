@@ -535,9 +535,9 @@ fn checked_dispatch_sidecar_refuses_wrong_witness_and_duplicate_key() {
 }
 
 /// Trace: FR-322-AC-288, FR-322-AC-289, TC-233.
-#[trace("TC-233", "FR-322-AC-288", "FR-322-AC-289")]
+#[trace("TC-233", "FR-322-AC-288", "FR-322-AC-289", "FR-354-AC-9")]
 #[test]
-fn checked_term_sidecar_refuses_unowned_equality_and_protocol_rows() {
+fn checked_term_sidecar_refuses_unowned_equality_and_admits_protocol_rows() {
     let document = domain_document(json!({}));
     let (mut package, evidence) = package_over(&document, "total");
     let call = package["semantic_graph"]["nodes"][CALL]["node_id"].clone();
@@ -577,14 +577,27 @@ fn checked_term_sidecar_refuses_unowned_equality_and_protocol_rows() {
         "term_ordinal":0,
         "location":{"origin":{"kind":"type_declaration", "name":"Example"}, "path":[]}
     }]);
-    let refusal = refused(&package, &evidence);
+    let checked = admitted(&package, &evidence);
+    let application = serde_json::from_value(call).expect("application identity");
+    let occurrence =
+        serde_json::from_value(json!({"role":"type", "ordinal":0})).expect("occurrence");
+    let row = checked
+        .protocol_location(&application, &occurrence, 0, 1)
+        .expect("captured protocol row");
     assert_eq!(
-        refusal.code,
-        CheckedPackageRefusalCode::UnsupportedConstruct
+        serde_json::to_value(row).unwrap(),
+        package["checked_term_data"]["protocol_locations"][0]
+    );
+    package["checked_term_data"]["protocol_locations"][0]["occurrence"]["ordinal"] = json!(999);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(quire_contract_model::CheckedPackageRefusalCause::InvalidValue)
     );
     assert_eq!(
-        refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some("/checked_term_data/protocol_locations/0".to_owned())
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        "/checked_term_data/protocol_locations/0/occurrence"
     );
 }
 

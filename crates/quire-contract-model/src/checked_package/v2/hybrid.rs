@@ -1136,11 +1136,21 @@ pub(super) fn validate_claims(
                 continue;
             };
             let member = &operation.record()["member"];
-            let selected_target = &member["target"];
-            let declaration = (selected_target["kind"] == "hybrid_transition")
-                .then(|| CheckedNodeId::from_value(&selected_target["declaration"]))
-                .flatten();
-            let name = selected_target["name"].as_str().unwrap_or_default();
+            let Some(super::CheckedFairnessTarget::HybridTransition { declaration, name }) =
+                super::CheckedFairnessTarget::hybrid_for_join(&member["target"])
+            else {
+                return Err(issue(
+                    Code::MissingDeclaration,
+                    Some(Cause::MissingName),
+                    node_pointer(fair_position)
+                        .key("body")
+                        .key("operation")
+                        .key("member")
+                        .key("target")
+                        .key("name"),
+                    fair,
+                ));
+            };
             let mut resolved = false;
             for mode_key in &mode_keys {
                 let Some((mode_position, mode)) = node_at(mode_key, nodes, index) else {
@@ -1151,13 +1161,13 @@ pub(super) fn validate_claims(
                     .as_ref()
                     .and_then(|decl| decl.qualified_name.last())
                     .map(AsRef::as_ref);
-                if declaration.as_ref() == Some(&model.node_id)
-                    && mode_name == Some(name)
+                if declaration == model.node_id
+                    && mode_name == Some(name.as_ref())
                     && !members(bound(decoded.term(mode_position), 2)).is_empty()
                 {
                     resolved = true;
                 }
-                if declaration.as_ref() == Some(mode_key) {
+                if &declaration == mode_key {
                     for transition_ref in members(bound(decoded.term(mode_position), 2)) {
                         let Some(transition_key) = target(transition_ref) else {
                             continue;
@@ -1175,7 +1185,7 @@ pub(super) fn validate_claims(
                             .and_then(|key| node_at(key, nodes, index))
                             .and_then(|(_, target_mode)| target_mode.declaration.as_ref())
                             .and_then(|decl| decl.qualified_name.last())
-                            .is_some_and(|part| part.as_ref() == name)
+                            .is_some_and(|part| part.as_ref() == name.as_ref())
                         {
                             resolved = true;
                         }
