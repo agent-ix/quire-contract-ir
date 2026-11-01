@@ -17,7 +17,8 @@ use super::{
 use super::{CheckedPackageLockV2, RawCheckedPackageWireV2};
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageRefusal, CheckedPackageRefusalCode, JsonPointer, RefusalFields,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, JsonPointer, RefusalFields,
 };
 use num_bigint::{BigInt, BigUint};
 use num_integer::Integer;
@@ -112,6 +113,8 @@ struct DimensionEquivalenceRecord {
     pub owner: SourceOwner,
     /// Exactly two distinct dimension IDs, in structural order.
     pub dimension_node_ids: [CheckedNodeId; 2],
+    /// Authored local or directly selected package operands.
+    pub operands: [CheckedDimensionOperand; 2],
     /// Positive reduced ratio from the first canonical root to the second.
     pub root_scale: CheckedRational,
 }
@@ -159,6 +162,88 @@ pub struct CheckedRational {
     pub numerator: Box<str>,
     /// Canonical positive integer string.
     pub denominator: Box<str>,
+}
+
+/// A structural ID with a declared, name-only path.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct CheckedDeclaredNodeId(CheckedNodeId);
+
+impl CheckedDeclaredNodeId {
+    /// Validate a declared structural ID without treating a derived path as a declaration.
+    pub fn try_new(node: CheckedNodeId) -> Result<Self, Box<CheckedPackageRefusal>> {
+        if node.is_well_formed()
+            && node
+                .path
+                .iter()
+                .all(|part| matches!(part, CheckedNodePathSegment::Name(_)))
+        {
+            Ok(Self(node))
+        } else {
+            Err(Box::new(CheckedPackageRefusal::new(RefusalFields {
+                code: CheckedPackageRefusalCode::MalformedWire,
+                path: Some(JsonPointer::root()),
+                cause: None,
+                locus: None,
+                contract_version: None,
+                document_pointer: None,
+            })))
+        }
+    }
+
+    /// Borrow the exact structural ID of the declared node.
+    pub fn node_id(&self) -> &CheckedNodeId {
+        &self.0
+    }
+}
+
+/// A declared node in one directly selected dependency package.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedPackageNodeRef {
+    /// Selected dependency package name.
+    pub package: Box<str>,
+    /// Declared structural node in that package.
+    pub node: CheckedDeclaredNodeId,
+}
+
+/// A dimension equivalence operand retains its local or package wire form.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum CheckedDimensionOperand {
+    /// A node of the importing graph.
+    Local(CheckedNodeId),
+    /// A declared node of a directly selected dependency.
+    Package(CheckedPackageNodeRef),
+}
+
+impl CheckedDimensionOperand {
+    fn node_id(&self) -> &CheckedNodeId {
+        match self {
+            Self::Local(id) => id,
+            Self::Package(reference) => reference.node.node_id(),
+        }
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        use crate::checked_package::common::exact_members;
+        let object = value.as_object()?;
+        if exact_members(object, &["package", "node"]) {
+            let package = object.get("package")?.as_str()?;
+            let node =
+                CheckedDeclaredNodeId::try_new(CheckedNodeId::from_value(object.get("node")?)?)
+                    .ok()?;
+            if node.node_id().package.as_ref() != package {
+                return None;
+            }
+            Some(Self::Package(CheckedPackageNodeRef {
+                package: package.into(),
+                node,
+            }))
+        } else {
+            CheckedNodeId::from_value(value).map(Self::Local)
+        }
+    }
 }
 
 /// A validated closed body of a source-authored nominal node. Constructors
@@ -240,7 +325,7 @@ pub(super) enum NominalBodyKind {
     /// Exact ratio between two structurally ordered dimensions.
     DimensionEquivalence {
         /// The ordered pair of dimension IDs.
-        dimension_node_ids: [CheckedNodeId; 2],
+        dimension_node_ids: [CheckedDimensionOperand; 2],
         /// Exact positive ratio of their canonical roots.
         root_scale: CheckedRational,
     },
@@ -331,7 +416,7 @@ impl NominalBody {
     /// Construct an equivalence body with two well-formed structural IDs and
     /// a positive root-scale numerator.
     pub fn try_dimension_equivalence(
-        dimension_node_ids: [CheckedNodeId; 2],
+        dimension_node_ids: [CheckedDimensionOperand; 2],
         root_scale: CheckedRational,
     ) -> Result<Self, Box<CheckedPackageRefusal>> {
         Self::try_kind(
@@ -417,8 +502,16 @@ impl NominalBody {
                 dimension_node_ids,
                 root_scale,
             } => {
-                for (index, id) in dimension_node_ids.iter().enumerate() {
-                    valid_id(id, at.clone().key("dimension_node_ids").index(index))?;
+                for (index, operand) in dimension_node_ids.iter().enumerate() {
+                    let path = at.clone().key("dimension_node_ids").index(index);
+                    valid_id(operand.node_id(), path.clone())?;
+                    if let CheckedDimensionOperand::Package(reference) = operand {
+                        if reference.package.is_empty()
+                            || reference.package != reference.node.node_id().package
+                        {
+                            return Err(malformed(path));
+                        }
+                    }
                 }
                 valid_rational(root_scale, at.key("root_scale"), true)?;
             }
@@ -561,10 +654,10 @@ impl NominalBody {
                     .ok_or_else(|| malformed(at.clone().key("dimension_node_ids")))?;
                 Ok(NominalBodyKind::DimensionEquivalence {
                     dimension_node_ids: [
-                        CheckedNodeId::from_value(&values[0]).ok_or_else(|| {
+                        CheckedDimensionOperand::from_value(&values[0]).ok_or_else(|| {
                             malformed(at.clone().key("dimension_node_ids").index(0))
                         })?,
-                        CheckedNodeId::from_value(&values[1]).ok_or_else(|| {
+                        CheckedDimensionOperand::from_value(&values[1]).ok_or_else(|| {
                             malformed(at.clone().key("dimension_node_ids").index(1))
                         })?,
                     ],
@@ -602,8 +695,10 @@ impl NominalBody {
             NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids, ..
             } => {
-                for id in dimension_node_ids {
-                    replace(id);
+                for operand in dimension_node_ids {
+                    if let CheckedDimensionOperand::Local(id) = operand {
+                        replace(id);
+                    }
                 }
             }
         }
@@ -638,8 +733,10 @@ impl NominalBody {
             NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids, ..
             } => {
-                for id in dimension_node_ids {
-                    visit(id);
+                for operand in dimension_node_ids {
+                    if let CheckedDimensionOperand::Local(id) = operand {
+                        visit(id);
+                    }
                 }
             }
         }
@@ -669,8 +766,10 @@ impl NominalBody {
             NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids, ..
             } => {
-                for id in dimension_node_ids {
-                    visitor(id);
+                for operand in dimension_node_ids {
+                    if let CheckedDimensionOperand::Local(id) = operand {
+                        visitor(id);
+                    }
                 }
             }
         }
@@ -1004,7 +1103,10 @@ fn record_from_node(
                         authority,
                         identity,
                     },
-                    dimension_node_ids,
+                    dimension_node_ids: dimension_node_ids
+                        .clone()
+                        .map(|operand| operand.node_id().clone()),
+                    operands: dimension_node_ids,
                     root_scale,
                 },
             ))
@@ -1190,7 +1292,14 @@ pub(super) fn validate_nominal_nodes(
                 validate_dimension(&site, dimension, &graph, lock, meter, bytes)?;
             }
             NominalRecord::DimensionEquivalence(equivalence) => {
-                validate_dimension_equivalence(&site, equivalence, &graph, lock, meter)?;
+                validate_dimension_equivalence(
+                    &site,
+                    equivalence,
+                    &graph,
+                    dependencies,
+                    lock,
+                    meter,
+                )?;
                 require(
                     equivalence_pairs.insert(&equivalence.dimension_node_ids),
                     || site.pointer(),
@@ -1272,20 +1381,49 @@ fn validate_dimension_equivalence(
     site: &Site<'_>,
     equivalence: &DimensionEquivalenceRecord,
     graph: &NominalGraph<'_>,
+    dependencies: &SuppliedDependencies<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let ids = &equivalence.dimension_node_ids;
-    require(ids[0] < ids[1], || site.pointer())?;
-    for (position, id) in ids.iter().enumerate() {
+    for (position, operand) in equivalence.operands.iter().enumerate() {
+        let id = operand.node_id();
+        let at = site.nominal_member(&["dimension_node_ids"]).index(position);
         meter.charge(1, || {
             site.nominal_member(&["dimension_node_ids"]).index(position)
         })?;
+        match operand {
+            CheckedDimensionOperand::Local(_) => {
+                require(
+                    id.package == site.node.node_id.package && graph.index.contains_key(id),
+                    || at.clone(),
+                )?;
+            }
+            CheckedDimensionOperand::Package(reference) => {
+                let selected = dependencies
+                    .selected_package(&reference.package)
+                    .ok_or_else(|| {
+                        ValidationFailure::refused_because(
+                            CheckedPackageRefusalCode::MissingDeclaration,
+                            at.clone().key("package"),
+                            CheckedPackageRefusalCause::MissingSelection,
+                        )
+                    })?;
+                if selected.node(id).is_none() {
+                    return Err(ValidationFailure::refused_because(
+                        CheckedPackageRefusalCode::MissingDeclaration,
+                        at.clone().key("node"),
+                        CheckedPackageRefusalCause::MissingName,
+                    ));
+                }
+            }
+        }
         require(
             matches!(graph.nominal(id), Some(NominalRecord::Dimension(_))),
-            || site.pointer(),
+            || at,
         )?;
     }
+    require(ids[0] < ids[1], || site.pointer())?;
     meter.charge(
         u64::try_from(lock.sources.len()).unwrap_or(u64::MAX),
         || site.nominal_member(&["owner"]),
@@ -1301,7 +1439,18 @@ fn validate_dimension_equivalence(
     require(site.node.semantic_type == site.node.node_id, || {
         site.pointer()
     })?;
-    require(site.node.dependencies.as_slice() == ids, || site.pointer())?;
+    let local_ids = equivalence
+        .operands
+        .iter()
+        .filter_map(|operand| match operand {
+            CheckedDimensionOperand::Local(id) => Some(id),
+            CheckedDimensionOperand::Package(_) => None,
+        })
+        .collect::<Vec<_>>();
+    require(
+        site.node.dependencies.iter().collect::<Vec<_>>() == local_ids,
+        || site.pointer(),
+    )?;
     require(
         matches!(site.node.occurrences.as_slice(), [occurrence]
             if occurrence.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor),
@@ -2405,8 +2554,14 @@ mod tests {
         else {
             panic!("equivalence body");
         };
-        assert_eq!(dimension_node_ids[0].package.as_ref(), "acme/clock");
-        assert_eq!(dimension_node_ids[1].package.as_ref(), "acme/flow");
+        assert_eq!(
+            dimension_node_ids[0].node_id().package.as_ref(),
+            "acme/clock"
+        );
+        assert_eq!(
+            dimension_node_ids[1].node_id().package.as_ref(),
+            "acme/flow"
+        );
         assert_eq!(
             (&*root_scale.numerator, &*root_scale.denominator),
             ("3", "2")

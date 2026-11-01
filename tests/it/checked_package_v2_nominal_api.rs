@@ -9,9 +9,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodePathSegment, CheckedPackageReadLimits, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRational, CheckedTerm, DimensionTerm,
-    NominalBody,
+    CheckedDimensionOperand, CheckedNodeId, CheckedNodePathSegment, CheckedPackageReadLimits,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRational,
+    CheckedTerm, DimensionTerm, NominalBody,
 };
 use serde_json::{json, Value};
 
@@ -54,8 +54,8 @@ fn constructor(body: &Value) -> NominalBody {
         ),
         "dimension_equivalence" => NominalBody::try_dimension_equivalence(
             [
-                node_id(&body["dimension_node_ids"][0]),
-                node_id(&body["dimension_node_ids"][1]),
+                CheckedDimensionOperand::Local(node_id(&body["dimension_node_ids"][0])),
+                CheckedDimensionOperand::Local(node_id(&body["dimension_node_ids"][1])),
             ],
             rational(&body["root_scale"]),
         ),
@@ -390,7 +390,10 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
     for numerator in ["0", "-1"] {
         assert_malformed(
             NominalBody::try_dimension_equivalence(
-                [id.clone(), id.clone()],
+                [
+                    CheckedDimensionOperand::Local(id.clone()),
+                    CheckedDimensionOperand::Local(id.clone()),
+                ],
                 CheckedRational {
                     numerator: numerator.into(),
                     denominator: "1".into(),
@@ -399,7 +402,14 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
             "/root_scale/numerator",
         );
     }
-    assert!(NominalBody::try_dimension_equivalence([id.clone(), id], one).is_ok());
+    assert!(NominalBody::try_dimension_equivalence(
+        [
+            CheckedDimensionOperand::Local(id.clone()),
+            CheckedDimensionOperand::Local(id)
+        ],
+        one
+    )
+    .is_ok());
 }
 
 #[trace("TC-048", "FR-038-AC-374")]

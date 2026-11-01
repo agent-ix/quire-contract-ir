@@ -2123,8 +2123,10 @@ fn validate_body(
             identity::NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids, ..
             } => {
-                for (index, id) in dimension_node_ids.iter().enumerate() {
-                    visit(id, site, &at.key("dimension_node_ids").index(index));
+                for (index, operand) in dimension_node_ids.iter().enumerate() {
+                    if let identity::CheckedDimensionOperand::Local(id) = operand {
+                        visit(id, site, &at.key("dimension_node_ids").index(index));
+                    }
                 }
             }
         }
