@@ -5,6 +5,7 @@
 
 use super::CheckedRational;
 use crate::checked_package::shared::{CheckedNodeId, CheckedOccurrence};
+use quire_canonical::{Encode, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
 
 /// The three producer-captured decision arrays in a present V2 sidecar.
@@ -62,7 +63,7 @@ pub enum CheckedEqualityTermPathStep {
 }
 
 /// The closed equality operation vocabulary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckedEqualityOperator {
     /// Equality.
@@ -85,7 +86,7 @@ pub struct CheckedEqualityOperandDecision {
 }
 
 /// The producer-selected equality procedure.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckedEqualitySchedule {
     /// Text comparison.
@@ -225,7 +226,7 @@ pub enum CheckedProtocolLocationOrigin {
 }
 
 /// A graph position represented by a safe JSON integer or a larger canonical string.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(untagged)]
 pub enum CheckedKeyOrdinal {
     /// JSON integer within the exact safe range.
@@ -242,12 +243,22 @@ pub struct CheckedDispatchCandidateTable {
     pub application: CheckedNodeId,
     /// Exact occurrence of that call.
     pub occurrence: CheckedOccurrence,
-    /// Producer-selected operation node.
-    pub operation: CheckedNodeId,
+    /// Producer-selected declaring model node and original operation member name.
+    pub operation: CheckedSelectedOperationWitness,
     /// Receiver's selected model context node.
     pub context: CheckedNodeId,
     /// Candidates in producer order, including an authoritative empty set.
     pub candidates: Vec<CheckedDispatchCandidate>,
+}
+
+/// QSpec's selected operation witness for a model-owned dispatch call.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedSelectedOperationWitness {
+    /// Selected model declaration that owns the operation member.
+    pub declaring: CheckedNodeId,
+    /// Original operation member name under that declaration.
+    pub operation: Box<str>,
 }
 
 /// One candidate's structural selection key and executable term handles.
@@ -275,11 +286,223 @@ pub struct CheckedEffectiveId {
 }
 
 /// The package and IR node identity of an original model declaration.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedOriginalDeclarationId {
     /// Selected domain package identity.
     pub package: Box<str>,
     /// Original IR declaration identity.
     pub node: Box<str>,
+}
+
+macro_rules! encode_field {
+    ($writer:ident, $name:expr, $value:expr, fixed) => {
+        super::encode::member($writer, $name, $value)?
+    };
+    ($writer:ident, $name:expr, $value:expr, encoded) => {
+        super::encode::encoded($writer, $name, $value)?
+    };
+    ($writer:ident, $name:expr, $value:expr, elements) => {
+        super::encode::elements($writer, $name, $value)?
+    };
+    ($writer:ident, $name:expr, $value:expr, nullable_node) => {{
+        $writer.name($name)?;
+        match $value {
+            Some(node) => node.encode_into($writer)?,
+            None => $writer.null()?,
+        }
+    }};
+}
+
+macro_rules! encode_record {
+    ($type:ty { $($field:ident : $mode:ident),+ $(,)? }) => {
+        impl Encode for $type {
+            fn encode_into<S: Sink + ?Sized>(
+                &self,
+                writer: &mut Writer<'_, S>,
+            ) -> Result<(), quire_canonical::Error> {
+                writer.begin_object()?;
+                $(encode_field!(writer, stringify!($field), &self.$field, $mode);)+
+                writer.end_object()
+            }
+        }
+    };
+}
+
+encode_record!(CheckedTermDataV2 {
+    equality_decisions: elements,
+    protocol_locations: elements,
+    dispatch_tables: elements,
+});
+encode_record!(CheckedEqualityDecision {
+    application: encoded,
+    occurrence: fixed,
+    term_path: elements,
+    operator: fixed,
+    left: encoded,
+    right: encoded,
+    schedule: fixed,
+    units: elements,
+    enum_members: elements,
+});
+encode_record!(CheckedEqualityOperandDecision {
+    operand: fixed,
+    source_type: encoded,
+    conversion_target: nullable_node,
+});
+encode_record!(CheckedResolvedEqualityUnit {
+    quantity_type: encoded,
+    unit: encoded,
+    form: encoded,
+});
+encode_record!(CheckedUnitDimensionTerm {
+    dimension: encoded,
+    exponent: fixed,
+});
+encode_record!(CheckedUnitConversionEdge {
+    target: encoded,
+    scale: fixed,
+    offset: fixed,
+});
+encode_record!(CheckedCompoundEqualityUnitTerm {
+    root_unit: encoded,
+    exponent: fixed,
+});
+encode_record!(CheckedEqualityEnumMember {
+    enum_type: encoded,
+    member: encoded,
+    case: fixed,
+    ordinal: fixed,
+    ordered: fixed,
+});
+encode_record!(CheckedProtocolSemanticLocation {
+    application: encoded,
+    occurrence: fixed,
+    term_ordinal: fixed,
+    location: encoded,
+});
+encode_record!(CheckedProtocolLocation {
+    origin: encoded,
+    path: fixed,
+});
+encode_record!(CheckedDispatchCandidateTable {
+    application: encoded,
+    occurrence: fixed,
+    operation: encoded,
+    context: encoded,
+    candidates: elements,
+});
+encode_record!(CheckedSelectedOperationWitness {
+    declaring: encoded,
+    operation: fixed,
+});
+encode_record!(CheckedDispatchCandidate {
+    selection_key: encoded,
+    operation_body: encoded,
+    effective_precondition: nullable_node,
+});
+
+impl Encode for CheckedResolvedEqualityUnitForm {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), quire_canonical::Error> {
+        writer.begin_object()?;
+        match self {
+            Self::Declared {
+                dimension_node,
+                dimension_terms,
+                root_unit,
+                path,
+            } => {
+                super::encode::member(writer, "kind", &"declared")?;
+                super::encode::encoded(writer, "dimension_node", dimension_node)?;
+                super::encode::elements(writer, "dimension_terms", dimension_terms)?;
+                super::encode::encoded(writer, "root_unit", root_unit)?;
+                super::encode::elements(writer, "path", path)?;
+            }
+            Self::Compound {
+                dimension_terms,
+                terms,
+            } => {
+                super::encode::member(writer, "kind", &"compound")?;
+                super::encode::elements(writer, "dimension_terms", dimension_terms)?;
+                super::encode::elements(writer, "terms", terms)?;
+            }
+        }
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedEqualityTermPathStep {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), quire_canonical::Error> {
+        writer.begin_object()?;
+        match self {
+            Self::Argument { index } => {
+                super::encode::member(writer, "kind", &"argument")?;
+                super::encode::member(writer, "index", index)?;
+            }
+            Self::Member { index } => {
+                super::encode::member(writer, "kind", &"member")?;
+                super::encode::member(writer, "index", index)?;
+            }
+            Self::BindingValue => {
+                super::encode::member(writer, "kind", &"binding_value")?;
+            }
+        }
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedProtocolLocationOrigin {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), quire_canonical::Error> {
+        writer.begin_object()?;
+        match self {
+            Self::TypeDeclaration { name } => {
+                super::encode::member(writer, "kind", &"type_declaration")?;
+                super::encode::member(writer, "name", name)?;
+            }
+            Self::ProtocolAttempt { protocol, attempt } => {
+                super::encode::member(writer, "kind", &"protocol_attempt")?;
+                super::encode::member(writer, "protocol", protocol)?;
+                super::encode::member(writer, "attempt", attempt)?;
+            }
+        }
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedEffectiveId {
+    fn encode_into<S: Sink + ?Sized>(
+        &self,
+        writer: &mut Writer<'_, S>,
+    ) -> Result<(), quire_canonical::Error> {
+        let mut chain = Vec::new();
+        let mut current = self;
+        loop {
+            chain.push(current);
+            match current.owner_effective_type.as_deref() {
+                Some(owner) => current = owner,
+                None => break,
+            }
+        }
+        for item in &chain {
+            writer.begin_object()?;
+            writer.name("owner_effective_type")?;
+            if item.owner_effective_type.is_none() {
+                writer.null()?;
+            }
+        }
+        for item in chain.into_iter().rev() {
+            super::encode::member(writer, "original", &item.original)?;
+            writer.end_object()?;
+        }
+        Ok(())
+    }
 }
