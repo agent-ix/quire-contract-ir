@@ -190,7 +190,11 @@ fn unit_read_refuses_missing_foreign_and_competing_selected_rows() {
     );
     assert_eq!(
         package
-            .read_unit_resolver(&requested[1..], &[converted_row.clone()], 10_000)
+            .read_unit_resolver(
+                &requested[1..],
+                std::slice::from_ref(&converted_row),
+                10_000
+            )
             .unwrap_err()
             .code,
         NominalReadCode::MissingWitness
