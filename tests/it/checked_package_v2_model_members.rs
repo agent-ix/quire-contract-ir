@@ -650,7 +650,6 @@ fn selected_model_enum_rows(
     )
 }
 
-#[trace("FR-354-AC-6")]
 #[test]
 fn model_enum_stage_rows_join_selected_declaration_and_exact_members() {
     let (wire, evidence, _) = variant_package_named(TIER, &["Gold", "2x"], &["Gold", "2x"], false);
@@ -693,7 +692,6 @@ fn model_enum_stage_rows_join_selected_declaration_and_exact_members() {
     );
 }
 
-#[trace("FR-354-AC-6")]
 #[test]
 fn model_enum_stage_rows_refuse_foreign_missing_duplicate_and_wrong_case() {
     let (wire, evidence, _) = variant_package_named(TIER, &["Gold"], &["Gold"], false);
@@ -733,6 +731,19 @@ fn model_enum_stage_rows_refuse_foreign_missing_duplicate_and_wrong_case() {
             5,
         )
         .expect_err("duplicate member row")
+        .code,
+        SelectedModelEnumErrorCode::ConflictingWitness
+    );
+    let mut colliding_member = member.clone();
+    colliding_member.member_key = declaration.node_key.clone();
+    assert_eq!(
+        SelectedModelEnums::from_stage_rows(
+            &package,
+            [declaration.clone()],
+            [colliding_member],
+            3,
+        )
+        .expect_err("declaration and member cannot share one Exact key")
         .code,
         SelectedModelEnumErrorCode::ConflictingWitness
     );

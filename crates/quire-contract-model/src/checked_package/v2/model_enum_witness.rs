@@ -157,7 +157,7 @@ impl<'a> SelectedModelEnums<'a> {
         };
         let mut consumed = 0_u64;
         let mut original_declarations = BTreeSet::new();
-        let mut declaration_keys = BTreeSet::new();
+        let mut exact_keys = BTreeSet::new();
         for row in declarations {
             let node = &row.structural_node;
             charge(&mut consumed, work_limit, node)?;
@@ -212,7 +212,7 @@ impl<'a> SelectedModelEnums<'a> {
             if selected.declarations.contains_key(node)
                 || !original_declarations
                     .insert((row.selected_document.clone(), row.original_identity.clone()))
-                || !declaration_keys.insert(row.node_key.clone())
+                || !exact_keys.insert(row.node_key.clone())
             {
                 return Err(refusal(
                     SelectedModelEnumErrorCode::ConflictingWitness,
@@ -223,7 +223,6 @@ impl<'a> SelectedModelEnums<'a> {
             selected.declarations.insert(node.clone(), row);
         }
         let mut original_members = BTreeSet::new();
-        let mut member_keys = BTreeSet::new();
         for row in members {
             let node = &row.structural_node;
             charge(&mut consumed, work_limit, node)?;
@@ -287,7 +286,7 @@ impl<'a> SelectedModelEnums<'a> {
                     row.selected_document.clone(),
                     row.member_original_identity.clone(),
                 ))
-                || !member_keys.insert(row.member_key.clone())
+                || !exact_keys.insert(row.member_key.clone())
             {
                 return Err(refusal(
                     SelectedModelEnumErrorCode::ConflictingWitness,
