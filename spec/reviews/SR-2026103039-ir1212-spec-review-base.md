@@ -75,3 +75,7 @@ Reviewed the changed FR-019 inventory row against the crate-root exports and TC-
 ## Verdict
 
 PASS for the scoped row-only PR. No full Cargo or CI gate was run by this reviewer.
+
+## Post-review inventory recheck
+
+At PR head `42e2e8895f4e6f322b1354e32b87f97df339d90e`, FR-019 distinguishes implemented `CheckedPackageSourceCorrespondenceRef` and `encode_checked_package_v2` from the planned `CheckedTermDataV2` writer sidecar and optional encoder input. Its implemented inventory also lists the exported `nominal_runtime` module. This matches current code and the focused TC-058 result. No new finding or disposition is needed.

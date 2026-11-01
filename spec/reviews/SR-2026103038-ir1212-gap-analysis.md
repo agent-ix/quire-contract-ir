@@ -77,3 +77,7 @@ Plan completion: not assessed.
 ## Verdict
 
 PASS for the scoped row-only PR. No full Cargo or CI gate was run by this reviewer.
+
+## Post-review inventory recheck
+
+At PR head `42e2e8895f4e6f322b1354e32b87f97df339d90e`, FR-019 removes the unimplemented `CheckedTermDataV2` and optional encoder argument from the implemented public-item row, names them as planned IR-1219 work, and inventories the exported `nominal_runtime` module. All seven focused TC-058 tests pass with `conformance-cli`; the existing clean scoped result stands. No prior finding requires a disposition.
