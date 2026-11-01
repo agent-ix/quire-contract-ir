@@ -208,6 +208,7 @@ fn equality_admission_api_and_resolved_dependency_direction() {
         }
     }
 }
+const FORBIDDEN_DOWNSTREAM_CRATES: [&str; 2] = ["quire-contract-codegen", "quire-contract-runtime"];
 
 fn forbidden(package: &Value) -> bool {
     let name = package["name"].as_str().unwrap();
@@ -219,6 +220,7 @@ fn forbidden(package: &Value) -> bool {
         "quire-checked",
     ]
     .contains(&name)
+        || FORBIDDEN_DOWNSTREAM_CRATES.contains(&name)
         || name.starts_with("qsl-")
         || name.starts_with("tl-")
         || name == "quire-mltl"
@@ -404,9 +406,28 @@ fn graph_control_detects_indirect_owners_build_edges_and_cycles_but_excludes_dev
         .contains("cycle"));
 }
 
+/// Provenance: AD-005 D-2.
+#[trace("TC-041")]
+#[test]
+fn model_graph_refuses_downstream_crate_names() {
+    for name in FORBIDDEN_DOWNSTREAM_CRATES {
+        let graph = json!({"packages": [
+            {"id": "model", "name": "quire-contract-model"},
+            {"id": "downstream", "name": name}],
+            "resolve": {"nodes": [
+                {"id": "model", "deps": [{"pkg": "downstream", "dep_kinds": [{"kind": null}]}]},
+                {"id": "downstream", "deps": []}]}});
+        assert_eq!(
+            production_graph(&graph, "model", true),
+            Err("forbidden production dependency downstream".to_owned()),
+            "AD-005 D-2 must refuse {name}"
+        );
+    }
+}
+
 #[trace("TC-041", "FR-028-AC-3")]
 #[test]
-fn root_manifest_has_no_qsl_dependency_in_any_kind() {
+fn root_manifest_has_no_qsl_or_downstream_dependency_in_any_kind() {
     let workspace = metadata(&[]);
     let root = package(&workspace, "quire-contract-ir");
     for dependency in root["dependencies"].as_array().unwrap() {
@@ -414,6 +435,10 @@ fn root_manifest_has_no_qsl_dependency_in_any_kind() {
         assert!(
             name != "quire-spec-language" && !name.starts_with("qsl-"),
             "QSL dependency {name}"
+        );
+        assert!(
+            !FORBIDDEN_DOWNSTREAM_CRATES.contains(&name),
+            "AD-005 D-2 forbids root dependency {name}"
         );
         assert!(!dependency["source"]
             .as_str()

@@ -88,7 +88,7 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 | IR root to QSL | no | the same file, root package checked by name prefix `qsl-` and by git source of the QSL repository (the loop over the root package's dependencies) | none for QSL |
 | QSL to the model crate | yes | QSL ADR-011 section 6.1 lists it as an external edge of layer 4 beside `quire-canonical` (`qsl-package/Cargo.toml` comment); QSL TC-390 pins that layer's other workspace edges | none |
 | QSL to the IR root crate | no | QSL's manifests select `package = "quire-contract-model"`, so their `quire-contract-ir` local alias resolves to the model package | the alias still reads as the root crate; R3-Q1's QSL-owned naming cleanup remains open |
-| IR to codegen, IR to runtime | no | a git edge to either repository fails `make deny` today: `[sources]` `unknown-git = "deny"` with an `allow-git` list that names neither (IR-346, AD-007); decision D adds name-level `bans` (IR-343) | no check by crate name, and the forbidden list in `tc_041` names neither `quire-contract-codegen` nor `quire-contract-runtime` (D-2) |
+| IR to codegen, IR to runtime | no | `deny.toml` `[bans]` denies both crate names, including path and registry edges; `[sources]` `unknown-git = "deny"` also rejects git edges to either repository. `tc_041` names both crates for model and root checks (D-2). | none |
 | any cycle among QSL, IR, runtime, codegen | no | QSL's `arch-lint direction` (FB-05, FB-11) over local checkouts, run on request and not part of QSL's `make ci` (QSL `Makefile`, `arch-lint-direction`) | runs only when someone supplies the clones |
 | two copies of one first-party crate | no | IR `scripts/check_one_copy.awk` over IR's lock via `make deny`. QSL has no general check: its `arch-lint duplicate-revisions` no longer exists on QSL `main`, and `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone (IR-346, AD-007) | each guards its own lock only; QSL's lock has no one-entry-per-first-party-crate check (routed to QSL, AD-007 R-1) |
 
@@ -115,11 +115,10 @@ Four decisions govern the seam. None adds a layer between the repositories.
   the V2 wire. Neither implements a second canonical encoder, and neither
   derives product identities or known-answer seals from those bytes. IR's
   `serde_json::Value` encoding remains iterative through that crate.
-- D. Target: IR has no dependency on codegen, runtime or QSL, and that is a build failure, not
-  prose. A git edge to those repositories already fails `make deny` through `unknown-git`
-  (`[sources]`, IR-346); `deny.toml` `[bans]` is to list the crates under `deny` so an edge fails by name too. No such entry exists today. The home of this guard is the IR
-  layout design, IR-343. IR does not rely on QSL's lint for its half (D-2); there is no CI option
-  for running that lint (owner ruling, as relayed), so IR guards its own edges.
+- D. IR has no dependency on codegen, runtime or QSL, and that is a build failure, not
+  prose. A git edge to those repositories fails `make deny` through `unknown-git`
+  (`[sources]`, IR-346); `deny.toml` `[bans]` rejects codegen and runtime by crate name too.
+  The home of this guard is the IR layout design, IR-343. IR guards its own edges (D-2).
 
 No compatibility layer is proposed: a type moved or removed in IR follows the same order, with no shim
 between the two steps.
@@ -133,9 +132,8 @@ Local labels; the repository assigns requirement ids when one is authored.
   source, and the model package by a fixed name list only; by source, `unknown-git` in
   `make deny` covers both packages.
 - D-2. The model and root packages declare no dependency on `quire-contract-codegen` or
-  `quire-contract-runtime`: by source, `unknown-git` in `make deny` holds it today for a git
-  edge; by name, a cargo-deny `bans` failure is the target (IR-343), and `tc_041`'s lists are
-  to name both crates.
+  `quire-contract-runtime`: by source, `unknown-git` in `make deny` rejects a git edge;
+  by name, cargo-deny `bans` rejects either crate, and `tc_041` checks both model and root.
 - D-3. No public item of either IR crate is a replay, witness, envelope, terminal-record or
   obligation-identity type. IR-347 removed `KaniProviderResult` and `KaniProviderRecord` from
   `src/kani/outcome.rs` and their re-exports from `src/kani/mod.rs` (FR-039-AC-3). The complete
@@ -159,12 +157,11 @@ What is measured today, what is open and with whom, and what is routed.
 - IR-347 removed the IR root crate's model re-export and the obsolete `tc_041` bridge test.
   Codegen imports the model crate directly (AD-006). TC-055 now backs FR-039-AC-1's
   complete root public-inventory check.
-- D-2 has no by-name check. AD-001 says runtime has no dependency in either direction with IR; codegen
-  depends on IR and would close a cycle if IR depended on it. Today nothing in IR fails if an edge
-  is added by name (`deny.toml` `[bans]` has no `deny` list); a git edge to the QSL, codegen or
-  runtime repository already fails `make deny` through `[sources]` `unknown-git = "deny"` and its
-  `allow-git` list (corrected in IR-346, AD-007). Decision D adds name-level `bans` entries, homed in IR-343. QSL's `arch-lint direction` would also
-  report a cycle, but only when someone runs it with all three clones.
+- D-2's by-name check is in `deny.toml` `[bans]`, run by `make deny` and `make ci`, and
+  `tc_041` checks both names in the model's production graph and every root dependency kind.
+  AD-001 says runtime has no dependency in either direction with IR; codegen depends on IR
+  and would close a cycle if IR depended on it. Git edges to QSL, codegen or runtime also fail
+  `[sources]` `unknown-git = "deny"` (IR-346, AD-007).
 - One encoder: QSL's ADR-013 section 2 and its `arch-lint canonical-encoder` forbid a second
   canonical encoder beside `quire-canonical`, and the one-encoder rule binds IR (decision C).
   This bullet once listed IR's own encoders; corrected in IR-346 (AD-007): on IR `main` the
@@ -204,4 +201,4 @@ Answered, no longer routed (QSL's answer as relayed by the IR planner, untrusted
 To QSpec: none added by this AD.
 
 IR-347 removed the root glob, bridge, exported `KaniProvider*` items and Kani family
-lowerings. D-2 dependency coverage remains IR-owned under IR-343; no new ticket is filed here.
+lowerings. IR-1229 enforces D-2 dependency direction through IR's existing gates.
