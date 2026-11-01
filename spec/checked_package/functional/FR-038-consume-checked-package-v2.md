@@ -1470,9 +1470,11 @@ FR-322-AC-261: `clock_constraint` of kind `place` has `kind`, `place`,
 `place` has `kind`, `operation`, `place`, `owner`, `slots`, `binders`,
 `condition`, `value`; kind `parameter` has `kind`, `operation`,
 `parameter`, `value`. `clock_guard` has `operation`, nonempty `parts`,
-each part a Boolean `predicate` followed by at least one constraint
-reference. `time_invariant` has a Boolean `predicate` and nonempty
-`bounds`. The five comparison words include `eq`; invariant bounds admit
+each part a Boolean `predicate`, an optional `binders` aggregate immediately
+after it, then at least one constraint reference. `time_invariant` has a
+Boolean `predicate`, an optional `binders` aggregate after it, and nonempty
+`bounds`. Each binder is a reference to a slot `parameter` node. The five
+comparison words include `eq`; invariant bounds admit
 only `lt` and `le`. Empty parts or bounds, an empty part constraint list,
 an unknown comparison, a parameter reset with `condition`, and a place
 with `guards` SHALL refuse at strict wire validation before any timed join.
@@ -1489,9 +1491,21 @@ Boolean and its operation frame SHALL modify the place's first field. A
 guard part SHALL use a constraint of the same operation, and an invariant
 SHALL use only place constraints. A second guard for one operation and a
 listed constraint named by no guard part or invariant SHALL refuse at QSpec
-FR-322-AC-263's loci. Quantified guard or invariant source clauses SHALL
-retain the `unsupported_construct`/`not-yet-implemented` refusal naming
-STD-554; the reader SHALL not admit an unquantified approximation.
+FR-322-AC-263's loci. For a guard part or invariant with `binders`, each
+binder SHALL resolve to a `parameter` node used as a slot term of the
+corresponding place constraint, occur once, and follow the place's slot
+order. The first non-slot, duplicate or out-of-order binder SHALL refuse
+`invalid_package`/`timed-node-reference` at that binder reference's `target`
+path, with the guard or invariant node as locus. Guard-part binders scope
+that part's predicate and constraints; invariant binders scope its predicate
+and bounds. An unquantified part or invariant retains its existing layout
+without `binders`; the reader SHALL not turn a quantified clause into an
+unquantified approximation. QSpec's
+`proposals/checked-package-v2/timed-clause-node-vectors.json` cases
+`CL-57` through `CL-60` and `CL-62` are the conformance inputs, read from
+QSpec rather than copied into this repository. `CL-55` and `CL-61` are
+schema-invalid reset and operation-anchor controls outside this binder join;
+the strict wire stage continues to refuse them before timed validation.
 
 The existing one-operand `quire.op.option.present` application over an
 Option-typed term SHALL retain its meaning and key. The reader SHALL also
@@ -4541,6 +4555,8 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-382 | A public-reader mutation that relabels an integer-range node as `text_bounds` while retaining its Integer semantic base and body refuses `invalid_package`, no cause, at `/semantic_graph/nodes/<n>/body`, with that node as locus. A `text_bounds` node over Text retains its own minimum, maximum and text profile unchanged. | Test (TC-226) |
 | FR-038-AC-383 | An external `temporal` clause with a fairness argument targeting a compensation template owned by protocol clause `Pay` admits when `Pay.compensations` lists that template exactly once and `Pay.requirements` is empty. The selected protocol and temporal profiles, all ordinary graph dependencies and every other body member are valid; the admitted fairness target retains the template's exact structural node id. Admission does not require a `Pay.requirements` back-edge to the external temporal clause. | Test (TC-048) |
 | FR-038-AC-384 | For the external temporal clause of AC-383, a compensation target not listed by any protocol clause, named in another package or naming a node of the wrong protocol form retains AC-103's missing-name or malformed-declaration refusal at the fairness target's `node` field, with the fairness node as locus. A fairness node omitted from every admitted temporal clause's fairness argument also refuses missing-name there even when its compensation target has a unique valid owner. A temporal clause listed in one protocol clause's `requirements` still refuses a compensation target owned only by another clause; the ownership join does not change the requirement association of protocol-root, attempt or parallel-branch fairness targets. | Test (TC-048) |
+| FR-038-AC-385 | The public V2 reader admits QSpec `timed-clause-node-vectors.json` cases `CL-57` and `CL-59`: a guard part and a time invariant each retain an ordered `binders` aggregate of typed slot-parameter references in the specified position. Existing unquantified `clock_guard` and `time_invariant` positive controls still admit with their original body and identity; no binder is dropped or interpreted as an unquantified approximation. | Test |
+| FR-038-AC-386 | The reader refuses QSpec cases `CL-58` (non-slot guard binder), `CL-60` (repeated invariant binder) and `CL-62` (reversed nested slot binders) with exactly `invalid_package`/`timed-node-reference` at each vector's first bad binder `target` RFC 6901 path and the containing timed node as locus. The test reads QSpec's proposal fixture and vectors by reference and compares the exact code, cause and path; no QSpec artifact is copied. | Test |
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-050) |
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those six finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
