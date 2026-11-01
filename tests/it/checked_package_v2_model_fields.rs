@@ -17,7 +17,7 @@ use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageV2, CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode,
     SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
-    SelectedExactIdentities, SelectedExactIdentity,
+    SelectedExactIdentities, SelectedExactIdentity, SelectedTupleDeclarationRow,
 };
 use quire_exact::{
     record, ConstructionCause, EffectiveId, FieldValue, Integer, MemberId, MemberOwner, NodeKey,
@@ -791,7 +791,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     )
     .expect("selected rows join");
     let complete = admitted
-        .project_selected_type_declarations(&witnessed, 1000)
+        .project_selected_type_declarations(&witnessed, &[], &[], 1000)
         .expect("selected record/object view");
     assert_eq!(complete.records().len(), 1);
     assert_eq!(complete.records()[0].view().record_key(), &record_key);
@@ -829,7 +829,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     assert_eq!(
         admitted
             .clone()
-            .project_selected_type_declarations(&witnessed, 1000),
+            .project_selected_type_declarations(&witnessed, &[], &[], 1000),
         Ok(complete.clone())
     );
     assert!(complete.work() > 0);
@@ -855,7 +855,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     )
     .expect("represented rows still join");
     let unrepresented = incomplete_graph
-        .project_selected_type_declarations(&same_rows, 1000)
+        .project_selected_type_declarations(&same_rows, &[], &[], 1000)
         .expect_err("an unrepresented selected object refuses the whole view");
     assert_eq!(
         unrepresented.code,
@@ -866,7 +866,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
         SelectedExactIdentities::from_stage_rows(&admitted, [record_row, base_row], [record_field])
             .expect("other selected rows join");
     let refusal = admitted
-        .project_selected_type_declarations(&missing_child, 1000)
+        .project_selected_type_declarations(&missing_child, &[], &[], 1000)
         .expect_err("missing object witness refuses the whole view");
     assert_eq!(
         refusal.code,
@@ -874,7 +874,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     );
     assert_eq!(refusal.at.as_ref(), &child);
     let exhausted = admitted
-        .project_selected_type_declarations(&witnessed, 1)
+        .project_selected_type_declarations(&witnessed, &[], &[], 1)
         .expect_err("finite work limit is charged before a view exists");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(exhausted.work, 1);
@@ -913,7 +913,7 @@ fn selected_runtime_types_refuse_unprojected_object_redefinition() {
     let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, rows, [])
         .expect("selected object rows join");
     let error = admitted
-        .project_selected_type_declarations(&witnessed, 1000)
+        .project_selected_type_declarations(&witnessed, &[], &[], 1000)
         .expect_err("redefinition needs its own admitted join");
     assert_eq!(
         error.code,
@@ -949,7 +949,7 @@ fn selected_runtime_types_refuse_object_operations_without_callable_facts() {
     )
     .expect("selected object row joins");
     let error = admitted
-        .project_selected_type_declarations(&witnessed, 1000)
+        .project_selected_type_declarations(&witnessed, &[], &[], 1000)
         .expect_err("operation-bearing object cannot yield a partial type view");
     assert_eq!(
         error.code,
@@ -982,12 +982,287 @@ fn selected_runtime_types_refuse_tuple_without_stage_identity() {
     let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, [], [])
         .expect("no supplied row can witness a tuple yet");
     let error = admitted
-        .project_selected_type_declarations(&witnessed, 1000)
+        .project_selected_type_declarations(&witnessed, &[], &[], 1000)
         .expect_err("a tuple cannot produce a partial environment view");
     assert_eq!(
         error.code,
         ExactTypeProjectionErrorCode::UnavailableIdentityWitness
     );
+}
+
+/// A tuple row joins the retained declaration and exposes every admitted position.
+#[test]
+#[trace("FR-354-AC-1", "FR-354-AC-2")]
+fn selected_tuple_positions_require_matching_unique_stage_rows() {
+    let tuple = orders("Pair");
+    let mut selected = document(vec![json!({
+        "identity": tuple, "displayName": "Pair",
+        "kind": {"module": IDENTITY, "name": "tuple"},
+        "positions": [
+            {"identity": format!("{tuple}/p0"), "typeRef": "ix://quire/native/Boolean"},
+            {"identity": format!("{tuple}/p1"), "typeRef": "ix://quire/native/Integer"}
+        ]
+    })]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind": {"module": IDENTITY, "name": "tuple"},
+        "construct": {"meaning": "quire.meaning.model.tuple-value-type/v1"}
+    }));
+    let admitted = admit(&selected, &[("Pair", "tuple_value_type")], &[]);
+    let node: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key("Pair", "tuple_value_type"))).unwrap();
+    let key = NodeKey::new("tuple-stage", vec![PathSegment::Text("Pair".into())], 0).unwrap();
+    let row = SelectedTupleDeclarationRow::new(node.clone(), IDENTITY, tuple.clone(), key.clone());
+    let identities = SelectedExactIdentities::empty();
+    let view = admitted
+        .project_selected_type_declarations(&identities, std::slice::from_ref(&row), &[], 1000)
+        .unwrap();
+    assert_eq!(view.tuples().len(), 1);
+    assert_eq!(view.tuples()[0].node_key(), &key);
+    assert_eq!(
+        view.tuples()[0].positions(),
+        &[ValueType::Boolean, ValueType::Integer]
+    );
+    assert_eq!(view.tuples()[0].original_identity(), tuple);
+    assert_eq!(
+        admitted.clone().project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&row),
+            &[],
+            1000
+        ),
+        Ok(view.clone())
+    );
+    let missing = admitted
+        .project_selected_type_declarations(&identities, &[], &[], 1000)
+        .unwrap_err();
+    assert_eq!(
+        missing.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    let conflicting = admitted
+        .project_selected_type_declarations(&identities, &[row.clone(), row.clone()], &[], 1000)
+        .unwrap_err();
+    assert_eq!(
+        conflicting.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+    let foreign =
+        SelectedTupleDeclarationRow::new(node.clone(), "foreign", tuple.clone(), key.clone());
+    let mismatch = admitted
+        .project_selected_type_declarations(&identities, &[foreign], &[], 1000)
+        .unwrap_err();
+    assert_eq!(
+        mismatch.code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut foreign_node = node;
+    foreign_node.package = "different-package".into();
+    let foreign = SelectedTupleDeclarationRow::new(foreign_node, IDENTITY, tuple, key);
+    let refusal = admitted
+        .project_selected_type_declarations(&identities, &[foreign], &[], 1000)
+        .unwrap_err();
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ForeignNode);
+    let exhausted = admitted
+        .project_selected_type_declarations(&identities, &[row], &[], view.work() - 1)
+        .unwrap_err();
+    assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+
+    let long_key =
+        NodeKey::new("tuple-stage", vec![PathSegment::Text("x".repeat(4096))], 0).unwrap();
+    let long_row = SelectedTupleDeclarationRow::new(
+        serde_json::from_value(node_id(&declaration_key("Pair", "tuple_value_type"))).unwrap(),
+        IDENTITY,
+        orders("Pair"),
+        long_key,
+    );
+    let long_view = admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&long_row),
+            &[],
+            20_000,
+        )
+        .unwrap();
+    assert!(long_view.work() > view.work() + 4000);
+    assert!(admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&long_row),
+            &[],
+            long_view.work()
+        )
+        .is_ok());
+    let one_less = admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&long_row),
+            &[],
+            long_view.work() - 1,
+        )
+        .unwrap_err();
+    assert_eq!(one_less.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    let tight = admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&long_row),
+            &[],
+            view.work() + 100,
+        )
+        .unwrap_err();
+    assert_eq!(tight.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(tight.at.as_ref(), &long_row.structural_node);
+    assert_eq!(tight.form.as_ref(), "selected_tuple_row");
+}
+
+#[test]
+#[trace("FR-354-AC-1", "FR-354-AC-2")]
+fn selected_record_field_uses_witnessed_tuple_key() {
+    let tuple = orders("Pair");
+    let record = orders("Receipt");
+    let mut selected = document(vec![
+        json!({
+            "identity": tuple, "displayName": "Pair",
+            "kind": {"module": IDENTITY, "name": "tuple"},
+            "positions": [{"identity": format!("{tuple}/p0"), "typeRef": "ix://quire/native/Boolean"}]
+        }),
+        typed_object("Receipt", "record", &[], &[field("pair", &tuple)]),
+    ]);
+    for (kind, meaning) in [
+        ("tuple", "quire.meaning.model.tuple-value-type/v1"),
+        ("record", "quire.meaning.model.record-value-type/v1"),
+    ] {
+        selected["constructs"].as_array_mut().unwrap().push(json!({
+            "kind": {"module": IDENTITY, "name": kind},
+            "construct": {"meaning": meaning}
+        }));
+    }
+    let admitted = admit(
+        &selected,
+        &[
+            ("Pair", "tuple_value_type"),
+            ("Receipt", "record_value_type"),
+        ],
+        &[],
+    );
+    let tuple_node: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key("Pair", "tuple_value_type"))).unwrap();
+    let record_node: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key("Receipt", "record_value_type"))).unwrap();
+    let tuple_key = NodeKey::new("tuple-stage", vec![PathSegment::Text("Pair".into())], 0).unwrap();
+    let record_key =
+        NodeKey::new("record-stage", vec![PathSegment::Text("Receipt".into())], 0).unwrap();
+    let identities = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [SelectedExactDeclarationRow::new(
+            record_node.clone(),
+            IDENTITY,
+            SelectedExactDeclarationForm::RecordValueType,
+            record.clone(),
+            SelectedExactIdentity::Record(record_key.clone()),
+        )],
+        [SelectedExactFieldRow::new(
+            record_node.clone(),
+            IDENTITY,
+            record.clone(),
+            format!("{record}/pair"),
+            MemberId::new(MemberOwner::Node(record_key.clone()), "pair").unwrap(),
+        )],
+    )
+    .unwrap();
+    let tuple_row =
+        SelectedTupleDeclarationRow::new(tuple_node, IDENTITY, tuple, tuple_key.clone());
+    let view = admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&tuple_row),
+            &[],
+            1000,
+        )
+        .unwrap();
+    assert_eq!(view.tuples()[0].positions(), &[ValueType::Boolean]);
+    assert_eq!(
+        view.records()[0].view().fields()[0].value_type(),
+        &ValueType::Composite(tuple_key)
+    );
+    let competing = SelectedTupleDeclarationRow::new(
+        tuple_row.structural_node.clone(),
+        IDENTITY,
+        tuple_row.original_identity.clone(),
+        record_key,
+    );
+    let refusal = admitted
+        .project_selected_type_declarations(&identities, &[competing], &[], 1000)
+        .unwrap_err();
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+}
+
+#[test]
+#[trace("FR-354-AC-7")]
+fn selected_record_many_fields_respects_exact_work_boundary() {
+    let record = orders("Receipt");
+    let mut selected = document(vec![typed_object("Receipt", "record", &[], &[])]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind": {"module": IDENTITY, "name": "record"},
+        "construct": {"meaning": "quire.meaning.model.record-value-type/v1"}
+    }));
+    let names = (0..128)
+        .map(|index| format!("field{index:03}{}", "x".repeat(96)))
+        .collect::<Vec<_>>();
+    for name in &names {
+        selected["types"][0]["fields"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "identity": format!("{record}/{name}"), "name": name,
+                "typeRef": "ix://quire/native/Boolean", "presence": "required",
+                "nullable": false, "defaultKind": "none",
+                "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}
+            }));
+    }
+    let admitted = admit(&selected, &[("Receipt", "record_value_type")], &[]);
+    let record_node: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key("Receipt", "record_value_type"))).unwrap();
+    let record_key =
+        NodeKey::new("record-stage", vec![PathSegment::Text("r".repeat(4096))], 0).unwrap();
+    let declaration = SelectedExactDeclarationRow::new(
+        record_node.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        record.clone(),
+        SelectedExactIdentity::Record(record_key.clone()),
+    );
+    let fields = names
+        .iter()
+        .map(|name| {
+            SelectedExactFieldRow::new(
+                record_node.clone(),
+                IDENTITY,
+                record.clone(),
+                format!("{record}/{name}"),
+                MemberId::new(MemberOwner::Node(record_key.clone()), name.as_str()).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let identities =
+        SelectedExactIdentities::from_stage_rows(&admitted, [declaration], fields).unwrap();
+    assert_eq!(identities.field_rows().len(), names.len());
+    let view = admitted
+        .project_selected_type_declarations(&identities, &[], &[], 30_000)
+        .unwrap();
+    assert_eq!(view.records()[0].view().fields().len(), names.len());
+    assert_eq!(view.records()[0].view().fields()[0].name(), names[0]);
+    assert_eq!(view.records()[0].view().fields()[127].name(), names[127]);
+    assert!(view.work() < 30_000);
+    assert!(admitted
+        .project_selected_type_declarations(&identities, &[], &[], view.work())
+        .is_ok());
+    let one_less = admitted
+        .project_selected_type_declarations(&identities, &[], &[], view.work() - 1)
+        .unwrap_err();
+    assert_eq!(one_less.code, ExactTypeProjectionErrorCode::ExhaustedWork);
 }
 
 #[trace("FR-352-AC-5")]
@@ -1088,7 +1363,7 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         other => panic!("selected declared unit fixture must admit: {other:?}"),
     };
     let runtime_refusal = admitted
-        .project_selected_type_declarations(&SelectedExactIdentities::empty(), 1000)
+        .project_selected_type_declarations(&SelectedExactIdentities::empty(), &[], &[], 1000)
         .expect_err("a unit-bearing package cannot claim a complete runtime type view yet");
     assert_eq!(
         runtime_refusal.code,

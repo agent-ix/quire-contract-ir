@@ -14,6 +14,7 @@ use quire_exact::{
     Presence, UnitId, ValueType,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 /// The Exact identity produced for one selected declaration form.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -328,8 +329,10 @@ impl SelectedEnumMemberRow {
 /// until the selected-model stage supplies a complete identity witness.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SelectedExactIdentities {
-    declarations: BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>,
-    fields: Vec<SelectedExactFieldRow>,
+    declarations: Arc<BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>>,
+    fields: Arc<Vec<SelectedExactFieldRow>>,
+    admitted_tuples: BTreeMap<CheckedNodeId, NodeKey>,
+    admitted_source_units: BTreeMap<CheckedNodeId, UnitId>,
 }
 
 impl SelectedExactIdentities {
@@ -393,7 +396,7 @@ impl SelectedExactIdentities {
                     ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
                 ));
             }
-            selected.declarations.insert(node.clone(), row);
+            Arc::make_mut(&mut selected.declarations).insert(node.clone(), row);
         }
         let mut seen_fields = BTreeSet::new();
         let mut seen_members = BTreeSet::new();
@@ -440,7 +443,7 @@ impl SelectedExactIdentities {
                     ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
                 ));
             }
-            selected.fields.push(row);
+            Arc::make_mut(&mut selected.fields).push(row);
         }
         Ok(selected)
     }
@@ -453,6 +456,23 @@ impl SelectedExactIdentities {
     /// The validated effective-field rows in producer order.
     pub fn field_rows(&self) -> &[SelectedExactFieldRow] {
         &self.fields
+    }
+
+    pub(super) fn with_admitted_type_rows(
+        &self,
+        tuples: &BTreeMap<CheckedNodeId, &SelectedTupleDeclarationRow>,
+        source_units: &BTreeMap<CheckedNodeId, &SelectedSourceUnitRow>,
+    ) -> Self {
+        let mut selected = self.clone();
+        selected.admitted_tuples = tuples
+            .iter()
+            .map(|(id, row)| (id.clone(), row.node_key.clone()))
+            .collect();
+        selected.admitted_source_units = source_units
+            .iter()
+            .map(|(id, row)| (id.clone(), row.unit_id.clone()))
+            .collect();
+        selected
     }
 
     pub(super) fn declaration_identity(
@@ -795,6 +815,9 @@ pub(super) fn project_record_field_type(
                     Some(target.clone()),
                 ));
             }
+            if let Some(unit) = identities.admitted_source_units.get(target) {
+                return Ok(ValueType::Quantity(unit.clone()));
+            }
             match identities
                 .declaration_identity(package, target)
                 .map_err(|code| (code, Some(target.clone())))?
@@ -808,13 +831,21 @@ pub(super) fn project_record_field_type(
                 )),
             }
         }
+        MemberType::Tuple(target) => identities
+            .admitted_tuples
+            .get(target)
+            .cloned()
+            .map(ValueType::Composite)
+            .ok_or((
+                ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                Some(target.clone()),
+            )),
         MemberType::Float32
         | MemberType::Float64
         | MemberType::Bytes
         | MemberType::JsonObject
         | MemberType::Clock
         | MemberType::TextBounds(_)
-        | MemberType::Tuple(_)
         | MemberType::Variant(_)
         | MemberType::Option(_)
         | MemberType::Collection { .. } => {
@@ -974,7 +1005,7 @@ impl CheckedPackageV2 {
                     ));
                 }
                 let mut member_rows = BTreeMap::new();
-                for row in &identities.fields {
+                for row in identities.fields.iter() {
                     charge_work(
                         requested,
                         type_id,
