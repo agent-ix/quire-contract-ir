@@ -33,8 +33,16 @@ owns runtime interpretation and supplied-state admission.
   identity, and finite projection work limit.
 - Where an Exact identity is required, the selected-document identity rows of
   [FR-352](./FR-352-project-admitted-exact-value-types.md), produced by the
-  same QSL selection stage as the admitted package. A bare name or Exact key
-  does not establish selection.
+  same QSL selection stage as the admitted package.
+- Additional QSL-stage rows for selected tuple declarations, source-owned
+  declared units, enum declarations, and enum members. Each row carries the
+  selected source/document identity, original declaration or member identity,
+  admitted structural node identity, closed form, and the stage's Exact
+  `NodeKey` or declared `UnitId` as applicable. An enum member row also names
+  its selected enum declaration and case. These rows extend the stage's
+  acquisition contract; current `SelectedExactIdentities` does not contain
+  them, so a read requiring one SHALL refuse until the producer supplies it.
+  A bare name or Exact key does not establish selection.
 
 ## Outputs
 
@@ -50,10 +58,15 @@ When the consumer requests the runtime type environment, Contract IR SHALL
 project the complete selected composite and object declarations, effective
 field identities and types, inheritance edges, and unit identities needed by
 semantic-value `TypeEnvironment`. It SHALL preserve [FR-352](./FR-352-project-admitted-exact-value-types.md)'s
-selected-document and structural-key joins. It SHALL return a typed refusal
-if any required declaration, member, parent, or unit lacks a unique witnessed
+selected-document and structural-key joins. For tuples, source-owned units,
+and enums, Contract IR SHALL check each additional QSL-stage row against the
+admission-retained selected source/document, original identity, node form,
+and structural node; the opaque Exact identity remains a producer fact.
+Contract IR SHALL reject a member row that names another enum declaration or case.
+Contract IR SHALL reject one Exact identity claimed by competing selected nodes.
+Contract IR SHALL return a typed refusal if any required declaration, member, parent, or unit lacks a unique witnessed
 identity or a representable type. QSL may construct its `TypeEnvironment`
-from the complete view, but IR SHALL NOT claim that a newly constructed
+from the complete view, but Contract IR SHALL NOT claim that a newly constructed
 environment was itself the producer's checked result.
 
 When the consumer requests callables, Contract IR SHALL expose a table keyed
@@ -94,12 +107,12 @@ typed outcomes.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-354-AC-1 | A public IR-model read of an admitted package and matching selected identity rows supplies complete record, tuple and object declarations, effective fields, ancestry and units from which QSL constructs the expected `TypeEnvironment`; no source or JSON is reparsed. | Test |
-| FR-354-AC-2 | A missing, foreign, duplicated or conflicting selected declaration, field, parent or unit identity returns a named typed outcome before any partial type-environment view; matching display names do not make a join. | Test |
+| FR-354-AC-1 | With the FR-352 and additional QSL-stage rows for selected tuples and source-owned units, a public IR-model read supplies complete record, tuple and object declarations, effective fields, ancestry and units from which QSL constructs the expected `TypeEnvironment`; no source or JSON is reparsed. Before those additional producer rows exist, a tuple or source-owned unit request refuses rather than claiming a complete view. | Test |
+| FR-354-AC-2 | A missing, foreign, duplicated or conflicting selected declaration, field, parent or unit identity, including an additional tuple or source-unit row, returns a named typed outcome before any partial type-environment view; matching display names do not make a join. | Test |
 | FR-354-AC-3 | The callable projection returns each selected function or operation's ordered parameters, admitted body handle, context and frame, including an intentionally empty frame; a dangling body, wrong owner or absent required frame returns a typed outcome. | Test |
 | FR-354-AC-4 | The dispatch projection preserves every admitted candidate in producer order with its effective precondition term reference; a missing or ambiguous candidate/precondition join refuses without choosing a candidate or evaluating a predicate. | Test |
-| FR-354-AC-5 | A selected root and converted unit yield exact dimension, target, scale, offset and witnessed identity sufficient for `UnitTable`; a dangling target, foreign identity or unresolved conversion returns a typed outcome without a partial resolver. | Test |
-| FR-354-AC-6 | An ordered and an unordered selected enum each yield exact case order, member identity and position sufficient for `EnumMemberIndex`; duplicate, missing or foreign member witnesses refuse before any partial index. | Test |
+| FR-354-AC-5 | With QSL-stage unit rows for source-owned declarations, a selected root and converted unit yield exact dimension, target, scale, offset and witnessed identity sufficient for `UnitTable`; absent rows, a dangling target, foreign identity or unresolved conversion return a typed outcome without a partial resolver. | Test |
+| FR-354-AC-6 | With QSL-stage enum declaration and member rows, an ordered and an unordered selected enum each yield exact case order, member identity and position sufficient for `EnumMemberIndex`; absent, duplicate, mismatched-case or foreign member witnesses refuse before any partial index. | Test |
 | FR-354-AC-7 | Repeated bounded reads of an admitted package and its clone agree; an insufficient limit reports the charged work and locus without a partial view, source recheck, wire reparse or stack growth with term depth. | Test |
 | FR-354-AC-8 | Public API and dependency inspection finds the runtime projections in IR model, no QSL `Scope`, `CheckedGraph`, evaluator, supplied-state admission or mirror expression type in IR, and no claimed success for a producer decision absent from the package. | Inspection |
 
