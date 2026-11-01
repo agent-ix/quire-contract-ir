@@ -66,6 +66,7 @@ fn published_single_body_packages_round_trip_through_the_writer() {
                 source_map: read.source_map(),
                 refinement_step_rows: read.refinement_step_rows(),
             },
+            None,
             read.capability_report(),
             read.diagnostics(),
             Limits::new(1 << 24),

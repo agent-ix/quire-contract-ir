@@ -40,6 +40,7 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
             source_map: &source_map,
             refinement_step_rows: refinement_step_rows.as_deref(),
         },
+        None,
         &capabilities,
         &diagnostics,
         limits,

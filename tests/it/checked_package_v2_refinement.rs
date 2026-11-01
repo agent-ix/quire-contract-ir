@@ -803,6 +803,7 @@ fn writer_bytes(package: &Value) -> Vec<u8> {
             source_map: &source_map,
             refinement_step_rows: rows.as_deref(),
         },
+        None,
         &capabilities,
         &diagnostics,
         quire_canonical::Limits::new(u64::MAX),

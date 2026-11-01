@@ -251,6 +251,7 @@ fn public_literal_and_binding_reads_preserve_exact_values() {
             source_map: admitted.source_map(),
             refinement_step_rows: admitted.refinement_step_rows(),
         },
+        None,
         admitted.capability_report(),
         admitted.diagnostics(),
         quire_canonical::Limits::new(u64::MAX),
