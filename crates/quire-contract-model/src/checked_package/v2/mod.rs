@@ -660,9 +660,7 @@ macro_rules! checked_package_envelope {
                 writer.begin_object()?;
                 $(encode_envelope_field!(writer, stringify!($name), self.$name, $encoding);)+
                 encode_envelope_field!(writer, "refinement_step_rows", self.refinement_step_rows, optional_elements);
-                if let Some(data) = self.checked_term_data {
-                    encode::encoded(writer, "checked_term_data", data)?;
-                }
+                encode::present_encoded(writer, "checked_term_data", &self.checked_term_data)?;
                 writer.end_object()
             }
         }
@@ -703,12 +701,14 @@ pub struct CheckedPackageSourceCorrespondenceRef<'a> {
 }
 
 /// Canonically encodes a complete checked-package V2 envelope under the
-/// caller's byte limits. The supplied name is the package's identity.
+/// caller's byte limits. The supplied name is the package's identity. An
+/// absent checked-term sidecar is omitted; a present empty one is written.
 pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
     name: &str,
     lock: &CheckedPackageLockV2,
     semantic_graph: &CheckedSemanticGraphV2<Body>,
     sources: CheckedPackageSourceCorrespondenceRef<'_>,
+    checked_term_data: Option<&CheckedTermDataV2>,
     capability_report: &[CheckedCapability],
     diagnostics: &CheckedDiagnosticsV2,
     limits: quire_canonical::Limits,
@@ -734,7 +734,7 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         semantic_graph,
         source_map: sources.source_map,
         refinement_step_rows: sources.refinement_step_rows,
-        checked_term_data: None,
+        checked_term_data,
         capability_report,
         diagnostics,
     };
@@ -3905,6 +3905,7 @@ mod tests {
                 source_map: &wire.source_map,
                 refinement_step_rows: wire.refinement_step_rows.as_deref(),
             },
+            wire.checked_term_data.as_ref(),
             &wire.capability_report,
             &wire.diagnostics,
             quire_canonical::Limits::new(u64::MAX),
@@ -3972,6 +3973,7 @@ mod tests {
                             source_map: &wire.source_map,
                             refinement_step_rows: wire.refinement_step_rows.as_deref(),
                         },
+                        wire.checked_term_data.as_ref(),
                         &wire.capability_report,
                         &wire.diagnostics,
                         limits,
