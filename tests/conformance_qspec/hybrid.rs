@@ -455,6 +455,7 @@ fn qspec_hybrid_restored_model_and_claims_admit_from_published_nodes() {
         panic!("hybrid target")
     };
     assert_eq!(name.as_ref(), "Stopped");
+    assert_eq!(operation.member_declaration().unwrap(), Some(declaration));
     assert!(admitted
         .graph()
         .nodes

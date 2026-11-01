@@ -2736,9 +2736,15 @@ fn check_reference_edge(
     }
 }
 
-/// The `operation.member.declaration` an application names.
+/// The admitted member's declaring identity, including a typed fairness target.
 fn member_declaration(operation: &OperationWire) -> Option<CheckedNodeId> {
-    CheckedNodeId::from_value(operation.member.as_ref()?.get("declaration")?)
+    let member = operation.member.as_ref()?;
+    let declaration = if member.get("kind").and_then(Value::as_str) == Some("fairness") {
+        member.get("target")?.get("declaration")?
+    } else {
+        member.get("declaration")?
+    };
+    CheckedNodeId::from_value(declaration)
 }
 
 /// A selected tuple's positions live in its document, not in the declaration

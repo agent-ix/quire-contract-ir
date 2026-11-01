@@ -583,6 +583,10 @@ fn admitted_controls_expose_element_and_fairness_members() {
         serde_json::to_value(target).unwrap(),
         wire["member"]["target"]
     );
+    let quire_contract_model::CheckedFairnessTarget::Operation { declaration, .. } = target else {
+        panic!("operation target")
+    };
+    assert_eq!(operation.member_declaration().unwrap(), Some(declaration));
     let member_kinds: BTreeSet<&str> = OperationMemberKind::ALL
         .iter()
         .map(|kind| kind.as_wire())
