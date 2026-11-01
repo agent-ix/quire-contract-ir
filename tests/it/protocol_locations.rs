@@ -65,7 +65,7 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
 }
 
 #[test]
-#[trace("FR-322-AC-288", "FR-322-AC-291")]
+#[trace("TC-058", "FR-322-AC-288", "FR-322-AC-291")]
 fn published_locations_preserve_distinct_semantic_terms_on_one_application() {
     let originals = [positive("PL-01-root"), positive("PL-02-child")];
     let (wire, position) = fixture(originals.to_vec());
@@ -103,7 +103,7 @@ fn published_locations_preserve_distinct_semantic_terms_on_one_application() {
 }
 
 #[test]
-#[trace("FR-322-AC-288", "FR-322-AC-291")]
+#[trace("TC-058", "FR-322-AC-288", "FR-322-AC-291")]
 fn published_named_type_origin_is_returned_without_source_region_inference() {
     let original = positive("PL-03-declaration");
     let (wire, position) = fixture(vec![original.clone()]);
@@ -119,7 +119,7 @@ fn published_named_type_origin_is_returned_without_source_region_inference() {
 }
 
 #[test]
-#[trace("FR-322-AC-291")]
+#[trace("TC-058", "FR-322-AC-291")]
 fn published_duplicate_term_key_refuses_at_the_second_captured_row() {
     let all = vectors();
     let vector = all["reader_refusals"]
@@ -144,7 +144,7 @@ fn published_duplicate_term_key_refuses_at_the_second_captured_row() {
 }
 
 #[test]
-#[trace("FR-322-AC-291")]
+#[trace("TC-058", "FR-322-AC-291")]
 fn missing_selected_mapping_is_not_substituted_by_a_sibling_term() {
     let all = vectors();
     let vector = all["reader_refusals"]
@@ -163,7 +163,7 @@ fn missing_selected_mapping_is_not_substituted_by_a_sibling_term() {
 }
 
 #[test]
-#[trace("FR-322-AC-291")]
+#[trace("TC-058", "FR-322-AC-291")]
 fn foreign_application_missing_occurrence_and_non_application_each_refuse() {
     let (wire, position) = fixture(vec![positive("PL-01-root")]);
     let mut foreign = wire.clone();
@@ -198,7 +198,7 @@ fn foreign_application_missing_occurrence_and_non_application_each_refuse() {
 }
 
 #[test]
-#[trace("FR-322-AC-291")]
+#[trace("TC-058", "FR-322-AC-291")]
 fn unknown_origin_and_noncanonical_child_ordinals_never_admit() {
     let all = vectors();
     let vector = all["schema_invalid"]
@@ -228,7 +228,7 @@ fn unknown_origin_and_noncanonical_child_ordinals_never_admit() {
 }
 
 #[test]
-#[trace("FR-322-AC-291")]
+#[trace("TC-058", "FR-322-AC-291")]
 fn bounded_read_returns_complete_borrowed_path_only_at_the_exact_work_limit() {
     let (wire, position) = fixture(vec![positive("PL-01-root"), positive("PL-02-child")]);
     let package = admitted(&wire);
@@ -253,5 +253,48 @@ fn bounded_read_returns_complete_borrowed_path_only_at_the_exact_work_limit() {
     assert_eq!(
         package.protocol_location(&node.node_id, &absent, 0, 100),
         Err(CheckedProtocolLocationReadError::Missing)
+    );
+}
+
+#[test]
+#[trace("TC-058", "FR-322-AC-288", "FR-322-AC-291")]
+fn absent_capture_and_present_empty_capture_have_distinct_typed_reads() {
+    let (mut wire, position) = fixture(Vec::new());
+    let empty = admitted(&wire);
+    let node = &empty.graph().nodes[position];
+    assert_eq!(
+        empty.protocol_location(&node.node_id, &node.occurrences[0], 0, 100),
+        Err(CheckedProtocolLocationReadError::Missing)
+    );
+    wire.as_object_mut().unwrap().remove("checked_term_data");
+    let absent = admitted(&wire);
+    let node = &absent.graph().nodes[position];
+    assert_eq!(
+        absent.protocol_location(&node.node_id, &node.occurrences[0], 0, 100),
+        Err(CheckedProtocolLocationReadError::Unavailable)
+    );
+}
+
+#[test]
+#[trace("TC-058", "FR-322-AC-291")]
+fn valid_large_child_indices_remain_exact_canonical_owner_values() {
+    let (mut wire, position) = fixture(vec![positive("PL-02-child")]);
+    wire["checked_term_data"]["protocol_locations"][0]["location"]["path"] = json!([
+        9007199254740991_u64,
+        "9007199254740992",
+        "18446744073709551616"
+    ]);
+    let package = admitted(&wire);
+    let node = &package.graph().nodes[position];
+    let row = package
+        .protocol_location(&node.node_id, &node.occurrences[0], 1, 100)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&row.location).unwrap()["path"],
+        json!([
+            9007199254740991_u64,
+            "9007199254740992",
+            "18446744073709551616"
+        ])
     );
 }
