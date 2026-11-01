@@ -28,3 +28,13 @@ Reviewed the FR-070 vocabulary contract and FR-019 planned export row against QS
 ## Evidence
 
 The repository's `AGENTS.md` and `CLAUDE.md` prohibit introducing SHAs or pins, and the quoin base checklist classifies any requirement pin as high. FR-070 Inputs names an exact commit; AC-2 tests against “the stated commit or later.” The PR diff contains no schema copy or compatibility layer. The source checkout revision used for this review is evidence, not an appropriate normative threshold.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head e6258b50 removes the exact checkout commit from Inputs and replaces AC-2's “stated commit or later” and 51-at-commit threshold with the configured QSpec checkout and computed set equality. |
+
+## Disposition verdict
+
+**PASS** — the original finding is fixed at head e6258b50, and the changed text introduces no new defect in this method.

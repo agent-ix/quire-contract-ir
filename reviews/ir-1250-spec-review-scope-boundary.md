@@ -27,3 +27,13 @@ Checked the ownership boundary among the model crate, QSL and QSpec. The require
 ## Evidence
 
 At the reviewed QSL main ref, `CertificateMember` is defined in `qsl-replay` and `CertificateLocus::serialize` calls its `as_str()`. The new model type and QSL re-export are not yet implemented. FR-070 itself assigns QSL re-export and local-enum removal to QSL-1437, which is the place that can verify actual use of model spellings in the serialized locus.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head e6258b50 limits AC-4 to `as_str()` returning the canonical spelling and the model exposing no locus structure or serializer; QSL behavior remains assigned to QSL-1437. |
+
+## Disposition verdict
+
+**PASS** — the original finding is fixed at head e6258b50, and the changed text introduces no new defect in this method.
