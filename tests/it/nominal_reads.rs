@@ -11,7 +11,8 @@ use quire_contract_model::nominal_reads::{
 };
 use quire_contract_model::{
     CheckedNodeOwner, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedSemanticNodeV2,
+    CheckedSemanticNodeV2, ExactTypeProjectionErrorCode, SelectedExactIdentities,
+    SelectedSourceUnitRow,
 };
 use quire_exact::{NodeKey, PathSegment, UnitId};
 use serde_json::{json, Value};
@@ -71,6 +72,140 @@ fn node<'a>(package: &'a CheckedPackageV2, form: &str, name: &str) -> &'a Checke
 }
 fn key(name: &str) -> NodeKey {
     NodeKey::new("stage-row-fixture", vec![PathSegment::Text(name.into())], 0).unwrap()
+}
+
+#[test]
+#[trace("FR-354-AC-1", "FR-354-AC-2", "FR-354-AC-5", "FR-354-AC-7")]
+fn selected_source_units_join_owner_declaration_and_complete_conversion() {
+    let mut members = nominal_fixture_members()
+        .into_iter()
+        .skip(2)
+        .collect::<Vec<_>>();
+    let mut converted = members[0].0.clone();
+    converted["qualified_declaration"] = json!(["Example", "Centimetre"]);
+    converted["target_unit_node_id"] = node_id("qualified:Example/Metre");
+    converted["scale"] = json!({"numerator": "1", "denominator": "100"});
+    members.push((converted, "qualified:Example/Centimetre".into()));
+    let wire = nominal_package(&members);
+    let package = match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("unit package must admit: {other:?}"),
+    };
+    let root = node(&package, "unit", "Metre");
+    let converted = node(&package, "unit", "Centimetre");
+    let stage_row = |node: &CheckedSemanticNodeV2, name: &str| {
+        let CheckedNodeOwner::Source {
+            authority,
+            identity,
+        } = node.owner.as_ref().unwrap()
+        else {
+            panic!("source owner")
+        };
+        SelectedSourceUnitRow::new(
+            node.node_id.clone(),
+            authority.clone(),
+            identity.clone(),
+            node.declaration.as_ref().unwrap().qualified_name.clone(),
+            UnitId::Declared(key(name)),
+        )
+    };
+    let root_row = stage_row(root, "Metre");
+    let converted_row = stage_row(converted, "Centimetre");
+    let rows = [root_row.clone(), converted_row.clone()];
+    let identities = SelectedExactIdentities::empty();
+    let view = package
+        .project_selected_type_declarations(&identities, &[], &rows, 10_000)
+        .unwrap();
+    assert_eq!(view.units().len(), 2);
+    assert_eq!(view.dimensions().len(), 1);
+    let converted_view = view
+        .units()
+        .iter()
+        .find(|unit| unit.structural_node == converted.node_id)
+        .unwrap();
+    assert_eq!(converted_view.unit_id, converted_row.unit_id);
+    assert_eq!(converted_view.target_node.as_ref(), Some(&root.node_id));
+    assert_eq!(converted_view.scale.numerator.as_ref(), "1");
+    assert_eq!(converted_view.scale.denominator.as_ref(), "100");
+    assert_eq!(converted_view.offset.numerator.as_ref(), "0");
+    assert_eq!(
+        view.dimensions()[0].structural_node,
+        converted_view.dimension_node
+    );
+    assert_eq!(
+        package
+            .clone()
+            .project_selected_type_declarations(&identities, &[], &rows, 10_000),
+        Ok(view.clone())
+    );
+    let missing = package
+        .project_selected_type_declarations(&identities, &[], &[root_row.clone()], 10_000)
+        .unwrap_err();
+    assert_eq!(
+        missing.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    let conflict = package
+        .project_selected_type_declarations(
+            &identities,
+            &[],
+            &[root_row.clone(), root_row.clone(), converted_row.clone()],
+            10_000,
+        )
+        .unwrap_err();
+    assert_eq!(
+        conflict.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+    let foreign = SelectedSourceUnitRow::new(
+        converted.node_id.clone(),
+        "other",
+        converted_row.source_identity.clone(),
+        converted_row.qualified_declaration.clone(),
+        converted_row.unit_id.clone(),
+    );
+    let mismatch = package
+        .project_selected_type_declarations(&identities, &[], &[root_row.clone(), foreign], 10_000)
+        .unwrap_err();
+    assert_eq!(
+        mismatch.code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut foreign_node = converted.node_id.clone();
+    foreign_node.package = "different-package".into();
+    let foreign = SelectedSourceUnitRow::new(
+        foreign_node,
+        converted_row.source_authority.clone(),
+        converted_row.source_identity.clone(),
+        converted_row.qualified_declaration.clone(),
+        converted_row.unit_id.clone(),
+    );
+    let refusal = package
+        .project_selected_type_declarations(&identities, &[], &[root_row.clone(), foreign], 10_000)
+        .unwrap_err();
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ForeignNode);
+    let duplicate_key = SelectedSourceUnitRow::new(
+        converted.node_id.clone(),
+        converted_row.source_authority.clone(),
+        converted_row.source_identity.clone(),
+        converted_row.qualified_declaration.clone(),
+        root_row.unit_id.clone(),
+    );
+    let conflict = package
+        .project_selected_type_declarations(&identities, &[], &[root_row, duplicate_key], 10_000)
+        .unwrap_err();
+    assert_eq!(
+        conflict.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+    let exhausted = package
+        .project_selected_type_declarations(&identities, &[], &rows, view.work() - 1)
+        .unwrap_err();
+    assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
 }
 fn row<'a>(
     node: &'a CheckedSemanticNodeV2,

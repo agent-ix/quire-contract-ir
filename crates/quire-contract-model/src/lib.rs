@@ -205,8 +205,9 @@ pub use checked_package::{
     SelectedOperationMemberErrorCode, SelectedOperationMemberRow, SelectedOperationMembers,
     SelectedRecordFieldView, SelectedRecordView, SelectedSourceUnitRow,
     SelectedTupleDeclarationRow, SelectedTypeDeclarations, SelectedTypeDeclarationsError,
-    SelectedTypeObject, SelectedTypeObjectField, SelectedTypeRecord, StateForm, TemporalForm,
-    TimedModelForm, ValueForm, CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
+    SelectedTypeDimension, SelectedTypeObject, SelectedTypeObjectField, SelectedTypeRecord,
+    SelectedTypeTuple, SelectedTypeUnit, StateForm, TemporalForm, TimedModelForm, ValueForm,
+    CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
 };
 
 pub use checked_package::CheckedFieldReadForm;

@@ -330,6 +330,8 @@ impl SelectedEnumMemberRow {
 pub struct SelectedExactIdentities {
     declarations: BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>,
     fields: Vec<SelectedExactFieldRow>,
+    admitted_tuples: BTreeMap<CheckedNodeId, NodeKey>,
+    admitted_source_units: BTreeMap<CheckedNodeId, UnitId>,
 }
 
 impl SelectedExactIdentities {
@@ -453,6 +455,23 @@ impl SelectedExactIdentities {
     /// The validated effective-field rows in producer order.
     pub fn field_rows(&self) -> &[SelectedExactFieldRow] {
         &self.fields
+    }
+
+    pub(super) fn with_admitted_type_rows(
+        &self,
+        tuples: &BTreeMap<CheckedNodeId, &SelectedTupleDeclarationRow>,
+        source_units: &BTreeMap<CheckedNodeId, &SelectedSourceUnitRow>,
+    ) -> Self {
+        let mut selected = self.clone();
+        selected.admitted_tuples = tuples
+            .iter()
+            .map(|(id, row)| (id.clone(), row.node_key.clone()))
+            .collect();
+        selected.admitted_source_units = source_units
+            .iter()
+            .map(|(id, row)| (id.clone(), row.unit_id.clone()))
+            .collect();
+        selected
     }
 
     pub(super) fn declaration_identity(
@@ -795,6 +814,9 @@ pub(super) fn project_record_field_type(
                     Some(target.clone()),
                 ));
             }
+            if let Some(unit) = identities.admitted_source_units.get(target) {
+                return Ok(ValueType::Quantity(unit.clone()));
+            }
             match identities
                 .declaration_identity(package, target)
                 .map_err(|code| (code, Some(target.clone())))?
@@ -808,13 +830,21 @@ pub(super) fn project_record_field_type(
                 )),
             }
         }
+        MemberType::Tuple(target) => identities
+            .admitted_tuples
+            .get(target)
+            .cloned()
+            .map(ValueType::Composite)
+            .ok_or((
+                ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                Some(target.clone()),
+            )),
         MemberType::Float32
         | MemberType::Float64
         | MemberType::Bytes
         | MemberType::JsonObject
         | MemberType::Clock
         | MemberType::TextBounds(_)
-        | MemberType::Tuple(_)
         | MemberType::Variant(_)
         | MemberType::Option(_)
         | MemberType::Collection { .. } => {
