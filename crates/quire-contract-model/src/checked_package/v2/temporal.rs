@@ -420,7 +420,7 @@ pub(super) fn validate_timed_bounds_reduced(
     Ok(())
 }
 
-/// A `{kind: fairness, fairness_kind, granularity, declaration, name}`
+/// A `{kind: fairness, fairness_kind, granularity, target}`
 /// member (QSpec FR-370). The two vocabulary members are decoded for their
 /// closed words and carried no further: nothing here evaluates fairness.
 #[derive(Deserialize)]
