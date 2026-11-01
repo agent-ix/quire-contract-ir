@@ -2428,10 +2428,10 @@ reader test.
 
 ## Symbolic clock slots and place presence (FR-038-AC-335 through FR-038-AC-340)
 
-Status: PLANNED/UNRUN (IR-1083). Read QSpec's published
+Status: implemented; public-reader vector evidence landed in IR #775. Read QSpec's published
 `proposals/checked-package-v2/timed-slot-selector-vectors.json` from the
 selected QSpec checkout. Do not store a local copy. Apply its complete
-SL-01..SL-08, SR-01..SR-04, GD-01..GD-03 and PR-01..PR-06 cases through the
+SL-01..SL-07, SR-01..SR-04, GD-01..GD-03 and PR-01/PR-03..PR-06 cases through the
 public V2 reader, updating dependencies and references for a semantic mutation.
 Compare exact admission or each vector's expected code and cause. Compare the
 RFC 6901 locus suffix recorded by SR-01..04 and PR-04..06. For GD-02, assert `invalid_package`/`malformed-clock-place` at the twin
@@ -2439,7 +2439,7 @@ place's first forged `resolved_path` row
 `/semantic_graph/nodes/72/body/members/2/value/members/1`, as fixed by QSpec
 FR-322-AC-120, and assert aggregate order passes before the row join. For GD-03, assert `invalid_package`/`timed-node-reference` at
 `/semantic_graph/nodes/47/body` with vector suffix `body`, as fixed by QSpec
-FR-322-AC-243. This reader control remains PLANNED/UNRUN. Check the reader stage against FR-322's stated order. Keep
+FR-322-AC-243. This reader control is exercised by the published guard qualification. Check the reader stage against FR-322's stated order. Keep
 strict-wire and graph-shape checks ahead of the timed-model and
 operation-body checks.
 
@@ -2454,13 +2454,13 @@ validation; an otherwise ordered second place of the same path refuses at its fo
 `resolved_path` row as `invalid_package`/`malformed-clock-place`,
 and an unlisted guard refuses at its own `body`.
 
-For AC-337 and AC-338, admit `present(other.v)`, `present(self.q[i])` and the
+For AC-337 and AC-338, admit `present(other.v)` and the
 quantifier's `present(e)` with Boolean result and ordered place, owner and slot
 arguments. Check that `e` is typed at the slot selector domain, that each
 application and its shared place template have the expected independent keys,
 and that no presence member is added to another node. Assert exact argument
 loci for a missing slot, non-place first argument, wrong owner and wrong slot
-type. Include the existing one-operand Option term as an unchanged control.
+type. Indexed `present(self.q[i])` is excluded by QSpec FR-322 and owner ruling #485 (`81078f14`); do not recreate withdrawn PR-02. Include the existing one-operand Option term as an unchanged control.
 
 For AC-339, join `Option<Clock>` and `Sequence<Option<Clock>>` resolved-path
 rows to the selected declaration's member type and optional presence. Assert
