@@ -37,3 +37,20 @@ Scoped review only; no source edits, Cargo commands or backend proofs were run. 
 - FR-356-AC-5 — role: examined; path: spec/checked_package/functional/FR-356-admit-option-value-type-definitions.md; excerpt: A cross-reader gate reads every OP-01..41 row from current QSpec by reference, checks all expected admissions/types/refusals and exact document loci through production admission, and reports the QSpec checkout HEAD separately from implementation data. No copied vectors, schema snapshots, compatibility path or FCD changes are introduced.
 - FR-356 — role: examined; path: spec/checked_package/functional/FR-356-admit-option-value-type-definitions.md; excerpt: When a checked-package V2 reader selects a Semantic IR model containing a type definition of `kind` `option`, Contract IR SHALL admit that definition as `Option<T>` precisely under QSpec FR-154-AC-39..41 and FR-322-AC-298.
 - TC-465 — role: examined; path: spec/checked_package/matrix/TC-465-named-option-value-types.md; excerpt: Read option model declarations through the public strict reader and compare the production result against the owning QSpec corpus, without copying it.
+
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The existing declaration-refusal regression expected document_pointer to remain absent after the reader added exact selected-document defect pointers, so the aggregate integration target failed on the stale envelope expectation. | tests/it/checked_package_v2_model_members.rs:2618 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | Updated the exact expected refusal envelope with /types/0/supertypes/0 while retaining the model-root locus, MissingDeclaration code, MissingName cause and whole-envelope equality assertion. |
+
+## Disposition pass 1 evidence
+
+Scoped inspection covered the additive-location correction in tc_048_a_declaration_refusal_is_located_at_its_model_root and the generic production defect-path construction. The test still constructs its expected envelope through refusal_cause and asserts the complete observed envelope; it now explicitly expects the precise selected-document pointer. This preserves the selecting root locus and strengthens location coverage without relaxing any assertion. The original review is preserved above. Final scoped disposition verdict: PASS with no open findings. The lead owns the final aggregate rerun; no Cargo or source edits were performed by this reviewer.

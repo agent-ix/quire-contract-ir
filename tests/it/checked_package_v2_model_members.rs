@@ -2618,14 +2618,13 @@ fn tc_048_a_model_owned_operation_the_document_does_not_declare_refuses() {
 fn tc_048_a_declaration_refusal_is_located_at_its_model_root() {
     let dangling = domain_document(json!({"supertypes": ["ix://acme/orders/Nope"]}));
     let (package, evidence) = package_over(&dangling, "total");
-    assert_eq!(
-        refused(&package, &evidence),
-        refusal_cause(
-            CheckedPackageRefusalCode::MissingDeclaration,
-            &root_owner(&package),
-            CheckedPackageRefusalCause::MissingName
-        )
+    let mut expected = refusal_cause(
+        CheckedPackageRefusalCode::MissingDeclaration,
+        &root_owner(&package),
+        CheckedPackageRefusalCause::MissingName,
     );
+    expected.document_pointer = Some(pointer("/types/0/supertypes/0"));
+    assert_eq!(refused(&package, &evidence), expected);
 }
 
 #[trace("TC-048", "FR-038-AC-30")]
