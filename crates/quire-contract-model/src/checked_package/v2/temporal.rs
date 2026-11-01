@@ -906,6 +906,24 @@ fn check_clause(
             continue;
         };
         let super::CheckedFairnessTarget::Operation { declaration, name } = &member.target else {
+            if !hybrid_claim
+                && matches!(
+                    member.target,
+                    super::CheckedFairnessTarget::HybridTransition { .. }
+                )
+            {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidModelBinding,
+                    node_pointer(fair)
+                        .key("body")
+                        .key("operation")
+                        .key("member")
+                        .key("target")
+                        .key("declaration"),
+                    Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                    graph.nodes[fair].node_id.clone(),
+                ));
+            }
             continue;
         };
         if let Err(failure) = resolve_fairness(declaration, name, graph, meter)? {
