@@ -357,8 +357,8 @@ fn timed_equal_region_rational_order_charges_before_big_integer_work() {
     );
 }
 
-/// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-360, FR-038-AC-361, FR-038-AC-362, TC-048.
-/// Provenance: IR-1109; QSpec CL-25 and CL-54.
+/// Trace: FR-038-AC-357, FR-038-AC-358, FR-038-AC-359, FR-038-AC-360, FR-038-AC-361, FR-038-AC-362, FR-038-AC-385, FR-038-AC-386, TC-048.
+/// Provenance: IR-1109 and IR-1234; QSpec CL-25 through CL-62.
 #[test]
 fn timed_clause_published_vectors_match_reader() {
     let fixtures = fixtures_dir();
@@ -388,6 +388,11 @@ fn timed_clause_published_vectors_match_reader() {
     for (ordinal, case) in cases.iter().enumerate() {
         let id = case["id"].as_str().expect("clause case id");
         assert_eq!(id, format!("CL-{:02}", ordinal + 1));
+        // Schema-invalid controls CL-55 and CL-61 have no reader obligation.
+        if matches!(id, "CL-55" | "CL-61") {
+            assert_eq!(case["schema"], "invalid", "{id}: schema-only control");
+            continue;
+        }
         let mut candidate = fixture.clone();
         if let Some(patches) = case["patch"].as_array() {
             for patch in patches {
@@ -397,7 +402,13 @@ fn timed_clause_published_vectors_match_reader() {
         let actual = read_package_with_document(&candidate, id, &document)
             .expect("selected clause package read");
         match (case["expected"].as_str(), actual) {
-            (Some("admitted"), CheckedPackageV2ReadResult::Admitted(_)) => {}
+            (Some("admitted"), CheckedPackageV2ReadResult::Admitted(package)) => {
+                if matches!(id, "CL-57" | "CL-59") {
+                    let encoded: Value = serde_json::from_slice(&encode_package(&package))
+                        .expect("quantified clause writer JSON");
+                    assert_eq!(encoded, candidate, "{id}: quantified binder wire retention");
+                }
+            }
             (
                 Some("refused") | Some("refused-by-schema"),
                 CheckedPackageV2ReadResult::Refused(refusal),
