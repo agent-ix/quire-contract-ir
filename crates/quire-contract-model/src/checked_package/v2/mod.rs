@@ -84,7 +84,6 @@ pub use contract_package::{
 pub use dispatch_projection::{CheckedDispatchReadError, CheckedDispatchView};
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;
-pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use lower::*;
 pub use model_enum_witness::{
     SelectedModelEnumDeclarationRow, SelectedModelEnumError, SelectedModelEnumErrorCode,
@@ -94,6 +93,7 @@ pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
     CheckedModelObjectFields,
 };
+pub use protocol_locations::CheckedProtocolLocationReadError;
 mod exact_projection;
 pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,

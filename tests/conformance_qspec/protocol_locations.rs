@@ -2,7 +2,7 @@
 //! Instantiate QSpec's symbolic protocol-location vectors in an admitted graph.
 //! Vector origin/path/term facts remain authoritative owner data, read in place.
 
-use crate::support::checked_package::{canonical, evidence_for, refresh_identity, v2_all_families};
+use crate::fixture_support::{canonical, evidence_for, refresh_identity, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::CheckedProtocolLocationReadError;
 use quire_contract_model::{
@@ -14,8 +14,8 @@ use std::{fs, path::PathBuf};
 
 fn vectors() -> Value {
     let root = PathBuf::from(
-        std::env::var_os("QSPEC_DIR")
-            .expect("QSPEC_DIR must select the owning QSpec vector checkout"),
+        std::env::var_os("QUIRE_SPECIFICATION_DIR")
+            .expect("QUIRE_SPECIFICATION_DIR must select the owning QSpec vector checkout"),
     );
     let path = root.join("proposals/checked-package-v2/checked-term-data-vectors.json");
     serde_json::from_slice(&fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())))

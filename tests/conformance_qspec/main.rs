@@ -53,6 +53,7 @@ mod node_index;
 mod node_ordinal;
 mod projection_read_form;
 mod protocol_vectors;
+mod protocol_locations;
 mod reaches_population;
 mod selection_vectors;
 mod single_body;
