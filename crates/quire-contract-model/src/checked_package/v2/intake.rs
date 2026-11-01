@@ -99,15 +99,30 @@ struct BorrowedGraph<'a> {
     nodes: Vec<BorrowedNode<'a>>,
 }
 
+// Keep native wire errors at the logical ID boundary. The refinement below
+// then locates an invalid ordinal or path segment without exposing an
+// implementation-dependent Serde member path. The public ID deserializer
+// remains the one owner of the flat ID grammar.
+struct WireNodeId(CheckedNodeId);
+
+impl<'de> Deserialize<'de> for WireNodeId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = <&RawValue>::deserialize(deserializer)?;
+        serde_json::from_str(raw.get())
+            .map(Self)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BorrowedNode<'a> {
-    node_id: CheckedNodeId,
+    node_id: WireNodeId,
     schema_version: Box<str>,
     node_tag: Box<str>,
     semantic_form: Box<str>,
-    semantic_type: CheckedNodeId,
-    dependencies: Vec<CheckedNodeId>,
+    semantic_type: WireNodeId,
+    dependencies: Vec<WireNodeId>,
     occurrences: Vec<CheckedOccurrence>,
     #[serde(default)]
     recursion_group: Option<Box<str>>,
@@ -116,7 +131,7 @@ struct BorrowedNode<'a> {
     #[serde(default)]
     owner: Option<CheckedNodeOwner>,
     #[serde(default)]
-    owner_model: Option<CheckedNodeId>,
+    owner_model: Option<WireNodeId>,
     #[serde(borrow)]
     body: &'a RawValue,
 }
@@ -186,17 +201,17 @@ pub(super) fn decode_borrowed_wire(
             ));
         }
         nodes.push(RawSemanticNodeV2 {
-            node_id: node.node_id,
+            node_id: node.node_id.0,
             schema_version: node.schema_version,
             node_tag: node.node_tag,
             semantic_form: node.semantic_form,
-            semantic_type: node.semantic_type,
-            dependencies: node.dependencies,
+            semantic_type: node.semantic_type.0,
+            dependencies: node.dependencies.into_iter().map(|id| id.0).collect(),
             occurrences: node.occurrences,
             recursion_group: node.recursion_group,
             declaration: node.declaration.flatten(),
             owner: node.owner,
-            owner_model: node.owner_model,
+            owner_model: node.owner_model.map(|id| id.0),
             body,
         });
     }
