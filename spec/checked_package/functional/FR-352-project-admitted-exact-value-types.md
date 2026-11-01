@@ -41,7 +41,7 @@ admission authority.
   this input from that stage alongside the checked package. It is a trusted
   producer input, not a value minted or authenticated from arbitrary bytes by
   Contract IR; a caller-created table has no authoritative status.
-- For an admitted state operation anchor, a QSL checking/model stage
+- For an admitted model-owned state operation anchor, a QSL checking/model stage
   `SelectedOperationMemberRow` from the same selected documents. The row
   carries the full anchor `CheckedNodeId`, selected domain document identity,
   declaring model's original IR identity and closed declaration form, the
@@ -64,11 +64,15 @@ remain trusted producer facts: IR cannot derive their provenance from their
 payloads.
 
 The QSL-facing operation-member acquisition interface SHALL emit one row per
-selected admitted anchor, including distinct admitted execution points for
-one operation. It SHALL NOT use a matching operation name alone to identify a
+selected admitted model-owned anchor, including distinct admitted execution
+points for one operation. It SHALL NOT use a matching operation name alone to identify a
 selected member. The operation-member rows are a separate stage-row kind;
 the current `SelectedExactIdentities` declaration and field rows do not
-contain them.
+contain them. A source-declared anchor whose context is not a selected model
+declaration has no FR-040 model member and SHALL NOT be assigned a model-member
+row. The callable view SHALL return a typed unavailable-witness outcome for
+that anchor until the QSL source stage supplies a distinct source-operation
+identity witness.
 
 ## Outputs
 
@@ -94,13 +98,15 @@ document identity, model form, original model identity, and original operation
 member identity with the admission-retained selected model table. It SHALL
 reject a foreign or dangling anchor, a member of another selected model,
 wrong declaration form, absent member, or competing rows for one anchor
-before exposing a selected operation read. Two admitted anchors for one
+before exposing a selected operation read. Two admitted model-owned anchors for one
 operation at distinct execution points MAY carry the same selected operation
 identity; the anchor identity distinguishes their rows. Contract IR SHALL
 NOT infer the stage identity from an operation display name, parse source
 again, or construct a QSL operation checker. The callable read of
 [FR-354](./FR-354-project-admitted-runtime-context.md) consumes this joined
 row and returns a typed refusal while the QSL stage does not supply it.
+Contract IR SHALL NOT match a source-declared anchor to a model operation
+member because their names happen to agree.
 
 The projection SHALL resolve the requested node through the admitted package's
 structural-key lookup, then its retained `semantic_type` and selected declaration
@@ -182,7 +188,7 @@ AC-6 and AC-11; this projection alone does not satisfy those criteria.
 | FR-352-AC-7 | Repeated reads of one admitted package and its clone return equal complete values or equal typed outcomes. A nested or cyclic type either completes within the finite limit or reports typed exhaustion with the charged work and locus; no call reparses wire/source, grows the call stack with type depth, or grants admission to an unadmitted fixture. | Test |
 | FR-352-AC-8 | The public-item and dependency inventories show the projection in `quire-contract-model`, its cycle-free dependency on `quire-exact`, and no QSL checked-expression constructor, checker, evaluator or mirror expression type in IR; Exact has no IR admission dependency. QSL FR-390 AC-6 and AC-11 remain separately verified in QSL. | Test |
 | FR-352-AC-9 | A QSL-side selected-model identity producer supplies `SelectedExactIdentities` alongside a checked package; an external caller passes it to the public projection API. The IR join accepts identities only for matching admitted selected-document, declaration form and original IR declaration or field identities. Absent, conflicting, foreign-document and wrong-form entries return the named typed outcome; a caller-supplied bare `NodeKey`, `EffectiveId`, `MemberId`, or node-name pair cannot enter the projection as an authoritative witness. | Test, Inspection |
-| FR-352-AC-10 | A QSL-stage `SelectedOperationMemberRow` for an admitted operation anchor joins its full structural node, selected document, declaring model form and original model/operation member identities to the selected operation identity; the FR-354 callable read uses the joined row to find the admitted body and frame. Two admitted anchors of one operation at distinct execution points remain distinct rows. A missing row, wrong document/form/member, foreign anchor, duplicate conflicting row, or name-only match returns a named typed outcome without a callable view; no new QSpec wire member or invented Exact operation key is used. | Test, Inspection |
+| FR-352-AC-10 | A QSL-stage `SelectedOperationMemberRow` for an admitted model-owned operation anchor joins its full structural node, selected document, declaring model form and original model/operation member identities to the selected operation identity; the FR-354 callable read uses the joined row to find the admitted body and frame. Two admitted anchors of one operation at distinct execution points remain distinct rows. A missing row, wrong document/form/member, foreign anchor, duplicate conflicting row, or name-only match returns a named typed outcome without a callable view. A source-declared anchor with no selected model member returns typed unavailable-witness rather than accepting a same-name model-member row; no new QSpec wire member or invented Exact operation key is used. | Test, Inspection |
 
 ## Dependencies
 
