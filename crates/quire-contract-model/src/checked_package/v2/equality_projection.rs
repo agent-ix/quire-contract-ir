@@ -16,7 +16,8 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
 use quire_exact::{
-    Integer, IntegerInterval, LimitKind, Location, Meter, NodeKey, ScalarLimits, UnitId, ValueType,
+    Integer, IntegerInterval, LimitKind, Location, Meter, NodeKey, ScalarLimits, TextProfile,
+    TextType, UnitId, ValueType,
 };
 use quire_semantic_value::declaration::{
     AdmittedEqualityDecision, EqualityDecisionDescriptor, EqualityOperand, EqualityOperator,
@@ -54,12 +55,70 @@ fn argument_type(
     }
 }
 
+fn argument_types(
+    argument: &CheckedTerm,
+    wire: &RawCheckedPackageWireV2,
+    kinds: &[CheckedNodeKind],
+    terms: &[CheckedTerm],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<(CheckedNodeId, Option<CheckedNodeId>)> {
+    let compared = argument_type(argument, wire, kinds, index)?;
+    let CheckedTerm::Reference { target } = argument else {
+        return Some((compared, None));
+    };
+    let position = *index.get(target)?;
+    let Some(CheckedTerm::Application {
+        operation,
+        arguments,
+        ..
+    }) = terms.get(position)
+    else {
+        return Some((compared, None));
+    };
+    if !matches!(
+        operation.identity(),
+        Some("quire.op.numeric.convert" | "quire.op.quantity.convert")
+    ) {
+        return Some((compared, None));
+    }
+    let [source] = arguments.as_slice() else {
+        return None;
+    };
+    Some((argument_type(source, wire, kinds, index)?, Some(compared)))
+}
+
 fn invalid(path: JsonPointer) -> ValidationFailure {
     ValidationFailure::refused_because(
         CheckedPackageRefusalCode::InvalidPackage,
         path,
         CheckedPackageRefusalCause::InvalidValue,
     )
+}
+
+fn text_bounds(term: &CheckedTerm) -> Option<(&str, &str, &str)> {
+    fn bound<'a>(term: &'a CheckedTerm, expected: &str) -> Option<&'a str> {
+        let CheckedTerm::Binding { name, value } = term else {
+            return None;
+        };
+        if name.as_ref() != expected {
+            return None;
+        }
+        let CheckedTerm::Literal { value, .. } = value.as_ref() else {
+            return None;
+        };
+        value.as_str()
+    }
+    let CheckedTerm::Aggregate { members } = term else {
+        return None;
+    };
+    let [min, max, profile] = members.as_slice() else {
+        return None;
+    };
+    Some((
+        bound(min, "min")?,
+        bound(max, "max")?,
+        bound(profile, "text_profile")?,
+    ))
 }
 
 fn equality_operator(identity: &str) -> Option<CheckedEqualityOperator> {
@@ -160,13 +219,17 @@ pub(super) fn validate(
             if usize::from(operand.operand) != ordinal {
                 return Err(invalid(at.key("operand")));
             }
-            if arguments
+            let Some((source_type, conversion_target)) = arguments
                 .get(ordinal)
-                .and_then(|argument| argument_type(argument, wire, kinds, &index))
-                .as_ref()
-                != Some(&operand.source_type)
-            {
+                .and_then(|argument| argument_types(argument, wire, kinds, terms, &index))
+            else {
                 return Err(invalid(at.key("source_type")));
+            };
+            if source_type != operand.source_type {
+                return Err(invalid(at.key("source_type")));
+            }
+            if conversion_target != operand.conversion_target {
+                return Err(invalid(at.key("conversion_target")));
             }
         }
     }
@@ -418,6 +481,34 @@ fn exact_type(
                 missing_witness(application, type_id, EqualityWitnessKind::PlanType, work)
             })?;
             Ok(ValueType::Int(interval))
+        }
+        CheckedNodeKind::BoundedDomain(BoundedDomainForm::TextBounds) => {
+            let (min, max, profile) =
+                package.term(type_id).and_then(text_bounds).ok_or_else(|| {
+                    missing_witness(application, type_id, EqualityWitnessKind::TextType, work)
+                })?;
+            let bytes = min
+                .len()
+                .saturating_add(max.len())
+                .saturating_add(profile.len());
+            work.charge_amount(
+                application,
+                type_id,
+                u64::try_from(bytes).unwrap_or(u64::MAX),
+            )?;
+            let min = min.parse().map_err(|_| {
+                missing_witness(application, type_id, EqualityWitnessKind::TextType, work)
+            })?;
+            let max = max.parse().map_err(|_| {
+                missing_witness(application, type_id, EqualityWitnessKind::TextType, work)
+            })?;
+            let profile = TextProfile::from_code(profile).ok_or_else(|| {
+                missing_witness(application, type_id, EqualityWitnessKind::TextType, work)
+            })?;
+            let text = TextType::new(min, max, profile).map_err(|_| {
+                missing_witness(application, type_id, EqualityWitnessKind::TextType, work)
+            })?;
+            Ok(ValueType::Text(text))
         }
         other => {
             let witness = match other {

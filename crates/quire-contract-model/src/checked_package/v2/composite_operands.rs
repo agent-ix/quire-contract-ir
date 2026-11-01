@@ -1209,7 +1209,10 @@ fn closed_literal(
 mod tests {
     use super::super::CheckedOccurrenceRole;
     use super::*;
-    use crate::{CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2ReadResult};
+    use crate::{
+        CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCode,
+        CheckedPackageV2ReadResult,
+    };
     use ix_trace_rs::trace;
     use serde_json::json;
     use std::sync::OnceLock;
@@ -1365,6 +1368,338 @@ mod tests {
             "protocol_locations":[],"dispatch_tables":[]
         });
         wire
+    }
+
+    fn converted_integer_equality_wire() -> Value {
+        let mut wire = boolean_equality_wire();
+        let ids = &fixture().1;
+        let converted = json!({"package":"composite","path":["fixture","converted"],"ordinal":0});
+        for position in [4, 7] {
+            wire["semantic_graph"]["nodes"][position]["semantic_type"] = json!(ids[&'2']);
+        }
+        wire["semantic_graph"]["nodes"][5]["body"]["operation"]["identity"] =
+            json!("quire.op.integer.eq");
+        wire["semantic_graph"]["nodes"][5]["body"]["arguments"][0] =
+            json!({"term":"reference","target":converted});
+        wire["semantic_graph"]["nodes"][5]["body"]["arguments"][1] =
+            json!({"term":"reference","target":ids[&'8']});
+        let converted_id: CheckedNodeId =
+            serde_json::from_value(converted.clone()).expect("conversion id");
+        let mut dependencies = vec![converted_id, ids[&'8'].clone()];
+        dependencies.sort();
+        wire["semantic_graph"]["nodes"][5]["dependencies"] = json!(dependencies);
+        wire["checked_term_data"]["equality_decisions"][0]["left"]["source_type"] =
+            json!(ids[&'2']);
+        wire["checked_term_data"]["equality_decisions"][0]["left"]["conversion_target"] =
+            json!(ids[&'2']);
+        wire["checked_term_data"]["equality_decisions"][0]["right"]["source_type"] =
+            json!(ids[&'2']);
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id":converted,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"expression","semantic_form":"unary","semantic_type":ids[&'2'],
+                "dependencies":[ids[&'5'],ids[&'2']],
+                "occurrences":[{"role":"expression","ordinal":0}],
+                "body":{"term":"application","operator":"convert",
+                    "operation":{"identity":"quire.op.numeric.convert","laws":[],"mode":null,
+                        "member":{"kind":"type_argument","declaration":ids[&'2']},"leaves":[]},
+                    "result_type":ids[&'2'],
+                    "arguments":[{"term":"reference","target":ids[&'5']}]}
+            }));
+        let source = wire["lock"]["sources"][0].clone();
+        wire["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(json!({
+                "node_id":converted,"role":"expression","ordinal":0,
+                "regions":[{"source":source,"start":9,"end":10}]
+            }));
+        wire
+    }
+
+    fn converted_decimal_equality_wire() -> Value {
+        let mut wire = converted_integer_equality_wire();
+        let integer = json!(fixture().1[&'2']);
+        let text = json!(fixture().1[&'3']);
+        let decimal = json!({"package":"composite","path":["scalar_type","decimal"],"ordinal":0});
+        let bounded =
+            json!({"package":"composite","path":["bounded_domain","decimal_range"],"ordinal":0});
+        let empty = json!({"term":"aggregate","members":[]});
+        let bound = |name: &str, ty: &Value, kind: &str, value: &str| {
+            json!({
+                "term":"binding","name":name,
+                "value":{"term":"literal","type":ty,"value_kind":kind,"value":value}
+            })
+        };
+        let nodes = wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        nodes.push(json!({
+            "node_id":decimal,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"scalar_type","semantic_form":"decimal","semantic_type":decimal,
+            "dependencies":[],"occurrences":[{"role":"type","ordinal":0}],"body":empty
+        }));
+        nodes.push(json!({
+            "node_id":bounded,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"bounded_domain","semantic_form":"decimal_range","semantic_type":decimal,
+            "dependencies":[],"occurrences":[{"role":"type","ordinal":0}],
+            "body":{"term":"aggregate","members":[
+                bound("coefficient_min",&integer,"integer","-100"),
+                bound("coefficient_max",&integer,"integer","100"),
+                bound("scale_min",&integer,"integer","0"),
+                bound("scale_max",&integer,"integer","0"),
+                bound("rounding",&text,"text","nearest-even")
+            ]}
+        }));
+        nodes[7]["semantic_type"] = bounded.clone();
+        nodes[9]["semantic_type"] = bounded.clone();
+        nodes[9]["body"]["result_type"] = bounded.clone();
+        nodes[9]["body"]["operation"]["member"]["declaration"] = bounded.clone();
+        nodes[9]["dependencies"] = json!([bounded, fixture().1[&'5']]);
+        nodes[5]["body"]["operation"]["identity"] = json!("quire.op.decimal.eq");
+        wire["checked_term_data"]["equality_decisions"][0]["left"]["conversion_target"] =
+            bounded.clone();
+        wire["checked_term_data"]["equality_decisions"][0]["right"]["source_type"] =
+            bounded.clone();
+        let source = wire["lock"]["sources"][0].clone();
+        for (position, id) in [(10, decimal), (11, bounded)] {
+            wire["source_map"]
+                .as_array_mut()
+                .expect("source map")
+                .push(json!({
+                    "node_id":id,"role":"type","ordinal":0,
+                    "regions":[{"source":source,"start":position,"end":position+1}]
+                }));
+        }
+        wire
+    }
+
+    fn bounded_text_equality_wire() -> Value {
+        use super::super::operation_catalog::operation_catalog;
+        use super::super::LawRole;
+
+        let mut wire = boolean_equality_wire();
+        let ids = &fixture().1;
+        let bounded =
+            json!({"package":"composite","path":["bounded_domain","text_bounds"],"ordinal":0});
+        let definition = serde_json::to_value(
+            &operation_catalog()
+                .law_role_definitions(LawRole::TextProfile)
+                .expect("text profile law")[0],
+        )
+        .expect("law definition");
+        wire["lock"]["definition_selections"] = json!([definition]);
+        let literal = |ty: &CheckedNodeId, kind: &str, value: &str| {
+            json!({
+                "term":"literal","type":ty,"value_kind":kind,"value":value
+            })
+        };
+        let binding =
+            |name: &str, value: Value| json!({"term":"binding","name":name,"value":value});
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id":bounded,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"bounded_domain","semantic_form":"text_bounds","semantic_type":ids[&'3'],
+                "dependencies":[],"occurrences":[{"role":"type","ordinal":0}],
+                "body":{"term":"aggregate","members":[
+                    binding("min",literal(&ids[&'2'],"integer","0")),
+                    binding("max",literal(&ids[&'2'],"integer","8")),
+                    binding("text_profile",literal(&ids[&'3'],"text","nfc"))
+                ]}
+            }));
+        for position in [4, 7] {
+            wire["semantic_graph"]["nodes"][position]["semantic_type"] = bounded.clone();
+        }
+        wire["semantic_graph"]["nodes"][5]["body"]["operation"] = json!({
+            "identity":"quire.op.text.eq",
+            "laws":[{"role":"text_profile","definition":definition}],
+            "mode":{"kind":"text_profile","value":"nfc"},"member":null,"leaves":[]
+        });
+        wire["semantic_graph"]["nodes"][5]["body"]["arguments"] = json!([
+            {"term":"reference","target":ids[&'5']},
+            {"term":"reference","target":ids[&'8']}
+        ]);
+        wire["semantic_graph"]["nodes"][5]["dependencies"] = json!([ids[&'5'], ids[&'8']]);
+        for side in ["left", "right"] {
+            wire["checked_term_data"]["equality_decisions"][0][side]["source_type"] =
+                bounded.clone();
+        }
+        wire["checked_term_data"]["equality_decisions"][0]["schedule"] = json!("text");
+        let source = wire["lock"]["sources"][0].clone();
+        wire["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(json!({
+                "node_id":bounded,"role":"type","ordinal":0,
+                "regions":[{"source":source,"start":9,"end":10}]
+            }));
+        wire
+    }
+
+    /// Trace: FR-353-AC-7.
+    #[test]
+    fn bounded_text_equality_names_missing_text_identity() {
+        use quire_exact::{Location, NodeKey, Origin, PathSegment, Role};
+
+        let wire = bounded_text_equality_wire();
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("bounded Text equality must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = super::super::CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("text-equality".into())],
+            0,
+        )
+        .expect("original key");
+        let row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).expect("source row"),
+            original.clone(),
+            Location::new(original, Origin::new(Role::from("expression"), 0)),
+        );
+        let missing = package
+            .admitted_equality(&application, &occurrence, &[row], &[], 1000)
+            .expect_err("Text identity row remains required");
+        assert_eq!(
+            missing.code,
+            super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityWitness
+        );
+        assert_eq!(
+            missing.witness,
+            Some(super::super::EqualityWitnessKind::TextType)
+        );
+        assert_eq!(
+            *missing.at,
+            serde_json::from_value(
+                wire["checked_term_data"]["equality_decisions"][0]["left"]["source_type"].clone()
+            )
+            .expect("Text node")
+        );
+    }
+
+    /// Trace: FR-353-AC-2.
+    #[test]
+    fn converted_plan_equality_joins_original_source_and_selected_target() {
+        let wire = converted_decimal_equality_wire();
+        let admitted = CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        );
+        assert!(
+            matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+            "converted equality must admit: {admitted:?}"
+        );
+
+        let mut wrong_target = wire;
+        wrong_target["checked_term_data"]["equality_decisions"][0]["left"]["conversion_target"] =
+            json!(fixture().1[&'1']);
+        let refused = CheckedPackageV2::read(
+            &serde_json::to_vec(&wrong_target).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        );
+        let CheckedPackageV2ReadResult::Refused(refusal) = refused else {
+            panic!("mismatched conversion target must refuse: {refused:?}");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+        assert_eq!(
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("/checked_term_data/equality_decisions/0/left/conversion_target")
+        );
+    }
+
+    /// Trace: FR-353-AC-7.
+    #[test]
+    fn non_text_bounded_decimal_retains_plan_witness_refusal() {
+        use quire_exact::{Location, NodeKey, Origin, PathSegment, Role};
+
+        let wire = converted_decimal_equality_wire();
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("converted Decimal package must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("decimal-equality".into())],
+            0,
+        )
+        .expect("original key");
+        let row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).expect("source row"),
+            original.clone(),
+            Location::new(original, Origin::new(Role::from("expression"), 0)),
+        );
+        let missing = package
+            .admitted_equality(&application, &occurrence, &[row], &[], 1000)
+            .expect_err("Decimal bounds need a Plan witness");
+        assert_eq!(
+            missing.code,
+            super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityWitness
+        );
+        assert_eq!(
+            missing.witness,
+            Some(super::super::EqualityWitnessKind::PlanType)
+        );
+        assert_eq!(
+            *missing.at,
+            serde_json::from_value(
+                wire["checked_term_data"]["equality_decisions"][0]["left"]["conversion_target"]
+                    .clone()
+            )
+            .expect("Decimal bound node")
+        );
+    }
+
+    /// Trace: FR-353-AC-2.
+    #[test]
+    fn unconverted_integer_equality_keeps_its_null_target() {
+        let mut wire = converted_integer_equality_wire();
+        let ids = &fixture().1;
+        wire["semantic_graph"]["nodes"][5]["body"]["arguments"][0] =
+            json!({"term":"reference","target":ids[&'5']});
+        wire["semantic_graph"]["nodes"][5]["dependencies"] = json!([ids[&'5'], ids[&'8']]);
+        wire["checked_term_data"]["equality_decisions"][0]["left"]["conversion_target"] =
+            Value::Null;
+        let admitted = CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        );
+        assert!(
+            matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+            "unconverted integer equality must admit: {admitted:?}"
+        );
     }
 
     /// Trace: FR-353-AC-2, FR-353-AC-3, FR-353-AC-4.
