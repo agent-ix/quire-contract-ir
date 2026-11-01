@@ -463,7 +463,11 @@ pub(super) fn check_wire(
                         name: "binders",
                         value,
                     }) => {
-                        references(value, &at.clone().key("members").index(1).key("value"))?;
+                        let binders_at = at.clone().key("members").index(1).key("value");
+                        if aggregate(value, &binders_at)?.is_empty() {
+                            return Err(malformed(binders_at.key("members")));
+                        }
+                        references(value, &binders_at)?;
                         2
                     }
                     _ => 1,
@@ -492,6 +496,9 @@ pub(super) fn check_wire(
             };
             reference(b[0].0, &b[0].1)?;
             if quantified {
+                if aggregate(b[1].0, &b[1].1)?.is_empty() {
+                    return Err(malformed(b[1].1.clone().key("members")));
+                }
                 references(b[1].0, &b[1].1)?;
             }
             let bounds_index = if quantified { 2 } else { 1 };
@@ -1401,20 +1408,24 @@ fn check_quantified_binders(
     binders: Option<&CheckedTerm>,
     at: JsonPointer,
     slots: &[&CheckedNodeId],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let Some(binders) = binders else {
         return Ok(());
     };
+    let mut slot_positions = BTreeMap::new();
+    for (index, slot) in slots.iter().enumerate() {
+        meter.charge(1, || at.clone())?;
+        slot_positions.entry(*slot).or_insert(index);
+    }
     let mut previous_slot = None;
     for (index, binder) in typed_members(binders).iter().enumerate() {
         let binder_at = at.clone().key("members").index(index).key("target");
+        meter.charge(1, || binder_at.clone())?;
         let target = graph.target(position, Some(binder), binder_at.clone(), |kind| {
             kind == CheckedNodeKind::Value(ValueForm::Parameter)
         })?;
-        let Some(slot_index) = slots
-            .iter()
-            .position(|slot| *slot == &graph.nodes[target].node_id)
-        else {
+        let Some(&slot_index) = slot_positions.get(&graph.nodes[target].node_id) else {
             return Err(graph.issue(
                 position,
                 CheckedPackageRefusalCause::TimedNodeReference,
@@ -2369,6 +2380,7 @@ pub(super) fn validate_models<'a>(
                             bound(part, 1),
                             at.key("members").index(1).key("value"),
                             &slots,
+                            meter,
                         )?;
                     }
                 }
@@ -2416,6 +2428,7 @@ pub(super) fn validate_models<'a>(
                         bound(body, 1),
                         binding_at(position, 1),
                         &slots,
+                        meter,
                     )?;
                 }
             }

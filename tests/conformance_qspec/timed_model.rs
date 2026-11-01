@@ -388,8 +388,8 @@ fn timed_clause_published_vectors_match_reader() {
     for (ordinal, case) in cases.iter().enumerate() {
         let id = case["id"].as_str().expect("clause case id");
         assert_eq!(id, format!("CL-{:02}", ordinal + 1));
-        // Schema-invalid controls CL-55 and CL-61 have no reader obligation.
-        if matches!(id, "CL-55" | "CL-61") {
+        // CL-61 has no reader expectation; CL-55 retains its schema-refusal assertion.
+        if id == "CL-61" {
             assert_eq!(case["schema"], "invalid", "{id}: schema-only control");
             continue;
         }
@@ -403,10 +403,39 @@ fn timed_clause_published_vectors_match_reader() {
             .expect("selected clause package read");
         match (case["expected"].as_str(), actual) {
             (Some("admitted"), CheckedPackageV2ReadResult::Admitted(package)) => {
+                let encoded: Value = serde_json::from_slice(&encode_package(&package))
+                    .expect("admitted clause writer JSON");
+                assert_eq!(
+                    encoded, candidate,
+                    "{id}: clause body and identity retention"
+                );
                 if matches!(id, "CL-57" | "CL-59") {
-                    let encoded: Value = serde_json::from_slice(&encode_package(&package))
-                        .expect("quantified clause writer JSON");
-                    assert_eq!(encoded, candidate, "{id}: quantified binder wire retention");
+                    let binder_members = if id == "CL-57" {
+                        "/semantic_graph/nodes/47/body/members/1/value/members/0/members/1/value/members"
+                    } else {
+                        "/semantic_graph/nodes/87/body/members/1/value/members"
+                    };
+                    let mut empty_binders = candidate.clone();
+                    *empty_binders
+                        .pointer_mut(binder_members)
+                        .expect("published quantified binders") = json!([]);
+                    let CheckedPackageV2ReadResult::Refused(refusal) =
+                        read_package_with_document(&empty_binders, id, &document)
+                            .expect("empty binder package read")
+                    else {
+                        panic!("{id}: explicit empty binders must refuse")
+                    };
+                    assert_eq!(refusal.code, Code::MalformedWire, "{id}: empty binders");
+                    assert_eq!(refusal.cause, None, "{id}: empty binder cause");
+                    assert_eq!(
+                        refusal.loci[0]
+                            .path
+                            .as_ref()
+                            .map(ToString::to_string)
+                            .as_deref(),
+                        Some(binder_members),
+                        "{id}: empty binder locus"
+                    );
                 }
             }
             (
@@ -424,6 +453,14 @@ fn timed_clause_published_vectors_match_reader() {
                         case["expected_cause"].as_str(),
                         "{id}"
                     );
+                    if matches!(id, "CL-58" | "CL-60" | "CL-62") {
+                        let node_index = if id == "CL-60" { 87 } else { 47 };
+                        let node_id: CheckedNodeId = serde_json::from_value(
+                            candidate["semantic_graph"]["nodes"][node_index]["node_id"].clone(),
+                        )
+                        .expect("published timed node identity");
+                        assert_eq!(refusal.locus, Some(node_id), "{id}: timed node locus");
+                    }
                     assert_eq!(
                         refusal.loci[0]
                             .path
