@@ -2,6 +2,7 @@
 //! Public-reader qualification of the owner's complete selected timed-slot package.
 
 use super::*;
+use std::collections::BTreeSet;
 
 fn read_selected(wire: &Value, id: &str, fixtures: &Path) -> CheckedPackageV2ReadResult {
     read_package_with_document(
