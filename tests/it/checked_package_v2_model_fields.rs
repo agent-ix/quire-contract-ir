@@ -792,7 +792,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     )
     .expect("selected rows join");
     let complete = admitted
-        .project_selected_runtime_types(&witnessed, 1000)
+        .project_selected_type_declarations(&witnessed, 1000)
         .expect("selected record/object view");
     assert_eq!(complete.records().len(), 1);
     assert_eq!(complete.records()[0].view().record_key(), &record_key);
@@ -830,7 +830,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     assert_eq!(
         admitted
             .clone()
-            .project_selected_runtime_types(&witnessed, 1000),
+            .project_selected_type_declarations(&witnessed, 1000),
         Ok(complete.clone())
     );
     assert!(complete.work() > 0);
@@ -856,7 +856,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     )
     .expect("represented rows still join");
     let unrepresented = incomplete_graph
-        .project_selected_runtime_types(&same_rows, 1000)
+        .project_selected_type_declarations(&same_rows, 1000)
         .expect_err("an unrepresented selected object refuses the whole view");
     assert_eq!(
         unrepresented.code,
@@ -867,7 +867,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
         SelectedExactIdentities::from_stage_rows(&admitted, [record_row, base_row], [record_field])
             .expect("other selected rows join");
     let refusal = admitted
-        .project_selected_runtime_types(&missing_child, 1000)
+        .project_selected_type_declarations(&missing_child, 1000)
         .expect_err("missing object witness refuses the whole view");
     assert_eq!(
         refusal.code,
@@ -875,7 +875,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     );
     assert_eq!(refusal.at.as_ref(), &child);
     let exhausted = admitted
-        .project_selected_runtime_types(&witnessed, 1)
+        .project_selected_type_declarations(&witnessed, 1)
         .expect_err("finite work limit is charged before a view exists");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(exhausted.work, 1);
@@ -915,7 +915,7 @@ fn selected_runtime_types_refuse_unprojected_object_redefinition() {
     let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, rows, [])
         .expect("selected object rows join");
     let error = admitted
-        .project_selected_runtime_types(&witnessed, 1000)
+        .project_selected_type_declarations(&witnessed, 1000)
         .expect_err("redefinition needs its own admitted join");
     assert_eq!(
         error.code,
@@ -949,7 +949,7 @@ fn selected_runtime_types_refuse_tuple_without_stage_identity() {
     let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, [], [])
         .expect("no supplied row can witness a tuple yet");
     let error = admitted
-        .project_selected_runtime_types(&witnessed, 1000)
+        .project_selected_type_declarations(&witnessed, 1000)
         .expect_err("a tuple cannot produce a partial environment view");
     assert_eq!(
         error.code,
@@ -1055,7 +1055,7 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         other => panic!("selected declared unit fixture must admit: {other:?}"),
     };
     let runtime_refusal = admitted
-        .project_selected_runtime_types(&SelectedExactIdentities::empty(), 1000)
+        .project_selected_type_declarations(&SelectedExactIdentities::empty(), 1000)
         .expect_err("a unit-bearing package cannot claim a complete runtime type view yet");
     assert_eq!(
         runtime_refusal.code,

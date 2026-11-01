@@ -15,14 +15,14 @@ use std::collections::BTreeMap;
 
 /// One admitted effective object field in selected declaration order.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SelectedRuntimeObjectField {
+pub struct SelectedTypeObjectField {
     original_identity: Box<str>,
     name: Box<str>,
     value_type: ValueType,
     presence: Presence,
 }
 
-impl SelectedRuntimeObjectField {
+impl SelectedTypeObjectField {
     /// The selected document's original field identity.
     pub fn original_identity(&self) -> &str {
         &self.original_identity
@@ -46,15 +46,15 @@ impl SelectedRuntimeObjectField {
 
 /// One selected object declaration and its complete effective fields.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SelectedRuntimeObject {
+pub struct SelectedTypeObject {
     original_identity: Box<str>,
     effective_id: EffectiveId,
     supertypes: Vec<EffectiveId>,
-    declared_fields: Vec<SelectedRuntimeObjectField>,
-    fields: Vec<SelectedRuntimeObjectField>,
+    declared_fields: Vec<SelectedTypeObjectField>,
+    fields: Vec<SelectedTypeObjectField>,
 }
 
-impl SelectedRuntimeObject {
+impl SelectedTypeObject {
     /// The original declaration identity in its selected document.
     pub fn original_identity(&self) -> &str {
         &self.original_identity
@@ -71,25 +71,25 @@ impl SelectedRuntimeObject {
     }
 
     /// This declaration's own fields in authored order.
-    pub fn declared_fields(&self) -> &[SelectedRuntimeObjectField] {
+    pub fn declared_fields(&self) -> &[SelectedTypeObjectField] {
         &self.declared_fields
     }
 
     /// Every effective field in selected declaration order.
-    pub fn fields(&self) -> &[SelectedRuntimeObjectField] {
+    pub fn fields(&self) -> &[SelectedTypeObjectField] {
         &self.fields
     }
 }
 
 /// One selected record declaration with its complete Exact view and parents.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SelectedRuntimeRecord {
+pub struct SelectedTypeRecord {
     original_identity: Box<str>,
     view: SelectedRecordView,
     supertypes: Vec<NodeKey>,
 }
 
-impl SelectedRuntimeRecord {
+impl SelectedTypeRecord {
     /// The original declaration identity in its selected document.
     pub fn original_identity(&self) -> &str {
         &self.original_identity
@@ -112,20 +112,20 @@ impl SelectedRuntimeRecord {
 /// unit producer witnesses refuses until those rows and their projections are
 /// available; this view never reconstructs that missing authority.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SelectedRuntimeTypes {
-    records: Vec<SelectedRuntimeRecord>,
-    objects: Vec<SelectedRuntimeObject>,
+pub struct SelectedTypeDeclarations {
+    records: Vec<SelectedTypeRecord>,
+    objects: Vec<SelectedTypeObject>,
     work: u64,
 }
 
-impl SelectedRuntimeTypes {
+impl SelectedTypeDeclarations {
     /// Selected records in structural identity order.
-    pub fn records(&self) -> &[SelectedRuntimeRecord] {
+    pub fn records(&self) -> &[SelectedTypeRecord] {
         &self.records
     }
 
     /// Selected objects in structural identity order.
-    pub fn objects(&self) -> &[SelectedRuntimeObject] {
+    pub fn objects(&self) -> &[SelectedTypeObject] {
         &self.objects
     }
 
@@ -138,7 +138,7 @@ impl SelectedRuntimeTypes {
 /// A typed refusal with the first failing admitted node and charged work.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 #[error("selected runtime type projection refused: {code:?} at {form}")]
-pub struct SelectedRuntimeTypesError {
+pub struct SelectedTypeDeclarationsError {
     /// Stable refusal category shared with Exact type projection.
     pub code: ExactTypeProjectionErrorCode,
     /// The first node whose selected type could not be projected.
@@ -149,7 +149,7 @@ pub struct SelectedRuntimeTypesError {
     pub work: u64,
 }
 
-impl SelectedRuntimeTypesError {
+impl SelectedTypeDeclarationsError {
     fn at(
         code: ExactTypeProjectionErrorCode,
         at: &CheckedNodeId,
@@ -179,9 +179,9 @@ fn charge(
     limit: u64,
     at: &CheckedNodeId,
     form: &str,
-) -> Result<(), SelectedRuntimeTypesError> {
+) -> Result<(), SelectedTypeDeclarationsError> {
     if *work >= limit {
-        return Err(SelectedRuntimeTypesError::at(
+        return Err(SelectedTypeDeclarationsError::at(
             ExactTypeProjectionErrorCode::ExhaustedWork,
             at,
             form,
@@ -199,9 +199,9 @@ fn projected_field_type(
     optional: bool,
     at: &CheckedNodeId,
     work: u64,
-) -> Result<ValueType, SelectedRuntimeTypesError> {
+) -> Result<ValueType, SelectedTypeDeclarationsError> {
     let member_type = member_type.ok_or_else(|| {
-        SelectedRuntimeTypesError::at(
+        SelectedTypeDeclarationsError::at(
             ExactTypeProjectionErrorCode::UnsupportedExactType,
             at,
             "object_field_type",
@@ -212,7 +212,7 @@ fn projected_field_type(
         match member_type {
             MemberType::Option(inner) => inner.as_ref(),
             _ => {
-                return Err(SelectedRuntimeTypesError::at(
+                return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnsupportedExactType,
                     at,
                     "object_field_presence",
@@ -224,7 +224,7 @@ fn projected_field_type(
         member_type
     };
     project_record_field_type(package, identities, member_type).map_err(|(code, target)| {
-        SelectedRuntimeTypesError::at(
+        SelectedTypeDeclarationsError::at(
             code,
             target.as_ref().unwrap_or(at),
             "object_field_type",
@@ -242,11 +242,11 @@ impl CheckedPackageV2 {
     /// rows and the admitted unit resolver. Identity rows must originate from
     /// the stage selecting the same documents; IR checks their structural join
     /// but cannot authenticate an opaque Exact key supplied by another caller.
-    pub fn project_selected_runtime_types(
+    pub fn project_selected_type_declarations(
         &self,
         identities: &SelectedExactIdentities,
         work_limit: u64,
-    ) -> Result<SelectedRuntimeTypes, SelectedRuntimeTypesError> {
+    ) -> Result<SelectedTypeDeclarations, SelectedTypeDeclarationsError> {
         let mut work = 0;
         for (node, kind) in self.graph().nodes.iter().zip(self.node_kinds()) {
             charge(&mut work, work_limit, &node.node_id, "graph_node")?;
@@ -256,7 +256,7 @@ impl CheckedPackageV2 {
                     ScalarTypeForm::Unit | ScalarTypeForm::Enum | ScalarTypeForm::CompoundUnit
                 )
             ) {
-                return Err(SelectedRuntimeTypesError::at(
+                return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                     &node.node_id,
                     format!("{}/{}", node.node_tag, node.semantic_form),
@@ -275,7 +275,7 @@ impl CheckedPackageV2 {
                 )
                 .is_some()
             {
-                return Err(SelectedRuntimeTypesError::at(
+                return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
                     id,
                     "selected_declaration",
@@ -286,7 +286,7 @@ impl CheckedPackageV2 {
                 declaration.form,
                 DeclarationForm::TupleValueType | DeclarationForm::VariantType
             ) {
-                return Err(SelectedRuntimeTypesError::at(
+                return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                     id,
                     declaration.form.form(),
@@ -314,7 +314,7 @@ impl CheckedPackageV2 {
                 }
                 charge(&mut work, work_limit, root, "selected_document_type")?;
                 if !by_original.contains_key(&(selection, original.as_ref())) {
-                    return Err(SelectedRuntimeTypesError::at(
+                    return Err(SelectedTypeDeclarationsError::at(
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                         root,
                         "selected_document_type",
@@ -329,7 +329,7 @@ impl CheckedPackageV2 {
                 .next()
             {
                 charge(&mut work, work_limit, root, "selected_document_type")?;
-                return Err(SelectedRuntimeTypesError::at(
+                return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                     by_original
                         .get(&(selection, original.as_ref()))
@@ -340,7 +340,7 @@ impl CheckedPackageV2 {
             }
             if !model.units.is_empty() {
                 charge(&mut work, work_limit, root, "selected_unit")?;
-                return Err(SelectedRuntimeTypesError::at(
+                return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                     root,
                     "selected_unit",
@@ -353,7 +353,7 @@ impl CheckedPackageV2 {
         let mut objects = Vec::new();
         for (id, declaration) in self.models.selected_declarations() {
             let Some(model) = self.models.selected_models().get(declaration.selection) else {
-                return Err(SelectedRuntimeTypesError::at(
+                return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                     id,
                     "selected_model",
@@ -378,7 +378,7 @@ impl CheckedPackageV2 {
                 _ => continue,
             };
             let supertypes = supertypes.ok_or_else(|| {
-                SelectedRuntimeTypesError::at(
+                SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                     id,
                     declaration.form.form(),
@@ -392,7 +392,7 @@ impl CheckedPackageV2 {
                 let Some((parent_id, parent_form)) =
                     by_original.get(&(declaration.selection, original.as_ref()))
                 else {
-                    return Err(SelectedRuntimeTypesError::at(
+                    return Err(SelectedTypeDeclarationsError::at(
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                         id,
                         "selected_supertype",
@@ -400,7 +400,7 @@ impl CheckedPackageV2 {
                     ));
                 };
                 if *parent_form != expected_form {
-                    return Err(SelectedRuntimeTypesError::at(
+                    return Err(SelectedTypeDeclarationsError::at(
                         ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                         parent_id,
                         "selected_supertype",
@@ -411,7 +411,7 @@ impl CheckedPackageV2 {
                     identities
                         .declaration_identity(self, parent_id)
                         .map_err(|code| {
-                            SelectedRuntimeTypesError::at(
+                            SelectedTypeDeclarationsError::at(
                                 code,
                                 parent_id,
                                 "selected_supertype",
@@ -426,7 +426,7 @@ impl CheckedPackageV2 {
                         object_parents.push(key.clone());
                     }
                     _ => {
-                        return Err(SelectedRuntimeTypesError::at(
+                        return Err(SelectedTypeDeclarationsError::at(
                             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                             parent_id,
                             "selected_supertype",
@@ -440,17 +440,17 @@ impl CheckedPackageV2 {
                     let remaining = work_limit.saturating_sub(work);
                     let projection = self
                         .project_exact_type(id, identities, remaining)
-                        .map_err(|error| SelectedRuntimeTypesError::from_exact(error, work))?;
+                        .map_err(|error| SelectedTypeDeclarationsError::from_exact(error, work))?;
                     work = work.saturating_add(projection.work());
                     let view = projection.record_view().ok_or_else(|| {
-                        SelectedRuntimeTypesError::at(
+                        SelectedTypeDeclarationsError::at(
                             ExactTypeProjectionErrorCode::UnsupportedExactType,
                             id,
                             "record_value_type",
                             work,
                         )
                     })?;
-                    records.push(SelectedRuntimeRecord {
+                    records.push(SelectedTypeRecord {
                         original_identity: declaration.node.clone(),
                         view: view.clone(),
                         supertypes: record_parents,
@@ -459,7 +459,7 @@ impl CheckedPackageV2 {
                 DeclarationForm::ObjectType => {
                     charge(&mut work, work_limit, id, "object_type")?;
                     let declared = model.object_types.get(&declaration.node).ok_or_else(|| {
-                        SelectedRuntimeTypesError::at(
+                        SelectedTypeDeclarationsError::at(
                             ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                             id,
                             "object_type",
@@ -469,7 +469,7 @@ impl CheckedPackageV2 {
                     for field in &declared.fields {
                         charge(&mut work, work_limit, id, "declared_object_field")?;
                         if field.redefines.is_some() {
-                            return Err(SelectedRuntimeTypesError::at(
+                            return Err(SelectedTypeDeclarationsError::at(
                                 ExactTypeProjectionErrorCode::UnsupportedExactType,
                                 id,
                                 "object_field_redefinition",
@@ -479,11 +479,11 @@ impl CheckedPackageV2 {
                     }
                     let effective_id =
                         match identities.declaration_identity(self, id).map_err(|code| {
-                            SelectedRuntimeTypesError::at(code, id, "object_type", work)
+                            SelectedTypeDeclarationsError::at(code, id, "object_type", work)
                         })? {
                             SelectedExactIdentity::Object(key) => key.clone(),
                             _ => {
-                                return Err(SelectedRuntimeTypesError::at(
+                                return Err(SelectedTypeDeclarationsError::at(
                                     ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                                     id,
                                     "object_type",
@@ -493,7 +493,7 @@ impl CheckedPackageV2 {
                         };
                     let (ambiguous, fields) =
                         self.models.selected_object_fields(id).ok_or_else(|| {
-                            SelectedRuntimeTypesError::at(
+                            SelectedTypeDeclarationsError::at(
                                 ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                                 id,
                                 "object_type_fields",
@@ -501,7 +501,7 @@ impl CheckedPackageV2 {
                             )
                         })?;
                     if ambiguous.is_some() {
-                        return Err(SelectedRuntimeTypesError::at(
+                        return Err(SelectedTypeDeclarationsError::at(
                             ExactTypeProjectionErrorCode::UnsupportedExactType,
                             id,
                             "ambiguous_object_field",
@@ -519,7 +519,7 @@ impl CheckedPackageV2 {
                             id,
                             work,
                         )?;
-                        projected_fields.push(SelectedRuntimeObjectField {
+                        projected_fields.push(SelectedTypeObjectField {
                             original_identity: field.identity.into(),
                             name: field.name.into(),
                             value_type,
@@ -537,7 +537,7 @@ impl CheckedPackageV2 {
                             .insert(field.original_identity(), field)
                             .is_some()
                         {
-                            return Err(SelectedRuntimeTypesError::at(
+                            return Err(SelectedTypeDeclarationsError::at(
                                 ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
                                 id,
                                 "object_field_join",
@@ -550,7 +550,7 @@ impl CheckedPackageV2 {
                         charge(&mut work, work_limit, id, "declared_object_field")?;
                         let projected =
                             by_identity.get(field.identity.as_ref()).ok_or_else(|| {
-                                SelectedRuntimeTypesError::at(
+                                SelectedTypeDeclarationsError::at(
                                     ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                                     id,
                                     "declared_object_field",
@@ -559,7 +559,7 @@ impl CheckedPackageV2 {
                             })?;
                         declared_fields.push((*projected).clone());
                     }
-                    objects.push(SelectedRuntimeObject {
+                    objects.push(SelectedTypeObject {
                         original_identity: declaration.node.clone(),
                         effective_id,
                         supertypes: object_parents,
@@ -570,7 +570,7 @@ impl CheckedPackageV2 {
                 _ => unreachable!("selected runtime declaration form was checked"),
             }
         }
-        Ok(SelectedRuntimeTypes {
+        Ok(SelectedTypeDeclarations {
             records,
             objects,
             work,

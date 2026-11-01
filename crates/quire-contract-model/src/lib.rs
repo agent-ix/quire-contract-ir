@@ -203,10 +203,10 @@ pub use checked_package::{
     SelectedModelEnumError, SelectedModelEnumErrorCode, SelectedModelEnumMemberRow,
     SelectedModelEnums, SelectedOperationIdentity, SelectedOperationMemberError,
     SelectedOperationMemberErrorCode, SelectedOperationMemberRow, SelectedOperationMembers,
-    SelectedRecordFieldView, SelectedRecordView, SelectedRuntimeObject,
-    SelectedRuntimeObjectField, SelectedRuntimeRecord, SelectedRuntimeTypes,
-    SelectedRuntimeTypesError, SelectedSourceUnitRow, SelectedTupleDeclarationRow, StateForm,
-    TemporalForm, TimedModelForm, ValueForm, CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
+    SelectedRecordFieldView, SelectedRecordView, SelectedSourceUnitRow,
+    SelectedTupleDeclarationRow, SelectedTypeDeclarations, SelectedTypeDeclarationsError,
+    SelectedTypeObject, SelectedTypeObjectField, SelectedTypeRecord, StateForm, TemporalForm,
+    TimedModelForm, ValueForm, CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
 };
 
 pub use checked_package::CheckedFieldReadForm;

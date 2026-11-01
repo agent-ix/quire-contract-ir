@@ -110,8 +110,8 @@ pub use reaches_population::CheckedReachesPopulationError;
 pub use refinement::*;
 pub use relationship_end::{CheckedRelationshipEnd, CheckedRelationshipEndError};
 pub use runtime_type_projection::{
-    SelectedRuntimeObject, SelectedRuntimeObjectField, SelectedRuntimeRecord, SelectedRuntimeTypes,
-    SelectedRuntimeTypesError,
+    SelectedTypeDeclarations, SelectedTypeDeclarationsError, SelectedTypeObject,
+    SelectedTypeObjectField, SelectedTypeRecord,
 };
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
