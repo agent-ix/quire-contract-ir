@@ -301,6 +301,7 @@ impl<'de> Deserialize<'de> for CheckedFairnessTarget {
 }
 
 impl CheckedFairnessTarget {
+    #[ix_trace_rs::string_edge]
     fn from_validated_value(value: &Value) -> Option<Self> {
         let kind = value.get("kind")?.as_str()?;
         let declaration = || structural_member_id(value.get("declaration")?);
