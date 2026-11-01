@@ -9714,6 +9714,28 @@ fn with_protocol_fairness(mut package: Value, member: Value) -> (Value, usize) {
     let temporal_key = package["semantic_graph"]["nodes"][temporal]["node_id"].clone();
     require_temporal(&mut package, &[temporal_key]);
     settle_after_structural_rekey(&mut package);
+    if package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]["kind"]
+        == "protocol_root"
+    {
+        let clause = clause_position(&package);
+        let clause_key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
+        if package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]["node"]
+            == clause_key
+        {
+            // The root, requirement and fairness reference form one explicit SCC.
+            for (ordinal, position) in [(1, temporal), (2, fair)] {
+                let old = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+                let mut new = clause_key.clone();
+                new["ordinal"] = json!(ordinal);
+                reassign_node_id(&mut package, &old, &new);
+            }
+            for position in [clause, temporal, fair] {
+                package["semantic_graph"]["nodes"][position]["recursion_group"] =
+                    json!("protocol-fairness-cycle");
+            }
+            settle_after_structural_rekey(&mut package);
+        }
+    }
     (package, fair)
 }
 
@@ -9735,7 +9757,7 @@ fn typed_protocol_fairness_preserves_each_selected_target() {
             }
             "parallel_branch" => {
                 let (p, _) = protocol_holder_case("parallel");
-                let root = protocol_position(&p, "control");
+                let root = holder_position(&p);
                 member["target"]["branch"] = json!("Right");
                 (p, root)
             }
@@ -9826,7 +9848,7 @@ fn typed_protocol_fairness_checks_identity_then_kind_then_branch() {
         ),
     ] {
         let (package, _) = protocol_holder_case("parallel");
-        let root = protocol_position(&package, "control");
+        let root = holder_position(&package);
         let mut key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
         if case == "missing" {
             key["ordinal"] = json!(999);
