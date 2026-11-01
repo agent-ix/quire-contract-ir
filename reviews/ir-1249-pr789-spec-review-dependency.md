@@ -32,3 +32,13 @@ Checked the new QSpec references and implementation-state dependencies across th
 ## Evidence
 
 AC-269 and AC-274 both name IR-1249 for the same role-end comparison. AC-279's positive unbounded admission also depends on that comparison, before its IR-1141 projection outcome can be exercised.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head ed3b7d8b adds IR-1249 role-end comparand to AC-279's PLANNED/UNRUN label alongside IR-1141; the criterion's behavior and verification cell remain intact. |
+
+## Disposition verdict
+
+**PASS** — the sole dependency finding is fixed on the reviewed PR head.
