@@ -61,6 +61,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-282
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-299
+    type: references
   - target: ix://agent-ix/quire-specification/FR-342-AC-11
     type: references
   - target: ix://agent-ix/quire-specification/FR-415-AC-22
@@ -634,6 +636,24 @@ authored member names of an enum `NominalBody` through a read-only typed view.
 The view SHALL return no enum details for dimension, unit or dimension-equivalence
 bodies. It SHALL work on the body retained by an admitted V2 node, preserve
 member order and spelling, and grant no mutation or package-admission path.
+
+For a `scalar_type`/`dimension_equivalence` body, `dimension_node_ids` SHALL
+contain two typed operands in ascending resolved structural node-id order. A
+local operand SHALL be a `NodeRef` of a `scalar_type`/`dimension` node in the
+importing graph. A package operand SHALL be the closed
+`PackageNodeRef {package, node}` form, where `node` is a `DeclaredNodeId` of a
+`scalar_type`/`dimension` node in the named directly selected dependency's
+admitted package. The reader SHALL resolve a package operand by lookup in that
+dependency only; it SHALL NOT mint a foreign node into the importing graph or
+put that operand in the equivalence node's local `dependencies`. The writer and
+`NominalBody::try_dimension_equivalence` SHALL preserve the two operand forms
+as distinct typed values. The reader SHALL refuse a package operand naming an
+absent, closure-only or self dependency as `missing_declaration`/
+`missing-selection` at the operand's `/package`, and an absent declared node
+as `missing_declaration`/`missing-name` at its `/node`. A wrong-kind operand or
+a local `NodeRef` with a foreign package SHALL refuse `invalid_semantic_graph`
+at the operand itself. These joins precede equivalence pair validation; they
+do not relax the existing distinctness and ascending-order checks.
 
 - An application of any operator class other than `case` nested inside a node
   body or inside another term (an application's `arguments`, an `aggregate`'s
@@ -4566,6 +4586,9 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-384 | For the external temporal clause of AC-383, a compensation target not listed by any protocol clause, named in another package or naming a node of the wrong protocol form retains AC-103's missing-name or malformed-declaration refusal at the fairness target's `node` field, with the fairness node as locus. A fairness node omitted from every admitted temporal clause's fairness argument also refuses missing-name there even when its compensation target has a unique valid owner. A temporal clause listed in one protocol clause's `requirements` still refuses a compensation target owned only by another clause; the ownership join does not change the requirement association of protocol-root, attempt or parallel-branch fairness targets. | Test (TC-048) |
 | FR-038-AC-385 | The public V2 reader admits QSpec `timed-clause-node-vectors.json` cases `CL-57` and `CL-59`: a guard part and a time invariant each retain an ordered `binders` aggregate of typed slot-parameter references in the specified position. Existing unquantified `clock_guard` and `time_invariant` positive controls still admit with their original body and identity; no binder is dropped or interpreted as an unquantified approximation. | Test |
 | FR-038-AC-386 | The reader refuses QSpec cases `CL-58` (non-slot guard binder), `CL-60` (repeated invariant binder) and `CL-62` (reversed nested slot binders) with exactly `invalid_package`/`timed-node-reference` at each vector's first bad binder `target` RFC 6901 path and the containing timed node as locus. The test reads QSpec's proposal fixture and vectors by reference and compares the exact code, cause and path; no QSpec artifact is copied. | Test |
+| FR-038-AC-387 | The public reader admits QSpec `XP-01` and `XP-10`, with each local dimension operand as a local `NodeRef` and each foreign dimension operand as a closed `PackageNodeRef {package, node}` of a directly selected dependency. It resolves the foreign declared dimension in that dependency's admitted package, preserves the authored operand form in the typed nominal body and writer, compares the two resolved structural node ids for distinctness and ascending order, and retains only local operands in the equivalence node's `dependencies`. No foreign dimension node is minted into the importing graph. | Test (TC-280) |
+| FR-038-AC-388 | For QSpec `XP-11`, `XP-12` and `XP-15`, a package operand naming only a closure dependency, no selected dependency or the importing package refuses `missing_declaration`/`missing-selection` at `/semantic_graph/nodes/{i}/body/dimension_node_ids/{k}/package`. `XP-13` names no node in its directly selected dependency and refuses `missing_declaration`/`missing-name` at the corresponding `/node`. The reader checks these operands in listed order before pair rules; neither package display names nor an imported graph node substitute for the selected dependency lookup. | Test (TC-280) |
+| FR-038-AC-389 | QSpec `XP-14` supplies a self-minted foreign-package `NodeRef` and refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{i}/body/dimension_node_ids/{k}`. A local operand naming no graph node, or a local or package operand resolving to a node other than `scalar_type`/`dimension`, refuses the same code at that operand before pair validation; `XP-05` names a unit node and refuses there at its wrong-kind operand. QSpec `XP-02` through `XP-04` and `XP-06` through `XP-09` keep their published `invalid_semantic_graph` pair outcomes after operand resolution; a valid mixed-package equivalence still admits. Reversed or duplicate resolved structural dimensions refuse `invalid_semantic_graph` at the later equivalence node in structural node-id order. | Test (TC-280) |
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-050) |
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those six finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
