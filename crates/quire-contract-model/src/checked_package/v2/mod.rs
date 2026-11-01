@@ -85,8 +85,10 @@ pub use model_fields::{
 mod exact_projection;
 pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
-    SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
-    SelectedExactIdentities, SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView,
+    SelectedEnumDeclarationRow, SelectedEnumMemberRow, SelectedExactDeclarationForm,
+    SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
+    SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView, SelectedSourceUnitRow,
+    SelectedTupleDeclarationRow,
 };
 pub use operation_witness::{
     SelectedOperationIdentity, SelectedOperationMemberError, SelectedOperationMemberErrorCode,
