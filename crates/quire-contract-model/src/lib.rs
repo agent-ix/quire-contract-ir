@@ -143,7 +143,8 @@ pub use canonical::{
 pub use checked_package::{
     encode_checked_package_v2, read_checked_package, BoundedDomainForm, CheckedArtifactLocator,
     CheckedArtifactRef, CheckedAuthoredCompositeDomain, CheckedCanonicalIntegerBound,
-    CheckedCapability, CheckedCapabilityDisposition, CheckedClauseComparison,
+    CheckedCallable, CheckedCallableIdentity, CheckedCallableReadError,
+    CheckedCallableReadErrorCode, CheckedCallableTable, CheckedCapability, CheckedCapabilityDisposition, CheckedClauseComparison,
     CheckedCollectionKind, CheckedComparisonClauseKind, CheckedComparisonError,
     CheckedComparisonObservation, CheckedComparisonOperand, CheckedComparisonOperandIdentity,
     CheckedComparisonOperandKind, CheckedComparisonOperator, CheckedComparisonPath,

@@ -8,6 +8,7 @@
 
 mod abstraction;
 mod checked_term_data;
+mod callable;
 mod claim_terminal;
 mod closure_index;
 mod comparison_operands;
@@ -54,6 +55,10 @@ mod typed_terms;
 mod vocabulary;
 
 pub use checked_term_data::*;
+pub use callable::{
+    CheckedCallable, CheckedCallableIdentity, CheckedCallableReadError,
+    CheckedCallableReadErrorCode, CheckedCallableTable,
+};
 pub use comparison_operands::{
     CheckedClauseComparison, CheckedComparisonClauseKind, CheckedComparisonError,
     CheckedComparisonObservation, CheckedComparisonOperand, CheckedComparisonOperandIdentity,
