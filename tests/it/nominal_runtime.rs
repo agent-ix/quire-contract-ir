@@ -312,8 +312,8 @@ fn enum_read_refuses_missing_duplicate_and_foreign_member_joins() {
 }
 
 #[test]
-#[trace("FR-354-AC-5", "FR-354-AC-6")]
-fn malformed_nominal_bodies_never_acquire_a_runtime_view() {
+#[trace("FR-354-AC-5")]
+fn dangling_unit_targets_cannot_enter_an_admitted_runtime_view() {
     let mut members = nominal_fixture_members();
     members[2].0["target_unit_node_id"] = node_id("qualified:Example/Missing");
     let wire: Value = nominal_package(&members);
