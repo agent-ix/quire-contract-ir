@@ -40,3 +40,40 @@ A direct reproduction of TC-058's parser rule yields `skip_by_TC_058: false` and
 ## Verdict
 
 FAIL: the planned inventory row would make TC-058 expect unimplemented exports.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | FR-353 requires a complete QSV checked equality but does not require the selected Exact identity/descriptors or a QSV admission construction path needed to turn structural wire facts into its operand types, unit table and enum index. | spec/checked_package/functional/FR-353-read-admitted-equality-decisions.md:31 |
+
+### FND-002 evidence
+
+FR-353 Inputs name only the admitted package, application, occurrence, work limit and sidecar decision. The current `CheckedEqualityOperandDecision` carries `CheckedNodeId` source and conversion types, and its unit and enum rows likewise carry structural nodes and literal facts (`checked_term_data.rs:57-76, 100-179`). QSV `CheckedEquality` instead stores `EqualityOperand` values with Exact `ValueType`, `UnitTable` and `EnumMemberIndex` (`quire-semantic-value/src/declaration.rs:2176-2240`). The current IR `project_exact_type` needs `SelectedExactIdentities`, rejects union, does not cover enum or compound quantity, and has a general `UnsupportedExactType` branch (`exact_projection.rs:825-1080`); FR-353 also expressly forbids IR to project `ValueType`s (`FR-353:96-101`). QSV's current held-id unit insertion is crate-private, and `Unit`, `CompoundUnit` and `EnumValue` have no public admitted-field constructors (`quantity.rs:171-174`, `unit.rs:159-168, 688-713`, `enumeration.rs:119-127`). Thus a wire row that is complete in structural facts is not yet a constructible QSV decision, especially for enum and quantity cases required by AC-1. The QSV value's application/occurrence read-only provenance API is already explicitly required by FR-353 Outputs; QSV IR-1223 must carry it in the eventual mint contract.
+
+Require an authoritative QSL-stage selected Exact identity/descriptor input, joined to the same admitted application and all source/conversion type, unit and enum references, with a typed unavailable-witness outcome when incomplete. Allocate to QSV IR-1223 a mint/constructor contract that can preserve those held identities and full resolved tables without rechecking or rebuilding authority; its read-only application and occurrence accessors must retain the joined provenance. State how that admitted input reaches the IR reader while preserving the FR-028 dependency direction. A general FR-352 projection call cannot silently fill this gap, because FR-353 forbids such reconstruction and the current projection does not cover all required shapes.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-019's module cell says `planned until QSV IR-1223 and IR-1209 code land`, which the existing TC-058 `expected_items_from` rule skips. The row therefore no longer invents implemented exports. |
+| FND-002 | still-open | FR-353 still lists no selected Exact identity/descriptor input or admitted construction path for the QSV operand types, unit table and enum index required by AC-1; QSV IR-1223's mint and provenance API are not yet specified. |
+
+## Author disposition (FND-002)
+
+Addressed in PR #771 pending reviewer verification. FR-353 now requires the
+same QSL stage's source and compound `UnitId`, model enum declaration/member
+keys, Text type identity and Plan type identity rows alongside the admitted
+package. The IR read joins them to the selected documents and exact admitted
+nodes, charges bounded representation mapping, and returns typed
+`UnavailableEqualityWitness` without QSV minting when a required row is
+absent. Mismatched rows refuse at their structural locus; no Exact key or
+semantic decision is reconstructed. QSV IR-1223 owns the descriptor path that
+retains held unit identities, filtered enum facts and application/occurrence
+provenance in its opaque value. That path may mechanically fold a producer
+selected ordered exact affine conversion path for QSV's private canonical
+unit scalar, with typed failure on arithmetic or work exhaustion and no new
+identity or schedule selection. QSL-1398 owns source unit/model enum rows;
+QSL-1390 owns compound unit/Text/Plan rows. The preceding still-open entry
+records the independent review verdict before this author fix.
