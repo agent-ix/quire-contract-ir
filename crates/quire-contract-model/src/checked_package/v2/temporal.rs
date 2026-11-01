@@ -420,7 +420,7 @@ pub(super) fn validate_timed_bounds_reduced(
     Ok(())
 }
 
-/// A `{kind: fairness, fairness_kind, granularity, declaration, name}`
+/// A `{kind: fairness, fairness_kind, granularity, target}`
 /// member (QSpec FR-370). The two vocabulary members are decoded for their
 /// closed words and carried no further: nothing here evaluates fairness.
 #[derive(Deserialize)]
@@ -431,14 +431,24 @@ struct FairnessMember {
     _fairness_kind: FairnessKind,
     #[serde(rename = "granularity")]
     _granularity: FairnessGranularity,
-    declaration: CheckedNodeId,
-    name: Box<str>,
+    target: super::CheckedFairnessTarget,
 }
 
 /// The fairness member `member` is, `None` for any other shape.
 fn read_fairness_member(member: &Value) -> Option<FairnessMember> {
     let member = FairnessMember::deserialize(member).ok()?;
-    (member.kind == OperationMemberKind::Fairness && is_identifier(&member.name)).then_some(member)
+    let named = match &member.target {
+        super::CheckedFairnessTarget::Operation { name, .. }
+        | super::CheckedFairnessTarget::HybridTransition { name, .. } => is_identifier(name),
+        super::CheckedFairnessTarget::ParallelBranch { branch, .. } => is_identifier(branch),
+        _ => true,
+    };
+    (member.kind == OperationMemberKind::Fairness && named).then_some(member)
+}
+
+/// Read the canonical fairness target during admission, before public views exist.
+pub(super) fn fairness_target(member: &Value) -> Option<super::CheckedFairnessTarget> {
+    Some(read_fairness_member(member)?.target)
 }
 
 /// Closed type-argument member; the declaration is validated as a node id.
@@ -478,6 +488,7 @@ pub(in crate::checked_package) fn member_is_well_formed(
 
 /// The temporal step. See the module documentation for the order.
 pub(super) fn validate_temporal(
+    terms: &[Option<CheckedTerm>],
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
@@ -503,7 +514,7 @@ pub(super) fn validate_temporal(
         if graph.kinds.get(position)
             == Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
         {
-            check_clause(position, &graph, lock, meter, &mut covered)?;
+            check_clause(position, &graph, terms, lock, meter, &mut covered)?;
         }
     }
     // A formula node no clause reaches is no clause's to fit, but its
@@ -794,6 +805,7 @@ fn selected_under_another_role(
 fn check_clause(
     position: usize,
     graph: &StepGraph<'_, '_>,
+    terms: &[Option<CheckedTerm>],
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
     covered: &mut BTreeSet<usize>,
@@ -895,20 +907,53 @@ fn check_clause(
         let Some((fair, member)) = fairness_member(reference, graph) else {
             continue;
         };
-        if hybrid_claim {
+        let super::CheckedFairnessTarget::Operation { declaration, name } = &member.target else {
+            if !matches!(
+                member.target,
+                super::CheckedFairnessTarget::HybridTransition { .. }
+            ) {
+                super::protocol_body::validate_temporal_fairness(
+                    position,
+                    fair,
+                    &member.target,
+                    graph,
+                    terms,
+                    lock,
+                    meter,
+                )?;
+            }
+            if !hybrid_claim
+                && matches!(
+                    member.target,
+                    super::CheckedFairnessTarget::HybridTransition { .. }
+                )
+            {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidModelBinding,
+                    node_pointer(fair)
+                        .key("body")
+                        .key("operation")
+                        .key("member")
+                        .key("target")
+                        .key("declaration"),
+                    Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                    graph.nodes[fair].node_id.clone(),
+                ));
+            }
             continue;
-        }
-        if let Err(failure) = resolve_fairness(&member, graph, meter)? {
+        };
+        if let Err(failure) = resolve_fairness(declaration, name, graph, meter)? {
             return Err(ValidationFailure::refused_at(
                 failure.refusal.code,
                 node_pointer(fair)
                     .key("body")
                     .key("operation")
                     .key("member")
+                    .key("target")
                     .key(failure.member),
                 Some(failure.refusal.cause),
                 if failure.locus_is_target {
-                    member.declaration.clone()
+                    declaration.clone()
                 } else {
                     graph.nodes[fair].node_id.clone()
                 },
@@ -1017,14 +1062,15 @@ impl FairnessRefusal {
 /// operation matches is `missing-name` and two matches `ambiguous-name`, at the
 /// `name`.
 fn resolve_fairness(
-    member: &FairnessMember,
+    declaration: &CheckedNodeId,
+    name: &str,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<Result<(), FairnessRefusal>, ValidationFailure> {
     // A `declaration` that names no node is a target that is no
     // `model`/`object_type` node (merged FR-370 "Fairness resolution" step 1),
     // located at the key as named.
-    let Some((declaring, kind)) = graph.node(&member.declaration) else {
+    let Some((declaring, kind)) = graph.node(declaration) else {
         return Ok(Err(FairnessRefusal::at_declaration(
             ModelRefusal::malformed(),
             true,
@@ -1046,7 +1092,7 @@ fn resolve_fairness(
     Ok(
         match graph
             .owners
-            .resolve_member(declaring, MemberKind::Operation, &member.name, meter)?
+            .resolve_member(declaring, MemberKind::Operation, name, meter)?
         {
             Ok((_, Resolved::Operation(_))) => Ok(()),
             Ok((_, Resolved::Field(_))) => {
@@ -1248,6 +1294,7 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect();
         validate_temporal(
+            &[],
             nodes,
             &kinds,
             &index,

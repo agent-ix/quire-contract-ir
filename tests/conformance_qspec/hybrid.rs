@@ -145,7 +145,7 @@ fn braking_package() -> Value {
     let mut package = published_hybrid_package();
     let vectors = read_json(&proposal_dir_of(&fixtures_dir()).join("hybrid-node-vectors.json"))
         .expect("QSpec TC-966 vectors");
-    append_published_nodes(
+    append_indexed_published_nodes(
         &mut package,
         vectors["nodes"].as_array().expect("QSpec nodes"),
     );
@@ -158,6 +158,55 @@ fn braking_package() -> Value {
         }));
     fixture_support::refresh_identity(&mut package);
     package
+}
+
+// Published component vectors have their own graph-local index table. Relocate
+// those coordinates before composing them with the full package fixture.
+fn append_indexed_published_nodes(package: &mut Value, nodes: &[Value]) {
+    let current = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let mut keys = current
+        .iter()
+        .map(|node| fixture_support::resolved_fixture_id(&node["node_id"], current))
+        .collect::<Vec<_>>();
+    let mut positions = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        let key = fixture_support::resolved_fixture_id(&node["node_id"], nodes);
+        let position = if let Some(position) = keys.iter().position(|old| old == &key) {
+            position
+        } else {
+            let position = keys.len();
+            keys.push(key);
+            position
+        };
+        positions.push(position);
+    }
+    fn relocate(value: &mut Value, positions: &[usize]) {
+        if let Some(object) = value.as_object_mut() {
+            if object.len() == 3 && object.contains_key("package") && object.contains_key("ordinal")
+            {
+                if let Some(path) = object.get_mut("path").and_then(Value::as_array_mut) {
+                    for segment in path {
+                        if let Some(index) = segment.get("node").and_then(Value::as_u64) {
+                            *segment = json!({"node":positions[usize::try_from(index).expect("component index")]});
+                        }
+                    }
+                }
+            }
+        }
+        match value {
+            Value::Array(items) => items.iter_mut().for_each(|v| relocate(v, positions)),
+            Value::Object(object) => object.values_mut().for_each(|v| relocate(v, positions)),
+            _ => {}
+        }
+    }
+    let mut relocated = nodes.to_vec();
+    for node in &mut relocated {
+        relocate(node, &positions);
+    }
+    append_published_nodes(package, &relocated);
+    sort_dependencies(package);
 }
 
 fn append_published_nodes(package: &mut Value, nodes: &[Value]) {
@@ -194,12 +243,17 @@ fn restored_package() -> Value {
     let mut package = braking_package();
     let vectors = read_json(&proposal_dir_of(&fixtures_dir()).join("hybrid-node-vectors.json"))
         .expect("QSpec TC-966 vectors");
-    append_published_nodes(
-        &mut package,
+    // Restored-node indexes address the published base and restored arrays
+    // concatenated, rather than a fresh table starting at the restored array.
+    let mut component = vectors["nodes"].as_array().expect("base nodes").clone();
+    component.extend(
         vectors["restored_nodes"]
             .as_array()
-            .expect("restored nodes"),
+            .expect("restored nodes")
+            .iter()
+            .cloned(),
     );
+    append_indexed_published_nodes(&mut package, &component);
     package["lock"]["profile_selections"]
         .as_array_mut()
         .expect("profile selections")
@@ -212,11 +266,18 @@ fn restored_package() -> Value {
 }
 
 fn sort_dependencies(package: &mut Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .clone();
     for node in package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
     {
-        sort_node_ids(node["dependencies"].as_array_mut().expect("dependencies"));
+        node["dependencies"]
+            .as_array_mut()
+            .expect("dependencies")
+            .sort_by_cached_key(|id| fixture_support::resolved_fixture_id(id, &nodes));
     }
 }
 
@@ -349,7 +410,7 @@ fn qspec_hybrid_capture_initializer_must_match_capture_type() {
         .iter()
         .position(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "fairness")
         .expect("fairness node");
-    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["name"] =
+    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]["name"] =
         json!("Halted");
     fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
@@ -431,9 +492,47 @@ fn qspec_hybrid_braking_model_and_claim_admit_from_published_nodes() {
 fn qspec_hybrid_restored_model_and_claims_admit_from_published_nodes() {
     let package = restored_package();
     let read = read_package(&package).expect("published evidence");
-    assert!(
-        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
-        "{read:?}"
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read else {
+        panic!("{read:?}")
+    };
+    let fair = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "temporal" && node.semantic_form.as_ref() == "fairness"
+        })
+        .expect("published fairness");
+    let CheckedTerm::Application { operation, .. } = &fair.body else {
+        panic!("fairness application")
+    };
+    let Some(CheckedOperationMember::Fairness { target, .. }) = operation.read().unwrap().member
+    else {
+        panic!("admitted typed fairness target")
+    };
+    let quire_contract_model::CheckedFairnessTarget::HybridTransition { declaration, name } =
+        target
+    else {
+        panic!("hybrid target")
+    };
+    assert_eq!(name.as_ref(), "Stopped");
+    assert_eq!(operation.member_declaration().unwrap(), Some(declaration));
+    assert!(admitted
+        .graph()
+        .nodes
+        .iter()
+        .any(|node| &node.node_id == declaration
+            && node.node_tag.as_ref() == "hybrid"
+            && node.semantic_form.as_ref() == "hybrid_mode"));
+    let original = package["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "fairness")
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(target).unwrap(),
+        original["body"]["operation"]["member"]["target"]
     );
 }
 
@@ -532,7 +631,7 @@ fn qspec_hybrid_claim_refuses_unknown_fairness_mode() {
         .iter()
         .position(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "fairness")
         .expect("fairness node");
-    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["name"] =
+    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]["name"] =
         json!("Halted");
     fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
@@ -544,7 +643,7 @@ fn qspec_hybrid_claim_refuses_unknown_fairness_mode() {
     };
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingName), "{refusal:?}");
-    assert_locus(&refusal, fair, "/body/operation/member/name");
+    assert_locus(&refusal, fair, "/body/operation/member/target/name");
 }
 
 #[trace("TC-048", "FR-038-AC-316")]
@@ -1247,7 +1346,7 @@ fn qspec_hybrid_wrong_interval_profile_precedes_fairness_defect() {
         .iter()
         .position(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "fairness")
         .expect("fairness node");
-    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["name"] =
+    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]["name"] =
         json!("Halted");
     fixture_support::settle(&mut package);
     sort_dependencies(&mut package);
@@ -1263,4 +1362,34 @@ fn qspec_hybrid_wrong_interval_profile_precedes_fairness_defect() {
         "{refusal:?}"
     );
     assert_locus(&refusal, formula, "/body");
+}
+
+#[trace("TC-048", "FR-038-AC-98", "FR-038-AC-316")]
+#[test]
+fn qspec_hybrid_fairness_rejects_a_wrong_declaring_model() {
+    let mut package = restored_package();
+    let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
+    let fair = nodes
+        .iter()
+        .position(|n| n["node_tag"] == "temporal" && n["semantic_form"] == "fairness")
+        .unwrap();
+    let other = nodes
+        .iter()
+        .find(|n| {
+            n["node_tag"] == "hybrid"
+                && n["semantic_form"] == "hybrid_model"
+                && n["declaration"]["qualified_name"] == json!(["Braking"])
+        })
+        .unwrap()["node_id"]
+        .clone();
+    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]
+        ["declaration"] = other;
+    fixture_support::settle(&mut package);
+    sort_dependencies(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&package).unwrap() else {
+        panic!("foreign hybrid model must refuse")
+    };
+    assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::MissingName));
+    assert_locus(&refusal, fair, "/body/operation/member/target/name");
 }

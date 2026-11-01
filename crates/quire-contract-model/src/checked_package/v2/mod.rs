@@ -2809,6 +2809,7 @@ fn validate_graph(
     )?;
     claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners)?;
     validate_temporal(
+        &terms,
         &graph.nodes,
         &kinds,
         &index,

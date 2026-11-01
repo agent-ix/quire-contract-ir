@@ -335,7 +335,7 @@ const FIVE_PROFILES: [&str; 5] = [
 
 /// Selects `identity` as the temporal profile, in the lock and in every law of
 /// the `temporal_profile` role.
-fn select_profile(package: &mut Value, identity: &str) {
+pub(super) fn select_profile(package: &mut Value, identity: &str) {
     for selection in package["lock"]["profile_selections"]
         .as_array_mut()
         .expect("selections")
@@ -423,13 +423,15 @@ fn fairness_member(declaration: &str, name: &str) -> Value {
     closed_object.insert("kind".to_owned(), json!("fairness"));
     closed_object.insert("fairness_kind".to_owned(), json!("weak"));
     closed_object.insert("granularity".to_owned(), json!("whole"));
-    closed_object.insert("declaration".to_owned(), node_id(declaration));
-    closed_object.insert("name".to_owned(), json!(name));
+    closed_object.insert(
+        "target".to_owned(),
+        json!({"kind":"operation", "declaration":node_id(declaration), "name":name}),
+    );
     Value::Object(closed_object)
 }
 
 /// A `temporal`/`fairness` node applying `quire.op.temporal.fair` with `member`.
-fn fairness(member: Value) -> Value {
+pub(super) fn fairness(member: Value) -> Value {
     node_with_key(
         &fresh(),
         "temporal",
@@ -868,7 +870,10 @@ fn tc_048_the_fairness_member_admits_when_closed_and_refuses_otherwise() {
     let mut part = fairness_member(&order, "scaled");
     part["granularity"] = json!("part");
     let mut nameless = fairness_member(&order, "scaled");
-    nameless.as_object_mut().expect("member").remove("name");
+    nameless["target"]
+        .as_object_mut()
+        .expect("target")
+        .remove("name");
     let mut extra = fairness_member(&order, "scaled");
     extra["extra"] = json!(1);
     let mut interval_kind = fairness_member(&order, "scaled");
@@ -1557,7 +1562,7 @@ fn tc_048_within_one_clause_the_stages_run_in_order() {
         (
             Code::MissingDeclaration,
             Cause::MissingName,
-            &at_node(fair, "/body/operation/member/name"),
+            &at_node(fair, "/body/operation/member/target/name"),
         ),
         &model_key(ORDER_NODE),
     );
@@ -1915,7 +1920,10 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
             (
                 row.code,
                 row.cause,
-                &at_node(fair, &format!("/body/operation/member/{}", row.member)),
+                &at_node(
+                    fair,
+                    &format!("/body/operation/member/target/{}", row.member),
+                ),
             ),
             &locus,
         );
@@ -1979,7 +1987,7 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
             (
                 Code::InvalidModelBinding,
                 Cause::MalformedDeclaration,
-                &at_node(fair, "/body/operation/member/declaration"),
+                &at_node(fair, "/body/operation/member/target/declaration"),
             ),
             &declaration,
         );
@@ -2030,8 +2038,8 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 
-    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["declaration"] =
-        node_id(&interface_key);
+    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]
+        ["declaration"] = node_id(&interface_key);
     settle(&mut package);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_with_model(&package, &document, CheckedPackageReadLimits::bounded())
@@ -2042,7 +2050,7 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
     assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
     assert_eq!(
         refusal.loci[0].path.clone().expect("path").as_str(),
-        at_node(fair, "/body/operation/member/declaration")
+        at_node(fair, "/body/operation/member/target/declaration")
     );
     assert_eq!(
         serde_json::to_value(refusal.locus.expect("locus")).expect("locus"),
@@ -2058,7 +2066,7 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
         (
             Code::InvalidModelBinding,
             Cause::MalformedDeclaration,
-            &at_node(fair, "/body/operation/member/declaration"),
+            &at_node(fair, "/body/operation/member/target/declaration"),
         ),
         &value_key,
     );
@@ -2094,7 +2102,7 @@ fn fairness_resolves_the_most_derived_operation_redefinition() {
             let fair = find_identity(&package, &temporal_identity("fair"));
             assert_eq!(
                 refusal.loci[0].path.clone().map(|path| path.to_string()),
-                Some(at_node(fair, "/body/operation/member/name"))
+                Some(at_node(fair, "/body/operation/member/target/name"))
             );
             assert_eq!(
                 refusal

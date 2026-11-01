@@ -182,11 +182,135 @@ pub enum CheckedOperationMember {
         fairness_kind: CheckedFairnessKind,
         /// Whole or per participant granularity.
         granularity: CheckedFairnessGranularity,
-        /// Declaring transition node.
+        /// Exact producer-selected fairness subject.
+        target: CheckedFairnessTarget,
+    },
+}
+
+/// A closed fairness subject carrying its admitted structural identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CheckedFairnessTarget {
+    /// An effective model operation.
+    Operation {
+        /// Declaring model node.
         declaration: CheckedNodeId,
-        /// Fairness declaration name.
+        /// Original operation name.
         name: Box<str>,
     },
+    /// The owning protocol clause.
+    ProtocolRoot {
+        /// Protocol clause node.
+        node: CheckedNodeId,
+    },
+    /// An attempt control in the owning protocol.
+    AttemptNode {
+        /// Attempt control node.
+        node: CheckedNodeId,
+    },
+    /// One named branch of a parallel control.
+    ParallelBranch {
+        /// Exact parallel control node.
+        parallel: CheckedNodeId,
+        /// Authored branch label.
+        branch: Box<str>,
+    },
+    /// An owning protocol's compensation template.
+    CompensationTemplate {
+        /// Compensation node.
+        node: CheckedNodeId,
+    },
+    /// A transition of a hybrid model or mode.
+    HybridTransition {
+        /// Declaring hybrid model or mode.
+        declaration: CheckedNodeId,
+        /// Original transition name.
+        name: Box<str>,
+    },
+}
+
+impl<'de> Deserialize<'de> for CheckedFairnessTarget {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct TargetVisitor;
+        impl<'de> serde::de::Visitor<'de> for TargetVisitor {
+            type Value = CheckedFairnessTarget;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("one closed typed fairness target")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Self::Value, M::Error> {
+                use serde::de::Error as _;
+                let (mut kind, mut declaration, mut node, mut parallel, mut name, mut branch) = (
+                    None::<Box<str>>,
+                    None::<CheckedNodeId>,
+                    None::<CheckedNodeId>,
+                    None::<CheckedNodeId>,
+                    None::<Box<str>>,
+                    None::<Box<str>>,
+                );
+                while let Some(key) = map.next_key::<Box<str>>()? {
+                    match key.as_ref() {
+                        "kind" if kind.is_none() => kind = Some(map.next_value()?),
+                        "declaration" if declaration.is_none() => {
+                            declaration = Some(map.next_value()?)
+                        }
+                        "node" if node.is_none() => node = Some(map.next_value()?),
+                        "parallel" if parallel.is_none() => parallel = Some(map.next_value()?),
+                        "name" if name.is_none() => name = Some(map.next_value()?),
+                        "branch" if branch.is_none() => branch = Some(map.next_value()?),
+                        _ => {
+                            return Err(M::Error::custom(
+                                "unknown or duplicate fairness target member",
+                            ))
+                        }
+                    }
+                }
+                match (kind.as_deref(), declaration, node, parallel, name, branch) {
+                    (Some("operation"), Some(declaration), None, None, Some(name), None) => {
+                        Ok(CheckedFairnessTarget::Operation { declaration, name })
+                    }
+                    (
+                        Some("hybrid_transition"),
+                        Some(declaration),
+                        None,
+                        None,
+                        Some(name),
+                        None,
+                    ) => Ok(CheckedFairnessTarget::HybridTransition { declaration, name }),
+                    (Some("protocol_root"), None, Some(node), None, None, None) => {
+                        Ok(CheckedFairnessTarget::ProtocolRoot { node })
+                    }
+                    (Some("attempt_node"), None, Some(node), None, None, None) => {
+                        Ok(CheckedFairnessTarget::AttemptNode { node })
+                    }
+                    (Some("compensation_template"), None, Some(node), None, None, None) => {
+                        Ok(CheckedFairnessTarget::CompensationTemplate { node })
+                    }
+                    (Some("parallel_branch"), None, None, Some(parallel), None, Some(branch)) => {
+                        Ok(CheckedFairnessTarget::ParallelBranch { parallel, branch })
+                    }
+                    _ => Err(M::Error::custom("invalid fairness target shape")),
+                }
+            }
+        }
+        deserializer.deserialize_map(TargetVisitor)
+    }
+}
+
+impl CheckedFairnessTarget {
+    pub(super) fn node_mut(&mut self) -> &mut CheckedNodeId {
+        match self {
+            Self::Operation { declaration, .. } | Self::HybridTransition { declaration, .. } => {
+                declaration
+            }
+            Self::ProtocolRoot { node }
+            | Self::AttemptNode { node }
+            | Self::CompensationTemplate { node } => node,
+            Self::ParallelBranch { parallel, .. } => parallel,
+        }
+    }
 }
 
 /// Source syntax retained for a model-object field read.
@@ -371,8 +495,8 @@ impl CheckedOperationMember {
             | Self::Position { declaration, .. }
             | Self::Element { declaration }
             | Self::Operation { declaration, .. }
-            | Self::TypeArgument { declaration }
-            | Self::Fairness { declaration, .. } => replace(declaration)?,
+            | Self::TypeArgument { declaration } => replace(declaration)?,
+            Self::Fairness { target, .. } => replace(target.node_mut())?,
             Self::RelationshipEnd {
                 declaration,
                 destination_type,
@@ -455,8 +579,7 @@ impl CheckedOperationMember {
             OperationMemberKind::Fairness => Self::Fairness {
                 fairness_kind: serde_json::from_value(value.get("fairness_kind")?.clone()).ok()?,
                 granularity: serde_json::from_value(value.get("granularity")?.clone()).ok()?,
-                declaration: declaration()?,
-                name: name()?,
+                target: serde_json::from_value(value.get("target")?.clone()).ok()?,
             },
         })
     }
@@ -472,8 +595,8 @@ impl CheckedOperationMember {
             | Self::Position { declaration, .. }
             | Self::Element { declaration }
             | Self::Operation { declaration, .. }
-            | Self::TypeArgument { declaration }
-            | Self::Fairness { declaration, .. } => replace(declaration),
+            | Self::TypeArgument { declaration } => replace(declaration),
+            Self::Fairness { target, .. } => replace(target.node_mut()),
             Self::RelationshipEnd {
                 declaration,
                 destination_type,
@@ -1174,17 +1297,35 @@ fn map_operation_ids(
             | OperationMemberKind::Position
             | OperationMemberKind::Element
             | OperationMemberKind::Operation
-            | OperationMemberKind::TypeArgument
-            | OperationMemberKind::Fairness,
+            | OperationMemberKind::TypeArgument,
         ) => &["declaration"],
         Some(
-            OperationMemberKind::ProfileOperator
+            OperationMemberKind::Fairness
+            | OperationMemberKind::ProfileOperator
             | OperationMemberKind::StateClause
             | OperationMemberKind::TemporalInterval,
         )
         | None => &[],
     };
     let mut mapped_declaration = None;
+    let mut mapped_target = None;
+    if kind == Some(OperationMemberKind::Fairness) {
+        if let Some(target) = member.get_mut("target").and_then(Value::as_object_mut) {
+            for field in ["declaration", "node", "parallel"] {
+                if let Some(value) = target.get_mut(field) {
+                    if let Some(original) = CheckedNodeId::from_value(value) {
+                        let replacement = map(&original).unwrap_or(original);
+                        *value = serde_json::to_value(&replacement)
+                            .expect("checked node ID serialization is infallible");
+                        if field == "declaration" {
+                            mapped_declaration = Some(replacement.clone());
+                        }
+                        mapped_target = Some(replacement);
+                    }
+                }
+            }
+        }
+    }
     let mut mapped_destination = None;
     let mut mapped_population = None;
     for field in fields {
@@ -1216,10 +1357,14 @@ fn map_operation_ids(
                 | CheckedOperationMember::Position { declaration, .. }
                 | CheckedOperationMember::Element { declaration }
                 | CheckedOperationMember::Operation { declaration, .. }
-                | CheckedOperationMember::TypeArgument { declaration }
-                | CheckedOperationMember::Fairness { declaration, .. } => {
+                | CheckedOperationMember::TypeArgument { declaration } => {
                     if let Some(mapped) = &mapped_declaration {
                         *declaration = mapped.clone();
+                    }
+                }
+                CheckedOperationMember::Fairness { target, .. } => {
+                    if let Some(mapped) = &mapped_target {
+                        *target.node_mut() = mapped.clone();
                     }
                 }
                 CheckedOperationMember::RelationshipEnd {
@@ -2376,7 +2521,8 @@ impl Encode for CheckedAbstractionFrame {
 mod tests {
     use super::{
         ApplicationOperator, CheckedApplicationOperation, CheckedBindingName,
-        CheckedBindingNameKind, CheckedOperationMember, CheckedOperationRecord,
+        CheckedBindingNameKind, CheckedFairnessGranularity, CheckedFairnessKind,
+        CheckedFairnessTarget, CheckedOperationMember, CheckedOperationRecord,
         CheckedOperationViews, CheckedTerm, ExecutionPoint, TermConversionCause,
     };
     use crate::checked_package::shared::{CheckedNodeId, CheckedNodePathSegment};
@@ -2840,5 +2986,109 @@ mod tests {
             replacement_wire
         );
         assert_eq!(wire["steps"][0]["source_class"], "finish");
+    }
+    #[trace("TC-048", "FR-048-AC-7", "FR-038-AC-98", "FR-349-AC-9")]
+    #[test]
+    fn fairness_targets_map_one_identity_and_keep_all_views_in_sync() {
+        let original = CheckedNodeId {
+            package: "fair-map".into(),
+            path: vec![CheckedNodePathSegment::Name("before".into())],
+            ordinal: 0,
+        };
+        let replacement = CheckedNodeId {
+            package: original.package.clone(),
+            path: vec![CheckedNodePathSegment::Name("after".into())],
+            ordinal: 0,
+        };
+        let targets = [
+            CheckedFairnessTarget::Operation {
+                declaration: original.clone(),
+                name: "step".into(),
+            },
+            CheckedFairnessTarget::ProtocolRoot {
+                node: original.clone(),
+            },
+            CheckedFairnessTarget::AttemptNode {
+                node: original.clone(),
+            },
+            CheckedFairnessTarget::ParallelBranch {
+                parallel: original.clone(),
+                branch: "left".into(),
+            },
+            CheckedFairnessTarget::CompensationTemplate {
+                node: original.clone(),
+            },
+            CheckedFairnessTarget::HybridTransition {
+                declaration: original.clone(),
+                name: "Stopped".into(),
+            },
+        ];
+        for target in targets {
+            let declares = matches!(
+                target,
+                CheckedFairnessTarget::Operation { .. }
+                    | CheckedFairnessTarget::HybridTransition { .. }
+            );
+            let operation = CheckedApplicationOperation {
+                record: json!({"identity":"quire.op.temporal.fair", "laws":[], "mode":null, "member":{"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":target}, "leaves":[]}),
+                execution_point: None,
+                views: Some(CheckedOperationViews {
+                    record: Some(Box::new(CheckedOperationRecord {
+                        identity: "quire.op.temporal.fair".into(),
+                        mode: None,
+                        laws: Vec::new(),
+                        member: Some(CheckedOperationMember::Fairness {
+                            fairness_kind: CheckedFairnessKind::Weak,
+                            granularity: CheckedFairnessGranularity::Whole,
+                            target: target.clone(),
+                        }),
+                        constraints: Vec::new(),
+                        leaves: Vec::new(),
+                    })),
+                    member_declaration: declares.then(|| original.clone()),
+                    ..CheckedOperationViews::default()
+                }),
+                #[cfg(feature = "test-support")]
+                test_fixture: false,
+            };
+            let mut term = CheckedTerm::Application {
+                operator: ApplicationOperator::TemporalFairness,
+                operation,
+                result_type: original.clone(),
+                arguments: Vec::new(),
+            };
+            let mut visits = 0;
+            term.map_node_ids(|id| {
+                assert_eq!(id, &original);
+                visits += 1;
+                Some(replacement.clone())
+            });
+            assert_eq!(visits, 2, "one target slot and one result slot");
+            let CheckedTerm::Application {
+                operation,
+                result_type,
+                ..
+            } = term
+            else {
+                panic!("application")
+            };
+            assert_eq!(result_type, replacement);
+            assert_eq!(
+                operation.member_declaration().unwrap(),
+                declares.then_some(&replacement)
+            );
+            let Some(CheckedOperationMember::Fairness { target: mapped, .. }) =
+                operation.read().unwrap().member
+            else {
+                panic!("fairness")
+            };
+            let mut expected = target;
+            *expected.node_mut() = replacement.clone();
+            assert_eq!(mapped, &expected);
+            assert_eq!(
+                serde_json::to_value(mapped).unwrap(),
+                operation.record()["member"]["target"]
+            );
+        }
     }
 }

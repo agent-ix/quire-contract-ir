@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 mod dependency_call;
 mod dimension_equivalence;
 mod extension;
+mod fairness_targets;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;
 mod grouped_ordinal;
@@ -1087,12 +1088,10 @@ fn assert_qspec_operation_record(
         Some(CheckedOperationMember::Fairness {
             fairness_kind,
             granularity,
-            declaration,
-            name,
+            target,
         }) => {
             assert_eq!(member["kind"], "fairness");
-            node(declaration, "declaration");
-            assert_eq!(member["name"], name.as_ref());
+            assert_eq!(serde_json::to_value(target).unwrap(), member["target"]);
             assert_eq!(
                 *fairness_kind,
                 serde_json::from_value(member["fairness_kind"].clone()).unwrap()

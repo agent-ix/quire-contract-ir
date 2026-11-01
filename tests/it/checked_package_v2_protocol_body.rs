@@ -9682,3 +9682,473 @@ fn await_after_later_sibling_cycles_before_clause_guard_slot() {
         .collect();
     assert_eq!(controls, &expected);
 }
+
+fn typed_fairness_cases() -> Value {
+    json!({"positive": [
+        {"id":"root", "member":{"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":{"kind":"protocol_root", "node":null}}},
+        {"id":"attempt", "member":{"kind":"fairness", "fairness_kind":"strong", "granularity":"each", "target":{"kind":"attempt_node", "node":null}}},
+        {"id":"parallel", "member":{"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":{"kind":"parallel_branch", "parallel":null, "branch":"Right"}}},
+        {"id":"compensation", "member":{"kind":"fairness", "fairness_kind":"weak", "granularity":"each", "target":{"kind":"compensation_template", "node":null}}}
+    ]})
+}
+
+fn with_protocol_fairness(package: Value, member: Value) -> (Value, usize) {
+    let clause = clause_position(&package);
+    with_protocol_fairness_on(package, member, clause)
+}
+
+fn with_protocol_fairness_on(mut package: Value, member: Value, clause: usize) -> (Value, usize) {
+    crate::checked_package_v2_temporal::select_profile(
+        &mut package,
+        "quire.temporal.infinite-trace/v1",
+    );
+    let fair = package["semantic_graph"]["nodes"].as_array().unwrap().len();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(crate::checked_package_v2_temporal::fairness(member));
+    let fair_key = package["semantic_graph"]["nodes"][fair]["node_id"].clone();
+    let temporal = package["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|n| n["node_tag"] == "temporal" && n["semantic_form"] == "temporal_clause")
+        .unwrap();
+    package["semantic_graph"]["nodes"][temporal]["body"]["arguments"][4] =
+        json!({"term":"aggregate", "members":[{"term":"reference", "target":fair_key}]});
+    let temporal_key = package["semantic_graph"]["nodes"][temporal]["node_id"].clone();
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][7]["value"]["members"] =
+        json!([{"term":"reference", "target":temporal_key}]);
+    settle_after_structural_rekey(&mut package);
+    if package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]["kind"]
+        == "protocol_root"
+    {
+        let clause_key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
+        if package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]["node"]
+            == clause_key
+        {
+            // The root, requirement and fairness reference form one explicit SCC.
+            for (ordinal, position) in [(1, temporal), (2, fair)] {
+                let old = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+                let mut new = clause_key.clone();
+                new["ordinal"] = json!(ordinal);
+                reassign_node_id(&mut package, &old, &new);
+            }
+            for position in [clause, temporal, fair] {
+                package["semantic_graph"]["nodes"][position]["recursion_group"] =
+                    json!("protocol-fairness-cycle");
+            }
+            settle_after_structural_rekey(&mut package);
+        }
+    }
+    (package, fair)
+}
+
+#[trace("TC-048", "FR-038-AC-98", "FR-038-AC-103", "FR-349-AC-9")]
+#[test]
+fn typed_protocol_fairness_preserves_each_selected_target() {
+    let vectors = typed_fairness_cases();
+    for vector in vectors["positive"].as_array().unwrap().iter().filter(|v| {
+        matches!(
+            v["member"]["target"]["kind"].as_str(),
+            Some("protocol_root" | "attempt_node" | "parallel_branch" | "compensation_template")
+        )
+    }) {
+        let mut member = vector["member"].clone();
+        let (package, target_position) = match member["target"]["kind"].as_str().unwrap() {
+            "attempt_node" => {
+                let (p, root, _) = package_with_admitted_attempt();
+                (p, root)
+            }
+            "parallel_branch" => {
+                let (p, _) = protocol_holder_case("parallel");
+                let root = holder_position(&p);
+                member["target"]["branch"] = json!("Right");
+                (p, root)
+            }
+            "compensation_template" => {
+                let (p, _, compensation) = package_with_admitted_compensation();
+                (p, compensation)
+            }
+            "protocol_root" => {
+                let p = v2_all_families();
+                let root = clause_position(&p);
+                (p, root)
+            }
+            _ => unreachable!(),
+        };
+        let identity_field = if member["target"]["kind"] == "parallel_branch" {
+            "parallel"
+        } else {
+            "node"
+        };
+        member["target"][identity_field] =
+            package["semantic_graph"]["nodes"][target_position]["node_id"].clone();
+        let (package, fair) = with_protocol_fairness(package, member);
+        let admitted = match read(&package) {
+            CheckedPackageV2ReadResult::Admitted(p) => p,
+            other => panic!("{}: {other:?}", vector["id"]),
+        };
+        let CheckedTerm::Application { operation, .. } = &admitted.graph().nodes[fair].body else {
+            panic!("fairness application")
+        };
+        let Some(quire_contract_model::CheckedOperationMember::Fairness { target, .. }) =
+            operation.read().unwrap().member
+        else {
+            panic!("typed fairness target")
+        };
+        assert_eq!(
+            serde_json::to_value(target).unwrap(),
+            package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"]
+        );
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-98", "FR-038-AC-103")]
+#[test]
+fn typed_protocol_fairness_checks_identity_then_kind_then_branch() {
+    let vectors = typed_fairness_cases();
+    let positive = vectors["positive"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["id"] == "parallel")
+        .unwrap()["member"]
+        .clone();
+    for (case, kind, field, code, cause) in [
+        (
+            "missing",
+            "parallel_branch",
+            "parallel",
+            CheckedPackageRefusalCode::MissingDeclaration,
+            CheckedPackageRefusalCause::MissingName,
+        ),
+        (
+            "foreign",
+            "parallel_branch",
+            "parallel",
+            CheckedPackageRefusalCode::MissingDeclaration,
+            CheckedPackageRefusalCause::MissingName,
+        ),
+        (
+            "wrong-kind",
+            "attempt_node",
+            "node",
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            CheckedPackageRefusalCause::MalformedDeclaration,
+        ),
+        (
+            "wrong-root",
+            "protocol_root",
+            "node",
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            CheckedPackageRefusalCause::MalformedDeclaration,
+        ),
+        (
+            "branch",
+            "parallel_branch",
+            "branch",
+            CheckedPackageRefusalCode::MissingDeclaration,
+            CheckedPackageRefusalCause::MissingName,
+        ),
+    ] {
+        let (package, _) = protocol_holder_case("parallel");
+        let root = holder_position(&package);
+        let mut key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
+        if case == "missing" {
+            key["ordinal"] = json!(999);
+        }
+        if case == "foreign" {
+            key["package"] = json!("foreign");
+        }
+        let mut member = positive.clone();
+        member["target"] = if kind == "parallel_branch" {
+            json!({"kind":kind, "parallel":key, "branch":"missing"})
+        } else {
+            json!({"kind":kind, "node":key})
+        };
+        let (package, fair) = with_protocol_fairness(package, member);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("{case} must refuse")
+        };
+        assert_eq!(refusal.code, code, "{case}: {refusal:?}");
+        assert_eq!(refusal.cause, Some(cause), "{case}");
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().as_str(),
+            format!("/semantic_graph/nodes/{fair}/body/operation/member/target/{field}"),
+            "{case}"
+        );
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-103")]
+#[test]
+fn typed_protocol_fairness_never_selects_another_local_clause() {
+    let mut package = v2_all_families();
+    let clause = clause_position(&package);
+    let root = protocol_position(&package, "control");
+    let finish = protocol_position(&package, "obligation");
+    let other_run = protocol_named_node(
+        "control",
+        &["Example", "OtherFlow", "run", "Main"],
+        package["semantic_graph"]["nodes"][root]["body"].clone(),
+        &[],
+    );
+    let other_finish = protocol_named_node(
+        "obligation",
+        &["Example", "OtherFlow", "finish", "Closed"],
+        package["semantic_graph"]["nodes"][finish]["body"].clone(),
+        &[],
+    );
+    let mut body = package["semantic_graph"]["nodes"][clause]["body"].clone();
+    body["arguments"][11]["value"]["target"] = other_run["node_id"].clone();
+    body["arguments"][12]["value"]["target"] = other_finish["node_id"].clone();
+    body["arguments"][7]["value"]["members"] = json!([]);
+    let other = protocol_named_node("protocol_clause", &["Example", "OtherFlow"], body, &[]);
+    let key = other["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .extend([other_run, other_finish, other]);
+    settle_after_structural_rekey(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
+    let member = json!({"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":{"kind":"protocol_root", "node":key}});
+    let (package, fair) = with_protocol_fairness(package, member);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("other clause must refuse")
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        format!("/semantic_graph/nodes/{fair}/body/operation/member/target/node")
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-103", "FR-038-AC-104")]
+#[test]
+fn typed_protocol_fairness_join_precedes_profile_and_interval_defects() {
+    for bounded in [false, true] {
+        let (package, _) = protocol_holder_case("parallel");
+        let parallel =
+            package["semantic_graph"]["nodes"][holder_position(&package)]["node_id"].clone();
+        let member = json!({"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":{"kind":"parallel_branch", "parallel":parallel, "branch":"absent"}});
+        let (mut package, fair) = with_protocol_fairness(package, member);
+        if bounded {
+            crate::checked_package_v2_temporal::select_profile(
+                &mut package,
+                "quire.temporal.event-position.false-extension/v1",
+            );
+        } else {
+            for node in package["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+                if node["body"]["operation"]["identity"] == "quire.op.temporal.eventually" {
+                    node["body"]["operation"]["member"]["interval"] =
+                        json!({"lower":"3", "upper":"0"});
+                }
+            }
+        }
+        settle_after_structural_rekey(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("bad target must refuse first")
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::MissingDeclaration,
+            "{refusal:?}"
+        );
+        assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().as_str(),
+            format!("/semantic_graph/nodes/{fair}/body/operation/member/target/branch")
+        );
+    }
+}
+
+fn add_minimal_main_protocol(package: &mut Value) -> usize {
+    let original = clause_position(package);
+    let old_finish = protocol_position(package, "obligation");
+    let old_binder = package["semantic_graph"]["nodes"][old_finish]["body"]["arguments"][0]
+        ["value"]["target"]
+        .clone();
+    let mut binder = package["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["node_id"] == old_binder)
+        .unwrap()
+        .clone();
+    let binder_key = node_id("fixture/fairness/main-close");
+    binder["node_id"] = binder_key.clone();
+    binder["body"]["members"][0]["value"]["value"] = json!("closed_main");
+    binder["body"]["members"][1]["value"]["value"] = json!("1");
+    let base = v2_all_families();
+    let base_run = protocol_position(&base, "control");
+    let run = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main"],
+        base["semantic_graph"]["nodes"][base_run]["body"].clone(),
+        &[],
+    );
+    let mut finish_body = package["semantic_graph"]["nodes"][old_finish]["body"].clone();
+    reassign_node_id(&mut finish_body, &old_binder, &binder_key);
+    let finish = protocol_named_node(
+        "obligation",
+        &["Example", "OrderFlow", "finish", "Closed"],
+        finish_body,
+        &[],
+    );
+    let mut body = package["semantic_graph"]["nodes"][original]["body"].clone();
+    for ordinal in 2..10 {
+        body["arguments"][ordinal]["value"]["members"] = json!([]);
+    }
+    body["arguments"][11]["value"]["target"] = run["node_id"].clone();
+    body["arguments"][12]["value"]["target"] = finish["node_id"].clone();
+    let mut clause = protocol_named_node("protocol_clause", &["Example", "OrderFlow"], body, &[]);
+    clause["owner_model"] = package["semantic_graph"]["nodes"][original]["owner_model"].clone();
+    let position = package["semantic_graph"]["nodes"].as_array().unwrap().len() + 3;
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .extend([binder, run, finish, clause]);
+    settle_after_structural_rekey(package);
+    position
+}
+
+fn instantiate_fairness_reader_vector(vector: &Value) -> (Value, usize) {
+    let mut member = vector["member"].clone();
+    let field = if member["target"]["kind"] == "parallel_branch" {
+        "parallel"
+    } else {
+        "node"
+    };
+    let original = member["target"][field].clone();
+    let other = vector["target_context"]["other_protocols"]
+        .as_array()
+        .is_some_and(|rows| !rows.is_empty());
+    let context = if other {
+        &vector["target_context"]["other_protocols"][0]
+    } else {
+        &vector["target_context"]
+    };
+    let control = context["controls"].as_array().and_then(|rows| {
+        rows.iter()
+            .find(|n| n["node_id"] == original)
+            .or_else(|| rows.first())
+    });
+    let compensation = context["compensations"]
+        .as_array()
+        .is_some_and(|rows| rows.iter().any(|n| n["node_id"] == original));
+    let (mut package, actual) = if compensation {
+        let (p, _, node) = package_with_admitted_compensation();
+        (p, node)
+    } else {
+        match control.and_then(|n| n["operator"].as_str()) {
+            Some("attempt") => {
+                let (p, node, _) = package_with_admitted_attempt();
+                (p, node)
+            }
+            Some("parallel") => {
+                let (p, _) = protocol_holder_case("parallel");
+                let node = holder_position(&p);
+                (p, node)
+            }
+            _ => {
+                let p = v2_all_families();
+                let node = protocol_position(&p, "control");
+                (p, node)
+            }
+        }
+    };
+    let actual = if context["protocol"]["node_id"] == original {
+        clause_position(&package)
+    } else {
+        actual
+    };
+    let mapped = context["protocol"]["node_id"] == original
+        || control.is_some_and(|n| n["node_id"] == original)
+        || compensation;
+    let mut selected = if mapped {
+        package["semantic_graph"]["nodes"][actual]["node_id"].clone()
+    } else {
+        original.clone()
+    };
+    let foreign = original["package"] == "foreign";
+    if other {
+        let mut replacements = Vec::new();
+        for node in package["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            if node["node_tag"] == "protocol"
+                && node["declaration"]["qualified_name"][1] == "OrderFlow"
+            {
+                let old = node["node_id"].clone();
+                node["declaration"]["qualified_name"][1] = json!("OtherFlow");
+                let mut new = old.clone();
+                new["path"][1] = json!("OtherFlow");
+                replacements.push((old, new));
+            }
+        }
+        for (old, new) in replacements {
+            reassign_node_id(&mut package, &old, &new);
+            if selected == old {
+                selected = new;
+            }
+        }
+    }
+    selected["package"] = if foreign {
+        json!("foreign")
+    } else {
+        package["name"].clone()
+    };
+    member["target"][field] = selected;
+    let clause = if other {
+        add_minimal_main_protocol(&mut package)
+    } else {
+        clause_position(&package)
+    };
+    with_protocol_fairness_on(package, member, clause)
+}
+
+#[trace("TC-048", "FR-038-AC-98", "FR-038-AC-103")]
+#[test]
+fn qspec_typed_fairness_reader_vectors_match_owner_refusals() {
+    let root = match std::env::var_os("QUIRE_SPECIFICATION_DIR") {
+        Some(root) => root,
+        None if std::env::var_os("QSPEC_CONFORMANCE").is_none() => return,
+        None => panic!("QUIRE_SPECIFICATION_DIR required for owner conformance"),
+    };
+    let path = std::path::PathBuf::from(root)
+        .join("proposals/checked-package-v2/temporal-fairness-target-vectors.json");
+    let vectors: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let rows = vectors["reader_cases"].as_array().unwrap();
+    assert_eq!(rows.len(), 11, "run every published strict-reader refusal");
+    for vector in rows {
+        let (package, fair) = instantiate_fairness_reader_vector(vector);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("{} must refuse", vector["id"])
+        };
+        assert_eq!(
+            serde_json::to_value(refusal.code).unwrap(),
+            vector["expected"]["code"],
+            "{}: {refusal:?}",
+            vector["id"]
+        );
+        assert_eq!(
+            serde_json::to_value(refusal.cause).unwrap(),
+            vector["expected"]["cause"],
+            "{}",
+            vector["id"]
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().as_str(),
+            format!(
+                "/semantic_graph/nodes/{fair}/body/operation/member{}",
+                vector["expected"]["locus"].as_str().unwrap()
+            ),
+            "{}",
+            vector["id"]
+        );
+    }
+}

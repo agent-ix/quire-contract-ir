@@ -4,10 +4,10 @@
 
 use super::model_members::{Budget, ModelOwners};
 use super::{
-    ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedPackageV2,
-    CheckedSelectionRole, CheckedTerm, CompositeTypeForm, LiteralKind, ModelForm, ProtocolForm,
-    RawSemanticNodeV2, RelationForm, ScalarTypeForm, StateClauseKind, StateForm, TemporalForm,
-    ValueForm, WorkMeter,
+    ApplicationOperator, CheckedFairnessTarget, CheckedNodeKind, CheckedPackageLockV2,
+    CheckedPackageV2, CheckedSelectionRole, CheckedTerm, CompositeTypeForm, LiteralKind, ModelForm,
+    ProtocolForm, RawSemanticNodeV2, RelationForm, ScalarTypeForm, StateClauseKind, StateForm,
+    TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -2821,13 +2821,13 @@ fn record_member_owner(
 }
 
 #[string_edge]
-fn validate_protocol_membership(
+fn collect_protocol_membership(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     validated: &[Option<(&str, &[CheckedTerm])>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     meter: &mut WorkMeter,
-) -> Result<(), ValidationFailure> {
+) -> Result<(Vec<Option<usize>>, Vec<bool>), ValidationFailure> {
     let mut owners = vec![None; nodes.len()];
     let mut repeated = vec![false; nodes.len()];
     let mut pending = Vec::new();
@@ -2900,6 +2900,110 @@ fn validate_protocol_membership(
         }
     }
 
+    Ok((owners, repeated))
+}
+
+/// Resolve a protocol fairness target at its temporal reader-order position.
+/// Full protocol admission still reports its own shape and membership defects.
+pub(super) fn validate_temporal_fairness(
+    requirement: usize,
+    fair: usize,
+    target: &CheckedFairnessTarget,
+    graph: &super::frame::StepGraph<'_, '_>,
+    terms: &[Option<CheckedTerm>],
+    lock: &CheckedPackageLockV2,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let selected_profile = lock
+        .profile_selections
+        .iter()
+        .find(|selection| selection.role == CheckedSelectionRole::ProtocolProfile)
+        .map(|selection| &selection.definition);
+    let mut validated = vec![None; graph.nodes.len()];
+    for &position in graph.index.values() {
+        let Some(CheckedNodeKind::Protocol(form)) = graph.kinds.get(position).copied() else {
+            continue;
+        };
+        meter.charge(1, || node_pointer(position))?;
+        let Some(term) = terms.get(position).and_then(Option::as_ref) else {
+            continue;
+        };
+        if let Ok((operator, arguments)) = validate_envelope(
+            form,
+            term,
+            &graph.nodes[position].semantic_type,
+            selected_profile,
+        ) {
+            if validate_layout(form, operator, arguments).is_ok() {
+                validated[position] = Some((operator, arguments));
+            }
+        }
+    }
+    let (owners, _) =
+        collect_protocol_membership(graph.nodes, graph.kinds, &validated, graph.index, meter)?;
+    let context = ProtocolFairnessContext {
+        terms,
+        nodes: graph.nodes,
+        kinds: graph.kinds,
+        validated: &validated,
+        index: graph.index,
+        owners: &owners,
+    };
+    let mut matched = false;
+    for &clause in graph.index.values() {
+        if graph.kinds[clause] != CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause) {
+            continue;
+        }
+        meter.charge(1, || node_pointer(clause))?;
+        let Some((_, arguments)) = validated[clause] else {
+            continue;
+        };
+        let Some(requirements) = binding_value(arguments, "requirements") else {
+            continue;
+        };
+        for key in listed_targets(requirements) {
+            meter.charge(1, || node_pointer(clause))?;
+            if key == &graph.nodes[requirement].node_id {
+                matched = true;
+                validate_protocol_fairness_target(&context, target, fair, clause, meter)?;
+            }
+        }
+    }
+    if !matched {
+        return Err(fairness_defect(
+            fair,
+            graph.nodes,
+            target_identity(target).1,
+            false,
+        ));
+    }
+    Ok(())
+}
+
+#[string_edge]
+fn validate_protocol_membership(
+    terms: &[Option<CheckedTerm>],
+    nodes: &[RawSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    validated: &[Option<(&str, &[CheckedTerm])>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let (owners, mut repeated) =
+        collect_protocol_membership(nodes, kinds, validated, index, meter)?;
+
+    validate_protocol_fairness(
+        &ProtocolFairnessContext {
+            terms,
+            nodes,
+            kinds,
+            validated,
+            index,
+            owners: &owners,
+        },
+        meter,
+    )?;
+
     let mut queue_count = vec![0u8; nodes.len()];
     for &position in index.values() {
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::Queue)) {
@@ -2943,6 +3047,205 @@ fn validate_protocol_membership(
             || (*form == ProtocolForm::Channel && queue_count[position] != 1)
         {
             return Err(declaration_defect(position, &nodes[position]));
+        }
+    }
+    Ok(())
+}
+
+struct ProtocolFairnessContext<'a> {
+    terms: &'a [Option<CheckedTerm>],
+    nodes: &'a [RawSemanticNodeV2],
+    kinds: &'a [CheckedNodeKind],
+    validated: &'a [Option<(&'a str, &'a [CheckedTerm])>],
+    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    owners: &'a [Option<usize>],
+}
+
+/// Join fairness through the same retained clause membership used by controls.
+fn validate_protocol_fairness(
+    context: &ProtocolFairnessContext<'_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let &ProtocolFairnessContext {
+        terms,
+        nodes,
+        kinds,
+        validated,
+        index,
+        ..
+    } = context;
+    let mut checked = BTreeSet::new();
+    for &clause in index.values() {
+        if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
+            continue;
+        }
+        let Some((_, arguments)) = validated[clause] else {
+            continue;
+        };
+        let Some(requirements) = binding_value(arguments, "requirements") else {
+            continue;
+        };
+        for requirement in listed_targets(requirements) {
+            meter.charge(1, || node_pointer(clause))?;
+            let Some(&requirement) = index.get(requirement) else {
+                continue;
+            };
+            let Some(CheckedTerm::Application { arguments, .. }) = terms[requirement].as_ref()
+            else {
+                continue;
+            };
+            let Some(fairness) = arguments.get(4) else {
+                continue;
+            };
+            for fair in listed_targets(fairness) {
+                meter.charge(1, || node_pointer(requirement))?;
+                let Some(&fair) = index.get(fair) else {
+                    continue;
+                };
+                let Some(target) = fairness_target(terms[fair].as_ref()) else {
+                    continue;
+                };
+                if matches!(
+                    target,
+                    CheckedFairnessTarget::Operation { .. }
+                        | CheckedFairnessTarget::HybridTransition { .. }
+                ) {
+                    continue;
+                }
+                checked.insert(fair);
+                validate_protocol_fairness_target(context, &target, fair, clause, meter)?;
+            }
+        }
+    }
+    for &fair in index.values() {
+        let Some(target) = fairness_target(terms[fair].as_ref()) else {
+            continue;
+        };
+        if !checked.contains(&fair)
+            && !matches!(
+                target,
+                CheckedFairnessTarget::Operation { .. }
+                    | CheckedFairnessTarget::HybridTransition { .. }
+            )
+        {
+            meter.charge(1, || node_pointer(fair))?;
+            return Err(fairness_defect(
+                fair,
+                nodes,
+                target_identity(&target).1,
+                false,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn fairness_target(term: Option<&CheckedTerm>) -> Option<CheckedFairnessTarget> {
+    let CheckedTerm::Application { operation, .. } = term? else {
+        return None;
+    };
+    super::temporal::fairness_target(&operation.record()["member"])
+}
+
+fn target_identity(target: &CheckedFairnessTarget) -> (&CheckedNodeId, &'static str) {
+    match target {
+        CheckedFairnessTarget::Operation { declaration, .. }
+        | CheckedFairnessTarget::HybridTransition { declaration, .. } => {
+            (declaration, "declaration")
+        }
+        CheckedFairnessTarget::ParallelBranch { parallel, .. } => (parallel, "parallel"),
+        CheckedFairnessTarget::ProtocolRoot { node }
+        | CheckedFairnessTarget::AttemptNode { node }
+        | CheckedFairnessTarget::CompensationTemplate { node } => (node, "node"),
+    }
+}
+
+fn fairness_defect(
+    fair: usize,
+    nodes: &[RawSemanticNodeV2],
+    field: &str,
+    malformed: bool,
+) -> ValidationFailure {
+    ValidationFailure::refused_at(
+        if malformed {
+            Code::InvalidModelBinding
+        } else {
+            Code::MissingDeclaration
+        },
+        node_pointer(fair)
+            .key("body")
+            .key("operation")
+            .key("member")
+            .key("target")
+            .key(field),
+        Some(if malformed {
+            Cause::MalformedDeclaration
+        } else {
+            Cause::MissingName
+        }),
+        nodes[fair].node_id.clone(),
+    )
+}
+
+#[string_edge]
+fn validate_protocol_fairness_target(
+    context: &ProtocolFairnessContext<'_>,
+    target: &CheckedFairnessTarget,
+    fair: usize,
+    clause: usize,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let &ProtocolFairnessContext {
+        nodes,
+        kinds,
+        validated,
+        index,
+        owners,
+        ..
+    } = context;
+    let (identity, field) = target_identity(target);
+    meter.charge(1, || node_pointer(fair))?;
+    if identity.package != nodes[clause].node_id.package {
+        return Err(fairness_defect(fair, nodes, field, false));
+    }
+    let Some(&position) = index.get(identity) else {
+        return Err(fairness_defect(fair, nodes, field, false));
+    };
+    if position != clause && owners[position] != Some(clause) {
+        return Err(fairness_defect(fair, nodes, field, false));
+    }
+    let kind_matches = match target {
+        CheckedFairnessTarget::ProtocolRoot { .. } => position == clause,
+        CheckedFairnessTarget::AttemptNode { .. } => {
+            kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Control)
+                && validated[position].is_some_and(|(op, _)| op == "attempt")
+        }
+        CheckedFairnessTarget::ParallelBranch { .. } => {
+            kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Control)
+                && validated[position].is_some_and(|(op, _)| op == "parallel")
+        }
+        CheckedFairnessTarget::CompensationTemplate { .. } => {
+            kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation)
+        }
+        CheckedFairnessTarget::Operation { .. }
+        | CheckedFairnessTarget::HybridTransition { .. } => return Ok(()),
+    };
+    if !kind_matches {
+        return Err(fairness_defect(fair, nodes, field, true));
+    }
+    if let CheckedFairnessTarget::ParallelBranch { branch, .. } = target {
+        let mut found = false;
+        if let Some((_, arguments)) = validated[position] {
+            if let Some(branches) = binding_value(arguments, "branches").and_then(members) {
+                for record in branches {
+                    meter.charge(1, || node_pointer(fair))?;
+                    found |=
+                        group_value(record, "label").and_then(text_value) == Some(branch.as_ref());
+                }
+            }
+        }
+        if !found {
+            return Err(fairness_defect(fair, nodes, "branch", false));
         }
     }
     Ok(())
@@ -5051,7 +5354,7 @@ pub(super) fn validate_protocol_nodes(
             check_member(&check, form, operator, arguments, &validated, owners, meter)?;
         }
     }
-    validate_protocol_membership(nodes, kinds, &validated, index, meter)?;
+    validate_protocol_membership(terms, nodes, kinds, &validated, index, meter)?;
     for &position in index.values() {
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             continue;
