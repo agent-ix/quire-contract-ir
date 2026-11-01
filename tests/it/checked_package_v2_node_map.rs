@@ -114,7 +114,7 @@ fn public_node_and_term_mapping_visits_original_slots_once_in_order() {
 
 #[trace("FR-048-AC-7")]
 #[test]
-fn frame_and_abstraction_map_only_typed_ids() {
+fn frame_maps_only_typed_ids() {
     let original = id("original");
     let replacement = id("replacement");
     let mut frame = CheckedTerm::Frame {
