@@ -72,7 +72,7 @@ fn qspec_k2_role_rename_changes_declared_and_operand_ids() {
         vec![
             json!("expression"),
             json!("reference"),
-            original_role_id.clone(),
+            json!({"node":role}),
         ],
         0,
     );
@@ -93,13 +93,11 @@ fn qspec_k2_role_rename_changes_declared_and_operand_ids() {
     fixture_support::settle(&mut package);
     let before_role = package["semantic_graph"]["nodes"][role]["node_id"].clone();
     let before_derived = package["semantic_graph"]["nodes"][derived]["node_id"].clone();
-    assert!(
-        matches!(
-            read_authored(&package),
-            CheckedPackageV2ReadResult::Admitted(_)
-        ),
-        "K2 Fulfillment base admits"
-    );
+    let CheckedPackageV2ReadResult::Admitted(before) = read_authored(&package) else {
+        panic!("K2 Fulfillment base must admit");
+    };
+    let before_derived_key =
+        super::node_index::fixture_structural_key(&before.graph().nodes, derived);
     package["semantic_graph"]["nodes"][role]["declaration"]["qualified_name"][3] =
         json!("Shipping");
     fixture_support::settle(&mut package);
@@ -109,8 +107,11 @@ fn qspec_k2_role_rename_changes_declared_and_operand_ids() {
     let after_role = package["semantic_graph"]["nodes"][role]["node_id"].clone();
     let after_derived = package["semantic_graph"]["nodes"][derived]["node_id"].clone();
     assert_ne!(before_role, after_role);
-    assert_ne!(before_derived, after_derived);
-    assert_eq!(after_derived["path"][2], after_role);
+    let after_derived_key =
+        super::node_index::fixture_structural_key(&admitted.graph().nodes, derived);
+    assert_ne!(before_derived_key, after_derived_key);
+    assert_eq!(before_derived, after_derived);
+    assert_eq!(after_derived["path"][2], json!({"node":role}));
     assert_eq!(
         serde_json::to_value(&admitted.graph().nodes[derived].node_id).expect("retained id"),
         after_derived

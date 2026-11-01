@@ -74,6 +74,11 @@ fn append_population(package: &mut Value, object: &Value, max: Option<&str>, ext
     set["body"]["members"][0]["target"] = reference.clone();
     set["dependencies"] = json!([reference]);
     let set = append_rekeyed(package, set);
+    let set_index = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
 
     let mut population = package["semantic_graph"]["nodes"]
         [node_index(package, "bounded_domain", "integer_range")]
@@ -106,7 +111,11 @@ fn append_population(package: &mut Value, object: &Value, max: Option<&str>, ext
         a.cmp(&b)
     });
     population["dependencies"] = json!(dependencies);
-    let mut path = vec![json!("bounded_domain"), json!("model_population"), set];
+    let mut path = vec![
+        json!("bounded_domain"),
+        json!("model_population"),
+        json!({"node":set_index}),
+    ];
     if let Some(max) = max {
         path.push(json!(max));
     }

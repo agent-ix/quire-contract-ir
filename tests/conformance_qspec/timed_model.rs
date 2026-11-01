@@ -10,16 +10,6 @@ use quire_contract_model::{
     CheckedOccurrenceRole, CheckedTerm,
 };
 
-fn node_id_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
-    let left: CheckedNodeId = serde_json::from_value(left.clone()).expect("left structural id");
-    let right: CheckedNodeId = serde_json::from_value(right.clone()).expect("right structural id");
-    left.cmp(&right)
-}
-
-fn node_id_less(left: &Value, right: &Value) -> bool {
-    node_id_cmp(left, right).is_lt()
-}
-
 fn published() -> Value {
     read_json(&fixtures_dir().join("positive-timed-model-nodes.json"))
         .expect("published timed model must be available")
@@ -621,8 +611,13 @@ fn timed_clause_first_of_two_unlisted_nodes_follows_structural_id_order() {
         .expect("published clause fixture");
     let reset = wire["semantic_graph"]["nodes"][85]["node_id"].clone();
     let constraint = wire["semantic_graph"]["nodes"][76]["node_id"].clone();
+    let ids = node_index::fixture_graph_ids(&wire);
+    let reset_id: CheckedNodeId = serde_json::from_value(reset.clone()).expect("reset id");
+    let constraint_id: CheckedNodeId =
+        serde_json::from_value(constraint.clone()).expect("constraint id");
     assert!(
-        node_id_less(&constraint, &reset),
+        node_index::fixture_structural_key_for_id(&ids, &constraint_id)
+            < node_index::fixture_structural_key_for_id(&ids, &reset_id),
         "the constraint has the earlier structural id"
     );
     wire["semantic_graph"]["nodes"]
@@ -666,14 +661,17 @@ fn timed_clause_first_of_two_unlisted_nodes_follows_structural_id_order() {
 }
 
 fn sort_timed_graph_dependencies(package: &mut Value) {
+    let ids = node_index::fixture_graph_ids(package);
     for node in package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("graph nodes")
     {
-        node["dependencies"]
-            .as_array_mut()
-            .expect("node dependencies")
-            .sort_by(node_id_cmp);
+        node_index::sort_fixture_node_refs_with_ids(
+            &ids,
+            node["dependencies"]
+                .as_array_mut()
+                .expect("node dependencies"),
+        );
     }
 }
 
@@ -1542,12 +1540,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
             other => panic!("{}: unknown semantic vector {other}", row["id"]),
         }
         fixture_support::settle(&mut wire);
-        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
-            node["dependencies"]
-                .as_array_mut()
-                .unwrap()
-                .sort_by(node_id_cmp);
-        }
+        sort_timed_graph_dependencies(&mut wire);
         fixture_support::settle(&mut wire);
         if mutation == "second-place-forged-row" {
             let places =
@@ -1599,8 +1592,27 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
         match row["mutation"].as_str().unwrap() {
             "tick-source-with-clock-place" => {
                 let dense = published();
-                let place = dense["semantic_graph"]["nodes"][45].clone();
+                let mut place = dense["semantic_graph"]["nodes"][45].clone();
+                let old_place_id = place["node_id"].clone();
+                for segment in place["node_id"]["path"]
+                    .as_array_mut()
+                    .expect("clock-place path")
+                {
+                    let Some(dense_index) = segment.get("node").and_then(Value::as_u64) else {
+                        continue;
+                    };
+                    let dense_target = &dense["semantic_graph"]["nodes"]
+                        [usize::try_from(dense_index).expect("dense graph index")]["node_id"];
+                    let tick_index = wire["semantic_graph"]["nodes"]
+                        .as_array()
+                        .expect("tick graph")
+                        .iter()
+                        .position(|node| &node["node_id"] == dense_target)
+                        .expect("clock-place operand in tick graph");
+                    *segment = json!({"node":tick_index});
+                }
                 let place_id = place["node_id"].clone();
+                fixture_support::reassign_node_id(&mut place, &old_place_id, &place_id);
                 wire["semantic_graph"]["nodes"]
                     .as_array_mut()
                     .unwrap()
@@ -1611,10 +1623,6 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                     .unwrap()
                     .push(json!({"term":"reference", "target":place_id}));
                 root["dependencies"].as_array_mut().unwrap().push(place_id);
-                root["dependencies"]
-                    .as_array_mut()
-                    .unwrap()
-                    .sort_by(node_id_cmp);
             }
             "source-unit-length" | "source-unit-derived-non-time" | "source-unit-derived-time" => {
                 let mutation = row["mutation"].as_str().unwrap();
@@ -1683,17 +1691,11 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                 let deps = source["dependencies"].as_array_mut().unwrap();
                 deps.retain(|dep| dep != &old);
                 deps.push(unit_id);
-                deps.sort_by(node_id_cmp);
             }
             other => panic!("{id}: unknown mutation {other}"),
         }
         fixture_support::settle(&mut wire);
-        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
-            node["dependencies"]
-                .as_array_mut()
-                .unwrap()
-                .sort_by(node_id_cmp);
-        }
+        sort_timed_graph_dependencies(&mut wire);
         fixture_support::settle(&mut wire);
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{id} must refuse");
@@ -1722,10 +1724,6 @@ fn replace_dependency(node: &mut Value, old: &Value, new: &Value) {
             *dependency = new.clone();
         }
     }
-    node["dependencies"]
-        .as_array_mut()
-        .unwrap()
-        .sort_by(node_id_cmp);
 }
 
 #[trace("TC-048")]
@@ -1849,12 +1847,7 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
             _ => unreachable!("test case list is closed"),
         }
         fixture_support::settle(&mut wire);
-        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
-            node["dependencies"]
-                .as_array_mut()
-                .unwrap()
-                .sort_by(node_id_cmp);
-        }
+        sort_timed_graph_dependencies(&mut wire);
         fixture_support::settle(&mut wire);
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{change} must refuse");

@@ -491,10 +491,30 @@ fn duration_projection_control(scenario: DurationCase) {
     let mut package = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     let retained = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 32, 37];
+    let original_count = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published graph")
+        .len();
+    let mut old_to_new = vec![usize::MAX; original_count];
+    for (new, old) in retained.iter().copied().enumerate() {
+        old_to_new[old] = new;
+    }
     let mut nodes: Vec<Value> = retained
         .iter()
         .map(|index| package["semantic_graph"]["nodes"][*index].clone())
         .collect();
+    let ids: BTreeSet<_> = nodes
+        .iter()
+        .map(|node| node["node_id"].to_string())
+        .collect();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .retain(|entry| ids.contains(&entry["node_id"].to_string()));
+    for node in &mut nodes {
+        super::node_index::remap_graph_indexes(node, &old_to_new);
+    }
+    super::node_index::remap_graph_indexes(&mut package["source_map"], &old_to_new);
     let mut nominal_maps = Vec::new();
     let mut source_id = None;
     let mut selected_id = None;
@@ -511,16 +531,6 @@ fn duration_projection_control(scenario: DurationCase) {
         selected_id = Some(unit_id);
     }
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
-    let ids: BTreeSet<_> = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .map(|node| node["node_id"].to_string())
-        .collect();
-    package["source_map"]
-        .as_array_mut()
-        .expect("source map")
-        .retain(|entry| ids.contains(&entry["node_id"].to_string()));
     package["source_map"]
         .as_array_mut()
         .expect("source map")

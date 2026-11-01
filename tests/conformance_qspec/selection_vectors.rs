@@ -134,6 +134,16 @@ fn tc_935_rows() -> (Value, Value, Value) {
     (row(&vectors, "T"), row(&vectors, "D"), row(&vectors, "U"))
 }
 
+fn source_key_ref(wire: &Value, node_id: &CheckedNodeId) -> Value {
+    let node_id = serde_json::to_value(node_id).expect("requested node id");
+    let source_keys = wire["source_keys"].as_array().expect("source keys");
+    let index = source_keys
+        .iter()
+        .position(|key| key == &node_id)
+        .expect("requested node has a source key");
+    json!({"source_key":index})
+}
+
 fn assert_tc_935_failed_work(
     source: &Value,
     package: &CheckedPackageV2,
@@ -168,7 +178,7 @@ fn assert_tc_935_failed_work(
     assert_eq!(
         emitted["feature_accounting"],
         json!([{
-            "node_id":request, "disposition":"failed", "limit_kind":"work",
+            "node_id":source_key_ref(&emitted, request), "disposition":"failed", "limit_kind":"work",
             "limit":limit.to_string(), "consumed":consumed.to_string()
         }])
     );
@@ -260,14 +270,18 @@ fn tc_935_required_source_rows_match_exactly_without_changing_provenance() {
             {
                 assert_eq!(
                     feature,
-                    &json!({"node_id": requests[index], "disposition": "invalid_input"})
+                    &json!({"node_id": source_key_ref(&serialized, &requests[index]), "disposition": "invalid_input"})
                 );
                 let expected = source["source_map"]
                     .as_array()
                     .expect("source entries")
                     .iter()
                     .filter(|entry| entry["node_id"] == json!(requests[index]))
-                    .cloned()
+                    .map(|entry| {
+                        let mut entry = entry.clone();
+                        entry["node_id"] = source_key_ref(&serialized, &requests[index]);
+                        entry
+                    })
                     .collect::<Vec<_>>();
                 assert_eq!(
                     serialized["source_map"]["requested_items"][index]["occurrences"],

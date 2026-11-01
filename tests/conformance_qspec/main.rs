@@ -1497,10 +1497,19 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
     assert_eq!(published.len(), expected.len());
     for (position, (node, id)) in admitted.graph().nodes.iter().zip(expected).enumerate() {
         assert_eq!(
-            published[position]["node_id"], id,
-            "{position}: assigned wire id"
+            serde_json::to_value(&node.node_id).expect("node id"),
+            published[position]["node_id"],
+            "{position}: retained assigned wire id"
         );
-        assert_eq!(serde_json::to_value(&node.node_id).expect("node id"), id);
+        assert_eq!(
+            serde_json::to_value(node_index::fixture_structural_key(
+                &admitted.graph().nodes,
+                position
+            ))
+            .expect("resolved structural id"),
+            id,
+            "{position}: resolved structural id"
+        );
         assert_eq!(
             serde_json::to_value(&node.owner).expect("owner"),
             published[position]["owner"],
