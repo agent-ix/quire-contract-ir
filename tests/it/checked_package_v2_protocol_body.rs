@@ -9744,51 +9744,66 @@ fn with_protocol_fairness_on(mut package: Value, member: Value, clause: usize) -
     (package, fair)
 }
 
+fn admitted_protocol_fairness_case(kind: &str) -> (Value, usize, CheckedPackageV2) {
+    let vectors = typed_fairness_cases();
+    let vector = vectors["positive"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|vector| vector["member"]["target"]["kind"] == kind)
+        .expect("catalogued protocol fairness kind");
+    let mut member = vector["member"].clone();
+    let (package, target_position) = match kind {
+        "attempt_node" => {
+            let (p, root, _) = package_with_admitted_attempt();
+            (p, root)
+        }
+        "parallel_branch" => {
+            let (p, _) = protocol_holder_case("parallel");
+            let root = holder_position(&p);
+            member["target"]["branch"] = json!("Right");
+            (p, root)
+        }
+        "compensation_template" => {
+            let (p, _, compensation) = package_with_admitted_compensation();
+            (p, compensation)
+        }
+        "protocol_root" => {
+            let p = v2_all_families();
+            let root = clause_position(&p);
+            (p, root)
+        }
+        _ => unreachable!(),
+    };
+    let identity_field = if kind == "parallel_branch" {
+        "parallel"
+    } else {
+        "node"
+    };
+    member["target"][identity_field] =
+        package["semantic_graph"]["nodes"][target_position]["node_id"].clone();
+    let (package, fair) = with_protocol_fairness(package, member);
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(p) => *p,
+        other => panic!("{kind}: {other:?}"),
+    };
+    (package, fair, admitted)
+}
+
+pub(crate) fn admitted_protocol_fairness_for_node_map(kind: &str) -> CheckedPackageV2 {
+    admitted_protocol_fairness_case(kind).2
+}
+
 #[trace("TC-048", "FR-038-AC-98", "FR-038-AC-103", "FR-349-AC-9")]
 #[test]
 fn typed_protocol_fairness_preserves_each_selected_target() {
-    let vectors = typed_fairness_cases();
-    for vector in vectors["positive"].as_array().unwrap().iter().filter(|v| {
-        matches!(
-            v["member"]["target"]["kind"].as_str(),
-            Some("protocol_root" | "attempt_node" | "parallel_branch" | "compensation_template")
-        )
-    }) {
-        let mut member = vector["member"].clone();
-        let (package, target_position) = match member["target"]["kind"].as_str().unwrap() {
-            "attempt_node" => {
-                let (p, root, _) = package_with_admitted_attempt();
-                (p, root)
-            }
-            "parallel_branch" => {
-                let (p, _) = protocol_holder_case("parallel");
-                let root = holder_position(&p);
-                member["target"]["branch"] = json!("Right");
-                (p, root)
-            }
-            "compensation_template" => {
-                let (p, _, compensation) = package_with_admitted_compensation();
-                (p, compensation)
-            }
-            "protocol_root" => {
-                let p = v2_all_families();
-                let root = clause_position(&p);
-                (p, root)
-            }
-            _ => unreachable!(),
-        };
-        let identity_field = if member["target"]["kind"] == "parallel_branch" {
-            "parallel"
-        } else {
-            "node"
-        };
-        member["target"][identity_field] =
-            package["semantic_graph"]["nodes"][target_position]["node_id"].clone();
-        let (package, fair) = with_protocol_fairness(package, member);
-        let admitted = match read(&package) {
-            CheckedPackageV2ReadResult::Admitted(p) => p,
-            other => panic!("{}: {other:?}", vector["id"]),
-        };
+    for kind in [
+        "protocol_root",
+        "attempt_node",
+        "parallel_branch",
+        "compensation_template",
+    ] {
+        let (package, fair, admitted) = admitted_protocol_fairness_case(kind);
         let CheckedTerm::Application { operation, .. } = &admitted.graph().nodes[fair].body else {
             panic!("fairness application")
         };

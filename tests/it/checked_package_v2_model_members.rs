@@ -3419,6 +3419,10 @@ pub(crate) fn admitted_reaches_field_control() -> CheckedPackageV2 {
     }
 }
 
+pub(crate) fn admitted_reaches_population_for_node_map() -> CheckedPackageV2 {
+    reaches_population::admitted_reaches_population_for_node_map()
+}
+
 /// FR-322 "Reaches over a field": an optional, a required and a bounded
 /// sequence reference to the owner are edges, including through a subtype
 /// declaring node, a subtype target and a target two levels down.

@@ -536,6 +536,113 @@ fn qspec_hybrid_restored_model_and_claims_admit_from_published_nodes() {
     );
 }
 
+#[trace("FR-048-AC-7")]
+#[test]
+fn qspec_admitted_hybrid_fairness_maps_whole_nested_member_id() {
+    let package = restored_package();
+    let read = read_package(&package).expect("published evidence");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read else {
+        panic!("published restored hybrid package must admit: {read:?}");
+    };
+    let mut term = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "temporal" && node.semantic_form.as_ref() == "fairness"
+        })
+        .expect("published hybrid fairness")
+        .body
+        .clone();
+    let CheckedTerm::Application { operation, .. } = &term else {
+        panic!("hybrid fairness application");
+    };
+    let Some(CheckedOperationMember::Fairness {
+        target: quire_contract_model::CheckedFairnessTarget::HybridTransition { declaration, name },
+        ..
+    }) = operation.read().expect("admitted operation view").member
+    else {
+        panic!("admitted hybrid transition target");
+    };
+    assert_eq!(name.as_ref(), "Stopped");
+    let original = declaration.clone();
+    let nested = CheckedNodeId {
+        package: original.package.clone(),
+        path: vec![
+            quire_contract_model::CheckedNodePathSegment::Name("mapped-hybrid".into()),
+            quire_contract_model::CheckedNodePathSegment::Node(std::sync::Arc::new(
+                original.clone(),
+            )),
+        ],
+        ordinal: 0,
+    };
+    let final_id = CheckedNodeId {
+        package: original.package.clone(),
+        path: vec![quire_contract_model::CheckedNodePathSegment::Name(
+            "final-hybrid".into(),
+        )],
+        ordinal: 0,
+    };
+    let mut member_calls = 0;
+    term.map_node_ids(|seen| {
+        if member_calls == 0 {
+            assert_eq!(seen, &original, "member before result and arguments");
+            member_calls += 1;
+            Some(nested.clone())
+        } else {
+            assert_ne!(seen, &nested, "replacement is not revisited");
+            None
+        }
+    });
+    assert_eq!(member_calls, 1);
+    let CheckedTerm::Application { operation, .. } = &term else {
+        unreachable!()
+    };
+    let Some(CheckedOperationMember::Fairness {
+        target: quire_contract_model::CheckedFairnessTarget::HybridTransition { declaration, name },
+        ..
+    }) = operation.read().unwrap().member
+    else {
+        unreachable!()
+    };
+    assert_eq!(declaration, &nested);
+    assert_eq!(name.as_ref(), "Stopped");
+    assert_eq!(operation.member_declaration().unwrap(), Some(&nested));
+    let raw = serde_json::to_value(operation).expect("mapped raw operation");
+    assert_eq!(
+        raw["member"]["target"]["declaration"],
+        serde_json::to_value(&nested).unwrap()
+    );
+    assert_eq!(raw["member"]["target"]["name"], "Stopped");
+
+    let mut nested_calls = 0;
+    term.map_node_ids(|seen| {
+        if seen == &nested {
+            nested_calls += 1;
+            Some(final_id.clone())
+        } else {
+            None
+        }
+    });
+    assert_eq!(nested_calls, 1, "whole nested member is one logical slot");
+    let CheckedTerm::Application { operation, .. } = &term else {
+        unreachable!()
+    };
+    let Some(CheckedOperationMember::Fairness {
+        target: quire_contract_model::CheckedFairnessTarget::HybridTransition { declaration, .. },
+        ..
+    }) = operation.read().unwrap().member
+    else {
+        unreachable!()
+    };
+    assert_eq!(declaration, &final_id);
+    assert_eq!(operation.member_declaration().unwrap(), Some(&final_id));
+    assert_eq!(
+        serde_json::to_value(operation).unwrap()["member"]["target"]["declaration"],
+        serde_json::to_value(&final_id).unwrap()
+    );
+}
+
 #[trace("TC-048", "FR-038-AC-315")]
 #[test]
 fn qspec_hybrid_timed_open_upper_admits_under_timed_profile() {

@@ -9,7 +9,8 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedAbstractionFrame, CheckedAbstractionObject,
-    CheckedAbstractionPopulation, CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment,
+    CheckedAbstractionPopulation, CheckedArtifactRef, CheckedFairnessTarget, CheckedNodeId,
+    CheckedNodePathSegment, CheckedOperationMember, CheckedPackageEvidence,
     CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRational, CheckedSemanticNodeV2,
     CheckedTerm, DimensionTerm, LiteralKind, NominalBody, RefinementAbstractClass,
@@ -19,6 +20,7 @@ use quire_contract_model::{
     RefinementPopulation, RefinementStep, RefinementStepArgument, RefinementStepTarget,
 };
 use serde_json::Value;
+use std::sync::Arc;
 
 fn id(name: &str) -> CheckedNodeId {
     CheckedNodeId {
@@ -171,6 +173,396 @@ fn public_node_and_term_mapping_visits_original_slots_once_in_order() {
     };
     assert!(matches!(&members[0], CheckedTerm::Reference { target } if target.ordinal == 1));
     assert!(matches!(&members[1], CheckedTerm::Reference { target } if target.ordinal == 2));
+}
+
+#[trace("FR-048-AC-6", "FR-048-AC-7")]
+#[test]
+fn admitted_operation_member_maps_whole_nested_id_and_typed_mirror() {
+    let package = crate::checked_package_v2_catalogue_differential::admitted_catalogue_control(
+        "quire.op.collection.index",
+    );
+    let mut term = package
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() == Some("quire.op.collection.index") =>
+            {
+                Some(node.body.clone())
+            }
+            _ => None,
+        })
+        .expect("admitted index operation");
+    let CheckedTerm::Application {
+        operation,
+        result_type,
+        ..
+    } = &term
+    else {
+        unreachable!()
+    };
+    let original_result_type = result_type.clone();
+    let Some(CheckedOperationMember::Element { declaration }) =
+        operation.read().expect("admitted view").member
+    else {
+        panic!("index operation has an element member");
+    };
+    let original = declaration.clone();
+    let nested = CheckedNodeId {
+        package: original.package.clone(),
+        path: vec![
+            CheckedNodePathSegment::Name("nested-member".into()),
+            CheckedNodePathSegment::Node(Arc::new(original.clone())),
+        ],
+        ordinal: 1,
+    };
+    let final_id = id("final-member");
+    let mut first_visits = Vec::new();
+    let mut original_visits = 0;
+    term.map_node_ids(|seen| {
+        first_visits.push(seen.clone());
+        if seen == &original {
+            original_visits += 1;
+            (original_visits == 1).then(|| nested.clone())
+        } else if seen == &nested {
+            Some(final_id.clone())
+        } else {
+            None
+        }
+    });
+    assert!(
+        !first_visits.contains(&nested),
+        "replacement is not revisited"
+    );
+    let CheckedTerm::Application {
+        operation,
+        result_type,
+        ..
+    } = &term
+    else {
+        unreachable!()
+    };
+    assert!(
+        matches!(operation.read().expect("first mapped view").member,
+        Some(CheckedOperationMember::Element { declaration }) if declaration == &nested)
+    );
+    assert_eq!(
+        result_type, &original_result_type,
+        "result slot remained independent"
+    );
+    assert_eq!(
+        serde_json::to_value(operation).unwrap()["member"]["declaration"],
+        serde_json::to_value(&nested).unwrap()
+    );
+    let mut nested_visits = 0;
+    term.map_node_ids(|seen| {
+        if seen == &nested {
+            nested_visits += 1;
+            Some(final_id.clone())
+        } else {
+            None
+        }
+    });
+    assert_eq!(nested_visits, 1, "whole member ID is one logical slot");
+    let CheckedTerm::Application { operation, .. } = &term else {
+        unreachable!()
+    };
+    assert!(matches!(operation.read().expect("mapped view").member,
+        Some(CheckedOperationMember::Element { declaration }) if declaration == &final_id));
+    let raw = serde_json::to_value(operation).expect("mapped raw operation");
+    assert_eq!(
+        raw["member"]["declaration"],
+        serde_json::to_value(&final_id).unwrap()
+    );
+}
+
+fn admitted_with_evidence(mut wire: Value, evidence: CheckedPackageEvidence) -> CheckedPackageV2 {
+    crate::support::checked_package::index_fixture_node_ids(&mut wire);
+    match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("member control must admit: {other:?}"),
+    }
+}
+
+fn member_slots(member: &CheckedOperationMember) -> Vec<(&'static str, CheckedNodeId)> {
+    match member {
+        CheckedOperationMember::Field { declaration, .. }
+        | CheckedOperationMember::Position { declaration, .. }
+        | CheckedOperationMember::Element { declaration }
+        | CheckedOperationMember::Operation { declaration, .. }
+        | CheckedOperationMember::TypeArgument { declaration } => {
+            vec![("/declaration", declaration.clone())]
+        }
+        CheckedOperationMember::RelationshipEnd {
+            declaration,
+            destination_type,
+            population,
+            ..
+        } => {
+            let mut slots = vec![
+                ("/declaration", declaration.clone()),
+                ("/destination_type", destination_type.clone()),
+            ];
+            if let Some(population) = population {
+                slots.push(("/population", population.clone()));
+            }
+            slots
+        }
+        CheckedOperationMember::Fairness { target, .. } => match target {
+            CheckedFairnessTarget::Operation { declaration, .. }
+            | CheckedFairnessTarget::HybridTransition { declaration, .. } => {
+                vec![("/target/declaration", declaration.clone())]
+            }
+            CheckedFairnessTarget::ProtocolRoot { node }
+            | CheckedFairnessTarget::AttemptNode { node }
+            | CheckedFairnessTarget::CompensationTemplate { node } => {
+                vec![("/target/node", node.clone())]
+            }
+            CheckedFairnessTarget::ParallelBranch { parallel, .. } => {
+                vec![("/target/parallel", parallel.clone())]
+            }
+        },
+        CheckedOperationMember::ProfileOperator { .. }
+        | CheckedOperationMember::StateClause { .. }
+        | CheckedOperationMember::TemporalInterval { .. } => Vec::new(),
+    }
+}
+
+fn assert_admitted_member_census_case(
+    package: CheckedPackageV2,
+    identity: &str,
+    kind: &str,
+    target_kind: Option<&str>,
+    expected_slots: usize,
+) {
+    let mut term = package
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() == Some(identity) =>
+            {
+                Some(node.body.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("admitted {identity} application"));
+    let CheckedTerm::Application { operation, .. } = &term else {
+        unreachable!()
+    };
+    let read = operation.read().expect("reader-admitted operation");
+    let member = read.member.expect("reader-admitted member");
+    let original = member_slots(member);
+    assert_eq!(original.len(), expected_slots, "{identity}");
+    let raw = serde_json::to_value(operation).expect("raw operation");
+    assert_eq!(raw["member"]["kind"], kind, "{identity}");
+    if let Some(target_kind) = target_kind {
+        assert_eq!(raw["member"]["target"]["kind"], target_kind, "{identity}");
+    }
+    let mut expected_member = raw["member"].clone();
+    let nested: Vec<_> = original
+        .iter()
+        .enumerate()
+        .map(|(index, (_, source))| CheckedNodeId {
+            package: source.package.clone(),
+            path: vec![
+                CheckedNodePathSegment::Name(format!("nested-{index}").into()),
+                CheckedNodePathSegment::Node(Arc::new(source.clone())),
+            ],
+            ordinal: 0,
+        })
+        .collect();
+    for ((path, _), mapped) in original.iter().zip(&nested) {
+        *expected_member.pointer_mut(path).expect("member slot") =
+            serde_json::to_value(mapped).expect("nested ID wire");
+    }
+    let mut calls = 0;
+    term.map_node_ids(|seen| {
+        if calls < original.len() {
+            assert_eq!(seen, &original[calls].1, "member before result: {identity}");
+            let mapped = nested[calls].clone();
+            calls += 1;
+            Some(mapped)
+        } else {
+            assert!(!nested.contains(seen), "replacement revisited: {identity}");
+            None
+        }
+    });
+    assert_eq!(calls, expected_slots, "{identity}");
+    let CheckedTerm::Application { operation, .. } = &term else {
+        unreachable!()
+    };
+    assert_eq!(
+        serde_json::to_value(operation).unwrap()["member"],
+        expected_member,
+        "{identity}"
+    );
+    assert_eq!(
+        member_slots(operation.read().unwrap().member.unwrap()),
+        original
+            .iter()
+            .map(|(path, _)| *path)
+            .zip(nested.iter().cloned())
+            .collect::<Vec<_>>(),
+        "typed nested mirror: {identity}"
+    );
+    let final_ids: Vec<_> = (0..nested.len())
+        .map(|index| id(&format!("final-{index}")))
+        .collect();
+    let mut second_calls = 0;
+    term.map_node_ids(|seen| {
+        if second_calls < nested.len() {
+            assert_eq!(seen, &nested[second_calls], "whole nested slot: {identity}");
+            let mapped = final_ids[second_calls].clone();
+            second_calls += 1;
+            Some(mapped)
+        } else {
+            None
+        }
+    });
+    assert_eq!(second_calls, expected_slots, "{identity}");
+    let CheckedTerm::Application { operation, .. } = &term else {
+        unreachable!()
+    };
+    for ((path, _), final_id) in original.iter().zip(&final_ids) {
+        assert_eq!(
+            serde_json::to_value(operation).unwrap()["member"]
+                .pointer(path)
+                .unwrap(),
+            &serde_json::to_value(final_id).unwrap(),
+            "{identity} {path}"
+        );
+    }
+    assert_eq!(
+        member_slots(operation.read().unwrap().member.unwrap()),
+        original
+            .iter()
+            .map(|(path, _)| *path)
+            .zip(final_ids)
+            .collect::<Vec<_>>(),
+        "typed final mirror: {identity}"
+    );
+}
+
+#[trace("FR-048-AC-7")]
+#[test]
+fn external_admitted_operation_member_census_maps_structural_ids() {
+    let (field_wire, field_evidence) =
+        crate::checked_package_v2_model_fields::record_project_control();
+    let (relationship_wire, relationship_evidence) =
+        crate::checked_package_v2_model_members::model_member_control("quire.op.model.navigate");
+    let (operation_wire, operation_evidence) =
+        crate::checked_package_v2_model_members::model_member_control(
+            "quire.op.model.dispatch_call",
+        );
+    for (package, identity, kind, target_kind, slots) in [
+        (
+            admitted_with_evidence(field_wire, field_evidence),
+            "quire.op.record.project",
+            "field",
+            None,
+            1,
+        ),
+        (
+            crate::checked_package_v2_catalogue_differential::admitted_catalogue_control(
+                "quire.op.tuple.project",
+            ),
+            "quire.op.tuple.project",
+            "position",
+            None,
+            1,
+        ),
+        (
+            crate::checked_package_v2_catalogue_differential::admitted_catalogue_control(
+                "quire.op.collection.index",
+            ),
+            "quire.op.collection.index",
+            "element",
+            None,
+            1,
+        ),
+        (
+            admitted_with_evidence(relationship_wire, relationship_evidence),
+            "quire.op.model.navigate",
+            "relationship_end",
+            None,
+            2,
+        ),
+        (
+            crate::checked_package_v2_model_members::admitted_reaches_population_for_node_map(),
+            "quire.op.model.reaches",
+            "relationship_end",
+            None,
+            3,
+        ),
+        (
+            admitted_with_evidence(operation_wire, operation_evidence),
+            "quire.op.model.dispatch_call",
+            "operation",
+            None,
+            1,
+        ),
+        (
+            crate::checked_package_v2_catalogue_differential::admitted_catalogue_control(
+                "quire.op.numeric.convert",
+            ),
+            "quire.op.numeric.convert",
+            "type_argument",
+            None,
+            1,
+        ),
+        (
+            crate::checked_package_v2_temporal::admitted_fairness_source_for_contract(),
+            "quire.op.temporal.fair",
+            "fairness",
+            Some("operation"),
+            1,
+        ),
+        (
+            crate::checked_package_v2_protocol_body::admitted_protocol_fairness_for_node_map(
+                "protocol_root",
+            ),
+            "quire.op.temporal.fair",
+            "fairness",
+            Some("protocol_root"),
+            1,
+        ),
+        (
+            crate::checked_package_v2_protocol_body::admitted_protocol_fairness_for_node_map(
+                "attempt_node",
+            ),
+            "quire.op.temporal.fair",
+            "fairness",
+            Some("attempt_node"),
+            1,
+        ),
+        (
+            crate::checked_package_v2_protocol_body::admitted_protocol_fairness_for_node_map(
+                "parallel_branch",
+            ),
+            "quire.op.temporal.fair",
+            "fairness",
+            Some("parallel_branch"),
+            1,
+        ),
+        (
+            crate::checked_package_v2_protocol_body::admitted_protocol_fairness_for_node_map(
+                "compensation_template",
+            ),
+            "quire.op.temporal.fair",
+            "fairness",
+            Some("compensation_template"),
+            1,
+        ),
+    ] {
+        assert_admitted_member_census_case(package, identity, kind, target_kind, slots);
+    }
 }
 
 #[trace("FR-048-AC-7")]

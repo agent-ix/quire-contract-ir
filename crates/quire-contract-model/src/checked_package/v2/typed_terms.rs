@@ -301,6 +301,32 @@ impl<'de> Deserialize<'de> for CheckedFairnessTarget {
 }
 
 impl CheckedFairnessTarget {
+    #[ix_trace_rs::string_edge]
+    fn from_validated_value(value: &Value) -> Option<Self> {
+        let kind = value.get("kind")?.as_str()?;
+        let declaration = || structural_member_id(value.get("declaration")?);
+        let node = || structural_member_id(value.get("node")?);
+        let name = || Some(Box::<str>::from(value.get("name")?.as_str()?));
+        Some(match kind {
+            "operation" => Self::Operation {
+                declaration: declaration()?,
+                name: name()?,
+            },
+            "hybrid_transition" => Self::HybridTransition {
+                declaration: declaration()?,
+                name: name()?,
+            },
+            "protocol_root" => Self::ProtocolRoot { node: node()? },
+            "attempt_node" => Self::AttemptNode { node: node()? },
+            "compensation_template" => Self::CompensationTemplate { node: node()? },
+            "parallel_branch" => Self::ParallelBranch {
+                parallel: structural_member_id(value.get("parallel")?)?,
+                branch: value.get("branch")?.as_str()?.into(),
+            },
+            _ => return None,
+        })
+    }
+
     /// Decode only the hybrid join coordinates at the pre-shape admission step.
     /// Full member validation still rejects extra fields and bad vocabulary later;
     /// ignoring those here preserves the specified first-refusal order.
@@ -310,7 +336,7 @@ impl CheckedFairnessTarget {
             return None;
         }
         Some(Self::HybridTransition {
-            declaration: CheckedNodeId::from_value(wire.get("declaration")?)?,
+            declaration: structural_member_id(wire.get("declaration")?)?,
             name: wire
                 .get("name")
                 .and_then(Value::as_str)
@@ -537,9 +563,9 @@ impl CheckedOperationMember {
 
     pub(super) fn from_validated_value(value: &Value) -> Option<Self> {
         let kind = OperationMemberKind::from_wire(value.get("kind")?.as_str()?)?;
-        let declaration = || CheckedNodeId::from_value(value.get("declaration")?);
+        let declaration = || structural_member_id(value.get("declaration")?);
         let name = || Some(Box::<str>::from(value.get("name")?.as_str()?));
-        let node = |key| CheckedNodeId::from_value(value.get(key)?);
+        let node = |key| structural_member_id(value.get(key)?);
         Some(match kind {
             OperationMemberKind::Field => Self::Field {
                 declaration: declaration()?,
@@ -598,7 +624,7 @@ impl CheckedOperationMember {
             OperationMemberKind::Fairness => Self::Fairness {
                 fairness_kind: serde_json::from_value(value.get("fairness_kind")?.clone()).ok()?,
                 granularity: serde_json::from_value(value.get("granularity")?.clone()).ok()?,
-                target: serde_json::from_value(value.get("target")?.clone()).ok()?,
+                target: CheckedFairnessTarget::from_validated_value(value.get("target")?)?,
             },
         })
     }
@@ -1290,6 +1316,81 @@ fn push_refinement_key<'a>(work: &mut Vec<NodeMapWork<'a>>, key: &'a mut Refinem
     }
 }
 
+// Operation records retain their authored JSON, including structural IDs whose
+// path operands are whole node IDs. The wire decoder intentionally accepts only
+// flat IDs, so decode these retained member slots without recursive descent.
+fn structural_member_id(value: &Value) -> Option<CheckedNodeId> {
+    enum Task<'a> {
+        Node(&'a Value),
+        Segment(&'a Value),
+        Finish {
+            package: &'a str,
+            ordinal: u64,
+            len: usize,
+        },
+    }
+
+    let mut pending = vec![Task::Node(value)];
+    let mut segments = Vec::new();
+    let mut root = None;
+    while let Some(task) = pending.pop() {
+        match task {
+            Task::Node(value) => {
+                let object = value.as_object()?;
+                if object.len() != 3 {
+                    return None;
+                }
+                let package = object.get("package")?.as_str()?;
+                let path = object.get("path")?.as_array()?;
+                let ordinal = object.get("ordinal")?.as_u64()?;
+                if package.is_empty() || path.is_empty() || ordinal > 9_007_199_254_740_991 {
+                    return None;
+                }
+                pending.push(Task::Finish {
+                    package,
+                    ordinal,
+                    len: path.len(),
+                });
+                for segment in path.iter().rev() {
+                    pending.push(Task::Segment(segment));
+                }
+            }
+            Task::Segment(Value::String(name)) => {
+                segments.push(CheckedNodePathSegment::Name(name.as_str().into()));
+            }
+            Task::Segment(Value::Object(object))
+                if object.len() == 1 && object.contains_key("node") =>
+            {
+                let index = object.get("node")?.as_u64()?;
+                if index > 9_007_199_254_740_991 {
+                    return None;
+                }
+                segments.push(CheckedNodePathSegment::Index(index));
+            }
+            Task::Segment(value @ Value::Object(_)) => pending.push(Task::Node(value)),
+            Task::Segment(_) => return None,
+            Task::Finish {
+                package,
+                ordinal,
+                len,
+            } => {
+                let path = segments.split_off(segments.len().checked_sub(len)?);
+                let node = CheckedNodeId {
+                    package: package.into(),
+                    path,
+                    ordinal,
+                };
+                if pending.is_empty() {
+                    root = Some(node);
+                } else {
+                    segments.push(CheckedNodePathSegment::Node(std::sync::Arc::new(node)));
+                }
+            }
+        }
+    }
+    root
+}
+
 #[ix_trace_rs::string_edge]
 fn map_operation_ids(
     operation: &mut CheckedApplicationOperation,
@@ -1332,10 +1433,12 @@ fn map_operation_ids(
         if let Some(target) = member.get_mut("target").and_then(Value::as_object_mut) {
             for field in ["declaration", "node", "parallel"] {
                 if let Some(value) = target.get_mut(field) {
-                    if let Some(original) = CheckedNodeId::from_value(value) {
-                        let replacement = map(&original).unwrap_or(original);
-                        *value = serde_json::to_value(&replacement)
-                            .expect("checked node ID serialization is infallible");
+                    if let Some(original) = structural_member_id(value) {
+                        let replacement = map(&original);
+                        if let Some(replacement) = &replacement {
+                            *value = node_id_value(replacement);
+                        }
+                        let replacement = replacement.unwrap_or(original);
                         if field == "declaration" {
                             mapped_declaration = Some(replacement.clone());
                         }
@@ -1349,11 +1452,10 @@ fn map_operation_ids(
     let mut mapped_population = None;
     for field in fields {
         if let Some(value) = member.get_mut(*field) {
-            if let Some(original) = CheckedNodeId::from_value(value) {
+            if let Some(original) = structural_member_id(value) {
                 let replacement = map(&original);
                 if let Some(replacement) = &replacement {
-                    *value = serde_json::to_value(replacement)
-                        .expect("checked node ID serialization is infallible");
+                    *value = node_id_value(replacement);
                 }
                 let mapped = replacement.unwrap_or(original);
                 match *field {
@@ -2630,7 +2732,14 @@ mod tests {
     fn relationship_end_uses_one_callback_per_member_slot() {
         let original = CheckedNodeId {
             package: "operation-map".into(),
-            path: vec![CheckedNodePathSegment::Name("shared".into())],
+            path: vec![
+                CheckedNodePathSegment::Name("shared".into()),
+                CheckedNodePathSegment::Node(std::sync::Arc::new(CheckedNodeId {
+                    package: "operation-map".into(),
+                    path: vec![CheckedNodePathSegment::Name("nested".into())],
+                    ordinal: 0,
+                })),
+            ],
             ordinal: 0,
         };
         let member = CheckedOperationMember::RelationshipEnd {
@@ -2718,6 +2827,120 @@ mod tests {
                 wire["member"][field],
                 serde_json::to_value(id).expect("node ID wire")
             );
+        }
+    }
+
+    #[trace("FR-048-AC-7")]
+    #[test]
+    fn validated_member_views_retain_nested_structural_ids() {
+        let nested = CheckedNodeId {
+            package: "operation-map".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("outer".into()),
+                CheckedNodePathSegment::Node(std::sync::Arc::new(CheckedNodeId {
+                    package: "operation-map".into(),
+                    path: vec![CheckedNodePathSegment::Name("inner".into())],
+                    ordinal: 0,
+                })),
+            ],
+            ordinal: 1,
+        };
+        let relationship = json!({
+            "kind": "relationship_end", "declaration": nested,
+            "destination_type": nested, "population": nested, "name": "end"
+        });
+        assert!(
+            matches!(CheckedOperationMember::from_validated_value(&relationship),
+            Some(CheckedOperationMember::RelationshipEnd {
+                declaration, destination_type, population: Some(population), name
+            }) if declaration == nested && destination_type == nested
+                && population == nested && name.as_ref() == "end")
+        );
+        let fairness = json!({
+            "kind": "fairness", "fairness_kind": "weak", "granularity": "whole",
+            "target": {"kind": "parallel_branch", "parallel": nested, "branch": "left"}
+        });
+        assert!(
+            matches!(CheckedOperationMember::from_validated_value(&fairness),
+            Some(CheckedOperationMember::Fairness {
+                target: CheckedFairnessTarget::ParallelBranch { parallel, branch }, ..
+            }) if parallel == nested && branch.as_ref() == "left")
+        );
+    }
+
+    #[trace("FR-048-AC-7")]
+    #[test]
+    fn single_declaration_member_variants_map_nested_ids_once() {
+        let original = CheckedNodeId {
+            package: "member-map".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("outer".into()),
+                CheckedNodePathSegment::Node(std::sync::Arc::new(CheckedNodeId {
+                    package: "member-map".into(),
+                    path: vec![CheckedNodePathSegment::Name("inner".into())],
+                    ordinal: 0,
+                })),
+            ],
+            ordinal: 0,
+        };
+        let replacement = CheckedNodeId {
+            package: "member-map".into(),
+            path: vec![CheckedNodePathSegment::Name("replacement".into())],
+            ordinal: 0,
+        };
+        for member_wire in [
+            json!({"kind":"field", "declaration":original, "name":"named"}),
+            json!({"kind":"position", "declaration":original, "position":"0"}),
+            json!({"kind":"element", "declaration":original}),
+            json!({"kind":"operation", "declaration":original, "name":"named"}),
+            json!({"kind":"type_argument", "declaration":original}),
+        ] {
+            let member = CheckedOperationMember::from_validated_value(&member_wire)
+                .expect("validated structural member");
+            let mut operation = CheckedApplicationOperation {
+                record: json!({"identity":"test", "laws":[], "mode":null,
+                    "member":member_wire, "leaves":[]}),
+                execution_point: None,
+                views: Some(CheckedOperationViews {
+                    record: Some(Box::new(CheckedOperationRecord {
+                        identity: "test".into(),
+                        mode: None,
+                        laws: Vec::new(),
+                        member: Some(member),
+                        constraints: Vec::new(),
+                        leaves: Vec::new(),
+                    })),
+                    member_declaration: Some(original.clone()),
+                    ..CheckedOperationViews::default()
+                }),
+                #[cfg(feature = "test-support")]
+                test_fixture: false,
+            };
+            let mut visits = 0;
+            super::map_operation_ids(&mut operation, &mut |seen| {
+                assert_eq!(seen, &original);
+                visits += 1;
+                Some(replacement.clone())
+            });
+            assert_eq!(visits, 1);
+            assert_eq!(operation.member_declaration(), Ok(Some(&replacement)));
+            assert_eq!(
+                operation.record()["member"]["declaration"],
+                json!(replacement)
+            );
+            let Some(mapped) = operation.read().unwrap().member else {
+                panic!("mapped member view");
+            };
+            let declaration = match mapped {
+                CheckedOperationMember::Field { declaration, .. }
+                | CheckedOperationMember::Position { declaration, .. }
+                | CheckedOperationMember::Element { declaration }
+                | CheckedOperationMember::Operation { declaration, .. }
+                | CheckedOperationMember::TypeArgument { declaration } => declaration,
+                _ => panic!("single-declaration member changed kind"),
+            };
+            assert_eq!(declaration, &replacement);
+            assert_eq!(operation.record()["member"]["name"], member_wire["name"]);
         }
     }
 
@@ -3011,7 +3234,14 @@ mod tests {
     fn fairness_targets_map_one_identity_and_keep_all_views_in_sync() {
         let original = CheckedNodeId {
             package: "fair-map".into(),
-            path: vec![CheckedNodePathSegment::Name("before".into())],
+            path: vec![
+                CheckedNodePathSegment::Name("before".into()),
+                CheckedNodePathSegment::Node(std::sync::Arc::new(CheckedNodeId {
+                    package: "fair-map".into(),
+                    path: vec![CheckedNodePathSegment::Name("nested".into())],
+                    ordinal: 0,
+                })),
+            ],
             ordinal: 0,
         };
         let replacement = CheckedNodeId {
