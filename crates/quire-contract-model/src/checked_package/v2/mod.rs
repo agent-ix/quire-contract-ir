@@ -8,6 +8,11 @@
 
 mod abstraction;
 mod callable;
+mod model_operations;
+pub use model_operations::{
+    CheckedModelOperation, CheckedModelOperations, CheckedOperationParameter,
+    CheckedOperationReadError, CheckedOperationReadErrorCode,
+};
 mod checked_term_data;
 mod claim_terminal;
 mod closure_index;
@@ -881,7 +886,6 @@ impl WorkMeter {
         Self { consumed: 0, limit }
     }
 
-    #[cfg(test)]
     pub(super) const fn consumed(&self) -> u64 {
         self.consumed
     }
