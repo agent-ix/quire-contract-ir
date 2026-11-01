@@ -990,7 +990,7 @@ fn selected_runtime_types_refuse_tuple_without_stage_identity() {
     );
 }
 
-#[trace("FR-352-AC-5", "FR-354-AC-1", "FR-354-AC-2")]
+#[trace("FR-352-AC-5")]
 #[test]
 fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
     let mut selected = document(vec![typed_object(
