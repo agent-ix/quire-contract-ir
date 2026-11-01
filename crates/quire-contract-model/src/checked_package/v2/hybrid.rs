@@ -920,6 +920,7 @@ pub(super) fn validate_models(
 
 /// Checks temporal clauses whose over parameter is typed by a hybrid model.
 /// The ordinary temporal step has already admitted placement and profile fit.
+#[ix_trace_rs::string_edge]
 pub(super) fn validate_claims(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
