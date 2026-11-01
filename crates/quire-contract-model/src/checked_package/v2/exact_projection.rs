@@ -200,7 +200,6 @@ impl SelectedExactIdentities {
         let mut owners = BTreeSet::new();
         let mut node_identities = BTreeSet::new();
         let mut object_identities = BTreeSet::new();
-        let mut unit_identities = BTreeSet::new();
         for row in declarations {
             let node = &row.structural_node;
             let Some((document, original, form)) = admitted_selected_declaration(package, node)
@@ -218,14 +217,13 @@ impl SelectedExactIdentities {
                 ));
             }
             let unique_exact = match &row.exact_identity {
-                SelectedExactIdentity::Record(key) | SelectedExactIdentity::Union(key) => {
+                SelectedExactIdentity::Record(key)
+                | SelectedExactIdentity::Union(key)
+                | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => {
                     node_identities.insert(key.clone())
                 }
                 SelectedExactIdentity::Object(effective) => {
                     object_identities.insert(effective.clone())
-                }
-                SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => {
-                    unit_identities.insert(key.clone())
                 }
                 SelectedExactIdentity::DeclaredUnit(UnitId::Compound(_)) => false,
             };

@@ -830,7 +830,7 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         IDENTITY,
         orders("Receipt"),
         format!("{}/duration", orders("Receipt")),
-        MemberId::new(MemberOwner::Node(record_key), "duration").unwrap(),
+        MemberId::new(MemberOwner::Node(record_key.clone()), "duration").unwrap(),
     );
 
     let missing = SelectedExactIdentities::from_stage_rows(
@@ -896,6 +896,20 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         .code,
         ExactTypeProjectionErrorCode::ForeignNode
     );
+
+    let mut shared_key = unit_row.clone();
+    shared_key.exact_identity = SelectedExactIdentity::DeclaredUnit(UnitId::declared(record_key));
+    let collision = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [record_row.clone(), shared_key],
+        [field_row.clone()],
+    )
+    .unwrap_err();
+    assert_eq!(
+        collision.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+    assert_eq!(collision.at.as_deref(), Some(&unit));
 
     let witnessed =
         SelectedExactIdentities::from_stage_rows(&admitted, [record_row, unit_row], [field_row])
