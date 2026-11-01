@@ -500,7 +500,10 @@ fn hundred_thousand_node_position_remap_preserves_admitted_references() {
             source_map: &source_map,
             refinement_step_rows: original.refinement_step_rows(),
         },
-        original.checked_term_data(),
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: original.checked_term_data(),
+            temporal_bindings: original.temporal_bindings(),
+        },
         original.capability_report(),
         original.diagnostics(),
         quire_canonical::Limits::new(u64::MAX),
@@ -557,7 +560,10 @@ fn mapped_duplicate_is_refused_by_the_package_reader() {
             source_map: admitted.source_map(),
             refinement_step_rows: admitted.refinement_step_rows(),
         },
-        admitted.checked_term_data(),
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: admitted.checked_term_data(),
+            temporal_bindings: admitted.temporal_bindings(),
+        },
         admitted.capability_report(),
         admitted.diagnostics(),
         quire_canonical::Limits::new(u64::MAX),

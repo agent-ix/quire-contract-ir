@@ -124,7 +124,7 @@ fn read_temporal_package(package: &Value) -> CheckedPackageV2ReadResult {
         .expect("published package read")
 }
 
-fn admitted(package: &Value, case: &Value, expected_rows: usize) {
+fn admitted(package: &Value, case: &Value, expected_rows: usize) -> Box<CheckedPackageV2> {
     let read = read_temporal_package(package);
     let CheckedPackageV2ReadResult::Admitted(admitted) = read else {
         panic!("{}: {read:?}", case["id"]);
@@ -138,6 +138,7 @@ fn admitted(package: &Value, case: &Value, expected_rows: usize) {
     } else {
         assert_ne!(rows[0].declaration, rows[1].declaration);
     }
+    admitted
 }
 
 fn refused(package: &Value, case: &Value) {
@@ -177,7 +178,64 @@ fn temporal_clock_binding_vectors_read_at_their_exact_loci() {
     }
     let mut multiple = selected_package(&positives[0]);
     add_second_clause(&mut multiple);
-    admitted(&multiple, &published["multi_clause_positive"], 2);
+    let read = admitted(&multiple, &published["multi_clause_positive"], 2);
+    let rows = read.temporal_bindings().expect("two typed clock rows");
+    let expected_rows = multiple["temporal_bindings"]
+        .as_array()
+        .expect("published rows");
+    assert_eq!(expected_rows.len(), 2);
+    let expected_formula_indices = published["multi_clause_positive"]
+        ["canonical_formula_node_indices"]
+        .as_array()
+        .expect("published formula indices");
+    assert_eq!(expected_formula_indices.len(), 2);
+    for (index, (row, expected)) in rows.iter().zip(expected_rows).enumerate() {
+        let exact_id: CheckedNodeId =
+            serde_json::from_value(expected["declaration"].clone()).expect("exact clause ID");
+        assert_eq!(
+            row.declaration, exact_id,
+            "row {index} keeps its declaration"
+        );
+        assert_eq!(
+            expected["declaration"]["path"][7]["node"], expected_formula_indices[index],
+            "row {index} names the published formula identity"
+        );
+        assert_eq!(
+            row.clock_name.as_ref(),
+            published["multi_clause_positive"]["clock_names"][index]
+                .as_str()
+                .expect("published clock name")
+        );
+    }
+    assert!(
+        read.structural_key(&rows[0].declaration)
+            .expect("first structural clause key")
+            < read
+                .structural_key(&rows[1].declaration)
+                .expect("second structural clause key"),
+        "the two rows remain in ascending structural key order"
+    );
+    let second_id = &expected_rows[1]["declaration"];
+    let second_node = multiple["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| &node["node_id"] == second_id)
+        .expect("second clause node");
+    let mut missing_second = multiple.clone();
+    missing_second["temporal_bindings"]
+        .as_array_mut()
+        .expect("rows")
+        .remove(1);
+    refused(
+        &missing_second,
+        &json!({
+            "id": "TCB-11-missing-second-row",
+            "expected_code": "invalid_package",
+            "expected_cause": "timed-node-reference",
+            "locus": format!("/semantic_graph/nodes/{second_node}/body")
+        }),
+    );
 
     for (period, locus) in [
         (
@@ -261,4 +319,34 @@ fn temporal_clock_binding_vectors_read_at_their_exact_loci() {
         }
         refused(&package, case);
     }
+}
+
+/// Trace: QSpec FR-322-AC-294, TC-134.
+#[trace("TC-134", "FR-322-AC-294")]
+#[test]
+fn temporal_clock_writer_retains_a_configured_clause_row() {
+    let published = vectors();
+    let case = &published["positive"][0];
+    let source = selected_package(case);
+    let read = admitted(&source, case, 1);
+    let encoded = encode_checked_package_v2(
+        read.name(),
+        read.lock(),
+        read.graph(),
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: read.source_map(),
+            refinement_step_rows: read.refinement_step_rows(),
+        },
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: read.checked_term_data(),
+            temporal_bindings: read.temporal_bindings(),
+        },
+        read.capability_report(),
+        read.diagnostics(),
+        quire_canonical::Limits::new(1 << 24),
+    )
+    .expect("typed temporal package encodes");
+    let written: Value = serde_json::from_slice(&encoded).expect("canonical package JSON");
+    assert_eq!(written["temporal_bindings"], source["temporal_bindings"]);
+    admitted(&written, case, 1);
 }

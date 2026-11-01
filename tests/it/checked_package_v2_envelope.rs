@@ -40,7 +40,10 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
             source_map: &source_map,
             refinement_step_rows: refinement_step_rows.as_deref(),
         },
-        None,
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: None,
+            temporal_bindings: None,
+        },
         &capabilities,
         &diagnostics,
         limits,

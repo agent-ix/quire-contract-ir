@@ -1215,7 +1215,10 @@ fn encode_package(package: &CheckedPackageV2) -> Vec<u8> {
             source_map: package.source_map(),
             refinement_step_rows: package.refinement_step_rows(),
         },
-        package.checked_term_data(),
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: package.checked_term_data(),
+            temporal_bindings: package.temporal_bindings(),
+        },
         package.capability_report(),
         package.diagnostics(),
         Limits::new(1 << 24),

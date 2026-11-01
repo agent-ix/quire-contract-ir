@@ -87,6 +87,7 @@ type BorrowedWire<'a> = CheckedPackageEnvelope<
     Vec<CheckedSourceMapEntry>,
     Vec<super::refinement::CheckedRefinementStepRowRegion>,
     super::checked_term_data::CheckedTermDataV2,
+    Vec<super::temporal_binding::TemporalBinding>,
     Vec<CheckedCapability>,
     BorrowedDiagnostics<'a>,
 >;

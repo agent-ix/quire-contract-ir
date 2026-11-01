@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Agent-IX
+
 //! Typed clock configuration rows for temporal clause declarations.
 
 use super::{
@@ -157,6 +160,7 @@ fn validate_shape(
 ) -> Result<(), ValidationFailure> {
     for (index, row) in rows.iter().enumerate() {
         let at = row_pointer(index);
+        meter.charge(1, || at.clone())?;
         if row.clock_name.is_empty() {
             return Err(malformed(at.clone().key("clock_name")));
         }
@@ -267,12 +271,18 @@ pub(super) fn validate(
         }
         let law = profile_law(node);
         let profile = configured_profile(node);
-        let selected = law.as_ref().is_some_and(|law| {
-            lock.profile_selections.iter().any(|selection| {
-                selection.role == CheckedSelectionRole::TemporalProfile
+        let mut selected = false;
+        if let Some(law) = law.as_ref() {
+            for selection in &lock.profile_selections {
+                meter.charge(1, || at.clone().key("clock").key("kind"))?;
+                if selection.role == CheckedSelectionRole::TemporalProfile
                     && selection.definition == *law
-            })
-        });
+                {
+                    selected = true;
+                    break;
+                }
+            }
+        }
         let kind_matches = matches!(
             (profile, &row.clock),
             (

@@ -126,7 +126,10 @@ fn selected_root_roundtrips_through_public_typed_writer_and_reader() {
             source_map: first.source_map(),
             refinement_step_rows: first.refinement_step_rows(),
         },
-        first.checked_term_data(),
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: first.checked_term_data(),
+            temporal_bindings: first.temporal_bindings(),
+        },
         first.capability_report(),
         first.diagnostics(),
         quire_canonical::Limits::new(16 * 1024 * 1024),

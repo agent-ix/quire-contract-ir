@@ -37,7 +37,10 @@ fn encode(
             source_map: &source_map,
             refinement_step_rows: None,
         },
-        term_data,
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: term_data,
+            temporal_bindings: None,
+        },
         &capabilities,
         &diagnostics,
         limits,
