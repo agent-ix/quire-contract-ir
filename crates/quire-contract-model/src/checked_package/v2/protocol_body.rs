@@ -3096,6 +3096,7 @@ fn fairness_defect(
     )
 }
 
+#[string_edge]
 fn validate_protocol_fairness_target(
     context: &ProtocolFairnessContext<'_>,
     target: &CheckedFairnessTarget,
