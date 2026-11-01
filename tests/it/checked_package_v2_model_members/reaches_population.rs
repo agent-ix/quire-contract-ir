@@ -317,6 +317,10 @@ fn linked(identity: &str, max: &str, ordinals: &[u64]) -> (Scenario, String) {
     (scenario, population)
 }
 
+pub(super) fn admitted_reaches_population_for_node_map() -> CheckedPackageV2 {
+    linked(ORDER, "3", &[4, 1, 7]).0.admitted()
+}
+
 fn reaches_id(package: &CheckedPackageV2) -> CheckedNodeId {
     application_of(package, "quire.op.model.reaches")
 }
