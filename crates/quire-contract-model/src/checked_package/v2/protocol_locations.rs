@@ -4,11 +4,14 @@
 
 use super::checked_term_data::CheckedProtocolSemanticLocation;
 use super::checked_term_data::{CheckedKeyOrdinal, CheckedProtocolLocationOrigin};
-use super::{CheckedPackageV2, CheckedTerm, RawCheckedPackageWireV2, RawSemanticNodeV2, WorkMeter};
+use super::{
+    CheckedNodeKind, CheckedPackageV2, CheckedTerm, RawCheckedPackageWireV2, RawSemanticNodeV2,
+    WorkMeter,
+};
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
+    CheckedNodeId, CheckedOccurrence, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedSourceMapEntry, JsonPointer,
 };
 
 const MAX_SAFE: u64 = 9_007_199_254_740_991;
