@@ -5456,9 +5456,24 @@ fn model_operation_callable_joins_selected_body_and_frame() {
             .code,
         CheckedCallableReadErrorCode::UnavailableWitness
     );
+    assert_eq!(
+        admitted
+            .callable_table(&cloned_selected, 100_000)
+            .expect_err("foreign package witness")
+            .code,
+        CheckedCallableReadErrorCode::ForeignSelectedJoin
+    );
     let operation_row = table.rows().iter().find(|row| {
         matches!(&row.identity, CheckedCallableIdentity::Operation { anchor, .. } if anchor == &anchor_id)
     }).expect("selected operation row");
+    assert_eq!(
+        operation_row.identity,
+        CheckedCallableIdentity::Operation {
+            anchor: anchor_id.clone(),
+            member: row.original_operation_identity.clone(),
+            selected: row.selected_operation_identity.clone(),
+        }
+    );
     assert_eq!(operation_row.parameters.len(), 2);
     let frame = operation_row.frame.as_ref().expect("admitted frame handle");
     assert!(matches!(
