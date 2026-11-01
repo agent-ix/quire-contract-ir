@@ -67,3 +67,8 @@ Merged QSpec #560 (e119548e) changed FR-322-AC-288/289/292 to require each equal
 | --- | --- | --- |
 | FND-001 | fixed | Revised FR-353-AC-1 reads each equality by its own application node and occurrence, with empty `term_path`; parent forms reference the child node. This satisfies the V2 body grammar and FR-038 admission rule. |
 | FND-002 | still-open | QSpec #560's normative checked-term-data prose still permits nested path traversal while its revised AC-288/289/292 require empty paths. Upstream repair is pending. |
+| FND-002 | fixed | QSpec #561 merged at fc5973e8 rewrites FR-322 checked_term_data prose to require each equality's own application node and occurrence with an empty term_path, reject a non-empty path, and use parent references to child application nodes. Its order and work charges now end at the occurrence key with zero path-segment work, matching FR-322-AC-288/289/292 and FR-353. |
+
+## Disposition pass 2 evidence
+
+QSpec FR-322 at merged fc5973e8 now states: `equality_decisions` is keyed by the local equality application `node_id`, that node's occurrence, and an empty `term_path`; non-empty paths refuse at the first segment. It explicitly says the reader does not traverse a `CheckedTerm` tree or follow parent references, and that parent `and`/`or`/aggregate/binding bodies reference separate child application nodes. Its ordering and work-accounting paragraphs require no equality path-segment work. Current FR-353 at PR #760 head cbed17a3 uses the same own-node join and empty-path refusal. FND-002 is resolved; the original finding text and prior still-open disposition remain as historical records.
