@@ -15,7 +15,13 @@ use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelFieldsError, CheckedModelObjectFields,
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageEvidence, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageV2, CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode,
+    SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
+    SelectedExactIdentities, SelectedExactIdentity,
+};
+use quire_exact::{
+    record, ConstructionCause, EffectiveId, FieldValue, Integer, MemberId, MemberOwner, NodeKey,
+    OriginalDeclarationKey, PathSegment, Presence, Value as ExactValue, ValueType,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -698,6 +704,412 @@ fn admit(document: &Value, declared: &[(&str, &str)], reads: &[Read]) -> Checked
     match read_with(&package, &evidence, CheckedPackageReadLimits::bounded()) {
         CheckedPackageV2ReadResult::Admitted(package) => *package,
         other => panic!("expected admission, got {other:?}"),
+    }
+}
+
+/// Complete record projections read every retained effective field, including
+/// inherited fields and members with no expression read.
+#[test]
+fn admitted_selected_records_project_complete_exact_views() {
+    let mut selected = document(vec![
+        value_type("Digit", "integer", Some(("0", "9"))),
+        typed_object(
+            "Receipt",
+            "record",
+            &[],
+            &[field("total", "ix://quire/native/Integer")],
+        ),
+        typed_object(
+            "Attempt",
+            "record",
+            &["Receipt"],
+            &[field("note", "ix://quire/native/String").optional()],
+        ),
+        typed_object(
+            "Flag",
+            "record",
+            &["Receipt"],
+            &[
+                field("total", "ix://quire/native/Boolean")
+                    .redefining(&format!("{}/total", orders("Receipt"))),
+                field("set", "ix://quire/native/Boolean"),
+            ],
+        ),
+        typed_object("Tick", "record", &[], &[field("count", &orders("Digit"))]),
+    ]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct catalog")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    let declared = [
+        ("Receipt", "record_value_type"),
+        ("Attempt", "record_value_type"),
+        ("Flag", "record_value_type"),
+        ("Tick", "record_value_type"),
+    ];
+    let admitted = admit(&selected, &declared, &[]);
+    let mut declaration_rows = Vec::new();
+    let mut field_rows = Vec::new();
+    let mut records = Vec::new();
+    for (short, fields) in [
+        ("Receipt", vec![("Receipt", "total")]),
+        ("Attempt", vec![("Receipt", "total"), ("Attempt", "note")]),
+        ("Flag", vec![("Flag", "total"), ("Flag", "set")]),
+        ("Tick", vec![("Tick", "count")]),
+    ] {
+        let structural: CheckedNodeId =
+            serde_json::from_value(node_id(&declaration_key(short, "record_value_type")))
+                .expect("structural record ID");
+        let key = NodeKey::new("checked", vec![PathSegment::Text(short.into())], 0)
+            .expect("Exact record key");
+        declaration_rows.push(SelectedExactDeclarationRow::new(
+            structural.clone(),
+            IDENTITY,
+            SelectedExactDeclarationForm::RecordValueType,
+            orders(short),
+            SelectedExactIdentity::Record(key.clone()),
+        ));
+        for (owner, name) in fields {
+            field_rows.push(SelectedExactFieldRow::new(
+                structural.clone(),
+                IDENTITY,
+                orders(short),
+                format!("{}/{name}", orders(owner)),
+                MemberId::new(MemberOwner::Node(key.clone()), format!("{owner}/{name}"))
+                    .expect("Exact member ID"),
+            ));
+        }
+        records.push((short, structural, key));
+    }
+    let missing_tick = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        declaration_rows.clone(),
+        field_rows
+            .iter()
+            .filter(|row| {
+                row.field_original_identity.as_ref() != format!("{}/count", orders("Tick"))
+            })
+            .cloned(),
+    )
+    .expect("the other rows join");
+    let tick_node = &records[3].1;
+    let missing = admitted
+        .project_exact_type(tick_node, &missing_tick, 100)
+        .expect_err("unwitnessed count refuses the whole view");
+    assert_eq!(
+        missing.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    let mut conflicting_fields = field_rows.clone();
+    let duplicate_member_id = conflicting_fields[1].member_id.clone();
+    conflicting_fields[2].member_id = duplicate_member_id;
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            declaration_rows.clone(),
+            conflicting_fields,
+        )
+        .expect_err("distinct effective fields cannot share one Exact member")
+        .code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+    );
+
+    let witnesses =
+        SelectedExactIdentities::from_stage_rows(&admitted, declaration_rows, field_rows)
+            .expect("all selected rows join the admitted package");
+    let projections = records
+        .iter()
+        .map(|(_, structural, key)| {
+            let projection = admitted
+                .project_exact_type(structural, &witnesses, 100)
+                .expect("complete selected record");
+            assert_eq!(projection.value_type(), &ValueType::Composite(key.clone()));
+            assert_eq!(
+                projection.record_view().expect("record view").record_key(),
+                key
+            );
+            projection
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        projections[0].record_view().expect("Receipt").fields()[0].value_type(),
+        &ValueType::Integer,
+    );
+    assert_eq!(
+        projections[2].record_view().expect("Flag").fields()[0].value_type(),
+        &ValueType::Boolean,
+    );
+    assert_eq!(
+        projections[2]
+            .record_view()
+            .expect("Flag")
+            .fields()
+            .iter()
+            .map(|field| field.ir_identity().to_owned())
+            .collect::<Vec<_>>(),
+        vec![
+            format!("{}/total", orders("Flag")),
+            format!("{}/set", orders("Flag")),
+        ],
+    );
+    let exhausted = admitted
+        .project_exact_type(
+            tick_node,
+            &witnesses,
+            witnesses.field_rows().len() as u64 + 2,
+        )
+        .expect_err("the field itself must be charged");
+    assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(exhausted.at.as_deref(), Some(tick_node));
+    assert_eq!(
+        projections[1]
+            .record_view()
+            .expect("Attempt fields")
+            .fields()
+            .iter()
+            .map(|field| (
+                field.ir_identity().to_owned(),
+                field.name().to_owned(),
+                field.presence()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                format!("{}/total", orders("Receipt")),
+                "total".into(),
+                Presence::Required
+            ),
+            (
+                format!("{}/note", orders("Attempt")),
+                "note".into(),
+                Presence::Optional
+            ),
+        ],
+    );
+    let tick = projections[3].record_view().expect("Tick fields");
+    let count = &tick.fields()[0];
+    assert_eq!(count.ir_identity(), format!("{}/count", orders("Tick")));
+    assert_eq!(count.name(), "count");
+    assert_eq!(
+        count.member_id().owner(),
+        &MemberOwner::Node(records[3].2.clone())
+    );
+    assert_eq!(count.presence(), Presence::Required);
+    assert_eq!(
+        count.value_type(),
+        &ValueType::Int(
+            quire_exact::IntegerInterval::new(
+                "0".parse().expect("lower"),
+                "9".parse().expect("upper"),
+            )
+            .expect("inclusive interval")
+        ),
+    );
+    let shape = tick.field_declarations();
+    let missing =
+        record(&shape, tick.record_key().clone(), vec![]).expect_err("required count is missing");
+    assert_eq!(missing.cause, ConstructionCause::MissingField);
+    let ten: Integer = "10".parse().expect("integer");
+    let out_of_range = record(
+        &shape,
+        tick.record_key().clone(),
+        vec![(
+            count.member_id().clone(),
+            FieldValue::Present(ExactValue::Integer(ten)),
+        )],
+    )
+    .expect_err("count exceeds the selected range");
+    assert_eq!(out_of_range.cause, ConstructionCause::TypeMismatch);
+
+    let mut foreign = records[0].1.clone();
+    foreign.package = "other/package".into();
+    assert_eq!(
+        admitted
+            .project_exact_type(&foreign, &witnesses, 100)
+            .expect_err("a similarly named foreign record is not selected")
+            .code,
+        ExactTypeProjectionErrorCode::ForeignNode,
+    );
+}
+
+/// An admitted field with no complete Exact representation refuses the whole
+/// record before a selected view is returned.
+#[test]
+fn admitted_record_with_unsupported_field_refuses_without_view() {
+    let mut selected = document(vec![typed_object(
+        "Unsupported",
+        "record",
+        &[],
+        &[field("value", "ix://quire/native/Float32")],
+    )]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct catalog")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    let admitted = admit(&selected, &[("Unsupported", "record_value_type")], &[]);
+    let structural: CheckedNodeId = serde_json::from_value(node_id(&declaration_key(
+        "Unsupported",
+        "record_value_type",
+    )))
+    .expect("structural record ID");
+    let key = NodeKey::new("checked", vec![PathSegment::Text("Unsupported".into())], 0)
+        .expect("Exact record key");
+    let witnesses = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [SelectedExactDeclarationRow::new(
+            structural.clone(),
+            IDENTITY,
+            SelectedExactDeclarationForm::RecordValueType,
+            orders("Unsupported"),
+            SelectedExactIdentity::Record(key.clone()),
+        )],
+        [SelectedExactFieldRow::new(
+            structural.clone(),
+            IDENTITY,
+            orders("Unsupported"),
+            format!("{}/value", orders("Unsupported")),
+            MemberId::new(MemberOwner::Node(key), "value").expect("Exact member ID"),
+        )],
+    )
+    .expect("selected rows");
+    let refusal = admitted
+        .project_exact_type(&structural, &witnesses, 100)
+        .expect_err("Float32 mode is not represented by this field projection");
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    assert_eq!(refusal.at.as_deref(), Some(&structural));
+}
+
+/// A selected record's nested record and object-reference fields resolve by
+/// admitted target declaration and consume work at each target.
+#[test]
+fn admitted_nested_record_and_reference_fields_require_target_witnesses_and_work() {
+    let mut selected = document(vec![
+        typed_object("Address", "record", &[], &[]),
+        object("Person", &[], &[]),
+        typed_object(
+            "Envelope",
+            "record",
+            &[],
+            &[
+                field("address", &orders("Address")),
+                field("person", &orders("Person")),
+            ],
+        ),
+    ]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct catalog")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    let admitted = admit(
+        &selected,
+        &[
+            ("Address", "record_value_type"),
+            ("Person", OBJECT),
+            ("Envelope", "record_value_type"),
+        ],
+        &[],
+    );
+    let structural = |short, form| -> CheckedNodeId {
+        serde_json::from_value(node_id(&declaration_key(short, form)))
+            .expect("admitted structural declaration")
+    };
+    let address = structural("Address", "record_value_type");
+    let person = structural("Person", OBJECT);
+    let envelope = structural("Envelope", "record_value_type");
+    let key = |short: &str| {
+        NodeKey::new("checked", vec![PathSegment::Text(short.into())], 0)
+            .expect("Exact declaration key")
+    };
+    let address_key = key("Address");
+    let envelope_key = key("Envelope");
+    let person_id = EffectiveId::new(
+        None,
+        OriginalDeclarationKey::new(IDENTITY, orders("Person")),
+    );
+    let address_row = SelectedExactDeclarationRow::new(
+        address.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        orders("Address"),
+        SelectedExactIdentity::Record(address_key.clone()),
+    );
+    let person_row = SelectedExactDeclarationRow::new(
+        person.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::ObjectType,
+        orders("Person"),
+        SelectedExactIdentity::Object(person_id.clone()),
+    );
+    let envelope_row = SelectedExactDeclarationRow::new(
+        envelope.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        orders("Envelope"),
+        SelectedExactIdentity::Record(envelope_key.clone()),
+    );
+    let field_rows = ["address", "person"].map(|name| {
+        SelectedExactFieldRow::new(
+            envelope.clone(),
+            IDENTITY,
+            orders("Envelope"),
+            format!("{}/{name}", orders("Envelope")),
+            MemberId::new(MemberOwner::Node(envelope_key.clone()), name)
+                .expect("Exact field member"),
+        )
+    });
+    let complete = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [
+            address_row.clone(),
+            person_row.clone(),
+            envelope_row.clone(),
+        ],
+        field_rows.clone(),
+    )
+    .expect("selected target and field rows");
+    let projection = admitted
+        .project_exact_type(&envelope, &complete, 100)
+        .expect("complete nested field types");
+    let fields = projection.record_view().expect("record view").fields();
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].value_type(), &ValueType::Composite(address_key));
+    assert_eq!(fields[1].value_type(), &ValueType::Reference(person_id));
+
+    for (declarations, failed_target) in [
+        (vec![person_row.clone(), envelope_row.clone()], &address),
+        (vec![address_row, envelope_row], &person),
+    ] {
+        let missing =
+            SelectedExactIdentities::from_stage_rows(&admitted, declarations, field_rows.clone())
+                .expect("incomplete target rows retain valid field joins");
+        let refusal = admitted
+            .project_exact_type(&envelope, &missing, 100)
+            .expect_err("missing target witness refuses the complete view");
+        assert_eq!(
+            refusal.code,
+            ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+        );
+        assert_eq!(refusal.at.as_deref(), Some(failed_target));
+    }
+    for (limit, failed_target) in [(5, &address), (7, &person)] {
+        let refusal = admitted
+            .project_exact_type(&envelope, &complete, limit)
+            .expect_err("nested target read must consume the remaining work");
+        assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+        assert_eq!(refusal.at.as_deref(), Some(failed_target));
+        assert_eq!(refusal.work, limit);
     }
 }
 

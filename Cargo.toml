@@ -91,6 +91,7 @@ syn = { version = "2", features = ["full", "visit"] }
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model", features = ["fault-injection"] }
 # Moving first-party branches use compatible ranges; Cargo.lock records selected revisions.
 quire-canonical = { version = "0.3", git = "https://github.com/agent-ix/quire-canonical", branch = "main" }
+quire-exact = { version = "0.1", git = "https://github.com/agent-ix/quire-exact", branch = "main" }
 quire-verification-contracts = { version = "0.1", git = "https://github.com/agent-ix/quire-verification-contracts", branch = "main" }
 jsonschema = { version = "=0.17.1", default-features = false }
 sha2 = "=0.10.9"

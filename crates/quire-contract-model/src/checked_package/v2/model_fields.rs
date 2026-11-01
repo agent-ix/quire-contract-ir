@@ -102,6 +102,14 @@ impl FieldTable {
     }
 }
 
+/// One borrowed effective field of an admitted selected record.
+pub(super) struct SelectedRecordField<'a> {
+    pub(super) identity: &'a str,
+    pub(super) name: &'a str,
+    pub(super) member_type: Option<&'a MemberType>,
+    pub(super) optional: bool,
+}
+
 /// A record's checked binder types, or an inherited same-name ambiguity.
 pub(super) enum RecordBinderTypes {
     Known(Vec<CheckedNodeId>),
@@ -545,6 +553,35 @@ pub(super) struct OperationTypes {
 }
 
 impl RetainedModels {
+    /// The complete effective record fields in selected declaration order.
+    pub(super) fn selected_record_fields(
+        &self,
+        record: &CheckedNodeId,
+    ) -> Option<(
+        Option<&str>,
+        impl ExactSizeIterator<Item = SelectedRecordField<'_>>,
+    )> {
+        let declared = self.index.0.get(record)?;
+        if declared.form != DeclarationForm::RecordValueType {
+            return None;
+        }
+        let table = self
+            .models
+            .get(declared.selection)?
+            .fields
+            .of(&declared.node)?;
+        let fields = table
+            .ordered_exposed
+            .iter()
+            .map(|field| SelectedRecordField {
+                identity: &field.entry.identity,
+                name: field.entry.name(),
+                member_type: field.entry.member_type.as_ref(),
+                optional: field.entry.decl.optional,
+            });
+        Some((table.ambiguous.as_deref(), fields))
+    }
+
     pub(super) fn selected_declaration(
         &self,
         key: &CheckedNodeId,

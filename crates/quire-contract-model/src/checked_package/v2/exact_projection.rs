@@ -3,13 +3,15 @@
 
 use super::extension::integer_range_bounds;
 use super::model_members::DeclarationForm;
+use super::model_members::MemberType;
 use super::structural::reference_type_target_typed;
 use super::{
     BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedPackageV2, CompositeTypeForm,
     ModelForm, ScalarTypeForm,
 };
 use quire_exact::{
-    EffectiveId, Integer, IntegerInterval, MemberId, MemberOwner, NodeKey, UnitId, ValueType,
+    EffectiveId, FieldDeclaration, Integer, IntegerInterval, MemberId, MemberOwner, NodeKey,
+    Presence, UnitId, ValueType,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -209,6 +211,7 @@ impl SelectedExactIdentities {
             selected.declarations.insert(node.clone(), row);
         }
         let mut seen_fields = BTreeSet::new();
+        let mut seen_members = BTreeSet::new();
         for row in fields {
             let node = &row.record_node;
             let Some((document, original, form)) = package.models.selected_declaration(node) else {
@@ -244,7 +247,9 @@ impl SelectedExactIdentities {
                     ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                 ));
             }
-            if !seen_fields.insert((node.clone(), row.field_original_identity.clone())) {
+            if !seen_fields.insert((node.clone(), row.field_original_identity.clone()))
+                || !seen_members.insert(row.member_id.clone())
+            {
                 return Err(witness_error(
                     node,
                     ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
@@ -289,12 +294,84 @@ impl SelectedExactIdentities {
     }
 }
 
+/// One effective field of an admitted selected record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedRecordFieldView {
+    ir_identity: Box<str>,
+    name: Box<str>,
+    member_id: MemberId,
+    value_type: ValueType,
+    presence: Presence,
+}
+
+impl SelectedRecordFieldView {
+    /// The selected original IR field identity.
+    pub fn ir_identity(&self) -> &str {
+        &self.ir_identity
+    }
+
+    /// The selected field's display name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The witnessed Exact member identity.
+    pub fn member_id(&self) -> &MemberId {
+        &self.member_id
+    }
+
+    /// The complete Exact field type.
+    pub fn value_type(&self) -> &ValueType {
+        &self.value_type
+    }
+
+    /// Whether this field is required or optional.
+    pub fn presence(&self) -> Presence {
+        self.presence
+    }
+}
+
+/// A complete admitted selected record in effective declaration order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedRecordView {
+    record_key: NodeKey,
+    fields: Vec<SelectedRecordFieldView>,
+}
+
+impl SelectedRecordView {
+    /// The witnessed Exact record declaration identity.
+    pub fn record_key(&self) -> &NodeKey {
+        &self.record_key
+    }
+
+    /// Every effective field, including inherited and unread fields.
+    pub fn fields(&self) -> &[SelectedRecordFieldView] {
+        &self.fields
+    }
+
+    /// Complete Exact field declarations for supplied-record checking.
+    pub fn field_declarations(&self) -> Vec<FieldDeclaration> {
+        self.fields
+            .iter()
+            .map(|field| {
+                FieldDeclaration::new(
+                    field.member_id.clone(),
+                    field.name.as_ref(),
+                    field.value_type.clone(),
+                    field.presence,
+                )
+            })
+            .collect()
+    }
+}
+
 /// One complete Exact value type read from an admitted package.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExactTypeProjection {
     node: CheckedNodeId,
     type_node: CheckedNodeId,
     value_type: ValueType,
+    record_view: Option<SelectedRecordView>,
 }
 
 impl ExactTypeProjection {
@@ -311,6 +388,11 @@ impl ExactTypeProjection {
     /// The complete Exact type.
     pub fn value_type(&self) -> &ValueType {
         &self.value_type
+    }
+
+    /// The complete selected record view, when this projection is a record.
+    pub fn record_view(&self) -> Option<&SelectedRecordView> {
+        self.record_view.as_ref()
     }
 }
 
@@ -447,6 +529,91 @@ fn charge_work_amount(
     Ok(())
 }
 
+fn exact_integer_interval(
+    lower: &str,
+    upper: &str,
+) -> Result<IntegerInterval, ExactTypeProjectionErrorCode> {
+    let lower = lower
+        .parse::<Integer>()
+        .map_err(|_| ExactTypeProjectionErrorCode::UnsupportedExactType)?;
+    let upper = upper
+        .parse::<Integer>()
+        .map_err(|_| ExactTypeProjectionErrorCode::UnsupportedExactType)?;
+    IntegerInterval::new(lower, upper)
+        .map_err(|_| ExactTypeProjectionErrorCode::UnsupportedExactType)
+}
+
+fn project_record_field_type(
+    package: &CheckedPackageV2,
+    identities: &SelectedExactIdentities,
+    member_type: &MemberType,
+) -> Result<ValueType, (ExactTypeProjectionErrorCode, Option<CheckedNodeId>)> {
+    match member_type {
+        MemberType::Boolean => Ok(ValueType::Boolean),
+        MemberType::Integer => Ok(ValueType::Integer),
+        MemberType::String => Ok(ValueType::String),
+        MemberType::Uuid => Ok(ValueType::Uuid),
+        MemberType::Timestamp => Ok(ValueType::Timestamp),
+        MemberType::IntRange(bounds) => {
+            exact_integer_interval(&bounds.lower.to_string(), &bounds.upper.to_string())
+                .map(ValueType::Int)
+                .map_err(|code| (code, None))
+        }
+        MemberType::Reference(target) => {
+            if package.node_kind(target) != Some(CheckedNodeKind::Model(ModelForm::ObjectType)) {
+                return Err((
+                    ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                    Some(target.clone()),
+                ));
+            }
+            match identities
+                .declaration_identity(package, target)
+                .map_err(|code| (code, Some(target.clone())))?
+            {
+                SelectedExactIdentity::Object(effective) => {
+                    Ok(ValueType::Reference(effective.clone()))
+                }
+                _ => Err((
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    Some(target.clone()),
+                )),
+            }
+        }
+        MemberType::Record(target) => {
+            if package.node_kind(target) != Some(CheckedNodeKind::Model(ModelForm::RecordValueType))
+            {
+                return Err((
+                    ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                    Some(target.clone()),
+                ));
+            }
+            match identities
+                .declaration_identity(package, target)
+                .map_err(|code| (code, Some(target.clone())))?
+            {
+                SelectedExactIdentity::Record(key) => Ok(ValueType::Composite(key.clone())),
+                _ => Err((
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    Some(target.clone()),
+                )),
+            }
+        }
+        MemberType::Float32
+        | MemberType::Float64
+        | MemberType::Bytes
+        | MemberType::JsonObject
+        | MemberType::Clock
+        | MemberType::TextBounds(_)
+        | MemberType::Tuple(_)
+        | MemberType::Variant(_)
+        | MemberType::Quantity(_)
+        | MemberType::Option(_)
+        | MemberType::Collection { .. } => {
+            Err((ExactTypeProjectionErrorCode::UnsupportedExactType, None))
+        }
+    }
+}
+
 impl CheckedPackageV2 {
     /// Read one admitted node's semantic type without reparsing its source.
     ///
@@ -514,6 +681,7 @@ impl CheckedPackageV2 {
             form: format!("{}/{}", type_node.node_tag, type_node.semantic_form).into(),
             work: charged,
         };
+        let mut record_view = None;
         let value_type = match kind {
             CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => ValueType::Boolean,
             CheckedNodeKind::ScalarType(ScalarTypeForm::Integer) => ValueType::Integer,
@@ -524,15 +692,8 @@ impl CheckedPackageV2 {
                 let (lower, upper) = range_bounds.ok_or_else(|| {
                     refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
                 })?;
-                let lower = lower.parse::<Integer>().map_err(|_| {
-                    refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                })?;
-                let upper = upper.parse::<Integer>().map_err(|_| {
-                    refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                })?;
-                let interval = IntegerInterval::new(lower, upper).map_err(|_| {
-                    refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                })?;
+                let interval =
+                    exact_integer_interval(lower, upper).map_err(|code| refuse(code, work))?;
                 ValueType::Int(interval)
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
@@ -581,13 +742,107 @@ impl CheckedPackageV2 {
                 }
             }
             CheckedNodeKind::Model(ModelForm::RecordValueType) => {
-                identities
+                let identity = identities
                     .declaration_identity(self, type_id)
                     .map_err(|code| refuse(code, work))?;
-                return Err(refuse(
-                    ExactTypeProjectionErrorCode::UnsupportedExactType,
-                    work,
-                ));
+                let SelectedExactIdentity::Record(record_key) = identity else {
+                    return Err(refuse(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                        work,
+                    ));
+                };
+                let (ambiguous, fields) =
+                    self.models.selected_record_fields(type_id).ok_or_else(|| {
+                        refuse(
+                            ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                            work,
+                        )
+                    })?;
+                if ambiguous.is_some() {
+                    return Err(refuse(
+                        ExactTypeProjectionErrorCode::UnsupportedExactType,
+                        work,
+                    ));
+                }
+                let mut member_rows = BTreeMap::new();
+                for row in &identities.fields {
+                    charge_work(
+                        requested,
+                        type_id,
+                        "record_field_witness",
+                        &mut work,
+                        work_limit,
+                    )?;
+                    if row.record_node == *type_id {
+                        member_rows.insert(row.field_original_identity.as_ref(), &row.member_id);
+                    }
+                }
+                let mut projected_fields = Vec::new();
+                for field in fields {
+                    charge_work(requested, type_id, "record_field", &mut work, work_limit)?;
+                    let member_id = member_rows.get(field.identity).ok_or_else(|| {
+                        refuse(
+                            ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                            work,
+                        )
+                    })?;
+                    let member_type = field.member_type.ok_or_else(|| {
+                        refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                    })?;
+                    let member_type = if field.optional {
+                        match member_type {
+                            MemberType::Option(inner) => inner.as_ref(),
+                            _ => {
+                                return Err(refuse(
+                                    ExactTypeProjectionErrorCode::UnsupportedExactType,
+                                    work,
+                                ))
+                            }
+                        }
+                    } else {
+                        member_type
+                    };
+                    if let MemberType::Reference(target) | MemberType::Record(target) = member_type
+                    {
+                        charge_work(
+                            requested,
+                            target,
+                            "record_field_target",
+                            &mut work,
+                            work_limit,
+                        )?;
+                    }
+                    let value_type = project_record_field_type(self, identities, member_type)
+                        .map_err(|(code, target)| {
+                            let mut error = refuse(code, work);
+                            if let Some(target) = target {
+                                error.form = self.node(&target).map_or_else(
+                                    || "unresolved_selected_declaration".into(),
+                                    |node| {
+                                        format!("{}/{}", node.node_tag, node.semantic_form).into()
+                                    },
+                                );
+                                error.at = Some(Box::new(target));
+                            }
+                            error
+                        })?;
+                    projected_fields.push(SelectedRecordFieldView {
+                        ir_identity: field.identity.into(),
+                        name: field.name.into(),
+                        member_id: (*member_id).clone(),
+                        value_type,
+                        presence: if field.optional {
+                            Presence::Optional
+                        } else {
+                            Presence::Required
+                        },
+                    });
+                }
+                record_view = Some(SelectedRecordView {
+                    record_key: record_key.clone(),
+                    fields: projected_fields,
+                });
+                ValueType::Composite(record_key.clone())
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
                 return Err(refuse(
@@ -606,6 +861,7 @@ impl CheckedPackageV2 {
             node: requested.clone(),
             type_node: type_id.clone(),
             value_type,
+            record_view,
         })
     }
 }

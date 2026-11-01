@@ -85,7 +85,7 @@ mod exact_projection;
 pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
     SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
-    SelectedExactIdentities, SelectedExactIdentity,
+    SelectedExactIdentities, SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView,
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
 pub use protocol_body::{CheckedProtocolActivation, CheckedProtocolActivationRow};

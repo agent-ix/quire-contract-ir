@@ -849,6 +849,7 @@ dependencies = [
  "jsonschema 0.17.1",
  "quire-canonical",
  "quire-contract-model",
+ "quire-exact",
  "quire-verification-contracts",
  "serde",
  "serde_json",
