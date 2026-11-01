@@ -164,13 +164,13 @@ pub struct CheckedRational {
     pub denominator: Box<str>,
 }
 
-/// A structural ID with a declared, name-only path.
+/// A structural ID with the declared-id wire shape: a name-only path.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct CheckedDeclaredNodeId(CheckedNodeId);
 
 impl CheckedDeclaredNodeId {
-    /// Validate a declared structural ID without treating a derived path as a declaration.
+    /// Validate the declared-id shape; package admission checks the target.
     pub fn try_new(node: CheckedNodeId) -> Result<Self, Box<CheckedPackageRefusal>> {
         if node.is_well_formed()
             && node
@@ -197,7 +197,7 @@ impl CheckedDeclaredNodeId {
     }
 }
 
-/// A declared node in one directly selected dependency package.
+/// A declared-form node reference whose package selection is checked on admission.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedPackageNodeRef {
@@ -213,7 +213,7 @@ pub struct CheckedPackageNodeRef {
 pub enum CheckedDimensionOperand {
     /// A node of the importing graph.
     Local(CheckedNodeId),
-    /// A declared node of a directly selected dependency.
+    /// A declared-form node reference checked against a direct dependency on admission.
     Package(CheckedPackageNodeRef),
 }
 
