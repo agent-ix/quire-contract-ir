@@ -48,3 +48,14 @@ No Cargo, compiler, Clippy, focused test or Kani process was run by this reviewe
 | --- | --- | --- |
 | FND-001 | fixed | 7d0af169 replaces the pre-charge fold with per-component/per-segment charges, including empty segments. The new 1000-empty-segment malformed-row control expects LimitReached at attempted work 501 with limit 500; old code would instead finish its fold and return ForeignWitness. |
 | FND-002 | fixed | 7d0af169 changes NominalReadError to borrow its node locus and removes the clone from Budget::error. The new exhaustion controls check pointer equality, including a zero-limit refusal. |
+
+## Compiler-fix disposition
+
+Source follow-up at c8383879223d4b14317c0ec72c73bcf44a6993ee inspected the same PR's two-line `mutable_key_type` fix. The accepted `UnitId::Declared(key)` branch now indexes uniqueness by its borrowed canonical `NodeKey`, instead of retaining the wider `UnitId` enum as the ordered key. Equality and ordering of admitted declared-unit identities are exactly equality and ordering of that contained key. The returned view still borrows the original declared identity, duplicate keys still refuse, and the compound-unit arm remains `UnsupportedForm`. No new semantic type, fallback, witness rule or trace binding is introduced. No new finding.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Earlier bounded per-segment charging remains unchanged by c8383879. |
+| FND-002 | fixed | Earlier borrowed refusal loci remain unchanged by c8383879. |
+
+The parent reports the first workspace Clippy invocation reached the code and raised `mutable_key_type`; this reviewer did not execute Cargo or independently claim a clean Clippy result. The rerun and focused tests remain pending, so the verdict remains CONDITIONAL on actual validation passing.
