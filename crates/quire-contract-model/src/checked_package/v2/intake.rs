@@ -254,6 +254,7 @@ pub(super) fn decode_borrowed_wire(
     })
 }
 
+#[ix_trace_rs::string_edge]
 fn invalid_clock_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
     if !at.as_str().starts_with("/temporal_bindings/") || !at.as_str().ends_with("/clock") {
         return None;

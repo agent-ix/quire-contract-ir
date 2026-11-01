@@ -97,6 +97,7 @@ fn invalid(at: JsonPointer, declaration: &CheckedNodeId) -> ValidationFailure {
     )
 }
 
+#[ix_trace_rs::string_edge]
 fn decimal_magnitude(text: &str) -> Option<(&str, bool)> {
     if text == "0" {
         return Some(("0", true));
@@ -213,6 +214,7 @@ fn configured_profile(node: &RawSemanticNodeV2) -> Option<TemporalProfile> {
     .then_some(profile)
 }
 
+#[ix_trace_rs::string_edge]
 fn clause_clock_name(node: &RawSemanticNodeV2) -> Option<&str> {
     let term = node.body.get("arguments")?.as_array()?.get(1)?;
     (term.get("term")?.as_str()? == "literal" && term.get("value_kind")?.as_str()? == "text")
