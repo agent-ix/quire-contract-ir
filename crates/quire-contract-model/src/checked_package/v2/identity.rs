@@ -2408,6 +2408,44 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
+    #[trace("TC-280", "FR-038-AC-387")]
+    #[test]
+    fn published_dimension_operands_keep_their_authored_wire_forms() {
+        let root = match std::env::var("QUIRE_SPECIFICATION_DIR") {
+            Ok(root) => root,
+            Err(_) if std::env::var_os("QSPEC_CONFORMANCE").is_none() => return,
+            Err(_) => panic!("QUIRE_SPECIFICATION_DIR is required for QSpec conformance"),
+        };
+        let path = std::path::Path::new(&root)
+            .join("proposals/checked-package-v2/dimension-equivalence-vectors.json");
+        let bytes = std::fs::read(&path).expect("published dimension vectors");
+        let vectors: Value = serde_json::from_slice(&bytes).expect("published vector JSON");
+        let cases = vectors["cases"].as_array().expect("published cases");
+        assert_eq!(cases.len(), 15, "XP-01 through XP-15 are present");
+        for (position, case) in cases.iter().enumerate() {
+            let id = format!("XP-{:02}", position + 1);
+            assert_eq!(
+                case["id"].as_str(),
+                Some(id.as_str()),
+                "published case order"
+            );
+            for equivalence in case["equivalences"].as_array().expect("equivalences") {
+                let body = json!({
+                    "term":"dimension_equivalence",
+                    "dimension_node_ids":equivalence["pair"],
+                    "root_scale":equivalence["root_scale"]
+                });
+                let parsed = NominalBody::from_value(&body, JsonPointer::root())
+                    .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
+                assert_eq!(
+                    serde_json::to_value(parsed).expect("typed nominal body serializes"),
+                    body,
+                    "{id}: the typed body retains local and package operands"
+                );
+            }
+        }
+    }
+
     #[trace("TC-048", "FR-038-AC-5")]
     #[test]
     fn model_owned_nominals_join_selected_fcd_values() {
