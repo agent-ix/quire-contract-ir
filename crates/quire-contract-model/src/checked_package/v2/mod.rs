@@ -2800,6 +2800,7 @@ fn validate_graph(
         &graph.nodes,
         &kinds,
         &index,
+        structural_keys,
         &wire.lock,
         meter,
     )?;

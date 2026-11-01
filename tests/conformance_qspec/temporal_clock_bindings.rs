@@ -4,6 +4,7 @@
 //! Published STD-621 clock selections, read from the selected QSpec checkout.
 
 use super::*;
+use quire_contract_model::ClockConfiguration;
 
 fn vectors() -> Value {
     read_json(&proposal_dir_of(&fixtures_dir()).join("temporal-clock-binding-vectors.json"))
@@ -49,10 +50,15 @@ fn selected_package(case: &Value) -> Value {
         .as_array_mut()
         .expect("profile selections");
     let selection = selections
-        .iter_mut()
+        .iter()
         .find(|row| row["role"] == "temporal_profile")
-        .expect("temporal selection");
-    selection["definition"]["identity"] = json!(profile);
+        .expect("temporal selection")
+        .clone();
+    if profile != old_profile {
+        let mut selected_profile = selection;
+        selected_profile["definition"]["identity"] = json!(profile);
+        selections.insert(1, selected_profile);
+    }
     fixture_support::reassign_node_id(&mut package, &old_id, &new_id);
     package["temporal_bindings"] = json!([{
         "declaration": new_id,
@@ -64,6 +70,7 @@ fn selected_package(case: &Value) -> Value {
 
 fn add_second_clause(package: &mut Value) {
     let index = clause_index(package);
+    let first_id = package["semantic_graph"]["nodes"][index]["node_id"].clone();
     let mut second = package["semantic_graph"]["nodes"][index].clone();
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
@@ -87,7 +94,7 @@ fn add_second_clause(package: &mut Value) {
         .expect("nodes")
         .push(second);
     let mut row = package["temporal_bindings"][0].clone();
-    row["declaration"] = second_id;
+    row["declaration"] = second_id.clone();
     let rows = package["temporal_bindings"].as_array_mut().expect("rows");
     rows.push(row);
     rows.sort_by(|left, right| {
@@ -96,21 +103,45 @@ fn add_second_clause(package: &mut Value) {
             serde_json::from_value(right["declaration"].clone()).expect("id");
         left.cmp(&right)
     });
+    let source_map = package["source_map"].as_array_mut().expect("source map");
+    let mut source_entry = source_map
+        .iter()
+        .find(|entry| entry["node_id"] == first_id)
+        .expect("first clause source")
+        .clone();
+    source_entry["node_id"] = second_id;
+    source_map.push(source_entry);
 }
 
-fn admitted(package: &Value, case: &Value) {
-    let read = read_package(package).expect("published package read");
-    assert!(
-        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
-        "{}: {read:?}",
-        case["id"]
-    );
+fn read_temporal_package(package: &Value) -> CheckedPackageV2ReadResult {
+    let proposal = proposal_dir_of(&fixtures_dir());
+    let selected = vector_selected_documents(&proposal).expect("published selected documents");
+    let document = proposal.join(positive_document(
+        "positive-timed-clause-nodes.json",
+        &selected,
+    ));
+    read_package_with_document(package, "temporal clock package", &document)
+        .expect("published package read")
+}
+
+fn admitted(package: &Value, case: &Value, expected_rows: usize) {
+    let read = read_temporal_package(package);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read else {
+        panic!("{}: {read:?}", case["id"]);
+    };
+    let rows = admitted.temporal_bindings().expect("typed temporal rows");
+    assert_eq!(rows.len(), expected_rows, "{}", case["id"]);
+    if expected_rows == 1 {
+        let expected: ClockConfiguration =
+            serde_json::from_value(case["clock"].clone()).expect("vector clock");
+        assert_eq!(rows[0].clock, expected, "{}", case["id"]);
+    } else {
+        assert_ne!(rows[0].declaration, rows[1].declaration);
+    }
 }
 
 fn refused(package: &Value, case: &Value) {
-    let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_package(package).expect("published package read")
-    else {
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_temporal_package(package) else {
         panic!("{} must refuse", case["id"]);
     };
     assert_eq!(
@@ -142,16 +173,35 @@ fn temporal_clock_binding_vectors_read_at_their_exact_loci() {
     let positives = published["positive"].as_array().expect("positive cases");
     assert_eq!(positives.len(), 3);
     for case in positives {
-        admitted(&selected_package(case), case);
+        admitted(&selected_package(case), case, 1);
     }
     let mut multiple = selected_package(&positives[0]);
     add_second_clause(&mut multiple);
-    admitted(&multiple, &published["multi_clause_positive"]);
+    admitted(&multiple, &published["multi_clause_positive"], 2);
 
-    for case in published["schema_refusals"]
+    for (period, locus) in [
+        (
+            json!({"kind": "integer", "decimal": "0"}),
+            "/temporal_bindings/0/clock/period/decimal",
+        ),
+        (
+            json!({"kind": "rational", "numerator": "2", "denominator": "4"}),
+            "/temporal_bindings/0/clock/period",
+        ),
+    ] {
+        let mut package = selected_package(&positives[1]);
+        package["temporal_bindings"][0]["clock"]["period"] = period;
+        refused(
+            &package,
+            &json!({"id": "fixed-sample-invalid-period", "expected_code": "malformed_wire", "locus": locus}),
+        );
+    }
+
+    let schema_refusals = published["schema_refusals"]
         .as_array()
-        .expect("schema refusals")
-    {
+        .expect("schema refusals");
+    assert_eq!(schema_refusals.len(), 3);
+    for case in schema_refusals {
         let mut package = selected_package(&positives[0]);
         let clock = &mut package["temporal_bindings"][0]["clock"];
         match case["mutation"].as_str().expect("schema mutation") {
@@ -168,10 +218,11 @@ fn temporal_clock_binding_vectors_read_at_their_exact_loci() {
         refused(&package, case);
     }
 
-    for case in published["semantic_refusals"]
+    let semantic_refusals = published["semantic_refusals"]
         .as_array()
-        .expect("semantic refusals")
-    {
+        .expect("semantic refusals");
+    assert_eq!(semantic_refusals.len(), 6);
+    for case in semantic_refusals {
         let mut package = selected_package(&positives[0]);
         match case["mutation"].as_str().expect("semantic mutation") {
             "remove-row" => {

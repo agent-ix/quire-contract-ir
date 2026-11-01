@@ -174,6 +174,8 @@ pub(super) fn decode_borrowed_wire(
                 if let Some(at) = refusal.primary_path().cloned() {
                     if let Some(member) = invalid_node_id_field(bytes, &at) {
                         refusal.set_primary_path(Some(member));
+                    } else if let Some(member) = invalid_clock_field(bytes, &at) {
+                        refusal.set_primary_path(Some(member));
                     }
                 }
             }
@@ -249,6 +251,23 @@ pub(super) fn decode_borrowed_wire(
                 .collect::<Result<Vec<_>, ValidationFailure>>()?,
         },
     })
+}
+
+fn invalid_clock_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+    if !at.as_str().starts_with("/temporal_bindings/") || !at.as_str().ends_with("/clock") {
+        return None;
+    }
+    let clock: Value = serde_json::from_str(source_raw(bytes, at)?).ok()?;
+    let field = match clock.get("kind")?.as_str()? {
+        "event_position" => "sequence_authority",
+        "timestamped_event" => "timestamp_unit",
+        "fixed_sample" => "unit",
+        _ => return None,
+    };
+    clock
+        .get(field)
+        .filter(|value| !value.is_string())
+        .map(|_| at.clone().key(field))
 }
 
 /// Refine a buffered node-ID decode error to an ordinal or path segment.

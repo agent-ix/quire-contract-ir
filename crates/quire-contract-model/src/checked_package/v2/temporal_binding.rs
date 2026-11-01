@@ -10,7 +10,6 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// An exact number in a fixed-sample clock configuration.
@@ -71,7 +70,7 @@ pub struct TemporalBinding {
 impl Encode for TemporalBinding {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
-        super::encode::member(writer, "declaration", &self.declaration)?;
+        super::encode::encoded(writer, "declaration", &self.declaration)?;
         super::encode::member(writer, "clock_name", self.clock_name.as_ref())?;
         super::encode::member(writer, "clock", &self.clock)?;
         writer.end_object()
@@ -222,6 +221,7 @@ pub(super) fn validate(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -229,6 +229,7 @@ pub(super) fn validate(
     validate_shape(rows, meter)?;
     let mut seen = BTreeSet::new();
     let mut previous = None;
+    let mut resolved = Vec::with_capacity(rows.len());
     for (row_index, row) in rows.iter().enumerate() {
         let at = row_pointer(row_index);
         if !seen.insert(&row.declaration) {
@@ -240,24 +241,26 @@ pub(super) fn validate(
         if kinds[position] != CheckedNodeKind::Temporal(TemporalForm::TemporalClause) {
             return Err(invalid(at.key("declaration"), &row.declaration));
         }
-        if previous.is_some_and(|id: &CheckedNodeId| id > &row.declaration) {
+        let structural = structural_keys[position].as_ref();
+        if previous.is_some_and(|id: &CheckedNodeId| id > structural) {
             return Err(invalid(at.key("declaration"), &row.declaration));
         }
-        previous = Some(&row.declaration);
+        previous = Some(structural);
+        resolved.push(position);
     }
-    for &position in index.values() {
-        if kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
+    let missing = index.values().copied().filter(|&position| {
+        kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
             && configured_profile(&nodes[position]).is_some()
             && !seen.contains(&nodes[position].node_id)
-        {
-            return Err(invalid(
-                node_pointer(position).key("body"),
-                &nodes[position].node_id,
-            ));
-        }
+    });
+    if let Some(position) = missing.min_by_key(|&position| structural_keys[position].as_ref()) {
+        return Err(invalid(
+            node_pointer(position).key("body"),
+            &nodes[position].node_id,
+        ));
     }
-    for (row_index, row) in rows.iter().enumerate() {
-        let node = &nodes[index[&row.declaration]];
+    for (row_index, (row, &position)) in rows.iter().zip(&resolved).enumerate() {
+        let node = &nodes[position];
         let at = row_pointer(row_index);
         if clause_clock_name(node) != Some(row.clock_name.as_ref()) {
             return Err(invalid(at.clone().key("clock_name"), &row.declaration));
