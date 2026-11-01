@@ -9,7 +9,7 @@ use quire_canonical::{Encode, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
 
 /// The three producer-captured decision arrays in a present V2 sidecar.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedTermDataV2 {
     /// Selected equality schedules and their operands.

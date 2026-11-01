@@ -5,7 +5,7 @@ use super::checked_term_data::{
 };
 use super::model_fields::RetainedModels;
 use super::{
-    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ExpressionForm,
+    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ExpressionForm, ModelForm,
     RawCheckedPackageWireV2, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
@@ -61,24 +61,17 @@ pub(super) fn validate_checked_term_data(
         .iter()
         .map(|entry| (&entry.node_id, &entry.role, entry.ordinal))
         .collect();
-    let mut previous: Option<(&CheckedNodeId, &CheckedOccurrence)> = None;
+    let mut seen_tables = BTreeSet::new();
     for (row_index, table) in data.dispatch_tables.iter().enumerate() {
         let row = root.clone().key("dispatch_tables").index(row_index);
         meter.charge(1, || row.clone())?;
-        let key = (&table.application, &table.occurrence);
-        if let Some(prior) = previous {
-            if prior == key {
-                return Err(ValidationFailure::refused_because(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    row,
-                    CheckedPackageRefusalCause::ConflictingDefinition,
-                ));
-            }
-            if prior > key {
-                return Err(invalid(row));
-            }
+        if !seen_tables.insert((&table.application, &table.occurrence)) {
+            return Err(ValidationFailure::refused_because(
+                CheckedPackageRefusalCode::InvalidPackage,
+                row,
+                CheckedPackageRefusalCause::ConflictingDefinition,
+            ));
         }
-        previous = Some(key);
         let Some(&application_index) = index.get(&table.application) else {
             return Err(invalid(row.clone().key("application")));
         };
@@ -121,7 +114,18 @@ pub(super) fn validate_checked_term_data(
         {
             return Err(invalid(row.clone().key("operation")));
         }
-        if table.context != table.operation.declaring || !index.contains_key(&table.context) {
+        let context_is_model = index.get(&table.context).is_some_and(|position| {
+            matches!(
+                kinds.get(*position),
+                Some(CheckedNodeKind::Model(
+                    ModelForm::ObjectType
+                        | ModelForm::Process
+                        | ModelForm::StateMachine
+                        | ModelForm::PersistenceInterface
+                ))
+            )
+        });
+        if !context_is_model {
             return Err(invalid(row.clone().key("context")));
         }
         let mut seen_keys = BTreeSet::new();

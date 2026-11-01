@@ -304,6 +304,73 @@ fn read(
     )
 }
 
+/// Trace: FR-322-AC-288, FR-322-AC-290, FR-354-AC-4, TC-233.
+#[trace("TC-233", "FR-322-AC-288", "FR-322-AC-290", "FR-354-AC-4")]
+#[test]
+fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
+    let document = domain_document(json!({}));
+    let (mut package, evidence) = package_over(&document, "total");
+    let call = package["semantic_graph"]["nodes"][CALL]["node_id"].clone();
+    let declaring = package["semantic_graph"]["nodes"][2]["node_id"].clone();
+    let occurrence = json!({"role":"type", "ordinal":0});
+    let table = json!({
+        "application":call,
+        "occurrence":occurrence,
+        "operation":{"declaring":declaring, "operation":"total"},
+        "context":declaring,
+        "candidates":[]
+    });
+    package["checked_term_data"] = json!({
+        "equality_decisions":[], "protocol_locations":[], "dispatch_tables":[table]
+    });
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!("empty producer candidate set must admit");
+    };
+    assert!(admitted.checked_term_data().is_some());
+    let call = admitted.graph().nodes[CALL].node_id.clone();
+    let occurrence = admitted.graph().nodes[CALL].occurrences[0].clone();
+    assert!(admitted
+        .dispatch_candidates(&call, &occurrence, 1)
+        .unwrap()
+        .candidates()
+        .is_empty());
+    assert!(matches!(
+        admitted.dispatch_candidates(&call, &occurrence, 0),
+        Err(quire_contract_model::CheckedDispatchReadError::WorkExhausted { .. })
+    ));
+
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"] = json!([{
+        "selection_key": {
+            "owner_effective_type": null,
+            "original": {"package": IDENTITY, "node": ORDER}
+        },
+        "operation_body": package["semantic_graph"]["nodes"][CALL]["node_id"],
+        "effective_precondition": null
+    }]);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!("root candidate must admit");
+    };
+    let call = admitted.graph().nodes[CALL].node_id.clone();
+    let occurrence = admitted.graph().nodes[CALL].occurrences[0].clone();
+    assert_eq!(
+        admitted
+            .dispatch_candidates(&call, &occurrence, 2)
+            .unwrap()
+            .candidates()
+            .len(),
+        1
+    );
+    assert!(matches!(
+        admitted.dispatch_candidates(&call, &occurrence, 1),
+        Err(
+            quire_contract_model::CheckedDispatchReadError::WorkExhausted {
+                candidate: Some(0),
+                ..
+            }
+        )
+    ));
+}
+
 fn indexed_bytes(package: &Value) -> Vec<u8> {
     let mut package = package.clone();
     index_fixture_node_ids(&mut package);

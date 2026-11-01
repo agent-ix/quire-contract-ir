@@ -7,12 +7,14 @@
 //! definition selections retain the owning names and exact structure.
 
 mod abstraction;
+mod checked_term_data;
 mod claim_terminal;
 mod closure_index;
 mod comparison_operands;
 mod composite_operands;
 mod contract_package;
 mod dependency_references;
+mod dispatch_projection;
 pub(in crate::checked_package) mod encode;
 mod execution_point;
 mod execution_point_accessor;
@@ -48,6 +50,7 @@ mod timed_model;
 mod typed_terms;
 mod vocabulary;
 
+pub use checked_term_data::*;
 pub use comparison_operands::{
     CheckedClauseComparison, CheckedComparisonClauseKind, CheckedComparisonError,
     CheckedComparisonObservation, CheckedComparisonOperand, CheckedComparisonOperandIdentity,
@@ -75,6 +78,7 @@ pub use contract_package::{
     ContractSemanticGraphV1, ContractSourceHandoffError, ContractSourceKeyV1, ContractSourceMapV1,
     ContractSourceV1, ContractUnsupportedSourceKindError,
 };
+pub use dispatch_projection::{CheckedDispatchReadError, CheckedDispatchView};
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;
 pub use lower::*;
@@ -600,10 +604,12 @@ macro_rules! checked_package_envelope {
     ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
         #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct CheckedPackageEnvelope<C, N, L, G, S, R, A, D> {
+        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, A, D> {
             $($name: $parameter,)+
             #[serde(default, skip_serializing_if = "Option::is_none")]
             refinement_step_rows: Option<R>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            checked_term_data: Option<T>,
         }
 
         impl<Body: quire_canonical::Encode> quire_canonical::Encode for CheckedPackageEnvelope<
@@ -613,6 +619,7 @@ macro_rules! checked_package_envelope {
             &CheckedSemanticGraphV2<Body>,
             &[CheckedSourceMapEntry],
             &[refinement::CheckedRefinementStepRowRegion],
+            &checked_term_data::CheckedTermDataV2,
             &[CheckedCapability],
             &CheckedDiagnosticsV2,
         > {
@@ -623,6 +630,9 @@ macro_rules! checked_package_envelope {
                 writer.begin_object()?;
                 $(encode_envelope_field!(writer, stringify!($name), self.$name, $encoding);)+
                 encode_envelope_field!(writer, "refinement_step_rows", self.refinement_step_rows, optional_elements);
+                if let Some(data) = self.checked_term_data {
+                    encode::encoded(writer, "checked_term_data", data)?;
+                }
                 writer.end_object()
             }
         }
@@ -646,6 +656,7 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     CheckedSemanticGraphV2<Body>,
     Vec<CheckedSourceMapEntry>,
     Vec<refinement::CheckedRefinementStepRowRegion>,
+    checked_term_data::CheckedTermDataV2,
     Vec<CheckedCapability>,
     CheckedDiagnosticsV2,
 >;
@@ -693,6 +704,7 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         semantic_graph,
         source_map: sources.source_map,
         refinement_step_rows: sources.refinement_step_rows,
+        checked_term_data: None,
         capability_report,
         diagnostics,
     };
@@ -1116,6 +1128,7 @@ impl CheckedPackageV2 {
             semantic_graph,
             source_map,
             refinement_step_rows,
+            checked_term_data,
             capability_report,
             diagnostics,
         } = wire;
@@ -1141,6 +1154,7 @@ impl CheckedPackageV2 {
             semantic_graph,
             source_map,
             refinement_step_rows,
+            checked_term_data,
             capability_report,
             diagnostics,
         };
@@ -1211,6 +1225,11 @@ impl CheckedPackageV2 {
     /// Source regions of canonical refinement step rows, when steps exist.
     pub fn refinement_step_rows(&self) -> Option<&[CheckedRefinementStepRowRegion]> {
         self.wire.refinement_step_rows.as_deref()
+    }
+
+    /// Admitted checked-term sidecar, absent when the producer supplied none.
+    pub fn checked_term_data(&self) -> Option<&CheckedTermDataV2> {
+        self.wire.checked_term_data.as_ref()
     }
 
     /// The reported capabilities.
@@ -1299,10 +1318,16 @@ fn validate(
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
+    let models = RetainedModels::new(declarations, models);
+    if let Some(data) = wire.checked_term_data.as_ref() {
+        dispatch_projection::validate_checked_term_data(
+            data, wire, &kinds, &terms, &models, &mut meter,
+        )?;
+    }
     Ok(ValidatedPackage {
         kinds,
         terms,
-        models: RetainedModels::new(declarations, models),
+        models,
         lowering_facts,
         structural_keys,
     })
