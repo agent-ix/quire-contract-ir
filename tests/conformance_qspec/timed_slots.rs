@@ -271,6 +271,17 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
     let (wire, vectors, fixtures) = published_slots();
     let package = admitted_slots(&wire, &fixtures);
     let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
+    assert_eq!(package.graph().nodes.len(), nodes.len());
+    for (admitted, authored) in package.graph().nodes.iter().zip(nodes) {
+        assert_eq!(
+            admitted.semantic_form.as_ref(),
+            authored["semantic_form"].as_str().unwrap()
+        );
+        assert_eq!(
+            admitted.semantic_type,
+            serde_json::from_value(authored["semantic_type"].clone()).unwrap()
+        );
+    }
     for case in vectors["presence"]["cases"]
         .as_array()
         .unwrap()
@@ -551,7 +562,7 @@ fn public_reader_keeps_the_one_operand_option_presence_form() {
         .find(|node| node["body"]["term"] == "application")
         .unwrap()
         .clone();
-    application["node_id"] = app_id;
+    application["node_id"] = app_id.clone();
     application["node_tag"] = json!("expression");
     application["semantic_form"] = json!("presence_read");
     application["semantic_type"] = boolean.clone();
@@ -582,6 +593,7 @@ fn public_reader_keeps_the_one_operand_option_presence_form() {
         panic!("one-operand Option form must admit: {result:?}")
     };
     let node = package.graph().nodes.last().unwrap();
+    assert_eq!(node.node_id, serde_json::from_value(app_id).unwrap());
     let CheckedTerm::Application {
         operation,
         arguments,
