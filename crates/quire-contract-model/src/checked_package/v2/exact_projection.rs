@@ -169,6 +169,159 @@ impl SelectedExactFieldRow {
     }
 }
 
+/// One selected model tuple's QSL-stage Exact declaration identity.
+///
+/// The tuple form is fixed by this row type. Construction carries a producer
+/// claim; a later admitted join must validate it before a runtime read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedTupleDeclarationRow {
+    /// The tuple declaration's admitted structural node.
+    pub structural_node: CheckedNodeId,
+    /// The selected domain document identity.
+    pub selected_document: Box<str>,
+    /// The tuple's original identity in that document.
+    pub original_identity: Box<str>,
+    /// The tuple key issued by the QSL checking/model stage.
+    pub node_key: NodeKey,
+}
+
+impl SelectedTupleDeclarationRow {
+    /// Carry the complete selected tuple identity claim.
+    pub fn new(
+        structural_node: CheckedNodeId,
+        selected_document: impl Into<Box<str>>,
+        original_identity: impl Into<Box<str>>,
+        node_key: NodeKey,
+    ) -> Self {
+        Self {
+            structural_node,
+            selected_document: selected_document.into(),
+            original_identity: original_identity.into(),
+            node_key,
+        }
+    }
+}
+
+/// One source-owned declared unit's QSL-stage Exact identity.
+///
+/// The source-unit form is fixed by this row type. An admitted join must
+/// verify the selected source, structural node, original declaration and
+/// `UnitId::Declared` domain before exposing a unit view.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedSourceUnitRow {
+    /// The declared unit's admitted structural node.
+    pub structural_node: CheckedNodeId,
+    /// Authority of the selected raw source.
+    pub source_authority: Box<str>,
+    /// Identity of the selected raw source.
+    pub source_identity: Box<str>,
+    /// Original qualified declaration segments in that source.
+    pub qualified_declaration: Vec<Box<str>>,
+    /// The declared unit identity issued by the QSL checking stage.
+    pub unit_id: UnitId,
+}
+
+impl SelectedSourceUnitRow {
+    /// Carry the complete selected source-unit identity claim.
+    pub fn new(
+        structural_node: CheckedNodeId,
+        source_authority: impl Into<Box<str>>,
+        source_identity: impl Into<Box<str>>,
+        qualified_declaration: Vec<Box<str>>,
+        unit_id: UnitId,
+    ) -> Self {
+        Self {
+            structural_node,
+            source_authority: source_authority.into(),
+            source_identity: source_identity.into(),
+            qualified_declaration,
+            unit_id,
+        }
+    }
+}
+
+/// One source-owned enum declaration's QSL-stage Exact identity.
+///
+/// The enum-declaration form is fixed by this row type. A later admitted join
+/// must verify its selected source and original qualified declaration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedEnumDeclarationRow {
+    /// The enum declaration's admitted structural node.
+    pub structural_node: CheckedNodeId,
+    /// Authority of the selected raw source.
+    pub source_authority: Box<str>,
+    /// Identity of the selected raw source.
+    pub source_identity: Box<str>,
+    /// Original qualified declaration segments in that source.
+    pub qualified_declaration: Vec<Box<str>>,
+    /// The enum key issued by the QSL checking stage.
+    pub node_key: NodeKey,
+}
+
+impl SelectedEnumDeclarationRow {
+    /// Carry the complete selected enum-declaration identity claim.
+    pub fn new(
+        structural_node: CheckedNodeId,
+        source_authority: impl Into<Box<str>>,
+        source_identity: impl Into<Box<str>>,
+        qualified_declaration: Vec<Box<str>>,
+        node_key: NodeKey,
+    ) -> Self {
+        Self {
+            structural_node,
+            source_authority: source_authority.into(),
+            source_identity: source_identity.into(),
+            qualified_declaration,
+            node_key,
+        }
+    }
+}
+
+/// One source-owned enum case's QSL-stage Exact member identity.
+///
+/// The enum-member form is fixed by this row type. A later admitted join must
+/// verify the parent declaration, its selected source and this exact case.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedEnumMemberRow {
+    /// The enum member's admitted structural node.
+    pub structural_node: CheckedNodeId,
+    /// Authority of the selected raw source declaring its enum.
+    pub source_authority: Box<str>,
+    /// Identity of the selected raw source declaring its enum.
+    pub source_identity: Box<str>,
+    /// The selected enum declaration's admitted structural node.
+    pub declaration_node: CheckedNodeId,
+    /// Original qualified identity of the selected enum declaration.
+    pub declaration_qualified_name: Vec<Box<str>>,
+    /// The original member case in that enum declaration.
+    pub case: Box<str>,
+    /// The member key issued by the QSL checking stage.
+    pub member_key: NodeKey,
+}
+
+impl SelectedEnumMemberRow {
+    /// Carry the complete selected enum-member identity claim.
+    pub fn new(
+        structural_node: CheckedNodeId,
+        source_authority: impl Into<Box<str>>,
+        source_identity: impl Into<Box<str>>,
+        declaration_node: CheckedNodeId,
+        declaration_qualified_name: Vec<Box<str>>,
+        case: impl Into<Box<str>>,
+        member_key: NodeKey,
+    ) -> Self {
+        Self {
+            structural_node,
+            source_authority: source_authority.into(),
+            source_identity: source_identity.into(),
+            declaration_node,
+            declaration_qualified_name,
+            case: case.into(),
+            member_key,
+        }
+    }
+}
+
 /// Selected-model identities supplied by the checking stage alongside a package.
 ///
 /// An empty selection supports scalar reads. Identity-bearing reads refuse
