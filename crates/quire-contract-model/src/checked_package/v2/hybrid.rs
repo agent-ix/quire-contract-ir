@@ -1146,7 +1146,8 @@ pub(super) fn validate_claims(
                         .key("body")
                         .key("operation")
                         .key("member")
-                        .key("target"),
+                        .key("target")
+                        .key("name"),
                     fair,
                 ));
             };
