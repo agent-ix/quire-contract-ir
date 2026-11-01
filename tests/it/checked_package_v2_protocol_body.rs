@@ -9853,3 +9853,51 @@ fn typed_protocol_fairness_checks_identity_then_kind_then_branch() {
         );
     }
 }
+
+#[trace("TC-048", "FR-038-AC-103")]
+#[test]
+fn typed_protocol_fairness_never_selects_another_local_clause() {
+    let mut package = v2_all_families();
+    let clause = clause_position(&package);
+    let root = protocol_position(&package, "control");
+    let finish = protocol_position(&package, "obligation");
+    let other_run = protocol_named_node(
+        "control",
+        &["Example", "OtherFlow", "run", "Main"],
+        package["semantic_graph"]["nodes"][root]["body"].clone(),
+        &[],
+    );
+    let other_finish = protocol_named_node(
+        "obligation",
+        &["Example", "OtherFlow", "finish", "Closed"],
+        package["semantic_graph"]["nodes"][finish]["body"].clone(),
+        &[],
+    );
+    let mut body = package["semantic_graph"]["nodes"][clause]["body"].clone();
+    body["arguments"][11]["value"]["target"] = other_run["node_id"].clone();
+    body["arguments"][12]["value"]["target"] = other_finish["node_id"].clone();
+    body["arguments"][7]["value"]["members"] = json!([]);
+    let other = protocol_named_node("protocol_clause", &["Example", "OtherFlow"], body, &[]);
+    let key = other["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .extend([other_run, other_finish, other]);
+    settle_after_structural_rekey(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
+    let member = json!({"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":{"kind":"protocol_root", "node":key}});
+    let (package, fair) = with_protocol_fairness(package, member);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("other clause must refuse")
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        format!("/semantic_graph/nodes/{fair}/body/operation/member/target/node")
+    );
+}
