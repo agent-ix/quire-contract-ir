@@ -5,8 +5,8 @@ use super::checked_term_data::{
 };
 use super::model_fields::RetainedModels;
 use super::{
-    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm,
-    ExpressionForm, RawCheckedPackageWireV2, WorkMeter,
+    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ExpressionForm,
+    RawCheckedPackageWireV2, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -88,14 +88,17 @@ pub(super) fn validate_checked_term_data(
         if table.application.package.as_ref() != wire.name.as_ref()
             || kinds.get(application_index)
                 != Some(&CheckedNodeKind::Expression(ExpressionForm::Call))
-            || !application_node.occurrences.contains(&table.occurrence)
+        {
+            return Err(invalid(row.clone().key("application")));
+        }
+        if !application_node.occurrences.contains(&table.occurrence)
             || !source_occurrences.contains(&(
                 &table.application,
                 &table.occurrence.role,
                 table.occurrence.ordinal,
             ))
         {
-            return Err(invalid(row.clone().key("application")));
+            return Err(invalid(row.clone().key("occurrence")));
         }
         let Some(CheckedTerm::Application {
             operator: ApplicationOperator::Call,
@@ -137,7 +140,7 @@ pub(super) fn validate_checked_term_data(
             }
             let original = &candidate.selection_key.original;
             let selected = models.selected_models().iter().any(|model| {
-                model.identity == original.package
+                model.identity.as_ref() == original.package.as_ref()
                     && model.object_types.contains_key(original.node.as_ref())
             });
             if !selected {
