@@ -49,6 +49,16 @@ admission authority.
   operation identity. The latter is the stage's existing operation identity;
   this contract does not mint an Exact key for an operation. The row is
   producer input alongside the package, not a new QSpec wire member.
+- For an admitted equality application, QSL checking/emission-stage identity
+  rows from the same package construction. An application row carries the full
+  emitted `CheckedNodeId`, its exact authored occurrence, the selected producer
+  document/context and QSL's original application `NodeKey` and `Location`. Quantity
+  identity rows carry the full emitted structural nodes and selected producer
+  documents/contexts for
+  the dimension declaration, base-dimension terms and each ordered
+  conversion-edge target, together with their original QSL-issued `NodeKey`s.
+  The rows distinguish each occurrence and each unit fact role;
+  they are producer input alongside the package, not QSpec wire members.
 
 The public IR-model entry point SHALL take the admitted package, requested
 `CheckedNodeId`, `&SelectedExactIdentities`, and finite work limit, and return
@@ -73,6 +83,28 @@ declaration has no FR-040 model member and SHALL NOT be assigned a model-member
 row. The callable view SHALL return a typed unavailable-witness outcome for
 that anchor until the QSL source stage supplies a distinct source-operation
 identity witness.
+
+The QSL-facing equality identity acquisition interface SHALL emit the
+application row for each produced equality occurrence and the complete
+quantity identity rows used by its selected unit facts. The application key
+and authored `Location` SHALL come from the checking stage's retained
+application-key/location correspondence. Quantity keys SHALL come from the
+stage's retained unit and dimension nodes. `TypeEnvironment` SHALL NOT be treated
+as a source of these quantity identities. An IR reader SHALL join every row
+by full structural node, occurrence where applicable, selected producer
+document/context and admitted node owner where one exists,
+unit-fact role and original declaration identity where one exists. It SHALL
+refuse a missing, foreign, wrong-form, duplicate, conflicting or mismatched
+row at its first structural locus before constructing an Exact descriptor.
+It SHALL charge each inspected row against the finite work limit. No
+`CheckedNodeId`-to-`NodeKey` conversion or display-name lookup establishes an
+identity. The already witnessed `UnitId` supplies its own declared key and
+compound root terms to QSV's private admitted construction; QSV obtains a
+declared root from the last retained path target or declared key when the path
+is empty. IR SHALL NOT mint these keys. The equality read and
+its closed `UnavailableEqualityWitness` refusal are owned by
+[FR-353](./FR-353-read-admitted-equality-decisions.md), not the general
+`project_exact_type` API.
 
 ## Outputs
 
@@ -189,6 +221,7 @@ AC-6 and AC-11; this projection alone does not satisfy those criteria.
 | FR-352-AC-8 | The public-item and dependency inventories show the projection in `quire-contract-model`, its cycle-free dependency on `quire-exact`, and no QSL checked-expression constructor, checker, evaluator or mirror expression type in IR; Exact has no IR admission dependency. QSL FR-390 AC-6 and AC-11 remain separately verified in QSL. | Test |
 | FR-352-AC-9 | A QSL-side selected-model identity producer supplies `SelectedExactIdentities` alongside a checked package; an external caller passes it to the public projection API. The IR join accepts identities only for matching admitted selected-document, declaration form and original IR declaration or field identities. Absent, conflicting, foreign-document and wrong-form entries return the named typed outcome; a caller-supplied bare `NodeKey`, `EffectiveId`, `MemberId`, or node-name pair cannot enter the projection as an authoritative witness. | Test, Inspection |
 | FR-352-AC-10 | A QSL-stage `SelectedOperationMemberRow` for an admitted model-owned operation anchor joins its full structural node, selected document, declaring model form and original model/operation member identities to the selected operation identity; the FR-354 callable read uses the joined row to find the admitted body and frame. Two admitted anchors of one operation at distinct execution points remain distinct rows. A missing row, wrong document/form/member, foreign anchor, duplicate conflicting row, or name-only match returns a named typed outcome without a callable view. A source-declared anchor with no selected model member returns typed unavailable-witness rather than accepting a same-name model-member row; no new QSpec wire member or invented Exact operation key is used. | Test, Inspection |
+| FR-352-AC-11 | QSL checking/emission supplies one original application `NodeKey` and authored `Location` per emitted equality application occurrence, and original dimension-declaration, base-dimension-term and ordered conversion-edge-target `NodeKey`s for every selected quantity fact. Each row carries a full emitted structural node, selected producer document/context and its fact role; application rows also carry exact occurrence. The FR-353 join refuses absent, foreign, wrong-form, duplicate, conflicting or mismatched rows with a typed structural locus and bounded work. Neither `CheckedNodeId`, display name nor the general FR-352 type projection produces a missing key. QSV privately unwraps the already witnessed `UnitId` for a declared key or compound root terms and obtains a declared root from the retained path, without checking or minting identity in IR. No row is added to QSpec V2 wire. | Test, Inspection |
 
 ## Dependencies
 
