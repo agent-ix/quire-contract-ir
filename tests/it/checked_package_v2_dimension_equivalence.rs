@@ -119,7 +119,7 @@ fn mixed_package() -> (Value, String, CheckedPackageV2) {
     let pair = json!([{"package":dependency_name,"node":foreign}, local]);
     let id = json!({
         "package":"test/importer",
-        "path":["scalar_type","dimension_equivalence",foreign,local],
+        "path":["scalar_type","dimension_equivalence","acme/clock","Beta","test/importer","Alpha"],
         "ordinal":0
     });
     equivalence["node_id"] = id.clone();
@@ -128,7 +128,6 @@ fn mixed_package() -> (Value, String, CheckedPackageV2) {
     equivalence["body"]["dimension_node_ids"] = pair;
     importer["source_map"][3]["node_id"] = id;
     importer["lock"]["dependency_selections"] = json!([{"identity":dependency_name}]);
-    index_fixture_node_ids(&mut importer);
     refresh_identity(&mut importer);
     (importer, dependency_name, dependency)
 }
