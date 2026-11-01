@@ -29,7 +29,7 @@ use quire_contract_model::{
     ModelForm, SelectedOperationIdentity, SelectedOperationMemberErrorCode,
     SelectedOperationMemberRow, SelectedOperationMembers, StateClauseKind,
 };
-use quire_exact::EffectiveId;
+use quire_exact::{EffectiveId, OriginalDeclarationKey};
 use serde_json::{json, Value};
 use std::sync::LazyLock;
 
@@ -5233,7 +5233,7 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
         original_model_identity: ORDER_NODE.into(),
         original_operation_identity: format!("{ORDER_NODE}/scaled").into(),
         selected_operation_identity: SelectedOperationIdentity::new(
-            EffectiveId::from_digest([7; 32]),
+            EffectiveId::new(None, OriginalDeclarationKey::new(ORDERS, ORDER_NODE)),
             "scaled",
         ),
     };
@@ -5272,6 +5272,24 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
     assert_eq!(
         SelectedOperationMembers::from_stage_rows(&admitted, [wrong_member], 16)
             .expect_err("wrong original operation")
+            .code,
+        SelectedOperationMemberErrorCode::MismatchedWitness
+    );
+    let mut wrong_selected_name = row.clone();
+    wrong_selected_name.selected_operation_identity.operation = "reset".into();
+    assert_eq!(
+        SelectedOperationMembers::from_stage_rows(&admitted, [wrong_selected_name], 16)
+            .expect_err("wrong selected operation name")
+            .code,
+        SelectedOperationMemberErrorCode::MismatchedWitness
+    );
+    let mut wrong_selected_declaring = row.clone();
+    wrong_selected_declaring
+        .selected_operation_identity
+        .declaring = EffectiveId::new(None, OriginalDeclarationKey::new(ORDERS, SUB_NODE));
+    assert_eq!(
+        SelectedOperationMembers::from_stage_rows(&admitted, [wrong_selected_declaring], 16)
+            .expect_err("wrong selected declaring type")
             .code,
         SelectedOperationMemberErrorCode::MismatchedWitness
     );
@@ -5327,7 +5345,7 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
         original_model_identity: ORDER_NODE.into(),
         original_operation_identity: format!("{ORDER_NODE}/scaled").into(),
         selected_operation_identity: SelectedOperationIdentity::new(
-            EffectiveId::from_digest([7; 32]),
+            EffectiveId::new(None, OriginalDeclarationKey::new(ORDERS, ORDER_NODE)),
             "scaled",
         ),
     };

@@ -183,6 +183,14 @@ impl<'a> SelectedOperationMembers<'a> {
             if row.selected_document.as_ref() != owner.package.identity.as_ref()
                 || row.declaring_form != form
                 || row.original_model_identity.as_ref() != owner.node
+                || row
+                    .selected_operation_identity
+                    .declaring
+                    .original()
+                    .package()
+                    != owner.package.identity.as_ref()
+                || row.selected_operation_identity.declaring.original().node() != owner.node
+                || row.selected_operation_identity.operation.as_ref() != body.operation
             {
                 return Err(refusal(
                     SelectedOperationMemberErrorCode::MismatchedWitness,
