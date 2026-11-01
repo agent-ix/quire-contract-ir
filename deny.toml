@@ -17,6 +17,10 @@ confidence-threshold = 0.9
 [bans]
 multiple-versions = "allow"
 wildcards = "warn"
+deny = [
+    { crate = "quire-contract-codegen", reason = "IR must not depend on codegen (AD-005 D-2)" },
+    { crate = "quire-contract-runtime", reason = "IR must not depend on runtime (AD-005 D-2)" },
+]
 
 # One copy of every first-party crate is enforced by scripts/check_one_copy.awk
 # (run from `make deny`), which reads Cargo.lock.
