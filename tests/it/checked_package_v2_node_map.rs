@@ -3,14 +3,22 @@
 
 //! Public draft node-id rewriting follows FR-048 without admitting a package.
 
-use crate::support::checked_package::{canonical, evidence_for, v2_all_families};
+use crate::support::checked_package::{
+    canonical, evidence_for, v2_all_families, v2_reference_chain,
+};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment,
-    CheckedPackageReadLimits, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedSemanticNodeV2, CheckedTerm, DimensionTerm, LiteralKind,
-    NominalBody, RefinementKey,
+    encode_checked_package_v2, CheckedAbstractionFrame, CheckedAbstractionObject,
+    CheckedAbstractionPopulation, CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment,
+    CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRational, CheckedSemanticNodeV2,
+    CheckedTerm, DimensionTerm, LiteralKind, NominalBody, RefinementAbstractClass,
+    RefinementAssume, RefinementClassCatalog, RefinementConcreteClass, RefinementEnsure,
+    RefinementFairnessKind, RefinementField, RefinementGranularity, RefinementHistory,
+    RefinementHistoryUpdate, RefinementKey, RefinementObject, RefinementPackageNodeKey,
+    RefinementPopulation, RefinementStep, RefinementStepArgument, RefinementStepTarget,
 };
+use serde_json::Value;
 
 fn id(name: &str) -> CheckedNodeId {
     CheckedNodeId {
@@ -18,6 +26,59 @@ fn id(name: &str) -> CheckedNodeId {
         path: vec![CheckedNodePathSegment::Name(name.into())],
         ordinal: 0,
     }
+}
+
+fn wire_node_ids<'a>(value: &'a Value, found: &mut Vec<&'a Value>) {
+    match value {
+        Value::Object(object)
+            if object.len() == 3
+                && object.contains_key("package")
+                && object.contains_key("path")
+                && object.contains_key("ordinal") =>
+        {
+            found.push(value);
+        }
+        Value::Object(object) => {
+            for value in object.values() {
+                wire_node_ids(value, found);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                wire_node_ids(value, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn assert_wire_ids(value: &Value, expected: &CheckedNodeId, count: usize) {
+    let mut found = Vec::new();
+    wire_node_ids(value, &mut found);
+    assert_eq!(
+        found.len(),
+        count,
+        "every typed identity slot is serialized"
+    );
+    let expected = serde_json::to_value(expected).expect("node ID wire");
+    assert!(found.into_iter().all(|id| id == &expected));
+}
+
+fn reverse_chain_id(id: &CheckedNodeId, length: usize) -> Option<CheckedNodeId> {
+    let [CheckedNodePathSegment::Name(label)] = id.path.as_slice() else {
+        return None;
+    };
+    let index = label
+        .strip_prefix("expression/reference/")?
+        .parse::<usize>()
+        .ok()?;
+    (index < length).then(|| CheckedNodeId {
+        package: id.package.clone(),
+        path: vec![CheckedNodePathSegment::Name(
+            format!("expression/reference/{}", length - 1 - index).into(),
+        )],
+        ordinal: id.ordinal,
+    })
 }
 
 #[trace("FR-048-AC-6", "FR-048-AC-7", "FR-048-AC-9")]
@@ -217,6 +278,150 @@ fn nominal_and_refinement_keys_map_without_touching_source_labels() {
     assert_eq!(encoded["abstract_internal"][0], "original");
 }
 
+#[trace("FR-048-AC-7")]
+#[test]
+fn remaining_closed_forms_map_every_typed_identity_slot() {
+    let original = id("original");
+    let replacement = id("replacement");
+    let ratio = CheckedRational {
+        numerator: "1".into(),
+        denominator: "1".into(),
+    };
+    let mut forms = [
+        (
+            CheckedTerm::NominalBody(Box::new(
+                NominalBody::try_unit(
+                    id("dimension"),
+                    Some(id("target")),
+                    ratio.clone(),
+                    ratio.clone(),
+                )
+                .expect("valid unit"),
+            )),
+            2,
+        ),
+        (
+            CheckedTerm::NominalBody(Box::new(
+                NominalBody::try_dimension_equivalence(
+                    [id("dimension-a"), id("dimension-b")],
+                    ratio,
+                )
+                .expect("valid equivalence"),
+            )),
+            2,
+        ),
+        (
+            CheckedTerm::AbstractionRelation {
+                objects: vec![CheckedAbstractionObject {
+                    type_id: original.clone(),
+                    type_path: vec!["original".into()],
+                    fields: Vec::new(),
+                }],
+                populations: vec![CheckedAbstractionPopulation {
+                    population: original.clone(),
+                    collection: vec!["original".into()],
+                }],
+                frames: vec![CheckedAbstractionFrame {
+                    context: original.clone(),
+                    operation: "original".into(),
+                    function: vec!["original".into()],
+                    receiver: "original".into(),
+                    parameters: Vec::new(),
+                }],
+            },
+            3,
+        ),
+        (
+            CheckedTerm::Refinement {
+                abstract_key: Box::new(RefinementKey::Local(original.clone())),
+                profile: CheckedArtifactRef {
+                    authority: "source".into(),
+                    identity: "original".into(),
+                },
+                populations: vec![RefinementPopulation {
+                    r#abstract: RefinementKey::Local(original.clone()),
+                    concrete: original.clone(),
+                }],
+                objects: vec![RefinementObject {
+                    abstract_type: RefinementKey::Local(original.clone()),
+                    concrete_type: original.clone(),
+                    fields: vec![RefinementField {
+                        name: "original".into(),
+                        expression: CheckedTerm::reference(original.clone()),
+                    }],
+                }],
+                steps: vec![RefinementStep {
+                    source_class: "original".into(),
+                    source_node: Some(original.clone()),
+                    target: RefinementStepTarget::Operation {
+                        operation: RefinementKey::Local(original.clone()),
+                        receiver: Box::new(CheckedTerm::reference(original.clone())),
+                        arguments: vec![RefinementStepArgument::Term(Box::new(
+                            CheckedTerm::reference(original.clone()),
+                        ))],
+                    },
+                }],
+                histories: vec![RefinementHistory {
+                    concrete_type: original.clone(),
+                    name: "original".into(),
+                    type_id: original.clone(),
+                    initial: CheckedTerm::reference(original.clone()),
+                    updates: vec![RefinementHistoryUpdate {
+                        operation: original.clone(),
+                        expression: CheckedTerm::reference(original.clone()),
+                    }],
+                }],
+                assume: vec![RefinementAssume {
+                    operation: original.clone(),
+                    kind: RefinementFairnessKind::Weak,
+                    granularity: RefinementGranularity::Whole,
+                }],
+                ensure: vec![RefinementEnsure {
+                    operation: RefinementKey::Local(original.clone()),
+                    kind: RefinementFairnessKind::Strong,
+                    granularity: RefinementGranularity::Each,
+                }],
+                protocol: Some(Box::new(RefinementKey::External(
+                    RefinementPackageNodeKey {
+                        package: "source".into(),
+                        node: original.clone(),
+                    },
+                ))),
+                abstract_internal: Some(vec!["original".into()]),
+                class_catalog: Some(RefinementClassCatalog {
+                    concrete: vec![RefinementConcreteClass::Declared {
+                        class: "original".into(),
+                        node: original.clone(),
+                        binder_types: vec![original.clone()],
+                    }],
+                    r#abstract: vec![RefinementAbstractClass::Declared {
+                        class: "original".into(),
+                        node: RefinementKey::Local(original.clone()),
+                        binder_types: vec![RefinementKey::Local(original.clone())],
+                    }],
+                }),
+            },
+            22,
+        ),
+    ];
+    for (index, (term, expected_count)) in forms.iter_mut().enumerate() {
+        let mut visits = 0;
+        term.map_node_ids(|_| {
+            visits += 1;
+            Some(replacement.clone())
+        });
+        assert_eq!(visits, *expected_count);
+        let wire = serde_json::to_value(&term).expect("closed term wire");
+        assert_wire_ids(&wire, &replacement, *expected_count);
+        if index >= 2 {
+            assert!(
+                wire.to_string().contains("original"),
+                "source labels survive"
+            );
+        }
+    }
+}
+
 #[trace("FR-048-AC-8")]
 #[test]
 fn nested_term_mapping_uses_a_constant_call_stack() {
@@ -235,6 +440,90 @@ fn nested_term_mapping_uses_a_constant_call_stack() {
     // Recursive `Drop` for the preexisting boxed term shape is independent of
     // the iterative mapper and would overflow the test thread's call stack.
     std::mem::forget(term);
+}
+
+#[trace("FR-048-AC-8")]
+#[test]
+fn hundred_thousand_node_position_remap_preserves_admitted_references() {
+    const LENGTH: usize = 100_000;
+    let base_fixture = v2_all_families();
+    let evidence = evidence_for(&base_fixture);
+    let base_count = base_fixture["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("base nodes")
+        .len();
+    let (bytes, _) = v2_reference_chain(LENGTH);
+    let limits = CheckedPackageReadLimits {
+        bytes: 1 << 36,
+        nodes: 200_000,
+        edges: 1_600_000,
+        occurrences: 1_600_000,
+        diagnostics: 1 << 20,
+        work: 100_000_000,
+    };
+    let original = match CheckedPackageV2::read(&bytes, limits, &evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("valid chain refused: {other:?}"),
+    };
+    assert_eq!(original.graph().nodes.len(), base_count + LENGTH);
+    let mut graph = original.graph().clone();
+    let mut base_visits = 0;
+    for node in &mut graph.nodes[..base_count] {
+        node.map_node_ids(|_| {
+            base_visits += 1;
+            None
+        });
+    }
+    let mut visits = base_visits;
+    let mut chain_id_visits = 0;
+    for node in &mut graph.nodes[base_count..] {
+        node.map_node_ids(|id| {
+            visits += 1;
+            let replacement = reverse_chain_id(id, LENGTH);
+            chain_id_visits += usize::from(replacement.is_some());
+            replacement
+        });
+    }
+    assert_eq!(visits, base_visits + LENGTH * 4);
+    assert_eq!(chain_id_visits, LENGTH + (LENGTH - 1) * 2);
+    let mut source_map = original.source_map().to_vec();
+    for row in &mut source_map {
+        if let Some(replacement) = reverse_chain_id(&row.node_id, LENGTH) {
+            row.node_id = replacement;
+        }
+    }
+    let encoded = encode_checked_package_v2(
+        original.name(),
+        original.lock(),
+        &graph,
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: &source_map,
+            refinement_step_rows: original.refinement_step_rows(),
+        },
+        original.capability_report(),
+        original.diagnostics(),
+        quire_canonical::Limits::new(u64::MAX),
+    )
+    .expect("rewritten draft encodes");
+    let rewritten = match CheckedPackageV2::read(&encoded, limits, &evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("valid remap refused: {other:?}"),
+    };
+    for position in 1..LENGTH {
+        let previous = &rewritten.graph().nodes[base_count + position - 1].node_id;
+        let node = &rewritten.graph().nodes[base_count + position];
+        assert_eq!(node.dependencies.len(), 1);
+        assert_eq!(node.dependencies.first(), Some(previous));
+        assert!(matches!(&node.body, CheckedTerm::Reference { target } if target == previous));
+    }
+    for position in [0, LENGTH / 2, LENGTH - 1] {
+        let old = &original.graph().nodes[base_count + position].node_id;
+        let expected = reverse_chain_id(old, LENGTH).expect("chain node");
+        assert_eq!(
+            rewritten.graph().nodes[base_count + position].node_id,
+            expected
+        );
+    }
 }
 
 #[trace("FR-048-AC-8")]
@@ -272,12 +561,19 @@ fn mapped_duplicate_is_refused_by_the_package_reader() {
         quire_canonical::Limits::new(u64::MAX),
     )
     .expect("draft package encodes");
-    assert!(matches!(
-        CheckedPackageV2::read(
-            &bytes,
-            CheckedPackageReadLimits::bounded(),
-            &evidence_for(&fixture),
-        ),
-        CheckedPackageV2ReadResult::Refused(_)
-    ));
+    let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+        &bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&fixture),
+    ) else {
+        panic!("a duplicate mapped ID must refuse admission");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/semantic_graph/nodes/1/node_id".to_owned())
+    );
 }

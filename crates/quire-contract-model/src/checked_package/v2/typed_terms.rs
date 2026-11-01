@@ -1148,6 +1148,7 @@ fn push_refinement_key<'a>(work: &mut Vec<NodeMapWork<'a>>, key: &'a mut Refinem
     }
 }
 
+#[ix_trace_rs::string_edge]
 fn map_operation_ids(
     operation: &mut CheckedApplicationOperation,
     map: &mut impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>,
@@ -2457,6 +2458,102 @@ mod tests {
             serde_json::to_value(&operation).expect("operation wire")["member"]["declaration"],
             serde_json::to_value(&replacement).expect("node ID wire")
         );
+    }
+
+    #[trace("FR-048-AC-7")]
+    #[test]
+    fn relationship_end_uses_one_callback_per_member_slot() {
+        let original = CheckedNodeId {
+            package: "operation-map".into(),
+            path: vec![CheckedNodePathSegment::Name("shared".into())],
+            ordinal: 0,
+        };
+        let member = CheckedOperationMember::RelationshipEnd {
+            declaration: original.clone(),
+            name: "original".into(),
+            destination_type: original.clone(),
+            population: Some(original.clone()),
+        };
+        let operation = CheckedApplicationOperation {
+            record: json!({
+                "identity": "quire.op.relationship.read", "laws": [], "mode": null,
+                "member": {"kind": "relationship_end", "declaration": original,
+                    "name": "original", "destination_type": original, "population": original},
+                "leaves": []
+            }),
+            execution_point: None,
+            views: Some(CheckedOperationViews {
+                record: Some(Box::new(CheckedOperationRecord {
+                    identity: "quire.op.relationship.read".into(),
+                    mode: None,
+                    laws: Vec::new(),
+                    member: Some(member),
+                    constraints: Vec::new(),
+                    leaves: Vec::new(),
+                })),
+                member_declaration: Some(original.clone()),
+                ..CheckedOperationViews::default()
+            }),
+            #[cfg(feature = "test-support")]
+            test_fixture: false,
+        };
+        let mut term = CheckedTerm::Application {
+            operator: ApplicationOperator::Call,
+            operation,
+            result_type: original.clone(),
+            arguments: Vec::new(),
+        };
+        let mut visits = 0;
+        term.map_node_ids(|seen| {
+            assert_eq!(seen, &original);
+            visits += 1;
+            Some(CheckedNodeId {
+                package: original.package.clone(),
+                path: original.path.clone(),
+                ordinal: visits,
+            })
+        });
+        assert_eq!(visits, 4, "three member slots and the result type");
+        let CheckedTerm::Application {
+            operation,
+            result_type,
+            ..
+        } = term
+        else {
+            panic!("application changed form");
+        };
+        let read = operation.read().expect("admitted operation view");
+        let Some(CheckedOperationMember::RelationshipEnd {
+            declaration,
+            destination_type,
+            population: Some(population),
+            name,
+        }) = read.member
+        else {
+            panic!("relationship member changed form");
+        };
+        assert_eq!(
+            (
+                declaration.ordinal,
+                destination_type.ordinal,
+                population.ordinal
+            ),
+            (1, 2, 3)
+        );
+        assert_eq!(result_type.ordinal, 4);
+        assert_eq!(operation.member_declaration(), Ok(Some(declaration)));
+        assert_eq!(name.as_ref(), "original");
+        let wire = serde_json::to_value(&operation).expect("operation wire");
+        for (field, id) in [
+            ("declaration", declaration),
+            ("destination_type", destination_type),
+            ("population", population),
+        ] {
+            assert_eq!(
+                wire["member"][field],
+                serde_json::to_value(id).expect("node ID wire")
+            );
+        }
     }
 
     #[trace("FR-040-AC-31", "FR-040-AC-32", "FR-040-AC-36")]
