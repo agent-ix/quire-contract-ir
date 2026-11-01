@@ -371,6 +371,56 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
     ));
 }
 
+/// Trace: FR-322-AC-290, FR-354-AC-4, TC-233.
+#[trace("TC-233", "FR-322-AC-290", "FR-354-AC-4")]
+#[test]
+fn checked_dispatch_sidecar_refuses_wrong_witness_and_duplicate_key() {
+    let document = domain_document(json!({}));
+    let (mut package, evidence) = package_over(&document, "total");
+    let call = package["semantic_graph"]["nodes"][CALL]["node_id"].clone();
+    let declaring = package["semantic_graph"]["nodes"][2]["node_id"].clone();
+    let candidate = json!({
+        "selection_key": {
+            "owner_effective_type": null,
+            "original": {"package": IDENTITY, "node": ORDER}
+        },
+        "operation_body": call,
+        "effective_precondition": null
+    });
+    package["checked_term_data"] = json!({
+        "equality_decisions": [],
+        "protocol_locations": [],
+        "dispatch_tables": [{
+            "application": call,
+            "occurrence": {"role":"type", "ordinal":0},
+            "operation": {"declaring":declaring, "operation":"invented"},
+            "context": declaring,
+            "candidates": [candidate]
+        }]
+    });
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/operation".to_owned())
+    );
+
+    package["checked_term_data"]["dispatch_tables"][0]["operation"]["operation"] = json!("total");
+    let candidate = package["checked_term_data"]["dispatch_tables"][0]["candidates"][0].clone();
+    package["checked_term_data"]["dispatch_tables"][0]["candidates"] =
+        json!([candidate.clone(), candidate]);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::ConflictingDefinition)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/candidates/1/selection_key".to_owned())
+    );
+}
+
 fn indexed_bytes(package: &Value) -> Vec<u8> {
     let mut package = package.clone();
     index_fixture_node_ids(&mut package);
