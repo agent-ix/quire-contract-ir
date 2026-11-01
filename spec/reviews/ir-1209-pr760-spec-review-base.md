@@ -52,3 +52,18 @@ distinct child application rows. The earlier evidence above records the
 contract state at review time. FR-038's existing nested-application refusal
 remains in force. Independent reviewer verification of this disposition is
 pending.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | FR-353 adopts QSpec's empty-path ACs while QSpec's normative equality-carrier prose still permits nested path traversal, leaving the producer/read contract contradictory. | spec/checked_package/functional/FR-353-read-admitted-equality-decisions.md:131 |
+
+Merged QSpec #560 (e119548e) changed FR-322-AC-288/289/292 to require each equality row to name its own application and carry an empty `term_path`, matching the V2 body grammar and revised FR-353. FR-322's `checked_term_data` prose at lines 1025-1040 was not changed: it still requires traversal through typed selectors to a nested application and describes two nested equalities below one root as separate rows. The schema still admits non-empty `term_path` values. These normative descriptions cannot both define the same producer/reader join. The QSpec owner must reconcile the prose with the empty-path ACs before the downstream contract can rely on one authoritative interpretation.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Revised FR-353-AC-1 reads each equality by its own application node and occurrence, with empty `term_path`; parent forms reference the child node. This satisfies the V2 body grammar and FR-038 admission rule. |
+| FND-002 | still-open | QSpec #560's normative checked-term-data prose still permits nested path traversal while its revised AC-288/289/292 require empty paths. Upstream repair is pending. |
