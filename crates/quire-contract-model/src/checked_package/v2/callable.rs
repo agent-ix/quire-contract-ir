@@ -72,9 +72,7 @@ pub enum CheckedCallableReadErrorCode {
     MalformedBody,
     /// More than one body claims the same selected operation member.
     AmbiguousBody,
-    /// An operation anchor has no selected operation identity in the package.
-    UnsupportedSelectedOperation,
-    /// A model-owned anchor has no canonical selected-operation witness row.
+    /// An anchor has no canonical selected-operation witness row.
     UnavailableWitness,
     /// A selected model operation has no matching body function.
     MissingSelectedJoin,
@@ -160,6 +158,7 @@ fn function_body<'a>(
                     };
                     if package.node_kind(target)
                         != Some(CheckedNodeKind::Value(ValueForm::Parameter))
+                        || !reference_owner_matches(package, node, target)
                     {
                         return Err(budget.error(CheckedCallableReadErrorCode::MalformedBody, node));
                     }
@@ -173,7 +172,12 @@ fn function_body<'a>(
                 let CheckedTerm::Reference { target } = value.as_ref() else {
                     return Err(budget.error(CheckedCallableReadErrorCode::MalformedBody, node));
                 };
-                if package.term(target).is_none() || body.replace(target.clone()).is_some() {
+                if !matches!(
+                    package.node_kind(target),
+                    Some(CheckedNodeKind::Expression(_))
+                ) || !reference_owner_matches(package, node, target)
+                    || body.replace(target.clone()).is_some()
+                {
                     return Err(budget.error(CheckedCallableReadErrorCode::MalformedBody, node));
                 }
             }
@@ -203,6 +207,20 @@ fn function_body<'a>(
         body,
         clause,
     })
+}
+
+fn reference_owner_matches(
+    package: &CheckedPackageV2,
+    function: &CheckedNodeId,
+    target: &CheckedNodeId,
+) -> bool {
+    let Some(referenced) = package.node(target) else {
+        return false;
+    };
+    referenced.owner.is_none()
+        || package
+            .node(function)
+            .is_some_and(|function| referenced.owner == function.owner)
 }
 
 impl CheckedPackageV2 {
@@ -248,7 +266,7 @@ impl CheckedPackageV2 {
     /// Read selected function bodies and model operation anchors as one bounded table.
     ///
     /// Source-owned anchors without a witnessed selected operation member
-    /// return `UnsupportedSelectedOperation`. No row is exposed after any refusal.
+    /// return `UnavailableWitness`. No row is exposed after any refusal.
     pub fn callable_table(
         &self,
         selected_operations: &SelectedOperationMembers<'_>,
@@ -351,7 +369,7 @@ impl CheckedPackageV2 {
                 })?;
             if self.models.selected_declaration(&anchor.context).is_none() {
                 return Err(budget.error(
-                    CheckedCallableReadErrorCode::UnsupportedSelectedOperation,
+                    CheckedCallableReadErrorCode::UnavailableWitness,
                     &node.node_id,
                 ));
             }
@@ -592,6 +610,69 @@ mod tests {
     /// Trace: FR-354-AC-3.
     #[trace("FR-354-AC-3")]
     #[test]
+    fn callable_rejects_nonexpression_body_and_foreign_owned_references() {
+        let mut package = fixture(false);
+        let malformed = |target| CheckedTerm::Aggregate {
+            members: vec![CheckedTerm::Binding {
+                name: "body".into(),
+                value: Box::new(CheckedTerm::Reference { target }),
+            }],
+        };
+        package.terms[3] = malformed(node_id('1'));
+        assert_eq!(
+            package
+                .source_callable(&node_id('4'), 100)
+                .expect_err("scalar is not an expression body")
+                .code,
+            CheckedCallableReadErrorCode::MalformedBody,
+        );
+
+        package.terms[3] = malformed(node_id('3'));
+        let foreign_owner = CheckedNodeOwner::Source {
+            authority: "test".into(),
+            identity: "other".into(),
+        };
+        package.wire.semantic_graph.nodes[2].owner = Some(foreign_owner.clone());
+        assert_eq!(
+            package
+                .source_callable(&node_id('4'), 100)
+                .expect_err("body belongs to another source")
+                .code,
+            CheckedCallableReadErrorCode::MalformedBody,
+        );
+
+        package.wire.semantic_graph.nodes[2].owner = None;
+        package.wire.semantic_graph.nodes[1].owner = Some(foreign_owner);
+        package.terms[3] = CheckedTerm::Aggregate {
+            members: vec![
+                CheckedTerm::Binding {
+                    name: "parameters".into(),
+                    value: Box::new(CheckedTerm::Aggregate {
+                        members: vec![CheckedTerm::Reference {
+                            target: node_id('2'),
+                        }],
+                    }),
+                },
+                CheckedTerm::Binding {
+                    name: "body".into(),
+                    value: Box::new(CheckedTerm::Reference {
+                        target: node_id('3'),
+                    }),
+                },
+            ],
+        };
+        assert_eq!(
+            package
+                .source_callable(&node_id('4'), 100)
+                .expect_err("parameter belongs to another source")
+                .code,
+            CheckedCallableReadErrorCode::MalformedBody,
+        );
+    }
+
+    /// Trace: FR-354-AC-3.
+    #[trace("FR-354-AC-3")]
+    #[test]
     fn source_owned_anchor_refuses_without_a_selected_operation_witness() {
         let package = fixture(true);
         let selected = SelectedOperationMembers::from_stage_rows(&package, [], 0).unwrap();
@@ -603,10 +684,7 @@ mod tests {
         let error = package
             .callable_table(&selected, 100)
             .expect_err("source anchor");
-        assert_eq!(
-            error.code,
-            CheckedCallableReadErrorCode::UnsupportedSelectedOperation
-        );
+        assert_eq!(error.code, CheckedCallableReadErrorCode::UnavailableWitness);
         assert_eq!(error.locus, node_id('6'));
         assert_eq!(
             package
