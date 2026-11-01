@@ -30,3 +30,11 @@ Plan completion: not assessed.
 ## Scope and bindings
 
 Examined QSpec FR-322-AC-294 and its TCB-01..13 vector data; FR-322 temporal clock binding prose was context. Examined the changed conformance test, its fixture construction and assertions, and the reader's key/coverage checks. No hand-written matrix was used. No unspecified production surface was found beyond the writer and work-bound findings recorded in the companion code review.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | TCB-11 now checks each returned declaration against the exact constructed clause ID, both published formula references and clock names, structural row order, and the second clause body locus when its row is removed. |
+
+Confined recheck: PR head `adfba19d`; `temporal_clock_` focused tests passed 2/2 against QSpec `6a021ef8`. The original finding text remains unchanged.

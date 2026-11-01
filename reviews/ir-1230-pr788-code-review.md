@@ -36,3 +36,13 @@ The focused by-reference TCB test passed on this frozen head with `QUIRE_SPECIFI
 ## Scope and bindings
 
 Examined QSpec FR-322-AC-294: clock-configured temporal declarations require exact typed rows, structural declaration keys, selected-profile joins, exact refusals and borrowed read access. QSpec FR-322 temporal clock bindings prose and FR-370 clause arguments were context. Examined every changed file listed in `scope`, the public writer call sites, and the existing work meter. The changed conformance test traces `FR-322-AC-294`, `TC-134`, and `TC-233`; the repository's computed Quire matrix cannot mint the external QSpec criterion, so that binding was checked manually.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | `CheckedPackageSidecarsRef` supplies borrowed temporal rows to the public encoder; the new focused round-trip test admits the re-encoded package. |
+| FND-002 | fixed | Each temporal row and each inspected profile selection now charges `WorkMeter` before the comparison. |
+| FND-003 | fixed | The new Rust module now begins with the repository's SPDX and copyright header. |
+
+Confined recheck: PR head `adfba19d`; `temporal_clock_` focused tests passed 2/2 against QSpec `6a021ef8`. The existing `## Findings` rows remain unchanged.
