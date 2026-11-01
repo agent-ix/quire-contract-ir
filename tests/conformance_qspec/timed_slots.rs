@@ -100,7 +100,14 @@ fn check_earlier_stages(wire: &Value, id: &str, fixtures: &Path) {
 }
 
 #[test]
-#[trace("TC-048")]
+#[trace(
+    "TC-048",
+    "FR-038-AC-335",
+    "FR-038-AC-337",
+    "FR-038-AC-338",
+    "FR-038-AC-339",
+    "FR-038-AC-340"
+)]
 fn every_published_slot_and_presence_case_uses_the_strict_reader() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
@@ -167,7 +174,7 @@ fn every_published_slot_and_presence_case_uses_the_strict_reader() {
 }
 
 #[test]
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-336", "FR-038-AC-340")]
 fn every_published_guard_case_uses_the_strict_reader() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
