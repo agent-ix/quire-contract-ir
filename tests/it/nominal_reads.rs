@@ -198,8 +198,8 @@ fn equality_source_unit_row_joins_before_missing_dimension_key() {
         .admitted_equality(
             &app_row.application,
             &occurrence,
-            &[app_row],
-            &[unit_row],
+            std::slice::from_ref(&app_row),
+            std::slice::from_ref(&unit_row),
             10_000,
         )
         .expect_err("dimension key is unavailable");
