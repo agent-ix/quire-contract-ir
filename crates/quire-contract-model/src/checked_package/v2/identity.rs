@@ -247,6 +247,14 @@ pub(super) enum NominalBodyKind {
 }
 
 impl NominalBody {
+    /// Borrow the admitted direct terms of a dimension declaration.
+    pub(crate) fn dimension_details(&self) -> Option<&[DimensionTerm]> {
+        match &self.kind {
+            NominalBodyKind::Dimension { terms } => Some(terms),
+            _ => None,
+        }
+    }
+
     /// Borrow an enum's ordered flag and members in their admitted order.
     /// Other nominal body forms have no enum view.
     pub fn enum_details(&self) -> Option<(bool, &[Box<str>])> {

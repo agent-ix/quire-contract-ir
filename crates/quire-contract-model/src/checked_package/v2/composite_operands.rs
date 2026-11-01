@@ -1573,7 +1573,7 @@ mod tests {
             Location::new(original, Origin::new(Role::from("expression"), 0)),
         );
         let missing = package
-            .admitted_equality(&application, &occurrence, &[row], &[], 1000)
+            .admitted_equality(&application, &occurrence, &[row], &[], &[], 1000)
             .expect_err("Text identity row remains required");
         assert_eq!(
             missing.code,
@@ -1590,6 +1590,799 @@ mod tests {
             )
             .expect("Text node")
         );
+    }
+
+    /// Trace: FR-353-AC-1, FR-353-AC-7.
+    /// Provenance: IR-1209 QSL per-fact Text type rows.
+    #[test]
+    fn bounded_text_equality_reads_joined_type_rows() {
+        use quire_exact::{Location, NodeKey, Origin, PathSegment, Role, ValueType};
+        use quire_semantic_value::declaration::EqualitySchedule;
+
+        let wire = bounded_text_equality_wire();
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("bounded Text package must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("text-equality".into())],
+            0,
+        )
+        .expect("producer key");
+        let application_row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).expect("source row"),
+            original.clone(),
+            Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
+        );
+        let type_id: CheckedNodeId = serde_json::from_value(
+            wire["checked_term_data"]["equality_decisions"][0]["left"]["source_type"].clone(),
+        )
+        .expect("Text type id");
+        let type_key = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("bounded-text".into())],
+            0,
+        )
+        .expect("producer type key");
+        let mut facts = Vec::new();
+        for position in 0..2 {
+            for fact in [
+                super::super::EqualityFactWitness::OperandType {
+                    position,
+                    role: super::super::EqualityOperandTypeRole::Source,
+                },
+                super::super::EqualityFactWitness::TextPlanType {
+                    position,
+                    role: super::super::EqualityOperandTypeRole::Source,
+                },
+            ] {
+                facts.push(super::super::SelectedEqualityFactRow {
+                    application: original.clone(),
+                    checked_application: application.clone(),
+                    occurrence: occurrence.clone(),
+                    source_map_entry: application_row.source_map_entry.clone(),
+                    structural_key: type_key.clone(),
+                    structural_node: type_id.clone(),
+                    owner: package.node(&type_id).expect("type node").owner.clone(),
+                    value_type: Some(ValueType::Text(
+                        quire_exact::TextType::new(0, 8, quire_exact::TextProfile::Nfc)
+                            .expect("Text bounds"),
+                    )),
+                    fact,
+                });
+            }
+        }
+        let admitted = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &facts,
+                &[],
+                1000,
+            )
+            .expect("joined bounded Text decision");
+        assert_eq!(admitted.schedule(), EqualitySchedule::Text);
+        assert!(matches!(admitted.left().source(), ValueType::Text(_)));
+        assert_eq!(admitted.left().source(), admitted.right().source());
+
+        facts.push(facts[0].clone());
+        let duplicate = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                &[application_row],
+                &facts,
+                &[],
+                1000,
+            )
+            .expect_err("competing fact rows refuse");
+        assert_eq!(
+            duplicate.code,
+            super::super::AdmittedEqualityReadErrorCode::DuplicateEqualityWitness
+        );
+        assert_eq!(*duplicate.at, type_id);
+    }
+
+    /// Trace: FR-353-AC-1, FR-353-AC-7.
+    /// Provenance: IR-1209 checker-held Plan type and exact declaration key.
+    #[test]
+    fn declaration_plan_equality_reads_typed_rows() {
+        use quire_exact::{Location, NodeKey, Origin, PathSegment, Role, ValueType};
+        use quire_semantic_value::declaration::EqualitySchedule;
+
+        let mut wire = boolean_equality_wire();
+        let ids = &fixture().1;
+        wire["semantic_graph"]["nodes"][5]["body"]["operation"]["identity"] =
+            json!("quire.op.structural.eq");
+        wire["semantic_graph"]["nodes"][5]["body"]["arguments"] = json!([
+            {"term":"reference","target":ids[&'5']},
+            {"term":"reference","target":ids[&'8']}
+        ]);
+        let mut dependencies = vec![ids[&'5'].clone(), ids[&'8'].clone()];
+        dependencies.sort();
+        wire["semantic_graph"]["nodes"][5]["dependencies"] = json!(dependencies);
+        for side in ["left", "right"] {
+            wire["checked_term_data"]["equality_decisions"][0][side]["source_type"] =
+                json!(ids[&'4']);
+        }
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("declaration Plan package must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("plan-equality".into())],
+            0,
+        )
+        .expect("application key");
+        let declaration = NodeKey::new("composite", vec![PathSegment::Text("record".into())], 0)
+            .expect("declaration key");
+        let application_row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).expect("source row"),
+            original.clone(),
+            Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
+        );
+        let mut facts = Vec::new();
+        for position in 0..2 {
+            for fact in [
+                super::super::EqualityFactWitness::OperandType {
+                    position,
+                    role: super::super::EqualityOperandTypeRole::Source,
+                },
+                super::super::EqualityFactWitness::TextPlanType {
+                    position,
+                    role: super::super::EqualityOperandTypeRole::Source,
+                },
+            ] {
+                facts.push(super::super::SelectedEqualityFactRow {
+                    application: original.clone(),
+                    checked_application: application.clone(),
+                    occurrence: occurrence.clone(),
+                    source_map_entry: application_row.source_map_entry.clone(),
+                    structural_key: declaration.clone(),
+                    structural_node: ids[&'4'].clone(),
+                    owner: package
+                        .node(&ids[&'4'])
+                        .expect("declaration node")
+                        .owner
+                        .clone(),
+                    value_type: Some(ValueType::Composite(declaration.clone())),
+                    fact,
+                });
+            }
+        }
+        let admitted = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                &[application_row],
+                &facts,
+                &[],
+                1000,
+            )
+            .expect("typed declaration Plan decision");
+        assert_eq!(admitted.schedule(), EqualitySchedule::Plan);
+        assert_eq!(admitted.left().source(), &ValueType::Composite(declaration));
+    }
+
+    /// Trace: FR-353-AC-1, FR-353-AC-3.
+    /// Provenance: IR-1209 compound quantity UnitId per-fact rows.
+    #[test]
+    fn compound_quantity_equality_reads_unit_rows() {
+        use quire_exact::{Location, NodeKey, Origin, PathSegment, Role, UnitId, ValueType};
+        use quire_semantic_value::declaration::EqualitySchedule;
+
+        let mut wire = boolean_equality_wire();
+        let ids = &fixture().1;
+        wire["semantic_graph"]["nodes"][5]["body"]["operation"]["identity"] =
+            json!("quire.op.quantity.eq");
+        wire["semantic_graph"]["nodes"][5]["body"]["arguments"] = json!([
+            {"term":"reference","target":ids[&'a']},
+            {"term":"reference","target":ids[&'a']}
+        ]);
+        wire["semantic_graph"]["nodes"][5]["dependencies"] = json!([ids[&'a']]);
+        wire["checked_term_data"]["equality_decisions"][0]["schedule"] = json!("quantity");
+        for side in ["left", "right"] {
+            wire["checked_term_data"]["equality_decisions"][0][side]["source_type"] =
+                json!(ids[&'a']);
+        }
+        wire["checked_term_data"]["equality_decisions"][0]["units"] = json!([{
+            "quantity_type":ids[&'a'], "unit":ids[&'a'],
+            "form":{"kind":"compound","dimension_terms":[],"terms":[]}
+        }]);
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("compound quantity package must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("quantity-equality".into())],
+            0,
+        )
+        .expect("application key");
+        let unit_key = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("dimensionless-unit".into())],
+            0,
+        )
+        .expect("unit key");
+        let application_row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).expect("source row"),
+            original.clone(),
+            Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
+        );
+        let unit_id = UnitId::compound(Vec::new());
+        let mut facts = Vec::new();
+        for position in 0..2 {
+            for (fact, value_type) in [
+                (
+                    super::super::EqualityFactWitness::OperandType {
+                        position,
+                        role: super::super::EqualityOperandTypeRole::Source,
+                    },
+                    Some(ValueType::Quantity(unit_id.clone())),
+                ),
+                (
+                    super::super::EqualityFactWitness::Unit {
+                        unit_id: unit_id.clone(),
+                        quantity_type: ids[&'a'].clone(),
+                        operand_position: position,
+                        role: super::super::EqualityOperandTypeRole::Source,
+                    },
+                    None,
+                ),
+            ] {
+                facts.push(super::super::SelectedEqualityFactRow {
+                    application: original.clone(),
+                    checked_application: application.clone(),
+                    occurrence: occurrence.clone(),
+                    source_map_entry: application_row.source_map_entry.clone(),
+                    structural_key: unit_key.clone(),
+                    structural_node: ids[&'a'].clone(),
+                    owner: package.node(&ids[&'a']).expect("unit node").owner.clone(),
+                    value_type,
+                    fact,
+                });
+            }
+        }
+        let admitted = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                &[application_row],
+                &facts,
+                &[],
+                1000,
+            )
+            .expect("joined compound quantity decision");
+        assert_eq!(admitted.schedule(), EqualitySchedule::Quantity);
+        assert_eq!(admitted.left().source(), &ValueType::Quantity(unit_id));
+        assert_eq!(admitted.units().len(), 1);
+    }
+
+    /// Trace: FR-353-AC-1, FR-353-AC-3, FR-353-AC-7.
+    /// Provenance: IR-1209 declared unit and dimension identity rows.
+    #[test]
+    fn declared_quantity_equality_reads_dimension_rows() {
+        use quire_exact::{Location, NodeKey, Origin, PathSegment, Role, UnitId, ValueType};
+        use quire_semantic_value::declaration::EqualitySchedule;
+
+        let mut wire = boolean_equality_wire();
+        let ids = &fixture().1;
+        let root_node = ids[&'a'].clone();
+        let unit_node: CheckedNodeId = serde_json::from_value(json!({
+            "package":"composite","path":["fixture","source"],"ordinal":0
+        }))
+        .expect("source unit id");
+        let dimension_node: CheckedNodeId = serde_json::from_value(json!({
+            "package":"composite","path":["fixture","dimension"],"ordinal":0
+        }))
+        .expect("dimension id");
+        let base_node: CheckedNodeId = serde_json::from_value(json!({
+            "package":"composite","path":["fixture","base"],"ordinal":0
+        }))
+        .expect("base dimension id");
+        let source = wire["lock"]["sources"][0].clone();
+        wire["semantic_graph"]["nodes"].as_array_mut().expect("nodes").insert(8, json!({
+            "node_id":dimension_node,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"scalar_type","semantic_form":"dimension","semantic_type":dimension_node,
+            "dependencies":[],"occurrences":[{"role":"declaration","ordinal":0}],
+            "owner":{"kind":"source","authority":"test","identity":"composite"},
+            "declaration":{"qualified_name":["fixture","dimension"]},
+            "body":{"term":"dimension","terms":[]}
+        }));
+        wire["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .insert(
+                8,
+                json!({
+                    "node_id":dimension_node,"role":"declaration","ordinal":0,
+                    "regions":[{"source":source,"start":8,"end":9}]
+                }),
+            );
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .insert(
+                8,
+                json!({
+                    "node_id":base_node,"schema_version":"quire.checked-semantic-graph/v2",
+                    "node_tag":"scalar_type","semantic_form":"dimension","semantic_type":base_node,
+                    "dependencies":[],"occurrences":[{"role":"declaration","ordinal":0}],
+                    "owner":{"kind":"source","authority":"test","identity":"composite"},
+                    "declaration":{"qualified_name":["fixture","base"]},
+                    "body":{"term":"dimension","terms":[]}
+                }),
+            );
+        wire["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .insert(
+                8,
+                json!({
+                    "node_id":base_node,"role":"declaration","ordinal":0,
+                    "regions":[{"source":source,"start":10,"end":11}]
+                }),
+            );
+        wire["semantic_graph"]["nodes"][9]["dependencies"] = json!([base_node]);
+        wire["semantic_graph"]["nodes"][9]["body"] = json!({
+            "term":"dimension","terms":[{"dimension_node_id":base_node,"exponent":"1"}]
+        });
+        wire["semantic_graph"]["nodes"][10]["semantic_form"] = json!("unit");
+        wire["semantic_graph"]["nodes"][10]["semantic_type"] = json!(dimension_node);
+        wire["semantic_graph"]["nodes"][10]["dependencies"] = json!([dimension_node]);
+        wire["semantic_graph"]["nodes"][10]["occurrences"][0]["role"] = json!("declaration");
+        wire["semantic_graph"]["nodes"][10]["owner"] = json!({
+            "kind":"source","authority":"test","identity":"composite"
+        });
+        wire["semantic_graph"]["nodes"][10]["declaration"] = json!({
+            "qualified_name":["fixture","a"]
+        });
+        wire["semantic_graph"]["nodes"][10]["body"] = json!({
+            "term":"unit","dimension_node_id":dimension_node,
+            "target_unit_node_id":null,
+            "scale":{"numerator":"1","denominator":"1"},
+            "offset":{"numerator":"0","denominator":"1"}
+        });
+        wire["source_map"][10]["role"] = json!("declaration");
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id":unit_node,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"scalar_type","semantic_form":"unit","semantic_type":dimension_node,
+                "dependencies":[dimension_node,root_node],
+                "occurrences":[{"role":"declaration","ordinal":0}],
+                "owner":{"kind":"source","authority":"test","identity":"composite"},
+                "declaration":{"qualified_name":["fixture","source"]},
+                "body":{"term":"unit","dimension_node_id":dimension_node,
+                    "target_unit_node_id":root_node,
+                    "scale":{"numerator":"2","denominator":"1"},
+                    "offset":{"numerator":"1","denominator":"1"}}
+            }));
+        let mut source_dependencies = vec![dimension_node.clone(), root_node.clone()];
+        source_dependencies.sort();
+        wire["semantic_graph"]["nodes"][11]["dependencies"] = json!(source_dependencies);
+        wire["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(json!({
+                "node_id":unit_node,"role":"declaration","ordinal":0,
+                "regions":[{"source":source,"start":11,"end":12}]
+            }));
+        wire["semantic_graph"]["nodes"][5]["body"]["operation"]["identity"] =
+            json!("quire.op.quantity.eq");
+        wire["semantic_graph"]["nodes"][5]["body"]["arguments"] = json!([
+            {"term":"reference","target":unit_node},
+            {"term":"reference","target":unit_node}
+        ]);
+        wire["semantic_graph"]["nodes"][5]["dependencies"] = json!([unit_node]);
+        wire["checked_term_data"]["equality_decisions"][0]["schedule"] = json!("quantity");
+        for side in ["left", "right"] {
+            wire["checked_term_data"]["equality_decisions"][0][side]["source_type"] =
+                json!(unit_node);
+        }
+        wire["checked_term_data"]["equality_decisions"][0]["units"] = json!([{
+            "quantity_type":unit_node,"unit":unit_node,
+            "form":{"kind":"declared","dimension_node":dimension_node,
+                "dimension_terms":[{"dimension":base_node,"exponent":"1"}],
+                "root_unit":root_node,
+                "path":[{"target":root_node,
+                    "scale":{"numerator":"2","denominator":"1"},
+                    "offset":{"numerator":"1","denominator":"1"}}]}
+        }]);
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("declared quantity package must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("declared-quantity-equality".into())],
+            0,
+        )
+        .expect("app key");
+        let unit_key =
+            NodeKey::new("composite", vec![PathSegment::Text("unit".into())], 0).expect("unit key");
+        let root_key = NodeKey::new("composite", vec![PathSegment::Text("root".into())], 0)
+            .expect("root unit key");
+        let dimension_key =
+            NodeKey::new("composite", vec![PathSegment::Text("dimension".into())], 0)
+                .expect("dimension key");
+        let base_key = NodeKey::new("composite", vec![PathSegment::Text("base".into())], 0)
+            .expect("base dimension key");
+        let unit_id = UnitId::declared(unit_key.clone());
+        let application_row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).expect("source row"),
+            original.clone(),
+            Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
+        );
+        let mut facts = Vec::new();
+        for position in 0..2 {
+            for (fact, key, node, value_type) in [
+                (
+                    super::super::EqualityFactWitness::OperandType {
+                        position,
+                        role: super::super::EqualityOperandTypeRole::Source,
+                    },
+                    unit_key.clone(),
+                    unit_node.clone(),
+                    Some(ValueType::Quantity(unit_id.clone())),
+                ),
+                (
+                    super::super::EqualityFactWitness::Unit {
+                        unit_id: unit_id.clone(),
+                        quantity_type: unit_node.clone(),
+                        operand_position: position,
+                        role: super::super::EqualityOperandTypeRole::Source,
+                    },
+                    unit_key.clone(),
+                    unit_node.clone(),
+                    None,
+                ),
+                (
+                    super::super::EqualityFactWitness::DimensionDeclaration {
+                        unit_id: unit_id.clone(),
+                        operand_position: position,
+                        role: super::super::EqualityDimensionRole::UnitDimension,
+                        ordinal: 0,
+                    },
+                    dimension_key.clone(),
+                    dimension_node.clone(),
+                    None,
+                ),
+                (
+                    super::super::EqualityFactWitness::DimensionDeclaration {
+                        unit_id: unit_id.clone(),
+                        operand_position: position,
+                        role: super::super::EqualityDimensionRole::ConversionDimension,
+                        ordinal: 1,
+                    },
+                    dimension_key.clone(),
+                    dimension_node.clone(),
+                    None,
+                ),
+                (
+                    super::super::EqualityFactWitness::DimensionDeclaration {
+                        unit_id: unit_id.clone(),
+                        operand_position: position,
+                        role: super::super::EqualityDimensionRole::BaseDimension,
+                        ordinal: 1,
+                    },
+                    base_key.clone(),
+                    base_node.clone(),
+                    None,
+                ),
+                (
+                    super::super::EqualityFactWitness::DimensionTerm {
+                        unit_id: unit_id.clone(),
+                        operand_position: position,
+                        ordinal: 0,
+                        base: base_key.clone(),
+                        base_node: base_node.clone(),
+                        exponent: "1".into(),
+                    },
+                    dimension_key.clone(),
+                    dimension_node.clone(),
+                    None,
+                ),
+                (
+                    super::super::EqualityFactWitness::ConversionEdge {
+                        unit_id: unit_id.clone(),
+                        operand_position: position,
+                        ordinal: 0,
+                        target: root_key.clone(),
+                        target_node: root_node.clone(),
+                        scale: super::super::CheckedRational {
+                            numerator: "2".into(),
+                            denominator: "1".into(),
+                        },
+                        offset: super::super::CheckedRational {
+                            numerator: "1".into(),
+                            denominator: "1".into(),
+                        },
+                    },
+                    unit_key.clone(),
+                    unit_node.clone(),
+                    None,
+                ),
+            ] {
+                facts.push(super::super::SelectedEqualityFactRow {
+                    application: original.clone(),
+                    checked_application: application.clone(),
+                    occurrence: occurrence.clone(),
+                    source_map_entry: application_row.source_map_entry.clone(),
+                    structural_key: key,
+                    structural_node: node.clone(),
+                    owner: package.node(&node).expect("fact node").owner.clone(),
+                    value_type,
+                    fact,
+                });
+            }
+        }
+        let source_row = super::super::SelectedSourceUnitRow::new(
+            unit_node.clone(),
+            "test",
+            "composite",
+            vec!["fixture".into(), "source".into()],
+            unit_id.clone(),
+        );
+        let admitted = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &facts,
+                std::slice::from_ref(&source_row),
+                1000,
+            )
+            .expect("joined declared quantity decision");
+        assert_eq!(admitted.schedule(), EqualitySchedule::Quantity);
+        assert_eq!(admitted.units()[0].id, unit_id);
+        facts.retain(|row| {
+            !matches!(
+                row.fact,
+                super::super::EqualityFactWitness::DimensionDeclaration { .. }
+            )
+        });
+        let missing = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                &[application_row],
+                &facts,
+                &[source_row],
+                1000,
+            )
+            .expect_err("missing dimension witness refuses");
+        assert_eq!(
+            missing.code,
+            super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityWitness
+        );
+        assert_eq!(
+            missing.witness,
+            Some(super::super::EqualityWitnessKind::DimensionDeclaration)
+        );
+        assert_eq!(*missing.at, dimension_node);
+    }
+
+    /// Trace: FR-353-AC-1, FR-353-AC-3, FR-353-AC-7.
+    /// Provenance: IR-1209 QSL enum per-member structural rows.
+    #[test]
+    fn enum_equality_reads_member_rows() {
+        use quire_exact::{
+            EnumShape, Location, NodeKey, Origin, PathSegment, Role, ValueType, VariantId,
+        };
+        use quire_semantic_value::declaration::EqualitySchedule;
+
+        let mut wire = boolean_equality_wire();
+        let ids = &fixture().1;
+        let enum_id = ids[&'a'].clone();
+        let member_id: CheckedNodeId = serde_json::from_value(json!({
+            "package":"composite","path":["fixture","enum_member"],"ordinal":0
+        }))
+        .expect("enum member id");
+        wire["semantic_graph"]["nodes"][8]["semantic_form"] = json!("enum");
+        wire["semantic_graph"]["nodes"][8]["body"] = json!({
+            "term":"enum","ordered":false,"members":["Ready"]
+        });
+        wire["semantic_graph"]["nodes"][8]["owner"] = json!({
+            "kind":"source","authority":"test","identity":"composite"
+        });
+        wire["semantic_graph"]["nodes"][8]["declaration"] = json!({
+            "qualified_name":["fixture","a"]
+        });
+        wire["semantic_graph"]["nodes"][8]["occurrences"][0]["role"] = json!("declaration");
+        wire["source_map"][8]["role"] = json!("declaration");
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id":member_id,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"value","semantic_form":"enum_value","semantic_type":enum_id,
+                "dependencies":[enum_id],"occurrences":[{"role":"expression","ordinal":0}],
+                "body":{"term":"literal","type":enum_id,"value_kind":"enum","value":"Ready"}
+            }));
+        let source = wire["lock"]["sources"][0].clone();
+        wire["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(json!({
+                "node_id":member_id,"role":"expression","ordinal":0,
+                "regions":[{"source":source,"start":10,"end":11}]
+            }));
+        wire["semantic_graph"]["nodes"][5]["body"]["operation"]["identity"] =
+            json!("quire.op.enum.eq");
+        wire["semantic_graph"]["nodes"][5]["body"]["arguments"] = json!([
+            {"term":"reference","target":member_id},
+            {"term":"reference","target":member_id}
+        ]);
+        wire["semantic_graph"]["nodes"][5]["dependencies"] = json!([member_id]);
+        wire["checked_term_data"]["equality_decisions"][0]["schedule"] = json!("enum");
+        for side in ["left", "right"] {
+            wire["checked_term_data"]["equality_decisions"][0][side]["source_type"] =
+                json!(enum_id);
+        }
+        wire["checked_term_data"]["equality_decisions"][0]["enum_members"] = json!([{
+            "enum_type":enum_id,"member":member_id,"case":"Ready","ordinal":0,"ordered":false
+        }]);
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).expect("wire bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("enum equality package must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("enum-equality".into())],
+            0,
+        )
+        .expect("application key");
+        let enum_key = NodeKey::new("composite", vec![PathSegment::Text("Choice".into())], 0)
+            .expect("enum key");
+        let member_key = NodeKey::new(
+            "composite",
+            vec![
+                PathSegment::Text("Choice".into()),
+                PathSegment::Text("Ready".into()),
+            ],
+            0,
+        )
+        .expect("member key");
+        let shape = ValueType::Enum(EnumShape::new(
+            false,
+            [VariantId::new(enum_key.clone(), "Ready").expect("variant")],
+        ));
+        let application_row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).expect("source row"),
+            original.clone(),
+            Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
+        );
+        let mut facts = Vec::new();
+        for position in 0..2 {
+            facts.push(super::super::SelectedEqualityFactRow {
+                application: original.clone(),
+                checked_application: application.clone(),
+                occurrence: occurrence.clone(),
+                source_map_entry: application_row.source_map_entry.clone(),
+                structural_key: enum_key.clone(),
+                structural_node: enum_id.clone(),
+                owner: package.node(&enum_id).expect("enum node").owner.clone(),
+                value_type: Some(shape.clone()),
+                fact: super::super::EqualityFactWitness::OperandType {
+                    position,
+                    role: super::super::EqualityOperandTypeRole::Source,
+                },
+            });
+        }
+        facts.push(super::super::SelectedEqualityFactRow {
+            application: original.clone(),
+            checked_application: application.clone(),
+            occurrence: occurrence.clone(),
+            source_map_entry: application_row.source_map_entry.clone(),
+            structural_key: member_key.clone(),
+            structural_node: member_id.clone(),
+            owner: package.node(&member_id).expect("member node").owner.clone(),
+            value_type: Some(shape.clone()),
+            fact: super::super::EqualityFactWitness::EnumMember {
+                source_declaration: enum_key.clone(),
+                source_declaration_node: enum_id.clone(),
+                declaration: enum_key.clone(),
+                declaration_node: enum_id,
+                member: member_key,
+                member_node: member_id.clone(),
+                case: "Ready".into(),
+                ordinal: 0,
+                ordered: false,
+            },
+        });
+        let admitted = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &facts,
+                &[],
+                1000,
+            )
+            .expect("joined enum decision");
+        assert_eq!(admitted.schedule(), EqualitySchedule::Enum);
+        assert_eq!(admitted.left().source(), &shape);
+        assert_eq!(admitted.enum_members().len(), 1);
+        let super::super::EqualityFactWitness::EnumMember { case, .. } = &mut facts[2].fact else {
+            panic!("enum member fact");
+        };
+        *case = "Changed".into();
+        let mismatch = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                &[application_row],
+                &facts,
+                &[],
+                1000,
+            )
+            .expect_err("changed member case refuses at member node");
+        assert_eq!(
+            mismatch.code,
+            super::super::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness
+        );
+        assert_eq!(*mismatch.at, member_id);
     }
 
     /// Trace: FR-353-AC-2.
@@ -1661,7 +2454,7 @@ mod tests {
             Location::new(original, Origin::new(Role::from("expression"), 0)),
         );
         let missing = package
-            .admitted_equality(&application, &occurrence, &[row], &[], 1000)
+            .admitted_equality(&application, &occurrence, &[row], &[], &[], 1000)
             .expect_err("Decimal bounds need a Plan witness");
         assert_eq!(
             missing.code,
@@ -1744,6 +2537,7 @@ mod tests {
                 &occurrence,
                 std::slice::from_ref(&row),
                 &[],
+                &[],
                 100,
             )
             .expect("joined Plan decision");
@@ -1765,6 +2559,7 @@ mod tests {
                     &occurrence,
                     std::slice::from_ref(&row),
                     &[],
+                    &[],
                     limit,
                 )
                 .is_ok()
@@ -1780,6 +2575,7 @@ mod tests {
                 &occurrence,
                 std::slice::from_ref(&row),
                 &[],
+                &[],
                 minimum
             ),
             Ok(admitted.clone())
@@ -1789,6 +2585,7 @@ mod tests {
                 &application,
                 &occurrence,
                 std::slice::from_ref(&row),
+                &[],
                 &[],
                 minimum - 1,
             )
@@ -1801,7 +2598,7 @@ mod tests {
         assert_eq!(short.at.as_ref(), &id('1'));
         assert_eq!(
             package
-                .admitted_equality(&application, &occurrence, &[], &[], 100)
+                .admitted_equality(&application, &occurrence, &[], &[], &[], 100)
                 .unwrap_err()
                 .code,
             super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityWitness
@@ -1811,6 +2608,7 @@ mod tests {
                 &application,
                 &occurrence,
                 &[row.clone(), row.clone()],
+                &[],
                 &[],
                 100,
             )
@@ -1826,7 +2624,14 @@ mod tests {
             Origin::new(Role::from("expression"), 0),
         );
         let mismatch = package
-            .admitted_equality(&application, &occurrence, &[changed_location], &[], 100)
+            .admitted_equality(
+                &application,
+                &occurrence,
+                &[changed_location],
+                &[],
+                &[],
+                100,
+            )
             .expect_err("conflicting original location refuses");
         assert_eq!(
             mismatch.code,
@@ -1835,7 +2640,7 @@ mod tests {
         let mut foreign = row;
         foreign.application.package = "foreign".into();
         let foreign = package
-            .admitted_equality(&application, &occurrence, &[foreign], &[], 100)
+            .admitted_equality(&application, &occurrence, &[foreign], &[], &[], 100)
             .expect_err("foreign stage row refuses");
         assert_eq!(
             foreign.code,
@@ -1847,14 +2652,14 @@ mod tests {
         };
         assert_eq!(
             package
-                .admitted_equality(&application, &wrong_occurrence, &[], &[], 100)
+                .admitted_equality(&application, &wrong_occurrence, &[], &[], &[], 100)
                 .expect_err("wrong occurrence refuses")
                 .code,
             super::super::AdmittedEqualityReadErrorCode::WrongOccurrence
         );
         assert_eq!(
             self::package()
-                .admitted_equality(&application, &occurrence, &[], &[], 100)
+                .admitted_equality(&application, &occurrence, &[], &[], &[], 100)
                 .expect_err("application without producer decision refuses")
                 .code,
             super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityDecision

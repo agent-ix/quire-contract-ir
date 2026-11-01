@@ -216,8 +216,9 @@ pub use checked_package::{
 
 pub use checked_package::CheckedFieldReadForm;
 pub use checked_package::{
-    AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, EqualityWitnessKind,
-    SelectedEqualityApplicationRow,
+    AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, EqualityDimensionRole,
+    EqualityFactWitness, EqualityOperandTypeRole, EqualityWitnessKind,
+    SelectedEqualityApplicationRow, SelectedEqualityFactRow,
 };
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 
