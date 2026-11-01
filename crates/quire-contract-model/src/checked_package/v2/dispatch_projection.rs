@@ -160,19 +160,18 @@ pub(super) fn validate_checked_term_data(
             let body_kind = index
                 .get(&candidate.operation_body)
                 .and_then(|position| kinds.get(*position));
-            if candidate.operation_body.package.as_ref() != wire.name.as_ref()
-                || !matches!(body_kind, Some(CheckedNodeKind::Function(_)))
-            {
+            // Model declarations can belong to a dependency package, so the
+            // exact ID's package need not be the package being emitted. The
+            // graph index and function kind prove that this handle is a
+            // retained function node.
+            if !matches!(body_kind, Some(CheckedNodeKind::Function(_))) {
                 return Err(invalid(at.clone().key("operation_body")));
             }
             if let Some(precondition) = candidate.effective_precondition.as_ref() {
                 let precondition_kind = index
                     .get(precondition)
                     .and_then(|position| kinds.get(*position));
-                if precondition.package.as_ref() != wire.name.as_ref()
-                    || precondition_kind
-                        != Some(&CheckedNodeKind::Function(FunctionForm::Predicate))
-                {
+                if precondition_kind != Some(&CheckedNodeKind::Function(FunctionForm::Predicate)) {
                     return Err(invalid(at.clone().key("effective_precondition")));
                 }
             }
