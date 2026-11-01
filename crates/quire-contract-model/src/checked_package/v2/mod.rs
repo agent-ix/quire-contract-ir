@@ -3895,27 +3895,79 @@ mod tests {
             .expect("small-stack Debug completes");
     }
 
-    #[trace("TC-451", "FR-051-AC-1", "FR-051-AC-4")]
+    #[trace("TC-451", "FR-051-AC-1", "FR-051-AC-4", "FR-051-AC-5")]
     #[test]
     fn tc_451_borrowed_encoder_equals_private_owned_wire_bytes() {
-        let wire = tc_451_private_owned_wire();
-        let bytes = super::encode_checked_package_v2(
-            &wire.name,
-            &wire.lock,
-            &wire.semantic_graph,
-            super::CheckedPackageSourceCorrespondenceRef {
-                source_map: &wire.source_map,
-                refinement_step_rows: wire.refinement_step_rows.as_deref(),
-            },
-            wire.checked_term_data.as_ref(),
-            &wire.capability_report,
-            &wire.diagnostics,
-            quire_canonical::Limits::new(u64::MAX),
-        )
-        .expect("canonical envelope");
-        let owned_bytes = serde_json::to_vec(&serde_json::to_value(&wire).expect("wire value"))
-            .expect("private wire bytes");
-        assert_eq!(bytes, owned_bytes);
+        let node = super::test_support::id('b');
+        let occurrence = json!({"role": "expression", "ordinal": 0});
+        let mut populated = json!({
+            "equality_decisions": [{
+                "application": node, "occurrence": occurrence, "term_path": [],
+                "operator": "equal", "schedule": "text",
+                "left": {"operand": 0, "source_type": node, "conversion_target": null},
+                "right": {"operand": 1, "source_type": node, "conversion_target": null},
+                "units": [], "enum_members": []
+            }],
+            "protocol_locations": [{
+                "application": node, "occurrence": occurrence, "term_ordinal": 0,
+                "location": {"origin": {"kind": "type_declaration", "name": "Record"}, "path": [1]}
+            }],
+            "dispatch_tables": [{
+                "application": node, "occurrence": occurrence,
+                "operation": {"declaring": node, "operation": "run"},
+                "context": node,
+                "candidates": [
+                    {
+                        "selection_key": {"owner_effective_type": null,
+                            "original": {"package": "test", "node": "Zeta"}},
+                        "operation_body": node, "effective_precondition": null
+                    },
+                    {
+                        "selection_key": {"owner_effective_type": null,
+                            "original": {"package": "test", "node": "Alpha"}},
+                        "operation_body": node, "effective_precondition": node
+                    }
+                ]
+            }]
+        });
+        let mut next_equality = populated["equality_decisions"][0].clone();
+        next_equality["occurrence"]["ordinal"] = json!(1);
+        populated["equality_decisions"]
+            .as_array_mut()
+            .expect("equality array")
+            .insert(0, next_equality);
+        let mut next_location = populated["protocol_locations"][0].clone();
+        next_location["term_ordinal"] = json!(1);
+        populated["protocol_locations"]
+            .as_array_mut()
+            .expect("location array")
+            .insert(0, next_location);
+
+        let empty = json!({
+            "equality_decisions": [], "protocol_locations": [], "dispatch_tables": []
+        });
+        let mut wire = tc_451_private_owned_wire();
+        for sidecar in [None, Some(empty), Some(populated)] {
+            wire.checked_term_data =
+                sidecar.map(|value| serde_json::from_value(value).expect("closed sidecar"));
+            let bytes = super::encode_checked_package_v2(
+                &wire.name,
+                &wire.lock,
+                &wire.semantic_graph,
+                super::CheckedPackageSourceCorrespondenceRef {
+                    source_map: &wire.source_map,
+                    refinement_step_rows: wire.refinement_step_rows.as_deref(),
+                },
+                wire.checked_term_data.as_ref(),
+                &wire.capability_report,
+                &wire.diagnostics,
+                quire_canonical::Limits::new(u64::MAX),
+            )
+            .expect("canonical envelope");
+            let owned_bytes = serde_json::to_vec(&serde_json::to_value(&wire).expect("wire value"))
+                .expect("private wire bytes");
+            assert_eq!(bytes, owned_bytes);
+        }
     }
 
     #[trace("TC-451", "FR-051-AC-4")]
