@@ -45,6 +45,7 @@ The workspace Cargo graph SHALL have these directions:
 ```text
 quire-verification-contracts -> quire-contract-model
 quire-contract-model -> quire-contract-ir
+quire-semantic-value -> quire-contract-model  (planned for FR-353 / IR-1223)
 ```
 
 Arrows point from dependency to consumer. No package may depend, directly or
@@ -52,6 +53,10 @@ transitively, on itself. The model package admits no optional feature that
 reintroduces an owner/bridge dependency. The bridge accepts owner values only
 through their constructor-private public APIs; the package split adds no
 callback, trait-object validator, wire mirror, trust flag or local owner parser.
+The planned QSV semantic-value edge is lower than the model package and does
+not add a QSL, observation, protocol or TL owner dependency. It is a planned
+edge until the FR-353 admitted-decision read and QSV IR-1223 code land; the
+implemented FR-028/TC-041 graph claim does not assert that edge already exists.
 
 ## Acceptance Criteria
 

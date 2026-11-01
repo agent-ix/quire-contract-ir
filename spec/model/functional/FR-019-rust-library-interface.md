@@ -195,6 +195,13 @@ FR-051 specifies `CheckedPackageSourceCorrespondenceRef` and
 crate. FR-322 and FR-354 specify the exported `CheckedTermDataV2` reader
 sidecar and bounded dispatch view. FR-051's optional typed writer input is
 exported alongside the reader sidecar.
+FR-353 specifies a planned associated admitted-equality read on
+`CheckedPackageV2` returning QSV's opaque `AdmittedEqualityDecision`. Its exact
+method signature depends on QSV IR-1223; neither the QSV type nor its hidden
+mint or `ReaderSeal` is re-exported from the model crate. The existing public
+`CheckedEqualityDecision` remains the raw wire carrier, not an admission
+proof. The planned read is excluded from the implemented public inventory
+until its code lands.
 FR-052 and FR-053 specify additional public
 model APIs; their owning requirements retain those API obligations, including
 the planned IR-1141 structural selection controls of FR-053.
@@ -238,6 +245,7 @@ operation has its own owning requirement, as listed below.
 | `checked_package` (V2 extension evidence) | types `CheckedExtensionClauseSchema`, `CheckedExtensionDefinition`, `CheckedExtensionGrammarSchema`, `CheckedExtensionNodeSchema`, `CheckedExtensionProduction`, `CheckedExtensionRefusalDetail`, `CheckedExtensionTypedNodeSchema` | FR-348 |
 | `checked_package` (V2 envelope encoder) | types `CheckedPackageSourceCorrespondenceRef`, `CheckedTermDataV2`; function `encode_checked_package_v2` with optional borrowed sidecar input | FR-051 |
 | `checked_package` (V2 checked-term sidecar reader) | types `CheckedCompoundEqualityUnitTerm`, `CheckedDispatchCandidate`, `CheckedDispatchCandidateTable`, `CheckedDispatchReadError`, `CheckedDispatchView`, `CheckedEffectiveId`, `CheckedEqualityDecision`, `CheckedEqualityEnumMember`, `CheckedEqualityOperandDecision`, `CheckedEqualityOperator`, `CheckedEqualitySchedule`, `CheckedEqualityTermPathStep`, `CheckedKeyOrdinal`, `CheckedOriginalDeclarationId`, `CheckedProtocolLocation`, `CheckedProtocolLocationOrigin`, `CheckedProtocolSemanticLocation`, `CheckedResolvedEqualityUnit`, `CheckedResolvedEqualityUnitForm`, `CheckedSelectedOperationWitness`, `CheckedTermDataV2`, `CheckedUnitConversionEdge`, `CheckedUnitDimensionTerm`; associated checked_term_data and dispatch_candidates reads | FR-322, FR-354 |
+| `checked_package` (V2 admitted equality read; planned) | associated admitted-equality read returning QSV `AdmittedEqualityDecision`; exact signature pending QSV IR-1223, with no IR re-export of the QSV type, mint or `ReaderSeal` | FR-353 |
 | `checked_package` (V2 scalar operands) | types `CheckedScalarOperand`, `CheckedScalarOperandChild`, `CheckedScalarOperandError`, `CheckedScalarOperandRange` | FR-038 |
 | `checked_package` (V2 parameter declaration) | types `CheckedParameterDeclaration`, `CheckedParameterDeclarationError` | FR-038 |
 | `checked_package` (V2 step relation claim) | types `CheckedStepExecution`, `CheckedStepRelationBody`, `CheckedStepRelationCapability`, `CheckedStepRelationObligationIdentity` | FR-351 |
