@@ -89,8 +89,8 @@ pub use exact_projection::{
     SelectedExactIdentities, SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView,
 };
 pub use operation_witness::{
-    SelectedOperationMemberError, SelectedOperationMemberErrorCode, SelectedOperationMemberRow,
-    SelectedOperationMembers,
+    SelectedOperationIdentity, SelectedOperationMemberError, SelectedOperationMemberErrorCode,
+    SelectedOperationMemberRow, SelectedOperationMembers,
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
 pub use protocol_body::{CheckedProtocolActivation, CheckedProtocolActivationRow};

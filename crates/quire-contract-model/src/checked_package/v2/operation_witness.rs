@@ -6,7 +6,30 @@
 use super::model_members::{member_name, DeclarationForm};
 use super::structural::typed_anchor_body;
 use super::{CheckedNodeId, CheckedNodeKind, CheckedPackageV2, ModelForm, StateForm};
+use quire_exact::EffectiveId;
 use std::collections::BTreeMap;
+
+/// The QSL checking stage's selected operation identity.
+///
+/// The declaring effective type and operation name together identify the
+/// checked operation; an unqualified display name does not.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedOperationIdentity {
+    /// Effective identity of the declaring model type.
+    pub declaring: EffectiveId,
+    /// Operation name in that effective declaration.
+    pub operation: Box<str>,
+}
+
+impl SelectedOperationIdentity {
+    /// Preserve the checking stage's existing declaring identity and name.
+    pub fn new(declaring: EffectiveId, operation: impl Into<Box<str>>) -> Self {
+        Self {
+            declaring,
+            operation: operation.into(),
+        }
+    }
+}
 
 /// One QSL-stage operation-member witness for an admitted model-owned anchor.
 ///
@@ -26,7 +49,7 @@ pub struct SelectedOperationMemberRow {
     /// Original IR identity of the model operation member.
     pub original_operation_identity: Box<str>,
     /// Operation identity issued by the QSL checking/model selection stage.
-    pub selected_operation_identity: Box<str>,
+    pub selected_operation_identity: SelectedOperationIdentity,
 }
 
 /// Stable reason an operation-member witness or read was refused.

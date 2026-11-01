@@ -26,9 +26,10 @@ use quire_contract_model::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedStepRelationCapability, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName,
-    ModelForm, SelectedOperationMemberErrorCode, SelectedOperationMemberRow,
-    SelectedOperationMembers, StateClauseKind,
+    ModelForm, SelectedOperationIdentity, SelectedOperationMemberErrorCode,
+    SelectedOperationMemberRow, SelectedOperationMembers, StateClauseKind,
 };
+use quire_exact::EffectiveId;
 use serde_json::{json, Value};
 use std::sync::LazyLock;
 
@@ -5231,7 +5232,10 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
         declaring_form: ModelForm::ObjectType,
         original_model_identity: ORDER_NODE.into(),
         original_operation_identity: format!("{ORDER_NODE}/scaled").into(),
-        selected_operation_identity: "stage/Order/scaled".into(),
+        selected_operation_identity: SelectedOperationIdentity::new(
+            EffectiveId::from_digest([7; 32]),
+            "scaled",
+        ),
     };
     let selected = SelectedOperationMembers::from_stage_rows(&admitted, [row.clone()], 16)
         .expect("matching selected operation row");
@@ -5322,7 +5326,10 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
         declaring_form: ModelForm::ObjectType,
         original_model_identity: ORDER_NODE.into(),
         original_operation_identity: format!("{ORDER_NODE}/scaled").into(),
-        selected_operation_identity: "stage/Order/scaled".into(),
+        selected_operation_identity: SelectedOperationIdentity::new(
+            EffectiveId::from_digest([7; 32]),
+            "scaled",
+        ),
     };
     assert_eq!(
         SelectedOperationMembers::from_stage_rows(&source_package, [source_row], 16)
