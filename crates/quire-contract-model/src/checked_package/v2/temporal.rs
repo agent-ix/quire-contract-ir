@@ -488,6 +488,7 @@ pub(in crate::checked_package) fn member_is_well_formed(
 
 /// The temporal step. See the module documentation for the order.
 pub(super) fn validate_temporal(
+    terms: &[Option<CheckedTerm>],
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
@@ -513,7 +514,7 @@ pub(super) fn validate_temporal(
         if graph.kinds.get(position)
             == Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
         {
-            check_clause(position, &graph, lock, meter, &mut covered)?;
+            check_clause(position, &graph, terms, lock, meter, &mut covered)?;
         }
     }
     // A formula node no clause reaches is no clause's to fit, but its
@@ -804,6 +805,7 @@ fn selected_under_another_role(
 fn check_clause(
     position: usize,
     graph: &StepGraph<'_, '_>,
+    terms: &[Option<CheckedTerm>],
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
     covered: &mut BTreeSet<usize>,
@@ -906,6 +908,20 @@ fn check_clause(
             continue;
         };
         let super::CheckedFairnessTarget::Operation { declaration, name } = &member.target else {
+            if !matches!(
+                member.target,
+                super::CheckedFairnessTarget::HybridTransition { .. }
+            ) {
+                super::protocol_body::validate_temporal_fairness(
+                    position,
+                    fair,
+                    &member.target,
+                    graph,
+                    terms,
+                    lock,
+                    meter,
+                )?;
+            }
             if !hybrid_claim
                 && matches!(
                     member.target,
@@ -1278,6 +1294,7 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect();
         validate_temporal(
+            &[],
             nodes,
             &kinds,
             &index,

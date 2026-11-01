@@ -2821,14 +2821,13 @@ fn record_member_owner(
 }
 
 #[string_edge]
-fn validate_protocol_membership(
-    terms: &[Option<CheckedTerm>],
+fn collect_protocol_membership(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     validated: &[Option<(&str, &[CheckedTerm])>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     meter: &mut WorkMeter,
-) -> Result<(), ValidationFailure> {
+) -> Result<(Vec<Option<usize>>, Vec<bool>), ValidationFailure> {
     let mut owners = vec![None; nodes.len()];
     let mut repeated = vec![false; nodes.len()];
     let mut pending = Vec::new();
@@ -2900,6 +2899,97 @@ fn validate_protocol_membership(
             }
         }
     }
+
+    Ok((owners, repeated))
+}
+
+/// Resolve a protocol fairness target at its temporal reader-order position.
+/// Full protocol admission still reports its own shape and membership defects.
+pub(super) fn validate_temporal_fairness(
+    requirement: usize,
+    fair: usize,
+    target: &CheckedFairnessTarget,
+    graph: &super::frame::StepGraph<'_, '_>,
+    terms: &[Option<CheckedTerm>],
+    lock: &CheckedPackageLockV2,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let selected_profile = lock
+        .profile_selections
+        .iter()
+        .find(|selection| selection.role == CheckedSelectionRole::ProtocolProfile)
+        .map(|selection| &selection.definition);
+    let mut validated = vec![None; graph.nodes.len()];
+    for &position in graph.index.values() {
+        let Some(CheckedNodeKind::Protocol(form)) = graph.kinds.get(position).copied() else {
+            continue;
+        };
+        meter.charge(1, || node_pointer(position))?;
+        let Some(term) = terms.get(position).and_then(Option::as_ref) else {
+            continue;
+        };
+        if let Ok((operator, arguments)) = validate_envelope(
+            form,
+            term,
+            &graph.nodes[position].semantic_type,
+            selected_profile,
+        ) {
+            if validate_layout(form, operator, arguments).is_ok() {
+                validated[position] = Some((operator, arguments));
+            }
+        }
+    }
+    let (owners, _) =
+        collect_protocol_membership(graph.nodes, graph.kinds, &validated, graph.index, meter)?;
+    let context = ProtocolFairnessContext {
+        terms,
+        nodes: graph.nodes,
+        kinds: graph.kinds,
+        validated: &validated,
+        index: graph.index,
+        owners: &owners,
+    };
+    let mut matched = false;
+    for &clause in graph.index.values() {
+        if graph.kinds[clause] != CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause) {
+            continue;
+        }
+        meter.charge(1, || node_pointer(clause))?;
+        let Some((_, arguments)) = validated[clause] else {
+            continue;
+        };
+        let Some(requirements) = binding_value(arguments, "requirements") else {
+            continue;
+        };
+        for key in listed_targets(requirements) {
+            meter.charge(1, || node_pointer(clause))?;
+            if key == &graph.nodes[requirement].node_id {
+                matched = true;
+                validate_protocol_fairness_target(&context, target, fair, clause, meter)?;
+            }
+        }
+    }
+    if !matched {
+        return Err(fairness_defect(
+            fair,
+            graph.nodes,
+            target_identity(target).1,
+            false,
+        ));
+    }
+    Ok(())
+}
+
+#[string_edge]
+fn validate_protocol_membership(
+    terms: &[Option<CheckedTerm>],
+    nodes: &[RawSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    validated: &[Option<(&str, &[CheckedTerm])>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let (owners, repeated) = collect_protocol_membership(nodes, kinds, validated, index, meter)?;
 
     validate_protocol_fairness(
         &ProtocolFairnessContext {
