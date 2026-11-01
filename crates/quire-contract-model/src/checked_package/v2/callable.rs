@@ -258,9 +258,16 @@ impl CheckedPackageV2 {
                     );
                 }
             }
-            let body = body.ok_or_else(|| {
-                budget.error(CheckedCallableReadErrorCode::MissingBody, &node.node_id)
-            })?;
+            let Some(body) = body else {
+                // A declaration without an executable body is not a callable
+                // definition. A selected operation body clause must have one.
+                if matches!(node.owner, Some(CheckedNodeOwner::Model { .. })) {
+                    return Err(
+                        budget.error(CheckedCallableReadErrorCode::MissingBody, &node.node_id)
+                    );
+                }
+                continue;
+            };
             rows.push(CheckedCallable {
                 identity: CheckedCallableIdentity::Function(node.node_id.clone()),
                 parameters,
@@ -484,13 +491,14 @@ mod tests {
     /// Trace: FR-354-AC-3.
     #[trace("FR-354-AC-3")]
     #[test]
-    fn missing_and_dangling_body_refuse_without_a_table() {
+    fn bodyless_declaration_is_not_a_callable_and_dangling_body_refuses() {
         let mut package = fixture(false);
         package.terms[3] = CheckedTerm::Aggregate { members: vec![] };
-        assert_eq!(
-            package.callable_table(100).expect_err("missing body").code,
-            CheckedCallableReadErrorCode::MissingBody,
-        );
+        assert!(package
+            .callable_table(100)
+            .expect("declaration only")
+            .rows()
+            .is_empty());
         package.terms[3] = CheckedTerm::Aggregate {
             members: vec![CheckedTerm::Binding {
                 name: "body".into(),

@@ -18,11 +18,11 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
-    CheckedComparisonRefusal, CheckedExecutionPointRefusal, CheckedFieldReadForm,
-    CheckedMemberType, CheckedNodeId, CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole,
-    CheckedOperationAnchorBody, CheckedOperationMember, CheckedPackageEvidence,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    encode_checked_package_v2, CheckedApplicationOperation, CheckedCallableIdentity,
+    CheckedComparisonPath, CheckedComparisonRefusal, CheckedExecutionPointRefusal,
+    CheckedFieldReadForm, CheckedMemberType, CheckedNodeId, CheckedNodeTag, CheckedOccurrence,
+    CheckedOccurrenceRole, CheckedOperationAnchorBody, CheckedOperationMember,
+    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedStepRelationCapability, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName,
@@ -5357,4 +5357,77 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
             .code,
         SelectedOperationMemberErrorCode::UnavailableWitness
     );
+}
+
+/// Trace: FR-354-AC-3, FR-354-AC-7.
+#[trace("FR-354-AC-3", "FR-354-AC-7")]
+#[test]
+fn model_operation_callable_joins_selected_body_and_frame() {
+    let mut fixture = ModelPackage::new();
+    let parameters = [fixture.parameter_key("self"), fixture.parameter_key("n")];
+    let expression = nodes(&fixture.value)
+        .iter()
+        .find(|node| node["node_tag"] == "expression")
+        .expect("fixture expression")
+        .clone();
+    let body_target = expression["node_id"].clone();
+    let operation = format!("{ORDER_NODE}/scaled");
+    let function_id = structural_id(
+        ORDERS,
+        vec![
+            json!("function"),
+            json!("pure_function"),
+            json!(operation),
+            json!("body"),
+        ],
+        0,
+    );
+    let mut dependencies = [
+        node_id(&parameters[0]),
+        node_id(&parameters[1]),
+        body_target.clone(),
+    ];
+    dependencies.sort_by(id_order);
+    let function = json!({
+        "node_id": function_id,
+        "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "function", "semantic_form": "pure_function",
+        "semantic_type": body_target,
+        "dependencies": dependencies,
+        "occurrences": [{"role": "expression", "ordinal": 0}],
+        "owner": {"kind": "model", "identity": ORDERS, "node": operation},
+        "body": {"term": "aggregate", "members": [
+            binding("clause", text("body")),
+            binding("parameters", json!({"term": "aggregate", "members": [
+                reference(&parameters[0]), reference(&parameters[1])
+            ]})),
+            binding("body", json!({"term": "reference", "target": body_target})),
+        ]},
+    });
+    fixture.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(function);
+    settle(&mut fixture.value);
+    let admitted = match read_model(&fixture.value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("body function fixture admission: {other:?}"),
+    };
+    let table = admitted.callable_table(100_000).expect("joined callables");
+    let anchor = nodes(&fixture.value)
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("anchor");
+    let anchor_id: CheckedNodeId =
+        serde_json::from_value(anchor["node_id"].clone()).expect("anchor id");
+    let operation_row = table.rows().iter().find(|row| {
+        matches!(&row.identity, CheckedCallableIdentity::Operation { anchor, .. } if anchor == &anchor_id)
+    }).expect("selected operation row");
+    assert_eq!(operation_row.parameters.len(), 2);
+    let frame = operation_row.frame.as_ref().expect("admitted frame handle");
+    assert!(matches!(
+        admitted.term(frame),
+        Some(CheckedTerm::Frame { .. })
+    ));
+    assert!(admitted.term(&operation_row.body).is_some());
 }
