@@ -49,6 +49,56 @@ fn check_outcome(result: CheckedPackageV2ReadResult, case: &Value) {
     }
 }
 
+fn check_earlier_stages(wire: &Value, id: &str, fixtures: &Path) {
+    let root = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model"
+        })
+        .unwrap();
+    let mut malformed = wire.clone();
+    malformed["semantic_graph"]["nodes"][root]["occurrences"] = json!("not-an-array");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_selected(&malformed, id, fixtures)
+    else {
+        panic!("{id}: wire defect must precede the semantic defect");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::MalformedWire, None),
+        "{id}"
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        format!("/semantic_graph/nodes/{root}/occurrences"),
+        "{id}"
+    );
+
+    let mut graph = wire.clone();
+    let root_node = &mut graph["semantic_graph"]["nodes"][root];
+    let first_place = root_node["body"]["members"][3]["value"]["members"][0]["target"].clone();
+    let dependencies = root_node["dependencies"].as_array_mut().unwrap();
+    let position = dependencies
+        .iter()
+        .position(|target| *target == first_place)
+        .unwrap();
+    dependencies.remove(position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_selected(&graph, id, fixtures) else {
+        panic!("{id}: graph defect must precede the semantic defect");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None),
+        "{id}"
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        format!("/semantic_graph/nodes/{root}/dependencies"),
+        "{id}"
+    );
+}
+
 #[test]
 #[trace("TC-048")]
 fn every_published_slot_and_presence_case_uses_the_strict_reader() {
@@ -81,6 +131,7 @@ fn every_published_slot_and_presence_case_uses_the_strict_reader() {
             wire["semantic_graph"]["nodes"][position] = case["node"].clone();
             fixture_support::reassign_node_id(&mut wire, &old, &fresh);
             check_outcome(read_selected(&wire, id, &fixtures), case);
+            check_earlier_stages(&wire, id, &fixtures);
         }
     }
     let presence = vectors["presence"]["cases"].as_array().unwrap();
@@ -103,6 +154,7 @@ fn every_published_slot_and_presence_case_uses_the_strict_reader() {
             wire["semantic_graph"]["nodes"][baseline_position] = case["node"].clone();
             fixture_support::reassign_node_id(&mut wire, &old, &fresh);
             check_outcome(read_selected(&wire, id, &fixtures), case);
+            check_earlier_stages(&wire, id, &fixtures);
         }
     }
     assert_eq!(
