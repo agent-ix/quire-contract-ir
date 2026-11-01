@@ -1463,6 +1463,7 @@ mod tests {
             super::super::AdmittedEqualityReadErrorCode::WorkLimit
         );
         assert_eq!(short.attempted_work, 1);
+        assert_eq!(short.at.as_ref(), &id('1'));
         assert_eq!(
             package
                 .admitted_equality(&application, &occurrence, &[], &[], 100)
