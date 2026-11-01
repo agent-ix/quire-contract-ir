@@ -59,6 +59,7 @@ mod checked_package_v2_refinement;
 mod checked_package_v2_require_bounds;
 mod checked_package_v2_structural_keys;
 mod checked_package_v2_temporal;
+mod checked_package_v2_term_data_writer;
 mod checked_package_v2_typed_terms;
 mod checked_package_v2_union;
 mod complete_v1_checked_package;
