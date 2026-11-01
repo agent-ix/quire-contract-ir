@@ -577,6 +577,7 @@ fn package(
                 | INTERFACE
                 | "relationship"
                 | "record_value_type"
+                | "tuple_value_type"
                 | "process"
                 | "state_machine"
                 | "persistence_interface"
@@ -921,6 +922,39 @@ fn selected_runtime_types_refuse_unprojected_object_redefinition() {
         ExactTypeProjectionErrorCode::UnsupportedExactType
     );
     assert_eq!(error.form.as_ref(), "object_field_redefinition");
+}
+
+/// A selected tuple needs its producer's tuple identity row.
+#[trace("FR-354-AC-1", "FR-354-AC-2")]
+#[test]
+fn selected_runtime_types_refuse_tuple_without_stage_identity() {
+    let tuple = orders("Pair");
+    let mut selected = document(vec![json!({
+        "identity": tuple,
+        "displayName": "Pair",
+        "kind": {"module": IDENTITY, "name": "tuple"},
+        "positions": [{
+            "identity": format!("{tuple}/p0"),
+            "typeRef": "ix://quire/native/Boolean"
+        }]
+    })]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct catalog")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "tuple"},
+            "construct": {"meaning": "quire.meaning.model.tuple-value-type/v1"}
+        }));
+    let admitted = admit(&selected, &[("Pair", "tuple_value_type")], &[]);
+    let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, [], [])
+        .expect("no supplied row can witness a tuple yet");
+    let error = admitted
+        .project_selected_runtime_types(&witnessed, 1000)
+        .expect_err("a tuple cannot produce a partial environment view");
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
 }
 
 #[trace("FR-352-AC-5", "FR-354-AC-1", "FR-354-AC-2")]
