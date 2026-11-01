@@ -880,6 +880,49 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     assert_eq!(exhausted.work, 1);
 }
 
+/// A flattened field set cannot stand in for an authored redefinition link.
+#[trace("FR-354-AC-1", "FR-354-AC-2")]
+#[test]
+fn selected_runtime_types_refuse_unprojected_object_redefinition() {
+    let selected = document(vec![
+        object(
+            "Base",
+            &[],
+            &[field("enabled", "ix://quire/native/Boolean")],
+        ),
+        object(
+            "Child",
+            &["Base"],
+            &[field("active", "ix://quire/native/Boolean")
+                .redefining(&format!("{}/enabled", orders("Base")))],
+        ),
+    ]);
+    let admitted = admit(&selected, &[("Base", OBJECT), ("Child", OBJECT)], &[]);
+    let rows = ["Base", "Child"].map(|short| {
+        SelectedExactDeclarationRow::new(
+            serde_json::from_value(node_id(&declaration_key(short, OBJECT)))
+                .expect("structural declaration"),
+            IDENTITY,
+            SelectedExactDeclarationForm::ObjectType,
+            orders(short),
+            SelectedExactIdentity::Object(EffectiveId::new(
+                None,
+                OriginalDeclarationKey::new(IDENTITY, orders(short)),
+            )),
+        )
+    });
+    let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, rows, [])
+        .expect("selected object rows join");
+    let error = admitted
+        .project_selected_runtime_types(&witnessed, 1000)
+        .expect_err("redefinition needs its own admitted join");
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    assert_eq!(error.form.as_ref(), "object_field_redefinition");
+}
+
 #[trace("FR-352-AC-5", "FR-354-AC-1", "FR-354-AC-2")]
 #[test]
 fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
