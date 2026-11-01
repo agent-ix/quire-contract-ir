@@ -448,7 +448,7 @@ pub(super) fn check_wire(
                 if members.len() < 2 {
                     return Err(malformed(body_at));
                 }
-                // A part is flat: its first member is a predicate binding, followed by bare references.
+                // A part starts with its predicate, may bind quantified slots, then names constraints.
                 let first_at = at.clone().key("members").index(0);
                 let predicate = match CheckedTerm::view(&members[0]) {
                     Some(CheckedTermView::Binding {
@@ -458,20 +458,59 @@ pub(super) fn check_wire(
                     _ => return Err(malformed(first_at)),
                 };
                 reference(predicate, &first_at.key("value"))?;
-                for (reference_index, member) in members.iter().enumerate().skip(1) {
+                let first_constraint = match members.get(1).and_then(CheckedTerm::view) {
+                    Some(CheckedTermView::Binding {
+                        name: "binders",
+                        value,
+                    }) => {
+                        let binders_at = at.clone().key("members").index(1).key("value");
+                        if aggregate(value, &binders_at)?.is_empty() {
+                            return Err(malformed(binders_at.key("members")));
+                        }
+                        references(value, &binders_at)?;
+                        2
+                    }
+                    _ => 1,
+                };
+                if members.len() <= first_constraint {
+                    return Err(malformed(body_at));
+                }
+                for (reference_index, member) in members.iter().enumerate().skip(first_constraint) {
                     reference(member, &at.clone().key("members").index(reference_index))?;
                 }
             }
         }
         TimedModelForm::Invariant => {
-            let b = bindings(&node.body, &["predicate", "bounds"], &body_at)?;
+            let members = aggregate(&node.body, &body_at)?;
+            let quantified = matches!(
+                members.get(1).and_then(CheckedTerm::view),
+                Some(CheckedTermView::Binding {
+                    name: "binders",
+                    ..
+                })
+            );
+            let b = if quantified {
+                bindings(&node.body, &["predicate", "binders", "bounds"], &body_at)?
+            } else {
+                bindings(&node.body, &["predicate", "bounds"], &body_at)?
+            };
             reference(b[0].0, &b[0].1)?;
-            let bounds = aggregate(b[1].0, &b[1].1)?;
+            if quantified {
+                if aggregate(b[1].0, &b[1].1)?.is_empty() {
+                    return Err(malformed(b[1].1.clone().key("members")));
+                }
+                references(b[1].0, &b[1].1)?;
+            }
+            let bounds_index = if quantified { 2 } else { 1 };
+            let bounds = aggregate(b[bounds_index].0, &b[bounds_index].1)?;
             if bounds.is_empty() {
                 return Err(malformed(body_at));
             }
             for (index, member) in bounds.iter().enumerate() {
-                reference(member, &b[1].1.clone().key("members").index(index))?;
+                reference(
+                    member,
+                    &b[bounds_index].1.clone().key("members").index(index),
+                )?;
             }
         }
         TimedModelForm::Urgency => {
@@ -1345,6 +1384,66 @@ fn binding_at(position: usize, index: usize) -> JsonPointer {
         .key("value")
 }
 
+#[ix_trace_rs::string_edge]
+fn is_quantified_binders(term: Option<&CheckedTerm>) -> bool {
+    matches!(term, Some(CheckedTerm::Binding { name, .. }) if name.as_ref() == "binders")
+}
+
+#[ix_trace_rs::string_edge]
+fn extend_place_slots<'a>(slots: &mut Vec<&'a CheckedNodeId>, constraint: &'a CheckedTerm) {
+    if bound(constraint, 0).and_then(spelling) == Some("place") {
+        slots.extend(
+            bound(constraint, 3)
+                .map(typed_members)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(typed_target),
+        );
+    }
+}
+
+fn check_quantified_binders(
+    graph: &Graph<'_>,
+    position: usize,
+    binders: Option<&CheckedTerm>,
+    at: JsonPointer,
+    slots: &[&CheckedNodeId],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let Some(binders) = binders else {
+        return Ok(());
+    };
+    let mut slot_positions = BTreeMap::new();
+    for (index, slot) in slots.iter().enumerate() {
+        meter.charge(1, || at.clone())?;
+        slot_positions.entry(*slot).or_insert(index);
+    }
+    let mut previous_slot = None;
+    for (index, binder) in typed_members(binders).iter().enumerate() {
+        let binder_at = at.clone().key("members").index(index).key("target");
+        meter.charge(1, || binder_at.clone())?;
+        let target = graph.target(position, Some(binder), binder_at.clone(), |kind| {
+            kind == CheckedNodeKind::Value(ValueForm::Parameter)
+        })?;
+        let Some(&slot_index) = slot_positions.get(&graph.nodes[target].node_id) else {
+            return Err(graph.issue(
+                position,
+                CheckedPackageRefusalCause::TimedNodeReference,
+                binder_at,
+            ));
+        };
+        if previous_slot.is_some_and(|previous| slot_index <= previous) {
+            return Err(graph.issue(
+                position,
+                CheckedPackageRefusalCause::TimedNodeReference,
+                binder_at,
+            ));
+        }
+        previous_slot = Some(slot_index);
+    }
+    Ok(())
+}
+
 type SourceOrderKey<'a> = (&'a str, u64, u64);
 
 #[derive(Clone, Debug)]
@@ -1622,7 +1721,12 @@ fn structural_order_key_inner(
         }
         CheckedNodeKind::TimedModel(TimedModelForm::Invariant) => {
             key.push(OrderPart::Start);
-            for bound_term in bound(body, 1).map(typed_members)? {
+            let bounds_index = if is_quantified_binders(typed_members(body).get(1)) {
+                2
+            } else {
+                1
+            };
+            for bound_term in bound(body, bounds_index).map(typed_members)? {
                 let bound_position = *graph.index.get(typed_target(bound_term)?)?;
                 key.extend(structural_order_key_inner(graph, bound_position, shape)?);
             }
@@ -1754,6 +1858,11 @@ fn check_timed_reference_order(
         };
         let bindings: &[usize] = match graph.kinds.get(position) {
             Some(CheckedNodeKind::TimedModel(TimedModelForm::Model)) => &[3, 4, 5, 6, 7, 8],
+            Some(CheckedNodeKind::TimedModel(TimedModelForm::Invariant))
+                if is_quantified_binders(typed_members(body).get(1)) =>
+            {
+                &[2]
+            }
             Some(CheckedNodeKind::TimedModel(TimedModelForm::Invariant)) => &[1],
             _ => &[],
         };
@@ -1777,8 +1886,13 @@ fn check_timed_reference_order(
             .enumerate()
         {
             let at = binding_at(position, 1).key("members").index(part_index);
-            if let Some(members) = typed_members(part).get(1..) {
-                check_reference_order(graph, members, &at, 1, &keys, meter)?;
+            let first_constraint = if is_quantified_binders(typed_members(part).get(1)) {
+                2
+            } else {
+                1
+            };
+            if let Some(members) = typed_members(part).get(first_constraint..) {
+                check_reference_order(graph, members, &at, first_constraint, &keys, meter)?;
             }
         }
     }
@@ -2230,8 +2344,16 @@ pub(super) fn validate_models<'a>(
                             .key("value")
                             .key("target"),
                     )?;
-                    for (constraint_index, constraint) in
-                        typed_members(part).iter().enumerate().skip(1)
+                    let first_constraint = if is_quantified_binders(typed_members(part).get(1)) {
+                        2
+                    } else {
+                        1
+                    };
+                    let mut slots = Vec::new();
+                    for (constraint_index, constraint) in typed_members(part)
+                        .iter()
+                        .enumerate()
+                        .skip(first_constraint)
                     {
                         let at = at
                             .clone()
@@ -2243,12 +2365,23 @@ pub(super) fn validate_models<'a>(
                                 kind == CheckedNodeKind::TimedModel(Form::Constraint)
                             })?;
                         let constraint_body = graph.body(target)?;
+                        extend_place_slots(&mut slots, constraint_body);
                         if bound(constraint_body, 0).and_then(spelling) == Some("parameter")
                             && bound(constraint_body, 1).and_then(typed_target)
                                 != Some(&nodes[anchor].node_id)
                         {
                             return Err(graph.issue(position, Cause::TimedNodeReference, at));
                         }
+                    }
+                    if first_constraint == 2 {
+                        check_quantified_binders(
+                            &graph,
+                            position,
+                            bound(part, 1),
+                            at.key("members").index(1).key("value"),
+                            &slots,
+                            meter,
+                        )?;
                     }
                 }
             }
@@ -2258,13 +2391,19 @@ pub(super) fn validate_models<'a>(
                     bound(body, 0),
                     binding_at(position, 0).key("target"),
                 )?;
-                for (bound_index, constraint) in bound(body, 1)
+                let bounds_index = if is_quantified_binders(typed_members(body).get(1)) {
+                    2
+                } else {
+                    1
+                };
+                let mut slots = Vec::new();
+                for (bound_index, constraint) in bound(body, bounds_index)
                     .map(typed_members)
                     .unwrap_or_default()
                     .iter()
                     .enumerate()
                 {
-                    let at = binding_at(position, 1)
+                    let at = binding_at(position, bounds_index)
                         .key("members")
                         .index(bound_index)
                         .key("target");
@@ -2272,6 +2411,7 @@ pub(super) fn validate_models<'a>(
                         kind == CheckedNodeKind::TimedModel(Form::Constraint)
                     })?;
                     let constraint_body = graph.body(target)?;
+                    extend_place_slots(&mut slots, constraint_body);
                     if bound(constraint_body, 0).and_then(spelling) != Some("place")
                         || !matches!(
                             bound(constraint_body, 4).and_then(spelling),
@@ -2280,6 +2420,16 @@ pub(super) fn validate_models<'a>(
                     {
                         return Err(graph.issue(position, Cause::TimedNodeReference, at));
                     }
+                }
+                if bounds_index == 2 {
+                    check_quantified_binders(
+                        &graph,
+                        position,
+                        bound(body, 1),
+                        binding_at(position, 1),
+                        &slots,
+                        meter,
+                    )?;
                 }
             }
             Form::Urgency => {
@@ -2323,7 +2473,16 @@ pub(super) fn validate_models<'a>(
                 .iter()
                 .enumerate()
             {
-                for (constraint_index, member) in typed_members(part).iter().enumerate().skip(1) {
+                let first_constraint = if is_quantified_binders(typed_members(part).get(1)) {
+                    2
+                } else {
+                    1
+                };
+                for (constraint_index, member) in typed_members(part)
+                    .iter()
+                    .enumerate()
+                    .skip(first_constraint)
+                {
                     if let Some(target) = typed_target(member) {
                         if !listed_constraints.contains(target) {
                             return Err(graph.issue(
@@ -2347,7 +2506,12 @@ pub(super) fn validate_models<'a>(
                 continue;
             };
             let invariant_body = graph.body(invariant)?;
-            for (bound_index, member) in bound(invariant_body, 1)
+            let bounds_index = if is_quantified_binders(typed_members(invariant_body).get(1)) {
+                2
+            } else {
+                1
+            };
+            for (bound_index, member) in bound(invariant_body, bounds_index)
                 .map(typed_members)
                 .unwrap_or_default()
                 .iter()
@@ -2358,7 +2522,7 @@ pub(super) fn validate_models<'a>(
                         return Err(graph.issue(
                             invariant,
                             Cause::TimedNodeReference,
-                            binding_at(invariant, 1)
+                            binding_at(invariant, bounds_index)
                                 .key("members")
                                 .index(bound_index)
                                 .key("target"),
