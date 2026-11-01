@@ -1517,7 +1517,7 @@ mod tests {
             super::super::AdmittedEqualityReadErrorCode::WrongOccurrence
         );
         assert_eq!(
-            package()
+            self::package()
                 .admitted_equality(&application, &occurrence, &[], &[], 100)
                 .expect_err("application without producer decision refuses")
                 .code,
