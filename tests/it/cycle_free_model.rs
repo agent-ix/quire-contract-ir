@@ -509,11 +509,92 @@ fn admission_callback(signature: &syn::Signature) -> bool {
     surface.has_callback
 }
 
+fn checked_node_id(ty: &syn::Type) -> bool {
+    matches!(ty, syn::Type::Path(path) if path.qself.is_none() && path.path.is_ident("CheckedNodeId"))
+}
+
+fn optional_checked_node_id(ty: &syn::Type) -> bool {
+    let syn::Type::Path(path) = ty else {
+        return false;
+    };
+    if path.qself.is_some() || path.path.segments.len() != 1 {
+        return false;
+    }
+    let segment = &path.path.segments[0];
+    matches!(&segment.arguments, syn::PathArguments::AngleBracketed(arguments)
+        if segment.ident == "Option" && arguments.args.len() == 1
+            && matches!(&arguments.args[0], syn::GenericArgument::Type(ty) if checked_node_id(ty)))
+}
+
+fn node_id_map_callback(signature: &syn::Signature) -> bool {
+    // FR-048 permits only this typed draft visitor, not an admission callback.
+    if signature.ident != "map_node_ids"
+        || signature.inputs.len() != 2
+        || !signature.generics.params.is_empty()
+        || signature.constness.is_some()
+        || signature.asyncness.is_some()
+        || signature.unsafety.is_some()
+        || signature.abi.is_some()
+        || signature.variadic.is_some()
+        || !matches!(signature.output, syn::ReturnType::Default)
+    {
+        return false;
+    }
+    let mut inputs = signature.inputs.iter();
+    if !matches!(inputs.next(), Some(syn::FnArg::Receiver(receiver)) if receiver.reference.is_some() && receiver.mutability.is_some())
+    {
+        return false;
+    }
+    let Some(syn::FnArg::Typed(map)) = inputs.next() else {
+        return false;
+    };
+    let syn::Type::ImplTrait(implementation) = map.ty.as_ref() else {
+        return false;
+    };
+    let mut bounds = implementation.bounds.iter();
+    let Some(syn::TypeParamBound::Trait(bound)) = bounds.next() else {
+        return false;
+    };
+    if bounds.next().is_some() || bound.path.segments.len() != 1 {
+        return false;
+    }
+    let segment = &bound.path.segments[0];
+    let syn::PathArguments::Parenthesized(args) = &segment.arguments else {
+        return false;
+    };
+    if segment.ident != "FnMut" || args.inputs.len() != 1 {
+        return false;
+    }
+    if !matches!(&args.inputs[0], syn::Type::Reference(reference) if checked_node_id(&reference.elem))
+    {
+        return false;
+    }
+    matches!(&args.output, syn::ReturnType::Type(_, output) if optional_checked_node_id(output))
+}
+
 #[derive(Default)]
 struct Boundary {
     violations: BTreeSet<String>,
+    impl_owner: Option<String>,
 }
 impl<'ast> Visit<'ast> for Boundary {
+    fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
+        let previous = self.impl_owner.take();
+        self.impl_owner = match item.self_ty.as_ref() {
+            syn::Type::Path(path)
+                if item.trait_.is_none()
+                    && item.generics.params.is_empty()
+                    && path.qself.is_none()
+                    && path.path.segments.len() == 1 =>
+            {
+                Some(path.path.segments[0].ident.to_string())
+            }
+            _ => None,
+        };
+        visit::visit_item_impl(self, item);
+        self.impl_owner = previous;
+    }
+
     fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
         if matches!(item.vis, syn::Visibility::Public(_)) {
             let mut surface = AdmissionSignature::default();
@@ -533,7 +614,14 @@ impl<'ast> Visit<'ast> for Boundary {
         visit::visit_item_fn(self, item);
     }
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        if matches!(item.vis, syn::Visibility::Public(_)) && admission_callback(&item.sig) {
+        let is_typed_map = matches!(
+            self.impl_owner.as_deref(),
+            Some("CheckedSemanticNodeV2" | "CheckedTerm")
+        ) && node_id_map_callback(&item.sig);
+        if matches!(item.vis, syn::Visibility::Public(_))
+            && !is_typed_map
+            && admission_callback(&item.sig)
+        {
             self.violations
                 .insert(format!("public callback {}", item.sig.ident));
         }
@@ -676,6 +764,21 @@ fn boundary_control_rejects_copied_owner_types_parsers_callbacks_and_trust_flags
         "pub type Gate = fn(&[u8]) -> bool; pub fn admit(gate: Gate) {}",
     ] {
         assert!(!boundary(source).is_empty(), "callback control {source}");
+    }
+    for owner in ["CheckedSemanticNodeV2", "CheckedTerm"] {
+        let source = format!(
+            "impl {owner} {{ pub fn map_node_ids(&mut self, map: impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>) {{}} }}"
+        );
+        assert!(boundary(&source).is_empty(), "typed draft visitor {owner}");
+    }
+    for source in [
+        "pub fn map_node_ids(map: impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>) {}",
+        "impl Other { pub fn map_node_ids(&mut self, map: impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>) {} }",
+        "impl CheckedTerm { pub fn map_node_ids(&mut self, map: impl FnMut(&str) -> Option<CheckedNodeId>) {} }",
+        "impl CheckedSemanticNodeV2 { pub fn map_node_ids(&mut self, map: impl FnMut(&CheckedNodeId) -> bool) {} }",
+        "impl CheckedTerm { pub fn admit_with(&mut self, map: impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>) {} }",
+    ] {
+        assert!(!boundary(source).is_empty(), "admission control {source}");
     }
     assert!(boundary("pub struct ProtocolForm; pub fn parse(_: &str) {} #[cfg(test)] mod tests { struct ParsedUnit; }").is_empty());
 }
