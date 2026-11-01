@@ -406,7 +406,8 @@ fn graph_control_detects_indirect_owners_build_edges_and_cycles_but_excludes_dev
         .contains("cycle"));
 }
 
-#[trace("TC-041", "FR-028-AC-1")]
+/// Provenance: AD-005 D-2.
+#[trace("TC-041")]
 #[test]
 fn model_graph_refuses_downstream_crate_names() {
     for name in FORBIDDEN_DOWNSTREAM_CRATES {
