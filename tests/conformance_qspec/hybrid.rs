@@ -1393,3 +1393,45 @@ fn qspec_hybrid_fairness_rejects_a_wrong_declaring_model() {
     assert_eq!(refusal.cause, Some(Cause::MissingName));
     assert_locus(&refusal, fair, "/body/operation/member/target/name");
 }
+
+#[trace("TC-048", "FR-038-AC-98", "FR-038-AC-316")]
+#[test]
+fn hybrid_join_preserves_extra_target_member_refusal_order() {
+    for wrong_declaration in [false, true] {
+        let mut package = restored_package();
+        let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
+        let fair = nodes
+            .iter()
+            .position(|n| n["node_tag"] == "temporal" && n["semantic_form"] == "fairness")
+            .unwrap();
+        let wrong = nodes
+            .iter()
+            .find(|n| {
+                n["node_tag"] == "hybrid"
+                    && n["semantic_form"] == "hybrid_model"
+                    && n["declaration"]["qualified_name"] == json!(["Braking"])
+            })
+            .unwrap()["node_id"]
+            .clone();
+        let target =
+            &mut package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["target"];
+        target["unexpected"] = json!(true);
+        if wrong_declaration {
+            target["declaration"] = wrong;
+        }
+        fixture_support::settle(&mut package);
+        sort_dependencies(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&package).unwrap() else {
+            panic!("extra target member must refuse")
+        };
+        if wrong_declaration {
+            assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
+            assert_eq!(refusal.cause, Some(Cause::MissingName));
+            assert_locus(&refusal, fair, "/body/operation/member/target/name");
+        } else {
+            assert_eq!(refusal.code, Code::InvalidPackage, "{refusal:?}");
+            assert_eq!(refusal.cause, Some(Cause::OperationMemberMismatch));
+            assert_locus(&refusal, fair, "/body/operation/member");
+        }
+    }
+}

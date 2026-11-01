@@ -70,11 +70,9 @@ fn validate_rows(
     for (index, row) in rows.iter().enumerate() {
         meter.charge(1, || at(index))?;
         intake_local_application(&row.application, name, index)?;
-        if row.term_ordinal > MAX_SAFE {
-            return Err(malformed(at(index).key("term_ordinal")));
-        }
+        let term_ordinal = intake_term_ordinal(row.term_ordinal, index)?;
         if let Some(before) = previous {
-            let key = (&row.application, &row.occurrence, row.term_ordinal);
+            let key = (&row.application, &row.occurrence, term_ordinal);
             let prior = (&before.application, &before.occurrence, before.term_ordinal);
             if key == prior {
                 return Err(ValidationFailure::refused_because(
@@ -123,6 +121,15 @@ fn validate_rows(
         intake_location_value(row, index, meter)?;
     }
     Ok(())
+}
+
+/// Convert an incoming numeric term coordinate to its safe wire range.
+#[ix_trace_rs::string_edge]
+fn intake_term_ordinal(wire: u64, index: usize) -> Result<u64, ValidationFailure> {
+    if wire > MAX_SAFE {
+        return Err(malformed(at(index).key("term_ordinal")));
+    }
+    Ok(wire)
 }
 
 /// Bind the incoming sidecar NodeRef's namespace before any graph join.
