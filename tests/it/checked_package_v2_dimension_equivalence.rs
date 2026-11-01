@@ -191,6 +191,44 @@ fn package_operand_requires_direct_selection_and_declared_node() {
     );
 }
 
+#[trace("TC-280", "FR-038-AC-389")]
+#[test]
+fn foreign_operand_wrong_kind_and_self_minted_local_refuse_at_operand() {
+    let (wire, name, dependency) = mixed_package();
+    let mut wrong_kind = wire.clone();
+    wrong_kind["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"][0]["node"] =
+        serde_json::to_value(&dependency.graph().nodes[0].node_id).expect("non-dimension id");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_dependencies(&wrong_kind, &[(name.as_str(), &dependency)])
+    else {
+        panic!("selected non-dimension operand must refuse");
+    };
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph, "{refusal:?}");
+    assert_eq!(refusal.cause, None, "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path,
+        Some(pointer("/semantic_graph/nodes/3/body/dimension_node_ids/0")),
+        "{refusal:?}"
+    );
+
+    let mut self_minted = wire;
+    let foreign =
+        self_minted["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"][0]["node"].clone();
+    self_minted["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"][0] = foreign;
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_dependencies(&self_minted, &[(name.as_str(), &dependency)])
+    else {
+        panic!("foreign node written as a local ref must refuse");
+    };
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph, "{refusal:?}");
+    assert_eq!(refusal.cause, None, "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path,
+        Some(pointer("/semantic_graph/nodes/3/body/dimension_node_ids/0")),
+        "{refusal:?}"
+    );
+}
+
 /// A typed equivalence retains its exact structural id, pair, reduced scale,
 /// two dependencies, source owner and anchor occurrence through the reader.
 #[trace("TC-048", "FR-063-AC-1", "FR-063-AC-6")]
