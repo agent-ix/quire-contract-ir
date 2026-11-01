@@ -18,7 +18,7 @@ Independent ears-conformance pass on the captured protocol Location reader and i
 
 ## Verdict
 
-PASS: No EARS findings; this does not override the blocked overall code/spec verdict.
+PASS for this scoped method; all review findings are fixed. The final PR #768 head CI gate remains outstanding before merge.
 
 ## Findings
 
@@ -68,3 +68,13 @@ The same-review final receipts are now available. The final source delta only co
 - Final cargo fmt --all -- --check passed with exit 0. The empty formatting log is expected; the parent supplied its successful process receipt.
 
 Code-review FND-003 and FND-004 are now execution-verified fixed, in addition to their inspected source fixes. Code-review FND-002 remains fixed because the owner refusal oracle is asserted honestly. The scoped sorted-key evidence finding remains fixed. The remaining owner-contract finding is still open: the positive PL-01-root row equals the entire sole negative PL-R2 row and there is no retained required-term census or explicit owner ruling resolving that contradiction. Replacement PR #768 remains draft and unmerged. No final all-checks-green statement, AC narrowing or merge approval is given. This reviewer ran no Cargo or Kani command and made no source edit.
+
+## Merged owner correction and final same-review disposition
+
+STD-622 has now landed through QSpec PR #562. The published source/spec/vector files were compared byte-for-byte with the reviewed proposal and match. PL-01-root is unchanged. PL-R2 now retains the existing ordinal-one child row and therefore witnesses an absent ordinal-zero predecessor, rather than duplicating the valid one-term root capture. The merged FR-322 prose and AC-291 require consecutive zero-based ordinals per application/occurrence, preserve all existing row shape/join/duplicate/order refusal precedence before the array-level gap check, and explicitly forbid inferring an absent tail. The unknown-origin precision amendment preserves its rejected payload and malformed-wire code and specifies the supplied kind member as its locus. No required-term census or source reconstruction is invented.
+
+The frozen IR source implements that observable owner rule in one typed pass: the existing key checks run first, expected ordinal is zero for a new application/occurrence or the previous ordinal plus one within its group, and a witnessed-gap flag is refused at the array pointer only after all row validation. The admitted safe-ordinal bound makes the increment safe. A lone zero is admitted; a lone one or [0,2] refuses; a new occurrence starts at zero. No missing successor is inferred. The shared canonical sidecar types are unchanged.
+
+The inspected final selected run passes 16/16 tests with no ignored case. Its dynamic vector test executes all six PL IDs and asserts each owner-recorded disposition, cause when specified, and exact pointer; it prints every outcome. PL-01 admits, the grouped PL-02 child preserves its complete path, PL-03 admits, PL-S1 refuses at origin/kind, PL-R1 retains its conflicting-definition row1 refusal, and PL-R2 now refuses invalid_package/invalid-value at the array pointer. The interior-gap, occurrence-reset, reversed-key, exact work-bound and large-child-index controls pass, as do the four hybrid controls including both extra-field refusal-order branches. Workspace all-target Clippy with denied warnings, formatting and the direct authoritative scanner pass. No Cargo or Kani command was run by this reviewer.
+
+The original owner-contract finding is fixed by the merged correction and its verified IR enforcement. All original review findings, including the sorted-key evidence, false-green oracle and scanner-fix findings, are now fixed. This is the same review and unchanged method/id set. The previous whole-IT baseline failure counts remain historical evidence, not a current full-suite claim. Overall review is CONDITIONAL only on the final PR #768 head completing its required CI checks green; Rust Checks are still in progress at this audit. The parent must wait for that final-head result before merge. No unconditional merge approval, weakened oracle or new independent review is given.

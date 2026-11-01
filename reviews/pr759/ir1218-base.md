@@ -18,7 +18,7 @@ Independent base pass on the captured protocol Location reader and its owner-bac
 
 ## Verdict
 
-FAIL: Do not merge while the findings remain open; shared-base validation also remains pending.
+CONDITIONAL: all review findings are fixed after the merged STD-622 correction and verified typed continuity enforcement. Final PR #768 head CI must finish green before merge.
 
 ## Findings
 
@@ -100,3 +100,19 @@ Round 5 of the same independent review (final execution receipts).
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | still-open | Final selected conformance retains the exact PL-R2 refusal assertion and actually fails because read returns Admitted. The sole negative row equals positive PL-01-root, with no required-term census or explicit owner clarification. Final lint/format and source fixes do not resolve this owner-contract contradiction; draft replacement PR768 remains unmerged. |
+
+## Merged owner correction and final same-review disposition
+
+STD-622 has now landed through QSpec PR #562. The published source/spec/vector files were compared byte-for-byte with the reviewed proposal and match. PL-01-root is unchanged. PL-R2 now retains the existing ordinal-one child row and therefore witnesses an absent ordinal-zero predecessor, rather than duplicating the valid one-term root capture. The merged FR-322 prose and AC-291 require consecutive zero-based ordinals per application/occurrence, preserve all existing row shape/join/duplicate/order refusal precedence before the array-level gap check, and explicitly forbid inferring an absent tail. The unknown-origin precision amendment preserves its rejected payload and malformed-wire code and specifies the supplied kind member as its locus. No required-term census or source reconstruction is invented.
+
+The frozen IR source implements that observable owner rule in one typed pass: the existing key checks run first, expected ordinal is zero for a new application/occurrence or the previous ordinal plus one within its group, and a witnessed-gap flag is refused at the array pointer only after all row validation. The admitted safe-ordinal bound makes the increment safe. A lone zero is admitted; a lone one or [0,2] refuses; a new occurrence starts at zero. No missing successor is inferred. The shared canonical sidecar types are unchanged.
+
+The inspected final selected run passes 16/16 tests with no ignored case. Its dynamic vector test executes all six PL IDs and asserts each owner-recorded disposition, cause when specified, and exact pointer; it prints every outcome. PL-01 admits, the grouped PL-02 child preserves its complete path, PL-03 admits, PL-S1 refuses at origin/kind, PL-R1 retains its conflicting-definition row1 refusal, and PL-R2 now refuses invalid_package/invalid-value at the array pointer. The interior-gap, occurrence-reset, reversed-key, exact work-bound and large-child-index controls pass, as do the four hybrid controls including both extra-field refusal-order branches. Workspace all-target Clippy with denied warnings, formatting and the direct authoritative scanner pass. No Cargo or Kani command was run by this reviewer.
+
+The original owner-contract finding is fixed by the merged correction and its verified IR enforcement. All original review findings, including the sorted-key evidence, false-green oracle and scanner-fix findings, are now fixed. This is the same review and unchanged method/id set. The previous whole-IT baseline failure counts remain historical evidence, not a current full-suite claim. Overall review is CONDITIONAL only on the final PR #768 head completing its required CI checks green; Rust Checks are still in progress at this audit. The parent must wait for that final-head result before merge. No unconditional merge approval, weakened oracle or new independent review is given.
+
+Round 6 of the same independent review (merged owner witness and verified source closure).
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | QSpec PR562 is merged. PLR2 now carries ordinal1 child, while unchanged PL01 carries ordinal0 root. The published files match the reviewed owner correction; frozen IR enforces the consecutive-prefix witness rule without tail inference and preserves prior row-refusal precedence. Actual final run passes16/16 with all six PL exact outcomes and four hybrid controls. Final-head PR CI remains required before merge. |
