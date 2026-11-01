@@ -23,7 +23,10 @@ use quire_contract_model::{
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedRelationshipEnd, CheckedRelationshipEndError,
+    SelectedModelEnumDeclarationRow, SelectedModelEnumErrorCode, SelectedModelEnumMemberRow,
+    SelectedModelEnums,
 };
+use quire_exact::{NodeKey, PathSegment};
 use serde_json::{json, Value};
 use std::sync::LazyLock;
 
@@ -612,6 +615,143 @@ fn variant_package_named(
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     (package, evidence, key)
+}
+
+fn enum_key(label: &str) -> NodeKey {
+    NodeKey::new("checked", vec![PathSegment::Text(label.into())], 0).expect("fixture Exact key")
+}
+
+fn selected_model_enum_rows(
+    declaration: &str,
+    case: &str,
+) -> (SelectedModelEnumDeclarationRow, SelectedModelEnumMemberRow) {
+    let declaration_key = model_key("variant_type", IDENTITY, declaration);
+    let structural_node: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key)).expect("fixture declaration id");
+    let member_node: CheckedNodeId =
+        serde_json::from_value(node_id(&format!("enum-value/{declaration}/{case}")))
+            .expect("fixture member id");
+    (
+        SelectedModelEnumDeclarationRow::new(
+            structural_node.clone(),
+            IDENTITY,
+            declaration,
+            enum_key("Tier"),
+        ),
+        SelectedModelEnumMemberRow::new(
+            member_node,
+            structural_node,
+            IDENTITY,
+            declaration,
+            format!("{declaration}/{case}"),
+            case,
+            enum_key(case),
+        ),
+    )
+}
+
+#[trace("FR-354-AC-6")]
+#[test]
+fn model_enum_stage_rows_join_selected_declaration_and_exact_members() {
+    let (wire, evidence, _) = variant_package_named(TIER, &["Gold", "2x"], &["Gold", "2x"], false);
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire, &evidence) else {
+        panic!("selected enum fixture must admit");
+    };
+    let (declaration, gold) = selected_model_enum_rows(TIER, "Gold");
+    let (_, two) = selected_model_enum_rows(TIER, "2x");
+    let joined = SelectedModelEnums::from_stage_rows(
+        &package,
+        [declaration.clone()],
+        [gold.clone(), two.clone()],
+        6,
+    )
+    .expect("selected model enum rows join admission");
+    assert_eq!(
+        joined
+            .read_declaration(&package, &declaration.structural_node)
+            .expect("declaration row"),
+        &declaration
+    );
+    assert_eq!(
+        joined
+            .read_member(&package, &gold.structural_node)
+            .expect("member row"),
+        &gold
+    );
+    assert_eq!(
+        joined
+            .read_member(&package, &two.structural_node)
+            .expect("second member row"),
+        &two
+    );
+    assert_eq!(
+        joined
+            .read_member(&package, &declaration.structural_node)
+            .expect_err("declaration is not an enum member")
+            .code,
+        SelectedModelEnumErrorCode::UnavailableWitness
+    );
+}
+
+#[trace("FR-354-AC-6")]
+#[test]
+fn model_enum_stage_rows_refuse_foreign_missing_duplicate_and_wrong_case() {
+    let (wire, evidence, _) = variant_package_named(TIER, &["Gold"], &["Gold"], false);
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire, &evidence) else {
+        panic!("selected enum fixture must admit");
+    };
+    let (declaration, member) = selected_model_enum_rows(TIER, "Gold");
+    let empty = SelectedModelEnums::from_stage_rows(&package, [], [], 0).expect("empty index");
+    assert_eq!(
+        empty
+            .read_declaration(&package, &declaration.structural_node)
+            .expect_err("missing declaration row")
+            .code,
+        SelectedModelEnumErrorCode::UnavailableWitness
+    );
+    let mut wrong_identity = member.clone();
+    wrong_identity.member_original_identity = "another/member".into();
+    assert_eq!(
+        SelectedModelEnums::from_stage_rows(&package, [declaration.clone()], [wrong_identity], 3,)
+            .expect_err("wrong original member identity")
+            .code,
+        SelectedModelEnumErrorCode::MismatchedWitness
+    );
+    let mut wrong_case = member.clone();
+    wrong_case.case = "Unknown".into();
+    assert_eq!(
+        SelectedModelEnums::from_stage_rows(&package, [declaration.clone()], [wrong_case], 3)
+            .expect_err("case absent from selected model")
+            .code,
+        SelectedModelEnumErrorCode::MismatchedWitness
+    );
+    assert_eq!(
+        SelectedModelEnums::from_stage_rows(
+            &package,
+            [declaration.clone()],
+            [member.clone(), member.clone()],
+            5,
+        )
+        .expect_err("duplicate member row")
+        .code,
+        SelectedModelEnumErrorCode::ConflictingWitness
+    );
+    let joined =
+        SelectedModelEnums::from_stage_rows(&package, [declaration.clone()], [member.clone()], 3)
+            .expect("valid rows");
+    assert_eq!(
+        joined
+            .read_member(&package.clone(), &member.structural_node)
+            .expect_err("another package instance")
+            .code,
+        SelectedModelEnumErrorCode::ForeignPackage
+    );
+    assert_eq!(
+        SelectedModelEnums::from_stage_rows(&package, [declaration], [member], 2)
+            .expect_err("one charge short")
+            .code,
+        SelectedModelEnumErrorCode::WorkLimit
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-237")]

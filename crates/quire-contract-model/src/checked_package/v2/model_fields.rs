@@ -677,7 +677,7 @@ impl RetainedModels {
             .get(declared.selection)?
             .variant_types
             .get(&declared.node)?;
-        Some(if cases.values().any(Option::is_some) {
+        Some(if cases.values().any(|case| case.payload.is_some()) {
             "union"
         } else {
             "enum"

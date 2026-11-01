@@ -24,6 +24,7 @@ mod identity;
 mod intake;
 mod lossless;
 mod lower;
+mod model_enum_witness;
 mod model_fields;
 mod model_members;
 mod model_root;
@@ -78,6 +79,10 @@ pub use contract_package::{
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;
 pub use lower::*;
+pub use model_enum_witness::{
+    SelectedModelEnumDeclarationRow, SelectedModelEnumError, SelectedModelEnumErrorCode,
+    SelectedModelEnumMemberRow, SelectedModelEnums,
+};
 pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
     CheckedModelObjectFields,

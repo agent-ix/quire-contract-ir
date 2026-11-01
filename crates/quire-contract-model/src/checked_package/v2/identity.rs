@@ -1860,7 +1860,7 @@ impl NominalGraph<'_> {
     fn model_variant_cases(
         &self,
         id: &CheckedNodeId,
-    ) -> Option<&BTreeMap<Box<str>, Option<super::model_members::SelectedTypeRef>>> {
+    ) -> Option<&BTreeMap<Box<str>, super::model_members::SelectedVariantCase>> {
         let position = *self.index.get(id)?;
         if self.kinds.get(position) != Some(&CheckedNodeKind::Model(super::ModelForm::VariantType))
         {
@@ -2045,7 +2045,9 @@ fn validate_enum_member(
     if graph.is_model_variant(&member.declaration_node_id) {
         require(!member.case.is_empty(), || site.pointer())?;
         if let Some(cases) = graph.model_variant_cases(&member.declaration_node_id) {
-            require(cases.values().all(Option::is_none), || site.pointer())?;
+            require(cases.values().all(|case| case.payload.is_none()), || {
+                site.pointer()
+            })?;
             require(cases.contains_key(&member.case), || site.pointer())?;
         }
     } else {

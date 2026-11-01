@@ -2073,14 +2073,14 @@ fn selected_union_members<'m>(
     let Some(cases) = owner.package.variant_types.get(owner.node) else {
         return Ok(None);
     };
-    if !cases.values().any(Option::is_some) {
+    if !cases.values().any(|case| case.payload.is_some()) {
         return Ok(None);
     }
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(units(cases.len()))?;
     let mut members = Vec::with_capacity(cases.len());
-    for (name, payload_type) in cases {
-        let payload = if let Some(payload_type) = payload_type {
+    for (name, case) in cases {
+        let payload = if let Some(payload_type) = &case.payload {
             let Some(member_type) = owner.package.element_type(payload_type) else {
                 return Ok(None);
             };
