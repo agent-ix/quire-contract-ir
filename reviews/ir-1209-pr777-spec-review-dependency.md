@@ -33,3 +33,9 @@ Ticket IR-1209, PR #777 at frozen head c7ba7205. One dependency sentence makes s
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The QSL-1390 sentence places stage-row supply after package-reader use of CheckedEquality, but that reader requires the IR read, which in turn requires these stage rows. Separate producer-row delivery from the downstream reader integration so the prerequisite order is acyclic. | spec/checked_package/functional/FR-353-read-admitted-equality-decisions.md:266 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Producer rows now explicitly precede the IR read; QSL package-reader integration is separate and follows the IR read. |
