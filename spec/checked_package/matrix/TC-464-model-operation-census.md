@@ -21,7 +21,12 @@ census of a two-operation context without bodies or anchors, an empty context, a
 inherited/redefined contexts including a diamond. Check producer parameter order,
 canonical member domains, result presence and unsupported domains. Independently
 exercise ambiguous names, missing and duplicate declaring nodes, foreign/unknown/
-wrong-kind contexts, and sufficient versus one-below/zero work provisions. Compile
+wrong-kind contexts, and sufficient versus one-below/zero work provisions. In the explicit producer lane, compile authored QSL selecting `Node::alpha`
+from a model also declaring unreferenced `Node::zeta`; read the exact producer
+bytes with the selected model and require both census entries while the graph
+contains only alpha's operation anchor. `IR1236_QSL_PACKAGE` and
+`IR1236_QSL_MODEL` name these live inputs for the ignored external-producer test;
+that test must be run explicitly before its evidence is credited. Compile
 and execute the calls through the public model facade; run TC-058 and TC-456 for
 inventory and portable public names.
 

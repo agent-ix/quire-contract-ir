@@ -37,7 +37,8 @@ borrows its admitted declaration identity and parameter names, retains its actua
 admitted declaring node and the selected context, and exposes parameter domains in
 producer order and a separately optional result domain using `CheckedMemberType`.
 An unrepresentable domain remains explicitly unavailable; it SHALL NOT delete the
-operation or become an unbounded integer. Result absence and a present result with
+operation or become an unbounded integer. A missing retained parameter name SHALL return a typed unavailable-parameter-name
+refusal instead of synthesizing a binder. Result absence and a present result with
 an unavailable domain SHALL remain distinguishable. The census grants no executable
 body, dispatch, successor, boundedness or proof credit.
 
@@ -67,7 +68,7 @@ must use them independently when they require execution or dispatch evidence.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-355-AC-1 | A package admitted through the public reader with two declared operations and no operation anchors or bodies returns both identities and an authoritative empty census for a different empty context. Adding or removing an unreferenced declaration changes the census independently of bodies. | Test |
-| FR-355-AC-2 | Parameters retain producer name/order and exact Boolean, bounded-integer and collection member domains; a separately present result retains its domain. Absent results and present unavailable domains remain distinguishable, without omitting operations. | Test |
+| FR-355-AC-2 | Parameters retain producer name/order and exact Boolean, bounded-integer and collection member domains; a separately present result retains its domain. Absent results and present unavailable domains remain distinguishable, without omitting operations. A missing retained parameter name refuses explicitly instead of inventing a binder. | Test |
 | FR-355-AC-3 | Inheritance, a diamond and a most-derived redefinition retain each effective operation once with its original member and actual declaring node. An ambiguous effective name, absent declaring node or duplicate declaring-node join returns its distinct typed refusal and no partial census. | Test |
 | FR-355-AC-4 | Foreign, unknown and wrong-kind contexts have distinct typed refusal codes. A sufficient work provision returns the full table and consumed work; one below the required provision refuses with that configured limit, and a zero provision refuses before census exposure. | Test |
 | FR-355-AC-5 | A downstream public consumer can read the census and existing callable/dispatch APIs separately through the model crate facade. The public inventory names the new read types, which borrow retained declaration facts and expose canonical member-domain types without a copied parser, mirror operation model or added dependency. | Test |

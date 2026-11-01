@@ -497,6 +497,8 @@ pub(super) struct DomainModel {
     pub(super) processes: BTreeSet<Box<str>>,
     /// Persistence-interface declarations have a selected owner key.
     pub(super) persistence_interfaces: BTreeSet<Box<str>>,
+    /// Canonical admitted persistence operation declarations, separate from object types.
+    pub(super) persistence_operations: BTreeMap<Box<str>, FieldBearingTypeDecl>,
     /// Record value types, with their own and inherited fields.
     pub(super) record_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
     /// Ordered positions of each selected tuple value type.
@@ -907,6 +909,10 @@ pub(super) struct Budget<'w> {
 impl<'w> Budget<'w> {
     pub(super) fn new(meter: &'w mut WorkMeter, root: usize, bytes: u64) -> Self {
         Self { meter, root, bytes }
+    }
+
+    pub(super) const fn work(&self) -> u64 {
+        self.meter.consumed()
     }
 
     /// The pointer of the root owner this budget is charged at.
@@ -1428,8 +1434,8 @@ impl DomainModel {
         Ok(Some(types))
     }
 
-    /// Names of the effective operations reachable from one model type.
-    pub(super) fn effective_operation_names(
+    /// Candidate names, including ambiguous names, before effective-member resolution.
+    pub(super) fn operation_candidate_names(
         &self,
         object: &str,
         budget: &mut Budget<'_>,
@@ -1447,6 +1453,16 @@ impl DomainModel {
                 );
             }
         }
+        Ok(candidates)
+    }
+
+    /// Names of the effective operations reachable from one model type.
+    pub(super) fn effective_operation_names(
+        &self,
+        object: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<BTreeSet<Box<str>>, ValidationFailure> {
+        let candidates = self.operation_candidate_names(object, budget)?;
         let mut names = BTreeSet::new();
         for name in candidates {
             match self.resolve(object, MemberKind::Operation, &name, budget) {
@@ -3086,6 +3102,7 @@ pub(super) fn read_semantic_ir(
         state_machines: BTreeSet::new(),
         processes: BTreeSet::new(),
         persistence_interfaces: BTreeSet::new(),
+        persistence_operations: BTreeMap::new(),
         record_types: BTreeMap::new(),
         tuple_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
@@ -3513,7 +3530,7 @@ pub(super) fn read_semantic_ir(
             meaning::Kind::PersistenceInterface => {
                 let mut defects = Defects::new(declared);
                 check_selected_meaning(declared, meaning, &scope, &mut defects);
-                let _ = semantic_ir_object_type(
+                let (operations, _) = semantic_ir_object_type(
                     declared,
                     node,
                     true,
@@ -3532,6 +3549,7 @@ pub(super) fn read_semantic_ir(
                     selected.declaration_path = Some(refusal.path);
                     return Err(selected.into());
                 }
+                model.persistence_operations.insert(node.into(), operations);
             }
             meaning::Kind::VariantType => {
                 let Some(&type_index) = document_positions.get(node) else {
