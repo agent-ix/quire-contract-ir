@@ -1505,6 +1505,24 @@ mod tests {
             foreign.code,
             super::super::AdmittedEqualityReadErrorCode::ForeignEqualityWitness
         );
+        let wrong_occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 1,
+        };
+        assert_eq!(
+            package
+                .admitted_equality(&application, &wrong_occurrence, &[], &[], 100)
+                .expect_err("wrong occurrence refuses")
+                .code,
+            super::super::AdmittedEqualityReadErrorCode::WrongOccurrence
+        );
+        assert_eq!(
+            package()
+                .admitted_equality(&application, &occurrence, &[], &[], 100)
+                .expect_err("application without producer decision refuses")
+                .code,
+            super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityDecision
+        );
     }
 
     /// Trace: FR-353-AC-2.
