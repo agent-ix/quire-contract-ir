@@ -266,9 +266,11 @@ selected source `UnitId` and model enum declaration/member key rows.
 QSL [QSL-1390](https://linear.app/agent-ix/issue/QSL-1390) supplies selected
 equality application `NodeKey`/authored `Location` rows,
 dimension-declaration/base-term/ordered edge-target `NodeKey` rows, compound
-`UnitId`, Text type identity and Plan type identity rows after
-QSL-1398, the equality emitter, and package-reader use of QSV's
-`CheckedEquality::from_admitted_decision` after the IR read is available.
+`UnitId`, Text type identity and Plan type identity rows from the same
+checking/emission stage as the equality sidecar. This producer-row delivery
+follows QSL-1398 and is a prerequisite to the complete IR read. After the IR
+read is available, QSL-1390 separately integrates its package reader with
+QSV's `CheckedEquality::from_admitted_decision`.
 These stage rows travel alongside the admitted package to the IR read, not in
 a new QSpec wire member. A missing row leaves the corresponding successful
 read unavailable; IR cannot fill it by inventing an Exact key.
