@@ -69,11 +69,11 @@ pub enum NominalReadCode {
 /// A typed refusal with work accounting and the first failing node locus.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 #[error("nominal read {code:?} at {node:?} after {work} work units (limit {limit})")]
-pub struct NominalReadError {
+pub struct NominalReadError<'a> {
     /// Stable closed refusal code.
     pub code: NominalReadCode,
     /// First selected or referenced node that could not be read.
-    pub node: CheckedNodeId,
+    pub node: &'a CheckedNodeId,
     /// Work charged before the refusal, including a refused charge.
     pub work: u64,
     /// Caller-supplied work allowance.
@@ -85,15 +85,19 @@ struct Budget {
     limit: u64,
 }
 impl Budget {
-    fn error(&self, code: NominalReadCode, node: &CheckedNodeId) -> NominalReadError {
+    fn error<'a>(&self, code: NominalReadCode, node: &'a CheckedNodeId) -> NominalReadError<'a> {
         NominalReadError {
             code,
-            node: node.clone(),
+            node,
             work: self.work,
             limit: self.limit,
         }
     }
-    fn charge(&mut self, amount: usize, node: &CheckedNodeId) -> Result<(), NominalReadError> {
+    fn charge<'a>(
+        &mut self,
+        amount: usize,
+        node: &'a CheckedNodeId,
+    ) -> Result<(), NominalReadError<'a>> {
         let amount = u64::try_from(amount).unwrap_or(u64::MAX);
         let Some(work) = self.work.checked_add(amount) else {
             self.work = u64::MAX;
@@ -105,7 +109,7 @@ impl Budget {
         }
         Ok(())
     }
-    fn identity(&mut self, root: &CheckedNodeId) -> Result<(), NominalReadError> {
+    fn identity<'a>(&mut self, root: &'a CheckedNodeId) -> Result<(), NominalReadError<'a>> {
         let mut pending = vec![root];
         while let Some(node) = pending.pop() {
             self.charge(node.package.len().saturating_add(1), root)?;
@@ -123,8 +127,8 @@ impl Budget {
     fn node<'a>(
         &mut self,
         package: &'a CheckedPackageV2,
-        id: &CheckedNodeId,
-    ) -> Result<&'a CheckedSemanticNodeV2, NominalReadError> {
+        id: &'a CheckedNodeId,
+    ) -> Result<&'a CheckedSemanticNodeV2, NominalReadError<'a>> {
         self.identity(id)?;
         package
             .node(id)
@@ -190,25 +194,28 @@ pub struct EnumRead<'a> {
 
 fn declaration<'a>(
     package: &'a CheckedPackageV2,
-    row: &NominalDeclarationRow<'_>,
+    row: &NominalDeclarationRow<'a>,
     budget: &mut Budget,
-) -> Result<&'a CheckedSemanticNodeV2, NominalReadError> {
+) -> Result<&'a CheckedSemanticNodeV2, NominalReadError<'a>> {
     let node = budget.node(package, row.node)?;
-    let owner_size = match row.owner {
+    budget.charge(1, row.node)?;
+    match row.owner {
         CheckedNodeOwner::Source {
             authority,
             identity,
-        } => authority.len().saturating_add(identity.len()),
-        CheckedNodeOwner::Model { identity, node } => identity.len().saturating_add(node.len()),
-        CheckedNodeOwner::ModelRoot { identity } => identity.len(),
-    };
-    let size = row
-        .declaration
-        .qualified_name
-        .iter()
-        .try_fold(owner_size, |n, s| n.checked_add(s.len()))
-        .unwrap_or(usize::MAX);
-    budget.charge(size.saturating_add(1), row.node)?;
+        } => {
+            budget.charge(authority.len(), row.node)?;
+            budget.charge(identity.len(), row.node)?;
+        }
+        CheckedNodeOwner::Model { identity, node } => {
+            budget.charge(identity.len(), row.node)?;
+            budget.charge(node.len(), row.node)?;
+        }
+        CheckedNodeOwner::ModelRoot { identity } => budget.charge(identity.len(), row.node)?,
+    }
+    for segment in &row.declaration.qualified_name {
+        budget.charge(segment.len().saturating_add(1), row.node)?;
+    }
     // Nominal source bodies are retained as typed terms. Model-owned nominal
     // forms that need a different retained producer join refuse below.
     if !matches!(node.owner, Some(CheckedNodeOwner::Source { .. })) {
@@ -229,10 +236,10 @@ impl CheckedPackageV2 {
     /// Opaque Exact identities remain producer facts, as FR-352 specifies.
     pub fn read_unit_resolver<'a>(
         &'a self,
-        requested: &[CheckedNodeId],
+        requested: &'a [CheckedNodeId],
         rows: &'a [NominalDeclarationRow<'a>],
         limit: u64,
-    ) -> Result<UnitResolverRead<'a>, NominalReadError> {
+    ) -> Result<UnitResolverRead<'a>, NominalReadError<'a>> {
         let mut budget = Budget { work: 0, limit };
         let mut units = Vec::new();
         let mut nodes = BTreeSet::new();
@@ -322,7 +329,7 @@ impl CheckedPackageV2 {
         selected: &NominalDeclarationRow<'a>,
         rows: &'a [EnumMemberRow<'a>],
         limit: u64,
-    ) -> Result<EnumRead<'a>, NominalReadError> {
+    ) -> Result<EnumRead<'a>, NominalReadError<'a>> {
         let mut budget = Budget { work: 0, limit };
         let node = declaration(self, selected, &mut budget)?;
         let NominalIdentity::Enum(identity) = selected.identity else {

@@ -365,3 +365,30 @@ fn names_do_not_substitute_for_selected_node_or_member_identity() {
         NominalReadCode::MissingNode
     );
 }
+
+#[test]
+#[trace("FR-354-AC-5", "FR-354-AC-7")]
+fn malformed_rows_cannot_walk_empty_segments_or_copy_a_locus_after_exhaustion() {
+    let package = fixture(false);
+    let root = node(&package, "unit", "Metre");
+    let identity = UnitId::Declared(key("Metre"));
+    let requested = [root.node_id.clone()];
+    let malformed = quire_contract_model::CheckedDeclaration {
+        qualified_name: vec!["".into(); 1_000],
+    };
+    let rows = [NominalDeclarationRow {
+        declaration: &malformed,
+        ..row(root, NominalIdentity::Unit(&identity))
+    }];
+    let error = package
+        .read_unit_resolver(&requested, &rows, 500)
+        .unwrap_err();
+    assert_eq!(error.code, NominalReadCode::LimitReached);
+    assert_eq!(error.work, 501);
+    assert!(std::ptr::eq(error.node, &root.node_id));
+    let error = package
+        .read_unit_resolver(&requested, &rows, 0)
+        .unwrap_err();
+    assert_eq!(error.code, NominalReadCode::LimitReached);
+    assert!(std::ptr::eq(error.node, &root.node_id));
+}
