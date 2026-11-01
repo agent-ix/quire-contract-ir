@@ -191,9 +191,10 @@ pub use checked_package::{
     ExactTypeProjectionError, ExactTypeProjectionErrorCode, ExpressionForm, FunctionForm,
     HybridForm, JsonPointer, LoweringProfileRef, ModelForm, NominalBody, ProtocolForm,
     RelationForm, ScalarTypeForm, SelectedExactDeclarationForm, SelectedExactDeclarationRow,
-    SelectedExactFieldRow, SelectedExactIdentities, SelectedExactIdentity, SelectedRecordFieldView,
-    SelectedRecordView, StateForm, TemporalForm, TimedModelForm, ValueForm, CHECKED_PACKAGE_V2,
-    CONTRACT_PACKAGE_VERSION,
+    SelectedExactFieldRow, SelectedExactIdentities, SelectedExactIdentity,
+    SelectedOperationMemberError, SelectedOperationMemberErrorCode, SelectedOperationMemberRow,
+    SelectedOperationMembers, SelectedRecordFieldView, SelectedRecordView, StateForm, TemporalForm,
+    TimedModelForm, ValueForm, CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
 };
 
 pub use checked_package::CheckedFieldReadForm;

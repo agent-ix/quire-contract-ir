@@ -30,6 +30,7 @@ mod model_root;
 mod natural;
 mod node_index;
 mod operation_catalog;
+mod operation_witness;
 mod operations;
 mod owner;
 mod parameter_declaration;
@@ -86,6 +87,10 @@ pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
     SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
     SelectedExactIdentities, SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView,
+};
+pub use operation_witness::{
+    SelectedOperationMemberError, SelectedOperationMemberErrorCode, SelectedOperationMemberRow,
+    SelectedOperationMembers,
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
 pub use protocol_body::{CheckedProtocolActivation, CheckedProtocolActivationRow};

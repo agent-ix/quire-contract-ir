@@ -26,7 +26,8 @@ use quire_contract_model::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedStepRelationCapability, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint, ExecutionPointName,
-    StateClauseKind,
+    ModelForm, SelectedOperationMemberErrorCode, SelectedOperationMemberRow,
+    SelectedOperationMembers, StateClauseKind,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -5211,4 +5212,115 @@ fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
     let unbound = rekey_step_relation(unbound, |_| {});
     expect("frame missing", &unbound, Code::InvalidModelBinding, Some(Cause::MalformedDeclaration),
         &format!("/semantic_graph/nodes/{relation}/body/members/1/value/members/0/value/members/5/value/target"), None);
+}
+
+/// FR-352-AC-10: the public stage-row join uses admitted member identities.
+#[trace("TC-056", "FR-352-AC-10", "FR-354-AC-3")]
+#[test]
+fn selected_operation_member_rows_join_only_admitted_model_anchors() {
+    let fixture = ModelPackage::new();
+    let anchor_position = position(&fixture.value, "state", "operation_anchor");
+    let admitted = match read_model(&fixture.value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("expected selected model admission, got {other:?}"),
+    };
+    let anchor = admitted.graph().nodes[anchor_position].node_id.clone();
+    let row = SelectedOperationMemberRow {
+        anchor: anchor.clone(),
+        selected_document: ORDERS.into(),
+        declaring_form: ModelForm::ObjectType,
+        original_model_identity: ORDER_NODE.into(),
+        original_operation_identity: format!("{ORDER_NODE}/scaled").into(),
+        selected_operation_identity: "stage/Order/scaled".into(),
+    };
+    let selected = SelectedOperationMembers::from_stage_rows(&admitted, [row.clone()], 16)
+        .expect("matching selected operation row");
+    assert_eq!(
+        selected.read(&admitted, &anchor).expect("admitted row"),
+        &row
+    );
+    assert_eq!(
+        SelectedOperationMembers::from_stage_rows(&admitted, [], 0)
+            .expect("empty selection")
+            .read(&admitted, &anchor)
+            .expect_err("missing stage witness")
+            .code,
+        SelectedOperationMemberErrorCode::UnavailableWitness
+    );
+
+    let mut wrong_document = row.clone();
+    wrong_document.selected_document = "foreign/orders".into();
+    assert_eq!(
+        SelectedOperationMembers::from_stage_rows(&admitted, [wrong_document], 16)
+            .expect_err("wrong selected document")
+            .code,
+        SelectedOperationMemberErrorCode::MismatchedWitness
+    );
+    let mut wrong_member = row.clone();
+    wrong_member.original_operation_identity = format!("{ORDER_NODE}/reset").into();
+    assert_eq!(
+        SelectedOperationMembers::from_stage_rows(&admitted, [wrong_member], 16)
+            .expect_err("wrong original operation")
+            .code,
+        SelectedOperationMemberErrorCode::MismatchedWitness
+    );
+    assert_eq!(
+        SelectedOperationMembers::from_stage_rows(&admitted, [row.clone(), row.clone()], 16)
+            .expect_err("duplicate anchor witness")
+            .code,
+        SelectedOperationMemberErrorCode::ConflictingWitness
+    );
+    let exhausted = SelectedOperationMembers::from_stage_rows(&admitted, [row], 1)
+        .expect_err("operation scan needs another work charge");
+    assert_eq!(exhausted.code, SelectedOperationMemberErrorCode::WorkLimit);
+    assert_eq!((exhausted.consumed_work, exhausted.attempted_work), (1, 1));
+
+    let mut source = StatePackage::new();
+    let object = source.at("model", "object_type");
+    source.value["semantic_graph"]["nodes"][object]["owner"] = source_owner(&fixture_source());
+    source.value["semantic_graph"]["nodes"][object]["declaration"] =
+        json!({"qualified_name": ["Account"]});
+    source.value["semantic_graph"]["nodes"][object]["occurrences"] =
+        json!([{"role": "declaration", "ordinal": 0}]);
+    select_other_protocol_owner(&mut source.value);
+    settle(&mut source.value);
+    for node in source.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        node["dependencies"]
+            .as_array_mut()
+            .expect("dependencies")
+            .sort_by(id_order);
+    }
+    refresh_identity(&mut source.value);
+    let source_anchor_position = source.at("state", "operation_anchor");
+    let source_package = match read(&source.value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("expected source operation admission, got {other:?}"),
+    };
+    let source_anchor = source_package.graph().nodes[source_anchor_position]
+        .node_id
+        .clone();
+    assert_eq!(
+        selected
+            .read(&source_package, &source_anchor)
+            .expect_err("foreign source package")
+            .code,
+        SelectedOperationMemberErrorCode::ForeignPackage
+    );
+    let source_row = SelectedOperationMemberRow {
+        anchor: source_anchor,
+        selected_document: ORDERS.into(),
+        declaring_form: ModelForm::ObjectType,
+        original_model_identity: ORDER_NODE.into(),
+        original_operation_identity: format!("{ORDER_NODE}/scaled").into(),
+        selected_operation_identity: "stage/Order/scaled".into(),
+    };
+    assert_eq!(
+        SelectedOperationMembers::from_stage_rows(&source_package, [source_row], 16)
+            .expect_err("source anchor has no selected model member")
+            .code,
+        SelectedOperationMemberErrorCode::UnavailableModelMember
+    );
 }
