@@ -5467,4 +5467,28 @@ fn model_operation_callable_joins_selected_body_and_frame() {
         modifies, creates, deletes, deletes_scoped
     }) if modifies.is_empty() && creates.is_empty() && deletes.is_empty() && deletes_scoped.is_empty())
     );
+
+    let mut bodyless = fixture.value.clone();
+    let function_at = nodes(&bodyless)
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "function"
+                && node["owner"]["node"] == format!("{ORDER_NODE}/scaled")
+        })
+        .expect("selected body function");
+    bodyless["semantic_graph"]["nodes"][function_at]["body"]["members"] =
+        json!([binding("clause", text("body"))]);
+    bodyless["semantic_graph"]["nodes"][function_at]["dependencies"] = json!([]);
+    settle(&mut bodyless);
+    let bodyless_admitted = match read_model(&bodyless) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("bodyless clause fixture admission: {other:?}"),
+    };
+    assert_eq!(
+        bodyless_admitted
+            .callable_table(100_000)
+            .expect_err("operation body is absent")
+            .code,
+        CheckedCallableReadErrorCode::MissingBody,
+    );
 }
