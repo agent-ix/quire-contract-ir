@@ -55,6 +55,8 @@ pub(super) fn validate(
     )
 }
 
+// This is the reader admission boundary for captured, still-untrusted wire facts.
+#[ix_trace_rs::intake]
 fn validate_rows(
     name: &str,
     nodes: &[RawSemanticNodeV2],
