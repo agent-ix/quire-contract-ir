@@ -62,6 +62,8 @@ impl CheckedCallableTable {
 /// Stable reason a callable projection cannot return a complete table.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CheckedCallableReadErrorCode {
+    /// The requested node does not belong to this admitted package.
+    UnknownNode,
     /// A selected callable has no body reference.
     MissingBody,
     /// A body or parameter reference is absent or of the wrong admitted form.
@@ -200,6 +202,45 @@ fn function_body<'a>(
 }
 
 impl CheckedPackageV2 {
+    /// Read one executable source-declared function without operation rows.
+    ///
+    /// A present node that is not an executable source function returns
+    /// `None`. This read does not scan unrelated operation anchors.
+    pub fn source_callable(
+        &self,
+        node: &CheckedNodeId,
+        work_limit: u64,
+    ) -> Result<Option<CheckedCallable>, CheckedCallableReadError> {
+        let mut budget = Budget {
+            work: 0,
+            limit: work_limit,
+        };
+        budget.charge(node)?;
+        let found = self
+            .node(node)
+            .ok_or_else(|| budget.error(CheckedCallableReadErrorCode::UnknownNode, node))?;
+        if !matches!(
+            self.node_kind(node),
+            Some(CheckedNodeKind::Function(
+                FunctionForm::PureFunction
+                    | FunctionForm::Predicate
+                    | FunctionForm::RecursiveFunction
+            ))
+        ) || found.declaration.is_none()
+            || !matches!(found.owner, Some(CheckedNodeOwner::Source { .. }))
+        {
+            return Ok(None);
+        }
+        let parsed = function_body(self, node, &mut budget)?;
+        Ok(parsed.body.map(|body| CheckedCallable {
+            identity: CheckedCallableIdentity::Function(node.clone()),
+            parameters: parsed.parameters,
+            body,
+            context: None,
+            frame: None,
+        }))
+    }
+
     /// Read selected function bodies and model operation anchors as one bounded table.
     ///
     /// Source-owned anchors without a witnessed selected operation member
@@ -533,11 +574,23 @@ mod tests {
     #[test]
     fn source_owned_anchor_refuses_without_a_selected_operation_witness() {
         let package = fixture(true);
+        let function = package
+            .source_callable(&node_id('4'), 100)
+            .expect("source function read")
+            .expect("body function");
+        assert_eq!(function.body, node_id('3'));
         let error = package.callable_table(100).expect_err("source anchor");
         assert_eq!(
             error.code,
             CheckedCallableReadErrorCode::UnsupportedSelectedOperation
         );
         assert_eq!(error.locus, node_id('6'));
+        assert_eq!(
+            package
+                .source_callable(&node_id('9'), 100)
+                .expect_err("foreign id")
+                .code,
+            CheckedCallableReadErrorCode::UnknownNode,
+        );
     }
 }
