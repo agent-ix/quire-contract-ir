@@ -69,6 +69,7 @@ pub(super) fn package() -> Value {
     package["semantic_graph"]["nodes"] = json!(nodes);
     package["source_map"] = json!(source_map);
     index_fixture_node_ids(&mut package);
+    crate::support::checked_package::refresh_temporal_bindings(&mut package);
     package
 }
 

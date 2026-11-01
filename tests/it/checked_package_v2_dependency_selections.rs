@@ -5,7 +5,8 @@
 //! and complete-value conflicts in the admitted dependency closure.
 
 use crate::support::checked_package::{
-    admitted_dependency, canonical, evidence_for, pointer, read_with_dependencies, v2_all_families,
+    admitted_dependency, canonical, evidence_for, pointer, read_with_dependencies,
+    refresh_temporal_bindings, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -48,6 +49,7 @@ fn empty_package(name: &str) -> Value {
         .collect::<Vec<_>>());
     rename_package(&mut package, name);
     package["name"] = json!(name);
+    refresh_temporal_bindings(&mut package);
     package
 }
 

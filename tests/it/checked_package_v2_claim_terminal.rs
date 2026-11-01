@@ -414,6 +414,8 @@ fn encoded(package: &Value) -> Vec<u8> {
     let source_map: Vec<CheckedSourceMapEntry> = typed(&package["source_map"]);
     let capabilities: Vec<CheckedCapability> = typed(&package["capability_report"]);
     let diagnostics: CheckedDiagnosticsV2 = typed(&package["diagnostics"]);
+    let temporal_bindings: Option<Vec<quire_contract_model::TemporalBinding>> =
+        package.get("temporal_bindings").map(typed);
     encode_checked_package_v2(
         package["name"].as_str().expect("package name"),
         &lock,
@@ -424,7 +426,7 @@ fn encoded(package: &Value) -> Vec<u8> {
         },
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: None,
-            temporal_bindings: None,
+            temporal_bindings: temporal_bindings.as_deref(),
         },
         &capabilities,
         &diagnostics,

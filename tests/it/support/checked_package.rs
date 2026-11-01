@@ -544,9 +544,10 @@ pub fn identity_input(package: &Value) -> Value {
     input
 }
 
-/// Rebuilds the identity projection from the graph and re-derives the package id.
+/// Rebuilds the identity projection and configured clock rows after graph edits.
 pub fn refresh_identity(package: &mut Value) {
     refresh_identity_projection(package);
+    refresh_temporal_bindings(package);
 }
 
 /// The identity of every domain package a synthetic package selects: one per
@@ -2145,13 +2146,12 @@ pub fn settle(package: &mut Value) {
     join_application_dependencies(package);
     rebuild_source_map(package);
     refresh_identity(package);
-    refresh_temporal_bindings(package);
 }
 
 /// Keep the synthetic package's clock rows paired with its configured clauses
 /// after fixture mutations have changed profile laws or structural node IDs.
 #[ix_trace_rs::string_edge]
-fn refresh_temporal_bindings(package: &mut Value) {
+pub fn refresh_temporal_bindings(package: &mut Value) {
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");

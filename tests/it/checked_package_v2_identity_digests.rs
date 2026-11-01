@@ -64,6 +64,7 @@ fn local_package() -> Value {
         .filter(|entry| entry["node_id"] == scalar_id)
         .cloned()
         .collect::<Vec<_>>());
+    crate::support::checked_package::refresh_temporal_bindings(&mut package);
     package
 }
 
@@ -112,6 +113,7 @@ fn derived_range_package() -> Value {
     package["semantic_graph"]["nodes"] = json!([boolean, integer, range]);
     package["source_map"] = json!(maps);
     index_fixture_node_ids(&mut package);
+    crate::support::checked_package::refresh_temporal_bindings(&mut package);
     package
 }
 
@@ -233,6 +235,7 @@ fn package_with_independent_requests() -> Value {
     let mut reference_map = original.clone();
     reference_map["node_id"] = package["semantic_graph"]["nodes"][2]["node_id"].clone();
     package["source_map"] = json!([original, integer_map, reference_map]);
+    crate::support::checked_package::refresh_temporal_bindings(&mut package);
     package
 }
 

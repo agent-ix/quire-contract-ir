@@ -28,6 +28,9 @@ fn encode(
         serde_json::from_value(package["capability_report"].clone()).expect("typed capabilities");
     let diagnostics: CheckedDiagnosticsV2 =
         serde_json::from_value(package["diagnostics"].clone()).expect("typed diagnostics");
+    let temporal_bindings: Option<Vec<quire_contract_model::TemporalBinding>> = package
+        .get("temporal_bindings")
+        .map(|value| serde_json::from_value(value.clone()).expect("typed temporal bindings"));
 
     encode_checked_package_v2(
         package["name"].as_str().expect("package name"),
@@ -39,7 +42,7 @@ fn encode(
         },
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: term_data,
-            temporal_bindings: None,
+            temporal_bindings: temporal_bindings.as_deref(),
         },
         &capabilities,
         &diagnostics,

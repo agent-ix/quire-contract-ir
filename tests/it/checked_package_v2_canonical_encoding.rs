@@ -244,6 +244,8 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
         let source_map: Vec<CheckedSourceMapEntry> = typed_each(&package["source_map"]);
         let capabilities: Vec<CheckedCapability> = typed_each(&package["capability_report"]);
         let diagnostics: CheckedDiagnosticsV2 = typed(&package["diagnostics"]);
+        let temporal_bindings: Option<Vec<quire_contract_model::TemporalBinding>> =
+            package.get("temporal_bindings").map(typed_each);
         let encoded = encode_checked_package_v2(
             package["name"].as_str().expect("structural name"),
             &lock,
@@ -254,7 +256,7 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
             },
             quire_contract_model::CheckedPackageSidecarsRef {
                 checked_term_data: None,
-                temporal_bindings: None,
+                temporal_bindings: temporal_bindings.as_deref(),
             },
             &capabilities,
             &diagnostics,

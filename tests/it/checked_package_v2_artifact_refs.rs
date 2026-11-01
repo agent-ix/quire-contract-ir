@@ -9,7 +9,7 @@
 //! `crates/quire-contract-model/src/checked_package/v2/`.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, refusal, refusal_cause, v2_all_families, v2_nominal,
+    canonical, evidence_for, pointer, refusal, refusal_cause, settle, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -204,9 +204,11 @@ fn tc_048_a_definition_reference_with_a_digest_member_is_an_unknown_member() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-49")]
+/// The configured clock row is checked before a malformed clause law reaches
+/// the later operation-law shape check.
+#[trace("TC-048", "FR-038-AC-49", "FR-322-AC-294")]
 #[test]
-fn tc_048_an_operation_law_definition_refuses_as_a_closed_graph_shape() {
+fn tc_048_a_clock_row_precedes_a_malformed_temporal_law_definition() {
     let base = v2_all_families();
     let definition = law_definition(&base);
     type Mutation = Box<dyn Fn(&mut Value)>;
@@ -241,8 +243,38 @@ fn tc_048_an_operation_law_definition_refuses_as_a_closed_graph_shape() {
             format!("{definition}/identity"),
         ),
     ];
-    for (name, mutate, path) in cases {
+    for (name, mutate, path) in &cases {
         let mut mutated = base.clone();
+        mutate(&mut mutated);
+        let actual = refused(&mutated);
+        assert_eq!(
+            actual.code,
+            CheckedPackageRefusalCode::InvalidPackage,
+            "{name}"
+        );
+        assert_eq!(
+            actual.loci[0].path,
+            Some(pointer("/temporal_bindings/0/clock/kind")),
+            "{path}"
+        );
+        assert_eq!(
+            actual.cause,
+            Some(CheckedPackageRefusalCause::TimedNodeReference),
+            "{name}"
+        );
+    }
+
+    // With a profile that needs no clock configuration, the same malformed
+    // definitions reach the original closed graph-shape refusal.
+    let mut unconfigured = base;
+    super::checked_package_v2_temporal::select_profile(
+        &mut unconfigured,
+        "quire.temporal.infinite-trace/v1",
+    );
+    settle(&mut unconfigured);
+    admitted(&unconfigured);
+    for (name, mutate, path) in cases {
+        let mut mutated = unconfigured.clone();
         mutate(&mut mutated);
         expect(
             &mutated,
@@ -408,9 +440,11 @@ fn tc_048_a_region_or_locus_source_equal_to_no_lock_row_is_an_invalid_source_map
     }
 }
 
-#[trace("TC-048", "FR-038-AC-57")]
+/// A changed law with an unchanged clock row reaches the row's kind join
+/// before the later operation-law selection check.
+#[trace("TC-048", "FR-038-AC-57", "FR-322-AC-294")]
 #[test]
-fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
+fn tc_048_a_clock_row_precedes_an_unselected_temporal_law() {
     let base = v2_all_families();
     let node = temporal_node(&base);
     let definition = law_definition(&base);
@@ -443,8 +477,8 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
         let actual = refused(&mutated);
         let expected = refusal_cause(
             CheckedPackageRefusalCode::InvalidPackage,
-            &definition,
-            CheckedPackageRefusalCause::OperationLawUnselected,
+            "/temporal_bindings/0/clock/kind",
+            CheckedPackageRefusalCause::TimedNodeReference,
         );
         assert_eq!(
             (actual.code, actual.loci[0].path.clone(), actual.cause),
@@ -458,6 +492,42 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
                 .map(|id| serde_json::to_value(id).expect("node id")),
             Some(base["semantic_graph"]["nodes"][node]["node_id"].clone()),
             "{member} calling node locus"
+        );
+    }
+
+    let mut unconfigured = base;
+    super::checked_package_v2_temporal::select_profile(
+        &mut unconfigured,
+        "quire.temporal.infinite-trace/v1",
+    );
+    settle(&mut unconfigured);
+    admitted(&unconfigured);
+    let claim = unconfigured["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["operation"]["identity"] == "quire.op.claim.clause")
+        .expect("claim clause");
+    let claim_definition =
+        format!("/semantic_graph/nodes/{claim}/body/operation/laws/0/definition");
+    for (member, value) in [
+        (
+            "identity",
+            json!("quire.temporal.fixed-sample.false-extension/v1"),
+        ),
+        ("authority", json!("other")),
+    ] {
+        let mut mutated = unconfigured.clone();
+        at(&mut mutated, &claim_definition)[member] = value;
+        let actual = refused(&mutated);
+        assert_eq!(
+            (actual.code, actual.loci[0].path.clone(), actual.cause),
+            (
+                CheckedPackageRefusalCode::InvalidPackage,
+                Some(pointer(&claim_definition)),
+                Some(CheckedPackageRefusalCause::OperationLawUnselected),
+            ),
+            "{member}"
         );
     }
 }

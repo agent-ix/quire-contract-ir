@@ -32,6 +32,8 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
         value.get("refinement_step_rows").map(typed);
     let capabilities: Vec<CheckedCapability> = typed(&value["capability_report"]);
     let diagnostics: CheckedDiagnosticsV2 = typed(&value["diagnostics"]);
+    let temporal_bindings: Option<Vec<quire_contract_model::TemporalBinding>> =
+        value.get("temporal_bindings").map(typed);
     encode_checked_package_v2(
         name,
         &lock,
@@ -42,7 +44,7 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
         },
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: None,
-            temporal_bindings: None,
+            temporal_bindings: temporal_bindings.as_deref(),
         },
         &capabilities,
         &diagnostics,
@@ -136,7 +138,7 @@ fn typed_envelope_has_exact_members_and_canonical_boundaries() {
     assert_eq!(bytes, canonical(&value));
     let encoded: Value = serde_json::from_slice(&bytes).expect("JSON object");
     let members = encoded.as_object().expect("envelope object");
-    assert_eq!(members.len(), 7);
+    assert_eq!(members.len(), 8);
     assert_eq!(members["contract_version"], CHECKED_PACKAGE_V2);
     assert_eq!(members["name"], value["name"]);
     assert_eq!(
@@ -148,7 +150,8 @@ fn typed_envelope_has_exact_members_and_canonical_boundaries() {
             "lock",
             "name",
             "semantic_graph",
-            "source_map"
+            "source_map",
+            "temporal_bindings"
         ]
     );
     let length = u64::try_from(bytes.len()).expect("byte length fits u64");
