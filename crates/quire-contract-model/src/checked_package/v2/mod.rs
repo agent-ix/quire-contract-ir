@@ -3975,11 +3975,13 @@ mod tests {
                 "context": node,
                 "candidates": [
                     {
+                        "selected_operation": {"declaring": node, "operation": "run"},
                         "selection_key": {"owner_effective_type": null,
                             "original": {"package": "test", "node": "Zeta"}},
                         "operation_body": node, "effective_precondition": null
                     },
                     {
+                        "selected_operation": {"declaring": node, "operation": "run"},
                         "selection_key": {"owner_effective_type": null,
                             "original": {"package": "test", "node": "Alpha"}},
                         "operation_body": node, "effective_precondition": node

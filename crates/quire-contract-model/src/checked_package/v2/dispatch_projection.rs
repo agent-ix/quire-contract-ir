@@ -126,6 +126,9 @@ pub(super) fn validate_checked_term_data(
         for (candidate_index, candidate) in table.candidates.iter().enumerate() {
             let at = row.clone().key("candidates").index(candidate_index);
             meter.charge(1, || at.clone())?;
+            if candidate.selected_operation != table.operation {
+                return Err(invalid(at.clone().key("selected_operation")));
+            }
             if !seen_keys.insert(&candidate.selection_key) {
                 return Err(ValidationFailure::refused_because(
                     CheckedPackageRefusalCode::InvalidPackage,
@@ -173,11 +176,6 @@ pub(super) fn validate_checked_term_data(
                     return Err(invalid(at.clone().key("effective_precondition")));
                 }
             }
-        }
-        if !table.candidates.is_empty() {
-            // The wire has no producer witness binding each candidate's
-            // effective type and selected operation to its function bodies.
-            return Err(unsupported(row.key("candidates").index(0)));
         }
     }
     Ok(())
