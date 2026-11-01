@@ -243,12 +243,17 @@ fn restored_package() -> Value {
     let mut package = braking_package();
     let vectors = read_json(&proposal_dir_of(&fixtures_dir()).join("hybrid-node-vectors.json"))
         .expect("QSpec TC-966 vectors");
-    append_indexed_published_nodes(
-        &mut package,
+    // Restored-node indexes address the published base and restored arrays
+    // concatenated, rather than a fresh table starting at the restored array.
+    let mut component = vectors["nodes"].as_array().expect("base nodes").clone();
+    component.extend(
         vectors["restored_nodes"]
             .as_array()
-            .expect("restored nodes"),
+            .expect("restored nodes")
+            .iter()
+            .cloned(),
     );
+    append_indexed_published_nodes(&mut package, &component);
     package["lock"]["profile_selections"]
         .as_array_mut()
         .expect("profile selections")
