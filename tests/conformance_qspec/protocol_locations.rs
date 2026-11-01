@@ -77,50 +77,87 @@ fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
         assert!(id.starts_with("PL-"));
         assert!(seen.insert(id));
         // A child is a positive within its published captured group, including predecessors.
-        let rows = positives.iter().filter(|row| {
-            row["application"] == selected["application"]
-                && row["occurrence"] == selected["occurrence"]
-                && row["term_ordinal"].as_u64() <= selected["term_ordinal"].as_u64()
-        }).map(|row| {
-            let mut value = row.clone();
-            value.as_object_mut().unwrap().remove("id");
-            value
-        }).collect();
+        let rows = positives
+            .iter()
+            .filter(|row| {
+                row["application"] == selected["application"]
+                    && row["occurrence"] == selected["occurrence"]
+                    && row["term_ordinal"].as_u64() <= selected["term_ordinal"].as_u64()
+            })
+            .map(|row| {
+                let mut value = row.clone();
+                value.as_object_mut().unwrap().remove("id");
+                value
+            })
+            .collect();
         let (wire, position) = fixture(rows);
         let package = admitted(&wire);
         let node = &package.graph().nodes[position];
-        let row = package.protocol_location(&node.node_id, &node.occurrences[0],
-            selected["term_ordinal"].as_u64().unwrap(), 100).unwrap();
-        assert_eq!(serde_json::to_value(&row.location).unwrap(), selected["location"], "{id}");
+        let row = package
+            .protocol_location(
+                &node.node_id,
+                &node.occurrences[0],
+                selected["term_ordinal"].as_u64().unwrap(),
+                100,
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&row.location).unwrap(),
+            selected["location"],
+            "{id}"
+        );
         println!("{id}: admitted; exact captured location retained");
     }
     for category in ["schema_invalid", "reader_refusals"] {
-        for vector in all[category].as_array().unwrap().iter().filter(|row| {
-            row["id"].as_str().is_some_and(|id| id.starts_with("PL-"))
-        }) {
+        for vector in all[category]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["id"].as_str().is_some_and(|id| id.starts_with("PL-")))
+        {
             let id = vector["id"].as_str().unwrap();
             assert!(seen.insert(id));
-            let rows = vector["value"].as_array().cloned()
+            let rows = vector["value"]
+                .as_array()
+                .cloned()
                 .unwrap_or_else(|| vec![vector["value"].clone()]);
             let (wire, _) = fixture(rows);
             let result = read(&wire);
             let CheckedPackageV2ReadResult::Refused(refusal) = result else {
                 panic!("{id} must refuse: {result:?}");
             };
-            assert_eq!(serde_json::to_value(refusal.code).unwrap(), vector["expected_code"], "{id}");
+            assert_eq!(
+                serde_json::to_value(refusal.code).unwrap(),
+                vector["expected_code"],
+                "{id}"
+            );
             if let Some(cause) = vector.get("expected_cause") {
                 assert_eq!(serde_json::to_value(refusal.cause).unwrap(), *cause, "{id}");
             }
-            assert_eq!(refusal.loci[0].path.as_ref().unwrap().as_str(),
-                vector["locus"].as_str().unwrap(), "{id}");
-            println!("{id}: refused {:?} {:?} at {}", refusal.code, refusal.cause,
-                refusal.loci[0].path.as_ref().unwrap());
+            assert_eq!(
+                refusal.loci[0].path.as_ref().unwrap().as_str(),
+                vector["locus"].as_str().unwrap(),
+                "{id}"
+            );
+            println!(
+                "{id}: refused {:?} {:?} at {}",
+                refusal.code,
+                refusal.cause,
+                refusal.loci[0].path.as_ref().unwrap()
+            );
         }
     }
-    assert_eq!(seen, std::collections::BTreeSet::from([
-        "PL-01-root", "PL-02-child", "PL-03-declaration", "PL-S1-unknown-origin",
-        "PL-R1-duplicate-term", "PL-R2-missing-term-mapping",
-    ]));
+    assert_eq!(
+        seen,
+        std::collections::BTreeSet::from([
+            "PL-01-root",
+            "PL-02-child",
+            "PL-03-declaration",
+            "PL-S1-unknown-origin",
+            "PL-R1-duplicate-term",
+            "PL-R2-missing-term-mapping",
+        ])
+    );
 }
 
 #[test]
@@ -133,19 +170,31 @@ fn witnessed_interior_gap_refuses_and_new_occurrence_restarts_at_zero() {
         panic!("ordinal two witnesses missing ordinal one");
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
-    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::InvalidValue));
-    assert_eq!(refusal.loci[0].path.as_ref().unwrap().as_str(),
-        "/checked_term_data/protocol_locations");
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidValue)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        "/checked_term_data/protocol_locations"
+    );
 
     let (mut wire, position) = fixture(vec![positive("PL-01-root"), positive("PL-03-declaration")]);
     let node = &mut wire["semantic_graph"]["nodes"][position];
     let application = node["node_id"].clone();
     let mut occurrence = node["occurrences"][0].clone();
     occurrence["ordinal"] = json!(1);
-    node["occurrences"].as_array_mut().unwrap().push(occurrence.clone());
-    let mut source = wire["source_map"].as_array().unwrap().iter().find(|entry| {
-        entry["node_id"] == application && entry["ordinal"] == 0
-    }).unwrap().clone();
+    node["occurrences"]
+        .as_array_mut()
+        .unwrap()
+        .push(occurrence.clone());
+    let mut source = wire["source_map"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["node_id"] == application && entry["ordinal"] == 0)
+        .unwrap()
+        .clone();
     source["ordinal"] = json!(1);
     wire["source_map"].as_array_mut().unwrap().push(source);
     wire["checked_term_data"]["protocol_locations"][1]["occurrence"] = occurrence;
@@ -153,7 +202,9 @@ fn witnessed_interior_gap_refuses_and_new_occurrence_restarts_at_zero() {
     let package = admitted(&wire);
     let node = &package.graph().nodes[position];
     for occurrence in &node.occurrences {
-        let row = package.protocol_location(&node.node_id, occurrence, 0, 100).unwrap();
+        let row = package
+            .protocol_location(&node.node_id, occurrence, 0, 100)
+            .unwrap();
         assert_eq!(&row.occurrence, occurrence);
         assert_eq!(row.term_ordinal, 0);
     }

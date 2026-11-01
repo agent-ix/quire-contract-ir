@@ -90,7 +90,9 @@ fn validate_rows(
             }
         }
         let expected = previous
-            .filter(|before| before.application == row.application && before.occurrence == row.occurrence)
+            .filter(|before| {
+                before.application == row.application && before.occurrence == row.occurrence
+            })
             .map_or(0, |before| before.term_ordinal + 1);
         missing_predecessor |= term_ordinal != expected;
         previous = Some(row);
@@ -131,7 +133,11 @@ fn validate_rows(
     // A retained successor witnesses the gap; a final row cannot witness an absent successor.
     // Existing row shape, join, duplicate and ordering refusals retain their precedence.
     if missing_predecessor {
-        return Err(invalid(JsonPointer::root().key("checked_term_data").key("protocol_locations")));
+        return Err(invalid(
+            JsonPointer::root()
+                .key("checked_term_data")
+                .key("protocol_locations"),
+        ));
     }
     Ok(())
 }
