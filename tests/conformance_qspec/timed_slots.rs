@@ -12,6 +12,28 @@ fn published_slots() -> (Value, Value, PathBuf) {
     (wire, vectors, fixtures)
 }
 
+fn assert_no_added_presence_member(term: &Value) {
+    match term {
+        Value::Object(members) => {
+            if members.get("term").and_then(Value::as_str) == Some("binding") {
+                assert_ne!(
+                    members.get("name").and_then(Value::as_str),
+                    Some("presence")
+                );
+            }
+            for value in members.values() {
+                assert_no_added_presence_member(value);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                assert_no_added_presence_member(value);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn admitted_slots(wire: &Value, fixtures: &Path) -> Box<CheckedPackageV2> {
     match read_selected(wire, "timed-slot control", fixtures) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
@@ -281,6 +303,7 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
             admitted.semantic_type,
             serde_json::from_value(authored["semantic_type"].clone()).unwrap()
         );
+        assert_no_added_presence_member(&serde_json::to_value(&admitted.body).unwrap());
     }
     for case in vectors["presence"]["cases"]
         .as_array()

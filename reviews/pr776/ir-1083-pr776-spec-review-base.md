@@ -122,3 +122,23 @@ Fix audit at bc342189: supplied focused log reports all seven tests passing in 2
 ## Final scoped verdict
 
 PASS for normative alignment and assertion completeness after the round-2 additions. No new findings. Final focused execution and full integration/CI Test remain external merge gates; this review does not claim those pending executions passed. The previous seven-control run passed before these final assertions.
+
+## Audit correction
+
+The round-2 body-equality assertion was removed because direct public CheckedTerm deserialization is not valid for all wire bodies. Retained node count, semantic form and semantic type assertions pass in the final focused seven-test run (2.25 seconds), and the Option application id assertion remains. Those checks detect extra nodes and type rewrites, but do not detect an added presence binding inside an existing model or parameter body. FND-002 therefore remains open pending the narrow absence-of-presence-binding assertion. This correction supersedes the earlier round-2 completeness verdict; the historical disposition and posted comment remain unchanged.
+
+## Dispositions round 3
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-002 | still-open | The removed body comparison no longer verifies absence of an added presence binding inside existing model/parameter bodies; add a typed or serialized-body binding-name assertion. |
+
+## Dispositions round 4
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-002 | fixed | Every admitted node body is serialized and recursively inspected: any binding named presence fails. Retained graph count/form/type equality detects added nodes and Option<Boolean> rewrites, while Option application id is compared with its authored id. No direct wire-body deserialization or whole-body equality is claimed. |
+
+## Latest scoped verdict
+
+PASS by inspection: all four findings resolved. The actual final absence assertion is assert_no_added_presence_member over serialized admitted bodies, not body equality. Final focused run and full integration/CI Test remain execution gates for the lead.
