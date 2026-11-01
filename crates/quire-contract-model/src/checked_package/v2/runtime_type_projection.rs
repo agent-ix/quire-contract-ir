@@ -466,6 +466,14 @@ impl CheckedPackageV2 {
                             work,
                         )
                     })?;
+                    if !declared.operations.is_empty() {
+                        return Err(SelectedTypeDeclarationsError::at(
+                            ExactTypeProjectionErrorCode::UnsupportedExactType,
+                            id,
+                            "object_operations",
+                            work,
+                        ));
+                    }
                     for field in &declared.fields {
                         charge(&mut work, work_limit, id, "declared_object_field")?;
                         if field.redefines.is_some() {

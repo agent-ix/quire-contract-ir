@@ -709,7 +709,6 @@ fn admit(document: &Value, declared: &[(&str, &str)], reads: &[Read]) -> Checked
 }
 
 /// The public runtime projection returns selected record and object facts.
-#[trace("FR-354-AC-1", "FR-354-AC-2", "FR-354-AC-7")]
 #[test]
 fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     let mut selected = document(vec![
@@ -882,7 +881,6 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
 }
 
 /// A flattened field set cannot stand in for an authored redefinition link.
-#[trace("FR-354-AC-1", "FR-354-AC-2")]
 #[test]
 fn selected_runtime_types_refuse_unprojected_object_redefinition() {
     let selected = document(vec![
@@ -924,8 +922,43 @@ fn selected_runtime_types_refuse_unprojected_object_redefinition() {
     assert_eq!(error.form.as_ref(), "object_field_redefinition");
 }
 
+/// An object's operations need admitted callable facts before a type view can succeed.
+#[test]
+fn selected_runtime_types_refuse_object_operations_without_callable_facts() {
+    let mut operated = object("Runner", &[], &[]);
+    operated["operations"] = json!([{
+        "identity": format!("{}/run", orders("Runner")),
+        "name": "run",
+        "params": []
+    }]);
+    let admitted = admit(&document(vec![operated]), &[("Runner", OBJECT)], &[]);
+    let witnessed = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [SelectedExactDeclarationRow::new(
+            serde_json::from_value(node_id(&declaration_key("Runner", OBJECT)))
+                .expect("structural declaration"),
+            IDENTITY,
+            SelectedExactDeclarationForm::ObjectType,
+            orders("Runner"),
+            SelectedExactIdentity::Object(EffectiveId::new(
+                None,
+                OriginalDeclarationKey::new(IDENTITY, orders("Runner")),
+            )),
+        )],
+        [],
+    )
+    .expect("selected object row joins");
+    let error = admitted
+        .project_selected_type_declarations(&witnessed, 1000)
+        .expect_err("operation-bearing object cannot yield a partial type view");
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    assert_eq!(error.form.as_ref(), "object_operations");
+}
+
 /// A selected tuple needs its producer's tuple identity row.
-#[trace("FR-354-AC-1", "FR-354-AC-2")]
 #[test]
 fn selected_runtime_types_refuse_tuple_without_stage_identity() {
     let tuple = orders("Pair");
