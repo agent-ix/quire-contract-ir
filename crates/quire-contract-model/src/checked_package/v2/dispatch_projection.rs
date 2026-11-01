@@ -50,7 +50,7 @@ pub(super) fn validate_checked_term_data(
         }
         return Err(unsupported(path));
     }
-    super::protocol_locations::validate(wire, terms, meter)?;
+    super::protocol_locations::validate(wire, kinds, terms, meter)?;
 
     let nodes = &wire.semantic_graph.nodes;
     let index: BTreeMap<CheckedNodeId, usize> = nodes

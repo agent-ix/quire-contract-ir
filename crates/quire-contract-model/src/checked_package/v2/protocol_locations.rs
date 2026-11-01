@@ -7,8 +7,8 @@ use super::checked_term_data::{CheckedKeyOrdinal, CheckedProtocolLocationOrigin}
 use super::{CheckedPackageV2, CheckedTerm, RawCheckedPackageWireV2, RawSemanticNodeV2, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedOccurrence, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedSourceMapEntry, JsonPointer,
+    CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
 
 const MAX_SAFE: u64 = 9_007_199_254_740_991;
@@ -39,6 +39,7 @@ fn invalid(path: JsonPointer) -> ValidationFailure {
 /// No graph interpretation or source-location reconstruction occurs here.
 pub(super) fn validate(
     wire: &RawCheckedPackageWireV2,
+    kinds: &[CheckedNodeKind],
     terms: &[CheckedTerm],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -48,6 +49,7 @@ pub(super) fn validate(
     validate_rows(
         &wire.name,
         &wire.semantic_graph.nodes,
+        kinds,
         terms,
         &wire.source_map,
         &data.protocol_locations,
@@ -55,11 +57,10 @@ pub(super) fn validate(
     )
 }
 
-// This is the reader admission boundary for captured, still-untrusted wire facts.
-#[ix_trace_rs::string_edge]
 fn validate_rows(
     name: &str,
     nodes: &[RawSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     terms: &[CheckedTerm],
     source_map: &[CheckedSourceMapEntry],
     rows: &[CheckedProtocolSemanticLocation],
@@ -68,9 +69,7 @@ fn validate_rows(
     let mut previous: Option<&CheckedProtocolSemanticLocation> = None;
     for (index, row) in rows.iter().enumerate() {
         meter.charge(1, || at(index))?;
-        if row.application.package.as_ref() != name {
-            return Err(invalid(at(index).key("application")));
-        }
+        intake_local_application(&row.application, name, index)?;
         if row.term_ordinal > MAX_SAFE {
             return Err(malformed(at(index).key("term_ordinal")));
         }
@@ -98,7 +97,7 @@ fn validate_rows(
             }
         }
         let (position, node) = selected.ok_or_else(|| invalid(at(index).key("application")))?;
-        if node.node_tag.as_ref() != "expression"
+        if !matches!(kinds.get(position), Some(CheckedNodeKind::Expression(_)))
             || !matches!(terms.get(position), Some(CheckedTerm::Application { .. }))
         {
             return Err(invalid(at(index).key("application")));
@@ -121,37 +120,61 @@ fn validate_rows(
         if !mapped {
             return Err(invalid(at(index).key("occurrence")));
         }
-        match &row.location.origin {
-            CheckedProtocolLocationOrigin::TypeDeclaration { name } => {
-                meter.charge(u64::try_from(name.len()).unwrap_or(u64::MAX), || {
-                    at(index).key("location").key("origin")
-                })?;
-                if name.is_empty() {
-                    return Err(malformed(at(index).key("location").key("origin")));
-                }
-            }
-            CheckedProtocolLocationOrigin::ProtocolAttempt { protocol, attempt } => {
-                if *protocol > MAX_SAFE || *attempt > MAX_SAFE {
-                    return Err(malformed(at(index).key("location").key("origin")));
-                }
+        intake_location_value(row, index, meter)?;
+    }
+    Ok(())
+}
+
+/// Bind the incoming sidecar NodeRef's namespace before any graph join.
+/// This checks untrusted wire selection; it does not classify an admitted node.
+#[ix_trace_rs::string_edge]
+fn intake_local_application<'a>(
+    wire_id: &'a CheckedNodeId,
+    root_package: &str,
+    index: usize,
+) -> Result<&'a CheckedNodeId, ValidationFailure> {
+    if wire_id.package.as_ref() != root_package {
+        return Err(invalid(at(index).key("application")));
+    }
+    Ok(wire_id)
+}
+
+/// Check the captured origin and ordinal wire grammar, without graph decisions.
+#[ix_trace_rs::string_edge]
+fn intake_location_value(
+    row: &CheckedProtocolSemanticLocation,
+    index: usize,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    match &row.location.origin {
+        CheckedProtocolLocationOrigin::TypeDeclaration { name } => {
+            meter.charge(u64::try_from(name.len()).unwrap_or(u64::MAX), || {
+                at(index).key("location").key("origin")
+            })?;
+            if name.is_empty() {
+                return Err(malformed(at(index).key("location").key("origin")));
             }
         }
-        for (position, ordinal) in row.location.path.iter().enumerate() {
-            let locus = || at(index).key("location").key("path").index(position);
-            meter.charge(1, locus)?;
-            match ordinal {
-                CheckedKeyOrdinal::Safe(value) if *value <= MAX_SAFE => {}
-                CheckedKeyOrdinal::BeyondSafe(text) => {
-                    meter.charge(u64::try_from(text.len()).unwrap_or(u64::MAX), locus)?;
-                    let beyond =
-                        text.len() > 16 || (text.len() == 16 && text.as_ref() > "9007199254740991");
-                    if !beyond || text.starts_with('0') || !text.bytes().all(|b| b.is_ascii_digit())
-                    {
-                        return Err(malformed(locus()));
-                    }
-                }
-                CheckedKeyOrdinal::Safe(_) => return Err(malformed(locus())),
+        CheckedProtocolLocationOrigin::ProtocolAttempt { protocol, attempt } => {
+            if *protocol > MAX_SAFE || *attempt > MAX_SAFE {
+                return Err(malformed(at(index).key("location").key("origin")));
             }
+        }
+    }
+    for (position, ordinal) in row.location.path.iter().enumerate() {
+        let locus = || at(index).key("location").key("path").index(position);
+        meter.charge(1, locus)?;
+        match ordinal {
+            CheckedKeyOrdinal::Safe(value) if *value <= MAX_SAFE => {}
+            CheckedKeyOrdinal::BeyondSafe(text) => {
+                meter.charge(u64::try_from(text.len()).unwrap_or(u64::MAX), locus)?;
+                let beyond =
+                    text.len() > 16 || (text.len() == 16 && text.as_ref() > "9007199254740991");
+                if !beyond || text.starts_with('0') || !text.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(malformed(locus()));
+                }
+            }
+            CheckedKeyOrdinal::Safe(_) => return Err(malformed(locus())),
         }
     }
     Ok(())

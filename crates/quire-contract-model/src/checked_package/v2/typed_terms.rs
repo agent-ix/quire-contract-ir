@@ -301,6 +301,24 @@ impl<'de> Deserialize<'de> for CheckedFairnessTarget {
 }
 
 impl CheckedFairnessTarget {
+    /// Decode only the hybrid join coordinates at the pre-shape admission step.
+    /// Full member validation still rejects extra fields and bad vocabulary later;
+    /// ignoring those here preserves the specified first-refusal order.
+    #[ix_trace_rs::string_edge]
+    pub(super) fn hybrid_for_join(wire: &Value) -> Option<Self> {
+        if wire.get("kind")?.as_str()? != "hybrid_transition" {
+            return None;
+        }
+        Some(Self::HybridTransition {
+            declaration: CheckedNodeId::from_value(wire.get("declaration")?)?,
+            name: wire
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .into(),
+        })
+    }
+
     pub(super) fn node_mut(&mut self) -> &mut CheckedNodeId {
         match self {
             Self::Operation { declaration, .. } | Self::HybridTransition { declaration, .. } => {

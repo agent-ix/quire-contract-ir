@@ -1137,7 +1137,7 @@ pub(super) fn validate_claims(
             };
             let member = &operation.record()["member"];
             let Some(super::CheckedFairnessTarget::HybridTransition { declaration, name }) =
-                serde_json::from_value(member["target"].clone()).ok()
+                super::CheckedFairnessTarget::hybrid_for_join(&member["target"])
             else {
                 return Err(issue(
                     Code::MissingDeclaration,
