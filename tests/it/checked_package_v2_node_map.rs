@@ -10,15 +10,17 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedAbstractionFrame, CheckedAbstractionObject,
     CheckedAbstractionPopulation, CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment,
-    CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRational, CheckedSemanticNodeV2,
-    CheckedTerm, DimensionTerm, LiteralKind, NominalBody, RefinementAbstractClass,
-    RefinementAssume, RefinementClassCatalog, RefinementConcreteClass, RefinementEnsure,
-    RefinementFairnessKind, RefinementField, RefinementGranularity, RefinementHistory,
-    RefinementHistoryUpdate, RefinementKey, RefinementObject, RefinementPackageNodeKey,
-    RefinementPopulation, RefinementStep, RefinementStepArgument, RefinementStepTarget,
+    CheckedOperationMember, CheckedPackageReadLimits, CheckedPackageRefusalCode,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedRational, CheckedSemanticNodeV2, CheckedTerm, DimensionTerm, LiteralKind, NominalBody,
+    RefinementAbstractClass, RefinementAssume, RefinementClassCatalog, RefinementConcreteClass,
+    RefinementEnsure, RefinementFairnessKind, RefinementField, RefinementGranularity,
+    RefinementHistory, RefinementHistoryUpdate, RefinementKey, RefinementObject,
+    RefinementPackageNodeKey, RefinementPopulation, RefinementStep, RefinementStepArgument,
+    RefinementStepTarget,
 };
 use serde_json::Value;
+use std::sync::Arc;
 
 fn id(name: &str) -> CheckedNodeId {
     CheckedNodeId {
@@ -171,6 +173,108 @@ fn public_node_and_term_mapping_visits_original_slots_once_in_order() {
     };
     assert!(matches!(&members[0], CheckedTerm::Reference { target } if target.ordinal == 1));
     assert!(matches!(&members[1], CheckedTerm::Reference { target } if target.ordinal == 2));
+}
+
+#[trace("FR-048-AC-6", "FR-048-AC-7")]
+#[test]
+fn admitted_operation_member_maps_whole_nested_id_and_typed_mirror() {
+    let package = crate::checked_package_v2_catalogue_differential::admitted_catalogue_control(
+        "quire.op.collection.index",
+    );
+    let mut term = package
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() == Some("quire.op.collection.index") =>
+            {
+                Some(node.body.clone())
+            }
+            _ => None,
+        })
+        .expect("admitted index operation");
+    let CheckedTerm::Application {
+        operation,
+        result_type,
+        ..
+    } = &term
+    else {
+        unreachable!()
+    };
+    let original_result_type = result_type.clone();
+    let Some(CheckedOperationMember::Element { declaration }) =
+        operation.read().expect("admitted view").member
+    else {
+        panic!("index operation has an element member");
+    };
+    let original = declaration.clone();
+    let nested = CheckedNodeId {
+        package: original.package.clone(),
+        path: vec![
+            CheckedNodePathSegment::Name("nested-member".into()),
+            CheckedNodePathSegment::Node(Arc::new(original.clone())),
+        ],
+        ordinal: 1,
+    };
+    let final_id = id("final-member");
+    let mut first_visits = Vec::new();
+    let mut original_visits = 0;
+    term.map_node_ids(|seen| {
+        first_visits.push(seen.clone());
+        if seen == &original {
+            original_visits += 1;
+            (original_visits == 1).then(|| nested.clone())
+        } else if seen == &nested {
+            Some(final_id.clone())
+        } else {
+            None
+        }
+    });
+    assert!(
+        !first_visits.contains(&nested),
+        "replacement is not revisited"
+    );
+    let CheckedTerm::Application {
+        operation,
+        result_type,
+        ..
+    } = &term
+    else {
+        unreachable!()
+    };
+    assert!(
+        matches!(operation.read().expect("first mapped view").member,
+        Some(CheckedOperationMember::Element { declaration }) if declaration == &nested)
+    );
+    assert_eq!(
+        result_type, &original_result_type,
+        "result slot remained independent"
+    );
+    assert_eq!(
+        serde_json::to_value(operation).unwrap()["member"]["declaration"],
+        serde_json::to_value(&nested).unwrap()
+    );
+    let mut nested_visits = 0;
+    term.map_node_ids(|seen| {
+        if seen == &nested {
+            nested_visits += 1;
+            Some(final_id.clone())
+        } else {
+            None
+        }
+    });
+    assert_eq!(nested_visits, 1, "whole member ID is one logical slot");
+    let CheckedTerm::Application { operation, .. } = &term else {
+        unreachable!()
+    };
+    assert!(matches!(operation.read().expect("mapped view").member,
+        Some(CheckedOperationMember::Element { declaration }) if declaration == &final_id));
+    let raw = serde_json::to_value(operation).expect("mapped raw operation");
+    assert_eq!(
+        raw["member"]["declaration"],
+        serde_json::to_value(&final_id).unwrap()
+    );
 }
 
 #[trace("FR-048-AC-7")]
