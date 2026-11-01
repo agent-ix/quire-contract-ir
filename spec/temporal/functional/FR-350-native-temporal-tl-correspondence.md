@@ -37,11 +37,13 @@ relationships:
 ## Description
 
 When QSL FR-045 returns a `Supported` classification for a temporal declaration
-in a strict `quire.compiled-protocol/2` package, the Contract IR temporal
-subsystem SHALL construct and owner-read the TL formula and valuation request,
-then join the native and TL results through one bridge-owned correspondence
-record. The subsystem SHALL take the target and outstanding premises from the
-QSL classification and preserve the meaning QSpec FR-095 defines.
+in a strict `quire.compiled-protocol/2` package, the temporal bridge in
+`agent-ix/quire-integration` (IR-358) SHALL construct and owner-read the TL
+formula and valuation request, then join the native and TL results through one
+bridge-owned correspondence record. The bridge SHALL take the target and
+outstanding premises from the QSL classification and preserve the meaning
+QSpec FR-095 defines. This artifact records the cross-repository bridge
+contract; it assigns no QSL-typed API to either Contract IR package.
 
 ## Inputs
 
@@ -68,9 +70,9 @@ result axes QSpec FR-095 names.
 
 ### Boundary and interface
 
-The public bridge profile SHALL be
-`quire.native-temporal-correspondence/v1`. Its public operations SHALL
-be equivalent to:
+The `agent-ix/quire-integration` bridge SHALL implement the public profile
+`quire.native-temporal-correspondence/v1`. Its public operations SHALL be
+equivalent to:
 
 ```text
 temporal::project_tl(
@@ -98,10 +100,12 @@ temporal::read_tl_join(bytes, ExpectedTlJoin, TlLimits)
 ```
 
 No operation SHALL accept a parser, evaluator, callback, trust flag or
-caller-authored mirror of an owner record. Contract IR SHALL invoke neither the
+caller-authored mirror of an owner record. The bridge SHALL invoke neither the
 native nor TL evaluator. QSL FR-045 owns classification and the retained native
-subject; this subsystem owns TL construction, correspondence validation and the
-cross-owner join.
+subject; `agent-ix/quire-integration` owns TL construction, correspondence
+validation and the cross-owner join. Neither `quire-contract-model` nor the
+`quire-contract-ir` root SHALL depend on a QSL crate to implement this profile
+(FR-028-AC-3).
 
 ### Admission and support
 
@@ -277,6 +281,12 @@ an exact and one-over boundary without constructing a default-sized artifact.
 
 ## Dependencies
 
+- `agent-ix/quire-integration` (IR-358) owns the QSL-typed `project_tl` bridge,
+  strict projection and join readers, correspondence value, and executable
+  TC-461 evidence. This Contract IR requirement remains the cross-repository
+  contract for FR-350-AC-1 through FR-350-AC-6 and FR-350-AC-8; AC-7 remains
+  withdrawn. FR-028-AC-3 and TC-041 keep both Contract IR packages free of
+  QSL dependencies.
 - QSL FR-045 supplies `mapping_support_v2` classification and its retained
   authenticated selection.
 - QSL FR-050 supplies the strict `/2` package and temporal binding.

@@ -22,10 +22,13 @@ relationships:
 
 ## Description
 
-Verify the Contract IR temporal subsystem against QSL's admitted classification,
-strict `/2` package and `evaluate_v2` result, the TL owners' public readers and
-QSpec FR-095's correspondence meaning. The bounded-past operator set is defined
-once by QSpec FR-092; strong previous is `once[1,1]`.
+Verify the `agent-ix/quire-integration` temporal bridge (IR-358) against QSL's
+admitted classification, strict `/2` package and `evaluate_v2` result, the TL
+owners' public readers and QSpec FR-095's correspondence meaning. Execute this
+case in `agent-ix/quire-integration`, where the QSL-typed bridge is owned; it
+does not require a QSL dependency or temporal bridge implementation in either
+Contract IR package. The bounded-past operator set is defined once by QSpec
+FR-092; strong previous is `once[1,1]`.
 
 ## Test Procedure
 
@@ -96,5 +99,5 @@ once by QSpec FR-092; strong previous is `once[1,1]`.
   settlement, support, completeness and supersession axes.
 - Malformed or over-limit inputs produce one deterministic refusal or
   incomplete result with no partial artifact and no evaluator invocation by
-  Contract IR. Exact limits admit; one past yields `limit-reached` naming the
+  the integration bridge. Exact limits admit; one past yields `limit-reached` naming the
   limit, its value and setting.

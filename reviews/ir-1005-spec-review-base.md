@@ -1,37 +1,40 @@
 ---
-id: SR-612082
-title: "Spec base review of IR-1005 PR #643"
+id: SR-202610310110
+title: "IR-1005 PR 749 base spec review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md; spec/temporal/matrix/TC-461-native-temporal-tl-correspondence.md"
+scope: "agent-ix/quire-contract-ir; PR #749; FR-350, TC-461, TM-010 placement correction"
 review_set: subset
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/FR-350
+    type: references
 ---
 
 ## Summary
 
-Independent review of draft PR #643 at 6a43e12d419c8c7f8f6551c8b8aa397c2fe7ee5e against main 6e07ee81. Ticket: IR-1005. The record vector conflicts with the wire field inventory: an origin activation cannot have a null admitted execution-origin identity.
+Ticket IR-1005. Reviewed frozen PR #749 head `981a27da480ef597a84098b028349ad4da11468b` against main `154227dcbcda09f3abf635375777893132fc7686`. The three-document diff moves the QSL-typed FR-350 bridge and TC-461 execution to `agent-ix/quire-integration` while leaving the Contract IR requirement as the cross-repository contract. FR-028-AC-3 and TC-041 prohibit QSL dependencies in either IR package. No code, copied artifact or new owner dependency is introduced. Targeted Quire validation reports 3/3 grammar-clean and zero grammar findings. No applicable AssuranceProfile was found.
 
 ## Verdict
 
-**FAIL** — The record vector conflicts with the wire field inventory: an origin activation cannot have a null admitted execution-origin identity.
-
-## Scope
-
-- FR-350-AC-1 (examined): Given a strict `/2` package and QSL `Supported` classification, the projection takes its target from the classification, emits the required formula and valuation request for each supported row, and each generated artifact is admitted by its selected owner reader. Each bounded past operator defined by QSpec FR-092 is projected alone under both false-extension profiles with origin-complete history; a history cutoff yields `incomplete`/`missing-history`.
-- FR-350-AC-5 (examined): Every join decision row is reached; only an equal-final pair carries a Boolean; every non-final pair preserves its causes and all result axes, and a correction is accepted only with its exact direct predecessor.
-- FR-350-AC-6 (examined): Missing, duplicate, swapped, replayed or foreign valuation cells; owner-reader rejection; malformed or noncanonical projection/join data; and each one-over resource limit return one deterministic non-admitted/incomplete result, with no partial artifact and no evaluator invocation. Exact limits admit.
-- FR-350-AC-7 (examined): The canonical correspondence record matches the complete field inventory and fixed 1429-byte vector specified in the Wire section; interval, model binding and bridge-definition mutations match the stated digests; reordered or whitespace-altered bytes are refused.
-- FR-350-AC-8 (examined): Each `TlLimits` setting uses its stated default, charges before work, admits exactly at the setting and returns `incomplete` one past it with `limit-reached{limit, value, setting}` and no partial artifact.
-- TC-461 (examined): Steps 1 and 6–8, including request identity, ordered join causes, seven limit boundaries and fixed byte vector.
+CONDITIONAL. FND-001 leaves the edited TestMatrix internally inconsistent about withdrawn AC-7.
 
 ## Findings
 
-| ID | Severity | Summary | Refs |
-| --- | --- | --- | --- |
-| FND-001 | high | The fixed vector sets anchor.kind=origin while observation.origin=null, although the wire defines null only for a non-origin activation. Therefore the supposedly complete record cannot be admitted; replace the origin identity with a valid value and recompute the 1429-byte control and four hashes. | spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md:248,259,275 |
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-001 | medium | TM-010 still lists withdrawn FR-350-AC-7 in its Functional Requirement Coverage row with TC-461 as the test case. The same edited matrix removes AC-7 from TC-461’s `Traces To` row, and FR-350 marks AC-7 withdrawn. The two rows disagree about what TC-461 covers. Remove AC-7 from the active coverage row or give it a separate withdrawn row without a test case. | spec/temporal/matrix/tests.md:12,18; spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md:279 | wrong-requirement |
+
+## Coverage
+
+| Unit | Role | Excerpt |
+| --- | --- | --- |
+| TM-010 | examined | \| FR-350 \| FR-350-AC-1, FR-350-AC-2, FR-350-AC-3, FR-350-AC-4, FR-350-AC-5, FR-350-AC-6, FR-350-AC-7, FR-350-AC-8 \| TC-461 \| 🚧 Planned in `agent-ix/quire-integration` (IR-358). AC-1 through AC-6 and AC-8 remain unbacked until the QSL-typed bridge and executable correspondence tests carry their criterion trace tags there; AC-7 is withdrawn. FR-028-AC-3/TC-041 continue to prohibit QSL dependencies in both Contract IR packages. \| |
+| TC-461 | examined | \| TC-461 \| Project native temporal subjects and join owner results through correspondence \| Integration \| FR-350-AC-1, FR-350-AC-2, FR-350-AC-3, FR-350-AC-4, FR-350-AC-5, FR-350-AC-6, FR-350-AC-8 \| 🚧 Planned in `agent-ix/quire-integration` (IR-358); covers QSL classification, strict `/2` inputs, every bounded past operator, TL owner readers, native/TL joins, mutations and limits. \| |
+| FR-350-AC-7 | examined | Withdrawn by the IR-1141 no-hash decision under QSpec #517/#518: the fixed 1429-byte vector, SHA-256 known answers and derived correspondence reference are removed. This id is retained and never reused. |
+| FR-028-AC-3 | context_only | The root package's own manifest names no dependency in any kind on a crate from the agent-ix/quire-spec-language repository, by name or by git source. |
 
 ## Dispositions
 
-| FND | outcome | reason |
+| FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At head 38875c3, `observation.origin` is `"origin-1"` for `anchor.kind="origin"`; the capture length was adjusted to preserve 1429 bytes and all four SHA-256 values were recomputed. |
+| FND-001 | fixed | Round 1 at head `b7d07bab311c3d1a4c6047ade54c2ce3ca0fe3d6`: TM-010's Functional Requirement Coverage row now lists only FR-350-AC-1 through AC-6 and AC-8 with TC-461, matching its Test Case Summary row. The status explicitly says AC-7 is withdrawn and has no TC-461 coverage. The one-file fix leaves the FR-350 and TC-461 placement text unchanged. |
