@@ -195,6 +195,12 @@ FR-051 specifies `CheckedPackageSourceCorrespondenceRef` and
 crate. FR-322 and FR-354 specify the exported `CheckedTermDataV2` reader
 sidecar and bounded dispatch view. FR-051's optional typed writer input is
 exported alongside the reader sidecar.
+FR-038-AC-387 through FR-038-AC-389 specify the planned typed dimension
+equivalence operand surface. Its local and dependency-package forms preserve
+the distinction between a graph-local `NodeRef` and a directly selected
+dependency's `DeclaredNodeId`; a package operand does not create an importing
+graph node. The planned row below joins the implemented inventory only when
+IR-1247 code lands.
 FR-353 specifies a planned associated admitted-equality read on
 `CheckedPackageV2` returning QSV's opaque `AdmittedEqualityDecision`. Its exact
 method signature depends on QSV IR-1223; neither the QSV type nor its hidden
@@ -238,6 +244,7 @@ operation has its own owning requirement, as listed below.
 | `checked_package` (V2 selected type declarations) | types `SelectedTypeDeclarations`, `SelectedTypeDeclarationsError`, `SelectedTypeDimension`, `SelectedTypeObject`, `SelectedTypeObjectField`, `SelectedTypeRecord`, `SelectedTypeTuple`, `SelectedTypeUnit` | FR-354 |
 | `checked_package` (V2 nominal body fields) | type `DimensionTerm` | FR-038-AC-5 |
 | `checked_package` (V2 nominal body construction and enum view) | opaque type `NominalBody` with four fallible body-shape constructors and a read-only borrowed enum-details accessor | FR-038-AC-374, FR-038-AC-375 |
+| `checked_package` (V2 dimension-equivalence operands; planned IR-1247) | types `CheckedDimensionOperand`, `CheckedPackageNodeRef`, `CheckedDeclaredNodeId`; the `NominalBody::try_dimension_equivalence` typed operand input distinguishes a local node from a directly selected dependency's declared node | FR-038-AC-387 through FR-038-AC-389 |
 | `checked_package` (V2 nominal reads) | module `nominal_reads` | FR-354 |
 | `checked_package` (V2 typed terms) | types `ApplicationOperator`, `CheckedAbstractionField`, `CheckedAbstractionFrame`, `CheckedAbstractionObject`, `CheckedAbstractionParameter`, `CheckedAbstractionPopulation`, `CheckedFieldScope`, `CheckedFrameModification`, `CheckedScopedDeletion`, `CheckedTerm`, `LiteralKind` | FR-349 |
 | `checked_package` (V2 typed read views) | types `CheckedBindingName`, `CheckedBindingNameKind`, `CheckedLiteralRead`, `CheckedLiteralValue`, `CheckedOperationRead`, `CheckedOperationMember`, `CheckedFieldReadForm`, `CheckedOperationConstraint`, `CheckedOperationLeaf`, `CheckedOperationLaw`, `CheckedOperationMode`, `CheckedOperationInterval`, `CheckedOperationRational`, `CheckedIntervalEnd`, `CheckedFairnessKind`, `CheckedFairnessGranularity`, `CheckedFairnessTarget`, `LawRole`, `OperationMemberKind`, `OperationConstraintKind` | FR-349 |
@@ -326,6 +333,7 @@ old-wire admission path is exported.
 | FR-019-AC-14 | With `test-support`, an external consumer constructs typed fixture operations with absent identity, mode, law definitions or member declaration, and with the identity, exact/non-exact rounding modes, foreign and conflicting division definitions, and wrong-kind/wrong-value/matching mode inputs used by the four CG FR-014-AC-18/48/50 scalar derivation controls. Typed `identity`, `mode`, `law_definitions`, and `member_declaration` reads return the authored values in order, including intentional absence; `is_test_fixture` is true in every case. No direct JSON view injection is required. | Test (TC-058) |
 | FR-019-AC-15 | The test fixture constructor rejects an empty present identity, an empty present mode value, a law definition with empty authority or identity, and a present member key with an empty package or path or out-of-range ordinal by typed error without yielding an operation. A fixture with intentionally absent optional fields remains constructible and distinguishable through `is_test_fixture` from direct-serde non-admitted operations. A fixture operation cannot be supplied as an already admitted `ContractPackageV1` or `CheckedPackageV2`, and serializing it into a package wire does not bypass strict production admission or its typed refusal. | Test (TC-058) |
 | FR-019-AC-16 | `test-support` is disabled by default; a default-feature external compile probe cannot import its fixture types or call its constructor or provenance query. A feature-enabled external probe can use exactly the documented fixture exports and methods; the existing default-feature inventory, the independent `fault-injection` delta, and the absence of a model API through `quire_contract_ir` remain enforced. | Test (TC-058) |
+| FR-019-AC-17 | When IR-1247 lands, a default-feature external consumer constructs a local `CheckedDimensionOperand` from a graph-local `CheckedNodeId` and a package operand from `CheckedPackageNodeRef` containing a `CheckedDeclaredNodeId`, passes either to `NominalBody::try_dimension_equivalence`, and observes distinct closed V2 wire forms. The public surface exposes no conversion that silently treats a package operand as a local node or mints its identity in the importing graph. Until that code lands, the planned inventory row remains excluded by AC-5. | Test (TC-058) |
 
 ## Dependencies
 
