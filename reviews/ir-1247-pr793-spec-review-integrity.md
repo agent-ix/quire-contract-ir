@@ -33,3 +33,13 @@ Checked the new dimension carrier, positive and adverse criteria, and planned pu
 ## Evidence
 
 QSpec dimension-equivalence-vectors XP-05 names acme/rpc::s, a unit rather than a dimension. QSpec FR-322 requires a package operand resolving to a non-dimension node to refuse `invalid_semantic_graph` at that operand; the pair rules run after operand checks. AC-389's first sentence reflects this, but its XP-02 through XP-09 grouping includes XP-05 as a pair outcome.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-389 now identifies XP-05 as a wrong-kind unit operand refused at the operand before pair validation and limits pair outcomes to XP-02 through XP-04 and XP-06 through XP-09. |
+
+## Disposition verdict
+
+PASS. The sole finding is fixed on PR #793 HEAD `aa018147deae17b54e8951e4b17dd925a2b772ec`.
