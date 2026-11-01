@@ -285,9 +285,9 @@ pub struct AdmittedEqualityReadError {
     /// Stable refusal kind.
     pub code: AdmittedEqualityReadErrorCode,
     /// Requested equality application.
-    pub application: CheckedNodeId,
+    pub application: Box<CheckedNodeId>,
     /// First structural node whose join failed.
-    pub at: CheckedNodeId,
+    pub at: Box<CheckedNodeId>,
     /// Missing witness kind, when a witness is unavailable.
     pub witness: Option<EqualityWitnessKind>,
     /// Successfully charged read work.
@@ -295,7 +295,7 @@ pub struct AdmittedEqualityReadError {
     /// First refused charge; zero for a semantic refusal.
     pub attempted_work: u64,
     /// QSV's original typed materialization failure and locus.
-    pub materialization: Option<EqualityMaterializationError>,
+    pub materialization: Option<Box<EqualityMaterializationError>>,
 }
 
 struct ReadWork {
@@ -350,8 +350,8 @@ fn read_error(
 ) -> AdmittedEqualityReadError {
     AdmittedEqualityReadError {
         code,
-        application: application.clone(),
-        at: at.clone(),
+        application: Box::new(application.clone()),
+        at: Box::new(at.clone()),
         witness: None,
         consumed_work,
         attempted_work,
@@ -746,7 +746,7 @@ impl CheckedPackageV2 {
                 &work,
             ));
         };
-        for unit in &decision.units {
+        if let Some(unit) = decision.units.first() {
             if matches!(
                 self.node(&unit.unit).and_then(|node| node.owner.as_ref()),
                 Some(CheckedNodeOwner::Source { .. })
@@ -832,7 +832,7 @@ impl CheckedPackageV2 {
                 work.consumed,
                 0,
             );
-            error.materialization = Some(cause);
+            error.materialization = Some(Box::new(cause));
             error
         })
     }

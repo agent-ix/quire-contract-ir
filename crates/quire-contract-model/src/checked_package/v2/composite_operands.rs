@@ -1404,7 +1404,13 @@ mod tests {
             Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
         );
         let admitted = package
-            .admitted_equality(&application, &occurrence, &[row.clone()], &[], 100)
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                100,
+            )
             .expect("joined Plan decision");
         assert_eq!(admitted.application(), &original);
         assert_eq!(admitted.operator(), EqualityOperator::Equal);
@@ -1419,7 +1425,13 @@ mod tests {
         let mut minimum = 0;
         for limit in 0..=100 {
             if package
-                .admitted_equality(&application, &occurrence, &[row.clone()], &[], limit)
+                .admitted_equality(
+                    &application,
+                    &occurrence,
+                    std::slice::from_ref(&row),
+                    &[],
+                    limit,
+                )
                 .is_ok()
             {
                 minimum = limit;
@@ -1428,11 +1440,23 @@ mod tests {
         }
         assert!(minimum > 0);
         assert_eq!(
-            package.admitted_equality(&application, &occurrence, &[row.clone()], &[], minimum),
+            package.admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                minimum
+            ),
             Ok(admitted.clone())
         );
         let short = package
-            .admitted_equality(&application, &occurrence, &[row.clone()], &[], minimum - 1)
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                minimum - 1,
+            )
             .expect_err("one less work unit refuses");
         assert!(matches!(
             short.code,
