@@ -63,3 +63,34 @@ fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<WireNodeId, A::Error> {
         }
         let wire = deserializer.deserialize_map(NodeVisitor)?;
 ```
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | Generic node-ID decoding exposed Serde member paths in native package refusals, breaking required diagnostic loci | crates/quire-contract-model/src/checked_package/v2/intake.rs:119 |
+
+The original review missed the native package diagnostic contract. Completed CI Test after the original merge reported 1102 passed and two failures: malformed external owner_model exposed /owner_model/node instead of /owner_model; an inline nested operand exposed /semantic_type/path/0/ordinal instead of the path segment. These were real regressions; existing assertions must remain unchanged. The original focused tests did not establish full reader integration correctness.
+
+### Disposition round 2
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | Native intake now uses private WireNodeId for node_id, semantic_type, dependencies and owner_model. It borrows RawValue and invokes the sole public CheckedNodeId decoder once. Converting the inner JSON error to the outer Serde error restores the ID boundary before invalid_node_id_field refines ordinal or segment loci. |
+
+### Corrective review scope and result
+
+**PASS for corrective static review; integration verification pending.** No new defect found in the corrective diff. Only intake.rs changed; protected files and public generic Deserialize remain unchanged. The wrapper introduces no alternate grammar, fallback, allocation cap, unsafe code or admission authority. Borrowed raw decoding is confined to the native JSON intake which already consumes source slices. The resulting ID owns its data and cannot escape with a borrowed lifetime. Both existing diagnostic test assertions remain unchanged.
+
+Examined: WireNodeId::deserialize (intake.rs), excerpt: `let raw = <&RawValue>::deserialize(deserializer)?;`; BorrowedNode ID slots, excerpt: `dependencies: Vec<WireNodeId>`; decode_borrowed_wire unwrapping, excerpt: `owner_model: node.owner_model.map(|id| id.0)`; invalid_node_id_field existing refinement, excerpt: `return Some(at.clone().key("path").index(index));`; inline_path_operand_refuses_at_the_segment, role examined, excerpt: `/semantic_type/path/0`; original external owner_model failure, role context_only, source: lead-provided completed CI result.
+
+Parent reports initial Clippy passed and a focused baseline reproduced the inline failure. Final formatting/Clippy and full workspace integration target with conformance-cli, ignored tests and one test thread are queued. No completed full integration or CI Test success is asserted by this review; merge readiness depends on that result. No Cargo or implementation edits were performed by this reviewer.
+
+Fixed excerpt:
+
+```rust
+let raw = <&RawValue>::deserialize(deserializer)?;
+        serde_json::from_str(raw.get())
+            .map(Self)
+            .map_err(serde::de::Error::custom)
+```
