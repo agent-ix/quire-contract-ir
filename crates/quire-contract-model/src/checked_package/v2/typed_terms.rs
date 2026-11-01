@@ -237,6 +237,7 @@ impl<'de> Deserialize<'de> for CheckedFairnessTarget {
             fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.write_str("one closed typed fairness target")
             }
+            #[ix_trace_rs::string_edge]
             fn visit_map<M: serde::de::MapAccess<'de>>(
                 self,
                 mut map: M,
