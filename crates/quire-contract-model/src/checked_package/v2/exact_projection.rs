@@ -6,8 +6,8 @@ use super::model_members::DeclarationForm;
 use super::model_members::MemberType;
 use super::structural::reference_type_target_typed;
 use super::{
-    BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedPackageV2, CompositeTypeForm,
-    ModelForm, ScalarTypeForm,
+    BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
+    CompositeTypeForm, ModelForm, ScalarTypeForm,
 };
 use quire_exact::{
     EffectiveId, FieldDeclaration, Integer, IntegerInterval, MemberId, MemberOwner, NodeKey,
@@ -55,13 +55,46 @@ impl SelectedExactDeclarationForm {
         )
     }
 
-    fn matches_admitted(self, form: DeclarationForm) -> bool {
+    fn matches_admitted(self, form: AdmittedDeclarationForm) -> bool {
         matches!(
             (self, form),
-            (Self::RecordValueType, DeclarationForm::RecordValueType)
-                | (Self::ObjectType, DeclarationForm::ObjectType)
+            (
+                Self::RecordValueType,
+                AdmittedDeclarationForm::Model(DeclarationForm::RecordValueType)
+            ) | (
+                Self::ObjectType,
+                AdmittedDeclarationForm::Model(DeclarationForm::ObjectType)
+            ) | (Self::DeclaredUnit, AdmittedDeclarationForm::DeclaredUnit)
         )
     }
+}
+
+#[derive(Clone, Copy)]
+enum AdmittedDeclarationForm {
+    Model(DeclarationForm),
+    DeclaredUnit,
+}
+
+fn admitted_selected_declaration<'a>(
+    package: &'a CheckedPackageV2,
+    key: &CheckedNodeId,
+) -> Option<(&'a str, &'a str, AdmittedDeclarationForm)> {
+    if let Some((document, original, form)) = package.models.selected_declaration(key) {
+        return Some((document, original, AdmittedDeclarationForm::Model(form)));
+    }
+    if package.node_kind(key) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)) {
+        return None;
+    }
+    let checked = package.node(key)?;
+    let CheckedNodeOwner::Model { identity, node } = checked.owner.as_ref()? else {
+        return None;
+    };
+    package
+        .models
+        .selected_models()
+        .iter()
+        .any(|model| model.identity.as_ref() == identity.as_ref() && model.units.contains_key(node))
+        .then_some((identity, node, AdmittedDeclarationForm::DeclaredUnit))
 }
 
 /// One QSL-stage declaration row, keyed by selected original IR identity.
@@ -170,7 +203,8 @@ impl SelectedExactIdentities {
         let mut unit_identities = BTreeSet::new();
         for row in declarations {
             let node = &row.structural_node;
-            let Some((document, original, form)) = package.models.selected_declaration(node) else {
+            let Some((document, original, form)) = admitted_selected_declaration(package, node)
+            else {
                 return Err(selected_declaration_error(package, node));
             };
             if document != row.selected_document.as_ref()
@@ -275,9 +309,7 @@ impl SelectedExactIdentities {
         package: &CheckedPackageV2,
         key: &CheckedNodeId,
     ) -> Result<&SelectedExactIdentity, ExactTypeProjectionErrorCode> {
-        let (document, original, form) = package
-            .models
-            .selected_declaration(key)
+        let (document, original, form) = admitted_selected_declaration(package, key)
             .ok_or(ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration)?;
         let row = self
             .declarations
@@ -598,6 +630,27 @@ fn project_record_field_type(
                 )),
             }
         }
+        MemberType::Quantity(target) => {
+            if package.node_kind(target) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+            {
+                return Err((
+                    ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                    Some(target.clone()),
+                ));
+            }
+            match identities
+                .declaration_identity(package, target)
+                .map_err(|code| (code, Some(target.clone())))?
+            {
+                SelectedExactIdentity::DeclaredUnit(unit @ UnitId::Declared(_)) => {
+                    Ok(ValueType::Quantity(unit.clone()))
+                }
+                _ => Err((
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    Some(target.clone()),
+                )),
+            }
+        }
         MemberType::Float32
         | MemberType::Float64
         | MemberType::Bytes
@@ -606,7 +659,6 @@ fn project_record_field_type(
         | MemberType::TextBounds(_)
         | MemberType::Tuple(_)
         | MemberType::Variant(_)
-        | MemberType::Quantity(_)
         | MemberType::Option(_)
         | MemberType::Collection { .. } => {
             Err((ExactTypeProjectionErrorCode::UnsupportedExactType, None))
@@ -802,7 +854,9 @@ impl CheckedPackageV2 {
                     } else {
                         member_type
                     };
-                    if let MemberType::Reference(target) | MemberType::Record(target) = member_type
+                    if let MemberType::Reference(target)
+                    | MemberType::Record(target)
+                    | MemberType::Quantity(target) = member_type
                     {
                         charge_work(
                             requested,
@@ -849,6 +903,22 @@ impl CheckedPackageV2 {
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                     work,
                 ));
+            }
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Unit) => {
+                match identities
+                    .declaration_identity(self, type_id)
+                    .map_err(|code| refuse(code, work))?
+                {
+                    SelectedExactIdentity::DeclaredUnit(unit @ UnitId::Declared(_)) => {
+                        ValueType::Quantity(unit.clone())
+                    }
+                    _ => {
+                        return Err(refuse(
+                            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                            work,
+                        ));
+                    }
+                }
             }
             _ => {
                 return Err(refuse(

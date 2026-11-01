@@ -21,7 +21,7 @@ use quire_contract_model::{
 };
 use quire_exact::{
     record, ConstructionCause, EffectiveId, FieldValue, Integer, MemberId, MemberOwner, NodeKey,
-    OriginalDeclarationKey, PathSegment, Presence, Value as ExactValue, ValueType,
+    OriginalDeclarationKey, PathSegment, Presence, UnitId, Value as ExactValue, ValueType,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -705,6 +705,220 @@ fn admit(document: &Value, declared: &[(&str, &str)], reads: &[Read]) -> Checked
         CheckedPackageV2ReadResult::Admitted(package) => *package,
         other => panic!("expected admission, got {other:?}"),
     }
+}
+
+#[test]
+fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
+    let mut selected = document(vec![typed_object(
+        "Receipt",
+        "record",
+        &[],
+        &[field("duration", "ix://quire/unit/acme/orders/second")],
+    )]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind": {"module": IDENTITY, "name": "record"},
+        "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+    }));
+    selected["dimensions"] = json!([{
+        "identity": "ix://acme/orders/dimension/Time", "name": "Time", "base": true, "terms": []
+    }]);
+    selected["units"] = json!([{
+        "identity": "ix://acme/orders/unit/second", "name": "second",
+        "dimension": "ix://acme/orders/dimension/Time", "scale": "1", "offset": "0"
+    }]);
+    let (mut wire, _, _) = package(&selected, &[("Receipt", "record_value_type")], &[]);
+    let dimension = structural_id(
+        IDENTITY,
+        vec![
+            json!("scalar_type"),
+            json!("dimension"),
+            json!("ix://acme/orders/dimension/Time"),
+        ],
+        0,
+    );
+    let unit = structural_id(
+        IDENTITY,
+        vec![
+            json!("scalar_type"),
+            json!("unit"),
+            json!("ix://acme/orders/unit/second"),
+        ],
+        0,
+    );
+    let nodes = wire["semantic_graph"]["nodes"].as_array_mut().unwrap();
+    nodes.push(json!({
+        "node_id": dimension, "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "scalar_type", "semantic_form": "dimension", "semantic_type": dimension,
+        "dependencies": [], "occurrences": [{"role": "generated", "ordinal": 0}],
+        "owner": {"kind": "model", "identity": IDENTITY, "node": "ix://acme/orders/dimension/Time"},
+        "body": {"term": "aggregate", "members": []}
+    }));
+    nodes.push(json!({
+        "node_id": unit, "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "scalar_type", "semantic_form": "unit", "semantic_type": dimension,
+        "dependencies": [dimension], "occurrences": [{"role": "generated", "ordinal": 0}],
+        "owner": {"kind": "model", "identity": IDENTITY, "node": "ix://acme/orders/unit/second"},
+        "body": {"term": "aggregate", "members": []}
+    }));
+    let text_type = node_id("scalar_type/text");
+    let integer_type = node_id("scalar_type/integer");
+    nodes.push(wire_node(
+        "scalar_type/text",
+        "scalar_type",
+        "text",
+        "scalar_type/text",
+        &[],
+        empty(),
+    ));
+    nodes.push(wire_node(
+        "scalar_type/integer",
+        "scalar_type",
+        "integer",
+        "scalar_type/integer",
+        &[],
+        empty(),
+    ));
+    let parameter = structural_id(
+        "test/families",
+        vec![
+            json!("value"),
+            json!("parameter"),
+            json!("duration"),
+            json!("0"),
+        ],
+        0,
+    );
+    nodes.push(json!({
+        "node_id": parameter, "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "value", "semantic_form": "parameter", "semantic_type": unit,
+        "dependencies": [], "occurrences": [{"role": "expression", "ordinal": 0}],
+        "body": {"term": "aggregate", "members": [
+            {"term": "binding", "name": "name", "value": {"term": "literal", "type": text_type, "value_kind": "text", "value": "duration"}},
+            {"term": "binding", "name": "level", "value": {"term": "literal", "type": integer_type, "value_kind": "integer", "value": "0"}}
+        ]}
+    }));
+    settle(&mut wire);
+    let evidence = evidence_with_document(&wire, IDENTITY, &selected);
+    let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
+        other => panic!("selected declared unit fixture must admit: {other:?}"),
+    };
+    let unit: CheckedNodeId = serde_json::from_value(unit).unwrap();
+    let parameter: CheckedNodeId = serde_json::from_value(parameter).unwrap();
+    let record: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key("Receipt", "record_value_type"))).unwrap();
+    let record_key = NodeKey::new("checked", vec![PathSegment::Text("Receipt".into())], 0).unwrap();
+    let unit_id = UnitId::declared(
+        NodeKey::new("checked", vec![PathSegment::Text("second".into())], 0).unwrap(),
+    );
+    let record_row = SelectedExactDeclarationRow::new(
+        record.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        orders("Receipt"),
+        SelectedExactIdentity::Record(record_key.clone()),
+    );
+    let unit_row = SelectedExactDeclarationRow::new(
+        unit.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::DeclaredUnit,
+        "ix://acme/orders/unit/second",
+        SelectedExactIdentity::DeclaredUnit(unit_id.clone()),
+    );
+    let field_row = SelectedExactFieldRow::new(
+        record.clone(),
+        IDENTITY,
+        orders("Receipt"),
+        format!("{}/duration", orders("Receipt")),
+        MemberId::new(MemberOwner::Node(record_key), "duration").unwrap(),
+    );
+
+    let missing = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [record_row.clone()],
+        [field_row.clone()],
+    )
+    .unwrap();
+    let missing_error = admitted
+        .project_exact_type(&record, &missing, 100)
+        .unwrap_err();
+    assert_eq!(
+        missing_error.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    assert_eq!(missing_error.at.as_deref(), Some(&unit));
+
+    let mut wrong_original = unit_row.clone();
+    wrong_original.original_identity = "ix://acme/orders/unit/other".into();
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            [record_row.clone(), wrong_original],
+            [field_row.clone()]
+        )
+        .unwrap_err()
+        .code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut wrong_document = unit_row.clone();
+    wrong_document.selected_document = "another/document".into();
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            [record_row.clone(), wrong_document],
+            [field_row.clone()]
+        )
+        .unwrap_err()
+        .code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut wrong_form = unit_row.clone();
+    wrong_form.form = SelectedExactDeclarationForm::RecordValueType;
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            [record_row.clone(), wrong_form],
+            [field_row.clone()]
+        )
+        .unwrap_err()
+        .code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut foreign = unit_row.clone();
+    foreign.structural_node.package = "foreign".into();
+    assert_eq!(
+        SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            [record_row.clone(), foreign],
+            [field_row.clone()]
+        )
+        .unwrap_err()
+        .code,
+        ExactTypeProjectionErrorCode::ForeignNode
+    );
+
+    let witnessed =
+        SelectedExactIdentities::from_stage_rows(&admitted, [record_row, unit_row], [field_row])
+            .unwrap();
+    let projected = admitted
+        .project_exact_type(&record, &witnessed, 100)
+        .unwrap();
+    assert_eq!(
+        admitted
+            .project_exact_type(&parameter, &witnessed, 10)
+            .unwrap()
+            .value_type(),
+        &ValueType::Quantity(unit_id.clone())
+    );
+    let view = projected.record_view().unwrap();
+    assert_eq!(view.fields().len(), 1);
+    assert_eq!(view.fields()[0].value_type(), &ValueType::Quantity(unit_id));
+    let exhausted = admitted
+        .project_exact_type(&record, &witnessed, 4)
+        .unwrap_err();
+    assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(exhausted.at.as_deref(), Some(&unit));
+    assert_eq!(exhausted.work, 4);
 }
 
 /// Complete record projections read every retained effective field, including
