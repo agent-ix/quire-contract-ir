@@ -5214,8 +5214,8 @@ fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
         &format!("/semantic_graph/nodes/{relation}/body/members/1/value/members/0/value/members/5/value/target"), None);
 }
 
-/// FR-352-AC-10: the public stage-row join uses admitted member identities.
-#[trace("TC-056", "FR-352-AC-10", "FR-354-AC-3")]
+/// The public stage-row join uses admitted member identities.
+#[trace("TC-056")]
 #[test]
 fn selected_operation_member_rows_join_only_admitted_model_anchors() {
     let fixture = ModelPackage::new();
@@ -5238,6 +5238,13 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
     assert_eq!(
         selected.read(&admitted, &anchor).expect("admitted row"),
         &row
+    );
+    assert_eq!(
+        selected
+            .read(&admitted.clone(), &anchor)
+            .expect_err("index belongs to one admission")
+            .code,
+        SelectedOperationMemberErrorCode::ForeignPackage
     );
     assert_eq!(
         SelectedOperationMembers::from_stage_rows(&admitted, [], 0)
@@ -5321,6 +5328,6 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
         SelectedOperationMembers::from_stage_rows(&source_package, [source_row], 16)
             .expect_err("source anchor has no selected model member")
             .code,
-        SelectedOperationMemberErrorCode::UnavailableModelMember
+        SelectedOperationMemberErrorCode::UnavailableWitness
     );
 }

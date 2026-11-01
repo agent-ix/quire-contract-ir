@@ -72,7 +72,7 @@ pub struct SelectedOperationMemberError {
     pub attempted_work: u64,
 }
 
-/// Complete validated QSL-stage rows for one admitted checked package.
+/// Complete validated QSL-stage rows for one admitted checked package instance.
 ///
 /// A missing row remains missing: this index never derives a selected
 /// operation identity from the anchor's display name.
@@ -132,7 +132,7 @@ impl<'a> SelectedOperationMembers<'a> {
             };
             let Some(owner) = package.models.owner_by_key(&body.context) else {
                 return Err(refusal(
-                    SelectedOperationMemberErrorCode::UnavailableModelMember,
+                    SelectedOperationMemberErrorCode::UnavailableWitness,
                     anchor,
                     consumed,
                 ));
@@ -152,7 +152,7 @@ impl<'a> SelectedOperationMembers<'a> {
             };
             if package.node_kind(&body.context) != Some(CheckedNodeKind::Model(form)) {
                 return Err(refusal(
-                    SelectedOperationMemberErrorCode::UnavailableModelMember,
+                    SelectedOperationMemberErrorCode::UnavailableWitness,
                     anchor,
                     consumed,
                 ));
@@ -199,13 +199,14 @@ impl<'a> SelectedOperationMembers<'a> {
     /// Read the validated producer row for an admitted anchor.
     ///
     /// Returns a typed missing-witness outcome; it never finds an operation by
-    /// name or treats a row from a different package as selected here.
+    /// name or treats a row from a different admission as selected here. A
+    /// cloned package needs its own index joined from the producer rows.
     pub fn read(
         &self,
         package: &CheckedPackageV2,
         anchor: &CheckedNodeId,
     ) -> Result<&SelectedOperationMemberRow, SelectedOperationMemberError> {
-        if !std::ptr::eq(self.package, package) && self.package != package {
+        if !std::ptr::eq(self.package, package) {
             return Err(refusal(
                 SelectedOperationMemberErrorCode::ForeignPackage,
                 anchor,
