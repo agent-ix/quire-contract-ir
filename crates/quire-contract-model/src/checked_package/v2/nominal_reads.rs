@@ -166,7 +166,7 @@ pub struct DimensionRead<'a> {
 
 /// A complete selected unit closure, not a second unit graph implementation.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UnitResolverRead<'a> {
+pub struct UnitDefinitionRead<'a> {
     /// Units in the caller's selected order; every target has a witnessed row.
     pub units: Vec<UnitRead<'a>>,
     /// Complete dimension dependency closure, in first-encounter order.
@@ -245,12 +245,12 @@ impl CheckedPackageV2 {
     /// Every requested unit needs a unique row, and every target must
     /// occur exactly once; roots retain `None`, not an invented self edge.
     /// Opaque Exact identities remain producer facts, as FR-352 specifies.
-    pub fn read_unit_resolver<'a>(
+    pub fn read_unit_definition<'a>(
         &'a self,
         requested: &'a [CheckedNodeId],
         rows: &'a [NominalDeclarationRow<'a>],
         limit: u64,
-    ) -> Result<UnitResolverRead<'a>, NominalReadError<'a>> {
+    ) -> Result<UnitDefinitionRead<'a>, NominalReadError<'a>> {
         let mut budget = Budget { work: 0, limit };
         let mut units = Vec::new();
         let mut nodes = BTreeSet::new();
@@ -352,7 +352,7 @@ impl CheckedPackageV2 {
                 terms,
             });
         }
-        Ok(UnitResolverRead {
+        Ok(UnitDefinitionRead {
             units,
             dimensions,
             work: budget.work,

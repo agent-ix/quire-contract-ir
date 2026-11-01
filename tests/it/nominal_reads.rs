@@ -6,7 +6,7 @@ use crate::support::checked_package::{
     canonical, evidence_for, node_id, nominal_fixture_members, nominal_package,
 };
 use ix_trace_rs::trace;
-use quire_contract_model::nominal_runtime::{
+use quire_contract_model::nominal_reads::{
     EnumMemberRow, NominalDeclarationRow, NominalIdentity, NominalReadCode,
 };
 use quire_contract_model::{
@@ -129,7 +129,7 @@ fn unit_read_borrows_root_target_exact_scale_offset_and_stage_identity() {
     ];
     let requested = [root.node_id.clone(), converted.node_id.clone()];
     let view = package
-        .read_unit_resolver(&requested, &rows, 10_000)
+        .read_unit_definition(&requested, &rows, 10_000)
         .unwrap();
     assert_eq!(view.units.len(), 2);
     assert_eq!(view.dimensions.len(), 1);
@@ -149,12 +149,12 @@ fn unit_read_borrows_root_target_exact_scale_offset_and_stage_identity() {
     assert_eq!(view.units[1].offset.denominator.as_ref(), "2");
     assert_eq!(
         package
-            .read_unit_resolver(&requested, &rows, view.work)
+            .read_unit_definition(&requested, &rows, view.work)
             .unwrap(),
         view
     );
     let error = package
-        .read_unit_resolver(&requested, &rows, view.work - 1)
+        .read_unit_definition(&requested, &rows, view.work - 1)
         .unwrap_err();
     assert_eq!(error.code, NominalReadCode::LimitReached);
     assert_eq!(error.work, view.work);
@@ -162,7 +162,7 @@ fn unit_read_borrows_root_target_exact_scale_offset_and_stage_identity() {
     assert_eq!(
         package
             .clone()
-            .read_unit_resolver(&requested, &rows, 10_000)
+            .read_unit_definition(&requested, &rows, 10_000)
             .unwrap(),
         view
     );
@@ -183,14 +183,14 @@ fn unit_read_refuses_missing_foreign_and_competing_selected_rows() {
     let requested = [root.node_id.clone(), converted.node_id.clone()];
     assert_eq!(
         package
-            .read_unit_resolver(&requested, &[], 10_000)
+            .read_unit_definition(&requested, &[], 10_000)
             .unwrap_err()
             .code,
         NominalReadCode::MissingWitness
     );
     assert_eq!(
         package
-            .read_unit_resolver(
+            .read_unit_definition(
                 &requested[1..],
                 std::slice::from_ref(&converted_row),
                 10_000
@@ -209,14 +209,14 @@ fn unit_read_refuses_missing_foreign_and_competing_selected_rows() {
     };
     assert_eq!(
         package
-            .read_unit_resolver(&requested, &[wrong, converted_row.clone()], 10_000)
+            .read_unit_definition(&requested, &[wrong, converted_row.clone()], 10_000)
             .unwrap_err()
             .code,
         NominalReadCode::ForeignWitness
     );
     assert_eq!(
         package
-            .read_unit_resolver(&requested, &[root_row.clone(), root_row.clone()], 10_000)
+            .read_unit_definition(&requested, &[root_row.clone(), root_row.clone()], 10_000)
             .unwrap_err()
             .code,
         NominalReadCode::ConflictingWitness
@@ -227,7 +227,7 @@ fn unit_read_refuses_missing_foreign_and_competing_selected_rows() {
     };
     assert_eq!(
         package
-            .read_unit_resolver(&requested, &[root_row, competing], 10_000)
+            .read_unit_definition(&requested, &[root_row, competing], 10_000)
             .unwrap_err()
             .code,
         NominalReadCode::ConflictingWitness
@@ -331,7 +331,7 @@ fn enum_read_refuses_missing_duplicate_and_foreign_member_joins() {
 
 #[test]
 #[trace("FR-354-AC-5")]
-fn dangling_unit_targets_cannot_enter_an_admitted_runtime_view() {
+fn dangling_unit_targets_cannot_enter_an_admitted_view() {
     let mut members = nominal_fixture_members();
     members[2].0["target_unit_node_id"] = node_id("qualified:Example/Missing");
     let wire: Value = nominal_package(&members);
@@ -377,7 +377,7 @@ fn names_do_not_substitute_for_selected_node_or_member_identity() {
     };
     assert_eq!(
         package
-            .read_unit_resolver(std::slice::from_ref(&missing), &[wrong], 10_000)
+            .read_unit_definition(std::slice::from_ref(&missing), &[wrong], 10_000)
             .unwrap_err()
             .code,
         NominalReadCode::MissingNode
@@ -399,13 +399,13 @@ fn malformed_rows_cannot_walk_empty_segments_or_copy_a_locus_after_exhaustion() 
         ..row(root, NominalIdentity::Unit(&identity))
     }];
     let error = package
-        .read_unit_resolver(&requested, &rows, 500)
+        .read_unit_definition(&requested, &rows, 500)
         .unwrap_err();
     assert_eq!(error.code, NominalReadCode::LimitReached);
     assert_eq!(error.work, 501);
     assert!(std::ptr::eq(error.node, &root.node_id));
     let error = package
-        .read_unit_resolver(&requested, &rows, 0)
+        .read_unit_definition(&requested, &rows, 0)
         .unwrap_err();
     assert_eq!(error.code, NominalReadCode::LimitReached);
     assert!(std::ptr::eq(error.node, &root.node_id));
@@ -422,7 +422,7 @@ fn derived_dimension_dependencies_are_returned_as_borrowed_canonical_terms() {
     let requested = [square.node_id.clone()];
     let rows = [row(square, NominalIdentity::Unit(&identity))];
     let view = package
-        .read_unit_resolver(&requested, &rows, 10_000)
+        .read_unit_definition(&requested, &rows, 10_000)
         .unwrap();
     assert_eq!(view.dimensions.len(), 2);
     assert!(std::ptr::eq(view.dimensions[0].node, area));
