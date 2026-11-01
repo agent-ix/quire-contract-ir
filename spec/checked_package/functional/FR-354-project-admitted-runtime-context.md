@@ -43,6 +43,12 @@ owns runtime interpretation and supplied-state admission.
   acquisition contract; current `SelectedExactIdentities` does not contain
   them, so a read requiring one SHALL refuse until the producer supplies it.
   A bare name or Exact key does not establish selection.
+- For a model-owned operation anchor, the `SelectedOperationMemberRow` acquired
+  under [FR-352](./FR-352-project-admitted-exact-value-types.md): full admitted
+  anchor key, selected document, declaring model form and original model/member
+  identities, and the stage's selected operation identity. The public callable
+  read SHALL take this row through a typed admitted join; an absent row or an
+  anchor outside a selected model SHALL return typed unavailable-witness.
 
 ## Outputs
 
@@ -72,7 +78,13 @@ environment was itself the producer's checked result.
 When the consumer requests callables, Contract IR SHALL expose a table keyed
 by admitted callable and operation identities, with each callable's ordered
 parameters, body handle, model context and admitted effect frame where
-applicable. A handle SHALL resolve only to a term of that admitted package.
+applicable. For a model-owned operation anchor, the callable read SHALL consume
+the [FR-352](./FR-352-project-admitted-exact-value-types.md) stage row through
+its public admitted join and SHALL refuse a missing, foreign or conflicting
+row before returning a callable view. A source-declared operation anchor with
+no selected model member SHALL return typed unavailable-witness. A pure
+function node with no operation anchor needs no operation-member row.
+A callable body handle SHALL resolve only to a term of that admitted package.
 It SHALL preserve an intentionally empty frame and distinguish it from a
 missing frame. The table SHALL NOT treat a call expression or a similarly
 named declaration as proof of a callable definition.
@@ -109,7 +121,7 @@ typed outcomes.
 |----|----------|--------------|
 | FR-354-AC-1 | With the FR-352 and additional QSL-stage rows for selected tuples and source-owned units, a public IR-model read supplies complete record, tuple and object declarations, effective fields, ancestry and units from which QSL constructs the expected `TypeEnvironment`; no source or JSON is reparsed. Before those additional producer rows exist, a tuple or source-owned unit request refuses rather than claiming a complete view. | Test |
 | FR-354-AC-2 | A missing, foreign, duplicated or conflicting selected declaration, field, parent or unit identity, including an additional tuple or source-unit row, returns a named typed outcome before any partial type-environment view; matching display names do not make a join. | Test |
-| FR-354-AC-3 | The callable projection returns each selected function or operation's ordered parameters, admitted body handle, context and frame, including an intentionally empty frame; a dangling body, wrong owner or absent required frame returns a typed outcome. | Test |
+| FR-354-AC-3 | Given a matching FR-352 `SelectedOperationMemberRow`, the callable projection returns each selected model-owned operation's ordered parameters, admitted body handle, context and frame, including an intentionally empty frame; a pure function can be read from its admitted node without that row. A missing or conflicting model-member row, a source-declared operation anchor without its own producer witness, a dangling body, wrong owner or absent required frame returns a typed outcome without a callable view. | Test |
 | FR-354-AC-4 | The dispatch projection preserves every admitted candidate in producer order with its effective precondition term reference; a missing or ambiguous candidate/precondition join refuses without choosing a candidate or evaluating a predicate. | Test |
 | FR-354-AC-5 | With QSL-stage unit rows for source-owned declarations, a selected root and converted unit yield exact dimension, target, scale, offset and witnessed identity sufficient for `UnitTable`; absent rows, a dangling target, foreign identity or unresolved conversion return a typed outcome without a partial resolver. | Test |
 | FR-354-AC-6 | With QSL-stage enum declaration and member rows, an ordered and an unordered selected enum each yield exact case order, member identity and position sufficient for `EnumMemberIndex`; absent, duplicate, mismatched-case or foreign member witnesses refuse before any partial index. | Test |
