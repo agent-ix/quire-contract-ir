@@ -14,6 +14,7 @@ use quire_exact::{
     Presence, UnitId, ValueType,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 /// The Exact identity produced for one selected declaration form.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -328,8 +329,8 @@ impl SelectedEnumMemberRow {
 /// until the selected-model stage supplies a complete identity witness.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SelectedExactIdentities {
-    declarations: BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>,
-    fields: Vec<SelectedExactFieldRow>,
+    declarations: Arc<BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>>,
+    fields: Arc<Vec<SelectedExactFieldRow>>,
     admitted_tuples: BTreeMap<CheckedNodeId, NodeKey>,
     admitted_source_units: BTreeMap<CheckedNodeId, UnitId>,
 }
@@ -395,7 +396,7 @@ impl SelectedExactIdentities {
                     ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
                 ));
             }
-            selected.declarations.insert(node.clone(), row);
+            Arc::make_mut(&mut selected.declarations).insert(node.clone(), row);
         }
         let mut seen_fields = BTreeSet::new();
         let mut seen_members = BTreeSet::new();
@@ -442,7 +443,7 @@ impl SelectedExactIdentities {
                     ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
                 ));
             }
-            selected.fields.push(row);
+            Arc::make_mut(&mut selected.fields).push(row);
         }
         Ok(selected)
     }
@@ -1004,7 +1005,7 @@ impl CheckedPackageV2 {
                     ));
                 }
                 let mut member_rows = BTreeMap::new();
-                for row in &identities.fields {
+                for row in identities.fields.iter() {
                     charge_work(
                         requested,
                         type_id,

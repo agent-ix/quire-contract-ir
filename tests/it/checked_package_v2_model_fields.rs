@@ -1199,6 +1199,72 @@ fn selected_record_field_uses_witnessed_tuple_key() {
     );
 }
 
+#[test]
+#[trace("FR-354-AC-7")]
+fn selected_record_many_fields_respects_exact_work_boundary() {
+    let record = orders("Receipt");
+    let mut selected = document(vec![typed_object("Receipt", "record", &[], &[])]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind": {"module": IDENTITY, "name": "record"},
+        "construct": {"meaning": "quire.meaning.model.record-value-type/v1"}
+    }));
+    let names = (0..128)
+        .map(|index| format!("field{index:03}{}", "x".repeat(96)))
+        .collect::<Vec<_>>();
+    for name in &names {
+        selected["types"][0]["fields"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "identity": format!("{record}/{name}"), "name": name,
+                "typeRef": "ix://quire/native/Boolean", "presence": "required",
+                "nullable": false, "defaultKind": "none",
+                "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}
+            }));
+    }
+    let admitted = admit(&selected, &[("Receipt", "record_value_type")], &[]);
+    let record_node: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key("Receipt", "record_value_type"))).unwrap();
+    let record_key =
+        NodeKey::new("record-stage", vec![PathSegment::Text("r".repeat(4096))], 0).unwrap();
+    let declaration = SelectedExactDeclarationRow::new(
+        record_node.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        record.clone(),
+        SelectedExactIdentity::Record(record_key.clone()),
+    );
+    let fields = names
+        .iter()
+        .map(|name| {
+            SelectedExactFieldRow::new(
+                record_node.clone(),
+                IDENTITY,
+                record.clone(),
+                format!("{record}/{name}"),
+                MemberId::new(MemberOwner::Node(record_key.clone()), name.as_str()).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let identities =
+        SelectedExactIdentities::from_stage_rows(&admitted, [declaration], fields).unwrap();
+    assert_eq!(identities.field_rows().len(), names.len());
+    let view = admitted
+        .project_selected_type_declarations(&identities, &[], &[], 30_000)
+        .unwrap();
+    assert_eq!(view.records()[0].view().fields().len(), names.len());
+    assert_eq!(view.records()[0].view().fields()[0].name(), names[0]);
+    assert_eq!(view.records()[0].view().fields()[127].name(), names[127]);
+    assert!(view.work() < 30_000);
+    assert!(admitted
+        .project_selected_type_declarations(&identities, &[], &[], view.work())
+        .is_ok());
+    let one_less = admitted
+        .project_selected_type_declarations(&identities, &[], &[], view.work() - 1)
+        .unwrap_err();
+    assert_eq!(one_less.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+}
+
 #[trace("FR-352-AC-5")]
 #[test]
 fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
