@@ -53,6 +53,7 @@ macro_rules! closed_vocabulary {
 
         impl $name {
             /// Every member, in schema order.
+            #[allow(dead_code)]
             pub const ALL: &'static [Self] = &[$(Self::$variant,)+];
 
             /// The exact wire string.
@@ -65,10 +66,14 @@ macro_rules! closed_vocabulary {
             /// Decodes a wire string; `None` outside the vocabulary.
             // The one place a vocabulary's wire string is read.
             pub fn from_wire(wire: &str) -> Option<Self> {
-                Self::ALL
-                    .iter()
-                    .copied()
-                    .find(|candidate| candidate.as_wire() == wire)
+                // A `match` over the wire literals, not a scan of `ALL`: the
+                // same total mapping, but it never materializes a slice of
+                // a single-variant (zero-sized) vocabulary, which Kani 0.68.0
+                // cannot compile (division by zero in const `&[T]` codegen).
+                match wire {
+                    $($wire => Some(Self::$variant),)+
+                    _ => None,
+                }
             }
         }
 
@@ -817,5 +822,46 @@ mod timed_model_vocabulary_tests {
         }
         assert_eq!(CheckedNodeKind::decode(tag, "hybrid_mode"), None);
         assert_eq!(CheckedNodeKind::decode(tag, "clock_rate"), None);
+    }
+}
+
+#[cfg(test)]
+mod from_wire_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+
+    /// `from_wire` inverts `as_wire` over every member of a vocabulary
+    /// (including the single-variant `ExtensionForm`), and refuses any other
+    /// string, including a near miss and the empty string.
+    #[trace("TC-048")]
+    #[test]
+    fn from_wire_round_trips_every_member_and_refuses_the_rest() {
+        fn check<T: Copy + Eq + core::fmt::Debug>(
+            all: &[T],
+            as_wire: fn(T) -> &'static str,
+            from_wire: fn(&str) -> Option<T>,
+        ) {
+            for member in all {
+                assert_eq!(from_wire(as_wire(*member)), Some(*member));
+                assert_eq!(from_wire(&format!("{}x", as_wire(*member))), None);
+            }
+            assert_eq!(from_wire(""), None);
+        }
+        check(
+            ExtensionForm::ALL,
+            ExtensionForm::as_wire,
+            ExtensionForm::from_wire,
+        );
+        check(HybridForm::ALL, HybridForm::as_wire, HybridForm::from_wire);
+        check(
+            TimedModelForm::ALL,
+            TimedModelForm::as_wire,
+            TimedModelForm::from_wire,
+        );
+        assert_eq!(ExtensionForm::ALL, &[ExtensionForm::ExtensionForm]);
+        assert_eq!(
+            ExtensionForm::from_wire("extension_form"),
+            Some(ExtensionForm::ExtensionForm)
+        );
     }
 }
