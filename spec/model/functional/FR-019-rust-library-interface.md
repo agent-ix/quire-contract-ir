@@ -190,9 +190,11 @@ retired nominal identity preimage and add no distinct consumer operation.
 construction path. This table names the intended public surface after
 IR-1141; until its code lands, FR-019-AC-5 remains unbacked for these rows.
 
-FR-051 specifies `CheckedPackageSourceCorrespondenceRef`, the optional
-`CheckedTermDataV2` input and `encode_checked_package_v2`, which are exported by
-the default-feature model crate. FR-052 and FR-053 specify additional public
+FR-051 specifies `CheckedPackageSourceCorrespondenceRef` and
+`encode_checked_package_v2`, which are exported by the default-feature model
+crate. FR-061 specifies the planned `CheckedTermDataV2` writer sidecar and
+optional encoder input; these are not exported until IR-1219's code lands.
+FR-052 and FR-053 specify additional public
 model APIs; their owning requirements retain those API obligations, including
 the planned IR-1141 structural selection controls of FR-053.
 FR-038-AC-324 specifies the planned `CheckedProtocolActivation` and
@@ -227,12 +229,13 @@ operation has its own owning requirement, as listed below.
 | `checked_package` (V2 Exact type projection and operation witness) | types `ExactTypeProjection`, `ExactTypeProjectionError`, `ExactTypeProjectionErrorCode`, `SelectedEnumDeclarationRow`, `SelectedEnumMemberRow`, `SelectedExactDeclarationForm`, `SelectedExactDeclarationRow`, `SelectedExactFieldRow`, `SelectedExactIdentities`, `SelectedExactIdentity`, `SelectedOperationIdentity`, `SelectedOperationMemberError`, `SelectedOperationMemberErrorCode`, `SelectedOperationMemberRow`, `SelectedOperationMembers`, `SelectedRecordFieldView`, `SelectedRecordView`, `SelectedSourceUnitRow`, `SelectedTupleDeclarationRow` | FR-352, FR-354 |
 | `checked_package` (V2 nominal body fields) | type `DimensionTerm` | FR-038-AC-5 |
 | `checked_package` (V2 nominal body construction and enum view) | opaque type `NominalBody` with four fallible body-shape constructors and a read-only borrowed enum-details accessor | FR-038-AC-374, FR-038-AC-375 |
+| `checked_package` (V2 nominal runtime reads) | module `nominal_runtime` | FR-354 |
 | `checked_package` (V2 typed terms) | types `ApplicationOperator`, `CheckedAbstractionField`, `CheckedAbstractionFrame`, `CheckedAbstractionObject`, `CheckedAbstractionParameter`, `CheckedAbstractionPopulation`, `CheckedFieldScope`, `CheckedFrameModification`, `CheckedScopedDeletion`, `CheckedTerm`, `LiteralKind` | FR-349 |
 | `checked_package` (V2 typed read views) | types `CheckedBindingName`, `CheckedBindingNameKind`, `CheckedLiteralRead`, `CheckedLiteralValue`, `CheckedOperationRead`, `CheckedOperationMember`, `CheckedFieldReadForm`, `CheckedOperationConstraint`, `CheckedOperationLeaf`, `CheckedOperationLaw`, `CheckedOperationMode`, `CheckedOperationInterval`, `CheckedOperationRational`, `CheckedIntervalEnd`, `CheckedFairnessKind`, `CheckedFairnessGranularity`, `LawRole`, `OperationMemberKind`, `OperationConstraintKind` | FR-349 |
 | `checked_package` (V2 execution point and admitted operation views) | types `CheckedApplicationOperation`, `CheckedExecutionPointError`, `CheckedExecutionPointRefusal`, `CheckedOperationAnchorBody`, `CheckedOperationModeView`, `CheckedOperationViewError`, `OperationModeKind`, `StateClauseKind`; its NotAdmitted refusal distinguishes absent admission from admitted absence; the point accessor returns the canonical point type from the identity module; operation views are owned by FR-038 and FR-040 | FR-011, FR-038, FR-040, FR-058, FR-066 |
 | `checked_package` (V2 refinement catalog and source rows) | types `CheckedRefinementInternal`, `CheckedRefinementStepRowRegion`, `RefinementAbstractClass`, `RefinementClassCatalog`, `RefinementConcreteClass`, `RefinementDrain`, `RefinementMemoryClass`, `RefinementMemoryModel`, `RefinementTsoModel` | FR-061 |
 | `checked_package` (V2 extension evidence) | types `CheckedExtensionClauseSchema`, `CheckedExtensionDefinition`, `CheckedExtensionGrammarSchema`, `CheckedExtensionNodeSchema`, `CheckedExtensionProduction`, `CheckedExtensionRefusalDetail`, `CheckedExtensionTypedNodeSchema` | FR-348 |
-| `checked_package` (V2 envelope encoder) | types `CheckedPackageSourceCorrespondenceRef`, `CheckedTermDataV2`; function `encode_checked_package_v2` with an optional borrowed `CheckedTermDataV2` argument | FR-051, FR-061 |
+| `checked_package` (V2 envelope encoder) | type `CheckedPackageSourceCorrespondenceRef`; function `encode_checked_package_v2` | FR-051 |
 | `checked_package` (V2 scalar operands) | types `CheckedScalarOperand`, `CheckedScalarOperandChild`, `CheckedScalarOperandError`, `CheckedScalarOperandRange` | FR-038 |
 | `checked_package` (V2 parameter declaration) | types `CheckedParameterDeclaration`, `CheckedParameterDeclarationError` | FR-038 |
 | `checked_package` (V2 step relation claim) | types `CheckedStepExecution`, `CheckedStepRelationBody`, `CheckedStepRelationCapability`, `CheckedStepRelationObligationIdentity` | FR-351 |
