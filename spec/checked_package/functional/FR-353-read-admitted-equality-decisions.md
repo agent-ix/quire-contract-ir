@@ -46,12 +46,18 @@ as that decision.
   A caller-created operation name or pair of type nodes is not such a decision.
 - Selected QSL-stage Exact identity and descriptor rows supplied alongside the
   admitted package to the IR read, not added to QSpec V2 wire. The rows name
-  the source declared `UnitId`, compound `UnitId`, model enum declaration
+  each equality application's original `NodeKey` and authored `Location` by
+  full emitted structural node and occurrence; dimension-declaration,
+  base-dimension-term and ordered conversion-edge-target `NodeKey`s by full
+  structural node, selected producer document/context and unit-fact role; source declared
+  `UnitId`, compound `UnitId`, model enum declaration
   `NodeKey`, model enum member `NodeKey`, Text type identity and Plan type
   identity needed by the selected equality's operand source/conversion types
-  and resolved unit/enum facts. Each row carries its admitted structural node,
-  selected source or model document, original declaration or member identity,
-  and the QSL-issued Exact identity or descriptor. A bare Exact id, display
+  and resolved unit/enum facts. A row carries its admitted structural node,
+  selected source or model document/context and admitted node owner when one
+  exists, original declaration or member
+  identity when present, and the QSL-issued Exact identity or descriptor. The
+  application row additionally carries the exact occurrence. A bare Exact id, display
   name or caller-created row is a claim, not evidence of QSL-stage provenance.
 
 ## Outputs
@@ -106,8 +112,19 @@ operator and operand types.
 The schedule, conversion targets, complete resolved `UnitTable` facts
 and filtered `EnumMemberIndex` facts remain
 facts of the producing checking stage. IR SHALL preserve those facts exactly.
+For QSV's `EqualityDecisionDescriptor.location`, IR SHALL use the original
+application `NodeKey` and authored `Location` supplied for that exact emitted
+equality application and occurrence. It SHALL compare the row's occurrence
+and structural application with the admitted equality decision, require the
+`Location`'s node to equal the row's application `NodeKey`, and preserve
+the original Exact `Origin`. The stage row SHALL state the correspondence
+between that `Origin` and the emitted structural occurrence; a mismatched
+correspondence SHALL refuse the join. IR SHALL NOT mint an Exact application
+key or replace a conflicting authored location from the structural occurrence.
 The IR read SHALL join each selected QSL-stage row to this admitted package's
-selected source or model document, exact structural type/unit/enum node,
+selected source or model document/context and admitted node owner where one
+exists, exact structural application,
+type/unit/dimension/enum node and unit-fact role,
 original declaration or member identity, and the equality decision's
 referenced source/conversion type or resolved unit/enum fact. It SHALL reject
 foreign, duplicate, conflicting, wrong-form or mismatched rows at the first
@@ -116,6 +133,26 @@ chosen Text, Enum, Quantity or Plan schedule SHALL return typed
 `UnavailableEqualityWitness` with the missing structural node and witness
 kind, without minting a QSV value. No caller-supplied row becomes
 authoritative merely because its Exact payload is well formed.
+
+For each QSV unit descriptor, the read SHALL use the original witnessed
+`UnitId`. For a declared form it SHALL use the producer's dimension
+declaration key, ordered dimension-term keys and ordered conversion-edge
+target keys. For a compound form it SHALL use the ordered dimension-term
+keys. IR SHALL match each supplied key to the corresponding admitted selected
+unit fact and structural node, including the sidecar's original edge order
+and exact scale/offset. A missing supplied key SHALL return
+`UnavailableEqualityWitness` naming its structural node and role before
+QSV minting. A changed edge target, dimension term or location SHALL refuse
+the join at that fact's structural locus.
+QSV's private admitted construction SHALL unwrap the declared unit key and
+compound root terms from the already witnessed `UnitId`.
+QSV SHALL obtain a declared root from the last retained ordered path target,
+or that declared key for an empty path.
+QSV SHALL NOT select a conversion route or repeat semantic checking in these
+steps, and IR SHALL NOT mint an identity. An Exact quantity-type key,
+duplicate declared-unit key, explicit root key and duplicate
+compound-root-term keys are not required descriptor inputs;
+IR may retain the structural quantity-type fact in the sidecar.
 
 The IR read SHALL perform bounded representation mapping from those admitted
 structural facts and joined QSL-stage identities to QSV-owned operand
@@ -135,7 +172,8 @@ The IR read SHALL include QSV descriptor materialization in the same finite
 work allowance, passing the remaining allowance through QSV's Exact meter.
 It SHALL preserve QSV's original typed `Incomplete` outcome and first failing
 locus on exhaustion, and the QSV typed materialization cause and locus on an
-arithmetic failure, without returning a partial descriptor or opaque value.
+arithmetic or admitted `UnitId` form failure, without returning a partial
+descriptor or opaque value.
 QSV SHALL mechanically fold the sidecar's already selected ordered exact
 affine conversion-edge path with exact arithmetic when its private
 `Unit.canonical` representation requires a scalar. The fold SHALL preserve that
@@ -154,9 +192,11 @@ member index using its private construction boundary, without exposing
 raw-field constructors. The public read SHALL return the QSV value. QSV
 `CheckedEquality::from_admitted_decision(&AdmittedEqualityDecision)` SHALL
 construct the checked value from the retained decision without calling
-`TypeEnvironment::check_equality` or another checking pass. The exact mint
-signature and type mappings depend on QSV IR-1223's published API; this FR
-does not assign them to an IR-owned wrapper.
+`TypeEnvironment::check_equality` or another checking pass. IR SHALL pass its
+joined `EqualityDecisionDescriptor`, QSV `ReaderSeal` and remaining Exact
+`Meter` to QSV's published
+`reader_admission::mint_admitted_equality_decision` boundary and preserve
+QSV's typed materialization failure. This FR assigns no opaque wrapper to IR.
 
 The hidden mint is a public Rust item and can be called by another crate that
 obtains a `ReaderSeal`; `#[doc(hidden)]` does not make it inaccessible. The
@@ -205,8 +245,8 @@ FR-353-AC-7 rather than yielding a partial admitted value.
 | FR-353-AC-3 | An admitted equality application with no authoritative producer decision returns `UnavailableEqualityDecision`; unknown or foreign application, non-application node, non-equality application, ineligible operation and wrong occurrence return their distinct typed outcomes. A non-empty sidecar `term_path` refuses at admission. None returns a fabricated schedule, an empty unit or enum snapshot in place of a required one, or a partial view. | Test |
 | FR-353-AC-4 | A finite work limit equal to the charged read succeeds and one less returns typed exhaustion at the first uncharged application, operand or decision entry, with attempted work. Repeated reads and a package clone give equal outcomes and do not reparse package or selected source bytes. | Test |
 | FR-353-AC-5 | Structural public-API evidence shows that IR's public `CheckedEqualityDecision` remains a raw wire carrier, while the admitted read returns QSV `AdmittedEqualityDecision` with private fields, no public raw-field constructor and a `#[doc(hidden)]` mint requiring QSV `ReaderSeal`; neither mint nor seal is re-exported through IR's public API. Cargo metadata and public-API evidence show QSV below the IR model, no QSL crate dependency in either IR package, and no IR-owned opaque wrapper. The audit records that the public hidden mint remains callable from another crate with a seal, so provenance is an API discipline rather than language-level cross-crate unforgeability; it uses no grep/source scan or hand-maintained caller ledger. QSL's corresponding public-API layering check belongs downstream. | Inspection |
-| FR-353-AC-6 | With selected QSL-stage source `UnitId`, compound `UnitId`, model enum declaration and member `NodeKey`s, Text type identity and Plan type identity rows joined to their exact admitted nodes and selected documents, the reader maps the sidecar's source/conversion types and schedule into QSV admitted descriptors without a checking pass. The QSV opaque value's read-only provenance getters return the exact equality application and occurrence, and its fact getters retain the issued identities, operand/member order, enum cases/ranks/ordered flag, complete held unit facts and conversion data. `CheckedEquality::from_admitted_decision` consumes the value without rebuilding any identity or schedule. | Test |
-| FR-353-AC-7 | For each required witness kind, an absent row returns typed `UnavailableEqualityWitness` naming the missing structural node and kind before QSV minting; a foreign-document, wrong-form, duplicate, conflicting or mismatched row returns a typed refusal at its first structural locus. A work limit equal to the complete type/witness/unit/enum representation mapping admits, and one less returns typed exhaustion before the next charge with no partial descriptor or opaque value. Neither path fabricates an Exact key, substitutes a display name, uses an unsupported general FR-352 projection, or runs semantic checking. | Test |
+| FR-353-AC-6 | With selected QSL-stage application `NodeKey`/authored `Location` per exact equality occurrence, dimension-declaration/base-term/ordered edge-target `NodeKey`s, source and compound `UnitId`s, model enum declaration/member `NodeKey`s, Text type identity and Plan type identity rows joined to their exact admitted nodes and selected producer documents/contexts, the reader maps the sidecar's source/conversion types and schedule into QSV admitted descriptors without a checking pass. QSV privately obtains declared keys, declared roots and compound root terms from the witnessed UnitId and retained path, keeping all full native unit facts in QSV. The QSV opaque value's read-only provenance getters return the original Exact application and occurrence, and its fact getters retain the issued identities, operand/member order, enum cases/ranks/ordered flag, complete held unit facts and conversion data. `CheckedEquality::from_admitted_decision` consumes the value without rebuilding any identity or schedule. | Test |
+| FR-353-AC-7 | For each required witness kind, including application/location, dimension declaration/base terms and ordered edge targets, an absent row returns typed `UnavailableEqualityWitness` naming the missing structural node and kind before QSV minting; a foreign-document, wrong-form, duplicate, conflicting or mismatched row returns a typed refusal at its first structural locus. A work limit equal to the complete application/type/witness/unit/enum representation mapping admits, and one less returns typed exhaustion before the next charge with no partial descriptor or opaque value. Neither path fabricates an Exact key from `CheckedNodeId`, substitutes a display name, uses an unsupported general FR-352 projection, or runs semantic checking. QSV's use of the admitted UnitId and path for its native unit fields does not mint a new identity. | Test |
 | FR-353-AC-8 | For a declared quantity whose selected unit has an ordered exact affine conversion path, QSV's private admitted construction folds that path to the required canonical scalar with exact arithmetic and preserves the selected root and edge order. Changing an edge or root refuses the admitted join; arithmetic impossibility or one-less work returns a typed failure before an opaque decision exists. The fold does not choose another route, invent a unit identity, change a conversion target or recompute the selected equality schedule. | Test |
 
 ## Dependencies
@@ -224,16 +264,26 @@ member and grants no authority to reconstruct a decision from type or catalog da
 QSL [QSL-1398](https://linear.app/agent-ix/issue/QSL-1398) supplies the
 selected source `UnitId` and model enum declaration/member key rows.
 QSL [QSL-1390](https://linear.app/agent-ix/issue/QSL-1390) supplies selected
-compound `UnitId`, Text type identity and Plan type identity rows after
-QSL-1398, the equality emitter, and package-reader use of QSV's
-`CheckedEquality::from_admitted_decision` after the IR read is available.
+equality application `NodeKey`/authored `Location` rows,
+dimension-declaration/base-term/ordered edge-target `NodeKey` rows, compound
+`UnitId`, Text type identity and Plan type identity rows from the same
+checking/emission stage as the equality sidecar. This producer-row delivery
+follows QSL-1398 and is a prerequisite to the complete IR read. After the IR
+read is available, QSL-1390 separately integrates its package reader with
+QSV's `CheckedEquality::from_admitted_decision`.
 These stage rows travel alongside the admitted package to the IR read, not in
 a new QSpec wire member. A missing row leaves the corresponding successful
 read unavailable; IR cannot fill it by inventing an Exact key.
 QSV [IR-1223](https://linear.app/agent-ix/issue/IR-1223)
 owns the opaque admitted value, hidden mint, `ReaderSeal`, no-recheck
 constructor and admitted descriptor path for held unit and filtered enum
-facts. QSV's exact public signatures and type mappings must be published
-before IR fixes its read return signature. IR can verify the raw carrier with
-QSpec vectors and locally built fixtures meanwhile. This FR uses the child's
-existing node identity and adds no second identity domain.
+facts. Its published mint accepts `ReaderSeal`, `EqualityDecisionDescriptor`
+and a shared Exact `Meter`. Merged QSV PR #83 removed the redundant
+quantity-type, declared-key, explicit-root and compound-root-term descriptor
+inputs while preserving QSV's complete native facts and opaque provenance;
+its wrong-`UnitId` form returns typed `IdentityForm` at the unit locus. The IR
+read returns QSV's `AdmittedEqualityDecision` or a typed refusal. IR can verify
+the raw carrier with QSpec vectors and
+locally built fixtures while the producer stage rows are implemented. This
+FR uses the child's existing structural node identity for the wire join and
+preserves the checking stage's separate Exact identity for QSV provenance.
