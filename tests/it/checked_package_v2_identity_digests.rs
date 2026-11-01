@@ -255,6 +255,7 @@ fn encode(package: &CheckedPackageV2, limit: u64) -> Result<Vec<u8>, Error> {
             source_map: package.source_map(),
             refinement_step_rows: package.refinement_step_rows(),
         },
+        package.checked_term_data(),
         package.capability_report(),
         package.diagnostics(),
         Limits::new(limit),

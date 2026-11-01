@@ -87,6 +87,7 @@ fn encode(
             source_map,
             refinement_step_rows: None,
         },
+        None,
         &[],
         diagnostics,
         Limits::new(limit),

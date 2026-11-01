@@ -33,6 +33,7 @@ fn write(read: &CheckedPackageV2) -> Value {
             source_map: read.source_map(),
             refinement_step_rows: read.refinement_step_rows(),
         },
+        read.checked_term_data(),
         read.capability_report(),
         read.diagnostics(),
         Limits::new(1 << 24),
