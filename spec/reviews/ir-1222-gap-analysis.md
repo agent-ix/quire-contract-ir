@@ -31,3 +31,10 @@ The tests correctly exercise the admitted model row join. The full criterion add
 The computed Quoin matrix binds FR-354-AC-6 to the two changed model enum tests and three existing source enum tests. FR-019-AC-5 is bound to four existing public-interface tests. Repository-wide static status is 712 tagged, 143 untagged, 22 method-without-symbol, and one tagged-by-ignored-test; the unrelated inherited gaps are outside this PR diff.
 
 Plan completion: not assessed
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head ead9d58d: the first model enum stage-row test no longer claims FR-354-AC-6; it remains a focused behavior test. After excerpt: `#[test]\nfn model_enum_stage_rows_join_selected_declaration_and_exact_members()`. |
+| FND-002 | fixed | Round 1, head ead9d58d: the second model enum stage-row test no longer claims FR-354-AC-6; it remains a focused adverse join test. After excerpt: `#[test]\nfn model_enum_stage_rows_refuse_foreign_missing_duplicate_and_wrong_case()`. |

@@ -24,3 +24,9 @@ FAIL. A declaration and a member can claim the same Exact NodeKey and both enter
 ## Evidence
 
 The constructor uses `declaration_keys` for declaration rows and a fresh `member_keys` for member rows. A member whose `member_key` equals its declaration row’s `node_key` passes both insertions at lines 215 and 290. Both rows then read successfully with the same Exact identity, contrary to FR-354’s explicit cross-node uniqueness rule. Use one key set across both row kinds and add an adverse public test. The rest of the join validates model owner/form, selected document, original member identity, checked enum body, and package instance.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head ead9d58d: one `exact_keys` set now receives declaration `node_key` and member `member_key`; a new public adverse test supplies the declaration key as a member key and asserts `ConflictingWitness`. After excerpt: `|| !exact_keys.insert(row.member_key.clone())`. |
