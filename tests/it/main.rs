@@ -87,3 +87,5 @@ mod std001_code;
 mod string_edge_gate;
 
 mod nominal_reads;
+
+mod protocol_locations;

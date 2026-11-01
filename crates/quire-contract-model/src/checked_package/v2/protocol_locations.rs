@@ -2,7 +2,7 @@
 //! Validation and borrowed reads of the canonical captured protocol locations.
 //! The common checked-term-data module owns all wire types and decoding.
 
-pub use super::checked_term_data::CheckedProtocolSemanticLocation;
+use super::checked_term_data::CheckedProtocolSemanticLocation;
 use super::checked_term_data::{CheckedKeyOrdinal, CheckedProtocolLocationOrigin};
 use super::{CheckedPackageV2, CheckedTerm, RawCheckedPackageWireV2, RawSemanticNodeV2, WorkMeter};
 use crate::checked_package::common::ValidationFailure;

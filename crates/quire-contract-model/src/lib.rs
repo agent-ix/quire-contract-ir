@@ -169,7 +169,7 @@ pub use checked_package::{
     CheckedPackageRefusalLocation, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedParameterDeclaration, CheckedParameterDeclarationError,
     CheckedProtocolActivation, CheckedProtocolActivationRow, CheckedProtocolDecisionRead,
-    CheckedProtocolLocation, CheckedProtocolLocationOrigin, CheckedProtocolRefusalDetail,
+    CheckedProtocolLocation, CheckedProtocolLocationOrigin, CheckedProtocolLocationReadError, CheckedProtocolRefusalDetail,
     CheckedProtocolSemanticLocation, CheckedRational, CheckedReachesPopulationError,
     CheckedRefinementInternal, CheckedRefinementStepRowRegion, CheckedRelationshipEnd,
     CheckedRelationshipEndError, CheckedResolvedEqualityUnit, CheckedResolvedEqualityUnitForm,

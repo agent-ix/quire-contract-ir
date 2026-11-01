@@ -29,8 +29,8 @@ fn unsupported(path: JsonPointer) -> ValidationFailure {
 }
 
 /// Checks the producer-captured sidecar after graph and source-map admission.
-/// Equality and protocol rows await their separate semantic owner slices and
-/// therefore refuse before the package can expose any partial sidecar.
+/// Equality rows await their separate semantic owner slice and therefore
+/// refuse before the package can expose any partial sidecar.
 pub(super) fn validate_checked_term_data(
     data: &CheckedTermDataV2,
     wire: &RawCheckedPackageWireV2,
@@ -50,11 +50,7 @@ pub(super) fn validate_checked_term_data(
         }
         return Err(unsupported(path));
     }
-    if !data.protocol_locations.is_empty() {
-        let path = root.clone().key("protocol_locations").index(0);
-        meter.charge(1, || path.clone())?;
-        return Err(unsupported(path));
-    }
+    super::protocol_locations::validate(wire, terms, meter)?;
 
     let nodes = &wire.semantic_graph.nodes;
     let index: BTreeMap<CheckedNodeId, usize> = nodes
