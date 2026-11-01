@@ -28,12 +28,16 @@ fn public_term_deserialization_retains_node_ids_from_text_and_buffered_values() 
             "creates":[node()],"deletes":[],"deletes_scoped":[]}),
     ];
     for wire in cases {
-        let buffered: CheckedTerm = serde_json::from_value(wire.clone()).expect("buffered term decodes");
+        let buffered: CheckedTerm =
+            serde_json::from_value(wire.clone()).expect("buffered term decodes");
         let text: CheckedTerm = serde_json::from_str(&wire.to_string()).expect("text term decodes");
         assert_eq!(text, buffered);
         assert_eq!(serde_json::to_value(&buffered).unwrap(), wire);
         if let CheckedTerm::Application { operation, .. } = buffered {
-            assert_eq!(operation.projection_field(), Err(CheckedOperationViewError::NotAdmitted));
+            assert_eq!(
+                operation.projection_field(),
+                Err(CheckedOperationViewError::NotAdmitted)
+            );
         }
     }
 }
@@ -50,8 +54,14 @@ fn public_term_deserialization_rejects_malformed_node_ids_and_unknown_members() 
         json!({"package":"fixture","path":["x"],"ordinal":0,"extra":true}),
     ] {
         let wire = json!({"term":"reference","target":id});
-        assert!(serde_json::from_value::<CheckedTerm>(wire.clone()).is_err(), "{wire}");
-        assert!(serde_json::from_str::<CheckedTerm>(&wire.to_string()).is_err(), "{wire}");
+        assert!(
+            serde_json::from_value::<CheckedTerm>(wire.clone()).is_err(),
+            "{wire}"
+        );
+        assert!(
+            serde_json::from_str::<CheckedTerm>(&wire.to_string()).is_err(),
+            "{wire}"
+        );
     }
     let unknown = json!({"term":"reference","target":node(),"extra":true});
     assert!(serde_json::from_value::<CheckedTerm>(unknown).is_err());

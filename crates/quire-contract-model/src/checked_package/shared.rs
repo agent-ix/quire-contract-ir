@@ -720,181 +720,77 @@ impl std::fmt::Debug for CheckedNodeId {
 
 impl<'de> Deserialize<'de> for CheckedNodeId {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::Error as _;
-        use serde_json::value::RawValue;
+        use serde::de::{Error as _, MapAccess, Visitor};
 
-        // RawValue captures the nested object with serde_json's iterative
-        // scanner. Decode one object at a time so input depth consumes heap
-        // frames, never the call stack.
-        let raw = Box::<RawValue>::deserialize(deserializer)?;
-        enum Task<'a> {
-            Parse(&'a RawValue, bool),
-            Finish {
-                package: Box<str>,
-                ordinal: u64,
-                path_len: usize,
-            },
-        }
-        let mut tasks = vec![Task::Parse(&raw, true)];
-        let mut segments = Vec::<CheckedNodePathSegment>::new();
-        while let Some(task) = tasks.pop() {
-            match task {
-                Task::Parse(value, false) if value.get().starts_with('"') => {
-                    let name = serde_json::from_str(value.get()).map_err(D::Error::custom)?;
-                    segments.push(CheckedNodePathSegment::Name(name));
+        // Wire paths are flat: an operand is an index, never a nested ID.
+        // Decode through serde's data model so buffered enum content and
+        // borrowed JSON values work as well as the text deserializer.
+        struct Segment(CheckedNodePathSegment);
+        struct SegmentVisitor;
+        impl<'de> Visitor<'de> for SegmentVisitor {
+            type Value = Segment;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a path string or an object containing only a node index")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Segment, E> {
+                Ok(Segment(CheckedNodePathSegment::Name(value.into())))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Segment, E> {
+                Ok(Segment(CheckedNodePathSegment::Name(value.into())))
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Segment, A::Error> {
+                let name: String = map
+                    .next_key()?
+                    .ok_or_else(|| A::Error::missing_field("node"))?;
+                if name != "node" {
+                    return Err(A::Error::unknown_field(&name, &["node"]));
                 }
-                Task::Parse(value, is_root) => {
-                    let mut members: std::collections::BTreeMap<&str, &RawValue> =
-                        serde_json::from_str(value.get()).map_err(D::Error::custom)?;
-                    if !is_root {
-                        if members.len() != 1 {
-                            return Err(D::Error::custom("path segment requires only node"));
-                        }
-                        let index: u64 = serde_json::from_str(
-                            members
-                                .remove("node")
-                                .ok_or_else(|| D::Error::custom("missing node index"))?
-                                .get(),
-                        )
-                        .map_err(D::Error::custom)?;
-                        if index > 9_007_199_254_740_991 {
-                            return Err(D::Error::custom("node index exceeds I-JSON bound"));
-                        }
-                        segments.push(CheckedNodePathSegment::Index(index));
-                        continue;
-                    }
-                    if members.len() != 3 {
-                        return Err(D::Error::custom("node id requires package, path, ordinal"));
-                    }
-                    let package: Box<str> = serde_json::from_str(
-                        members
-                            .remove("package")
-                            .ok_or_else(|| D::Error::custom("missing package"))?
-                            .get(),
-                    )
-                    .map_err(D::Error::custom)?;
-                    let path: Vec<&RawValue> = serde_json::from_str(
-                        members
-                            .remove("path")
-                            .ok_or_else(|| D::Error::custom("missing path"))?
-                            .get(),
-                    )
-                    .map_err(D::Error::custom)?;
-                    let ordinal: u64 = serde_json::from_str(
-                        members
-                            .remove("ordinal")
-                            .ok_or_else(|| D::Error::custom("missing ordinal"))?
-                            .get(),
-                    )
-                    .map_err(D::Error::custom)?;
-                    tasks.push(Task::Finish {
-                        package,
-                        ordinal,
-                        path_len: path.len(),
+                let index: u64 = map.next_value()?;
+                if index > 9_007_199_254_740_991 {
+                    return Err(A::Error::custom("node index exceeds I-JSON bound"));
+                }
+                if let Some(name) = map.next_key::<String>()? {
+                    return Err(if name == "node" {
+                        A::Error::duplicate_field("node")
+                    } else {
+                        A::Error::unknown_field(&name, &["node"])
                     });
-                    tasks.extend(
-                        path.into_iter()
-                            .rev()
-                            .map(|value| Task::Parse(value, false)),
-                    );
                 }
-                Task::Finish {
-                    package,
-                    ordinal,
-                    path_len,
-                } => {
-                    let start = segments
-                        .len()
-                        .checked_sub(path_len)
-                        .ok_or_else(|| D::Error::custom("malformed node path"))?;
-                    let path = segments.split_off(start);
-                    segments.push(CheckedNodePathSegment::Node(std::sync::Arc::new(Self {
-                        package,
-                        path,
-                        ordinal,
-                    })));
-                }
+                Ok(Segment(CheckedNodePathSegment::Index(index)))
             }
         }
-        match segments.pop() {
-            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => {
-                std::sync::Arc::try_unwrap(node)
-                    .map_err(|_| D::Error::custom("unshared decoded node id"))
+        impl<'de> Deserialize<'de> for Segment {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                deserializer.deserialize_any(SegmentVisitor)
             }
-            _ => Err(D::Error::custom("malformed node id")),
         }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireNodeId {
+            package: Box<str>,
+            path: Vec<Segment>,
+            ordinal: u64,
+        }
+        let wire = WireNodeId::deserialize(deserializer)?;
+        Ok(Self {
+            package: wire.package,
+            path: wire.path.into_iter().map(|segment| segment.0).collect(),
+            ordinal: wire.ordinal,
+        })
     }
 }
 
 impl CheckedNodeId {
     /// Read a V2 node ID already held as JSON without accepting nested IDs
-    /// in its path.
+    /// in its path. The supplied-value boundary also validates the root's
+    /// nonempty package/path and exact ordinal bounds.
     pub(crate) fn from_value(value: &serde_json::Value) -> Option<Self> {
-        enum Task<'a> {
-            Parse(&'a serde_json::Value, bool),
-            Finish {
-                package: Box<str>,
-                ordinal: u64,
-                path_len: usize,
-            },
-        }
-        let mut tasks = vec![Task::Parse(value, true)];
-        let mut segments = Vec::<CheckedNodePathSegment>::new();
-        while let Some(task) = tasks.pop() {
-            match task {
-                Task::Parse(serde_json::Value::String(name), false) => {
-                    segments.push(CheckedNodePathSegment::Name(name.as_str().into()));
-                }
-                Task::Parse(serde_json::Value::Object(object), is_root) => {
-                    if !is_root {
-                        if object.len() != 1 {
-                            return None;
-                        }
-                        let index = object.get("node")?.as_u64()?;
-                        if index > 9_007_199_254_740_991 {
-                            return None;
-                        }
-                        segments.push(CheckedNodePathSegment::Index(index));
-                        continue;
-                    }
-                    if object.len() != 3 {
-                        return None;
-                    }
-                    let package = object.get("package")?.as_str()?;
-                    let path = object.get("path")?.as_array()?;
-                    let ordinal = object.get("ordinal")?.as_u64()?;
-                    if package.is_empty() || path.is_empty() || ordinal > 9_007_199_254_740_991 {
-                        return None;
-                    }
-                    tasks.push(Task::Finish {
-                        package: package.into(),
-                        ordinal,
-                        path_len: path.len(),
-                    });
-                    tasks.extend(path.iter().rev().map(|value| Task::Parse(value, false)));
-                }
-                Task::Parse(_, _) => return None,
-                Task::Finish {
-                    package,
-                    ordinal,
-                    path_len,
-                } => {
-                    let start = segments.len().checked_sub(path_len)?;
-                    let path = segments.split_off(start);
-                    segments.push(CheckedNodePathSegment::Node(std::sync::Arc::new(Self {
-                        package,
-                        path,
-                        ordinal,
-                    })));
-                }
-            }
-        }
-        match segments.pop() {
-            Some(CheckedNodePathSegment::Node(node)) if segments.is_empty() => {
-                std::sync::Arc::try_unwrap(node).ok()
-            }
-            _ => None,
-        }
+        let node = Self::deserialize(value).ok()?;
+        node.is_well_formed().then_some(node)
     }
 
     /// Whether every segment and nested operand is within the V2 wire bounds.
