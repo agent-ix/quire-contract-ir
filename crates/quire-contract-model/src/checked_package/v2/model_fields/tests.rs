@@ -23,7 +23,13 @@ fn exact_stage_rows_join_selected_original_declaration() {
         SelectedExactDeclarationRow as Row, SelectedExactIdentities, SelectedExactIdentity,
     };
 
-    let fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
+    let fixture = build_fixture(
+        &ledger(),
+        &[
+            ("Ledger", DeclarationForm::ObjectType),
+            ("Base", DeclarationForm::ObjectType),
+        ],
+    );
     let structural = id_at(&fixture, 0);
     let (document, original, form) = fixture
         .package
@@ -155,7 +161,13 @@ fn exact_reference_uses_the_selected_object_row() {
     };
     use quire_exact::ValueType;
 
-    let mut fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
+    let mut fixture = build_fixture(
+        &ledger(),
+        &[
+            ("Ledger", DeclarationForm::ObjectType),
+            ("Base", DeclarationForm::ObjectType),
+        ],
+    );
     let object = id_at(&fixture, 0);
     let (document, original, _) = fixture
         .package
@@ -1206,7 +1218,13 @@ fn ledger() -> Value {
 #[trace("TC-227", "FR-038-AC-140")]
 #[test]
 fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
-    let mut fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
+    let mut fixture = build_fixture(
+        &ledger(),
+        &[
+            ("Ledger", DeclarationForm::ObjectType),
+            ("Base", DeclarationForm::ObjectType),
+        ],
+    );
     let ledger = id_at(&fixture, 0);
     let expected = |fields: &CheckedModelObjectFields| {
         fields
@@ -1257,7 +1275,13 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
 #[trace("FR-349-AC-2", "FR-038-AC-140")]
 #[test]
 fn admitted_model_fields_use_retained_declaration_term() {
-    let mut fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
+    let mut fixture = build_fixture(
+        &ledger(),
+        &[
+            ("Ledger", DeclarationForm::ObjectType),
+            ("Base", DeclarationForm::ObjectType),
+        ],
+    );
     let ledger = id_at(&fixture, 0);
     let expected = fixture
         .package
@@ -1411,7 +1435,15 @@ fn tc_227_the_accessor_is_pure_total_and_does_not_resolve() {
             object_type(&node(k), &supertypes, vec![declared])
         })
         .collect();
-    let deep = build_fixture(&document(types), &[("R200", DeclarationForm::ObjectType)]);
+    let names: Vec<_> = (1..200).map(|k| format!("R{k}")).collect();
+    let declarations: Vec<_> = std::iter::once(("R200", DeclarationForm::ObjectType))
+        .chain(
+            names
+                .iter()
+                .map(|name| (name.as_str(), DeclarationForm::ObjectType)),
+        )
+        .collect();
+    let deep = build_fixture(&document(types), &declarations);
     let (walks, built_before) = (probe::ancestor_walks(), super::probe::components_built());
     let fields = deep
         .package
@@ -1438,7 +1470,14 @@ fn tc_227_the_accessor_is_pure_total_and_does_not_resolve() {
 #[trace("TC-227", "FR-038-AC-143")]
 #[test]
 fn tc_227_the_retained_tables_take_no_part_in_equality() {
-    let with = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]).package;
+    let with = build_fixture(
+        &ledger(),
+        &[
+            ("Ledger", DeclarationForm::ObjectType),
+            ("Base", DeclarationForm::ObjectType),
+        ],
+    )
+    .package;
     let mut without = with.clone();
     without.models = RetainedModels::default();
     let ledger = with

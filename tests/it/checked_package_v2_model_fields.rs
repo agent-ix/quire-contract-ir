@@ -2437,7 +2437,7 @@ fn tc_227_the_fields_of_a_model_object_come_back_as_values() {
     };
     let package = admit(&document, &[(ORDER, OBJECT)], &[read]);
     let fields = fields_of(&package, ORDER);
-    assert_eq!(names(&fields), ["audit", "balance"]);
+    assert_eq!(names(&fields), ["balance", "audit"]);
     for field in fields.fields() {
         assert_eq!(field.member_type(), Some(&range(0, 1000)));
     }
@@ -2446,7 +2446,7 @@ fn tc_227_the_fields_of_a_model_object_come_back_as_values() {
         .expect("audit is a field no read names");
     assert_eq!(audit.name(), "audit");
     assert!(fields.field("missing").is_none());
-    // The order is the name's, not the document's: `zeta` is declared first.
+    // Authored declaration order is retained: `zeta` is declared first.
     let document = self::document(vec![
         thousand_type(),
         object(
@@ -2456,7 +2456,7 @@ fn tc_227_the_fields_of_a_model_object_come_back_as_values() {
         ),
     ]);
     let package = admit(&document, &[(ORDER, OBJECT)], &[]);
-    assert_eq!(names(&fields_of(&package, ORDER)), ["alpha", "zeta"]);
+    assert_eq!(names(&fields_of(&package, ORDER)), ["zeta", "alpha"]);
 }
 
 fn thousand_type() -> Value {
@@ -2878,11 +2878,13 @@ fn tc_227_the_effective_set_is_the_one_admission_resolves() {
     let declared = [(ORDER, OBJECT), ("Base", OBJECT), ("Mid", OBJECT)];
     let package = admit(&document, &declared, &[]);
     let fields = fields_of(&package, ORDER);
-    assert_eq!(names(&fields), ["inherited", "limit", "own"]);
+    assert_eq!(names(&fields), ["limit", "inherited", "own"]);
     assert_eq!(
         fields.field("limit").and_then(|f| f.member_type()),
         Some(&range(0, 10))
     );
+    assert_eq!(fields.field("limit").expect("limit").declaring_node_id(), &declaration_id(ORDER));
+    assert_eq!(fields.field("inherited").expect("inherited").declaring_node_id(), &declaration_id("Base"));
     assert_eq!(
         fields.field("inherited").and_then(|f| f.member_type()),
         Some(&range(0, 1000))
@@ -3035,8 +3037,7 @@ fn kinds_package() -> CheckedPackageV2 {
 fn tc_227_every_member_kind_returns_its_derived_type_or_none() {
     let package = kinds_package();
     let fields = fields_of(&package, ORDER);
-    let mut expected = expected_kinds();
-    expected.sort_by_key(|(name, _)| *name);
+    let expected = expected_kinds();
     assert_eq!(fields.fields().len(), expected.len());
     for ((name, ty), field) in expected.iter().zip(fields.fields()) {
         assert_eq!(field.name(), *name);
@@ -3394,6 +3395,8 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedModelFieldsError::UnknownNode => 0,
             CheckedModelFieldsError::NotModelObjectType => 1,
             CheckedModelFieldsError::AmbiguousField(_) => 2,
+            CheckedModelFieldsError::MissingDeclaringNode { .. } => 3,
+            CheckedModelFieldsError::AmbiguousDeclaringNode { .. } => 4,
         }
     }
     assert_eq!(member(&CheckedMemberType::Boolean), 0);
@@ -3411,7 +3414,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
 /// limits agree, and the retained tables take no part in the package's
 /// equality; a chain of 200 object types and 100 redefinitions of one field
 /// is read without panic or stack overflow.
-#[trace("TC-227", "FR-038-AC-143")]
+#[trace("TC-227", "FR-038-AC-143", "FR-038-AC-373")]
 #[test]
 fn tc_227_the_accessor_is_pure_and_total() {
     let thousand = orders("Thousand");
@@ -3463,7 +3466,8 @@ fn tc_227_the_accessor_is_pure_and_total() {
             object(&names[k - 1], &supertypes, &[declared])
         }))
         .collect();
-    let deep = admit(&document_of(types), &[("R200", OBJECT)], &[]);
+    let declarations: Vec<_> = names.iter().map(|name| (name.as_str(), OBJECT)).collect();
+    let deep = admit(&document_of(types), &declarations, &[]);
     let fields = deep
         .model_object_fields(&declaration_id("R200"))
         .expect("the chain's fields");
@@ -3725,13 +3729,11 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
     }
 }
 
-/// The order is the field name's, bytewise, where it differs from the order of
-/// the member identities `<owner>/<name>`: an inherited `zeta` of `Base`
-/// identifies before an own `alpha` of `Order`, and still comes after it. The
-/// name lookup finds both, so it searches the order the list is in.
+/// Inherited authored slots precede own slots even when name order differs.
+/// Name lookup selects the same entries without assuming sorted names.
 #[trace("TC-227", "FR-038-AC-136")]
 #[test]
-fn tc_227_the_order_is_by_name_where_identity_order_differs() {
+fn tc_227_the_order_is_authored_where_name_order_differs() {
     let thousand = orders("Thousand");
     let document = document(vec![
         thousand_type(),
@@ -3742,9 +3744,9 @@ fn tc_227_the_order_is_by_name_where_identity_order_differs() {
         ),
         object(ORDER, &["Base"], &[field("alpha", &thousand)]),
     ]);
-    let package = admit(&document, &[(ORDER, OBJECT)], &[]);
+    let package = admit(&document, &[(ORDER, OBJECT), ("Base", OBJECT)], &[]);
     let fields = fields_of(&package, ORDER);
-    assert_eq!(names(&fields), ["alpha", "mu", "zeta"]);
+    assert_eq!(names(&fields), ["zeta", "mu", "alpha"]);
     for name in ["alpha", "mu", "zeta"] {
         assert_eq!(fields.field(name).map(|field| field.name()), Some(name));
     }
@@ -3840,4 +3842,186 @@ fn model_fields_source_map_and_work_boundary_hold() {
         panic!("work boundary");
     };
     assert_eq!(incomplete.consumed, high);
+}
+
+#[trace("TC-227", "FR-038-AC-370")]
+#[test]
+fn tc_227_fields_keep_authored_order_through_the_public_reader() {
+    let ty = orders("Thousand");
+    let document = document(vec![
+        thousand_type(),
+        object(ORDER, &[], &[field("zeta", &ty), field("alpha", &ty)]),
+    ]);
+    let package = admit(&document, &[(ORDER, OBJECT)], &[]);
+    let fields = fields_of(&package, ORDER);
+    assert_eq!(names(&fields), ["zeta", "alpha"]);
+    assert_eq!(fields.field("alpha"), Some(&fields.fields()[1]));
+    assert!(fields.field("absent").is_none());
+}
+
+#[trace("TC-227", "FR-038-AC-370", "FR-038-AC-373")]
+#[test]
+fn tc_227_inherited_fields_retain_actual_declaring_nodes() {
+    let ty = orders("Thousand");
+    let document = document(vec![
+        thousand_type(),
+        object("Base", &[], &[field("b", &ty)]),
+        object("Mid", &["Base"], &[field("m", &ty)]),
+        object("Leaf", &["Mid"], &[field("l", &ty)]),
+    ]);
+    let package = admit(
+        &document,
+        &[("Leaf", OBJECT), ("Base", OBJECT), ("Mid", OBJECT)],
+        &[],
+    );
+    let fields = fields_of(&package, "Leaf");
+    assert_eq!(names(&fields), ["b", "m", "l"]);
+    for (field, owner) in fields.fields().iter().zip(["Base", "Mid", "Leaf"]) {
+        assert_eq!(field.declaring_node_id(), &declaration_id(owner));
+        assert_eq!(field.member_type(), Some(&range(0, 1000)));
+    }
+    assert_eq!(fields, fields_of(&package.clone(), "Leaf"));
+}
+
+#[trace("TC-227", "FR-038-AC-371")]
+#[test]
+fn tc_227_diamond_and_redefinition_keep_first_inherited_slot_and_real_owner() {
+    let ty = orders("Thousand");
+    for redefine in [false, true] {
+        for (supers, expected) in [
+            (["Left", "Right"], ["z", "left", "right", "own"]),
+            (["Right", "Left"], ["z", "right", "left", "own"]),
+        ] {
+            let document = document(vec![
+                thousand_type(),
+                value_type("Ten", "integer", Some(("0", "10"))),
+                object("Base", &[], &[field("z", &ty)]),
+                object("Left", &["Base"], &[field("left", &ty)]),
+                object("Right", &["Base"], &[field("right", &ty)]),
+                object(
+                    "Leaf",
+                    &supers,
+                    &if redefine {
+                        vec![
+                            field("z", &orders("Ten")).redefining(&format!("{}/z", orders("Base"))),
+                            field("own", &ty),
+                        ]
+                    } else {
+                        vec![field("own", &ty)]
+                    },
+                ),
+            ]);
+            let declared = [
+                ("Base", OBJECT),
+                ("Left", OBJECT),
+                ("Right", OBJECT),
+                ("Leaf", OBJECT),
+            ];
+            let package = admit(&document, &declared, &[]);
+            let base = fields_of(&package, "Left");
+            assert_eq!(
+                base.fields()[0].declaring_node_id(),
+                &declaration_id("Base")
+            );
+            let fields = fields_of(&package, "Leaf");
+            assert_eq!(names(&fields), expected);
+            for (name, owner) in [
+                ("z", if redefine { "Leaf" } else { "Base" }),
+                ("left", "Left"),
+                ("right", "Right"),
+                ("own", "Leaf"),
+            ] {
+                assert_eq!(
+                    fields
+                        .field(name)
+                        .expect("effective field")
+                        .declaring_node_id(),
+                    &declaration_id(owner)
+                );
+            }
+            assert_eq!(
+                fields.field("z").and_then(|field| field.member_type()),
+                Some(&range(0, if redefine { 10 } else { 1000 }))
+            );
+        }
+    }
+}
+
+#[trace("TC-227", "FR-038-AC-372")]
+#[test]
+fn tc_227_missing_and_ambiguous_declaring_nodes_refuse_without_partial_fields() {
+    let ty = orders("Thousand");
+    let document = document(vec![
+        thousand_type(),
+        object("Base", &[], &[field("z", &ty)]),
+        object("Other", &[], &[field("a", &ty)]),
+        object("Leaf", &["Base", "Other"], &[]),
+    ]);
+    let only_leaf = admit(&document, &[("Leaf", OBJECT)], &[]);
+    assert_eq!(
+        only_leaf.model_object_fields(&declaration_id("Leaf")),
+        Err(CheckedModelFieldsError::MissingDeclaringNode {
+            field_identity: format!("{}/z", orders("Base")).into()
+        })
+    );
+    let all = [("Leaf", OBJECT), ("Base", OBJECT), ("Other", OBJECT)];
+    let complete = admit(&document, &all, &[]);
+    assert_eq!(
+        fields_of(&complete, "Leaf").fields()[0].declaring_node_id(),
+        &declaration_id("Base")
+    );
+    let (mut wire, evidence, _) = package(&document, &all, &[]);
+    let nodes = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let mut duplicate = nodes
+        .iter()
+        .find(|node| node["owner"]["node"] == orders("Base"))
+        .expect("Base")
+        .clone();
+    duplicate["node_id"]["ordinal"] = json!(1);
+    duplicate["semantic_type"] = duplicate["node_id"].clone();
+    nodes.push(duplicate);
+    settle(&mut wire);
+    let ambiguous = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("distinct structural ordinals admit: {other:?}"),
+    };
+    assert_eq!(
+        ambiguous.model_object_fields(&declaration_id("Leaf")),
+        Err(CheckedModelFieldsError::AmbiguousDeclaringNode {
+            field_identity: format!("{}/z", orders("Base")).into()
+        })
+    );
+}
+
+#[trace("TC-227", "FR-038-AC-372")]
+#[test]
+fn tc_227_declaring_node_errors_follow_field_order_before_name_order() {
+    let ty = orders("Thousand");
+    for supers in [["Base", "Other"], ["Other", "Base"]] {
+        let document = document(vec![thousand_type(),
+            object("Base", &[], &[field("z", &ty)]),
+            object("Other", &[], &[field("a", &ty)]),
+            object("Leaf", &supers, &[]),
+        ]);
+        let (mut wire, evidence, _) = package(&document, &[("Leaf", OBJECT), ("Base", OBJECT)], &[]);
+        let nodes = wire["semantic_graph"]["nodes"].as_array_mut().expect("nodes");
+        let mut duplicate = nodes.iter().find(|node| node["owner"]["node"] == orders("Base")).expect("Base").clone();
+        duplicate["node_id"]["ordinal"] = json!(1);
+        duplicate["semantic_type"] = duplicate["node_id"].clone();
+        nodes.push(duplicate);
+        settle(&mut wire);
+        let package = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("mixed absent and repeated owners admit: {other:?}"),
+        };
+        let expected = if supers[0] == "Base" {
+            CheckedModelFieldsError::AmbiguousDeclaringNode { field_identity: format!("{}/z", orders("Base")).into() }
+        } else {
+            CheckedModelFieldsError::MissingDeclaringNode { field_identity: format!("{}/a", orders("Other")).into() }
+        };
+        assert_eq!(package.model_object_fields(&declaration_id("Leaf")), Err(expected));
+        assert_eq!(package.model_object_fields(&declaration_id("Unknown")), Err(CheckedModelFieldsError::UnknownNode));
+    }
 }

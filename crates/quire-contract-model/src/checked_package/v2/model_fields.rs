@@ -34,6 +34,8 @@ pub(super) struct FieldEntry {
     /// The field's IR node identity, `<owner>/<name>`.
     identity: Arc<str>,
     pub(super) decl: FieldDecl,
+    /// Selected declaration owner retained while building the table.
+    declaring_owner: Box<str>,
     /// `DomainModel::field_type` of the declaration.
     member_type: Option<MemberType>,
 }
@@ -387,7 +389,7 @@ fn build_component(
     // `resolve`'s member map does.
     let mut own: BTreeMap<Arc<str>, Arc<FieldEntry>> = BTreeMap::new();
     let mut own_order = Vec::new();
-    for (_, declared) in &component.members {
+    for (owner, declared) in &component.members {
         for decl in &declared.fields {
             let identity: Arc<str> = Arc::from(decl.identity.as_ref());
             if !own.contains_key(&identity) {
@@ -397,6 +399,7 @@ fn build_component(
                 Arc::clone(&identity),
                 Arc::new(FieldEntry {
                     identity,
+                    declaring_owner: Box::from(*owner),
                     member_type: model.field_type(decl),
                     decl: decl.clone(),
                 }),
@@ -530,11 +533,19 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNo
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
     index: DeclarationIndex,
+    object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>>,
     /// Admitted selected documents, including their field tables, for
     /// catalog binder resolution only when a refinement requests it.
     models: Vec<DomainModel>,
     operation_types: BTreeMap<(usize, Box<str>, Box<str>), OperationTypes>,
     relationships: BTreeMap<(usize, Box<str>), RetainedRelationship>,
+}
+
+/// A selected owner has either one genuine declaration node or several.
+#[derive(Clone, Debug)]
+enum DeclaringNode {
+    One(CheckedNodeId),
+    Ambiguous,
 }
 
 /// The relationship record admission consults, kept for the accessor: both
@@ -751,6 +762,18 @@ impl RetainedModels {
             .exposed_names(&declared.node)
     }
     pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
+        let mut object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>> =
+            BTreeMap::new();
+        for (key, declared) in &index.0 {
+            if declared.form == DeclarationForm::ObjectType {
+                object_declarations
+                    .entry(declared.selection)
+                    .or_default()
+                    .entry(declared.node.clone())
+                    .and_modify(|entry| *entry = DeclaringNode::Ambiguous)
+                    .or_insert_with(|| DeclaringNode::One(key.clone()));
+            }
+        }
         let mut operation_types = BTreeMap::new();
         for (selection, model) in models.iter().enumerate() {
             for (object, declared) in &model.object_types {
@@ -788,6 +811,7 @@ impl RetainedModels {
         }
         Self {
             index,
+            object_declarations,
             models,
             operation_types,
             relationships,
@@ -1034,7 +1058,9 @@ impl From<&MemberType> for CheckedMemberType {
 /// reader builds one (FR-038-AC-142):
 ///
 /// ```compile_fail,E0451
+/// let id = quire_contract_model::CheckedNodeId { package: "p".into(), path: vec![], ordinal: 0 };
 /// let _ = quire_contract_model::CheckedModelField {
+///     declaring_node_id: id,
 ///     name: "x".into(),
 ///     member_type: None,
 /// };
@@ -1054,13 +1080,25 @@ impl From<&MemberType> for CheckedMemberType {
 ///     let _ = &field.member_type;
 /// }
 /// ```
+///
+/// ```compile_fail,E0616
+/// fn read(field: &quire_contract_model::CheckedModelField) {
+///     let _ = &field.declaring_node_id;
+/// }
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedModelField {
+    declaring_node_id: CheckedNodeId,
     name: Box<str>,
     member_type: Option<CheckedMemberType>,
 }
 
 impl CheckedModelField {
+    /// The actual declaring object's admitted structural node identity.
+    pub fn declaring_node_id(&self) -> &CheckedNodeId {
+        &self.declaring_node_id
+    }
+
     /// The field's declared name.
     pub fn name(&self) -> &str {
         &self.name
@@ -1076,7 +1114,7 @@ impl CheckedModelField {
     }
 }
 
-/// The effective fields of a model object type, in ascending order of name.
+/// The effective fields of a model object type, in effective declaration order.
 /// Its member is private, so only the reader builds one (FR-038-AC-142):
 ///
 /// ```compile_fail,E0451
@@ -1094,17 +1132,14 @@ pub struct CheckedModelObjectFields {
 }
 
 impl CheckedModelObjectFields {
-    /// The fields in ascending order of name (bytewise UTF-8), each name once.
+    /// The fields in inherited source order, followed by own declaration order.
     pub fn fields(&self) -> &[CheckedModelField] {
         &self.fields
     }
 
     /// The field named `name`; `None` for an absent field, which is not an error.
     pub fn field(&self, name: &str) -> Option<&CheckedModelField> {
-        self.fields
-            .binary_search_by(|field| field.name.as_ref().cmp(name))
-            .ok()
-            .and_then(|position| self.fields.get(position))
+        self.fields.iter().find(|field| field.name.as_ref() == name)
     }
 }
 
@@ -1118,6 +1153,16 @@ pub enum CheckedModelFieldsError {
     /// Two exposed fields of the object type share a name (the smallest such
     /// name is carried), so its field set has no defined content.
     AmbiguousField(Box<str>),
+    /// An effective field's selected declaring owner has no graph declaration.
+    MissingDeclaringNode {
+        /// The selected IR identity of the first affected effective field.
+        field_identity: Box<str>,
+    },
+    /// An effective field's selected declaring owner has multiple graph declarations.
+    AmbiguousDeclaringNode {
+        /// The selected IR identity of the first affected effective field.
+        field_identity: Box<str>,
+    },
 }
 
 impl fmt::Display for CheckedModelFieldsError {
@@ -1130,6 +1175,18 @@ impl fmt::Display for CheckedModelFieldsError {
             Self::AmbiguousField(name) => {
                 write!(formatter, "two exposed fields share the name `{name}`")
             }
+            Self::MissingDeclaringNode { field_identity } => {
+                write!(
+                    formatter,
+                    "field `{field_identity}` has no declaring graph node"
+                )
+            }
+            Self::AmbiguousDeclaringNode { field_identity } => {
+                write!(
+                    formatter,
+                    "field `{field_identity}` has multiple declaring graph nodes"
+                )
+            }
         }
     }
 }
@@ -1138,7 +1195,7 @@ impl std::error::Error for CheckedModelFieldsError {}
 
 impl CheckedPackageV2 {
     /// The effective fields of the model object type whose model declaration
-    /// node is `node`, in ascending order of name, each with the member type
+    /// node is `node`, in effective declaration order, each with the member type
     /// the reader derived from the selected domain package document at
     /// admission. Charges no work and reads no node body other than `node`'s
     /// own fixed members.
@@ -1149,7 +1206,10 @@ impl CheckedPackageV2 {
     /// node; [`CheckedModelFieldsError::NotModelObjectType`] when it is not an
     /// object type's model declaration node;
     /// [`CheckedModelFieldsError::AmbiguousField`] when two exposed fields of
-    /// the object type share a name.
+    /// the object type share a name. The first field in effective declaration
+    /// order whose owner is absent or ambiguous returns
+    /// [`CheckedModelFieldsError::MissingDeclaringNode`] or
+    /// [`CheckedModelFieldsError::AmbiguousDeclaringNode`], respectively.
     pub fn model_object_fields(
         &self,
         node: &CheckedNodeId,
@@ -1168,15 +1228,43 @@ impl CheckedPackageV2 {
         if let Some(name) = &table.ambiguous {
             return Err(CheckedModelFieldsError::AmbiguousField(name.clone()));
         }
-        let mut fields: Vec<CheckedModelField> = table
-            .exposed
+        let selection = self
+            .models
+            .index
+            .0
+            .get(node)
+            .ok_or(CheckedModelFieldsError::NotModelObjectType)?
+            .selection;
+        let fields = table
+            .ordered_exposed
             .iter()
-            .map(|entry| CheckedModelField {
-                name: entry.name().into(),
-                member_type: entry.member_type.as_ref().map(CheckedMemberType::from),
+            .map(|slot| {
+                let entry = &slot.entry;
+                let declaring_node_id = match self
+                    .models
+                    .object_declarations
+                    .get(&selection)
+                    .and_then(|owners| owners.get(entry.declaring_owner.as_ref()))
+                {
+                    Some(DeclaringNode::One(id)) => id.clone(),
+                    Some(DeclaringNode::Ambiguous) => {
+                        return Err(CheckedModelFieldsError::AmbiguousDeclaringNode {
+                            field_identity: entry.identity.as_ref().into(),
+                        })
+                    }
+                    None => {
+                        return Err(CheckedModelFieldsError::MissingDeclaringNode {
+                            field_identity: entry.identity.as_ref().into(),
+                        })
+                    }
+                };
+                Ok(CheckedModelField {
+                    declaring_node_id,
+                    name: entry.name().into(),
+                    member_type: entry.member_type.as_ref().map(CheckedMemberType::from),
+                })
             })
-            .collect();
-        fields.sort_by(|a, b| a.name.cmp(&b.name));
+            .collect::<Result<Vec<_>, CheckedModelFieldsError>>()?;
         Ok(CheckedModelObjectFields { fields })
     }
 }
