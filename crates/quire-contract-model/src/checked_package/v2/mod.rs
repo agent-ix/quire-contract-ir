@@ -4089,7 +4089,7 @@ mod tests {
     #[test]
     fn tc_451_schedulability_rows_match_private_wire_without_normalization() {
         let mut wire = tc_451_private_owned_wire();
-        let declaration = super::test_support::id('b');
+        let declaration: super::CheckedNodeId = serde_json::from_value(super::test_support::id('b')).expect("producer identity");
         let rows = vec![
             super::CheckedSchedulabilityClaimRow {
                 declaration: declaration.clone(),
