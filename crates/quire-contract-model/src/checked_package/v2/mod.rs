@@ -3980,6 +3980,7 @@ mod tests {
 
                 let wire = tc_451_private_owned_wire();
                 let package = super::CheckedPackageV2 {
+                    schedulability_claim_index: Vec::new(),
                     node_index: Default::default(),
                     structural_keys: keys,
                     source_index: Default::default(),
