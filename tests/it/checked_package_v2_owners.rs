@@ -1277,6 +1277,28 @@ fn selected_event_invariant_owner_joins_its_real_declaration() {
         matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
         "selected event invariant must pass the owner join: {result:?}"
     );
+
+    let mut wrong = package;
+    let position = wrong["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "function" && node["owner"]["node"] == event)
+        .expect("event-owned clause");
+    wrong["semantic_graph"]["nodes"][position]["owner"]["node"] = json!("ix://acme/owners/Absent");
+    refresh_identity(&mut wrong);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&wrong, &document) else {
+        panic!("invariant owned by an absent event must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+    );
 }
 
 fn refused(package: &Value, code: CheckedPackageRefusalCode, path: &str) {

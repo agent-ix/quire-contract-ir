@@ -262,6 +262,7 @@ fn model_kind_matches(
                 model.object_types.get(declared).is_some_and(|object| {
                     !object.interface && !model.state_machines.contains(declared)
                 }) || model.record_types.contains_key(declared)
+                    || model.event_types.contains(declared)
             }
             Some(OwnerClauseKind::Precondition | OwnerClauseKind::Body) => {
                 operations.contains(declared)
