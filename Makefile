@@ -98,6 +98,11 @@ conformance-qspec-compile:
 conformance-qspec:
 	$(CARGO) test $(LOCKED) --workspace --lib ir1083_
 	$(CARGO) test $(LOCKED) --test conformance_qspec
+	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --test conformance_qspec tc_048_qspec_all_positive_packages_and_owner_identities -- --exact 2>&1); \
+	status=$$?; printf '%s\n' "$$output"; \
+	[ "$$status" -eq 0 ] || exit "$$status"; \
+	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
+	[ "$$passed" -eq 1 ] || { echo 'required QSpec positive package identity test did not run exactly once' >&2; exit 1; }
 	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --test it checked_package_v2_owners::tc_229_qspec_ 2>&1); \
 	status=$$?; printf '%s\n' "$$output"; \
 	[ "$$status" -eq 0 ] || exit "$$status"; \
