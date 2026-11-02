@@ -25,6 +25,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-306
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-307
+    type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-51
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-52
@@ -38,6 +40,8 @@ relationships:
   - target: ix://agent-ix/quire-specification/FR-322-AC-74
     type: references
   - target: ix://agent-ix/quire-specification/TC-281
+    type: references
+  - target: ix://agent-ix/quire-specification/TC-233
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-120
     type: references
@@ -5506,6 +5510,8 @@ copying QSL execution semantics into IR.
 | FR-038-AC-428 | planned until IR-721 lands. MP-33 and MP-43..MP-45 admit zero uncertainty, changed counter, fractional rational rate and changed tick unit with distinct resolved root content keys; a capacity edit MP-02 also changes that key. MP-40 and MP-41 refuse invalid_semantic_graph at tick_unit for a wrong node kind or non-Time unit by the exact base-Time identity test, never invalid-time-quantity. Exact rate and uncertainty are borrowed CheckedRational values with no floating conversion or narrowing. Tick intervals remain derivable from the selected clause and clock/tick-unit scales with no extra binding or rounded metadata; counter, uncertainty and unit are read from the admitted root rather than defaulted. Paired premise defects verify body-order checking through counter and uncertainty after buffer capacities. | Test |
 | FR-038-AC-429 | planned until IR-721 lands. By-reference MP-48 and MP-49 refuse a missing on_gap or wrong reference kind as invalid_semantic_graph with no cause at /semantic_graph/nodes/{n}/body/members/15; MP-50..MP-52 refuse reordered or noninteger gap parameters and a wrong return type as ill_typed/type-mismatch at the same binding, retaining the root structural locus. MP-53 admits a changed on_gap node with a distinct resolved root content key. The mandatory borrowed on_gap entry view exposes exactly (State, integer gap) and (State, Results), its whole checked body and resolved entry key; no Option/default or fifteen- or sixteen-binding compatibility is admitted. MP-54..MP-57 are consumed by reference as QSL/runtime execution controls, not executed or turned into package-reader verdicts: the reader qualifies admission of their valid program shape independently of runtime gap outcomes. | Test |
 | FR-038-AC-430 | planned until IR-721 lands. By-reference MP-58 admits activation_capacity 0 with a distinct root content key and the borrowed canonical nonnegative decimal getter returns "0" without narrowing. MP-59 refuses a negative value as invalid_package/invalid-value at /semantic_graph/nodes/{n}/body/members/16/value; MP-60 and MP-61 refuse absent or noninteger activation capacity as invalid_semantic_graph with no cause at member 16. MP-62..MP-65 refuse missing history_start or activations, missing origin in an activation record and a noninteger history_start as invalid_semantic_graph with no cause at the state binding, retaining the root structural locus. Additional wrong order, extra field, noninteger subformula/origin and nonsequence activations controls enforce the exact state shape without inventing a type for status. MP-66..MP-73 remain QSL/runtime-owned history, poll, reporting and activation-overflow execution controls consumed by reference; no body is executed or admission refusal inferred from their runtime outcomes. The published activation LimitReached payload retains the existing typed record shape. | Test |
+| FR-038-AC-431 | planned until IR-1265 lands. The public strict reader admits QSpec `FM-01` and `FM-02` as generic `application` terms whose operator is `call`, identity is `quire.op.ieee.float64.fma` or `quire.op.ieee.float32.fma`, and three `reference` arguments name the same-width operands in a, b, c order. The result has that width; the operation carries one selected `ieee_profile` law and a `rounding` mode, with no member or leaves. No dedicated FMA node or callee argument is required. | Test (TC-048; QSpec FR-322-AC-307, TC-233 FM-01) |
+| FR-038-AC-432 | planned until IR-1265 lands. The public strict reader checks QSpec `FM-03` through `FM-12`: wrong arity, wrong or mixed operand width, an integer operand, or wrong-width result refuse `ill_typed`/`operator-ineligible`; absent rounding mode refuses `invalid_package`/`operation-mode-mismatch`; absent `ieee_profile` law refuses `invalid_package`/`operation-law-missing`. TC-048 reads the exact `FM-01` through `FM-12` case set from QSpec `proposals/checked-package-v2/fma-application-vectors.json` by reference and compares admission or code and cause on complete IR-owned packages, without storing a local copy of the vector or fixture. | Test (TC-048; QSpec FR-322-AC-307, TC-233 FM-02..FM-04) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
