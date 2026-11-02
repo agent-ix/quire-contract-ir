@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-use std::{
-    collections::BTreeSet,
-    fs,
-    path::PathBuf,
-    process::Command,
-};
+use std::{collections::BTreeSet, fs, path::PathBuf, process::Command};
 
 use ix_trace_rs::trace;
 #[cfg(feature = "conformance-cli")]
