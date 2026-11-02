@@ -7,7 +7,8 @@ use super::exact_projection::project_record_field_type;
 use super::model_members::{DeclarationForm, MemberType};
 use super::nominal_reads::{NominalDeclarationRow, NominalIdentity, NominalReadCode};
 use super::{
-    CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedNodePathSegment, CheckedPackageV2,
+    CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedNodePathSegment,
+    CheckedOperationEffect, CheckedOperationEffectProvenance, CheckedPackageV2,
     CheckedRational, DimensionTerm, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
     ScalarTypeForm, SelectedExactIdentities, SelectedExactIdentity, SelectedRecordView,
     SelectedSourceUnitRow, SelectedTupleDeclarationRow,
@@ -54,6 +55,69 @@ pub struct SelectedTypeObject {
     supertypes: Vec<EffectiveId>,
     declared_fields: Vec<SelectedTypeObjectField>,
     fields: Vec<SelectedTypeObjectField>,
+    operations: Vec<SelectedTypeObjectOperation>,
+}
+
+/// A parameter of an object's own selected operation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedTypeOperationParameter {
+    name: Box<str>,
+    value_type: ValueType,
+}
+
+impl SelectedTypeOperationParameter {
+    /// Original declared parameter name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Exact parameter value type.
+    pub fn value_type(&self) -> &ValueType {
+        &self.value_type
+    }
+}
+
+/// An object's own operation, with the admitted producer effect.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedTypeObjectOperation {
+    identity: Box<str>,
+    name: Box<str>,
+    parameters: Vec<SelectedTypeOperationParameter>,
+    result: Option<ValueType>,
+    effect: CheckedOperationEffect,
+    provenance: CheckedOperationEffectProvenance,
+}
+
+impl SelectedTypeObjectOperation {
+    /// Original selected model member identity.
+    pub fn identity(&self) -> &str {
+        &self.identity
+    }
+
+    /// Original operation name on the declaring object.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Parameters in selected source order.
+    pub fn parameters(&self) -> &[SelectedTypeOperationParameter] {
+        &self.parameters
+    }
+
+    /// Optional exact result type.
+    pub fn result(&self) -> Option<&ValueType> {
+        self.result.as_ref()
+    }
+
+    /// Complete admitted effect, including an intentionally empty effect.
+    pub fn effect(&self) -> &CheckedOperationEffect {
+        &self.effect
+    }
+
+    /// The producer's fixed source origin and original member identity.
+    pub fn provenance(&self) -> &CheckedOperationEffectProvenance {
+        &self.provenance
+    }
 }
 
 impl SelectedTypeObject {
@@ -80,6 +144,11 @@ impl SelectedTypeObject {
     /// Every effective field in selected declaration order.
     pub fn fields(&self) -> &[SelectedTypeObjectField] {
         &self.fields
+    }
+
+    /// This object's own operations in selected declaration order.
+    pub fn operations(&self) -> &[SelectedTypeObjectOperation] {
+        &self.operations
     }
 }
 
@@ -893,13 +962,84 @@ impl CheckedPackageV2 {
                             work,
                         )
                     })?;
-                    if !declared.operations.is_empty() {
-                        return Err(SelectedTypeDeclarationsError::at(
-                            ExactTypeProjectionErrorCode::UnsupportedExactType,
-                            id,
-                            "object_operations",
-                            work,
-                        ));
+                    let mut projected_operations = Vec::with_capacity(declared.operations.len());
+                    for operation in &declared.operations {
+                        charge(&mut work, work_limit, id, "object_operation")?;
+                        let name = super::model_members::member_name(&operation.identity);
+                        let row = self
+                            .selected_operation_effect(&model.identity, id, name)
+                            .ok_or_else(|| {
+                                SelectedTypeDeclarationsError::at(
+                                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                                    id,
+                                    "object_operation_effect",
+                                    work,
+                                )
+                            })?;
+                        let mut parameters = Vec::with_capacity(operation.parameters.len());
+                        for parameter in &operation.parameters {
+                            charge(&mut work, work_limit, id, "object_operation_parameter")?;
+                            let name = parameter.name.as_ref().ok_or_else(|| {
+                                SelectedTypeDeclarationsError::at(
+                                    ExactTypeProjectionErrorCode::UnsupportedExactType,
+                                    id,
+                                    "object_operation_parameter_name",
+                                    work,
+                                )
+                            })?;
+                            let member_type = model.slot_type(parameter);
+                            let value_type = projected_field_type(
+                                self,
+                                identities,
+                                member_type.as_ref(),
+                                false,
+                                id,
+                                "object_operation_parameter_type",
+                                work,
+                            )?;
+                            parameters.push(SelectedTypeOperationParameter {
+                                name: name.clone(),
+                                value_type,
+                            });
+                        }
+                        let result = operation
+                            .result
+                            .as_ref()
+                            .map(|slot| {
+                                charge(&mut work, work_limit, id, "object_operation_result")?;
+                                let member_type = model.slot_type(slot);
+                                projected_field_type(
+                                    self,
+                                    identities,
+                                    member_type.as_ref(),
+                                    false,
+                                    id,
+                                    "object_operation_result_type",
+                                    work,
+                                )
+                            })
+                            .transpose()?;
+                        let effect = &row.effect;
+                        for _ in &effect.modifies {
+                            charge(&mut work, work_limit, id, "object_operation_effect")?;
+                        }
+                        for _ in &effect.creates {
+                            charge(&mut work, work_limit, id, "object_operation_effect")?;
+                        }
+                        for _ in &effect.deletes {
+                            charge(&mut work, work_limit, id, "object_operation_effect")?;
+                        }
+                        for _ in &effect.deletes_scoped {
+                            charge(&mut work, work_limit, id, "object_operation_effect")?;
+                        }
+                        projected_operations.push(SelectedTypeObjectOperation {
+                            identity: operation.identity.clone(),
+                            name: name.into(),
+                            parameters,
+                            result,
+                            effect: effect.clone(),
+                            provenance: row.provenance.clone(),
+                        });
                     }
                     for field in &declared.fields {
                         charge(&mut work, work_limit, id, "declared_object_field")?;
@@ -1001,6 +1141,7 @@ impl CheckedPackageV2 {
                         supertypes: object_parents,
                         declared_fields,
                         fields: projected_fields,
+                        operations: projected_operations,
                     });
                 }
                 _ => unreachable!("selected runtime declaration form was checked"),
