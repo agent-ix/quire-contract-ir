@@ -5,8 +5,9 @@ use crate::fixture_support::{canonical, evidence_for, refresh_identity, settle, 
 use ix_trace_rs::trace;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageSidecarsRef, CheckedPackageSourceCorrespondenceRef,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageSidecarsRef, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf};
@@ -251,17 +252,99 @@ fn claim_row_coverage_and_exact_work_boundary() {
         .expect("rows")
         .pop();
     refresh_identity(&mut missing);
-    assert!(matches!(
-        read(&missing),
-        CheckedPackageV2ReadResult::Refused(_)
-    ));
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing) else {
+        panic!("uncovered claim must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidValue)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().expect("path").as_str(),
+        "/checked_term_data/probabilistic_claims"
+    );
     missing
         .as_object_mut()
         .expect("wire")
         .remove("checked_term_data");
     refresh_identity(&mut missing);
-    assert!(matches!(
-        read(&missing),
-        CheckedPackageV2ReadResult::Refused(_)
-    ));
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing) else {
+        panic!("missing sidecar must not erase claim rows");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+}
+
+#[test]
+#[trace("TC-233", "FR-038-AC-390", "FR-038-AC-392", "FR-038-AC-395")]
+fn four_array_schema_and_graph_admission_precede_sidecar_join() {
+    let all = vectors();
+    let rows = all["positive"]["probabilistic_claims"]
+        .as_array()
+        .expect("positive rows")
+        .iter()
+        .map(|value| row(value, "test/families"))
+        .collect();
+    let valid = fixture(rows, &all);
+    for field in [
+        "equality_decisions",
+        "protocol_locations",
+        "dispatch_tables",
+        "probabilistic_claims",
+    ] {
+        let mut missing = valid.clone();
+        missing["checked_term_data"]
+            .as_object_mut()
+            .expect("sidecar")
+            .remove(field);
+        refresh_identity(&mut missing);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing) else {
+            panic!("missing {field} must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::MalformedWire,
+            "{field}"
+        );
+    }
+    let mut extra = valid.clone();
+    extra["checked_term_data"]["unexpected"] = json!([]);
+    refresh_identity(&mut extra);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&extra) else {
+        panic!("unknown sidecar field must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+
+    let mut bad_role = valid.clone();
+    bad_role["checked_term_data"]["probabilistic_claims"][0]["occurrence"]["role"] =
+        json!("expression");
+    refresh_identity(&mut bad_role);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&bad_role) else {
+        panic!("wrong occurrence role must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().expect("path").as_str(),
+        "/checked_term_data/probabilistic_claims/0/occurrence"
+    );
+
+    let claim_position = valid["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "probabilistic_claim")
+        .expect("claim node");
+    let mut malformed_body = valid.clone();
+    malformed_body["semantic_graph"]["nodes"][claim_position]["body"] =
+        json!({"term":"no_such_term"});
+    refresh_identity(&mut malformed_body);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&malformed_body) else {
+        panic!("malformed claim body must refuse before sidecar join");
+    };
+    assert!(refusal.loci[0]
+        .path
+        .as_ref()
+        .expect("path")
+        .as_str()
+        .starts_with("/semantic_graph/nodes/"));
 }

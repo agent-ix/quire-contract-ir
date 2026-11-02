@@ -171,6 +171,13 @@ pub(super) fn decode_borrowed_wire(
 ) -> Result<RawCheckedPackageWireV2, ValidationFailure> {
     let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|mut failure| {
         if let ValidationFailure::Refused(ref mut refusal) = failure {
+            if refusal.code == CheckedPackageRefusalCode::UnknownMember
+                && refusal
+                    .primary_path()
+                    .is_some_and(|path| path.as_str().starts_with("/checked_term_data"))
+            {
+                refusal.code = CheckedPackageRefusalCode::MalformedWire;
+            }
             if refusal.code == CheckedPackageRefusalCode::MalformedWire {
                 if let Some(at) = refusal.primary_path().cloned() {
                     if let Some(member) = invalid_node_id_field(bytes, &at) {
