@@ -2025,7 +2025,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ProtocolForm::Compensation,
         ) => false,
         K::Claim(ClaimForm::StateGraph) => true,
-        K::Claim(ClaimForm::StepRelation | ClaimForm::Schedulability) => true,
+        K::Claim(ClaimForm::StepRelation) => false,
+        K::Claim(ClaimForm::Schedulability) => true,
         K::Claim(
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
@@ -3039,7 +3040,7 @@ fn validate_graph(
         models,
         meter,
     )?;
-    schedulability::validate_carrier(wire.schedulability_claims.as_deref(), &graph.nodes, &kinds, &index, structural_keys, meter)?;
+    schedulability::validate_carrier(&wire.name, wire.schedulability_claims.as_deref(), &graph.nodes, &kinds, &index, structural_keys, meter)?;
     protocol_body::validate_protocol_nodes(
         &graph.nodes,
         &kinds,

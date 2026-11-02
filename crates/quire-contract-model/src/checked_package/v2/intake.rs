@@ -184,6 +184,9 @@ pub(super) fn decode_borrowed_wire(
         }
         failure
     })?;
+    if wire.schedulability_claims.as_ref().is_some_and(Vec::is_empty) {
+        return Err(malformed(JsonPointer::root().key("schedulability_claims")));
+    }
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
     let mut nodes = Vec::with_capacity(graph.nodes.len());

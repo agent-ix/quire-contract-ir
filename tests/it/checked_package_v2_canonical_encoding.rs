@@ -259,6 +259,7 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
             quire_contract_model::CheckedPackageSidecarsRef {
                 checked_term_data: None,
                 temporal_bindings: temporal_bindings.as_deref(),
+                schedulability_claims: None,
             },
             &capabilities,
             &diagnostics,

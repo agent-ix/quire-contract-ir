@@ -67,6 +67,20 @@ pub enum CheckedTaskCriticality {
 }
 
 /// A package-borrowed authenticated claim; it cannot be constructed from a wire row.
+///
+/// ```compile_fail
+/// use quire_contract_model::{CheckedSchedulabilityClaimRef, CheckedPackageV2};
+/// fn escape(package: CheckedPackageV2) -> CheckedSchedulabilityClaimRef<'static> {
+///     package.schedulability_claims().next().unwrap()
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use quire_contract_model::{CheckedSchedulabilityClaimRef, CheckedNodeId, CheckedOccurrence, CheckedTerm};
+/// fn fabricate<'a>(declaration: &'a CheckedNodeId, occurrence: &'a CheckedOccurrence, body: &'a CheckedTerm) {
+///     let _ = CheckedSchedulabilityClaimRef { declaration, occurrence, body };
+/// }
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct CheckedSchedulabilityClaimRef<'a> {
     declaration: &'a CheckedNodeId,
@@ -74,6 +88,13 @@ pub struct CheckedSchedulabilityClaimRef<'a> {
     body: &'a CheckedTerm,
 }
 /// A package-borrowed task whose binding shape and policy premises were admitted.
+///
+/// ```compile_fail
+/// use quire_contract_model::{CheckedSchedulabilityTaskRef, CheckedTerm};
+/// fn fabricate(body: &CheckedTerm) {
+///     let _ = CheckedSchedulabilityTaskRef { body };
+/// }
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct CheckedSchedulabilityTaskRef<'a> {
     body: &'a CheckedTerm,
@@ -114,6 +135,7 @@ impl<'a> CheckedSchedulabilityClaimRef<'a> {
     /// Complete admitted body, borrowed without copying.
     pub fn body(&self) -> &'a CheckedTerm { self.body }
     /// Closed claim kind.
+    #[ix_trace_rs::string_edge]
     pub fn kind(&self) -> CheckedSchedulabilityKind {
         match admitted_text(admitted_bound(self.body, 0)) {
             "schedulable" => CheckedSchedulabilityKind::Schedulable,
@@ -122,6 +144,7 @@ impl<'a> CheckedSchedulabilityClaimRef<'a> {
         }
     }
     /// Closed declared policy.
+    #[ix_trace_rs::string_edge]
     pub fn policy(&self) -> CheckedSchedulingPolicy {
         match admitted_text(admitted_bound(self.body, 1)) {
             "fixed-priority" => CheckedSchedulingPolicy::FixedPriority,
@@ -146,6 +169,7 @@ impl<'a> CheckedSchedulabilityTaskRef<'a> {
     /// Exact task name.
     pub fn name(&self) -> &'a str { admitted_text(admitted_bound(self.body, 0)) }
     /// Closed arrival mode.
+    #[ix_trace_rs::string_edge]
     pub fn arrival(&self) -> CheckedTaskArrival {
         match admitted_text(admitted_bound(self.body, 1)) {
             "periodic" => CheckedTaskArrival::Periodic,
@@ -154,6 +178,7 @@ impl<'a> CheckedSchedulabilityTaskRef<'a> {
         }
     }
     /// Closed criticality.
+    #[ix_trace_rs::string_edge]
     pub fn criticality(&self) -> CheckedTaskCriticality {
         match admitted_text(admitted_bound(self.body, 7)) {
             "lo" => CheckedTaskCriticality::Lo,
@@ -202,7 +227,7 @@ fn invalid(code: Code, cause: Option<Cause>, at: JsonPointer, id: &CheckedNodeId
 fn claim(kind: CheckedNodeKind) -> bool { kind == CheckedNodeKind::Claim(ClaimForm::Schedulability) }
 
 pub(super) fn validate_carrier(
-    rows: Option<&[CheckedSchedulabilityClaimRow]>, nodes: &[RawSemanticNodeV2],
+    package_name: &str, rows: Option<&[CheckedSchedulabilityClaimRow]>, nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind], index: &BTreeMap<&CheckedNodeId, usize>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>], meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -212,7 +237,7 @@ pub(super) fn validate_carrier(
     for (i, row) in rows.unwrap_or_default().iter().enumerate() {
         let at = root.clone().index(i);
         meter.charge(1, || at.clone())?;
-        let Some(&position) = index.get(&row.declaration).filter(|&&p| claim(kinds[p])) else {
+        let Some(&position) = index.get(&row.declaration).filter(|&&p| row.declaration.package.as_ref() == package_name && claim(kinds[p])) else {
             return Err(invalid(Code::InvalidPackage, Some(Cause::InvalidValue), at.key("declaration"), &row.declaration));
         };
         if !nodes[position].occurrences.iter().any(|o| o.role == CheckedOccurrenceRole::Claim && o.ordinal == row.occurrence) {
@@ -231,7 +256,7 @@ pub(super) fn validate_carrier(
         node.occurrences.iter().filter(|o| o.role == CheckedOccurrenceRole::Claim)
             .map(move |o| (structural_keys[p].as_ref(), o.ordinal))
     });
-    if rows.is_some_and(<[CheckedSchedulabilityClaimRow]>::is_empty) || expected.clone().any(|key| !seen.contains(&key)) {
+    if expected.clone().any(|key| !seen.contains(&key)) {
         return Err(ValidationFailure::refused_because(Code::InvalidPackage, root, Cause::InvalidValue));
     }
     Ok(())
@@ -267,6 +292,7 @@ fn greater(left: &CheckedTerm, right: &CheckedTerm, meter: &mut WorkMeter, at: &
     Ok(super::natural::compare_rationals(magnitude(left), magnitude(right), meter, &|| at.clone())?.is_gt())
 }
 
+#[ix_trace_rs::string_edge]
 pub(super) fn validate_bodies(
     nodes: &[RawSemanticNodeV2], kinds: &[CheckedNodeKind], terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>, structural_keys: &[std::sync::Arc<CheckedNodeId>], models: &[super::model_members::DomainModel], meter: &mut WorkMeter,
@@ -387,7 +413,6 @@ pub(super) fn validate_graph(nodes: &[RawSemanticNodeV2], kinds: &[CheckedNodeKi
             (!node.dependencies.is_empty(), "dependencies"),
             (node.owner.is_some(), "owner"),
             (!index.get(&node.semantic_type).is_some_and(|&t| kinds[t] == CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)), "semantic_type"),
-            (node.occurrences.iter().any(|o| o.role != CheckedOccurrenceRole::Claim), "occurrences"),
         ] {
             if bad { return Err(invalid(Code::InvalidSemanticGraph, None, node_pointer(p).key(field), &node.node_id)); }
         }

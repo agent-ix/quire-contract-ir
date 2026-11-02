@@ -1176,6 +1176,7 @@ fn code_word(code: Code) -> &'static str {
         Code::UnknownProfile => "unknown_profile",
         Code::UnsupportedConstruct => "unsupported_construct",
         Code::WrongSnapshot => "wrong_snapshot",
+        Code::InvalidTimedModel => "invalid_timed_model",
     }
 }
 
@@ -1226,6 +1227,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::DeclarationForm => "declaration-form",
         Cause::WrongExport => "wrong-export",
         Cause::WrongObservation => "wrong-observation",
+        Cause::InvalidTaskSet => "invalid-task-set",
     }
 }
 
