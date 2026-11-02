@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! QSpec XP-01..XP-10 dimension-equivalence vectors through the strict reader.
+//! QSpec XP-01..XP-15 dimension-equivalence vectors through the strict reader.
 
 use super::{fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
@@ -93,23 +93,30 @@ fn dimension_node(name: &str, row: &Value, all: &Value) -> Value {
     })
 }
 
-fn equivalence_node(package: &str, case: &Value, index: usize, all: &Value) -> Value {
+fn equivalence_node(package: &str, case: &Value, index: usize) -> Value {
     let pair = case["pair"].as_array().expect("published pair");
-    let first = id_for(&all[pair[0].as_str().expect("first name")]);
-    let second = id_for(&all[pair[1].as_str().expect("second name")]);
+    let first = pair[0].clone();
+    let second = pair[1].clone();
     let ordinal = case["ordinal"].as_u64().unwrap_or(0);
     let id = json!({
         "package": package,
-        "path": ["scalar_type", "dimension_equivalence", first, second],
+        "path": ["scalar_type", "dimension_equivalence", format!("equivalence-{index}")],
         "ordinal": ordinal,
     });
+    let dependencies = pair
+        .iter()
+        .filter(|operand| {
+            operand.get("path").is_some() && operand["package"].as_str() == Some(package)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     json!({
         "node_id": id,
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "scalar_type",
         "semantic_form": "dimension_equivalence",
         "semantic_type": id,
-        "dependencies": [first, second],
+        "dependencies": dependencies,
         "occurrences": [{"role":"anchor","ordinal":index}],
         "owner": {"kind":"source","authority":"agent-ix","identity":package},
         "body": {
@@ -200,7 +207,7 @@ fn dimension_packages(all: &Value) -> Vec<(String, Arc<CheckedPackageV2>)> {
 }
 
 /// Trace: FR-063-AC-3
-#[trace("TC-233", "FR-063-AC-3")]
+#[trace("TC-233", "TC-280", "FR-063-AC-3", "FR-038-AC-387")]
 #[test]
 fn xp_01_three_independent_equivalences_admit_as_one_class() {
     let vectors = vectors();
@@ -222,7 +229,7 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
     for (index, case) in equivalences.iter().enumerate() {
         let name = format!("equivalence/{index}");
         // Each authored package has one anchor occurrence, starting at zero.
-        let node = equivalence_node(&name, case, 0, all);
+        let node = equivalence_node(&name, case, 0);
         let graph = vec![node];
         let imports = dimensions
             .iter()
@@ -242,15 +249,21 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
     // inserted into the consumer's local graph.
     let mut graph = Vec::new();
     for (index, case) in equivalences.iter().enumerate() {
-        graph.push(equivalence_node("example", case, index, all));
+        graph.push(equivalence_node("example", case, index));
     }
-    let imports = authored
+    let imports = dimensions
         .iter()
         .map(|(name, _)| name.as_str())
+        .chain(authored.iter().map(|(name, _)| name.as_str()))
         .collect::<Vec<_>>();
-    let evidence = authored
+    let evidence = dimensions
         .iter()
         .map(|(name, value)| (name.as_str(), Arc::clone(value)))
+        .chain(
+            authored
+                .iter()
+                .map(|(name, value)| (name.as_str(), Arc::clone(value))),
+        )
         .collect::<Vec<_>>();
     let wire = package("example", &graph, &imports);
     let read = admitted(&wire, &evidence);
@@ -267,6 +280,12 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
             "XP-01 scale {index}"
         );
         assert_eq!(
+            serde_json::to_value(&retained.body).expect("typed equivalence body")
+                ["dimension_node_ids"],
+            case["pair"],
+            "XP-01 operands {index}"
+        );
+        assert_eq!(
             retained.occurrences[0].ordinal,
             u64::try_from(index).expect("vector index")
         );
@@ -274,7 +293,14 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
 }
 
 /// Trace: FR-063-AC-4
-#[trace("TC-233", "FR-063-AC-4")]
+#[trace(
+    "TC-233",
+    "TC-280",
+    "FR-063-AC-4",
+    "FR-038-AC-387",
+    "FR-038-AC-388",
+    "FR-038-AC-389"
+)]
 #[test]
 fn xp_adverse_pairs_refuse_at_the_published_equivalence() {
     let vectors = vectors();
@@ -298,31 +324,48 @@ fn xp_adverse_pairs_refuse_at_the_published_equivalence() {
             .iter()
             .enumerate()
         {
-            nodes.push(equivalence_node("example", equivalence, index, all));
+            nodes.push(equivalence_node("example", equivalence, index));
         }
-        let imports = dimensions
+        let selected = case["dependency_selections"]
+            .as_array()
+            .map(|selections| {
+                selections
+                    .iter()
+                    .map(|identity| identity.as_str().expect("selected dependency"))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| dimensions.iter().map(|(name, _)| name.as_str()).collect());
+        let imports = imported
             .iter()
-            .map(|(name, _)| name.as_str())
+            .filter(|(name, _)| selected.contains(name))
+            .map(|(name, dependency)| (*name, Arc::clone(dependency)))
             .collect::<Vec<_>>();
-        let wire = package("example", &nodes, &imports);
-        let result = read(&wire, &imported);
+        let wire = package("example", &nodes, &selected);
+        let result = read(&wire, &imports);
         match case["expected"].as_str().expect("outcome") {
             "admitted" => assert!(
                 matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
                 "{id}: {result:?}"
             ),
-            "invalid_semantic_graph" => {
+            "invalid_semantic_graph" | "missing_declaration" => {
                 let CheckedPackageV2ReadResult::Refused(refusal) = result else {
-                    panic!("{id}: expected invalid semantic graph, got {result:?}")
+                    panic!("{id}: expected refusal, got {result:?}")
                 };
-                assert_eq!(
-                    refusal.code,
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    "{id}"
-                );
+                let expected_code = match case["expected"].as_str().expect("outcome") {
+                    "invalid_semantic_graph" => CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    "missing_declaration" => CheckedPackageRefusalCode::MissingDeclaration,
+                    _ => unreachable!("closed expected outcomes"),
+                };
+                assert_eq!(refusal.code, expected_code, "{id}");
                 let at = usize::try_from(case["at"].as_u64().expect("refused equivalence"))
                     .expect("vector index fits usize");
-                let expected = format!("/semantic_graph/nodes/{at}");
+                let mut expected = format!("/semantic_graph/nodes/{at}");
+                if let Some(operand) = case["operand"].as_u64() {
+                    expected.push_str(&format!("/body/dimension_node_ids/{operand}"));
+                    if let Some(member) = case["member"].as_str() {
+                        expected.push_str(&format!("/{member}"));
+                    }
+                }
                 assert_eq!(
                     refusal.loci[0]
                         .path
@@ -332,6 +375,13 @@ fn xp_adverse_pairs_refuse_at_the_published_equivalence() {
                     Some(expected.as_str()),
                     "{id}"
                 );
+                if let Some(cause) = case["cause"].as_str() {
+                    assert_eq!(
+                        serde_json::to_value(refusal.cause).expect("refusal cause"),
+                        json!(cause),
+                        "{id}"
+                    );
+                }
             }
             other => panic!("unrecognized QSpec outcome {other}"),
         }
