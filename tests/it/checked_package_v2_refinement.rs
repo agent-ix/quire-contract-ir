@@ -1901,7 +1901,173 @@ fn selected_population_package() -> (Value, CheckedPackageEvidence, Value, Value
     (package, evidence, id, object_id)
 }
 
-#[trace("TC-062", "FR-061-AC-1")]
+/// Each authored necessary edge is removed in isolation; unrelated local nodes
+/// are added in isolation. Both defects must precede an independent row join.
+fn assert_refinement_dependency_matrix(
+    package: &Value,
+    evidence: &CheckedPackageEvidence,
+    position: usize,
+) {
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(package, evidence) else {
+        panic!("dependency baseline refused: {:?}", read(package, evidence));
+    };
+    let indexed = indexed_package(package);
+    assert_eq!(
+        serde_json::to_value(&admitted.graph().nodes[position].dependencies)
+            .expect("typed dependencies"),
+        indexed["semantic_graph"]["nodes"][position]["dependencies"]
+    );
+    let bytes = writer_bytes(package);
+    assert_eq!(
+        bytes,
+        canonical_indexed(package),
+        "writer changed authored dependencies"
+    );
+    let CheckedPackageV2ReadResult::Admitted(reread) =
+        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), evidence)
+    else {
+        panic!("dependency baseline writer output refused");
+    };
+    assert_eq!(admitted.graph(), reread.graph());
+    let dependencies = package["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array()
+        .expect("dependencies");
+    assert!(
+        !dependencies.is_empty(),
+        "fixture must exercise necessary edges"
+    );
+    let mut defects = Vec::new();
+    for omitted in 0..dependencies.len() {
+        let mut missing = dependencies.clone();
+        missing.remove(omitted);
+        defects.push((format!("omitted edge {omitted}"), missing));
+    }
+    for node in package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+    {
+        let id = &node["node_id"];
+        if id != &package["semantic_graph"]["nodes"][position]["node_id"]
+            && !dependencies.contains(id)
+        {
+            let mut extra = dependencies.clone();
+            extra.push(id.clone());
+            extra.sort_by(node_id_order);
+            defects.push((format!("extra edge {id}"), extra));
+        }
+    }
+    for pair in 1..dependencies.len() {
+        let mut reversed = dependencies.clone();
+        reversed.swap(pair - 1, pair);
+        defects.push((format!("misordered pair {pair}"), reversed));
+    }
+    let path = format!("/semantic_graph/nodes/{position}/dependencies");
+    for (label, edges) in defects {
+        for bad_row in [false, true] {
+            let mut candidate = package.clone();
+            if bad_row {
+                candidate["semantic_graph"]["nodes"][position]["body"]["steps"][0]
+                    ["source_class"] = json!("unknown-operation");
+            }
+            candidate["semantic_graph"]["nodes"][position]["dependencies"] = json!(edges);
+            // Do not settle: the reader and writer must see the authored defect.
+            ac5_refusal_preserved_by_writer(
+                &candidate,
+                evidence,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                &path,
+            );
+            assert_eq!(
+                writer_bytes(&candidate),
+                canonical_indexed(&candidate),
+                "{label}, bad_row={bad_row}: writer repaired input"
+            );
+        }
+    }
+    let mut bad_row = package.clone();
+    bad_row["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_class"] =
+        json!("unknown-operation");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&bad_row, evidence) else {
+        panic!("the independent wrong operation must refuse with correct dependencies");
+    };
+    assert_ne!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        path,
+        "the row-only control must pass dependency validation"
+    );
+}
+
+/// QSpec FR-375 excludes literal types and the concrete semantic type from
+/// dependencies; reference targets remain necessary even inside history rows.
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_history_reference_dependencies_exclude_type_annotations() {
+    let (mut package, evidence, position, _, type_id, _) = ac5_history_package();
+    let initial =
+        package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["initial"].clone();
+    let literal_id = node_id("refinement/dependency-history-literal");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":literal_id, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value", "semantic_form":"literal", "semantic_type":type_id,
+            "dependencies":[type_id], "occurrences":[{"role":"generated","ordinal":0}],
+            "body":initial
+        }));
+    rebuild_source_map(&mut package);
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["histories"][0]["initial"] = json!({"term":"reference", "target":literal_id});
+    node["body"]["histories"][0]["updates"][0]["expression"] =
+        json!({"term":"reference", "target":literal_id});
+    node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .push(literal_id);
+    node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .sort_by(node_id_order);
+    settle_refinement(&mut package, position);
+    assert_refinement_dependency_matrix(&package, &evidence, position);
+
+    let (mut empty, mut evidence) = machine_package();
+    row_empty_refinement(&mut empty);
+    let position = empty["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let alternate = add_second_concrete_root(&mut empty, &mut evidence);
+    empty["semantic_graph"]["nodes"][position]["semantic_type"] = alternate.clone();
+    let bytes = writer_bytes(&empty);
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("concrete root annotation must not create a local dependency");
+    };
+    assert_eq!(
+        admitted.graph().nodes[position].dependencies.len(),
+        1,
+        "only the abstract header is a dependency of a row-empty body"
+    );
+    empty["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .push(alternate);
+    empty["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .sort_by(node_id_order);
+    ac5_refusal_preserved_by_writer(
+        &empty,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("/semantic_graph/nodes/{position}/dependencies"),
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-1", "FR-061-AC-6")]
 #[test]
 fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     let (mut package, evidence, population, object) = selected_population_package();
@@ -1990,6 +2156,8 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     dependencies.dedup();
     settle_refinement(&mut package, position);
     keep_refinement_declaration_occurrence(&mut package, position);
+
+    assert_refinement_dependency_matrix(&package, &evidence, position);
 
     let expected = package["semantic_graph"]["nodes"][position].clone();
     let selected_root = package["semantic_graph"]["nodes"]
@@ -2163,7 +2331,7 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
     );
 }
 
-#[trace("TC-062", "FR-061-AC-4")]
+#[trace("TC-062", "FR-061-AC-4", "FR-061-AC-6")]
 #[test]
 fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     let (mut dependency_wire, dependency_evidence, _) =
@@ -2217,6 +2385,7 @@ fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     }]);
     node["dependencies"] = json!([source_anchor]);
     settle_refinement(&mut package, position);
+    assert_refinement_dependency_matrix(&package, &evidence, position);
     let key: quire_contract_model::CheckedNodeId =
         serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
             .expect("refinement id");
@@ -7517,7 +7686,7 @@ fn refinement_catalog_reads_single_segment_protocol_clause() {
 
 /// Provenance: IR-874 timeout class on an admitted await node.
 /// Trace: FR-038-AC-325
-#[trace("TC-048", "FR-038-AC-325")]
+#[trace("TC-048", "FR-038-AC-325", "FR-061-AC-6")]
 #[test]
 fn refinement_catalog_joins_timeout_on_await_node() {
     let (base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
@@ -7778,6 +7947,7 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     evidence
         .insert_dependency_package("test/abstract-protocol", *dependency)
         .expect("selected dependency");
+    assert_refinement_dependency_matrix(&package, &evidence, position);
     let admitted = read(&package, &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
