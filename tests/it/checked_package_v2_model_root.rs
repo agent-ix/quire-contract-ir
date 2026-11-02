@@ -129,6 +129,7 @@ fn selected_root_roundtrips_through_public_typed_writer_and_reader() {
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: first.checked_term_data(),
             temporal_bindings: first.temporal_bindings(),
+            schedulability_claims: None,
         },
         first.capability_report(),
         first.diagnostics(),

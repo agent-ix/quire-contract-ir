@@ -45,6 +45,7 @@ mod operations;
 mod owner;
 mod parameter_declaration;
 mod protocol_body;
+mod schedulability;
 mod protocol_locations;
 mod reaches_population;
 mod refinement;
@@ -124,6 +125,7 @@ pub use operation_witness::{
     SelectedOperationMemberRow, SelectedOperationMembers,
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
+pub use schedulability::*;
 pub use protocol_body::{CheckedProtocolActivation, CheckedProtocolActivationRow};
 pub use reaches_population::CheckedReachesPopulationError;
 pub use refinement::*;
@@ -660,7 +662,7 @@ macro_rules! checked_package_envelope {
     ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
         #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, A, D> {
+        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, H, A, D> {
             $($name: $parameter,)+
             #[serde(default, skip_serializing_if = "Option::is_none")]
             refinement_step_rows: Option<R>,
@@ -668,6 +670,8 @@ macro_rules! checked_package_envelope {
             checked_term_data: Option<T>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             temporal_bindings: Option<B>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            schedulability_claims: Option<H>,
         }
 
         impl<Body: quire_canonical::Encode> quire_canonical::Encode for CheckedPackageEnvelope<
@@ -679,6 +683,7 @@ macro_rules! checked_package_envelope {
             &[refinement::CheckedRefinementStepRowRegion],
             &checked_term_data::CheckedTermDataV2,
             &[temporal_binding::TemporalBinding],
+            &[CheckedSchedulabilityClaimRow],
             &[CheckedCapability],
             &CheckedDiagnosticsV2,
         > {
@@ -694,6 +699,9 @@ macro_rules! checked_package_envelope {
                 }
                 if let Some(rows) = &self.temporal_bindings {
                     encode::elements(writer, "temporal_bindings", rows)?;
+                }
+                if let Some(rows) = self.schedulability_claims {
+                    encode::elements(writer, "schedulability_claims", rows)?;
                 }
                 writer.end_object()
             }
@@ -720,6 +728,7 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     Vec<refinement::CheckedRefinementStepRowRegion>,
     checked_term_data::CheckedTermDataV2,
     Vec<temporal_binding::TemporalBinding>,
+    Vec<CheckedSchedulabilityClaimRow>,
     Vec<CheckedCapability>,
     CheckedDiagnosticsV2,
 >;
@@ -742,6 +751,8 @@ pub struct CheckedPackageSidecarsRef<'a> {
     pub checked_term_data: Option<&'a CheckedTermDataV2>,
     /// Exact temporal declaration clock rows, when present.
     pub temporal_bindings: Option<&'a [TemporalBinding]>,
+    /// Untrusted identity rows, preserved exactly as supplied.
+    pub schedulability_claims: Option<&'a [CheckedSchedulabilityClaimRow]>,
 }
 
 /// Canonically encodes a complete checked-package V2 envelope under the
@@ -780,6 +791,7 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         refinement_step_rows: sources.refinement_step_rows,
         checked_term_data: sidecars.checked_term_data,
         temporal_bindings: sidecars.temporal_bindings,
+        schedulability_claims: sidecars.schedulability_claims,
         capability_report,
         diagnostics,
     };
@@ -1204,6 +1216,7 @@ impl CheckedPackageV2 {
             refinement_step_rows,
             checked_term_data,
             temporal_bindings,
+            schedulability_claims,
             capability_report,
             diagnostics,
         } = wire;
@@ -1231,6 +1244,7 @@ impl CheckedPackageV2 {
             refinement_step_rows,
             checked_term_data,
             temporal_bindings,
+            schedulability_claims,
             capability_report,
             diagnostics,
         };
@@ -2016,7 +2030,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest,
+            | ClaimForm::SynthesisRequest
+            | ClaimForm::Schedulability,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
@@ -2325,7 +2340,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ClaimForm::Hyperproperty
             | ClaimForm::SynthesisRequest
             | ClaimForm::StateGraph
-            | ClaimForm::StepRelation,
+            | ClaimForm::StepRelation
+                | ClaimForm::Schedulability,
         ) => BodyGrammar::Term,
         K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
             BodyGrammar::AbstractionRelation
@@ -3023,6 +3039,7 @@ fn validate_graph(
         models,
         meter,
     )?;
+    schedulability::validate_carrier(wire.schedulability_claims.as_deref(), &graph.nodes, &kinds, &index, structural_keys, meter)?;
     protocol_body::validate_protocol_nodes(
         &graph.nodes,
         &kinds,
@@ -3033,6 +3050,7 @@ fn validate_graph(
         meter,
         limits.bytes,
     )?;
+    schedulability::validate_bodies(&graph.nodes, &kinds, &terms, &index, models, meter)?;
     refinement::validate_catalog_graph(
         refinement::RefinementGraph::new(
             &graph.nodes,
@@ -4024,6 +4042,7 @@ mod tests {
                 super::CheckedPackageSidecarsRef {
                     checked_term_data: wire.checked_term_data.as_ref(),
                     temporal_bindings: wire.temporal_bindings.as_deref(),
+                    schedulability_claims: wire.schedulability_claims.as_deref(),
                 },
                 &wire.capability_report,
                 &wire.diagnostics,
@@ -4096,6 +4115,7 @@ mod tests {
                         super::CheckedPackageSidecarsRef {
                             checked_term_data: wire.checked_term_data.as_ref(),
                             temporal_bindings: wire.temporal_bindings.as_deref(),
+                    schedulability_claims: wire.schedulability_claims.as_deref(),
                         },
                         &wire.capability_report,
                         &wire.diagnostics,

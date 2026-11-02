@@ -179,6 +179,8 @@ pub use checked_package::{
     CheckedRelationshipEnd, CheckedRelationshipEndError, CheckedResolvedEqualityUnit,
     CheckedResolvedEqualityUnitForm, CheckedScalarOperand, CheckedScalarOperandChild,
     CheckedScalarOperandError, CheckedScalarOperandRange, CheckedSelectedOperationWitness,
+    CheckedSchedulabilityClaimRow, CheckedSchedulabilityClaimRef, CheckedSchedulabilityTaskRef,
+    CheckedSchedulabilityKind, CheckedSchedulingPolicy, CheckedTaskArrival, CheckedTaskCriticality,
     CheckedSelection, CheckedSelectionRole, CheckedSemanticGraphV2, CheckedSemanticNodeV2,
     CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, CheckedStepExecution,
     CheckedStepRelationBody, CheckedStepRelationCapability, CheckedStepRelationObligationIdentity,

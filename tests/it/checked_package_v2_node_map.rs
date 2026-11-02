@@ -899,6 +899,7 @@ fn hundred_thousand_node_position_remap_preserves_admitted_references() {
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: original.checked_term_data(),
             temporal_bindings: original.temporal_bindings(),
+            schedulability_claims: None,
         },
         original.capability_report(),
         original.diagnostics(),
@@ -959,6 +960,7 @@ fn mapped_duplicate_is_refused_by_the_package_reader() {
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
+            schedulability_claims: None,
         },
         admitted.capability_report(),
         admitted.diagnostics(),

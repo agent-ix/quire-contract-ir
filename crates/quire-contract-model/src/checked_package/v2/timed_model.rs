@@ -26,7 +26,7 @@ fn malformed(at: JsonPointer) -> ValidationFailure {
 /// A source Time has a declared nominal body; a selected model Time is
 /// identified by its FCD declaration and has no declaration or body terms.
 #[ix_trace_rs::string_edge]
-fn is_base_time_dimension(
+pub(super) fn is_base_time_dimension(
     node: &CheckedSemanticNodeV2,
     models: &BTreeMap<&str, &DomainModel>,
 ) -> bool {

@@ -1224,7 +1224,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ClaimForm::Hyperproperty
             | ClaimForm::SynthesisRequest
             | ClaimForm::StateGraph
-            | ClaimForm::StepRelation,
+            | ClaimForm::StepRelation
+                | ClaimForm::Schedulability,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus

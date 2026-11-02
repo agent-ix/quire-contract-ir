@@ -1160,6 +1160,7 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
+            schedulability_claims: None,
         },
         admitted.capability_report(),
         admitted.diagnostics(),
@@ -4784,6 +4785,7 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
+            schedulability_claims: None,
         },
         admitted.capability_report(),
         admitted.diagnostics(),

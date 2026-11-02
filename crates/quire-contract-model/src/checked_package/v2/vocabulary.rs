@@ -301,6 +301,7 @@ closed_vocabulary! {
         SynthesisRequest => "synthesis_request",
         StateGraph => "state_graph",
         StepRelation => "step_relation",
+        Schedulability => "schedulability",
     }
 }
 
