@@ -24,7 +24,7 @@ fn identity(name: &str) -> String {
 
 fn origin(name: &str) -> Value {
     json!({"generated":{"generatorIdentity":identity(name),
-        "generatorVersion":"1", "inputIdentities":[identity(name)]}})
+        "generatorVersion":"1.0.0", "inputIdentities":[identity(name)]}})
 }
 
 fn field(owner: &str, name: &str, native: &str, optional: bool) -> Value {
@@ -52,13 +52,13 @@ fn selected_document() -> Value {
         vec![field("Ledger", "id", "Integer", false)],
     );
     ledger["identityFields"] = json!([identity("Ledger/id")]);
-    json!({"contractVersion":"2.0.0", "package":{"identity":MODEL,"version":"1"},
+    json!({"contractVersion":"2.0.0", "package":{"identity":MODEL,"version":"1", "mappingVersions":[], "profileVersions":[]},
     "constructs":[
-        {"kind":{"module":MODEL,"name":"record"},"moduleVersion":"1",
+        {"kind":{"module":MODEL,"name":"record"},"moduleVersion":"1.0.0",
             "construct":{"identity":"none","shape":"record",
                 "members":{"identityFields":"optional"},
                 "meaning":"quire.meaning.model.record-value-type/v1"}},
-        {"kind":{"module":MODEL,"name":"entity"},"moduleVersion":"1",
+        {"kind":{"module":MODEL,"name":"entity"},"moduleVersion":"1.0.0",
             "construct":{"identity":"none","shape":"record",
                 "members":{"identityFields":"required"},
                 "meaning":"quire.meaning.model.object-type/v1"}}
