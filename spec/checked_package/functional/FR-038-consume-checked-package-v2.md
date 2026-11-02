@@ -200,6 +200,14 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   model object type's effective fields with their derived member types, integer
   bounds as values; see "Typed accessor for a model object type's fields"
   (FR-038-AC-136 through FR-038-AC-144, IR-628).
+- A borrowed typed read of the optional `operation_effects` carrier. Absence
+  remains distinguishable from an admitted row whose four effect arrays are
+  empty; a row carries its selected document, declaring node, original
+  operation member, four admitted frame-entry arrays and producer provenance
+  without creating another source of operation effects (IR-1226).
+- A typed optional `operation_effects` input to the existing complete V2
+  encoder, through `CheckedPackageSidecarsRef`. A constructible input row is
+  untrusted until the strict reader admits the resulting package.
 - A typed accessor on the admitted package for a scalar application's ordered
   operands. Each entry carries its argument ordinal, a typed child identity,
   and its own inclusive integer range; see "Typed scalar application operands"
@@ -4669,6 +4677,53 @@ second row. A missing `occurrence` is a closed-schema `malformed_wire` refusal
 at the missing member's published locus. Refusal loci follow the existing RFC
 6901 location contract.
 
+### Selected operation-effect carrier (planned until IR-1226 reader lands)
+
+The strict reader SHALL admit QSpec STD-640's optional top-level
+`operation_effects` member as a non-empty closed array of
+`{document, declaring, operation, effect, provenance}` rows. If absent, the
+admitted package SHALL retain effects as unavailable, and a request for an
+operation effect SHALL return a typed unavailable-witness outcome under
+[FR-354](./FR-354-project-admitted-runtime-context.md). If present, the
+carrier SHALL contain exactly one row for each own operation of every selected
+`model`/`object_type`, `model`/`process` and `model`/`state_machine` declaration;
+an empty declared frame SHALL retain a row with all four arrays empty.
+`model`/`persistence_interface` operations have no row. The row key is the
+selected document identity, graph-local declaring `CheckedNodeId` and original
+member name in that order. The reader SHALL expose admitted rows through a
+borrowed typed read in carrier order, with the four exact `modifies`,
+`creates`, `deletes` and `deletes_scoped` collections and provenance member.
+An explicit `null`, empty array, or non-array value for `operation_effects`
+SHALL refuse as `malformed_wire` at `/operation_effects`; neither is the
+absent-member case.
+The existing V2 encoder SHALL accept an optional borrowed collection of
+constructible typed carrier rows through `CheckedPackageSidecarsRef` and
+write the same closed top-level member in canonical order when supplied;
+`None` omits it. An input row cannot mint an admitted effect view: only a
+strictly admitted package may return the borrowed validated row. The
+producer supplies all four entry collections and the selected document,
+declaring node, original member and provenance member; the fixed provenance
+origin is `model_document_operation_frame`.
+It SHALL NOT derive an operation effect from a state/frame node, name, path or
+default empty value, and SHALL NOT create an independently authoritative IR
+effect mirror.
+
+The reader SHALL apply QSpec STD-640's closed schema and check order to each
+row after earlier wire and graph stages: selected document and local declaring
+node; eligible declaration and exact own member; provenance origin/member;
+FR-340 entry joins and canonical array order; equality with the selected
+document's operation frame; repeated key before descending key; then complete
+coverage. The first defect SHALL return QSpec TC-977's existing typed code,
+cause and RFC 6901 locus without an admitted package. Each row and effect
+entry SHALL charge the caller's finite validation-visit budget before
+inspection; exhaustion SHALL return the existing incomplete outcome at the
+first uncharged locus without a partial admitted effect view. Repeated reads
+of one admitted package and its clone SHALL agree. TC-048 SHALL read
+`proposals/checked-package-v2/operation-effect-vectors.json` from the selected
+QSpec checkout by reference, checking OEC-01..07, OES-01..14 and OER-01..26
+against their published admission or exact refusal oracle; IR SHALL store no
+copy of that vector or schema.
+
 ### Authenticated schedulability claim carrier (planned until IR-1252 lands)
 
 The strict reader SHALL admit the optional top-level `schedulability_claims`
@@ -5173,6 +5228,9 @@ adds none of them to the checked-package wire or the cycle-free model API.
 | FR-038-AC-403 | planned until IR-1256 lands. The strict reader admits `CQ-W09`, `CQ-W10` and `CQ-W15`: conversion from a unit-typed quantity or a carried quantity into a carried result of the same dimension with the exact result-pinned mode. It refuses `CQ-W11` and `CQ-W12` as `invalid_package`/`operation-mode-type-mismatch` at the application for a differing or null mode, `CQ-W13` as `ill_typed`/`operator-ineligible` there for a different dimension, and `CQ-W14` with that code and cause for a carried operand of `quantity.add`. Other quantity arithmetic, comparison and `collection.sum.quantity` also reject a carried operand. | Test (TC-048; QSpec TC-280) |
 | FR-038-AC-404 | planned until IR-1256 lands. TC-048 reads `proposals/checked-package-v2/quantity-carrier-vectors.json` from the selected QSpec checkout by reference and applies `CQ-W01` through `CQ-W15` to complete IR package reads, checking admission or exact typed code, cause and primary node or application locus. The test stores no copy of the upstream vector or schema. | Test (TC-048) |
 | FR-038-AC-405 | planned until IR-1256 lands. `CQ-E01` through `CQ-E20` are referenced as downstream evaluation controls only: the IR strict reader admits their valid carried type and conversion wire independently of the evaluator's completed, refused or incomplete outcome. The reader never emits `inexact_conversion`, `decimal_out_of_domain` or `integer_out_of_domain` as a package-read result for a valid conversion application. | Test (TC-048; QSpec TC-187) |
+| FR-038-AC-406 | planned until the IR-1226 reader lands. The strict reader admits QSpec STD-640 positive vectors OEC-01..07 by reference, including each of the four effect kinds, an intentionally empty effect, multiple own operations and equal member names under distinct selected documents or declaring objects. A present row exposes the exact producer frame entries and provenance through a borrowed typed read; an absent optional carrier yields no effect rows and a typed unavailable-witness outcome for an operation-effect request, never an inferred empty effect. The canonical writer emits the same top-level member from optional borrowed typed input rows and omits it for `None`; a raw input row alone cannot mint an admitted view. | Test |
+| FR-038-AC-407 | planned until the IR-1226 reader lands. The strict reader applies QSpec TC-977's OES-01..14 schema refusals and OER-01..26 semantic refusals to complete selected packages, checking each published code, cause and primary RFC 6901 locus. An explicitly `null`, empty or non-array `operation_effects` refuses `malformed_wire` at `/operation_effects`, unlike omission. It refuses missing/extra row or effect members, wrong entry kinds or provenance, foreign/wrong-kind declaring nodes, undeclared or inherited-only operations, dropped/invented effect entries, repeated or descending keys and missing coverage before admission, in the published precedence. | Test |
+| FR-038-AC-408 | planned until the IR-1226 reader lands. Each visited carrier row and effect entry consumes one validation visit before inspection; a limit one below the required work returns incomplete at the first uncharged locus without a partial effect view. Equal admitted packages and their clones yield equal borrowed row data or equal typed outcomes. TC-048 reads the QSpec STD-640 vector file through the selected checkout and holds no local vector or schema copy. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
