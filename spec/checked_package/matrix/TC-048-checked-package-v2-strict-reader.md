@@ -2744,7 +2744,7 @@ admitted or partial borrowed row view.
 
 ## IEEE fused multiply-add application (FR-038-AC-431 and FR-038-AC-432)
 
-Planned until IR-1265 lands. Read QSpec's
+Read QSpec's
 `proposals/checked-package-v2/fma-application-vectors.json` from the selected
 checkout. Assert exactly `FM-01` through `FM-12` and construct complete,
 otherwise valid IR-owned V2 packages around each case. The application is the

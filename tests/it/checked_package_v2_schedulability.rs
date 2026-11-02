@@ -467,6 +467,40 @@ fn refuses(
     );
 }
 
+#[trace("TC-048", "FR-038-AC-398", "FR-038-AC-399")]
+#[test]
+fn claim_body_refusals_follow_structural_order_among_nonclaim_nodes() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+
+    let mut wire = package("fixed-priority", false, false, 1);
+    let nodes = wire["semantic_graph"]["nodes"].as_array_mut().unwrap();
+    let worker = nodes.len() - 1;
+    let first = fixtures::node_id("fixture/schedulability/a");
+    let second = nodes[worker]["node_id"].clone();
+    let mut earlier_claim = nodes[worker].clone();
+    earlier_claim["node_id"] = first.clone();
+    nodes.push(earlier_claim);
+    let earlier = nodes.len() - 1;
+    for position in [worker, earlier] {
+        nodes[position]["body"]["members"][1]["value"]["value"] = json!("unknown-policy");
+    }
+    wire["schedulability_claims"] = json!([
+        {"declaration": first, "occurrence": 0},
+        {"declaration": second, "occurrence": 0},
+    ]);
+    fixtures::rebuild_complete_source_map(&mut wire);
+    fixtures::refresh_identity(&mut wire);
+
+    refuses(
+        &wire,
+        Code::InvalidPackage,
+        Some(Cause::InvalidValue),
+        &format!("/semantic_graph/nodes/{earlier}/body/members/1"),
+    );
+}
+
 #[trace("TC-048", "FR-038-AC-397", "FR-038-AC-400")]
 #[test]
 fn carrier_join_checks_have_deterministic_precedence() {

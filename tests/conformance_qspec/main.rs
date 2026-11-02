@@ -40,6 +40,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 mod carried_quantity;
+mod certificate_member;
 mod dependency_call;
 mod dimension_equivalence;
 mod entry_keys;
@@ -47,6 +48,7 @@ mod extension;
 mod fairness_targets;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;
+mod fma_application;
 mod grouped_ordinal;
 mod hybrid;
 mod model_option_types;
