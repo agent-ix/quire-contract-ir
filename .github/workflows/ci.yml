@@ -43,6 +43,7 @@ jobs:
           msrv=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "quire-contract-ir") | .rust_version')
           test -n "$msrv" && test "$msrv" != null
           rustup toolchain install "$msrv" --profile minimal
+
       - name: Test
         env:
           QUIRE_LOCK_CHECKER: ${{ runner.temp }}/quire-check-lock/quire
