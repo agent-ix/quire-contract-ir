@@ -674,6 +674,7 @@ fn carried_result<'g>(
     carried_unit_and_mode(result_type, graph)
 }
 
+#[ix_trace_rs::string_edge]
 fn check_carried_conversion(
     application: Application<'_>,
     operation: &OperationWire,
@@ -872,6 +873,7 @@ struct OperationResolution<'a> {
     fast_index: Option<&'a FlatWireIndex<'a>>,
 }
 
+#[ix_trace_rs::string_edge]
 fn operation_defect(
     application: Application<'_>,
     graph: &Graph<'_>,
@@ -1870,6 +1872,7 @@ pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
     }
 }
 
+#[ix_trace_rs::string_edge]
 fn check_operands(
     application: Application<'_>,
     operation: &OperationWire,
