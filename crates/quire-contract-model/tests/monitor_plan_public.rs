@@ -105,11 +105,22 @@ fn evidence(wire: &Value) -> CheckedPackageEvidence {
     evidence
 }
 
-#[ix_trace_rs::trace("TC-048", "FR-019-AC-23", "FR-038-AC-426")]
+#[ix_trace_rs::trace(
+    "TC-048",
+    "FR-019-AC-23",
+    "FR-038-AC-426",
+    "FR-038-AC-431",
+    "FR-038-AC-432"
+)]
 #[test]
 fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
     let vectors = monitor_plan_fixtures::recipes();
-    let (wire, _) = monitor_plan_fixtures::materialize(&vectors["base"]);
+    let (mut wire, root) = monitor_plan_fixtures::materialize(&vectors["base"]);
+    let gap = monitor_plan_fixtures::position(
+        &wire,
+        &wire["semantic_graph"]["nodes"][root]["body"]["members"][15]["value"]["target"],
+    );
+    monitor_plan_fixtures::append_measure(&mut wire, gap);
     let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
         &fixture_support::canonical(&wire),
         CheckedPackageReadLimits::bounded(),
@@ -137,6 +148,13 @@ fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
         ["4", "7"]
     );
     assert_eq!(view.on_gap().parameter_types().len(), 2);
+    let CheckedTerm::Aggregate { members } = view.on_gap().body() else {
+        panic!("ordinary optional-measure function")
+    };
+    let CheckedTerm::Binding { name, .. } = &members[2] else {
+        panic!("measure binding")
+    };
+    assert_eq!(name.as_ref(), "measure");
     assert_eq!(view.init().result_type(), view.state());
     let CheckedTerm::Aggregate { members } = package.term(view.state()).unwrap() else {
         panic!("admitted State record body")

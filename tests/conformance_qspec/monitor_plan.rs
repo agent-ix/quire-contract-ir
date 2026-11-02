@@ -1014,3 +1014,140 @@ fn monitor_plan_event_position_old_shape_is_refused() {
         root,
     );
 }
+
+#[trace("TC-048", "FR-038-AC-431", "FR-038-AC-432")]
+#[test]
+fn monitor_plan_genuine_measure_entry_keeps_signature_and_closed_body_checks() {
+    let vectors = recipes();
+    let (mut wire, root) = materialize(&vectors["base"]);
+    let entry = position(
+        &wire,
+        &wire["semantic_graph"]["nodes"][root]["body"]["members"][15]["value"]["target"],
+    );
+    let before = admitted(&wire);
+    let measure = append_measure(&mut wire, entry);
+    let after = admitted(&wire);
+    let plan = after.monitor_plans().next().unwrap();
+    assert_eq!(plan.on_gap().parameter_types().len(), 2);
+    assert_ne!(
+        before
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .on_gap()
+            .structural_key(),
+        plan.on_gap().structural_key()
+    );
+    assert_ne!(
+        before.monitor_plans().next().unwrap().structural_key(),
+        plan.structural_key()
+    );
+    assert_eq!(
+        serde_json::to_value(plan.on_gap().body()).unwrap()["members"][2]["value"],
+        reference(&measure)
+    );
+    for mutation in 0..5 {
+        let mut invalid = wire.clone();
+        let integer = find(&invalid, "integer");
+        match mutation {
+            0 => {
+                invalid["semantic_graph"]["nodes"][entry]["body"]["members"][2]["value"] =
+                    literal(&integer, "integer", json!("0"))
+            }
+            1 => {
+                let duplicate =
+                    invalid["semantic_graph"]["nodes"][entry]["body"]["members"][2].clone();
+                invalid["semantic_graph"]["nodes"][entry]["body"]["members"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(duplicate);
+            }
+            2 => invalid["semantic_graph"]["nodes"][entry]["body"]["members"]
+                .as_array_mut()
+                .unwrap()
+                .push(binding("extra", reference(&integer))),
+            3 => invalid["semantic_graph"]["nodes"][entry]["body"]["members"]
+                .as_array_mut()
+                .unwrap()
+                .swap(1, 2),
+            4 => {
+                invalid["semantic_graph"]["nodes"][entry]["body"]["members"][2]["name"] =
+                    json!("body")
+            }
+            _ => unreachable!(),
+        }
+        finish(&mut invalid);
+        refusal(
+            &invalid,
+            Code::IllTyped,
+            Some(Cause::TypeMismatch),
+            &binding_path(root, 15),
+            root,
+        );
+    }
+    let mut invalid = wire.clone();
+    invalid["semantic_graph"]["nodes"][entry]["body"]["members"][2]["value"]["unexpected"] =
+        json!(true);
+    let CheckedPackageV2ReadResult::Refused(refused) = read_package(&invalid).unwrap() else {
+        panic!("malformed measure reference retains ordinary wire precedence")
+    };
+    assert_eq!(
+        (refused.code, refused.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        refused.loci[0].path.as_ref().unwrap().as_str(),
+        format!("/semantic_graph/nodes/{entry}/body/members/2/value")
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-431")]
+#[test]
+fn monitor_plan_event_position_is_the_exact_final_integer_field() {
+    let vectors = recipes();
+    let (wire, root) = materialize(&vectors["base"]);
+    let package = admitted(&wire);
+    let plan = package.monitor_plans().next().unwrap();
+    let body = package.term(plan.state()).unwrap();
+    let CheckedTerm::Aggregate { members } = body else {
+        panic!("State record")
+    };
+    let CheckedTerm::Binding { name, value } = members.last().unwrap() else {
+        panic!("final field")
+    };
+    assert_eq!(name.as_ref(), "event_position");
+    let CheckedTerm::Reference { target } = value.as_ref() else {
+        panic!("integer reference")
+    };
+    assert_eq!(
+        serde_json::to_value(target).unwrap(),
+        find(&wire, "integer")
+    );
+    for mutation in 0..3 {
+        let mut invalid = wire.clone();
+        let state = position(
+            &invalid,
+            &invalid["semantic_graph"]["nodes"][root]["body"]["members"][1]["value"]["target"],
+        );
+        let fields = invalid["semantic_graph"]["nodes"][state]["body"]["members"]
+            .as_array_mut()
+            .unwrap();
+        match mutation {
+            0 => fields.push(fields.last().unwrap().clone()),
+            1 => fields.last_mut().unwrap()["name"] = json!("other_position"),
+            2 => {
+                let last = fields.len() - 1;
+                fields.swap(0, last);
+            }
+            _ => unreachable!(),
+        }
+        finish(&mut invalid);
+        refusal(
+            &invalid,
+            Code::InvalidSemanticGraph,
+            None,
+            &binding_path(root, 1),
+            root,
+        );
+    }
+}

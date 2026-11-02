@@ -676,3 +676,25 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
     finish(&mut wire);
     (wire, n)
 }
+
+pub(super) fn append_measure(wire: &mut Value, entry: usize) -> Value {
+    let integer = find(wire, "integer");
+    let boolean = find(wire, "boolean");
+    let value = constant(wire, &integer, "function measure value");
+    let body = json!({"term":"application","operator":"conditional","operation":{"identity":"quire.op.control.if","laws":[],"leaves":[],"member":null,"mode":null},"result_type":integer,"arguments":[literal(&boolean,"boolean",json!(true)),reference(&value),reference(&value)]});
+    let measure = append(
+        wire,
+        "expression",
+        "conditional",
+        Some(&integer),
+        body,
+        "function measure",
+    );
+    wire["semantic_graph"]["nodes"][entry]["body"]["members"]
+        .as_array_mut()
+        .unwrap()
+        .push(binding("measure", reference(&measure)));
+    rekey(wire, entry);
+    finish(wire);
+    measure
+}

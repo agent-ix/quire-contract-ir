@@ -242,3 +242,71 @@ fn entry_keys_assigned_label_is_resolved_without_recomputation() {
     assert_ne!(before.structural_key_at(n), after.structural_key_at(n));
     assert_eq!(before.graph().nodes[n].body, after.graph().nodes[n].body);
 }
+
+#[trace("TC-048", "FR-038-AC-432")]
+#[test]
+fn entry_keys_malformed_measure_and_descriptor_bindings_keep_owner_refusals() {
+    let vectors = vectors();
+    let row = &vectors["cases"][5];
+    for mutation in 0..9 {
+        let (mut wire, nodes) = context(&vectors);
+        let n = function(&mut wire, &nodes, row);
+        let integer = find(&wire, "integer");
+        let text = find(&wire, "text");
+        match mutation {
+            0 => {
+                wire["semantic_graph"]["nodes"][n]["body"]["members"][2]["value"] =
+                    literal(&integer, "integer", json!("0"))
+            }
+            1 => {
+                let duplicate = wire["semantic_graph"]["nodes"][n]["body"]["members"][2].clone();
+                wire["semantic_graph"]["nodes"][n]["body"]["members"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(duplicate);
+            }
+            2 => wire["semantic_graph"]["nodes"][n]["body"]["members"]
+                .as_array_mut()
+                .unwrap()
+                .push(binding("extra", reference(&integer))),
+            3 => wire["semantic_graph"]["nodes"][n]["body"]["members"]
+                .as_array_mut()
+                .unwrap()
+                .swap(1, 2),
+            4 => {
+                wire["semantic_graph"]["nodes"][n]["body"] = aggregate(vec![binding(
+                    "clause",
+                    literal(&text, "text", json!("body")),
+                )])
+            }
+            5 => {
+                wire["semantic_graph"]["nodes"][n]["body"]["members"][2]["value"]["unexpected"] =
+                    json!(true)
+            }
+            6 => {
+                wire["semantic_graph"]["nodes"][n]["body"]["members"][0]["value"]["members"][0] =
+                    reference(&integer)
+            }
+            7 => {
+                wire["semantic_graph"]["nodes"][n]["body"]["members"][1]["value"] =
+                    reference(&integer)
+            }
+            8 => wire["semantic_graph"]["nodes"][n]["body"]["members"][2]["name"] = json!("body"),
+            _ => unreachable!(),
+        }
+        finish(&mut wire);
+        let CheckedPackageV2ReadResult::Refused(refused) = read_package(&wire).unwrap() else {
+            panic!("malformed function case {mutation} must not admit")
+        };
+        assert_eq!(
+            (refused.code, refused.cause),
+            (Code::MalformedWire, None),
+            "{mutation}: {refused:?}"
+        );
+        assert_eq!(
+            refused.loci[0].path.as_ref().unwrap().as_str(),
+            format!("/semantic_graph/nodes/{n}"),
+            "{mutation}: ordinary owner-form boundary"
+        );
+    }
+}
