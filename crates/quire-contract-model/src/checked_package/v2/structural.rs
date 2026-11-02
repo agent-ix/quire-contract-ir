@@ -706,10 +706,7 @@ pub(super) fn canonical_non_negative_cmp(left: &str, right: &str) -> Ordering {
 }
 
 fn text_bounds_shape(term: Option<&CheckedTerm>, graph: &Graph<'_>) -> bool {
-    let Some([min, max, profile]) = term.and_then(typed_aggregate) else {
-        return false;
-    };
-    let bound = |member: &CheckedTerm, name| {
+    fn bound<'a>(member: &'a CheckedTerm, name: &str, graph: &Graph<'_>) -> Option<&'a str> {
         let CheckedTerm::Literal {
             type_id,
             value_kind: LiteralKind::Integer,
@@ -721,8 +718,11 @@ fn text_bounds_shape(term: Option<&CheckedTerm>, graph: &Graph<'_>) -> bool {
         let text = value.as_str()?;
         (graph.type_matches(type_id, ScalarTypeForm::Integer) && is_non_negative_integer(text))
             .then_some(text)
+    }
+    let Some([min, max, profile]) = term.and_then(typed_aggregate) else {
+        return false;
     };
-    let (Some(min), Some(max)) = (bound(min, "min"), bound(max, "max")) else {
+    let (Some(min), Some(max)) = (bound(min, "min", graph), bound(max, "max", graph)) else {
         return false;
     };
     let Some(CheckedTerm::Literal {
