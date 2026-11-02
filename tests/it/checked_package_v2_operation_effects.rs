@@ -5,9 +5,12 @@
 
 use crate::support::checked_package::{canonical, evidence_for, node_id, v2_all_families};
 use ix_trace_rs::trace;
+use quire_canonical::Limits;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
+    encode_checked_package_v2, CheckedOperationEffectRow, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    CheckedPackageSidecarsRef, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -115,4 +118,42 @@ fn invented_effect_and_missing_coverage_refuse_without_a_view() {
         Some(Cause::InvalidValue),
         "/operation_effects",
     );
+}
+
+#[trace("TC-977", "FR-038-AC-406", "FR-019-AC-21")]
+#[test]
+fn typed_writer_carries_admitted_effect_rows() {
+    let wire = present();
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&wire) else {
+        panic!("present carrier must admit before typed encoding");
+    };
+    let rows: Vec<CheckedOperationEffectRow> =
+        serde_json::from_value(wire["operation_effects"].clone()).expect("typed writer rows");
+    let encoded = encode_checked_package_v2(
+        wire["name"].as_str().expect("package name"),
+        admitted.lock(),
+        admitted.graph(),
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: admitted.source_map(),
+            refinement_step_rows: admitted.refinement_step_rows(),
+        },
+        CheckedPackageSidecarsRef {
+            operation_effects: Some(&rows),
+            checked_term_data: admitted.checked_term_data(),
+            temporal_bindings: admitted.temporal_bindings(),
+        },
+        admitted.capability_report(),
+        admitted.diagnostics(),
+        Limits::new(1 << 24),
+    )
+    .expect("typed carrier encodes");
+    let reread = CheckedPackageV2::read(
+        &encoded,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    );
+    let CheckedPackageV2ReadResult::Admitted(reread) = reread else {
+        panic!("encoded typed carrier must admit: {reread:?}");
+    };
+    assert_eq!(reread.operation_effects().unwrap().count(), rows.len());
 }

@@ -5,7 +5,9 @@
 
 use super::identity::is_identifier;
 use super::model_fields::RetainedModels;
-use super::model_members::{member_name, DeclarationForm, FieldBearingTypeDecl, OperationDecl};
+use super::model_members::{
+    member_name, DeclarationForm, DomainModel, FieldBearingTypeDecl, OperationDecl,
+};
 use super::{
     CheckedFieldScope, CheckedFrameModification, CheckedNodeId, CheckedScopedDeletion, WorkMeter,
 };
@@ -419,6 +421,7 @@ fn compare_source_frame(
     row: &CheckedOperationEffectRow,
     operation: &OperationDecl,
     models: &RetainedModels,
+    source: &DomainModel,
     at: &JsonPointer,
 ) -> Result<(), ValidationFailure> {
     let effect_at = at.clone().key("effect");
@@ -452,11 +455,7 @@ fn compare_source_frame(
     }
     let mut expected_modifies = BTreeSet::new();
     for original in &operation.frame.modifies {
-        let kind = if models
-            .selected_models()
-            .iter()
-            .any(|model| model.relationships.contains_key(original))
-        {
+        let kind = if source.relationships.contains_key(original) {
             "relationship"
         } else {
             "field"
@@ -617,7 +616,7 @@ pub(super) fn validate(
             meter,
             &at,
         )?;
-        compare_source_frame(row, operation, models, &at)?;
+        compare_source_frame(row, operation, models, owner.package, &at)?;
         let key = (
             row.document.as_ref(),
             &row.declaring,

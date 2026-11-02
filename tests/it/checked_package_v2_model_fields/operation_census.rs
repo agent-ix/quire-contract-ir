@@ -28,7 +28,7 @@ fn effect_row(short: &str, operation: &str, modifies: Vec<Value>) -> Value {
     })
 }
 
-/// Trace: FR-354-AC-10, FR-354-AC-11, FR-038-AC-406, TC-977.
+#[trace("TC-977", "FR-354-AC-10", "FR-354-AC-11", "FR-038-AC-406")]
 #[test]
 fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
     let mut ledger = object(
