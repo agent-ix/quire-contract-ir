@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 mod carried_quantity;
 mod dependency_call;
 mod dimension_equivalence;
+mod entry_keys;
 mod extension;
 mod fairness_targets;
 #[path = "../it/support/checked_package.rs"]
@@ -51,6 +52,9 @@ mod hybrid;
 mod model_option_types;
 mod model_root;
 mod model_tuple_union;
+mod monitor_plan;
+#[path = "../it/support/monitor_plan.rs"]
+mod monitor_plan_fixtures;
 mod node_index;
 mod node_ordinal;
 mod operation_effects;

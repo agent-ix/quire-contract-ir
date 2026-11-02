@@ -636,6 +636,11 @@ fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<Valida
         (None, Some(root)) if is_placed_class(root) => return Some(ineligible(graph, position)),
         (None, _) => {}
     }
+    // The closed plan step owns its formula references, including malformed
+    // binding placement, so its binding-specific refusal keeps precedence.
+    if kind == CheckedNodeKind::Temporal(TemporalForm::MonitorPlan) {
+        return None;
+    }
     match walk(
         &mut Placement {
             graph,

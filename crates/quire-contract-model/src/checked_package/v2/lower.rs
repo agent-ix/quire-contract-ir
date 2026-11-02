@@ -1207,7 +1207,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | TemporalForm::Window
             | TemporalForm::Activation
             | TemporalForm::Deadline
-            | TemporalForm::Terminal,
+            | TemporalForm::Terminal
+            | TemporalForm::MonitorPlan,
         ) => false,
         K::Protocol(
             ProtocolForm::ProtocolClause

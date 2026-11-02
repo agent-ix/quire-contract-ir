@@ -1571,7 +1571,8 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | TemporalForm::Window
             | TemporalForm::Activation
             | TemporalForm::Deadline
-            | TemporalForm::Terminal,
+            | TemporalForm::Terminal
+            | TemporalForm::MonitorPlan,
         ) => None,
         K::Protocol(
             ProtocolForm::ProtocolClause
@@ -1723,7 +1724,8 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | TemporalForm::Window
             | TemporalForm::Activation
             | TemporalForm::Deadline
-            | TemporalForm::Terminal,
+            | TemporalForm::Terminal
+            | TemporalForm::MonitorPlan,
         ) => false,
         K::Protocol(
             ProtocolForm::ProtocolClause

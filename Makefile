@@ -92,12 +92,13 @@ test:
 # they have no checkout.
 .PHONY: conformance-qspec-compile
 conformance-qspec-compile:
-	$(CARGO) test $(LOCKED) --workspace --no-run --test conformance_qspec
+	$(CARGO) test $(LOCKED) --workspace --no-run --test conformance_qspec --test monitor_plan_public
 
 .PHONY: conformance-qspec
 conformance-qspec:
 	$(CARGO) test $(LOCKED) --workspace --lib ir1083_
 	$(CARGO) test $(LOCKED) --test conformance_qspec
+	$(CARGO) test $(LOCKED) -p quire-contract-model --test monitor_plan_public
 	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --test conformance_qspec tc_048_qspec_all_positive_packages_and_owner_identities -- --exact 2>&1); \
 	status=$$?; printf '%s\n' "$$output"; \
 	[ "$$status" -eq 0 ] || exit "$$status"; \
