@@ -1,5 +1,5 @@
 ---
-id: SR-202611010118
+id: SR-202611010202
 title: "IR-1250 PR 800 public inventory spec review"
 type: SpecReview
 analysis: base
