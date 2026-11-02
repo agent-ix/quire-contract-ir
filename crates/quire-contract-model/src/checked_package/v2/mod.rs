@@ -120,15 +120,15 @@ pub use exact_projection::{
     SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView, SelectedSourceUnitRow,
     SelectedTupleDeclarationRow,
 };
+pub use operation_effects::{
+    CheckedOperationEffect, CheckedOperationEffectOrigin, CheckedOperationEffectProvenance,
+    CheckedOperationEffectRef, CheckedOperationEffectRow,
+};
 pub use operation_witness::{
     SelectedOperationIdentity, SelectedOperationMemberError, SelectedOperationMemberErrorCode,
     SelectedOperationMemberRow, SelectedOperationMembers,
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
-pub use operation_effects::{
-    CheckedOperationEffect, CheckedOperationEffectOrigin, CheckedOperationEffectProvenance,
-    CheckedOperationEffectRef, CheckedOperationEffectRow,
-};
 pub use protocol_body::{CheckedProtocolActivation, CheckedProtocolActivationRow};
 pub use reaches_population::CheckedReachesPopulationError;
 pub use refinement::*;
@@ -1334,9 +1334,10 @@ impl CheckedPackageV2 {
     pub fn operation_effects(
         &self,
     ) -> Option<impl ExactSizeIterator<Item = CheckedOperationEffectRef<'_>>> {
-        self.wire.operation_effects.as_ref().map(|rows| {
-            rows.iter().map(CheckedOperationEffectRef::admitted)
-        })
+        self.wire
+            .operation_effects
+            .as_ref()
+            .map(|rows| rows.iter().map(CheckedOperationEffectRef::admitted))
     }
 
     /// The reported capabilities.

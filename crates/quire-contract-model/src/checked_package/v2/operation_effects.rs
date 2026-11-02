@@ -6,7 +6,9 @@
 use super::identity::is_identifier;
 use super::model_fields::RetainedModels;
 use super::model_members::{member_name, DeclarationForm, FieldBearingTypeDecl, OperationDecl};
-use super::{CheckedFieldScope, CheckedFrameModification, CheckedNodeId, CheckedScopedDeletion, WorkMeter};
+use super::{
+    CheckedFieldScope, CheckedFrameModification, CheckedNodeId, CheckedScopedDeletion, WorkMeter,
+};
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
@@ -144,7 +146,11 @@ impl super::CheckedPackageV2 {
         let rows = self.wire.operation_effects.as_ref()?;
         let index = rows
             .binary_search_by(|row| {
-                (row.document.as_ref(), &row.declaring, row.operation.as_ref())
+                (
+                    row.document.as_ref(),
+                    &row.declaring,
+                    row.operation.as_ref(),
+                )
                     .cmp(&(document, declaring, operation))
             })
             .ok()?;
@@ -233,10 +239,7 @@ fn check_shape(row: &CheckedOperationEffectRow, at: &JsonPointer) -> Result<(), 
     Ok(())
 }
 
-fn own_operation<'a>(
-    declared: &'a FieldBearingTypeDecl,
-    name: &str,
-) -> Option<&'a OperationDecl> {
+fn own_operation<'a>(declared: &'a FieldBearingTypeDecl, name: &str) -> Option<&'a OperationDecl> {
     declared
         .operations
         .iter()
@@ -330,10 +333,17 @@ fn validate_effect_entries(
             let entry_at = effect_at.clone().key(kind).index(index);
             meter.charge(1, || entry_at.clone())?;
             let entry_owner = models.owner_by_key(entry).ok_or_else(|| {
-                refused(Code::MissingDeclaration, Cause::MissingName, entry_at.clone())
+                refused(
+                    Code::MissingDeclaration,
+                    Cause::MissingName,
+                    entry_at.clone(),
+                )
             })?;
             if entry_owner.selection != selection
-                || !matches!(entry_owner.form, DeclarationForm::ObjectType | DeclarationForm::Process)
+                || !matches!(
+                    entry_owner.form,
+                    DeclarationForm::ObjectType | DeclarationForm::Process
+                )
             {
                 return Err(refused(
                     Code::InvalidModelBinding,
@@ -469,7 +479,11 @@ fn compare_source_frame(
     ] {
         let actual: BTreeSet<_> = entries
             .iter()
-            .filter_map(|id| models.selected_declaration(id).map(|(_, original, _)| original.to_owned()))
+            .filter_map(|id| {
+                models
+                    .selected_declaration(id)
+                    .map(|(_, original, _)| original.to_owned())
+            })
             .collect();
         let expected: BTreeSet<_> = expected.iter().map(|name| name.to_string()).collect();
         if actual != expected {
@@ -527,14 +541,22 @@ pub(super) fn validate(
         let at = row_at(index);
         meter.charge(1, || at.clone())?;
         check_shape(row, &at)?;
-        if !models.selected_models().iter().any(|model| model.identity == row.document) {
+        if !models
+            .selected_models()
+            .iter()
+            .any(|model| model.identity == row.document)
+        {
             return Err(refused(
                 Code::MissingDeclaration,
                 Cause::MissingSelection,
                 at.clone().key("document"),
             ));
         }
-        if !models.selected_models().iter().any(|model| model.identity == row.declaring.package) {
+        if !models
+            .selected_models()
+            .iter()
+            .any(|model| model.identity == row.declaring.package)
+        {
             return Err(refused(
                 Code::InvalidPackage,
                 Cause::InvalidValue,
@@ -586,11 +608,31 @@ pub(super) fn validate(
                 at.clone().key("provenance").key("member"),
             ));
         }
-        validate_effect_entries(row, operation, models, owner.selection, owner.form, meter, &at)?;
+        validate_effect_entries(
+            row,
+            operation,
+            models,
+            owner.selection,
+            owner.form,
+            meter,
+            &at,
+        )?;
         compare_source_frame(row, operation, models, &at)?;
-        let key = (row.document.as_ref(), &row.declaring, row.operation.as_ref());
-        if !covered.insert((row.document.clone(), row.declaring.clone(), row.operation.clone())) {
-            return Err(refused(Code::InvalidPackage, Cause::ConflictingDefinition, at));
+        let key = (
+            row.document.as_ref(),
+            &row.declaring,
+            row.operation.as_ref(),
+        );
+        if !covered.insert((
+            row.document.clone(),
+            row.declaring.clone(),
+            row.operation.clone(),
+        )) {
+            return Err(refused(
+                Code::InvalidPackage,
+                Cause::ConflictingDefinition,
+                at,
+            ));
         }
         if previous.is_some_and(|earlier| earlier >= key) {
             return Err(refused(Code::InvalidPackage, Cause::InvalidValue, at));
