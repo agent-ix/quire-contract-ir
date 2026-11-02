@@ -880,7 +880,7 @@ fn monitor_plan_tick_unit_uses_the_admitted_model_dimension_identity() {
 #[test]
 fn monitor_plan_entry_owner_exception_cannot_admit_a_model_descriptor() {
     let vectors = recipes();
-    for mutation in 0..4 {
+    for mutation in 0..6 {
         let (mut wire, root) = materialize(&vectors["base"]);
         let entry = position(
             &wire,
@@ -906,6 +906,19 @@ fn monitor_plan_entry_owner_exception_cannot_admit_a_model_descriptor() {
                 .as_array_mut()
                 .unwrap()
                 .swap(0, 1),
+            4 => {
+                wire["semantic_graph"]["nodes"][entry]["body"]["members"][0]["value"]["members"]
+                    [0] = reference(&text)
+            }
+            5 => {
+                let expression = position(
+                    &wire,
+                    &wire["semantic_graph"]["nodes"][entry]["body"]["members"][1]["value"]
+                        ["target"],
+                );
+                wire["semantic_graph"]["nodes"][entry]["body"]["members"][1]["value"] =
+                    wire["semantic_graph"]["nodes"][expression]["body"]["arguments"][1].clone();
+            }
             _ => unreachable!(),
         }
         finish(&mut wire);

@@ -68,7 +68,10 @@ pub(super) fn entry_candidates(nodes: &[RawSemanticNodeV2]) -> BTreeSet<CheckedN
 }
 
 /// The ordinary executable body, independent of owner/model clause descriptors.
-pub(super) fn anonymous_body_shape(body: &serde_json::Value) -> bool {
+pub(super) fn anonymous_body_shape(
+    body: &serde_json::Value,
+    nodes: &BTreeMap<&CheckedNodeId, &RawSemanticNodeV2>,
+) -> bool {
     let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(body) else {
         return false;
     };
@@ -85,13 +88,17 @@ pub(super) fn anonymous_body_shape(body: &serde_json::Value) -> bool {
     let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(value) else {
         return false;
     };
-    members.iter().all(|parameter| {
-        matches!(
-            CheckedTerm::view(parameter),
-            Some(super::CheckedTermView::Reference { .. })
-        )
-    }) && matches!(CheckedTerm::view(body), Some(super::CheckedTermView::Binding { name: "body", value })
-            if matches!(CheckedTerm::view(value), Some(super::CheckedTermView::Reference { .. })))
+    let kind = |term: &serde_json::Value| {
+        let id = super::structural::reference_target(term)?;
+        let node = nodes.get(&id)?;
+        super::CheckedNodeTag::from_wire(&node.node_tag)
+            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+    };
+    members
+        .iter()
+        .all(|parameter| kind(parameter) == Some(CheckedNodeKind::Value(ValueForm::Parameter)))
+        && matches!(CheckedTerm::view(body), Some(super::CheckedTermView::Binding { name: "body", value })
+            if matches!(kind(value), Some(CheckedNodeKind::Expression(_))))
 }
 
 #[derive(Clone)]
