@@ -125,8 +125,8 @@ fn main() {
     assert!(!graph.selected_exact_field_rows().is_empty());
     let checked = CheckedPackage::link(graph);
     let emission = emit_checked(&checked).expect("public V2 emission");
-    assert_eq!(emission.omitted, []);
-    let wire: Value = serde_json::from_slice(emission.package.bytes()).expect("V2 envelope");
+    assert_eq!(emission.omitted(), []);
+    let wire: Value = serde_json::from_slice(emission.package().bytes()).expect("V2 envelope");
     let mut evidence = CheckedPackageEvidence::new();
     evidence
         .insert_domain_package_document(MODEL, document.as_slice())
@@ -137,12 +137,13 @@ fn main() {
     {
         evidence.support_feature(feature.as_str().expect("feature name"));
     }
-    let CheckedPackageV2ReadResult::Admitted(admitted) = CheckedPackageV2::read(
-        emission.package.bytes(),
+    let read = CheckedPackageV2::read(
+        emission.package().bytes(),
         CheckedPackageReadLimits::bounded(),
         &evidence,
-    ) else {
-        panic!("the actual QSL emission must admit with its selected document");
+    );
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read else {
+        panic!("actual QSL emission must admit with its selected document: {read:?}");
     };
     // The consumer neither mints identities nor serializes witness rows across processes.
     let witnesses = checked
@@ -228,6 +229,21 @@ fn main() {
             .value_type(),
         &ValueType::Reference(effective.clone())
     );
+
+    let absent_object_rows = declarations
+        .iter()
+        .filter(|row| row.structural_node != object.structural_node)
+        .cloned()
+        .collect::<Vec<_>>();
+    let absent_object =
+        SelectedExactIdentities::from_stage_rows(&admitted, absent_object_rows, fields.clone())
+            .expect("record witnesses still join without the object row");
+    let error = admitted
+        .project_exact_type(&reference.node_id, &absent_object, 256)
+        .expect_err("reference projection cannot default a missing object identity");
+    assert_eq!(error.code, Code::UnavailableIdentityWitness);
+    assert_eq!(error.requested.as_ref(), &reference.node_id);
+    assert_eq!(error.at.as_deref(), Some(&object.structural_node));
 
     let absent = admitted
         .project_exact_type(
