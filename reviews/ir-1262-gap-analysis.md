@@ -24,3 +24,9 @@ The computed matrix marks all six criteria `tagged` to `tests/it/checked_package
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The sole FR-019-AC-22 test runs with `quire-contract-model`'s `fault-injection` feature through the root dev dependency; it does not compile the required default-feature external consumer. | Cargo.toml:98; tests/it/checked_package_v2_protocol_body.rs:6411 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | `crates/quire-contract-model/tests/temporal_binding_public.rs` now compiles an external model-crate consumer with only the default feature and borrows an admitted typed clock row. The existing CB vector test checks three-row compensation and absent-row behavior through the same feature-independent reader. |
