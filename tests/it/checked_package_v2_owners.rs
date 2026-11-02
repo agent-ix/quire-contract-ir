@@ -5,8 +5,8 @@
 
 use crate::support::checked_package::{
     bounds_body, canonical, evidence_for, evidence_with_document, integer_key, node_id,
-    reassign_node_id, refresh_identity, refresh_identity_projection, select_model, settle,
-    v2_all_families, v2_nominal,
+    reassign_node_id, refresh_identity, refresh_identity_projection, resolved_fixture_id,
+    select_model, settle, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1112,7 +1112,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                     id.to_owned(),
                     (
                         population.clone(),
-                        application["node_id"].clone(),
+                        resolved_fixture_id(&application["node_id"], nodes),
                         canonical(&package),
                     ),
                 );
