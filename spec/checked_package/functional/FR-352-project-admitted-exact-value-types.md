@@ -192,11 +192,22 @@ float, quantity, text, enum, option, collection, map, bounded quantity, and
 population, the projection SHALL produce the corresponding Exact variant only
 when its complete bounds, mode, member, unit, and identity facts can be
 represented; otherwise it SHALL return `UnsupportedExactType` naming that form
-and type node. In particular,
+and type node. Where the shape is faithfully representable but a required
+authoritative opaque identity witness is absent, the projection SHALL instead
+return `UnavailableIdentityWitness`; it SHALL NOT classify a missing identity
+as an unsupported shape. Both refusals SHALL retain the requested node, first
+failing type node and form, and charged work, without exposing a partial view.
+In particular,
 it SHALL NOT relabel a dimension, alias, or union as an unrelated scalar, nor
 claim a standalone `Dimension`, `Alias`, or `Union` Exact variant. An admitted
 union may use `Composite(NodeKey)` only when its selected union declaration
-and payload identity have an authoritative exact witness. The projection SHALL
+and payload identity have an authoritative exact witness. A selected union
+declaration key alone does not witness its payload identity or establish a
+complete union projection.
+The missing-witness refusal does not satisfy QSL's required successful union
+reader and evaluation parity under
+[FR-390](ix://agent-ix/quire-spec-language/FR-390) AC-27.
+The projection SHALL
 terminate or report work exhaustion within the caller's finite limit;
 neither recursion depth nor expansion of a cyclic type may bypass the limit.
 
@@ -216,7 +227,7 @@ AC-6 and AC-11; this projection alone does not satisfy those criteria.
 | FR-352-AC-3 | An admitted reference to selected `Node` projects to `Reference(EffectiveId)` matching its authoritative object-type witness. The object declaration alone is not returned as a standalone Exact value-type variant. A reference to another selected object type, a foreign package, or a dangling target never produces Node's identity. | Test |
 | FR-352-AC-4 | Exact structural identity is matched by package, full resolved path, and ordinal. A changed path segment, ordinal, owner package, or selected declaration refuses with a named typed outcome; duplicate or conflicting witnesses and ambiguous selected owners refuse before any value-type result. Alias equality and display-name equality cannot establish a join. | Test |
 | FR-352-AC-5 | Admitted String, Uuid, and Timestamp scalar types map to their respective Exact variants when present. A selected declared unit maps through a witnessed declared `UnitId`; a compound unit without its authoritative identity refuses. A selected union uses `Composite` only with a verified union witness; dimension and alias shapes without faithful Exact representations return `UnsupportedExactType` with their own form and node. | Test |
-| FR-352-AC-6 | Every other admitted V2 type form either projects to an Exact variant with its full bounds, mode, members and identity, or returns `UnsupportedExactType` before exposing a partial view. No unmatched form maps to Boolean, Integer, Text, Composite or Reference as a default. | Test, Inspection |
+| FR-352-AC-6 | Every other admitted V2 type form either projects to an Exact variant with its full bounds, mode, members and identity, returns `UnsupportedExactType` when that complete shape cannot be faithfully represented, or returns `UnavailableIdentityWitness` when a required authoritative opaque identity witness is absent. Each refusal names the requested node, first failing type node and form, and charged work, before exposing any partial view. An admitted union without its authoritative declaration and payload identity witness takes the missing-witness outcome; a declaration key alone does not establish a complete union projection. Unsupported shape and missing identity remain distinct causes; neither outcome replaces a required successful projection whose complete representation and witnesses are available. No unmatched form maps to Boolean, Integer, Text, Composite or Reference as a default. | Test, Inspection |
 | FR-352-AC-7 | Repeated reads of one admitted package and its clone return equal complete values or equal typed outcomes. A nested or cyclic type either completes within the finite limit or reports typed exhaustion with the charged work and locus; no call reparses wire/source, grows the call stack with type depth, or grants admission to an unadmitted fixture. | Test |
 | FR-352-AC-8 | The public-item and dependency inventories show the projection in `quire-contract-model`, its cycle-free dependency on `quire-exact`, and no QSL checked-expression constructor, checker, evaluator or mirror expression type in IR; Exact has no IR admission dependency. QSL FR-390 AC-6 and AC-11 remain separately verified in QSL. | Test |
 | FR-352-AC-9 | A QSL-side selected-model identity producer supplies `SelectedExactIdentities` alongside a checked package; an external caller passes it to the public projection API. The IR join accepts identities only for matching admitted selected-document, declaration form and original IR declaration or field identities. Absent, conflicting, foreign-document and wrong-form entries return the named typed outcome; a caller-supplied bare `NodeKey`, `EffectiveId`, `MemberId`, or node-name pair cannot enter the projection as an authoritative witness. | Test, Inspection |
