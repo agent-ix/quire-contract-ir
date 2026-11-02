@@ -78,6 +78,7 @@ use crate::checked_package::shared::{
 };
 use quire_exact::TextProfile;
 use serde_json::Value;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// The member of one node a structural defect is about.
@@ -699,6 +700,11 @@ pub(super) fn validate_structural_nodes_with_keys(
     Ok(())
 }
 
+/// Compare canonical nonnegative decimal integers without narrowing them to a machine word.
+pub(super) fn canonical_non_negative_cmp(left: &str, right: &str) -> Ordering {
+    left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+}
+
 fn text_bounds_shape(term: Option<&CheckedTerm>, graph: &Graph<'_>) -> bool {
     let Some([min, max, profile]) = term.and_then(typed_aggregate) else {
         return false;
@@ -714,8 +720,7 @@ fn text_bounds_shape(term: Option<&CheckedTerm>, graph: &Graph<'_>) -> bool {
         };
         let text = value.as_str()?;
         (graph.type_matches(type_id, ScalarTypeForm::Integer) && is_non_negative_integer(text))
-            .then(|| text.parse::<u64>().ok())
-            .flatten()
+            .then_some(text)
     };
     let (Some(min), Some(max)) = (bound(min, "min"), bound(max, "max")) else {
         return false;
@@ -728,7 +733,7 @@ fn text_bounds_shape(term: Option<&CheckedTerm>, graph: &Graph<'_>) -> bool {
     else {
         return false;
     };
-    min <= max
+    canonical_non_negative_cmp(min, max) != Ordering::Greater
         && graph.type_matches(type_id, ScalarTypeForm::Text)
         && value.as_str().and_then(TextProfile::from_code).is_some()
 }

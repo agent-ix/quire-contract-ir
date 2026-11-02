@@ -673,9 +673,17 @@ fn exact_type(
             let min = min.parse().map_err(|_| {
                 missing_witness(application, type_id, EqualityWitnessKind::TextType, work)
             })?;
-            let max = max.parse().map_err(|_| {
-                missing_witness(application, type_id, EqualityWitnessKind::TextType, work)
-            })?;
+            if !super::structural::is_non_negative_integer(max) {
+                return Err(missing_witness(
+                    application,
+                    type_id,
+                    EqualityWitnessKind::TextType,
+                    work,
+                ));
+            }
+            // Runtime Text lengths are u64: a larger maximum has the same
+            // inhabitants as u64::MAX in the exact equality witness.
+            let max = max.parse().unwrap_or(u64::MAX);
             let profile = TextProfile::from_code(profile).ok_or_else(|| {
                 missing_witness(application, type_id, EqualityWitnessKind::TextType, work)
             })?;
