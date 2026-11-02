@@ -810,7 +810,17 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
         }
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
-        if form == "systems_interface" {
+        if form == "event_type" {
+            let source = value["lock"]["sources"][0].clone();
+            let key = "qualified:Example/Deposited";
+            rename_node(&mut value, namespace_key(), key);
+            let node = &mut value["semantic_graph"]["nodes"][model];
+            node["semantic_type"] = node_id(key);
+            node["dependencies"] = json!([]);
+            node["declaration"] = json!({"qualified_name": ["Example", "Deposited"]});
+            node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+            node["owner"] = source_owner(&source);
+        } else if form == "systems_interface" {
             let node = &mut value["semantic_graph"]["nodes"][model];
             node["owner"] = json!({
                 "kind": "model", "identity": "test/families",

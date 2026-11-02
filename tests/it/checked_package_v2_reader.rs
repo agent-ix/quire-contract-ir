@@ -1421,7 +1421,19 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
             continue;
         }
         let mut value = base.clone();
-        if form == "systems_interface" {
+        if form == "event_type" {
+            let source = value["lock"]["sources"][0].clone();
+            let old = value["semantic_graph"]["nodes"][model]["node_id"].clone();
+            let id = checked_package::node_id("qualified:Example/Deposited");
+            checked_package::reassign_node_id(&mut value, &old, &id);
+            let node = &mut value["semantic_graph"]["nodes"][model];
+            node["semantic_form"] = json!(form);
+            node["semantic_type"] = id;
+            node["dependencies"] = json!([]);
+            node["declaration"] = json!({"qualified_name": ["Example", "Deposited"]});
+            node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+            node["owner"] = checked_package::source_owner(&source);
+        } else if form == "systems_interface" {
             // FR-094 model-owned interfaces are self typed and named by the
             // selected model document, so add one without disturbing the
             // object type the all-family frame already references.
