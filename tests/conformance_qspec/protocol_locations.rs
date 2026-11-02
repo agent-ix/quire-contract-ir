@@ -47,8 +47,7 @@ fn fixture(mut rows: Vec<Value>) -> (Value, usize) {
         row["application"] = application.clone();
         row["occurrence"] = occurrence.clone();
     }
-    wire["checked_term_data"] =
-        json!({"equality_decisions":[], "protocol_locations":rows, "dispatch_tables":[]});
+    wire["checked_term_data"] = json!({"equality_decisions":[], "protocol_locations":rows, "dispatch_tables":[], "probabilistic_claims":[]});
     refresh_identity(&mut wire);
     (wire, position)
 }

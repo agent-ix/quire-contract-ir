@@ -129,7 +129,7 @@ fn equality_source_unit_row_joins_before_missing_dimension_key() {
         "units":[{"quantity_type":unit,"unit":unit,"form":{
             "kind":"declared","dimension_node":dimension,"dimension_terms":[],
             "root_unit":unit,"path":[]}}],"enum_members":[]
-    }],"protocol_locations":[],"dispatch_tables":[]});
+    }],"protocol_locations":[],"dispatch_tables":[],"probabilistic_claims":[]});
     let package = match CheckedPackageV2::read(
         &canonical(&wire),
         CheckedPackageReadLimits::bounded(),

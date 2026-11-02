@@ -919,7 +919,8 @@ impl NominalKind {
                 | ClaimForm::Hyperproperty
                 | ClaimForm::SynthesisRequest
                 | ClaimForm::StateGraph
-                | ClaimForm::StepRelation,
+                | ClaimForm::StepRelation
+                | ClaimForm::ProbabilisticClaim,
             ) => None,
             K::Correspondence(
                 CorrespondenceForm::SourceLocus

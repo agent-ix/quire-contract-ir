@@ -1404,6 +1404,15 @@ fn validate(
         dispatch_projection::validate_checked_term_data(
             data, wire, &kinds, &terms, &models, &mut meter,
         )?;
+    } else if kinds
+        .iter()
+        .any(|kind| *kind == CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim))
+    {
+        return Err(ValidationFailure::refused_because(
+            CheckedPackageRefusalCode::InvalidPackage,
+            JsonPointer::root().key("checked_term_data"),
+            CheckedPackageRefusalCause::InvalidValue,
+        ));
     }
     Ok(ValidatedPackage {
         kinds,
@@ -2016,7 +2025,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest,
+            | ClaimForm::SynthesisRequest
+            | ClaimForm::ProbabilisticClaim,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
@@ -2325,7 +2335,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ClaimForm::Hyperproperty
             | ClaimForm::SynthesisRequest
             | ClaimForm::StateGraph
-            | ClaimForm::StepRelation,
+            | ClaimForm::StepRelation
+            | ClaimForm::ProbabilisticClaim,
         ) => BodyGrammar::Term,
         K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
             BodyGrammar::AbstractionRelation
@@ -3991,7 +4002,8 @@ mod tests {
                         "operation_body": node, "effective_precondition": node
                     }
                 ]
-            }]
+            }],
+            "probabilistic_claims": []
         });
         let mut next_equality = populated["equality_decisions"][0].clone();
         next_equality["occurrence"]["ordinal"] = json!(1);
@@ -4007,7 +4019,7 @@ mod tests {
             .insert(0, next_location);
 
         let empty = json!({
-            "equality_decisions": [], "protocol_locations": [], "dispatch_tables": []
+            "equality_decisions": [], "protocol_locations": [], "dispatch_tables": [], "probabilistic_claims": []
         });
         let mut wire = tc_451_private_owned_wire();
         for sidecar in [None, Some(empty), Some(populated)] {
