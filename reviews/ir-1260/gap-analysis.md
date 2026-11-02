@@ -52,3 +52,15 @@ scope:
     excerpt: |-
       planned until IR-1260 lands. The conformance test reads QSpec `proposals/checked-package-v2/text-literal-vectors.json` at the selected checkout by reference and checks `TX-01`..`TX-14` plus `TX-13s`, including exact admission, refusal code/cause, primary RFC 6901 pointer and graph-node locus. It recomputes length and normalization with the reader's pinned Unicode 17.0.0 implementation and keeps no local vector, schema, table, or fixture copy.
 ```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At a95d2752, `qspec_text_literal_vectors_match_reader` carries `FR-038-AC-411` alongside AC-409 and AC-410. |
+| FND-002 | fixed | The compatibility and family-precedence control no longer claims AC-411 and now carries AC-410 with AC-409. |
+| FND-003 | fixed | The scalar and nested control no longer claims AC-411 and now carries AC-409 and AC-410. |
+
+## Disposition verdict
+
+**PASS (round 1, source review)** — The original trace findings are fixed at a95d2752. The computed matrix was not rerun in this disposition; the focused test and final full gate remain with the code lead.

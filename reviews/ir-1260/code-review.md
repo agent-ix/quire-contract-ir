@@ -50,3 +50,13 @@ scope:
 ## Review methods and evidence
 
 Rust review covered public API visibility, error precedence, malformed input, normalization semantics, resource bounds, test determinism, and trace tags. The diff changes no CI workflow or Cargo manifest. `quoin matrix` reports the three new local criteria as statically tagged; its evidence status is `no run evidence`. The code lead reported the named three-test conformance run green at dd8df98b. No applicable AssuranceProfile exists under `spec/`.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At a95d2752, the vector test checks the exact 15 TX ids, recomputes profile length and retained normalization through Quire Exact, verifies the expected outcome from those fields, and asserts the containing graph-node locus for each refusal. |
+
+## Disposition verdict
+
+**PASS (round 1, source review)** — The original finding is fixed at a95d2752. The focused three-test rerun and final full gate remain owned by the code lead; this reviewer did not run Cargo gates.
