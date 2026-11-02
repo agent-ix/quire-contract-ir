@@ -1351,7 +1351,7 @@ impl CheckedPackageV2 {
         self.wire.checked_term_data.as_ref()
     }
 
-    /// Admitted temporal clock rows, keyed by exact clause declaration ID.
+    /// Admitted temporal clock rows, keyed by exact clause or compensation ID.
     pub fn temporal_bindings(&self) -> Option<&[TemporalBinding]> {
         self.wire.temporal_bindings.as_deref()
     }

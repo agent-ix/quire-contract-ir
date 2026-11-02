@@ -1901,7 +1901,467 @@ fn selected_population_package() -> (Value, CheckedPackageEvidence, Value, Value
     (package, evidence, id, object_id)
 }
 
-#[trace("TC-062", "FR-061-AC-1")]
+fn inject_refinement_row_defect(package: &mut Value, position: usize) {
+    let body = &mut package["semantic_graph"]["nodes"][position]["body"];
+    if body["steps"].as_array().expect("steps").is_empty() {
+        let side = if body["class_catalog"]["concrete"]
+            .as_array()
+            .expect("concrete catalog")
+            .is_empty()
+        {
+            "abstract"
+        } else {
+            "concrete"
+        };
+        body["class_catalog"][side][0]["class"] = json!("unknown-operation");
+    } else {
+        body["steps"][0]["source_class"] = json!("unknown-operation");
+    }
+}
+
+/// Each authored necessary edge is removed in isolation; unrelated local nodes
+/// are added in isolation. Both defects must precede an independent row join.
+fn assert_refinement_dependency_matrix(
+    package: &Value,
+    evidence: &CheckedPackageEvidence,
+    position: usize,
+) {
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(package, evidence) else {
+        panic!("dependency baseline refused: {:?}", read(package, evidence));
+    };
+    let indexed = indexed_package(package);
+    assert_eq!(
+        serde_json::to_value(&admitted.graph().nodes[position].dependencies)
+            .expect("typed dependencies"),
+        indexed["semantic_graph"]["nodes"][position]["dependencies"]
+    );
+    let bytes = writer_bytes(package);
+    assert_eq!(
+        bytes,
+        canonical_indexed(package),
+        "writer changed authored dependencies"
+    );
+    let CheckedPackageV2ReadResult::Admitted(reread) =
+        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), evidence)
+    else {
+        panic!("dependency baseline writer output refused");
+    };
+    assert_eq!(admitted.graph(), reread.graph());
+    let dependencies = package["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array()
+        .expect("dependencies");
+    assert!(
+        !dependencies.is_empty(),
+        "fixture must exercise necessary edges"
+    );
+    let mut defects = Vec::new();
+    for omitted in 0..dependencies.len() {
+        let mut missing = dependencies.clone();
+        missing.remove(omitted);
+        defects.push((format!("omitted edge {omitted}"), missing));
+    }
+    for node in package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+    {
+        let id = &node["node_id"];
+        if id != &package["semantic_graph"]["nodes"][position]["node_id"]
+            && !dependencies.contains(id)
+        {
+            let mut extra = dependencies.clone();
+            extra.push(id.clone());
+            extra.sort_by(node_id_order);
+            defects.push((format!("extra edge {id}"), extra));
+        }
+    }
+    for repeated in 0..dependencies.len() {
+        let mut duplicate = dependencies.clone();
+        duplicate.insert(repeated, dependencies[repeated].clone());
+        defects.push((format!("duplicate edge {repeated}"), duplicate));
+    }
+    for pair in 1..dependencies.len() {
+        let mut reversed = dependencies.clone();
+        reversed.swap(pair - 1, pair);
+        defects.push((format!("misordered pair {pair}"), reversed));
+    }
+    let path = format!("/semantic_graph/nodes/{position}/dependencies");
+    for (label, edges) in defects {
+        for bad_row in [false, true] {
+            let mut candidate = package.clone();
+            if bad_row {
+                inject_refinement_row_defect(&mut candidate, position);
+            }
+            candidate["semantic_graph"]["nodes"][position]["dependencies"] = json!(edges);
+            // Do not settle: the reader and writer must see the authored defect.
+            ac5_refusal_preserved_by_writer(
+                &candidate,
+                evidence,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                &path,
+            );
+            assert_eq!(
+                writer_bytes(&candidate),
+                canonical_indexed(&candidate),
+                "{label}, bad_row={bad_row}: writer repaired input"
+            );
+        }
+    }
+    let mut bad_row = package.clone();
+    inject_refinement_row_defect(&mut bad_row, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&bad_row, evidence) else {
+        panic!("the independent wrong operation must refuse with correct dependencies");
+    };
+    assert_ne!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        path,
+        "the row-only control must pass dependency validation"
+    );
+}
+
+/// QSpec FR-375 excludes literal types and the concrete semantic type from
+/// dependencies; reference targets remain necessary even inside history rows.
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_history_reference_dependencies_exclude_type_annotations() {
+    let (mut package, evidence, position, _, type_id, _) = ac5_history_package();
+    let initial =
+        package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["initial"].clone();
+    let literal_id = node_id("refinement/dependency-history-literal");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":literal_id, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value", "semantic_form":"literal", "semantic_type":type_id,
+            "dependencies":[type_id], "occurrences":[{"role":"generated","ordinal":0}],
+            "body":initial
+        }));
+    rebuild_source_map(&mut package);
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["histories"][0]["initial"] = json!({"term":"reference", "target":literal_id});
+    node["body"]["histories"][0]["updates"][0]["expression"] =
+        json!({"term":"reference", "target":literal_id});
+    node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .push(literal_id);
+    node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .sort_by(node_id_order);
+    settle_refinement(&mut package, position);
+    assert_refinement_dependency_matrix(&package, &evidence, position);
+
+    let (mut empty, mut evidence) = machine_package();
+    row_empty_refinement(&mut empty);
+    let position = empty["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let alternate = add_second_concrete_root(&mut empty, &mut evidence);
+    empty["semantic_graph"]["nodes"][position]["semantic_type"] = alternate.clone();
+    let bytes = writer_bytes(&empty);
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("concrete root annotation must not create a local dependency");
+    };
+    assert_eq!(
+        admitted.graph().nodes[position].dependencies.len(),
+        1,
+        "only the abstract header is a dependency of a row-empty body"
+    );
+    empty["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .push(alternate);
+    empty["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .sort_by(node_id_order);
+    ac5_refusal_preserved_by_writer(
+        &empty,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("/semantic_graph/nodes/{position}/dependencies"),
+    );
+}
+
+/// Dependency validation precedes expression and row meaning. These controls
+/// keep an invalid row while distinguishing references/member operands from
+/// literal/result annotations (QSpec FR-375's exact local-list rule).
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_expression_operands_enter_dependencies_before_row_meaning() {
+    let (base, evidence, position, object, type_id, _) = ac5_history_package();
+    let original_dependencies = base["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array()
+        .expect("dependencies")
+        .clone();
+    let operands = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter(|node| {
+            node["node_id"] != base["semantic_graph"]["nodes"][position]["node_id"]
+                && !original_dependencies.contains(&node["node_id"])
+        })
+        .take(4)
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        operands.len(),
+        4,
+        "independent reference, member, population, annotation controls"
+    );
+    let term = json!({"term":"application", "operator":"reaches",
+    "operation":{"identity":"quire.op.model.reaches", "laws":[], "mode":null,
+        "member":{"kind":"relationship", "declaration":operands[1], "population":operands[2]},
+        "leaves":[]},
+    "result_type":operands[3], "arguments":[
+        {"term":"reference", "target":operands[0]},
+        {"term":"literal", "type":operands[3], "value_kind":"text", "value":"annotation"}
+    ]});
+    for location in ["field", "receiver", "argument", "update"] {
+        let mut package = base.clone();
+        let node = &mut package["semantic_graph"]["nodes"][position];
+        match location {
+            "field" => {
+                node["body"]["objects"] = json!([{
+                    "abstract_type":object, "concrete_type":object,
+                    "fields":[{"name":"unknown-field", "expression":term}]
+                }])
+            }
+            "receiver" | "argument" => {
+                node["body"]["steps"][0]["target"] = json!({
+                    "kind":"operation", "operation":node["body"]["steps"][0]["source_node"],
+                    "receiver":if location == "receiver" {term.clone()} else {
+                        json!({"term":"literal", "type":type_id, "value_kind":"text", "value":"wrong receiver"})
+                    },
+                    "arguments":if location == "argument" {json!([term])} else {json!([])}
+                });
+            }
+            "update" => node["body"]["histories"][0]["updates"][0]["expression"] = term.clone(),
+            _ => unreachable!("closed test location table"),
+        }
+        let mut expected = original_dependencies.clone();
+        expected.extend_from_slice(&operands[..3]);
+        expected.sort_by(node_id_order);
+        expected.dedup();
+        node["dependencies"] = json!(expected);
+        inject_refinement_row_defect(&mut package, position);
+        let CheckedPackageV2ReadResult::Refused(row_refusal) = read(&package, &evidence) else {
+            panic!("{location}: the independent wrong expression must refuse");
+        };
+        let dependencies_at = format!("/semantic_graph/nodes/{position}/dependencies");
+        assert_ne!(
+            row_refusal.loci[0].path.as_ref().unwrap().as_str(),
+            dependencies_at,
+            "{location}: exact dependency set must reach row meaning: {row_refusal:?}"
+        );
+        assert_ne!(
+            row_refusal.code,
+            CheckedPackageRefusalCode::MalformedWire,
+            "{location}: control must reach semantics rather than fail wire decoding"
+        );
+        let bytes = writer_bytes(&package);
+        assert_eq!(
+            bytes,
+            canonical_indexed(&package),
+            "{location}: writer changed expression"
+        );
+        let CheckedPackageV2ReadResult::Refused(written_refusal) =
+            CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
+        else {
+            panic!("{location}: writer must not heal the row defect");
+        };
+        assert_eq!(row_refusal.code, written_refusal.code);
+        assert_eq!(row_refusal.cause, written_refusal.cause);
+        assert_eq!(row_refusal.loci, written_refusal.loci);
+        for omitted in &operands[..3] {
+            let mut candidate = package.clone();
+            candidate["semantic_graph"]["nodes"][position]["dependencies"]
+                .as_array_mut()
+                .expect("dependencies")
+                .retain(|id| id != omitted);
+            ac5_refusal_preserved_by_writer(
+                &candidate,
+                &evidence,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                &dependencies_at,
+            );
+        }
+        let mut extra_annotation = package.clone();
+        let dependencies = extra_annotation["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies");
+        dependencies.push(operands[3].clone());
+        dependencies.sort_by(node_id_order);
+        ac5_refusal_preserved_by_writer(
+            &extra_annotation,
+            &evidence,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &dependencies_at,
+        );
+    }
+}
+
+fn append_distinct_refinement_anchor(package: &mut Value, source: &Value, ordinal: u64) -> Value {
+    let mut anchor = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_id"] == *source)
+        .expect("source anchor")
+        .clone();
+    let mut id = source.clone();
+    id["ordinal"] = json!(ordinal);
+    anchor["node_id"] = id.clone();
+    anchor["body"]["members"][1]["value"]["value"] = json!("goAgain");
+    let mut region = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == *source)
+        .expect("source anchor region")
+        .clone();
+    region["node_id"] = id.clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(anchor);
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(region);
+    id
+}
+
+/// Distinct anchors prevent the source step from supplying either target edge.
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_dependency_only_ensure_and_operation_target_keys_are_required() {
+    for role in ["ensure", "operation"] {
+        let (mut package, evidence, position) = catalog_free_operation_package("process");
+        let body = &package["semantic_graph"]["nodes"][position]["body"];
+        let abstract_root = body["abstract"].clone();
+        let source = body["steps"][0]["source_node"].clone();
+        let target = append_distinct_refinement_anchor(&mut package, &source, 1);
+        assert_ne!(source, target);
+        let mut expected = vec![abstract_root, source, target.clone()];
+        let node = &mut package["semantic_graph"]["nodes"][position];
+        if role == "ensure" {
+            node["body"]["ensure"] = json!([{
+                "operation":target, "kind":"strong", "granularity":"whole"
+            }]);
+        } else {
+            // A literal receiver has no reference edge: only operation contributes target.
+            let text = node_id(&crate::support::checked_package::family_key("a1a1"));
+            node["body"]["steps"][0]["target"] = json!({
+                "kind":"operation", "operation":target,
+                "receiver":{"term":"literal", "type":text, "value_kind":"text", "value":"receiver"},
+                "arguments":[]
+            });
+        }
+        expected.sort_by(node_id_order);
+        node["dependencies"] = json!(expected);
+        assert_refinement_dependency_matrix(&package, &evidence, position);
+    }
+}
+
+/// A fresh literal is referenced only by the protocol target's one argument;
+/// the declared target node itself also belongs to the mandatory abstract catalog.
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_dependency_only_protocol_argument_reference_is_required() {
+    let (mut package, evidence, position, _) = declared_protocol_target_package();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let literal = node_id("refinement/protocol-argument-only");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":literal, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value", "semantic_form":"literal", "semantic_type":boolean,
+            "dependencies":[boolean], "occurrences":[{"role":"generated", "ordinal":0}],
+            "body":{"term":"literal", "type":boolean, "value_kind":"boolean", "value":true}
+        }));
+    let source = package["lock"]["sources"][0].clone();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(json!({
+            "node_id":literal, "role":"generated", "ordinal":0,
+            "regions":[{"source":source,"start":10,"end":11}]
+        }));
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["steps"][0]["target"]["arguments"] =
+        json!([{"term":"reference", "target":literal}]);
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    assert!(
+        !dependencies.contains(&literal),
+        "argument must contribute a new edge"
+    );
+    dependencies.push(literal);
+    dependencies.sort_by(node_id_order);
+    assert_refinement_dependency_matrix(&package, &evidence, position);
+}
+
+/// An admitted protocol target must equal its abstract catalog node. A wrong
+/// local target isolates the target-key collection path before that later join.
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_dependency_only_protocol_target_precedes_catalog_node_mismatch() {
+    let (mut package, evidence, position, _) = declared_protocol_target_package();
+    assert!(
+        matches!(
+            read(&package, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "the unchanged declared protocol target must admit"
+    );
+    let unrelated = node_id(&crate::support::checked_package::family_key("a1a1"));
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["steps"][0]["target"]["node"] = unrelated.clone();
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    assert!(
+        !dependencies.contains(&unrelated),
+        "wrong target must contribute a distinct edge"
+    );
+    dependencies.push(unrelated.clone());
+    dependencies.sort_by(node_id_order);
+    let target_at = format!("/semantic_graph/nodes/{position}/body/steps/0/target/node");
+    let encoded = writer_bytes(&package);
+    assert_eq!(
+        encoded,
+        canonical_indexed(&package),
+        "writer changed the wrong target"
+    );
+    for result in [
+        read(&package, &evidence),
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence),
+    ] {
+        assert_step_refusal(
+            result,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            &target_at,
+        );
+    }
+    package["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .retain(|id| *id != unrelated);
+    ac5_refusal_preserved_by_writer(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("/semantic_graph/nodes/{position}/dependencies"),
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-1", "FR-061-AC-6")]
 #[test]
 fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     let (mut package, evidence, population, object) = selected_population_package();
@@ -1990,6 +2450,8 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     dependencies.dedup();
     settle_refinement(&mut package, position);
     keep_refinement_declaration_occurrence(&mut package, position);
+
+    assert_refinement_dependency_matrix(&package, &evidence, position);
 
     let expected = package["semantic_graph"]["nodes"][position].clone();
     let selected_root = package["semantic_graph"]["nodes"]
@@ -2163,7 +2625,7 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
     );
 }
 
-#[trace("TC-062", "FR-061-AC-4")]
+#[trace("TC-062", "FR-061-AC-4", "FR-061-AC-6")]
 #[test]
 fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     let (mut dependency_wire, dependency_evidence, _) =
@@ -2217,6 +2679,7 @@ fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     }]);
     node["dependencies"] = json!([source_anchor]);
     settle_refinement(&mut package, position);
+    assert_refinement_dependency_matrix(&package, &evidence, position);
     let key: quire_contract_model::CheckedNodeId =
         serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
             .expect("refinement id");
@@ -3159,7 +3622,7 @@ fn protocol_catalog_compares_new_concrete_identity_in_key_order() {
     );
 }
 
-#[trace("TC-062", "FR-061-AC-3", "FR-061-AC-7")]
+#[trace("TC-062", "FR-061-AC-3", "FR-061-AC-7", "FR-061-AC-6")]
 #[test]
 fn row_empty_protocol_subject_admits_two_equal_empty_concrete_class_sets() {
     let (mut package, mut evidence) =
@@ -3194,6 +3657,7 @@ fn row_empty_protocol_subject_admits_two_equal_empty_concrete_class_sets() {
     assert_ne!(first_root, second_root);
     package["semantic_graph"]["nodes"][position]["semantic_type"] = first_root;
     settle_refinement(&mut package, position);
+    assert_refinement_dependency_matrix(&package, &evidence, position);
     let first_id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert!(
         matches!(
@@ -7697,6 +8161,7 @@ fn refinement_catalog_joins_selected_abstract_clause_and_binder() {
 }
 
 /// Provenance: IR-874 catalog graph join.
+#[trace("FR-061-AC-6")]
 #[test]
 fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     let (mut dependency_wire, dependency_evidence) =
@@ -7778,6 +8243,7 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     evidence
         .insert_dependency_package("test/abstract-protocol", *dependency)
         .expect("selected dependency");
+    assert_refinement_dependency_matrix(&package, &evidence, position);
     let admitted = read(&package, &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
