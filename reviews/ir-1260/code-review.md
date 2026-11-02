@@ -60,3 +60,7 @@ Rust review covered public API visibility, error precedence, malformed input, no
 ## Disposition verdict
 
 **PASS (round 1, source review)** — The original finding is fixed at a95d2752. The focused three-test rerun and final full gate remain owned by the code lead; this reviewer did not run Cargo gates.
+
+## Follow-up review (round 2)
+
+**PASS (source review at 25c57c40)** — The new branch returns no bounded-membership decision when a `text_bounds` term lacks the complete `min`, `max`, `text_profile` tuple. QSpec FR-322's Text literal membership applies to a `Text[min, max; profile]` node; the existing `recursive_leaves` controls construct profile-only `Text[nfc]` and thus lie outside that bounded-membership rule. The complete-bounds vector path and its checks are unchanged. No new code-review finding was found. The separate malformed-domain refusal contract is tracked by STD-645/IR-1263; this review makes no claim for it. The two focused regression tests, TX conformance rerun, and hosted gate remain pending with the code lead.

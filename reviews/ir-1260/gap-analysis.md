@@ -64,3 +64,7 @@ scope:
 ## Disposition verdict
 
 **PASS (round 1, source review)** — The original trace findings are fixed at a95d2752. The computed matrix was not rerun in this disposition; the focused test and final full gate remain with the code lead.
+
+## Follow-up review (round 2)
+
+**PASS (source review at 25c57c40)** — No trace tag or test changed in this fix. The complete-bounds branch remains owned by FR-038-AC-409/410 and exercised by the QSpec TX vector test; existing `recursive_leaves` tests exercise profile-only Text domains. QSpec FR-322 lines 2810-2829 and AC-304 specify membership for complete `Text[min, max; profile]`. No new gap finding was found. The malformed-domain refusal contract is separate STD-645/IR-1263 work. The code lead's focused and hosted reruns remain pending; the computed matrix was not repeated for this source-only follow-up.
