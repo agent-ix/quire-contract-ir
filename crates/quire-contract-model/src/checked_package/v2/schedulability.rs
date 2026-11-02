@@ -444,12 +444,13 @@ pub(super) fn validate_bodies(
         .iter()
         .map(|model| (model.identity.as_ref(), model))
         .collect();
-    let mut order = index.values().copied().collect::<Vec<_>>();
+    let mut order = index
+        .values()
+        .copied()
+        .filter(|&p| claim(kinds[p]))
+        .collect::<Vec<_>>();
     order.sort_by(|&a, &b| structural_keys[a].cmp(&structural_keys[b]));
     for p in order {
-        if !claim(kinds[p]) {
-            continue;
-        }
         let node = &nodes[p];
         if node
             .occurrences
