@@ -112,3 +112,35 @@ fn admitted_projection_bounds_deep_and_cyclic_types_on_a_small_stack() {
         }
     }).expect("spawn small-stack reader").join().expect("bounded public reads must not grow the stack with type depth");
 }
+
+#[test]
+fn receipt_admitted_union_projection_has_the_required_unsupported_type_outcome() {
+    use crate::support::checked_package::{fixture_source, owned_structural_node, source_owner};
+    let mut union = node(
+        "ProjectionUnion",
+        "composite_type",
+        "union",
+        "ProjectionUnion",
+        &[],
+        json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "left", "value": {"term": "aggregate", "members": []}},
+            {"term": "binding", "name": "right", "value": {"term": "aggregate", "members": []}}
+        ]}),
+    );
+    union["declaration"] = json!({"qualified_name": ["ProjectionUnion"]});
+    union["occurrences"][0]["role"] = json!("declaration");
+    let union = owned_structural_node(union, source_owner(&fixture_source()));
+    let wire = package(vec![union]);
+    std::fs::write(std::env::var_os("IR1003_AC6_RECEIPT_PATH").expect("receipt output"), canonical(&wire)).expect("write exact authored union wire");
+    let admitted = admitted(&wire);
+    let id: CheckedNodeId = serde_json::from_value(node_id("ProjectionUnion")).unwrap();
+    let error = admitted
+        .project_exact_type(&id, &SelectedExactIdentities::empty(), 2)
+        .expect_err("union has no complete Exact representation");
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType,
+        "{error:?}"
+    );
+}
+
