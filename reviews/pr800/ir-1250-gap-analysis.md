@@ -36,13 +36,13 @@ Compared IR-1250's requirements, tagged QSpec conformance test, and implementati
 
 ## Evidence
 
-For example, changing the `CertificateIdentity.properties.node_id.$ref` value in the configured QSpec schema to `#/$defs/DoesNotExist` leaves every property name and malformed-member enum entry unchanged. `certificate_properties` calls `as_str()` on that reference and accepts it; all final set and sequence assertions still pass. The input is a malformed relevant definition, which FR-070-AC-2 says must fail clearly. The test is tagged to all four FR-070 criteria and passed against QSpec main `6fee29e352dfacfe403fe86ba1d0eb0e3b18c56a`; this positive run does not exercise the malformed reference.
+For example, changing the `CertificateIdentity.properties.node_id.$ref` value in the configured QSpec schema to `#/$defs/DoesNotExist` leaves every property name and malformed-member enum entry unchanged. `certificate_properties` calls `as_str()` on that reference and accepts it; all final set and sequence assertions still pass. The input is a malformed relevant definition, which FR-070-AC-2 says must fail clearly. The test is tagged to all four FR-070 criteria and passed against the configured QSpec checkout; this positive run does not exercise the malformed reference.
 
 ## Dispositions
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Commit `ad10bb4e` passes the complete schema `$defs` map into the certificate-owned property walk, rejects empty or missing local targets, and adds a tagged negative test for `#/$defs/DoesNotExist`. The focused QSpec conformance run passed both tests. |
+| FND-001 | fixed | The fix passes the complete schema `$defs` map into the certificate-owned property walk, rejects empty or missing local targets, and adds a tagged negative test for `#/$defs/DoesNotExist`. The focused QSpec conformance run passed both tests. |
 
 ## Round 1 evidence
 
