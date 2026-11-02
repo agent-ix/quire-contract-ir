@@ -220,14 +220,15 @@ the implemented Public items inventory when the reader exports them;
 until then FR-038 retains the full API and behavior obligation.
 
 The authenticated schedulability carrier of FR-038-AC-396 through
-FR-038-AC-400 is Implemented. The planned borrowed
+FR-038-AC-400 is implemented. The borrowed
 `CheckedSchedulabilityClaimRef<'a>` and the associated
 `CheckedPackageV2::schedulability_claims` read expose only admitted graph
 identity, claim occurrence, closed typed claim/task field reads and the
 existing typed `CheckedTerm` body, using
 the exact signatures FR-038 specifies. Fields remain private and no public
 constructor can mint the view. The closed `ClaimForm::Schedulability` variant
-joins that surface with the carrier implementation. These exports are included in the implemented public inventory. No QSL
+joins that surface with the carrier implementation. These exports are included
+in the implemented public inventory. No QSL
 engine, task-product certificate or task-transition identity type enters the
 cycle-free model API through this read.
 
