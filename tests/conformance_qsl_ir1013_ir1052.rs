@@ -58,7 +58,12 @@ fn producer() -> (PathBuf, PathBuf) {
 
 fn emit(qsl: &Path, binary: &Path, source: &Path, model: &Path, points: Option<&Path>) -> Vec<u8> {
     let mut command = Command::new(binary);
-    command.current_dir(qsl).arg("--model").arg(model);
+    command
+        .current_dir(qsl)
+        .arg("--model")
+        .arg(model)
+        .arg("--package-name")
+        .arg("ir-1013-readback");
     if let Some(points) = points {
         command.arg("--execution-points").arg(points);
     }
