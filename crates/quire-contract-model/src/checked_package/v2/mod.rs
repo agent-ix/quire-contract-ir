@@ -2025,13 +2025,12 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ProtocolForm::Compensation,
         ) => false,
         K::Claim(ClaimForm::StateGraph) => true,
-        K::Claim(ClaimForm::StepRelation) => false,
+        K::Claim(ClaimForm::StepRelation | ClaimForm::Schedulability) => true,
         K::Claim(
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest
-            | ClaimForm::Schedulability,
+            | ClaimForm::SynthesisRequest,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
@@ -2849,6 +2848,7 @@ fn validate_graph(
         Some(models),
     )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
+    schedulability::validate_graph(&graph.nodes, &kinds, &index)?;
     validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index, models)?;
     validate_selected_type_bounds(models, &terms, structural_keys)?;
     for &position in index.values() {
@@ -3050,7 +3050,7 @@ fn validate_graph(
         meter,
         limits.bytes,
     )?;
-    schedulability::validate_bodies(&graph.nodes, &kinds, &terms, &index, models, meter)?;
+    schedulability::validate_bodies(&graph.nodes, &kinds, &terms, &index, structural_keys, models, meter)?;
     refinement::validate_catalog_graph(
         refinement::RefinementGraph::new(
             &graph.nodes,

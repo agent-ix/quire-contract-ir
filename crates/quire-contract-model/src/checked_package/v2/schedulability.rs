@@ -269,10 +269,12 @@ fn greater(left: &CheckedTerm, right: &CheckedTerm, meter: &mut WorkMeter, at: &
 
 pub(super) fn validate_bodies(
     nodes: &[RawSemanticNodeV2], kinds: &[CheckedNodeKind], terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>, models: &[super::model_members::DomainModel], meter: &mut WorkMeter,
+    index: &BTreeMap<&CheckedNodeId, usize>, structural_keys: &[std::sync::Arc<CheckedNodeId>], models: &[super::model_members::DomainModel], meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let models = models.iter().map(|model| (model.identity.as_ref(), model)).collect();
-    for &p in index.values() {
+    let mut order = index.values().copied().collect::<Vec<_>>();
+    order.sort_by(|&a, &b| structural_keys[a].cmp(&structural_keys[b]));
+    for p in order {
         if !claim(kinds[p]) { continue; }
         let node = &nodes[p];
         let at = node_pointer(p).key("body");
@@ -371,6 +373,23 @@ pub(super) fn validate_bodies(
             } else { valid = false; }
             if valid && policy == "amc" { valid = !greater(b(3), b(2), meter, &task_at)?; }
             if !valid { return Err(fail(Code::InvalidTimedModel, Some(Cause::InvalidTaskSet), task_at)); }
+        }
+    }
+    Ok(())
+}
+
+/// Graph premises precede body and carrier validation.
+pub(super) fn validate_graph(nodes: &[RawSemanticNodeV2], kinds: &[CheckedNodeKind], index: &BTreeMap<&CheckedNodeId, usize>) -> Result<(), ValidationFailure> {
+    for &p in index.values() {
+        if !claim(kinds[p]) { continue; }
+        let node = &nodes[p];
+        for (bad, field) in [
+            (!node.dependencies.is_empty(), "dependencies"),
+            (node.owner.is_some(), "owner"),
+            (!index.get(&node.semantic_type).is_some_and(|&t| kinds[t] == CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)), "semantic_type"),
+            (node.occurrences.iter().any(|o| o.role != CheckedOccurrenceRole::Claim), "occurrences"),
+        ] {
+            if bad { return Err(invalid(Code::InvalidSemanticGraph, None, node_pointer(p).key(field), &node.node_id)); }
         }
     }
     Ok(())
