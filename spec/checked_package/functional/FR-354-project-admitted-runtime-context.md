@@ -13,6 +13,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-390
     type: references
+  - target: ix://agent-ix/quire-spec-language/FR-103
+    type: references
 ---
 # FR-354: Project admitted runtime context from checked-package decisions
 
@@ -49,6 +51,15 @@ owns runtime interpretation and supplied-state admission.
   identities, and the stage's selected operation identity. The public callable
   read SHALL take this row through a typed admitted join; an absent row or an
   anchor outside a selected model SHALL return typed unavailable-witness.
+- For an object type's own declared operations, producer-supplied selected
+  operation facts from the same QSL selection as the admitted package. Each
+  fact identifies the selected document, declaring object and original operation
+  member, and carries the declaration's ordered parameters, result and effect
+  (`modifies`, `creates`, `deletes`). QSL [FR-103](ix://agent-ix/quire-spec-language/FR-103)
+  owns the declared effect; the admitted IR model currently retains operation
+  signatures but no declared effect. This is a required upstream producer
+  contract (QSpec STD-640), not an existing checked-package member or an
+  IR-derived effect.
 
 ## Outputs
 
@@ -62,7 +73,8 @@ owns runtime interpretation and supplied-state admission.
 
 When the consumer requests the runtime type environment, Contract IR SHALL
 project the complete selected composite and object declarations, effective
-field identities and types, inheritance edges, and unit identities needed by
+field identities and types, each object's own declared operations in declaration
+order, inheritance edges, and unit identities needed by
 semantic-value `TypeEnvironment`. It SHALL preserve [FR-352](./FR-352-project-admitted-exact-value-types.md)'s
 selected-document and structural-key joins. For tuples, source-owned units,
 and enums, Contract IR SHALL check each additional QSL-stage row against the
@@ -74,6 +86,23 @@ Contract IR SHALL return a typed refusal if any required declaration, member, pa
 identity or a representable type. QSL may construct its `TypeEnvironment`
 from the complete view, but Contract IR SHALL NOT claim that a newly constructed
 environment was itself the producer's checked result.
+
+For each selected object operation, Contract IR SHALL preserve its declaring
+object and original member identity, ordered parameter names and projected
+types, optional result type, and the QSL producer's declared effect, including
+an intentionally empty effect. It SHALL join the producer operation fact to
+the admission-retained selected document, object declaration and own operation
+member; inherited visibility SHALL NOT change that declaring owner or duplicate
+the operation as an own declaration on a subtype. Contract IR SHALL refuse a
+missing, foreign, duplicate or conflicting producer fact, mismatched owner or
+member, or unrepresentable signature or effect before exposing any partial
+type-declaration view. It SHALL NOT derive an effect from an operation name,
+callable frame, state/frame node or default empty effect. Until the QSL producer
+supplies the selected operation effect facts, an object with operations SHALL
+return typed unavailable-witness; the admitted model signature alone does not
+authorize a complete `ObjectTypeDeclaration`. The projection SHALL charge
+bounded work for each operation, parameter and effect entry and preserve the
+same result or refusal for equal admitted packages and their clones.
 
 When the consumer requests callables, Contract IR SHALL expose a table keyed
 by admitted callable and operation identities, with each callable's ordered
@@ -132,7 +161,7 @@ typed outcomes.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-354-AC-1 | With the FR-352 and additional QSL-stage rows for selected tuples and source-owned units, a public IR-model read supplies complete record, tuple and object declarations, effective fields, ancestry and units from which QSL constructs the expected `TypeEnvironment`; no source or JSON is reparsed. Before those additional producer rows exist, a tuple or source-owned unit request refuses rather than claiming a complete view. | Test |
+| FR-354-AC-1 | With the FR-352 and additional QSL-stage rows for selected tuples and source-owned units, and the required QSL producer facts for object operations, a public IR-model read supplies complete record, tuple and object declarations, effective fields, ancestry, own object operations and units from which QSL constructs the expected `TypeEnvironment`; no source or JSON is reparsed. Before a required producer fact exists, the corresponding request refuses rather than claiming a complete view. | Test |
 | FR-354-AC-2 | A missing, foreign, duplicated or conflicting selected declaration, field, parent or unit identity, including an additional tuple or source-unit row, returns a named typed outcome before any partial type-environment view; matching display names do not make a join. | Test |
 | FR-354-AC-3 | Given a matching FR-352 `SelectedOperationMemberRow`, the callable projection returns each selected model-owned operation's ordered parameters, admitted body handle, context and frame, including an intentionally empty frame; a pure function can be read from its admitted node without that row. A missing or conflicting model-member row, a source-declared operation anchor without its own producer witness, a dangling body, wrong owner or absent required frame returns a typed outcome without a callable view. | Test |
 | FR-354-AC-4 | The dispatch projection preserves every admitted candidate in producer order with its effective precondition term reference; a missing or ambiguous candidate/precondition join refuses without choosing a candidate or evaluating a predicate. | Test |
@@ -141,6 +170,8 @@ typed outcomes.
 | FR-354-AC-7 | Repeated bounded reads of an admitted package and its clone agree; an insufficient limit reports the charged work and locus without a partial view, source recheck, wire reparse or stack growth with term depth. | Test |
 | FR-354-AC-8 | Public API and dependency inspection finds the runtime projections in IR model, no QSL `Scope`, `CheckedGraph`, evaluator, supplied-state admission or mirror expression type in IR, and no claimed success for a producer decision absent from the package. | Inspection |
 | FR-354-AC-9 | Captured protocol semantic location reads preserve the exact application, occurrence, per-term ordinal, closed origin and child path; two terms sharing one application occurrence remain distinct. Foreign, absent or non-application targets, missing source occurrences, duplicate keys and malformed origin or ordinal shapes refuse before admission. An absent sidecar and an absent selected row return distinct typed outcomes; a bounded read returns the complete borrowed row at its exact work limit and reports charged exhaustion one below without a partial value or source-region inference. | Test |
+| FR-354-AC-10 | A selected `Ledger` with own `pay` and `payTaxed` operations (the QSL `child_composite` signature pattern) exposes them in declaration order with their selected declaring owner and original member identities, ordered typed parameters, optional result and producer-declared effects, including an empty effect and a nonempty effect in the test case, sufficient for QSL `ObjectTypeDeclaration::with_operations`; inherited visibility does not change ownership or add an own operation to the subtype. | Test |
+| FR-354-AC-11 | A missing, foreign, duplicate or conflicting operation/effect fact, wrong owner/member, or unrepresentable signature/effect returns a named typed outcome without any partial declaration view; an admitted signature without the required producer effect fact refuses. Repeated bounded reads of the admitted package and its clone agree, and a limit one below the charged work reports exhaustion without a partial view. | Test |
 
 ## Dependencies
 
@@ -152,3 +183,10 @@ typed outcomes.
 - QSL [FR-390](ix://agent-ix/quire-spec-language/FR-390) owns the sealed runtime
   adapter and evaluation. QSpec FR-322 owns any producer decision not retained
   by the current checked package.
+- QSL [FR-103](ix://agent-ix/quire-spec-language/FR-103) owns the declared
+  operation effects. The QSL producer must expose those selected facts with
+  object/member provenance before IR can satisfy operation-bearing AC-1 and
+  AC-10/AC-11; the current checked-package model carries no operation-member effect.
+- QSpec STD-640 owns the checked-package operation-effect carrier and its
+  producer provenance. IR-1226 depends on that carrier; no effect-bearing read
+  is complete before it is produced and admitted.
