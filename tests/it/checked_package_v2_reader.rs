@@ -54,14 +54,37 @@ fn refused_bytes(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPack
 #[test]
 fn exact_scalar_projection_uses_publicly_admitted_package() {
     let mut document = v2_all_families();
-    let nodes = document["semantic_graph"]["nodes"].as_array_mut().expect("nodes");
-    let range_template = nodes.iter().find(|node| node["semantic_form"] == "integer_range").expect("range shape").clone();
-    let parameter_template = nodes.iter().find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter").expect("parameter shape").clone();
-    let mut expected = vec![(node_id(&family_key("aaaa")), ValueType::Boolean), (node_id(&family_key("a3a3")), ValueType::Integer)];
+    let nodes = document["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let range_template = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "integer_range")
+        .expect("range shape")
+        .clone();
+    let parameter_template = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
+        .expect("parameter shape")
+        .clone();
+    let mut expected = vec![
+        (node_id(&family_key("aaaa")), ValueType::Boolean),
+        (node_id(&family_key("a3a3")), ValueType::Integer),
+    ];
     // Exact integers have arbitrary precision; crossing a host integer width
     // must preserve the interval rather than narrow it or invent a ceiling.
-    for (index, (lower, upper)) in [("0", "1000"), ("0", "3"), ("0", "9"),
-        ("-340282366920938463463374607431768211456", "340282366920938463463374607431768211456")].into_iter().enumerate() {
+    for (index, (lower, upper)) in [
+        ("0", "1000"),
+        ("0", "3"),
+        ("0", "9"),
+        (
+            "-340282366920938463463374607431768211456",
+            "340282366920938463463374607431768211456",
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let range = node_id(&format!("projection/range/{index}"));
         let mut ty = range_template.clone();
         ty["node_id"] = range.clone();
@@ -74,21 +97,38 @@ fn exact_scalar_projection_uses_publicly_admitted_package() {
         value["semantic_type"] = range;
         value["body"]["members"][0]["value"]["value"] = json!(format!("range_{index}"));
         nodes.push(value);
-        expected.push((parameter, ValueType::Int(IntegerInterval::new(lower.parse().expect("canonical lower"), upper.parse().expect("canonical upper")).expect("inclusive range"))));
+        expected.push((
+            parameter,
+            ValueType::Int(
+                IntegerInterval::new(
+                    lower.parse().expect("canonical lower"),
+                    upper.parse().expect("canonical upper"),
+                )
+                .expect("inclusive range"),
+            ),
+        ));
     }
     checked_package::rebuild_source_map(&mut document);
     refresh_identity(&mut document);
     let package = admitted(&document);
-    let identities = SelectedExactIdentities::from_stage_rows(&package, [], []).expect("scalar rows");
+    let identities =
+        SelectedExactIdentities::from_stage_rows(&package, [], []).expect("scalar rows");
     for (id, expected) in expected {
         let id = serde_json::from_value(id).expect("structural ID");
-        let projected = package.project_exact_type(&id, &identities, 128).expect("Exact type");
+        let projected = package
+            .project_exact_type(&id, &identities, 128)
+            .expect("Exact type");
         assert_eq!(projected.node(), &id);
         assert_eq!(projected.value_type(), &expected);
-        assert_eq!(package.clone().project_exact_type(&id, &identities, 128), Ok(projected));
+        assert_eq!(
+            package.clone().project_exact_type(&id, &identities, 128),
+            Ok(projected)
+        );
     }
     let id = serde_json::from_value(node_id(&family_key("aaaa"))).expect("Boolean ID");
-    let exhausted = package.project_exact_type(&id, &identities, 1).expect_err("finite limit");
+    let exhausted = package
+        .project_exact_type(&id, &identities, 1)
+        .expect_err("finite limit");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(exhausted.requested.as_ref(), &id);
     assert_eq!(exhausted.at.as_deref(), Some(&id));
