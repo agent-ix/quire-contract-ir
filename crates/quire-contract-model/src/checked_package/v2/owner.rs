@@ -142,6 +142,9 @@ fn anonymous_function_nodes<'a>(
         else {
             continue;
         };
+        if !matches!(members, [_, _] | [_, _, _]) {
+            continue;
+        }
         // Collect possible targets only; anonymous_body_shape remains the sole
         // authority for the closed syntax and the target kinds.
         for member in members {
@@ -523,7 +526,7 @@ mod anonymous_lookup_tests {
         let expression = node(
             1,
             "expression",
-            "literal",
+            "reference",
             json!({"term":"aggregate", "members":[]}),
         );
         let function = node(
