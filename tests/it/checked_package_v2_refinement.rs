@@ -2218,6 +2218,7 @@ fn append_distinct_refinement_anchor(package: &mut Value, source: &Value, ordina
     let mut id = source.clone();
     id["ordinal"] = json!(ordinal);
     anchor["node_id"] = id.clone();
+    anchor["body"]["members"][1]["value"]["value"] = json!("goAgain");
     let mut region = package["source_map"]
         .as_array()
         .expect("source map")
@@ -2242,7 +2243,7 @@ fn append_distinct_refinement_anchor(package: &mut Value, source: &Value, ordina
 #[test]
 fn refinement_dependency_only_ensure_and_operation_target_keys_are_required() {
     for role in ["ensure", "operation"] {
-        let (mut package, evidence, position) = catalog_free_operation_package("object_type");
+        let (mut package, evidence, position) = catalog_free_operation_package("process");
         let body = &package["semantic_graph"]["nodes"][position]["body"];
         let abstract_root = body["abstract"].clone();
         let source = body["steps"][0]["source_node"].clone();
@@ -2331,12 +2332,23 @@ fn refinement_dependency_only_protocol_target_precedes_catalog_node_mismatch() {
     dependencies.push(unrelated.clone());
     dependencies.sort_by(node_id_order);
     let target_at = format!("/semantic_graph/nodes/{position}/body/steps/0/target/node");
-    ac5_refusal_preserved_by_writer(
-        &package,
-        &evidence,
-        CheckedPackageRefusalCode::InvalidModelBinding,
-        &target_at,
+    let encoded = writer_bytes(&package);
+    assert_eq!(
+        encoded,
+        canonical_indexed(&package),
+        "writer changed the wrong target"
     );
+    for result in [
+        read(&package, &evidence),
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence),
+    ] {
+        assert_step_refusal(
+            result,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            &target_at,
+        );
+    }
     package["semantic_graph"]["nodes"][position]["dependencies"]
         .as_array_mut()
         .expect("dependencies")
