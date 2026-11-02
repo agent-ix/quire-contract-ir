@@ -32,3 +32,9 @@ FR-038 owner prose is incomplete against the closed QSpec table.
 ## Evidence
 
 The two changed requirement documents pass scoped Quire validation and `git diff --check`. AC-417 is planned until IR-1264 lands and has no code trace tag yet. The diff adds no hash, digest, pin, or tracking record.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-038 now applies the full QSpec OwnerPresenceRule table rather than a partial list, and states the event-type split explicitly. |
