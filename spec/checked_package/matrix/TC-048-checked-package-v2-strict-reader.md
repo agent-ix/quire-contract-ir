@@ -29,6 +29,12 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-419
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-431
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-432
+    type: verifies
+  - target: ix://agent-ix/quire-specification/TC-233
+    type: references
   - target: ix://agent-ix/quire-contract-ir/FR-064
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
@@ -2735,3 +2741,21 @@ For a duplicate, assert the second row pointer; for an `await` declaration,
 assert `/declaration`; for a mismatched name and configuration kind in one
 resolved row, assert `/clock_name` before `/clock/kind`. No refusal yields an
 admitted or partial borrowed row view.
+
+## IEEE fused multiply-add application (FR-038-AC-431 and FR-038-AC-432)
+
+Planned until IR-1265 lands. Read QSpec's
+`proposals/checked-package-v2/fma-application-vectors.json` from the selected
+checkout. Assert exactly `FM-01` through `FM-12` and construct complete,
+otherwise valid IR-owned V2 packages around each case. The application is the
+generic `call` of `quire.op.ieee.float32.fma` or
+`quire.op.ieee.float64.fma`, with reference arguments a, b, c; it has no
+function callee argument. Read each package through the public strict reader.
+Assert admission for `FM-01` and `FM-02`, and each published code and cause for
+`FM-03` through `FM-12`. Keep operand type, result type, law, mode and every
+other package fact valid except the case's intended defect. Store no local
+copy of the vector or its source fixture.
+
+The published FM set contains no case where the carried rounding mode differs
+from an operand or result type's rounding mode. Record that as unverified by
+these vectors; do not infer its reader outcome from their results.
