@@ -5,8 +5,8 @@
 
 use crate::support::checked_package::{
     bounds_body, canonical, evidence_for, evidence_with_document, integer_key, node_id,
-    refresh_identity, refresh_identity_projection, select_model, settle, v2_all_families,
-    v2_nominal,
+    reassign_node_id, refresh_identity, refresh_identity_projection, select_model, settle,
+    v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -162,6 +162,38 @@ fn read_with_selected_model(
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )
+}
+
+fn retarget_qspec_application_argument(package: &mut Value, operation: &str, target: &Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("QSpec nodes");
+    let application = nodes
+        .iter()
+        .position(|node| node["body"]["operation"]["identity"] == operation)
+        .unwrap_or_else(|| panic!("published operation {operation}"));
+    let old_target = &nodes[application]["body"]["arguments"][0]["target"];
+    let old_position = nodes
+        .iter()
+        .position(|node| node["node_id"] == *old_target)
+        .expect("original QSpec operand");
+    let target_position = nodes
+        .iter()
+        .position(|node| node["node_id"] == *target)
+        .expect("replacement population node");
+    let stale = nodes[application]["node_id"].clone();
+    let mut fresh = stale.clone();
+    let mut replaced = 0;
+    for segment in fresh["path"].as_array_mut().expect("application path") {
+        if *segment == json!({"node": old_position}) {
+            *segment = json!({"node": target_position});
+            replaced += 1;
+        }
+    }
+    assert_eq!(replaced, 1, "published application operand path");
+    package["semantic_graph"]["nodes"][application]["body"]["arguments"][0]["target"] =
+        target.clone();
+    reassign_node_id(package, &stale, &fresh);
 }
 
 fn unit_field_document(type_ref: &str) -> (Value, Value) {
@@ -1024,17 +1056,11 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
         } else if case["member_population"] == true {
             application["body"]["operation"]["member"]["population"] = population.clone();
         } else {
-            application["body"]["arguments"][0]["target"] = population.clone();
+            retarget_qspec_application_argument(&mut package, &operation, &population);
         }
         if let Some(also) = case["also"].as_str() {
             let also = format!("quire.op.{also}");
-            let application = package["semantic_graph"]["nodes"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|node| node["body"]["operation"]["identity"] == also)
-                .unwrap_or_else(|| panic!("{id}: second published operation {also}"));
-            application["body"]["arguments"][0]["target"] = population.clone();
+            retarget_qspec_application_argument(&mut package, &also, &population);
         }
         settle(&mut package);
         let source = package["lock"]["sources"][0].clone();
