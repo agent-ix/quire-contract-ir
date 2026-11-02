@@ -4507,14 +4507,19 @@ fn exact_projection_identity_joins_refuse_changed_and_competing_owners() {
         "kind": {"module": IDENTITY, "name": "record"},
         "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
     }));
-    let admitted = admit(
-        &selected,
-        &[
-            ("Receipt", "record_value_type"),
-            ("OtherReceipt", "record_value_type"),
-        ],
-        &[],
-    );
+    selected["types"][1]["displayName"] = json!("Receipt");
+    let (mut wire, evidence, _) = package(&selected, &[("Receipt", "record_value_type"), ("OtherReceipt", "record_value_type")], &[]);
+    let original = node_id(&declaration_key("Receipt", "record_value_type"));
+    let mut alias = wire["semantic_graph"]["nodes"].as_array().unwrap().iter().find(|node| node["node_id"] == original).unwrap().clone();
+    alias["node_id"]["ordinal"] = json!(7);
+    alias["semantic_type"] = alias["node_id"].clone();
+    let alias_id: CheckedNodeId = serde_json::from_value(alias["node_id"].clone()).unwrap();
+    wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(alias);
+    settle(&mut wire);
+    let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
+        other => panic!("independently keyed selected declarations must admit: {other:?}"),
+    };
     let row = |name: &str| {
         SelectedExactDeclarationRow::new(
             serde_json::from_value(node_id(&declaration_key(name, "record_value_type"))).unwrap(),
@@ -4624,6 +4629,10 @@ fn exact_projection_identity_joins_refuse_changed_and_competing_owners() {
         &receipt.structural_node,
         ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
     );
+    let mut ambiguous = receipt.clone();
+    ambiguous.structural_node = alias_id.clone();
+    ambiguous.exact_identity = SelectedExactIdentity::Record(NodeKey::new("selected", vec![PathSegment::Text("alias".into())], 0).unwrap());
+    check(vec![receipt.clone(), ambiguous], &alias_id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
     let mut shared_key = other.clone();
     shared_key.exact_identity = receipt.exact_identity.clone();
     check(
@@ -4745,8 +4754,8 @@ fn exact_reference_projection_preserves_each_selected_object_identity() {
     settle(&mut wire);
     match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
         CheckedPackageV2ReadResult::Refused(error) => {
-            assert_eq!(error.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
-            assert_eq!(error.cause, None);
+            assert_eq!(error.code, CheckedPackageRefusalCode::InvalidPackage, "{error:?}");
+            assert_eq!(error.cause, Some(CheckedPackageRefusalCause::InvalidDerivedShape), "{error:?}");
         }
         other => panic!("dangling reference must refuse before projection: {other:?}"),
     }
