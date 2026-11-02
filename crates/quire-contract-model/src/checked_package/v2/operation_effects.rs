@@ -13,7 +13,7 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// The four complete grants of one selected model operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -130,6 +130,25 @@ impl Encode for CheckedOperationEffectRow {
         super::encode::encoded(writer, "effect", &self.effect)?;
         super::encode::member(writer, "provenance", &self.provenance)?;
         writer.end_object()
+    }
+}
+
+impl super::CheckedPackageV2 {
+    /// One validated carrier row keyed by its selected source declaration.
+    pub(super) fn selected_operation_effect(
+        &self,
+        document: &str,
+        declaring: &CheckedNodeId,
+        operation: &str,
+    ) -> Option<&CheckedOperationEffectRow> {
+        let rows = self.wire.operation_effects.as_ref()?;
+        let index = rows
+            .binary_search_by(|row| {
+                (row.document.as_ref(), &row.declaring, row.operation.as_ref())
+                    .cmp(&(document, declaring, operation))
+            })
+            .ok()?;
+        rows.get(index)
     }
 }
 
