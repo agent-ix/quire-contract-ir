@@ -5,13 +5,14 @@
 
 use crate::support::checked_package::{
     bounds_body, canonical, evidence_for, evidence_with_document, integer_key, node_id,
-    refresh_identity, refresh_identity_projection, select_model, settle, v2_all_families,
-    v2_nominal,
+    reassign_node_id, refresh_identity, refresh_identity_projection, resolved_fixture_id,
+    select_model, settle, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedCollectionKind, CheckedMemberType, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedCollectionKind, CheckedMemberType, CheckedPackageEvidence, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -113,8 +114,8 @@ fn model_package() -> (Value, Value) {
     (package, document)
 }
 
-/// The pointer of the owner of the `model_root` selecting `acme/owners`, where
-/// the reader locates a fault of the selected document.
+/// The pointer of the selected `model_root` owner, where the reader locates a
+/// fault of the selected document.
 fn root_owner(package: &Value) -> String {
     let position = package["semantic_graph"]["nodes"]
         .as_array()
@@ -147,12 +148,52 @@ fn keep_model_declaration_last(package: &mut Value) {
 }
 
 fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadResult {
-    let evidence = evidence_with_document(package, "acme/owners", document);
+    read_with_selected_model(package, "acme/owners", document)
+}
+
+fn read_with_selected_model(
+    package: &Value,
+    identity: &str,
+    document: &Value,
+) -> CheckedPackageV2ReadResult {
+    let evidence = evidence_with_document(package, identity, document);
     CheckedPackageV2::read(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )
+}
+
+fn retarget_qspec_application_argument(package: &mut Value, operation: &str, target: &Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("QSpec nodes");
+    let application = nodes
+        .iter()
+        .position(|node| node["body"]["operation"]["identity"] == operation)
+        .unwrap_or_else(|| panic!("published operation {operation}"));
+    let old_target = &nodes[application]["body"]["arguments"][0]["target"];
+    let old_position = nodes
+        .iter()
+        .position(|node| node["node_id"] == *old_target)
+        .expect("original QSpec operand");
+    let target_position = nodes
+        .iter()
+        .position(|node| node["node_id"] == *target)
+        .expect("replacement population node");
+    let stale = nodes[application]["node_id"].clone();
+    let mut fresh = stale.clone();
+    let mut replaced = 0;
+    for segment in fresh["path"].as_array_mut().expect("application path") {
+        if *segment == json!({"node": old_position}) {
+            *segment = json!({"node": target_position});
+            replaced += 1;
+        }
+    }
+    assert_eq!(replaced, 1, "published application operand path");
+    package["semantic_graph"]["nodes"][application]["body"]["arguments"][0]["target"] =
+        target.clone();
+    reassign_node_id(package, &stale, &fresh);
 }
 
 fn unit_field_document(type_ref: &str) -> (Value, Value) {
@@ -840,7 +881,7 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
     )
     .expect("QSpec selected domain JSON");
     assert!(matches!(
-        read_with_model(&package, &document),
+        read_with_selected_model(&package, "acme/orders", &document),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     let nodes = package["semantic_graph"]["nodes"]
@@ -869,6 +910,42 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
             .unwrap()
             .contains(population_id));
     }
+
+    let mut missing = CheckedPackageEvidence::new();
+    missing.support_feature(crate::support::checked_package::COMPLETE_VALUE_FEATURE);
+    let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &missing,
+    ) else {
+        panic!("missing selected domain document must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingImport);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("{}/identity", root_owner(&package)))
+    );
+
+    let mut foreign = document.clone();
+    foreign["package"]["identity"] = json!("acme/other");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_selected_model(&package, "acme/orders", &foreign)
+    else {
+        panic!("foreign domain document must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::WrongModelSelection)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("{}/identity", root_owner(&package)))
+    );
 }
 
 #[trace(
@@ -939,7 +1016,17 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
         let owner = case["owner_node"]
             .as_str()
             .map(|node| json!({"kind":"model","identity":"acme/orders","node":node}));
-        let population = node_id(&format!("relation/population/{id}"));
+        let population = if let Some(owner) = &owner {
+            json!({
+                "package": owner["identity"],
+                "path": ["relation", "population", owner["node"]],
+                "ordinal": 0,
+            })
+        } else {
+            let mut id = node_id(&format!("relation/population/{id}"));
+            id["package"] = package["name"].clone();
+            id
+        };
         let mut population_node = json!({
             "node_id":population,"schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"relation","semantic_form":"population",
@@ -969,17 +1056,11 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
         } else if case["member_population"] == true {
             application["body"]["operation"]["member"]["population"] = population.clone();
         } else {
-            application["body"]["arguments"][0]["target"] = population.clone();
+            retarget_qspec_application_argument(&mut package, &operation, &population);
         }
         if let Some(also) = case["also"].as_str() {
             let also = format!("quire.op.{also}");
-            let application = package["semantic_graph"]["nodes"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|node| node["body"]["operation"]["identity"] == also)
-                .unwrap_or_else(|| panic!("{id}: second published operation {also}"));
-            application["body"]["arguments"][0]["target"] = population.clone();
+            retarget_qspec_application_argument(&mut package, &also, &population);
         }
         settle(&mut package);
         let source = package["lock"]["sources"][0].clone();
@@ -997,7 +1078,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 })
                 .collect(),
         );
-        match read_with_model(&package, &document) {
+        match read_with_selected_model(&package, "acme/orders", &document) {
             CheckedPackageV2ReadResult::Admitted(_) if case["outcome"] == "admitted" => {
                 let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
                 let application = nodes
@@ -1031,7 +1112,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                     id.to_owned(),
                     (
                         population.clone(),
-                        application["node_id"].clone(),
+                        resolved_fixture_id(&application["node_id"], nodes),
                         canonical(&package),
                     ),
                 );
@@ -1041,7 +1122,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 assert_eq!(
                     serde_json::to_value(refusal.code).unwrap(),
                     json!(expected_code),
-                    "{id}"
+                    "{id}: {refusal:?}"
                 );
                 if let Some(cause) = case["expected_cause"].as_str() {
                     assert_eq!(
