@@ -41,3 +41,16 @@ Ticket: IR-1237. Reviewed frozen head 53670148b9953fc398561c8e103f44fdf1548da0 a
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | fixed | Head e0996a76 adds `#[ix_trace_rs::string_edge]` to the helper; `make string-edge` passes. |
+| FND-002 | fixed | Head fdb2dbd0 restores the fourth required array in the dispatch positive fixture; the focused test passes. |
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | The dispatch positive fixture replaced `checked_term_data` with only three arrays, so the strict reader refused its purported admitted package as malformed wire and the required integration test panicked. | tests/it/checked_package_v2_model_members.rs:744 |
+
+## Disposition pass 2 coverage
+
+- FR-038-AC-390, role: examined. The four-array closed sidecar requirement applies to every direct test fixture.
+- `checked_dispatch_candidate_cannot_borrow_another_rows_selected_operation`, role: examined. Focused positive and adverse paths reviewed after the fix.
+- Searched every direct `checked_term_data = json!({ ... })` constructor under `tests/` and `crates/quire-contract-model/src/`; all ten now contain all four required arrays.
