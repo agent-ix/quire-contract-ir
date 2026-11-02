@@ -102,25 +102,6 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
-impl Encode for CheckedFrameModification {
-    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        writer.begin_object()?;
-        match self {
-            Self::Relationship { declaration } => {
-                super::encode::member(writer, "kind", "relationship")?;
-                super::encode::encoded(writer, "declaration", declaration)?;
-            }
-            Self::Field { declaration, name, scope } => {
-                super::encode::member(writer, "kind", "field")?;
-                super::encode::encoded(writer, "declaration", declaration)?;
-                super::encode::member(writer, "name", name.as_ref())?;
-                super::encode::member(writer, "scope", scope)?;
-            }
-        }
-        writer.end_object()
-    }
-}
-
 impl Encode for CheckedOperationEffect {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
