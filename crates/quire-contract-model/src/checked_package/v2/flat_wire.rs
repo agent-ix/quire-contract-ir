@@ -555,7 +555,14 @@ fn check_term_with_empty_leaf(
 ) -> Result<(), ValidationFailure> {
     let cursor = Cursor::at(at);
     let node = cursor.root(root, place);
-    match walk(&mut Flat { cursor, details, empty_leaf }, node) {
+    match walk(
+        &mut Flat {
+            cursor,
+            details,
+            empty_leaf,
+        },
+        node,
+    ) {
         ControlFlow::Continue(()) => Ok(()),
         ControlFlow::Break(failure) => Err(failure),
     }
@@ -669,7 +676,12 @@ impl<'a> Walk for Flat<'a> {
                 Place::BodyRoot => Place::Member,
                 Place::Member | Place::TupleMember => Place::GroupMember,
                 Place::BindingValue => aggregate_stratum(value),
-                Place::LeafOnly if self.empty_leaf && wire.array(crate::checked_package::common::TermField::Members).is_some_and(<[Value]>::is_empty) => {
+                Place::LeafOnly
+                    if self.empty_leaf
+                        && wire
+                            .array(crate::checked_package::common::TermField::Members)
+                            .is_some_and(<[Value]>::is_empty) =>
+                {
                     return ControlFlow::Continue(());
                 }
                 Place::GroupMember | Place::LeafOnly => {
