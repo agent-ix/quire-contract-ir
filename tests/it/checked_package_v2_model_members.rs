@@ -759,7 +759,8 @@ fn checked_dispatch_candidate_cannot_borrow_another_rows_selected_operation() {
                 "context": declaring,
                 "candidates": [candidate("subtotal")]
             }
-        ]
+        ],
+        "probabilistic_claims": []
     });
     let CheckedPackageV2ReadResult::Admitted(_) = read(&package, &evidence) else {
         panic!("each dispatch row with its own candidate witness must admit");
