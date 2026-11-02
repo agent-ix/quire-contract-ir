@@ -1255,6 +1255,30 @@ fn selected_record_invariant_owner_joins_its_real_declaration() {
     );
 }
 
+/// Trace: FR-038-AC-420, QSpec FR-322-AC-68.
+#[trace("TC-048", "TC-281", "FR-038-AC-420")]
+#[test]
+fn selected_event_invariant_owner_joins_its_real_declaration() {
+    let (base, mut document) = model_package();
+    let event = "ix://acme/owners/OrderPlaced";
+    let occurrence = format!("{event}/occurred_at");
+    document["constructs"][0]["construct"]["meaning"] = json!("quire.meaning.model.event-type/v1");
+    document["types"][0]["identity"] = json!(event);
+    document["types"][0]["displayName"] = json!("OrderPlaced");
+    document["types"][0]["fields"] = json!([{
+        "identity": occurrence, "name": "occurred_at", "typeRef": "ix://quire/native/Timestamp",
+        "presence": "required", "nullable": false, "defaultKind": "none",
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+    }]);
+    document["types"][0]["occurrenceField"] = json!(occurrence);
+    let package = owned_clause(base, &document, event, "invariant");
+    let result = read_with_model(&package, &document);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "selected event invariant must pass the owner join: {result:?}"
+    );
+}
+
 fn refused(package: &Value, code: CheckedPackageRefusalCode, path: &str) {
     let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
         panic!("owner mutation must refuse");
