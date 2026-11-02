@@ -184,7 +184,11 @@ pub(super) fn decode_borrowed_wire(
         }
         failure
     })?;
-    if wire.schedulability_claims.as_ref().is_some_and(Vec::is_empty) {
+    if wire
+        .schedulability_claims
+        .as_ref()
+        .is_some_and(Vec::is_empty)
+    {
         return Err(malformed(JsonPointer::root().key("schedulability_claims")));
     }
     let graph = wire.semantic_graph;
@@ -566,7 +570,9 @@ pub(super) fn check_lossless_source(
             return Err(malformed(JsonPointer::root().key("schedulability_claims")));
         }
         for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
-            let at = JsonPointer::root().key("schedulability_claims").index(index);
+            let at = JsonPointer::root()
+                .key("schedulability_claims")
+                .index(index);
             super::lossless::compare(original, row, at.clone(), &["declaration"])?;
             compare_id_member(original, "declaration", &row.declaration, at)?;
         }

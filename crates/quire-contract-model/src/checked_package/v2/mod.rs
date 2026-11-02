@@ -45,7 +45,6 @@ mod operations;
 mod owner;
 mod parameter_declaration;
 mod protocol_body;
-mod schedulability;
 mod protocol_locations;
 mod reaches_population;
 mod refinement;
@@ -53,6 +52,7 @@ mod relationship_end;
 mod runtime_type_projection;
 mod rust_spelling;
 mod scalar_operands;
+mod schedulability;
 mod state;
 mod step_relation;
 mod structural;
@@ -125,7 +125,6 @@ pub use operation_witness::{
     SelectedOperationMemberRow, SelectedOperationMembers,
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
-pub use schedulability::*;
 pub use protocol_body::{CheckedProtocolActivation, CheckedProtocolActivationRow};
 pub use reaches_population::CheckedReachesPopulationError;
 pub use refinement::*;
@@ -139,6 +138,7 @@ pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
     CheckedScalarOperandRange,
 };
+pub use schedulability::*;
 pub use step_relation::{
     CheckedStepExecution, CheckedStepRelationBody, CheckedStepRelationCapability,
     CheckedStepRelationObligationIdentity,
@@ -2341,7 +2341,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ClaimForm::SynthesisRequest
             | ClaimForm::StateGraph
             | ClaimForm::StepRelation
-                | ClaimForm::Schedulability,
+            | ClaimForm::Schedulability,
         ) => BodyGrammar::Term,
         K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
             BodyGrammar::AbstractionRelation
@@ -3040,7 +3040,15 @@ fn validate_graph(
         models,
         meter,
     )?;
-    schedulability::validate_carrier(&wire.name, wire.schedulability_claims.as_deref(), &graph.nodes, &kinds, &index, structural_keys, meter)?;
+    schedulability::validate_carrier(
+        &wire.name,
+        wire.schedulability_claims.as_deref(),
+        &graph.nodes,
+        &kinds,
+        &index,
+        structural_keys,
+        meter,
+    )?;
     protocol_body::validate_protocol_nodes(
         &graph.nodes,
         &kinds,
@@ -3051,7 +3059,15 @@ fn validate_graph(
         meter,
         limits.bytes,
     )?;
-    schedulability::validate_bodies(&graph.nodes, &kinds, &terms, &index, structural_keys, models, meter)?;
+    schedulability::validate_bodies(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+        models,
+        meter,
+    )?;
     refinement::validate_catalog_graph(
         refinement::RefinementGraph::new(
             &graph.nodes,
@@ -4116,7 +4132,7 @@ mod tests {
                         super::CheckedPackageSidecarsRef {
                             checked_term_data: wire.checked_term_data.as_ref(),
                             temporal_bindings: wire.temporal_bindings.as_deref(),
-                    schedulability_claims: wire.schedulability_claims.as_deref(),
+                            schedulability_claims: wire.schedulability_claims.as_deref(),
                         },
                         &wire.capability_report,
                         &wire.diagnostics,

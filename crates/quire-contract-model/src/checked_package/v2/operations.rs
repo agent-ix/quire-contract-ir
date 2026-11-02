@@ -1424,7 +1424,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ClaimForm::SynthesisRequest
             | ClaimForm::StateGraph
             | ClaimForm::StepRelation
-                | ClaimForm::Schedulability,
+            | ClaimForm::Schedulability,
         ) => None,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
@@ -1574,7 +1574,7 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ClaimForm::SynthesisRequest
             | ClaimForm::StateGraph
             | ClaimForm::StepRelation
-                | ClaimForm::Schedulability,
+            | ClaimForm::Schedulability,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
