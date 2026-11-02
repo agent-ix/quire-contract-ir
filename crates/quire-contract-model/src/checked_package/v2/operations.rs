@@ -639,6 +639,94 @@ fn admitted_arguments<'g>(
     }
 }
 
+fn carried_unit_and_mode<'g>(
+    type_id: &CheckedNodeId,
+    graph: &'g Graph<'_>,
+) -> Option<(&'g CheckedNodeId, &'g str)> {
+    let position = *graph.index.get(type_id)?;
+    if graph.kinds.get(position)
+        != Some(&CheckedNodeKind::ScalarType(
+            ScalarTypeForm::CarriedQuantity,
+        ))
+    {
+        return None;
+    }
+    let members = super::structural::typed_aggregate(graph.terms.get(position)?.as_ref()?)?;
+    let unit = super::structural::typed_binding(members.first()?, "unit")
+        .and_then(super::structural::typed_reference)?;
+    let CheckedTerm::Literal { value, .. } =
+        super::structural::typed_binding(members.get(2)?, "rounding")?
+    else {
+        return None;
+    };
+    Some((unit, value.as_str()?))
+}
+
+fn carried_result<'g>(
+    application: Application<'_>,
+    graph: &'g Graph<'_>,
+) -> Option<(&'g CheckedNodeId, &'g str)> {
+    let CheckedTerm::Application { result_type, .. } =
+        graph.terms.get(application.position)?.as_ref()?
+    else {
+        return None;
+    };
+    carried_unit_and_mode(result_type, graph)
+}
+
+fn check_carried_conversion(
+    application: Application<'_>,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+) -> Option<ValidationFailure> {
+    if operation.identity.as_ref() != "quire.op.quantity.convert" {
+        return None;
+    }
+    let (result_unit, rounding) = carried_result(application, graph)?;
+    if operation.mode.as_ref().map(|mode| mode.value.as_ref()) != Some(rounding) {
+        return Some(application.refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperationModeTypeMismatch,
+        ));
+    }
+    let ineligible = || {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    };
+    let source_type = admitted_arguments(application, graph)
+        .and_then(|arguments| arguments.first())
+        .and_then(|source| operand_type_node_typed(source, graph.nodes, graph.kinds, graph.index));
+    let Some(source_type) = source_type else {
+        return Some(ineligible());
+    };
+    let source_unit = carried_unit_and_mode(&source_type, graph)
+        .map(|(unit, _)| unit)
+        .or_else(|| {
+            let position = *graph.index.get(&source_type)?;
+            (graph.kinds.get(position) == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)))
+                .then(|| &graph.nodes[position].node_id)
+        });
+    let Some(source_unit) = source_unit else {
+        return Some(ineligible());
+    };
+    let source_dimension = graph
+        .index
+        .get(source_unit)
+        .map(|&position| &graph.nodes[position].semantic_type);
+    let result_dimension = graph
+        .index
+        .get(result_unit)
+        .map(|&position| &graph.nodes[position].semantic_type);
+    match (source_dimension, result_dimension) {
+        (Some(source), Some(result)) if source == result => None,
+        _ => Some(ineligible()),
+    }
+}
+
 fn is_model_deref_argument(argument: &CheckedTerm, graph: &Graph<'_>) -> bool {
     let deref = match argument {
         CheckedTerm::Reference { target } => graph
@@ -933,6 +1021,16 @@ fn operation_defect(
             application.body(&["operation"])
         }
     };
+    if operation.identity.as_ref() == "quire.op.quantity.convert"
+        && carried_result(application, graph).is_some()
+        && operation.mode.is_none()
+    {
+        return Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperationModeTypeMismatch,
+        )));
+    }
     match (&entry.mode, &operation.mode) {
         (None, None) => {}
         (Some(kind), Some(mode)) if mode.kind_class() == Some(*kind) => {}
@@ -1159,6 +1257,9 @@ fn operation_defect(
             return Ok(Some(failure));
         }
     }
+    if let Some(failure) = check_carried_conversion(application, &operation, graph) {
+        return Ok(Some(failure));
+    }
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
         return Ok(Some(failure));
     }
@@ -1297,7 +1398,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Enum),
         ) => Some(form.as_wire()),
-        K::ScalarType(ScalarTypeForm::Unit) => Some("quantity"),
+        K::ScalarType(ScalarTypeForm::Unit | ScalarTypeForm::CarriedQuantity) => Some("quantity"),
         K::ScalarType(
             ScalarTypeForm::Dimension
             | ScalarTypeForm::DimensionEquivalence
@@ -1458,7 +1559,8 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
-            | ScalarTypeForm::CompoundUnit,
+            | ScalarTypeForm::CompoundUnit
+            | ScalarTypeForm::CarriedQuantity,
         ) => true,
         K::CompositeType(
             CompositeTypeForm::Option
@@ -1811,6 +1913,24 @@ fn check_operands(
         }
     } else if typed_arguments.len() < required {
         return ineligible(None);
+    }
+    if operation.identity.as_ref() != "quire.op.quantity.convert"
+        && (operation.identity.starts_with("quire.op.quantity.")
+            || operation.identity.as_ref() == "quire.op.collection.sum.quantity")
+    {
+        for argument in typed_arguments {
+            let type_id = operand_type_node_typed(argument, nodes, kinds, index);
+            if type_id
+                .as_ref()
+                .is_some_and(|id| carried_unit_and_mode(id, graph).is_some())
+            {
+                return Ok(Some(application.refuse(
+                    CheckedPackageRefusalCode::IllTyped,
+                    node_pointer(application.position),
+                    CheckedPackageRefusalCause::OperatorIneligible,
+                )));
+            }
+        }
     }
     let mut string_in_text_mode = false;
     for (position, expected) in entry.operands.iter().enumerate() {

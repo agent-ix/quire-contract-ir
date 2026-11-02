@@ -142,6 +142,7 @@ closed_vocabulary! {
         Unit => "unit",
         Enum => "enum",
         CompoundUnit => "compound_unit",
+        CarriedQuantity => "carried_quantity",
     }
 }
 
