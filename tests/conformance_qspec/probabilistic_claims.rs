@@ -431,4 +431,21 @@ fn four_array_schema_and_graph_admission_precede_sidecar_join() {
         .expect("path")
         .as_str()
         .starts_with("/semantic_graph/nodes/"));
+
+    let mut broken_graph = valid.clone();
+    let mut missing_dependency =
+        broken_graph["semantic_graph"]["nodes"][claim_position]["node_id"].clone();
+    missing_dependency["path"] = json!(["claim", "absent-dependency"]);
+    broken_graph["semantic_graph"]["nodes"][claim_position]["dependencies"] =
+        json!([missing_dependency]);
+    refresh_identity(&mut broken_graph);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&broken_graph) else {
+        panic!("broken graph join must refuse before sidecar join");
+    };
+    assert!(refusal.loci[0]
+        .path
+        .as_ref()
+        .expect("path")
+        .as_str()
+        .starts_with("/semantic_graph/nodes/"));
 }
