@@ -405,7 +405,7 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
         "candidates":[]
     });
     package["checked_term_data"] = json!({
-        "equality_decisions":[], "protocol_locations":[], "dispatch_tables":[table]
+        "equality_decisions":[], "protocol_locations":[], "dispatch_tables":[table], "probabilistic_claims":[]
     });
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
         panic!("empty producer candidate set must admit");
@@ -593,7 +593,8 @@ fn checked_dispatch_sidecar_refuses_wrong_witness_and_duplicate_key() {
             "operation": {"declaring":declaring, "operation":"invented"},
             "context": declaring,
             "candidates": [candidate]
-        }]
+        }],
+        "probabilistic_claims": []
     });
     let refusal = refused(&package, &evidence);
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
@@ -758,7 +759,8 @@ fn checked_dispatch_candidate_cannot_borrow_another_rows_selected_operation() {
                 "context": declaring,
                 "candidates": [candidate("subtotal")]
             }
-        ]
+        ],
+        "probabilistic_claims": []
     });
     let CheckedPackageV2ReadResult::Admitted(_) = read(&package, &evidence) else {
         panic!("each dispatch row with its own candidate witness must admit");
@@ -794,7 +796,7 @@ fn checked_term_sidecar_refuses_unowned_equality_and_admits_protocol_rows() {
             "right":{"operand":1, "source_type":integer, "conversion_target":null},
             "schedule":"text", "units":[], "enum_members":[]
         }],
-        "protocol_locations":[], "dispatch_tables":[]
+        "protocol_locations":[], "dispatch_tables":[], "probabilistic_claims":[]
     });
     let refusal = refused(&package, &evidence);
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);

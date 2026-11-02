@@ -172,6 +172,7 @@ pub use checked_package::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageRefusalLocation,
     CheckedPackageSidecarsRef, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedParameterDeclaration, CheckedParameterDeclarationError,
+    CheckedProbabilisticClaim,
     CheckedProtocolActivation, CheckedProtocolActivationRow, CheckedProtocolDecisionRead,
     CheckedProtocolLocation, CheckedProtocolLocationOrigin, CheckedProtocolLocationReadError,
     CheckedProtocolRefusalDetail, CheckedProtocolSemanticLocation, CheckedRational,

@@ -920,7 +920,8 @@ impl NominalKind {
                 | ClaimForm::SynthesisRequest
                 | ClaimForm::StateGraph
                 | ClaimForm::StepRelation
-                | ClaimForm::Schedulability,
+                | ClaimForm::Schedulability
+                | ClaimForm::ProbabilisticClaim,
             ) => None,
             K::Correspondence(
                 CorrespondenceForm::SourceLocus

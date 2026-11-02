@@ -311,7 +311,8 @@ impl StructuralForm {
                 | ClaimForm::SynthesisRequest
                 | ClaimForm::StateGraph
                 | ClaimForm::StepRelation
-                | ClaimForm::Schedulability,
+                | ClaimForm::Schedulability
+                | ClaimForm::ProbabilisticClaim,
             ) => None,
             K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
                 Some(Self::AbstractionRelation)

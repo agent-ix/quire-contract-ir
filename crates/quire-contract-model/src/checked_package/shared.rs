@@ -202,6 +202,8 @@ pub enum CheckedPackageRefusalCause {
     /// `conflicting-definition`: two `dependency_selections` entries name one
     /// library identity.
     ConflictingDefinition,
+    /// `invalid-semantic-graph`: sidecar rows violate structural declaration order.
+    InvalidSemanticGraph,
     /// `invalid-value`: a `dependency_selections` entry's identity is not
     /// strictly after its predecessor's in UTF-8 byte order.
     InvalidValue,

@@ -187,11 +187,26 @@ pub(super) fn decode_borrowed_wire(
                     ));
                 }
             }
+            if refusal.code == CheckedPackageRefusalCode::UnknownMember
+                && refusal
+                    .primary_path()
+                    .is_some_and(|path| path.as_str().starts_with("/checked_term_data"))
+            {
+                if let Some(row) = refusal
+                    .primary_path()
+                    .and_then(probabilistic_row_unknown_member_path)
+                {
+                    refusal.set_primary_path(Some(row));
+                }
+                refusal.code = CheckedPackageRefusalCode::MalformedWire;
+            }
             if refusal.code == CheckedPackageRefusalCode::MalformedWire {
                 if let Some(at) = refusal.primary_path().cloned() {
                     if let Some(member) = invalid_node_id_field(bytes, &at) {
                         refusal.set_primary_path(Some(member));
                     } else if let Some(member) = invalid_clock_field(bytes, &at) {
+                        refusal.set_primary_path(Some(member));
+                    } else if let Some(member) = missing_probabilistic_occurrence(bytes, &at) {
                         refusal.set_primary_path(Some(member));
                     }
                 }
@@ -276,6 +291,35 @@ pub(super) fn decode_borrowed_wire(
                 .collect::<Result<Vec<_>, ValidationFailure>>()?,
         },
     })
+}
+
+#[ix_trace_rs::string_edge]
+fn probabilistic_row_unknown_member_path(at: &JsonPointer) -> Option<JsonPointer> {
+    let remainder = at
+        .as_str()
+        .strip_prefix("/checked_term_data/probabilistic_claims/")?;
+    let (index, member) = remainder.split_once('/')?;
+    if member.is_empty() || member.contains('/') {
+        return None;
+    }
+    let index: usize = index.parse().ok()?;
+    Some(
+        JsonPointer::root()
+            .key("checked_term_data")
+            .key("probabilistic_claims")
+            .index(index),
+    )
+}
+
+fn missing_probabilistic_occurrence(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+    let prefix = "/checked_term_data/probabilistic_claims/";
+    let index = at.as_str().strip_prefix(prefix)?;
+    if index.is_empty() || !index.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let row: BTreeMap<&str, &RawValue> = serde_json::from_str(source_raw(bytes, at)?).ok()?;
+    (row.contains_key("declaration") && !row.contains_key("occurrence"))
+        .then(|| at.clone().key("occurrence"))
 }
 
 #[ix_trace_rs::string_edge]

@@ -299,6 +299,7 @@ closed_vocabulary! {
         AnalysisClaim => "analysis_claim",
         Hyperproperty => "hyperproperty",
         SynthesisRequest => "synthesis_request",
+        ProbabilisticClaim => "probabilistic_claim",
         StateGraph => "state_graph",
         StepRelation => "step_relation",
         Schedulability => "schedulability",

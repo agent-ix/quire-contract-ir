@@ -6,7 +6,7 @@ use super::checked_term_data::{
 use super::model_fields::RetainedModels;
 use super::model_members::Budget;
 use super::{
-    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ExpressionForm,
+    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ClaimForm, ExpressionForm,
     FunctionForm, ModelForm, RawCheckedPackageWireV2, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
@@ -187,6 +187,77 @@ pub(super) fn validate_checked_term_data(
                     return Err(invalid(at.clone().key("effective_precondition")));
                 }
             }
+        }
+    }
+    validate_probabilistic_claims(data, wire, kinds, meter)?;
+    Ok(())
+}
+
+fn validate_probabilistic_claims(
+    data: &CheckedTermDataV2,
+    wire: &RawCheckedPackageWireV2,
+    kinds: &[CheckedNodeKind],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let root = JsonPointer::root()
+        .key("checked_term_data")
+        .key("probabilistic_claims");
+    let nodes = &wire.semantic_graph.nodes;
+    let index: BTreeMap<_, _> = nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| (&node.node_id, position))
+        .collect();
+    let source_occurrences: BTreeSet<_> = wire
+        .source_map
+        .iter()
+        .map(|entry| (&entry.node_id, &entry.role, entry.ordinal))
+        .collect();
+    let mut seen = BTreeSet::new();
+    let mut previous = None;
+    for (row_index, claim) in data.probabilistic_claims.iter().enumerate() {
+        let row = root.clone().index(row_index);
+        meter.charge(1, || row.clone())?;
+        if !seen.insert(&claim.declaration) {
+            return Err(ValidationFailure::refused_because(
+                CheckedPackageRefusalCode::InvalidPackage,
+                row,
+                CheckedPackageRefusalCause::ConflictingDefinition,
+            ));
+        }
+        if previous.is_some_and(|prior| prior > &claim.declaration) {
+            return Err(ValidationFailure::refused_because(
+                CheckedPackageRefusalCode::InvalidPackage,
+                row,
+                CheckedPackageRefusalCause::InvalidSemanticGraph,
+            ));
+        }
+        previous = Some(&claim.declaration);
+        let Some(&position) = index.get(&claim.declaration) else {
+            return Err(invalid(row.clone().key("declaration")));
+        };
+        let node = &nodes[position];
+        if claim.declaration.package != wire.name
+            || kinds.get(position) != Some(&CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim))
+        {
+            return Err(invalid(row.clone().key("declaration")));
+        }
+        if claim.occurrence.role != crate::checked_package::shared::CheckedOccurrenceRole::Claim
+            || !node.occurrences.contains(&claim.occurrence)
+            || !source_occurrences.contains(&(
+                &claim.declaration,
+                &claim.occurrence.role,
+                claim.occurrence.ordinal,
+            ))
+        {
+            return Err(invalid(row.key("occurrence")));
+        }
+    }
+    for node in nodes.iter().zip(kinds).filter_map(|(node, kind)| {
+        (*kind == CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)).then_some(node)
+    }) {
+        if !seen.contains(&node.node_id) {
+            return Err(invalid(root));
         }
     }
     Ok(())

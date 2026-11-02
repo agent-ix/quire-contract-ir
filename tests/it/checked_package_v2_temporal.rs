@@ -1209,6 +1209,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::ConflictingBinding => "conflicting-binding",
         Cause::UnpreservedModelMeaning => "unpreserved-model-meaning",
         Cause::ConflictingDefinition => "conflicting-definition",
+        Cause::InvalidSemanticGraph => "invalid-semantic-graph",
         Cause::InvalidValue => "invalid-value",
         Cause::DuplicateMember => "duplicate-member",
         Cause::TypeMismatch => "type-mismatch",

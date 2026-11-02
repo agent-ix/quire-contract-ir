@@ -1365,7 +1365,7 @@ mod tests {
                 "right":{"operand":1,"source_type":ids[&'1'],"conversion_target":null},
                 "units":[],"enum_members":[]
             }],
-            "protocol_locations":[],"dispatch_tables":[]
+            "protocol_locations":[],"dispatch_tables":[],"probabilistic_claims":[]
         });
         wire
     }
