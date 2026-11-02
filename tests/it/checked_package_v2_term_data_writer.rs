@@ -8,8 +8,8 @@ use ix_trace_rs::trace;
 use quire_canonical::{Error, Limits};
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedPackageLockV2,
-    CheckedPackageSourceCorrespondenceRef, CheckedSemanticGraphV2, CheckedSourceMapEntry,
-    CheckedTermDataV2,
+    CheckedPackageSourceCorrespondenceRef, CheckedProbabilisticClaim, CheckedSemanticGraphV2,
+    CheckedSourceMapEntry, CheckedTermDataV2,
 };
 use serde_json::{json, Value};
 
@@ -54,7 +54,8 @@ fn empty_term_data() -> CheckedTermDataV2 {
     serde_json::from_value(json!({
         "equality_decisions": [],
         "protocol_locations": [],
-        "dispatch_tables": []
+        "dispatch_tables": [],
+        "probabilistic_claims": []
     }))
     .expect("closed empty sidecar")
 }
@@ -74,7 +75,8 @@ fn absent_and_present_empty_term_data_have_distinct_canonical_bytes() {
     expected["checked_term_data"] = json!({
         "equality_decisions": [],
         "protocol_locations": [],
-        "dispatch_tables": []
+        "dispatch_tables": [],
+        "probabilistic_claims": []
     });
     assert_eq!(present, canonical(&expected));
     assert_ne!(present, absent);
@@ -133,7 +135,8 @@ fn typed_sidecar_preserves_all_arrays_candidate_order_and_byte_ceiling() {
                     "effective_precondition": node
                 }
             ]
-        }]
+        }],
+        "probabilistic_claims": []
     });
     let mut second_equality = raw["equality_decisions"][0].clone();
     second_equality["occurrence"]["ordinal"] = json!(1);
@@ -204,7 +207,8 @@ fn present_dispatch_table_with_empty_candidates_is_preserved() {
             "operation": {"declaring": node, "operation": "run"},
             "context": node,
             "candidates": []
-        }]
+        }],
+        "probabilistic_claims": []
     });
     let term_data: CheckedTermDataV2 =
         serde_json::from_value(raw.clone()).expect("closed empty candidate table");
@@ -218,4 +222,32 @@ fn present_dispatch_table_with_empty_candidates_is_preserved() {
         written["checked_term_data"]["dispatch_tables"][0]["candidates"],
         json!([])
     );
+}
+
+/// Trace: FR-019-AC-18, FR-051-AC-5, TC-451.
+#[trace("FR-019-AC-18", "FR-051-AC-5", "TC-451")]
+#[test]
+fn public_probabilistic_claim_row_has_exact_typed_canonical_bytes() {
+    let package = v2_all_families();
+    let declaration =
+        serde_json::from_value(package["semantic_graph"]["nodes"][0]["node_id"].clone())
+            .expect("typed node id");
+    let occurrence =
+        serde_json::from_value(json!({"role":"claim", "ordinal":0})).expect("typed occurrence");
+    let claim = CheckedProbabilisticClaim {
+        declaration,
+        occurrence,
+    };
+    let sidecar = CheckedTermDataV2 {
+        probabilistic_claims: vec![claim.clone()],
+        ..Default::default()
+    };
+    let bytes =
+        encode(&package, Some(&sidecar), Limits::new(u64::MAX)).expect("typed claim row encodes");
+    let mut expected = package;
+    expected["checked_term_data"] = json!({
+        "equality_decisions": [], "protocol_locations": [], "dispatch_tables": [],
+        "probabilistic_claims": [claim]
+    });
+    assert_eq!(bytes, canonical(&expected));
 }

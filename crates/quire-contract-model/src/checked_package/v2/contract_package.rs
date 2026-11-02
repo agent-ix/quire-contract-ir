@@ -2570,6 +2570,7 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::UnknownMember
         | Cause::WrongValueKind
         | Cause::InvalidValue
+        | Cause::InvalidSemanticGraph
         | Cause::DefinitionCycle
         | Cause::ConflictingDefinition
         | Cause::IncompatibleDefinition

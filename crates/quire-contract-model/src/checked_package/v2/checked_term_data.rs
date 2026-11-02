@@ -8,7 +8,7 @@ use crate::checked_package::shared::{CheckedNodeId, CheckedOccurrence};
 use quire_canonical::{Encode, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
 
-/// The three producer-captured decision arrays in a present V2 sidecar.
+/// The four producer-captured decision arrays in a present V2 sidecar.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedTermDataV2 {
@@ -18,6 +18,18 @@ pub struct CheckedTermDataV2 {
     pub protocol_locations: Vec<CheckedProtocolSemanticLocation>,
     /// Selected model-operation candidate tables.
     pub dispatch_tables: Vec<CheckedDispatchCandidateTable>,
+    /// Exact declarations and occurrences of probabilistic claims.
+    pub probabilistic_claims: Vec<CheckedProbabilisticClaim>,
+}
+
+/// One probabilistic claim declaration at its exact source occurrence.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedProbabilisticClaim {
+    /// Local structural declaration identity.
+    pub declaration: CheckedNodeId,
+    /// One declared claim occurrence of that declaration.
+    pub occurrence: CheckedOccurrence,
 }
 
 /// One captured equality decision at an exact application occurrence.
@@ -335,6 +347,11 @@ encode_record!(CheckedTermDataV2 {
     equality_decisions: elements,
     protocol_locations: elements,
     dispatch_tables: elements,
+    probabilistic_claims: elements,
+});
+encode_record!(CheckedProbabilisticClaim {
+    declaration: encoded,
+    occurrence: fixed,
 });
 encode_record!(CheckedEqualityDecision {
     application: encoded,

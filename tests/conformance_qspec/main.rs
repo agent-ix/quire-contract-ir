@@ -52,6 +52,7 @@ mod model_root;
 mod model_tuple_union;
 mod node_index;
 mod node_ordinal;
+mod probabilistic_claims;
 mod projection_read_form;
 mod protocol_locations;
 mod protocol_vectors;
@@ -533,6 +534,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::ConflictingBinding => "conflicting-binding",
         Cause::UnpreservedModelMeaning => "unpreserved-model-meaning",
         Cause::ConflictingDefinition => "conflicting-definition",
+        Cause::InvalidSemanticGraph => "invalid-semantic-graph",
         Cause::InvalidValue => "invalid-value",
         Cause::InvalidDerivedShape => "invalid-derived-shape",
         Cause::DuplicateMember => "duplicate-member",
