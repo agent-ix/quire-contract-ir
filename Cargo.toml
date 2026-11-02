@@ -56,6 +56,12 @@ name = "conformance_qsl_ir769"
 path = "tests/conformance_qsl_ir769/main.rs"
 test = false
 
+# FR-352-AC-9: the real QSL selected-identity producer is an explicit host lane.
+[[test]]
+name = "conformance_qsl_exact_producer"
+path = "tests/conformance_qsl_exact_producer/main.rs"
+test = false
+
 # FR-050/TC-450: independently read QSL's checked RequirementItem path
 # conditions before mapping the FR-062 RR-13 guards into admitted IR.
 [[test]]
