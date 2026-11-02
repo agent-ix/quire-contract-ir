@@ -2207,6 +2207,148 @@ fn refinement_expression_operands_enter_dependencies_before_row_meaning() {
     }
 }
 
+fn append_distinct_refinement_anchor(package: &mut Value, source: &Value, ordinal: u64) -> Value {
+    let mut anchor = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_id"] == *source)
+        .expect("source anchor")
+        .clone();
+    let mut id = source.clone();
+    id["ordinal"] = json!(ordinal);
+    anchor["node_id"] = id.clone();
+    let mut region = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == *source)
+        .expect("source anchor region")
+        .clone();
+    region["node_id"] = id.clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(anchor);
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(region);
+    id
+}
+
+/// Distinct anchors prevent the source step from supplying either target edge.
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_dependency_only_ensure_and_operation_target_keys_are_required() {
+    for role in ["ensure", "operation"] {
+        let (mut package, evidence, position) = catalog_free_operation_package("object_type");
+        let body = &package["semantic_graph"]["nodes"][position]["body"];
+        let abstract_root = body["abstract"].clone();
+        let source = body["steps"][0]["source_node"].clone();
+        let target = append_distinct_refinement_anchor(&mut package, &source, 1);
+        assert_ne!(source, target);
+        let mut expected = vec![abstract_root, source, target.clone()];
+        let node = &mut package["semantic_graph"]["nodes"][position];
+        if role == "ensure" {
+            node["body"]["ensure"] = json!([{
+                "operation":target, "kind":"strong", "granularity":"whole"
+            }]);
+        } else {
+            // A literal receiver has no reference edge: only operation contributes target.
+            let text = node_id(&crate::support::checked_package::family_key("a1a1"));
+            node["body"]["steps"][0]["target"] = json!({
+                "kind":"operation", "operation":target,
+                "receiver":{"term":"literal", "type":text, "value_kind":"text", "value":"receiver"},
+                "arguments":[]
+            });
+        }
+        expected.sort_by(node_id_order);
+        node["dependencies"] = json!(expected);
+        assert_refinement_dependency_matrix(&package, &evidence, position);
+    }
+}
+
+/// A fresh literal is referenced only by the protocol target's one argument;
+/// the declared target node itself also belongs to the mandatory abstract catalog.
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_dependency_only_protocol_argument_reference_is_required() {
+    let (mut package, evidence, position, _) = declared_protocol_target_package();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let literal = node_id("refinement/protocol-argument-only");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":literal, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value", "semantic_form":"literal", "semantic_type":boolean,
+            "dependencies":[boolean], "occurrences":[{"role":"generated", "ordinal":0}],
+            "body":{"term":"literal", "type":boolean, "value_kind":"boolean", "value":true}
+        }));
+    let source = package["lock"]["sources"][0].clone();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(json!({
+            "node_id":literal, "role":"generated", "ordinal":0,
+            "regions":[{"source":source,"start":10,"end":11}]
+        }));
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["steps"][0]["target"]["arguments"] =
+        json!([{"term":"reference", "target":literal}]);
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    assert!(
+        !dependencies.contains(&literal),
+        "argument must contribute a new edge"
+    );
+    dependencies.push(literal);
+    dependencies.sort_by(node_id_order);
+    assert_refinement_dependency_matrix(&package, &evidence, position);
+}
+
+/// An admitted protocol target must equal its abstract catalog node. A wrong
+/// local target isolates the target-key collection path before that later join.
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_dependency_only_protocol_target_precedes_catalog_node_mismatch() {
+    let (mut package, evidence, position, _) = declared_protocol_target_package();
+    assert!(
+        matches!(
+            read(&package, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "the unchanged declared protocol target must admit"
+    );
+    let unrelated = node_id(&crate::support::checked_package::family_key("a1a1"));
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["steps"][0]["target"]["node"] = unrelated.clone();
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    assert!(
+        !dependencies.contains(&unrelated),
+        "wrong target must contribute a distinct edge"
+    );
+    dependencies.push(unrelated.clone());
+    dependencies.sort_by(node_id_order);
+    let target_at = format!("/semantic_graph/nodes/{position}/body/steps/0/target/node");
+    ac5_refusal_preserved_by_writer(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        &target_at,
+    );
+    package["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .retain(|id| *id != unrelated);
+    ac5_refusal_preserved_by_writer(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("/semantic_graph/nodes/{position}/dependencies"),
+    );
+}
+
 #[trace("TC-062", "FR-061-AC-1", "FR-061-AC-6")]
 #[test]
 fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
