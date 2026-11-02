@@ -1124,6 +1124,16 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
     let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut names = model_source_inventory(&repository.join("crates/quire-contract-model/src"));
     names.extend(model_source_inventory(&repository.join("src")));
+    let projection_methods = names
+        .iter()
+        .filter(|item| item.owner == "ExactTypeProjection")
+        .map(|item| item.name.as_str())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        projection_methods,
+        BTreeSet::from(["node", "type_node", "value_type", "record_view", "work"]),
+        "projection exposes only borrowed type reads and charged work, no expression constructor, checker or evaluator"
+    );
     let forbidden = |item: &PublicName| {
         [
             "CheckedExpression", "CheckingLimits", "CheckedGraph", "TypeEnvironment",
