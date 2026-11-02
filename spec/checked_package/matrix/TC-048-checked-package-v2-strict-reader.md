@@ -13,6 +13,16 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-411
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-412
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-413
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-414
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-415
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-416
+    type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-064
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
@@ -2671,3 +2681,34 @@ that would independently fail Text membership; assert `ill_typed`/
 `operator-ineligible` at `type` before any `value` refusal. Keep all
 structural keys and other package facts valid so none of these controls
 passes only because of an earlier unrelated refusal.
+
+## Compensation temporal binding reader (FR-038-AC-412 through FR-038-AC-416)
+
+Planned until IR-1262 lands. Read QSpec's
+`proposals/checked-package-v2/temporal-clock-binding-vectors.json`
+`compensation_cases` `CB-01` through `CB-08` from the selected checkout.
+These cases are abstract: construct complete IR-owned packages with the
+published clause and compensation declarations, their exact structural
+`node_id`s and clock arguments, a matching lock selection, and the rows the
+case names. Resolve each published row key to its declaration's own
+`node_id`; do not submit the abstract case as a complete package or copy the
+vector, schema or fixture into IR.
+
+For `CB-01`, admit one clause beside two compensation rows sharing model,
+selected profile and clock name; for `CB-02`, admit the two compensations
+without a clause. Inspect the borrowed `temporal_bindings()` rows and assert
+each exact declaration id, clock name, typed configuration and ascending
+structural `NodeRef` order; both compensation rows must remain distinct.
+For `CB-08`, select a profile with no clock configuration, omit the member,
+and assert admitted absence. Re-read an unchanged clause-only positive to
+verify its existing row and schema behavior.
+
+Apply `CB-03` through `CB-07` to otherwise valid complete packages and
+compare `invalid_package`/`timed-node-reference`, the exact published
+primary RFC 6901 pointer and the declaration-node locus. In an additional
+self-built package with a clause and compensation both missing required
+rows, assert that the lowest graph index supplies the first `/body` refusal.
+For a duplicate, assert the second row pointer; for an `await` declaration,
+assert `/declaration`; for a mismatched name and configuration kind in one
+resolved row, assert `/clock_name` before `/clock/kind`. No refusal yields an
+admitted or partial borrowed row view.

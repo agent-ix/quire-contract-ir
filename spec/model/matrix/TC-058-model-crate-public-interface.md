@@ -5,6 +5,8 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-019
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-019-AC-22
+    type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-048
@@ -120,3 +122,23 @@ copying or sorting it. Compile-fail probes reject mutating the returned members
 or constructing an unchecked enum body through the accessor. The accessor
 introduces no separately exported root item and does not alter the exact
 inventory or the root-crate boundary.
+
+## Compensation temporal binding borrowed public read (FR-019-AC-22)
+
+Planned until IR-1262 lands. Compile a default-feature external consumer
+that imports the already public `TemporalBinding`, `ClockConfiguration` and
+`CheckedNodeId` through `quire_contract_model`, not `quire_contract_ir`.
+Give it a complete package built with typed producer inputs and admitted by
+the public strict reader, containing one temporal clause and two
+compensations with equal model, selected profile and clock name. From the
+admitted package, borrow `CheckedPackageV2::temporal_bindings()` and assert
+three rows in ascending structural `NodeRef` order, including two distinct
+compensation `CheckedNodeId`s, exact names and typed clock configurations.
+The consumer does not deserialize raw rows or construct an unchecked
+admitted view.
+
+Repeat under a lock selection with no clock configuration and no
+`temporal_bindings` member; the admitted public read returns `None` and
+does not synthesize rows. Confirm the existing named public-item inventory
+still has the same three temporal-binding types and accessor, with no new
+export or root-crate re-export.
