@@ -115,6 +115,7 @@ fn typed_sidecar_preserves_all_arrays_candidate_order_and_byte_ceiling() {
             "context": node,
             "candidates": [
                 {
+                    "selected_operation": {"declaring": node, "operation": "run"},
                     "selection_key": {
                         "owner_effective_type": null,
                         "original": {"package": "example", "node": "Zeta"}
@@ -123,6 +124,7 @@ fn typed_sidecar_preserves_all_arrays_candidate_order_and_byte_ceiling() {
                     "effective_precondition": null
                 },
                 {
+                    "selected_operation": {"declaring": node, "operation": "run"},
                     "selection_key": {
                         "owner_effective_type": null,
                         "original": {"package": "example", "node": "Alpha"}
@@ -170,6 +172,10 @@ fn typed_sidecar_preserves_all_arrays_candidate_order_and_byte_ceiling() {
         written["checked_term_data"]["dispatch_tables"][0]["candidates"][1]["selection_key"]
             ["original"]["node"],
         "Alpha"
+    );
+    assert_eq!(
+        written["checked_term_data"]["dispatch_tables"][0]["candidates"][0]["selected_operation"],
+        json!({"declaring": node, "operation": "run"})
     );
 
     let exact = u64::try_from(bytes.len()).expect("byte length fits u64");

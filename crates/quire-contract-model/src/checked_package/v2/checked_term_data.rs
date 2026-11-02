@@ -265,6 +265,8 @@ pub struct CheckedSelectedOperationWitness {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedDispatchCandidate {
+    /// Selected operation witness repeated from the parent dispatch table.
+    pub selected_operation: CheckedSelectedOperationWitness,
     /// FR-150 structural identity of the receiver's effective declaration.
     pub selection_key: CheckedEffectiveId,
     /// Admitted function body handle.
@@ -397,6 +399,7 @@ encode_record!(CheckedSelectedOperationWitness {
     operation: fixed,
 });
 encode_record!(CheckedDispatchCandidate {
+    selected_operation: encoded,
     selection_key: encoded,
     operation_body: encoded,
     effective_precondition: nullable_node,
