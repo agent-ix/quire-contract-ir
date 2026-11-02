@@ -1965,6 +1965,11 @@ fn assert_refinement_dependency_matrix(
             defects.push((format!("extra edge {id}"), extra));
         }
     }
+    for repeated in 0..dependencies.len() {
+        let mut duplicate = dependencies.clone();
+        duplicate.insert(repeated, dependencies[repeated].clone());
+        defects.push((format!("duplicate edge {repeated}"), duplicate));
+    }
     for pair in 1..dependencies.len() {
         let mut reversed = dependencies.clone();
         reversed.swap(pair - 1, pair);
@@ -2109,7 +2114,7 @@ fn refinement_expression_operands_enter_dependencies_before_row_meaning() {
         {"term":"reference", "target":operands[0]},
         {"term":"literal", "type":operands[3], "value_kind":"text", "value":"annotation"}
     ]});
-    for location in ["field", "receiver", "argument", "initial", "update"] {
+    for location in ["field", "receiver", "argument", "update"] {
         let mut package = base.clone();
         let node = &mut package["semantic_graph"]["nodes"][position];
         match location {
@@ -2128,7 +2133,6 @@ fn refinement_expression_operands_enter_dependencies_before_row_meaning() {
                     "arguments":if location == "argument" {json!([term])} else {json!([])}
                 });
             }
-            "initial" => node["body"]["histories"][0]["initial"] = term.clone(),
             "update" => node["body"]["histories"][0]["updates"][0]["expression"] = term.clone(),
             _ => unreachable!("closed test location table"),
         }

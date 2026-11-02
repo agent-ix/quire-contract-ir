@@ -1128,6 +1128,32 @@ fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() 
                 entry["regions"] = json!([first_region]);
             }
         }
+        if binding == 5 {
+            // The published guard pair is source-ordered touch, arm. At a
+            // region tie, QSpec's operation-name key orders arm before touch.
+            let nodes = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes");
+            let operation_name = |id: &Value| {
+                let guard = nodes
+                    .iter()
+                    .find(|node| node["node_id"] == *id)
+                    .expect("guard");
+                let operation = &guard["body"]["members"][0]["value"]["target"];
+                let anchor = nodes
+                    .iter()
+                    .find(|node| node["node_id"] == *operation)
+                    .expect("anchor");
+                anchor["body"]["members"][1]["value"]["value"].clone()
+            };
+            assert_eq!(operation_name(&first), json!("touch"));
+            assert_eq!(operation_name(&second), json!("arm"));
+            package["semantic_graph"]["nodes"][root]["body"]["members"][binding]["value"]
+                ["members"]
+                .as_array_mut()
+                .expect("guard aggregate")
+                .swap(0, 1);
+        }
         let CheckedPackageV2ReadResult::Admitted(admitted) =
             read_package_with_document(&package, "equal-region distinct clauses", &document)
                 .expect("selected package read")
@@ -1427,7 +1453,7 @@ fn timed_model_published_schema_vectors_refuse_before_semantic_validation() {
     }
 }
 
-#[trace("TC-048", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30")]
+#[trace("TC-048", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30", "FR-038-AC-342")]
 #[test]
 fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
     let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
