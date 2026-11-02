@@ -6,18 +6,77 @@
 use super::{proposal_dir_of, read_json};
 use crate::fixture_support::{
     canonical, evidence_for, index_fixture_node_ids, node_id, nominal_fixture_members,
-    nominal_package, settle,
+    nominal_package, resolved_fixture_id, settle,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, ScalarTypeForm,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn vectors() -> Value {
     read_json(&proposal_dir_of(&super::fixtures_dir()).join("quantity-carrier-vectors.json"))
         .expect("QSpec quantity carrier vectors")
+}
+
+fn assert_published_ids(cases: &[Value], prefix: &str, count: usize) {
+    let observed = cases
+        .iter()
+        .map(|case| case["id"].as_str().expect("published vector ID").to_owned())
+        .collect::<BTreeSet<_>>();
+    let expected = (1..=count)
+        .map(|number| format!("{prefix}{number:02}"))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(observed.len(), cases.len(), "duplicate {prefix} vector ID");
+    assert_eq!(observed, expected, "incomplete {prefix} vector inventory");
+}
+
+fn assert_carried_bindings(
+    admitted: &CheckedPackageV2,
+    name: &str,
+    all: &Value,
+    ids: &BTreeMap<String, Value>,
+) {
+    let nodes = admitted
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| json!({ "node_id": node.node_id }))
+        .collect::<Vec<_>>();
+    let expected_type = resolved_fixture_id(&ids[name], &nodes);
+    let (carried, kind) = admitted
+        .graph()
+        .nodes
+        .iter()
+        .zip(admitted.node_kinds())
+        .find(|(node, _)| {
+            let id = serde_json::to_value(&node.node_id).expect("admitted node ID");
+            resolved_fixture_id(&id, &nodes) == expected_type
+        })
+        .unwrap_or_else(|| panic!("{name}: missing admitted carried type"));
+    assert_eq!(
+        *kind,
+        quire_contract_model::CheckedNodeKind::ScalarType(ScalarTypeForm::CarriedQuantity),
+        "{name}"
+    );
+    let body = serde_json::to_value(&carried.body).expect("typed carried body");
+    let members = body["members"].as_array().expect("carried bindings");
+    let names = members
+        .iter()
+        .map(|binding| binding["name"].as_str().expect("binding name"))
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["unit", "carrier", "rounding"], "{name}");
+    for (position, field) in [(0, "unit"), (1, "carrier")] {
+        let expected_name = all[name][field].as_str().expect("vector target name");
+        let expected = resolved_fixture_id(&ids[expected_name], &nodes);
+        let actual = resolved_fixture_id(&members[position]["value"]["target"], &nodes);
+        assert_eq!(actual, expected, "{name} {field} binding");
+    }
+    assert_eq!(
+        members[2]["value"]["value"], all[name]["rounding"],
+        "{name}"
+    );
 }
 
 fn expand(value: &Value, ids: &BTreeMap<String, Value>) -> Value {
@@ -277,7 +336,13 @@ impl Package {
 fn published_carried_quantity_vectors_read_as_wire() {
     let vectors = vectors();
     let all = &vectors["nodes"];
-    for case in vectors["wire"].as_array().expect("wire vectors") {
+    let wire = vectors["wire"].as_array().expect("wire vectors");
+    let evaluation = vectors["evaluation"]
+        .as_array()
+        .expect("evaluation controls");
+    assert_published_ids(wire, "CQ-W", 15);
+    assert_published_ids(evaluation, "CQ-E", 20);
+    for case in wire {
         let id = case["id"].as_str().expect("vector id");
         let mut package = Package::new();
         let at = if let Some(name) = case["node"].as_str() {
@@ -295,6 +360,7 @@ fn published_carried_quantity_vectors_read_as_wire() {
         } else {
             package.application(case, all)
         };
+        let expected_ids = package.ids.clone();
         let result = package.read();
         if case["expected"] == "admitted" || case["expected"] == "distinct" {
             let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
@@ -308,33 +374,17 @@ fn published_carried_quantity_vectors_read_as_wire() {
                     .collect::<Vec<_>>();
                 assert_eq!(carried.len(), 2, "{id}");
                 assert_ne!(carried[0].node_id, carried[1].node_id, "{id}");
+                for name in case["nodes"].as_array().expect("distinct nodes") {
+                    assert_carried_bindings(
+                        &admitted,
+                        name.as_str().expect("node name"),
+                        all,
+                        &expected_ids,
+                    );
+                }
             } else if case["node"].is_string() {
-                let carried = admitted
-                    .graph()
-                    .nodes
-                    .iter()
-                    .zip(admitted.node_kinds())
-                    .find(|(_, kind)| {
-                        **kind
-                            == quire_contract_model::CheckedNodeKind::ScalarType(
-                                ScalarTypeForm::CarriedQuantity,
-                            )
-                    })
-                    .map(|(node, _)| node)
-                    .unwrap_or_else(|| panic!("{id}: missing carried type"));
-                let body = serde_json::to_value(&carried.body).expect("typed body");
-                let names = body["members"]
-                    .as_array()
-                    .expect("bindings")
-                    .iter()
-                    .map(|binding| binding["name"].as_str().expect("name"))
-                    .collect::<Vec<_>>();
-                assert_eq!(names, ["unit", "carrier", "rounding"], "{id}");
                 let name = case["node"].as_str().expect("node name");
-                assert_eq!(
-                    body["members"][2]["value"]["value"], all[name]["rounding"],
-                    "{id}"
-                );
+                assert_carried_bindings(&admitted, name, all, &expected_ids);
             }
         } else {
             let CheckedPackageV2ReadResult::Refused(refusal) = result else {
@@ -362,10 +412,7 @@ fn published_carried_quantity_vectors_read_as_wire() {
             );
         }
     }
-    for case in vectors["evaluation"]
-        .as_array()
-        .expect("evaluation controls")
-    {
+    for case in evaluation {
         let target = case["target"].as_str().expect("target");
         let unit = case["source"]["unit"].as_str().expect("source unit");
         let mut package = Package::new();
