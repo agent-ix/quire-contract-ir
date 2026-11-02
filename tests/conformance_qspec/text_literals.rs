@@ -151,10 +151,10 @@ fn qspec_text_bounds_shape_vectors_match_reader() {
     for case in cases {
         let id = case["id"].as_str().expect("case id");
         let members = case["members"].as_array().expect("shape members");
-        let literal = if id == "TS-02" {
-            "ab"
-        } else {
-            "outside-bounds"
+        let literal = match id {
+            "TS-02" => "ab",
+            "TS-03" => "e\u{301}", // Not NFC: shape refusal must win over membership.
+            _ => "outside-bounds",
         };
         let (package, position) = text_bounds_package(members, literal);
         match (case["expected"].as_str(), read(&package)) {
