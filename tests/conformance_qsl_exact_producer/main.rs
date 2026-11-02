@@ -26,6 +26,16 @@ fn cargo(helper: &Path, target: &Path, arguments: &[&str]) -> Output {
         .current_dir(helper)
         .args(arguments)
         .env("CARGO_TARGET_DIR", target)
+        // Keep the invoking toolchain across path dependencies with their own
+        // rustup directory overrides; this selects no new toolchain version.
+        .env(
+            "RUSTC",
+            Path::new(env!("CARGO")).with_file_name(format!("rustc{}", env::consts::EXE_SUFFIX)),
+        )
+        .env(
+            "RUSTDOC",
+            Path::new(env!("CARGO")).with_file_name(format!("rustdoc{}", env::consts::EXE_SUFFIX)),
+        )
         .output()
         .expect("run isolated typed producer consumer")
 }
@@ -80,11 +90,32 @@ fn genuine_qsl_model_identities_join_admitted_record_and_reference_projection() 
     .expect("copy tracked consumer program, never producer rows or model fixtures");
     // The scratch package changes the workspace root and patches one dependency;
     // resolve its own lock before all build/run/check commands use --locked.
-    let resolved = cargo(&helper, &target, &["generate-lockfile", "--offline"]);
+    let resolved = cargo(
+        &helper,
+        &target,
+        &["metadata", "--offline", "--format-version=1"],
+    );
     assert!(
         resolved.status.success(),
         "scratch dependency resolution: {}",
         String::from_utf8_lossy(&resolved.stderr)
+    );
+    let metadata: Value =
+        serde_json::from_slice(&resolved.stdout).expect("resolved Cargo metadata");
+    let models = metadata["packages"]
+        .as_array()
+        .expect("resolved packages")
+        .iter()
+        .filter(|package| package["name"] == "quire-contract-model")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        models.len(),
+        1,
+        "the typed producer and consumer must share one model crate"
+    );
+    assert_eq!(
+        Path::new(models[0]["manifest_path"].as_str().expect("model manifest")),
+        root.join("crates/quire-contract-model/Cargo.toml")
     );
     let emitted = cargo(
         &helper,
