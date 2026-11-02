@@ -173,24 +173,7 @@ fn append_claim(
     }));
 }
 fn finish(package: &mut Value) {
-    fixture_support::rebuild_source_map(package);
-    let mut extra = Vec::new();
-    for node in package["semantic_graph"]["nodes"].as_array().unwrap() {
-        let template = package["source_map"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["node_id"] == node["node_id"])
-            .expect("first occurrence source row");
-        for occurrence in node["occurrences"].as_array().unwrap().iter().skip(1) {
-            let mut row = template.clone();
-            row["role"] = occurrence["role"].clone();
-            row["ordinal"] = occurrence["ordinal"].clone();
-            extra.push(row);
-        }
-    }
-    package["source_map"].as_array_mut().unwrap().extend(extra);
-
+    fixture_support::rebuild_complete_source_map(package);
     fixture_support::refresh_identity(package);
 }
 fn carrier(vectors: &Value, shared: bool) -> Value {

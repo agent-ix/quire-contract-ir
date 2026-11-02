@@ -13,26 +13,6 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 
-fn source_map(package: &mut Value) {
-    fixtures::rebuild_source_map(package);
-    let mut extra = Vec::new();
-    for node in package["semantic_graph"]["nodes"].as_array().unwrap() {
-        let template = package["source_map"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["node_id"] == node["node_id"])
-            .expect("first occurrence source row");
-        for occurrence in node["occurrences"].as_array().unwrap().iter().skip(1) {
-            let mut row = template.clone();
-            row["role"] = occurrence["role"].clone();
-            row["ordinal"] = occurrence["ordinal"].clone();
-            extra.push(row);
-        }
-    }
-    package["source_map"].as_array_mut().unwrap().extend(extra);
-}
-
 fn aggregate(members: Vec<Value>) -> Value {
     json!({"term":"aggregate", "members":members})
 }
@@ -149,7 +129,7 @@ fn package(policy: &str, response: bool, high: bool, occurrences: u64) -> Value 
     package["schedulability_claims"] = json!((0..occurrences)
         .map(|occurrence| json!({"declaration":id,"occurrence":occurrence}))
         .collect::<Vec<_>>());
-    source_map(&mut package);
+    fixtures::rebuild_complete_source_map(&mut package);
     fixtures::index_fixture_node_ids(&mut package);
     package
 }
@@ -568,7 +548,7 @@ fn carrier_join_checks_have_deterministic_precedence() {
             }
             _ => unreachable!(),
         };
-        source_map(&mut wire);
+        fixtures::rebuild_complete_source_map(&mut wire);
         fixtures::refresh_identity(&mut wire);
         refuses(&wire, code, cause, &path);
     }
@@ -655,7 +635,7 @@ fn sparse_high_occurrence_ordinals_resolve_independently_of_array_position() {
     ]);
     wire["schedulability_claims"][0]["occurrence"] = json!(47);
     wire["schedulability_claims"][1]["occurrence"] = json!(9_000_001);
-    source_map(&mut wire);
+    fixtures::rebuild_complete_source_map(&mut wire);
     fixtures::refresh_identity(&mut wire);
     let read = admitted(&wire);
     let claims = read.schedulability_claims().collect::<Vec<_>>();
