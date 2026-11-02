@@ -136,3 +136,26 @@ scope:
 - tests/it/checked_package_v2_term_data_writer.rs
 - tests/it/checked_package_v2_typed_terms.rs
 - tests/it/main.rs
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Both local expansion copies are removed; both harnesses call the one complete-occurrence helper in existing shared fixture support. Verified at 9585f6fd. |
+
+### Fixed text
+
+```rust
+    fixtures::rebuild_complete_source_map(&mut package);
+```
+
+Current scoped code-review verdict: **PASS**. The original finding and review verdict above are retained as the initial-pass record.
+
+
+## Disposition pass 1
+
+Reviewed frozen head 9585f6fdfcb9663de8f75e5cf7f37c2cf7a82119, including the complete 325136e8..9585f6fd diff, helper fix 7266b054 and merge of main 3962a9b6. Production crates and src are byte-for-byte unchanged from the originally reviewed candidate. Both fixture lanes now call the single rebuild_complete_source_map in tests/it/support/checked_package.rs:1974. The original first-occurrence helper remains unchanged, and the shared complete helper supplies rows for every actual additional role/ordinal, including sparse ordinals. No test oracle, negative mutation or admission condition was weakened.
+
+The merge conflict resolution keeps implemented FR-019-AC-19 and main's planned FR-019-AC-20; both statuses and the public-item inventory are consistent. Main's FR-038-AC-401 through AC-405 remain planned. The Makefile is identical to main 3962a9b6, including its exact one-test positive-package guard and nonzero subprocess propagation. No new review finding was found in the fix or conflict resolution.
+
+Inspected supplied integration logs: 10 focused IT, 6 QSpec conformance groups and 1 affected positive-package guard pass; workspace clippy, fmt, string-edge and scoped specification validation complete successfully. Spec validation includes existing grammar warnings and provider diagnostics, not an error. Default-model clippy evidence remains the earlier unchanged-production run. No reviewer Cargo, tests, builds or source edits were performed. Full aggregate/full IT remain the lead's final-head gate.
