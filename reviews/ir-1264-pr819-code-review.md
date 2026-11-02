@@ -33,3 +33,13 @@ One medium finding. The frozen PR is not ready to merge until the event invarian
 ## Evidence
 
 `model.event_types` gains selected event declarations, and `model_kind_matches` admits an event declaration itself. Its `CheckedNodeKind::Function` invariant branch still accepts only object and record declarations. A function clause with `clause = invariant` and a `ModelOwner` pointing to a selected event type therefore reaches `missing_declaration`/`missing-selection` at the function node, although QSpec FR-322-AC-68 requires that join to pass. The existing record invariant test at `tests/it/checked_package_v2_owners.rs:1239-1258` demonstrates the same owner-join seam. The new tests exercise the public reader and would fail on the old event-owner behavior. Focused TC-281 and declared-source-owner tests passed (2/2); `cargo fmt --check`, scoped Quire validation and `git diff --check` passed. The aggregate gate belongs to the lead after disposition.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The invariant owner branch now accepts exact selected event declarations through `model.event_types`, and the new public-reader test admits an event-owned invariant while refusing an absent owner. |
+
+## Current Verdict
+
+Round 1: FND-001 is fixed. No new finding arose from the fix. The PR is mergeable from this review.
