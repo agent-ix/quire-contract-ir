@@ -189,6 +189,7 @@ fn typed_writer_carries_admitted_effect_rows() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         CheckedPackageSidecarsRef {
+            schedulability_claims: None,
             operation_effects: Some(&rows),
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),

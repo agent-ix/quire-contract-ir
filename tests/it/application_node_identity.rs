@@ -91,6 +91,7 @@ fn encode(
             operation_effects: None,
             checked_term_data: None,
             temporal_bindings: None,
+            schedulability_claims: None,
         },
         &[],
         diagnostics,

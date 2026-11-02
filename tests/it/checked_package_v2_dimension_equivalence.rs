@@ -163,6 +163,7 @@ fn selected_dimension_operand_admits_and_retains_package_form() {
             operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
+            schedulability_claims: None,
         },
         admitted.capability_report(),
         admitted.diagnostics(),

@@ -810,6 +810,7 @@ fn writer_bytes(package: &Value) -> Vec<u8> {
             operation_effects: None,
             checked_term_data: None,
             temporal_bindings: temporal_bindings.as_deref(),
+            schedulability_claims: None,
         },
         &capabilities,
         &diagnostics,

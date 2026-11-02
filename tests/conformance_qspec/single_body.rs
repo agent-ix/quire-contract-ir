@@ -70,6 +70,7 @@ fn published_single_body_packages_round_trip_through_the_writer() {
                 operation_effects: None,
                 checked_term_data: read.checked_term_data(),
                 temporal_bindings: read.temporal_bindings(),
+                schedulability_claims: None,
             },
             read.capability_report(),
             read.diagnostics(),

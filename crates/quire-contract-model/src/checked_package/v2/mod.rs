@@ -53,6 +53,7 @@ mod relationship_end;
 mod runtime_type_projection;
 mod rust_spelling;
 mod scalar_operands;
+mod schedulability;
 mod state;
 mod step_relation;
 mod structural;
@@ -141,6 +142,11 @@ pub use runtime_type_projection::{
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
     CheckedScalarOperandRange,
+};
+pub use schedulability::{
+    CheckedSchedulabilityClaimRef, CheckedSchedulabilityClaimRow, CheckedSchedulabilityKind,
+    CheckedSchedulabilityTaskRef, CheckedSchedulingPolicy, CheckedTaskArrival,
+    CheckedTaskCriticality,
 };
 pub use step_relation::{
     CheckedStepExecution, CheckedStepRelationBody, CheckedStepRelationCapability,
@@ -262,7 +268,7 @@ impl TermBindingName {
 }
 /// A node's declared qualified name (FR-208). Present exactly where the
 /// schema's `DeclarationOccurrenceRule` requires it and forbidden where
-/// `DeclarationTagRules` forbids it; see [`validate_declaration`].
+/// `DeclarationTagRules` forbids it; see `validate_declaration`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedDeclaration {
@@ -665,7 +671,7 @@ macro_rules! checked_package_envelope {
     ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
         #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, E, A, D> {
+        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, H, E, A, D> {
             $($name: $parameter,)+
             #[serde(default, skip_serializing_if = "Option::is_none")]
             refinement_step_rows: Option<R>,
@@ -673,6 +679,8 @@ macro_rules! checked_package_envelope {
             checked_term_data: Option<T>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             temporal_bindings: Option<B>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            schedulability_claims: Option<H>,
             #[serde(default, deserialize_with = "operation_effects::present_rows", bound(deserialize = "E: Deserialize<'de>"), skip_serializing_if = "Option::is_none")]
             operation_effects: Option<E>,
         }
@@ -686,6 +694,7 @@ macro_rules! checked_package_envelope {
             &[refinement::CheckedRefinementStepRowRegion],
             &checked_term_data::CheckedTermDataV2,
             &[temporal_binding::TemporalBinding],
+            &[CheckedSchedulabilityClaimRow],
             &[CheckedOperationEffectRow],
             &[CheckedCapability],
             &CheckedDiagnosticsV2,
@@ -702,6 +711,9 @@ macro_rules! checked_package_envelope {
                 }
                 if let Some(rows) = &self.temporal_bindings {
                     encode::elements(writer, "temporal_bindings", rows)?;
+                }
+                if let Some(rows) = self.schedulability_claims {
+                    encode::elements(writer, "schedulability_claims", rows)?;
                 }
                 if let Some(rows) = &self.operation_effects {
                     encode::elements(writer, "operation_effects", rows)?;
@@ -731,6 +743,7 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     Vec<refinement::CheckedRefinementStepRowRegion>,
     checked_term_data::CheckedTermDataV2,
     Vec<temporal_binding::TemporalBinding>,
+    Vec<CheckedSchedulabilityClaimRow>,
     Vec<CheckedOperationEffectRow>,
     Vec<CheckedCapability>,
     CheckedDiagnosticsV2,
@@ -754,13 +767,15 @@ pub struct CheckedPackageSidecarsRef<'a> {
     pub checked_term_data: Option<&'a CheckedTermDataV2>,
     /// Exact temporal declaration clock rows, when present.
     pub temporal_bindings: Option<&'a [TemporalBinding]>,
+    /// Untrusted identity rows, preserved exactly as supplied.
+    pub schedulability_claims: Option<&'a [CheckedSchedulabilityClaimRow]>,
     /// Selected model operation effect rows, absent when unavailable.
     pub operation_effects: Option<&'a [CheckedOperationEffectRow]>,
 }
 
 /// Canonically encodes a complete checked-package V2 envelope under the
 /// caller's byte limits. The supplied name is the package's identity. An
-/// absent checked-term or temporal sidecar is omitted.
+/// absent checked-term, temporal, schedulability or operation-effect sidecar is omitted.
 pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
     name: &str,
     lock: &CheckedPackageLockV2,
@@ -794,6 +809,7 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         refinement_step_rows: sources.refinement_step_rows,
         checked_term_data: sidecars.checked_term_data,
         temporal_bindings: sidecars.temporal_bindings,
+        schedulability_claims: sidecars.schedulability_claims,
         operation_effects: sidecars.operation_effects,
         capability_report,
         diagnostics,
@@ -831,6 +847,7 @@ pub enum CheckedPackageV2ReadResult {
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
+    schedulability_claim_index: Vec<(usize, usize)>,
     terms: Vec<CheckedTerm>,
     /// Admission-derived lookup; excluded from content equality.
     node_index: BTreeMap<CheckedNodeId, usize>,
@@ -1186,6 +1203,7 @@ impl CheckedPackageV2 {
         validate_owner_schema(&wire)?;
         let ValidatedPackage {
             kinds,
+            schedulability_claim_index,
             terms,
             models,
             lowering_facts,
@@ -1219,6 +1237,7 @@ impl CheckedPackageV2 {
             refinement_step_rows,
             checked_term_data,
             temporal_bindings,
+            schedulability_claims,
             operation_effects,
             capability_report,
             diagnostics,
@@ -1247,6 +1266,7 @@ impl CheckedPackageV2 {
             refinement_step_rows,
             checked_term_data,
             temporal_bindings,
+            schedulability_claims,
             operation_effects,
             capability_report,
             diagnostics,
@@ -1256,6 +1276,7 @@ impl CheckedPackageV2 {
         Ok(Self {
             wire,
             kinds,
+            schedulability_claim_index,
             terms,
             node_index,
             structural_keys,
@@ -1369,6 +1390,7 @@ fn check_package_header(wire: &RawCheckedPackageWireV2) -> Result<(), Validation
 
 struct ValidatedPackage {
     kinds: Vec<CheckedNodeKind>,
+    schedulability_claim_index: Vec<(usize, usize)>,
     terms: Vec<CheckedTerm>,
     models: RetainedModels,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
@@ -1377,6 +1399,7 @@ struct ValidatedPackage {
 
 struct ValidatedGraph {
     kinds: Vec<CheckedNodeKind>,
+    schedulability_claim_index: Vec<(usize, usize)>,
     terms: Vec<CheckedTerm>,
     declarations: DeclarationIndex,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
@@ -1401,6 +1424,7 @@ fn validate(
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
     let ValidatedGraph {
         kinds,
+        schedulability_claim_index,
         terms,
         declarations,
         lowering_facts,
@@ -1441,6 +1465,7 @@ fn validate(
     }
     Ok(ValidatedPackage {
         kinds,
+        schedulability_claim_index,
         terms,
         models,
         lowering_facts,
@@ -2046,6 +2071,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
         ) => false,
         K::Claim(ClaimForm::StateGraph) => true,
         K::Claim(ClaimForm::StepRelation) => false,
+        K::Claim(ClaimForm::Schedulability) => true,
         K::Claim(
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
@@ -2362,6 +2388,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ClaimForm::SynthesisRequest
             | ClaimForm::StateGraph
             | ClaimForm::StepRelation
+            | ClaimForm::Schedulability
             | ClaimForm::ProbabilisticClaim,
         ) => BodyGrammar::Term,
         K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
@@ -2870,6 +2897,7 @@ fn validate_graph(
         Some(models),
     )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
+    schedulability::validate_graph(&graph.nodes, &kinds, &terms, &index, meter)?;
     validate_derived_type_shapes(
         &graph.nodes,
         &kinds,
@@ -3067,6 +3095,15 @@ fn validate_graph(
         models,
         meter,
     )?;
+    let schedulability_claim_index = schedulability::validate_carrier(
+        &wire.name,
+        wire.schedulability_claims.as_deref(),
+        &graph.nodes,
+        &kinds,
+        &index,
+        structural_keys,
+        meter,
+    )?;
     protocol_body::validate_protocol_nodes(
         &graph.nodes,
         &kinds,
@@ -3076,6 +3113,15 @@ fn validate_graph(
         &owners,
         meter,
         limits.bytes,
+    )?;
+    schedulability::validate_bodies(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+        models,
+        meter,
     )?;
     refinement::validate_catalog_graph(
         refinement::RefinementGraph::new(
@@ -3239,6 +3285,7 @@ fn validate_graph(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ValidatedGraph {
         kinds,
+        schedulability_claim_index,
         terms,
         declarations,
         lowering_facts,
@@ -3977,6 +4024,7 @@ mod tests {
 
                 let wire = tc_451_private_owned_wire();
                 let package = super::CheckedPackageV2 {
+                    schedulability_claim_index: Vec::new(),
                     node_index: Default::default(),
                     structural_keys: keys,
                     source_index: Default::default(),
@@ -4067,9 +4115,10 @@ mod tests {
                     refinement_step_rows: wire.refinement_step_rows.as_deref(),
                 },
                 super::CheckedPackageSidecarsRef {
-                    operation_effects: None,
+                    operation_effects: wire.operation_effects.as_deref(),
                     checked_term_data: wire.checked_term_data.as_ref(),
                     temporal_bindings: wire.temporal_bindings.as_deref(),
+                    schedulability_claims: wire.schedulability_claims.as_deref(),
                 },
                 &wire.capability_report,
                 &wire.diagnostics,
@@ -4079,6 +4128,74 @@ mod tests {
             let owned_bytes = serde_json::to_vec(&serde_json::to_value(&wire).expect("wire value"))
                 .expect("private wire bytes");
             assert_eq!(bytes, owned_bytes);
+        }
+    }
+
+    #[trace("TC-451", "FR-051-AC-7", "FR-038-AC-400")]
+    #[test]
+    fn tc_451_schedulability_rows_match_private_wire_without_normalization() {
+        let mut wire = tc_451_private_owned_wire();
+        let declaration: super::CheckedNodeId =
+            serde_json::from_value(super::test_support::id('b')).expect("producer identity");
+        wire.operation_effects = Some(vec![super::CheckedOperationEffectRow {
+            document: "test/effects".into(),
+            declaring: declaration.clone(),
+            operation: "run".into(),
+            effect: super::CheckedOperationEffect {
+                modifies: Vec::new(),
+                creates: Vec::new(),
+                deletes: Vec::new(),
+                deletes_scoped: Vec::new(),
+            },
+            provenance: super::CheckedOperationEffectProvenance {
+                origin: super::CheckedOperationEffectOrigin::ModelDocumentOperationFrame,
+                member: "run".into(),
+            },
+        }]);
+        let rows = vec![
+            super::CheckedSchedulabilityClaimRow {
+                declaration: declaration.clone(),
+                occurrence: 9,
+            },
+            super::CheckedSchedulabilityClaimRow {
+                declaration,
+                occurrence: 2,
+            },
+        ];
+        for rows in [None, Some(Vec::new()), Some(rows)] {
+            wire.schedulability_claims = rows;
+            let bytes = super::encode_checked_package_v2(
+                &wire.name,
+                &wire.lock,
+                &wire.semantic_graph,
+                super::CheckedPackageSourceCorrespondenceRef {
+                    source_map: &wire.source_map,
+                    refinement_step_rows: wire.refinement_step_rows.as_deref(),
+                },
+                super::CheckedPackageSidecarsRef {
+                    operation_effects: wire.operation_effects.as_deref(),
+                    checked_term_data: wire.checked_term_data.as_ref(),
+                    temporal_bindings: wire.temporal_bindings.as_deref(),
+                    schedulability_claims: wire.schedulability_claims.as_deref(),
+                },
+                &wire.capability_report,
+                &wire.diagnostics,
+                quire_canonical::Limits::new(u64::MAX),
+            )
+            .expect("producer rows encode unchanged");
+            let expected =
+                serde_json::to_vec(&serde_json::to_value(&wire).expect("private envelope"))
+                    .expect("canonical value");
+            assert_eq!(bytes, expected);
+            if wire
+                .schedulability_claims
+                .as_ref()
+                .is_none_or(|rows| !rows.is_empty())
+            {
+                let decoded = super::intake::decode_borrowed_wire(&bytes).expect("closed intake");
+                assert_eq!(decoded.schedulability_claims, wire.schedulability_claims);
+                assert_eq!(decoded.operation_effects, wire.operation_effects);
+            }
         }
     }
 
@@ -4140,9 +4257,10 @@ mod tests {
                             refinement_step_rows: wire.refinement_step_rows.as_deref(),
                         },
                         super::CheckedPackageSidecarsRef {
-                            operation_effects: None,
+                            operation_effects: wire.operation_effects.as_deref(),
                             checked_term_data: wire.checked_term_data.as_ref(),
                             temporal_bindings: wire.temporal_bindings.as_deref(),
+                            schedulability_claims: wire.schedulability_claims.as_deref(),
                         },
                         &wire.capability_report,
                         &wire.diagnostics,

@@ -151,6 +151,7 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                         operation_effects: None,
                         checked_term_data: package.checked_term_data(),
                         temporal_bindings: package.temporal_bindings(),
+                        schedulability_claims: None,
                     },
                     package.capability_report(),
                     package.diagnostics(),

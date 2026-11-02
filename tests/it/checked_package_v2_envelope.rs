@@ -46,6 +46,7 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
             operation_effects: None,
             checked_term_data: None,
             temporal_bindings: temporal_bindings.as_deref(),
+            schedulability_claims: None,
         },
         &capabilities,
         &diagnostics,

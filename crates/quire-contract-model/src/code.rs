@@ -86,7 +86,7 @@ const fn well_formed(bytes: &[u8]) -> bool {
 /// A machine-readable code in the STD-001 form (FR-044).
 ///
 /// The representation is private, so a value is built only by
-/// [`Std001Code::new`], [`Std001Code::from_static`], [`std001_code!`], a
+/// [`Std001Code::new`], [`Std001Code::from_static`], [`crate::std001_code!`], a
 /// registered constant or `From<DiagnosticCode>`. Equality, hashing and ordering
 /// are those of [`Std001Code::as_str`].
 ///

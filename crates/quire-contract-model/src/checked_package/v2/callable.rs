@@ -532,6 +532,7 @@ mod tests {
             .map(|node| node.body.clone())
             .collect();
         CheckedPackageV2 {
+            schedulability_claim_index: Vec::new(),
             node_index: retained_node_index(&wire),
             structural_keys: Vec::new(),
             source_index: retained_source_index(&wire),

@@ -44,6 +44,7 @@ fn encode(
             operation_effects: None,
             checked_term_data: term_data,
             temporal_bindings: temporal_bindings.as_deref(),
+            schedulability_claims: None,
         },
         &capabilities,
         &diagnostics,
