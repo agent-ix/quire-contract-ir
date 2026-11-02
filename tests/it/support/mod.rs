@@ -8,6 +8,7 @@
 //! own private copy. Now there is exactly one copy per submodule, shared by
 //! every test module declared in `tests/it/main.rs`.
 
+pub mod cargo_graph;
 pub mod checked_package;
 #[cfg(feature = "conformance-cli")]
 pub mod corpus;

@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::PathBuf,
-    process::Command,
-};
+use std::{collections::BTreeSet, fs, path::PathBuf, process::Command};
 
 use ix_trace_rs::trace;
 #[cfg(feature = "conformance-cli")]
@@ -243,58 +238,14 @@ fn forbidden(package: &Value) -> bool {
         })
 }
 
-// Cargo's resolved IDs retain renamed and transitive dependencies; manifest
-// dependency names alone cannot establish production reachability.
 fn production_graph(
     metadata: &Value,
     root: &str,
     exclude_owners: bool,
 ) -> Result<BTreeSet<String>, String> {
-    let packages: BTreeMap<_, _> = metadata["packages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|package| (package["id"].as_str().unwrap(), package))
-        .collect();
-    let nodes: BTreeMap<_, _> = metadata["resolve"]["nodes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|node| (node["id"].as_str().unwrap(), node))
-        .collect();
-    let mut active = BTreeSet::new();
-    let mut complete = BTreeSet::new();
-    let mut pending = vec![(root, false)];
-    while let Some((id, leaving)) = pending.pop() {
-        if leaving {
-            active.remove(id);
-            complete.insert(id.to_owned());
-            continue;
-        }
-        if complete.contains(id) {
-            continue;
-        }
-        if !active.insert(id) {
-            return Err(format!("production dependency cycle at {id}"));
-        }
-        if exclude_owners && forbidden(packages[id]) {
-            return Err(format!("forbidden production dependency {id}"));
-        }
-        pending.push((id, true));
-        for edge in nodes[id]["deps"].as_array().unwrap() {
-            let production = edge["dep_kinds"].as_array().unwrap().iter().any(|kind| {
-                match kind["kind"].as_str() {
-                    None | Some("build") => true,
-                    Some("dev") => false,
-                    other => panic!("unknown Cargo dependency kind {other:?}"),
-                }
-            });
-            if production {
-                pending.push((edge["pkg"].as_str().unwrap(), false));
-            }
-        }
-    }
-    Ok(complete)
+    crate::support::cargo_graph::production_graph(metadata, root, |package| {
+        exclude_owners && forbidden(package)
+    })
 }
 
 #[trace("TC-041", "FR-028-AC-1", "FR-349-AC-9")]
