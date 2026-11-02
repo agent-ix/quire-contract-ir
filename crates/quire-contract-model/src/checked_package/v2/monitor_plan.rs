@@ -75,8 +75,10 @@ pub(super) fn anonymous_body_shape(
     let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(body) else {
         return false;
     };
-    let [parameters, body] = members else {
-        return false;
+    let (parameters, body, measure) = match members {
+        [parameters, body] => (parameters, body, None),
+        [parameters, body, measure] => (parameters, body, Some(measure)),
+        _ => return false,
     };
     let Some(super::CheckedTermView::Binding {
         name: "parameters",
@@ -99,6 +101,7 @@ pub(super) fn anonymous_body_shape(
         .all(|parameter| kind(parameter) == Some(CheckedNodeKind::Value(ValueForm::Parameter)))
         && matches!(CheckedTerm::view(body), Some(super::CheckedTermView::Binding { name: "body", value })
             if matches!(kind(value), Some(CheckedNodeKind::Expression(_))))
+        && measure.is_none_or(|measure| matches!(CheckedTerm::view(measure), Some(super::CheckedTermView::Binding {name:"measure",value}) if kind(value).is_some()))
 }
 
 #[derive(Clone)]
@@ -440,9 +443,14 @@ impl Graph<'_> {
             .collect()
     }
     fn parameters(&self, position: usize) -> Option<Vec<usize>> {
-        let [parameters, body] = members(self.term(position)?)? else {
-            return None;
+        let (parameters, body, measure) = match members(self.term(position)?)? {
+            [parameters, body] => (parameters, body, None),
+            [parameters, body, measure] => (parameters, body, Some(measure)),
+            _ => return None,
         };
+        if let Some(measure) = measure {
+            self.resolve(named(measure, "measure")?)?;
+        }
         let parameters = members(named(parameters, "parameters")?)?;
         let expression = self.resolve(named(body, "body")?)?;
         if !matches!(
@@ -872,7 +880,7 @@ pub(super) fn validate(
             previous = Some(key);
         }
         let fields = graph.fields(state).ok_or_else(|| site.shape(1))?;
-        if fields.len() != buffers.len() + 3 {
+        if fields.len() != buffers.len() + 4 {
             return Err(site.shape(1));
         }
         for (i, (name, ty)) in fields.iter().enumerate() {
@@ -880,8 +888,11 @@ pub(super) fn validate(
             let valid = match i {
                 0 => *name == "now" && graph.scalar(*ty, ScalarTypeForm::Integer),
                 1 => *name == "history_start" && graph.scalar(*ty, ScalarTypeForm::Integer),
-                i if i == fields.len() - 1 => {
+                i if i == fields.len() - 2 => {
                     *name == "activations" && activation_type(&graph, *ty, meter, &site)?
+                }
+                i if i == fields.len() - 1 => {
+                    *name == "event_position" && graph.scalar(*ty, ScalarTypeForm::Integer)
                 }
                 _ => {
                     *name == format!("buffer_{}", i - 2)

@@ -138,6 +138,24 @@ fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
     );
     assert_eq!(view.on_gap().parameter_types().len(), 2);
     assert_eq!(view.init().result_type(), view.state());
+    let CheckedTerm::Aggregate { members } = package.term(view.state()).unwrap() else {
+        panic!("admitted State record body")
+    };
+    let CheckedTerm::Binding { name, value } = members.last().unwrap() else {
+        panic!("final State field")
+    };
+    assert_eq!(name.as_ref(), "event_position");
+    let CheckedTerm::Reference { target } = value.as_ref() else {
+        panic!("event_position is an ordinary type reference")
+    };
+    let integer = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "integer")
+        .unwrap();
+    assert_eq!(target, &integer.node_id);
+
     assert!(std::ptr::eq(
         view.structural_key(),
         package.structural_key(view.node_id()).unwrap()
@@ -190,6 +208,7 @@ fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
     let other = roundtrip.monitor_plans().next().unwrap();
     assert_eq!(view.structural_key(), other.structural_key());
     assert_eq!(view.body(), other.body());
+    assert_eq!(package.term(view.state()), roundtrip.term(other.state()));
     assert_eq!(view.max_event_rate(), other.max_event_rate());
     assert_eq!(view.uncertainty(), other.uncertainty());
     assert_eq!(view.activation_capacity(), other.activation_capacity());
