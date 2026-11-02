@@ -142,6 +142,8 @@ scope:
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Both local expansion copies are removed; both harnesses call the one complete-occurrence helper in existing shared fixture support. Verified at 9585f6fd. |
+| FND-002 | still-open | Round 2: newly traced exact-inventory mismatch; awaiting the same coder’s inventory-format-only fix and frozen head. |
+| FND-002 | fixed | Round 3: inventory row now contains only bare root-item names; full lifetime/member API documentation remains outside the table. Parser, assertions and ACs unchanged. Verified at 4b0548aa. |
 
 ### Fixed text
 
@@ -159,3 +161,45 @@ Reviewed frozen head 9585f6fdfcb9663de8f75e5cf7f37c2cf7a82119, including the com
 The merge conflict resolution keeps implemented FR-019-AC-19 and main's planned FR-019-AC-20; both statuses and the public-item inventory are consistent. Main's FR-038-AC-401 through AC-405 remain planned. The Makefile is identical to main 3962a9b6, including its exact one-test positive-package guard and nonzero subprocess propagation. No new review finding was found in the fix or conflict resolution.
 
 Inspected supplied integration logs: 10 focused IT, 6 QSpec conformance groups and 1 affected positive-package guard pass; workspace clippy, fmt, string-edge and scoped specification validation complete successfully. Spec validation includes existing grammar warnings and provider diagnostics, not an error. Default-model clippy evidence remains the earlier unchanged-production run. No reviewer Cargo, tests, builds or source edits were performed. Full aggregate/full IT remain the lead's final-head gate.
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | Activating the schedulability Public items row introduces non-item backtick tokens and generic spellings into the exact root-export inventory: CheckedSchedulabilityClaimRef<'a>, CheckedSchedulabilityTaskRef<'a>, declaration, occurrence, body, associated methods, the sidecar field and ClaimForm::Schedulability are parsed as exported item names. The actual exports use bare type names and do not export methods, fields or variants as root items, so both default and test-support TC-058 inventory assertions fail. List only bare crate-item names as backtick inventory entries; retain the full API details in prose without weakening the inventory parser or assertions. | spec/model/functional/FR-019-rust-library-interface.md:253; tests/it/public_interface.rs:870; tests/it/public_interface.rs:1020; tests/it/public_interface.rs:1368 |
+
+### Scope added in pass 2
+
+```yaml
+scope:
+- id: FR-019-AC-5
+  path: spec/model/functional/FR-019-rust-library-interface.md
+  role: examined
+  excerpt: The `quire_contract_model` crate root has no glob re-export, and its default-feature
+    public items are exactly those the Public items table lists as implemented at
+    the tested revision. Entries explicitly marked planned are excluded until their
+    owning code lands; exporting a planned item fails the inventory until its row
+    is marked implemented. The public-item inventory fails on an added or missing
+    implemented item; no implemented item in the table is reachable through a `quire_contract_ir`
+    path. The retired `PACKAGE_DOMAIN_V2` export is absent.
+```
+
+Full-target gate evidence: /tmp/ir1252-final-gate-it.log reports 1162 passing, 7 failing and 1 ignored. Two failures are the inventory mismatch described above. Five scanner command failures are environment evidence owned by the lead, not additional source findings. The first disposition PASS was provisional before this final gate; current scoped verdict is **FAIL** pending FND-002. No source, test, build or Cargo command was run by this reviewer.
+
+## Preparatory occurrence-index work assessment
+
+Read-only assessment requested during final-gate diagnosis: no additional finding. QSpec FR-322's carrier rule requires one validation visit before inspecting each row and the first uncharged row locus when that row charge fails. It does not make this the exclusive cost of constructing the graph-occurrence lookup. FR-038's general incomplete rule reports the value whose charge failed. validate_carrier constructs its graph-occurrence map before beginning row inspection, charging the actual occurrence visited; exhaustion there therefore names that graph occurrence. Once the row phase begins, every row is charged at /schedulability_claims/{i} before any join or key inspection. The tested row-budget boundary observes precisely that phase. Preparatory indexing does not inspect rows, change semantic refusal order, replace the existing budget, or expose a partial authenticated view. The normal package source-map validation is after validate_graph, so it cannot simply be assumed to have already produced this map. Retaining the prepared index preserves O(N log N) validation and O(N) admitted iteration for a shared node with N occurrences. No source/build/test changes were made for this assessment.
+
+### FND-002 fixed text
+
+```markdown
+| `checked_package` | types `CheckedSchedulabilityClaimRow`, `CheckedSchedulabilityClaimRef`, `CheckedSchedulabilityTaskRef`, `CheckedSchedulabilityKind`, `CheckedSchedulingPolicy`, `CheckedTaskArrival`, `CheckedTaskCriticality` | FR-038 |
+```
+
+## Disposition pass 3
+
+Reviewed frozen fix head 4b0548aaac85db9c59373c278e743cb17d1f880f and the complete documentation-only 933bd5da..4b0548aa diff. FR-019's activated row now lists exactly the seven bare exported type identifiers. Generic lifetime spellings and method/field/variant documentation remain in the API prose outside the Public items table. Thus quoted_names and expected_items_from no longer treat those non-item tokens as root exports. The inventory parser, assertions, all acceptance criteria, public API and executable Rust behavior are unchanged. FND-002 is fixed by code inspection; no new finding was found. FND-001's single shared fixture helper remains intact.
+
+The two inherited rustdoc fixes are mechanical: a link to the private validate_declaration helper is rendered as plain code, and the std001_code macro link is qualified as crate::std001_code!. Neither suppresses a warning or changes executable code. This pass inspected these exact edits rather than relying on a gate claim.
+
+Current scoped code and status/inventory review verdict: **PASS by inspection, with final execution gates pending**. At disposition time the two exact public-interface checks and queued clippy/docs qualification have not completed; no passing outcome is claimed for them. The lead will finish full IR IT and docs qualification before merge. Supplied fix Quire, fmt and authoritative scanner checks passed. Earlier full QSpec 176, model lib 358 and model doctests 45 passing results remain execution evidence for the unchanged executable code, not reruns by this reviewer. No Cargo, builds, tests or source edits were performed by the reviewer. Repository-wide gap verdict remains FAIL on inherited debt, with all seven carrier criteria tagged and no new scoped gap.
