@@ -23,8 +23,8 @@ No changed-line EARS finding.
 
 ## Coverage
 
-- FR-038-AC-421 FMA positive strict-reader admission: examined.
-- FR-038-AC-422 FMA adverse strict-reader refusals: examined.
+- FR-038-AC-431 FMA positive strict-reader admission: examined.
+- FR-038-AC-432 FMA adverse strict-reader refusals: examined.
 - TC-048 FMA by-reference plan and QSpec trace edges: examined.
 - QSpec FR-322-AC-307, TC-233 FM-01..FM-04, and FM-01..FM-12 vector file: context_only.
 - Current IR origin/main FR-038-AC-421..430 (IR-721 monitor plan): context_only.
@@ -32,3 +32,7 @@ No changed-line EARS finding.
 ## Evidence
 
 The two edited AC rows state concrete public-reader outcomes rather than vague support claims. Quire validation reported an existing ac:non-canonical-shape warning at FR-038 line 5319 outside this diff, and no warning on the FMA rows.
+
+## Post-rebase verification
+
+At PR head 4c4c0b7d, the FMA criteria and TC-048 verifies edges use unique FR-038-AC-431/432. No substantive requirement or test-plan text changed.

@@ -24,8 +24,8 @@ Two high ID collisions block merge until the criteria and TC-048 relationships a
 
 ## Coverage
 
-- FR-038-AC-421 FMA positive strict-reader admission: examined.
-- FR-038-AC-422 FMA adverse strict-reader refusals: examined.
+- FR-038-AC-431 FMA positive strict-reader admission: examined.
+- FR-038-AC-432 FMA adverse strict-reader refusals: examined.
 - TC-048 FMA by-reference plan and QSpec trace edges: examined.
 - QSpec FR-322-AC-307, TC-233 FM-01..FM-04, and FM-01..FM-12 vector file: context_only.
 - Current IR origin/main FR-038-AC-421..430 (IR-721 monitor plan): context_only.
@@ -33,3 +33,14 @@ Two high ID collisions block merge until the criteria and TC-048 relationships a
 ## Evidence
 
 QSpec origin/main eac40c3a defines generic call3 FMA and the published two admitted/ten refused vectors. The FMA prose matches those outcomes and records the unvectored rounding-mode disagreement without assigning it an outcome. IR origin/main 2aba7d2f already has AC-421..430 from IR-721; the next free numbers at review time are 431/432. Scoped Quire validation passes on the frozen branch but cannot detect a future merge collision.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Rebasing onto IR main retained the IR-721 AC-421 and renumbered the FMA admission criterion and TC-048 verifies edge to unique AC-431. |
+| FND-002 | fixed | Rebasing onto IR main retained the IR-721 AC-422 and renumbered the FMA refusal criterion and TC-048 verifies edge to unique AC-432. |
+
+## Current Verdict
+
+At PR head 4c4c0b7d, the two ID collisions are resolved. The FMA requirement text and by-reference plan are otherwise unchanged; no new findings arose.

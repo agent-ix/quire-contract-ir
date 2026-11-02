@@ -23,8 +23,8 @@ No code-review findings.
 
 ## Coverage
 
-- FR-038-AC-421 FMA positive strict-reader admission: examined.
-- FR-038-AC-422 FMA adverse strict-reader refusals: examined.
+- FR-038-AC-431 FMA positive strict-reader admission: examined.
+- FR-038-AC-432 FMA adverse strict-reader refusals: examined.
 - TC-048 FMA by-reference plan and QSpec trace edges: examined.
 - QSpec FR-322-AC-307, TC-233 FM-01..FM-04, and FM-01..FM-12 vector file: context_only.
 - Current IR origin/main FR-038-AC-421..430 (IR-721 monitor plan): context_only.
@@ -32,3 +32,7 @@ No code-review findings.
 ## Evidence
 
 The changed Markdown validates and git diff --check passes. Current main overlap and criterion identity are addressed by the base and integrity reviews.
+
+## Post-rebase verification
+
+At PR head 4c4c0b7d, the FMA criteria and TC-048 verifies edges use unique FR-038-AC-431/432. No substantive requirement or test-plan text changed.

@@ -24,8 +24,8 @@ The criterion identities collide with unrelated monitor-plan requirements on cur
 
 ## Coverage
 
-- FR-038-AC-421 FMA positive strict-reader admission: examined.
-- FR-038-AC-422 FMA adverse strict-reader refusals: examined.
+- FR-038-AC-431 FMA positive strict-reader admission: examined.
+- FR-038-AC-432 FMA adverse strict-reader refusals: examined.
 - TC-048 FMA by-reference plan and QSpec trace edges: examined.
 - QSpec FR-322-AC-307, TC-233 FM-01..FM-04, and FM-01..FM-12 vector file: context_only.
 - Current IR origin/main FR-038-AC-421..430 (IR-721 monitor plan): context_only.
@@ -33,3 +33,14 @@ The criterion identities collide with unrelated monitor-plan requirements on cur
 ## Evidence
 
 Each proposed criterion is separately testable and the positive/adverse split is clear. The current-main AC-421/422 meanings are different, making both duplicated identities ambiguous for traceability and the TC-048 verifies edges. No other internal contradiction was found.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Rebasing onto IR main retained the IR-721 AC-421 and renumbered the FMA admission criterion and TC-048 verifies edge to unique AC-431. |
+| FND-002 | fixed | Rebasing onto IR main retained the IR-721 AC-422 and renumbered the FMA refusal criterion and TC-048 verifies edge to unique AC-432. |
+
+## Current Verdict
+
+At PR head 4c4c0b7d, the two ID collisions are resolved. The FMA requirement text and by-reference plan are otherwise unchanged; no new findings arose.
