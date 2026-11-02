@@ -338,6 +338,7 @@ fn temporal_clock_writer_retains_a_configured_clause_row() {
             refinement_step_rows: read.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            operation_effects: None,
             checked_term_data: read.checked_term_data(),
             temporal_bindings: read.temporal_bindings(),
         },

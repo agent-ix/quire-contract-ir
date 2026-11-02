@@ -88,6 +88,7 @@ type BorrowedWire<'a> = CheckedPackageEnvelope<
     Vec<super::refinement::CheckedRefinementStepRowRegion>,
     super::checked_term_data::CheckedTermDataV2,
     Vec<super::temporal_binding::TemporalBinding>,
+    Vec<super::CheckedOperationEffectRow>,
     Vec<CheckedCapability>,
     BorrowedDiagnostics<'a>,
 >;
@@ -245,6 +246,7 @@ pub(super) fn decode_borrowed_wire(
         refinement_step_rows: wire.refinement_step_rows,
         checked_term_data: wire.checked_term_data,
         temporal_bindings: wire.temporal_bindings,
+        operation_effects: wire.operation_effects,
         capability_report: wire.capability_report,
         diagnostics: CheckedDiagnosticsV2 {
             catalog: diagnostics.catalog,

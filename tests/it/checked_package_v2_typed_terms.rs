@@ -252,6 +252,7 @@ fn public_literal_and_binding_reads_preserve_exact_values() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
         },

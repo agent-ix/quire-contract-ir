@@ -34,6 +34,7 @@ fn write(read: &CheckedPackageV2) -> Value {
             refinement_step_rows: read.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            operation_effects: None,
             checked_term_data: read.checked_term_data(),
             temporal_bindings: read.temporal_bindings(),
         },
