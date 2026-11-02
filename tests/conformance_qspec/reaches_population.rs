@@ -105,11 +105,7 @@ fn append_population(package: &mut Value, object: &Value, max: Option<&str>, ext
     if max.is_some() || extra {
         dependencies.push(integer);
     }
-    dependencies.sort_by(|a, b| {
-        let a: CheckedNodeId = serde_json::from_value(a.clone()).expect("node id");
-        let b: CheckedNodeId = serde_json::from_value(b.clone()).expect("node id");
-        a.cmp(&b)
-    });
+    super::node_index::sort_fixture_node_refs(package, &mut dependencies);
     population["dependencies"] = json!(dependencies);
     let mut path = vec![
         json!("bounded_domain"),
@@ -173,16 +169,13 @@ fn candidate(base: &Value, case: &Value) -> Value {
         )
     };
     if let Some(link) = link {
+        let ids = super::node_index::fixture_graph_ids(&package);
         let node = &mut package["semantic_graph"]["nodes"][application];
         node["body"]["operation"]["member"]["population"] = link.clone();
         if case["dependencies"] != "without-population" {
             let mut dependencies = node["dependencies"].as_array().expect("deps").clone();
             dependencies.push(link);
-            dependencies.sort_by(|a, b| {
-                let a: CheckedNodeId = serde_json::from_value(a.clone()).expect("node id");
-                let b: CheckedNodeId = serde_json::from_value(b.clone()).expect("node id");
-                a.cmp(&b)
-            });
+            super::node_index::sort_fixture_node_refs_with_ids(&ids, &mut dependencies);
             dependencies.dedup();
             node["dependencies"] = json!(dependencies);
         }

@@ -100,7 +100,7 @@ fn equivalence_node(package: &str, case: &Value, index: usize) -> Value {
     let ordinal = case["ordinal"].as_u64().unwrap_or(0);
     let id = json!({
         "package": package,
-        "path": ["scalar_type", "dimension_equivalence", format!("equivalence-{index}")],
+        "path": [format!("equivalence-{index}")],
         "ordinal": ordinal,
     });
     let dependencies = pair
