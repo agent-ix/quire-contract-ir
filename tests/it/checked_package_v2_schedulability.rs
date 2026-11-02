@@ -532,9 +532,9 @@ fn carrier_join_checks_have_deterministic_precedence() {
             "duplicate-before-order" => {
                 let first = wire["schedulability_claims"][1].clone();
                 let second = wire["schedulability_claims"][0].clone();
-                wire["schedulability_claims"] = json!([first.clone(), first, second]);
+                wire["schedulability_claims"] = json!([second.clone(), first, second]);
                 cause = Some(Cause::ConflictingDefinition);
-                "/schedulability_claims/1".to_owned()
+                "/schedulability_claims/2".to_owned()
             }
             "every-row-before-coverage" => {
                 wire["schedulability_claims"][1]["occurrence"] = json!(99);
