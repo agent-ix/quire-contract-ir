@@ -16,7 +16,11 @@ const CERTIFICATE_DEFINITIONS: [&str; 7] = [
     "ProbabilityProductKey",
 ];
 
-fn certificate_properties(schema: &Value, names: &mut BTreeSet<String>) -> Result<(), String> {
+fn certificate_properties(
+    schema: &Value,
+    definitions: &serde_json::Map<String, Value>,
+    names: &mut BTreeSet<String>,
+) -> Result<(), String> {
     let object = schema
         .as_object()
         .ok_or("certificate schema node must be an object")?;
@@ -37,9 +41,20 @@ fn certificate_properties(schema: &Value, names: &mut BTreeSet<String>) -> Resul
         return Err("certificate schema node has no schema keyword".into());
     }
     if let Some(reference) = object.get("$ref") {
-        reference
+        let reference = reference
             .as_str()
             .ok_or("certificate schema $ref must be a string")?;
+        if let Some(name) = reference.strip_prefix("#/$defs/") {
+            if name.is_empty() || !definitions.contains_key(name) {
+                return Err(format!(
+                    "certificate schema $ref has no $defs target: {reference}"
+                ));
+            }
+        } else if reference.starts_with('#') {
+            return Err(format!(
+                "certificate schema $ref is not a $defs reference: {reference}"
+            ));
+        }
     }
     if let Some(properties) = object.get("properties") {
         let properties = properties
@@ -47,11 +62,11 @@ fn certificate_properties(schema: &Value, names: &mut BTreeSet<String>) -> Resul
             .ok_or("certificate schema properties must be an object")?;
         for (name, value) in properties {
             names.insert(name.clone());
-            certificate_properties(value, names)?;
+            certificate_properties(value, definitions, names)?;
         }
     }
     if let Some(items) = object.get("items") {
-        certificate_properties(items, names)?;
+        certificate_properties(items, definitions, names)?;
     }
     for alternative in ["oneOf", "anyOf", "allOf"] {
         if let Some(branches) = object.get(alternative) {
@@ -59,7 +74,7 @@ fn certificate_properties(schema: &Value, names: &mut BTreeSet<String>) -> Resul
                 .as_array()
                 .ok_or_else(|| format!("certificate schema {alternative} must be an array"))?
             {
-                certificate_properties(branch, names)?;
+                certificate_properties(branch, definitions, names)?;
             }
         }
     }
@@ -118,7 +133,7 @@ fn model_certificate_members_match_qspec_schema() {
         let definition = definitions
             .get(name)
             .unwrap_or_else(|| panic!("backend-provider schema lacks $defs.{name}"));
-        certificate_properties(definition, &mut properties)
+        certificate_properties(definition, definitions, &mut properties)
             .unwrap_or_else(|error| panic!("$defs.{name}: {error}"));
     }
 
@@ -148,4 +163,17 @@ fn model_certificate_members_match_qspec_schema() {
 
     fn assert_derives<T: Clone + Copy + std::fmt::Debug + Eq + PartialEq>() {}
     assert_derives::<quire_contract_model::CertificateMember>();
+}
+
+#[trace("FR-070-AC-2")]
+#[test]
+fn certificate_property_refuses_dangling_local_definition() {
+    let schema = serde_json::json!({"properties": {"node_id": {"$ref": "#/$defs/DoesNotExist"}}});
+    let definitions = serde_json::Map::new();
+    let error = certificate_properties(&schema, &definitions, &mut BTreeSet::new())
+        .expect_err("dangling certificate reference must fail");
+    assert!(
+        error.contains("#/$defs/DoesNotExist"),
+        "unexpected error: {error}"
+    );
 }
