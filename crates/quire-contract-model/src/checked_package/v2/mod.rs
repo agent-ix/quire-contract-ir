@@ -1426,6 +1426,7 @@ fn validate(
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
     let models = RetainedModels::new(declarations, models);
+    operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
     if let Some(data) = wire.checked_term_data.as_ref() {
         dispatch_projection::validate_checked_term_data(
             data, wire, &kinds, &terms, &models, &mut meter,
