@@ -11,7 +11,7 @@ relationships:
 
 ## Summary
 
-Reviewed PR #800 at `df25d4e2dd6e37a40e063b228a41076a4f9b038a` against FR-070 AC-1 through AC-4 and FR-019 AC-5. Rust review covered the public enum, derives, explicit export, single-source vocabulary, schema conformance, traceability, and cross-repository ownership. Ticket: IR-1250.
+Reviewed PR #800 against FR-070 AC-1 through AC-4 and FR-019 AC-5. Rust review covered the public enum, derives, explicit export, single-source vocabulary, schema conformance, traceability, and cross-repository ownership. Ticket: IR-1250.
 
 ## Verdict
 
@@ -31,18 +31,18 @@ Reviewed PR #800 at `df25d4e2dd6e37a40e063b228a41076a4f9b038a` against FR-070 AC
 - FR-070-AC-3, examined: schema enum order versus ALL order.
 - FR-070-AC-4, examined: exact spelling and absence of locus structure or serializer.
 - FR-019-AC-5, examined: public inventory row and explicit root re-export.
-- Global AGENTS cross-repository copy rule, examined; QSL main `a1456801d173d2395f0d6b618126745bb11ccb0f` still has its local enum.
+- Global AGENTS cross-repository copy rule, examined; QSL still has its local enum.
 
 ## Evidence
 
-The model crate has no new dependencies and explicitly re-exports the public type. The focused QSpec test, model Clippy, conformance Clippy, and formatting passed in the coder's recorded run. The PR changes no CI workflow or gate. The actual full gate remains with the code lead on the final reviewed head. QSL's main source still defines `CertificateMember` through its `certificate_members!` macro; QSL-1437 is Backlog, and the user's earlier AbsenceMode exception did not cover this type. Rust-style's implementation rule keeps a vocabulary in one typed table or generated representation; QSL currently uses such a table, while this PR spells the same catalog separately in the enum, ALL, and match. The conformance test enumerates ALL, so a variant absent from ALL is invisible to that test.
+The model crate has no new dependencies and explicitly re-exports the public type. The focused QSpec test, model Clippy, conformance Clippy, and formatting passed in the coder's recorded run. The PR changes no CI workflow or gate. The aggregate gate remains with the code lead after review. QSL's main source still defines `CertificateMember` through its `certificate_members!` macro; QSL-1437 is Backlog, and the user's earlier AbsenceMode exception did not cover this type. Rust-style's implementation rule keeps a vocabulary in one typed table or generated representation; QSL currently uses such a table, while this PR spells the same catalog separately in the enum, ALL, and match. The conformance test enumerates ALL, so a variant absent from ALL is invisible to that test.
 
 ## Dispositions
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | still-open | QSL main still defines its local CertificateMember and no direct user-approved, expiring exception has been established for this temporary duplicate. QSL-1437 remains the removal ticket. |
-| FND-002 | fixed | Commit `ad10bb4e` derives enum variants, ALL, documentation, and exhaustive as_str arms from one `certificate_members!` table. An added table row now enters ALL and as_str together; the updated public-inventory parser recognizes that macro. |
+| FND-002 | fixed | The fix derives enum variants, ALL, documentation, and exhaustive as_str arms from one `certificate_members!` table. An added table row now enters ALL and as_str together; the updated public-inventory parser recognizes that macro. |
 
 ## Round 1 evidence
 

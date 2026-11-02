@@ -27,4 +27,4 @@ Reviewed the PR's one-line public inventory transition from planned to implement
 
 - FR-019-AC-5, examined: default-feature public inventory, explicit re-export, planned-row exclusion, and no root `quire_contract_ir` alias.
 - FR-070-AC-1, context_only: the export and derives are checked in the code review.
-- The spec diff contains no new hash, digest, pin, dependency edge, or requirement statement.
+- The spec diff adds no dependency edge or requirement statement.
