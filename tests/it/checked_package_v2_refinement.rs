@@ -1904,7 +1904,16 @@ fn selected_population_package() -> (Value, CheckedPackageEvidence, Value, Value
 fn inject_refinement_row_defect(package: &mut Value, position: usize) {
     let body = &mut package["semantic_graph"]["nodes"][position]["body"];
     if body["steps"].as_array().expect("steps").is_empty() {
-        body["class_catalog"]["concrete"][0]["class"] = json!("unknown-operation");
+        let side = if body["class_catalog"]["concrete"]
+            .as_array()
+            .expect("concrete catalog")
+            .is_empty()
+        {
+            "abstract"
+        } else {
+            "concrete"
+        };
+        body["class_catalog"][side][0]["class"] = json!("unknown-operation");
     } else {
         body["steps"][0]["source_class"] = json!("unknown-operation");
     }
@@ -3459,7 +3468,7 @@ fn protocol_catalog_compares_new_concrete_identity_in_key_order() {
     );
 }
 
-#[trace("TC-062", "FR-061-AC-3", "FR-061-AC-7")]
+#[trace("TC-062", "FR-061-AC-3", "FR-061-AC-7", "FR-061-AC-6")]
 #[test]
 fn row_empty_protocol_subject_admits_two_equal_empty_concrete_class_sets() {
     let (mut package, mut evidence) =
@@ -3494,6 +3503,7 @@ fn row_empty_protocol_subject_admits_two_equal_empty_concrete_class_sets() {
     assert_ne!(first_root, second_root);
     package["semantic_graph"]["nodes"][position]["semantic_type"] = first_root;
     settle_refinement(&mut package, position);
+    assert_refinement_dependency_matrix(&package, &evidence, position);
     let first_id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     assert!(
         matches!(
