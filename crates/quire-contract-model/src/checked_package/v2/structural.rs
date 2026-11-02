@@ -76,6 +76,7 @@ use crate::checked_package::shared::{
     rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole,
     CheckedPackageRefusalCode, JsonPointer,
 };
+use quire_exact::TextProfile;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -698,6 +699,40 @@ pub(super) fn validate_structural_nodes_with_keys(
     Ok(())
 }
 
+fn text_bounds_shape(term: Option<&CheckedTerm>, graph: &Graph<'_>) -> bool {
+    let Some([min, max, profile]) = term.and_then(typed_aggregate) else {
+        return false;
+    };
+    let bound = |member: &CheckedTerm, name| {
+        let CheckedTerm::Literal {
+            type_id,
+            value_kind: LiteralKind::Integer,
+            value,
+        } = typed_binding(member, name)?
+        else {
+            return None;
+        };
+        let text = value.as_str()?;
+        (graph.type_matches(type_id, ScalarTypeForm::Integer) && is_non_negative_integer(text))
+            .then(|| text.parse::<u64>().ok())
+            .flatten()
+    };
+    let (Some(min), Some(max)) = (bound(min, "min"), bound(max, "max")) else {
+        return false;
+    };
+    let Some(CheckedTerm::Literal {
+        type_id,
+        value_kind: LiteralKind::Text,
+        value,
+    }) = typed_binding(profile, "text_profile")
+    else {
+        return false;
+    };
+    min <= max
+        && graph.type_matches(type_id, ScalarTypeForm::Text)
+        && value.as_str().and_then(TextProfile::from_code).is_some()
+}
+
 /// FR-038-AC-124/125: validate the closed bodies of the ten derived type
 /// forms independently of their producer-assigned structural node IDs.
 pub(super) fn validate_derived_type_shapes(
@@ -757,6 +792,14 @@ pub(super) fn validate_derived_type_shapes(
                         CheckedPackageRefusalCode::InvalidPackage,
                         node_pointer(position).key("body"),
                         None,
+                        node_id.clone(),
+                    ));
+                }
+                if !text_bounds_shape(term, &graph) {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::InvalidPackage,
+                        node_pointer(position),
+                        Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
                         node_id.clone(),
                     ));
                 }
