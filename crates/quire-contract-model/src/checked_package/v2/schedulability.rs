@@ -254,14 +254,16 @@ impl CheckedPackageV2 {
     pub fn schedulability_claims(
         &self,
     ) -> impl ExactSizeIterator<Item = CheckedSchedulabilityClaimRef<'_>> + '_ {
-        self.schedulability_claim_index.iter().map(|&(node, occurrence)| {
-            let node = &self.wire.semantic_graph.nodes[node];
-            CheckedSchedulabilityClaimRef {
-                declaration: &node.node_id,
-                occurrence: &node.occurrences[occurrence],
-                body: &node.body,
-            }
-        })
+        self.schedulability_claim_index
+            .iter()
+            .map(|&(node, occurrence)| {
+                let node = &self.wire.semantic_graph.nodes[node];
+                CheckedSchedulabilityClaimRef {
+                    declaration: &node.node_id,
+                    occurrence: &node.occurrences[occurrence],
+                    body: &node.body,
+                }
+            })
     }
 }
 
@@ -315,8 +317,16 @@ pub(super) fn validate_carrier(
                 &row.declaration,
             ));
         };
-        let Some(&occurrence_position) = occurrences.get(&position).and_then(|occurrences| occurrences.get(&row.occurrence)) else {
-            return Err(invalid(Code::InvalidPackage, Some(Cause::InvalidValue), at.key("occurrence"), &row.declaration));
+        let Some(&occurrence_position) = occurrences
+            .get(&position)
+            .and_then(|occurrences| occurrences.get(&row.occurrence))
+        else {
+            return Err(invalid(
+                Code::InvalidPackage,
+                Some(Cause::InvalidValue),
+                at.key("occurrence"),
+                &row.declaration,
+            ));
         };
         let key = (structural_keys[position].as_ref(), row.occurrence);
         if !seen.insert(key) {
@@ -393,7 +403,9 @@ fn nonnegative(term: &CheckedTerm) -> bool {
 }
 fn zero(term: &CheckedTerm) -> bool {
     match term.literal_read().map(|read| read.value) {
-        Some(CheckedLiteralValue::Rational { numerator, .. }) => numerator == num_bigint::BigInt::from(0),
+        Some(CheckedLiteralValue::Rational { numerator, .. }) => {
+            numerator == num_bigint::BigInt::from(0)
+        }
         _ => false,
     }
 }
@@ -652,29 +664,61 @@ pub(super) fn validate_graph(
         if let Some(body) = terms[p].as_ref() {
             validate_literal_values(body, node_pointer(p).key("body"), &node.node_id, meter)?;
         }
-
     }
     Ok(())
 }
 
-fn validate_literal_values(body: &CheckedTerm, at: JsonPointer, id: &CheckedNodeId, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
+fn validate_literal_values(
+    body: &CheckedTerm,
+    at: JsonPointer,
+    id: &CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
     let mut pending = vec![(body, at)];
     while let Some((term, at)) = pending.pop() {
         match term {
-            CheckedTerm::Literal { value_kind: LiteralKind::Quantity, value, .. } => {
+            CheckedTerm::Literal {
+                value_kind: LiteralKind::Quantity,
+                value,
+                ..
+            } => {
                 let at = at.key("value");
-                let bad = || invalid(Code::InvalidPackage, Some(Cause::InvalidValue), at.clone(), id);
+                let bad = || {
+                    invalid(
+                        Code::InvalidPackage,
+                        Some(Cause::InvalidValue),
+                        at.clone(),
+                        id,
+                    )
+                };
                 let spelling = value.as_str().ok_or_else(bad)?;
                 let (numerator, denominator) = spelling.split_once('/').unwrap_or((spelling, "1"));
-                if let Err(failure) = super::identity::validate_rational_parts(numerator, denominator, meter, &|| at.clone()) {
-                    return Err(match failure { ValidationFailure::Refused(_) => bad(), incomplete => incomplete });
+                if let Err(failure) =
+                    super::identity::validate_rational_parts(numerator, denominator, meter, &|| {
+                        at.clone()
+                    })
+                {
+                    return Err(match failure {
+                        ValidationFailure::Refused(_) => bad(),
+                        incomplete => incomplete,
+                    });
                 }
             }
-            CheckedTerm::Literal { value_kind: LiteralKind::Integer, .. } if term.literal_read().is_none() => {
-                return Err(invalid(Code::InvalidPackage, Some(Cause::InvalidValue), at.key("value"), id));
+            CheckedTerm::Literal {
+                value_kind: LiteralKind::Integer,
+                ..
+            } if term.literal_read().is_none() => {
+                return Err(invalid(
+                    Code::InvalidPackage,
+                    Some(Cause::InvalidValue),
+                    at.key("value"),
+                    id,
+                ));
             }
             CheckedTerm::Aggregate { members } => {
-                for (i, term) in members.iter().enumerate().rev() { pending.push((term, at.clone().key("members").index(i))); }
+                for (i, term) in members.iter().enumerate().rev() {
+                    pending.push((term, at.clone().key("members").index(i)));
+                }
             }
             CheckedTerm::Binding { value, .. } => pending.push((value, at.key("value"))),
             _ => {}

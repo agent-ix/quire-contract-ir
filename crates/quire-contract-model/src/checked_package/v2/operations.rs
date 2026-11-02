@@ -518,10 +518,11 @@ fn literal_defect(
                         .is_some_and(|kind| {
                             matches!(
                                 kind,
-                                CheckedNodeKind::Claim(ClaimForm::Schedulability) | CheckedNodeKind::TimedModel(
-                                    super::TimedModelForm::Reset
-                                        | super::TimedModelForm::Constraint
-                                )
+                                CheckedNodeKind::Claim(ClaimForm::Schedulability)
+                                    | CheckedNodeKind::TimedModel(
+                                        super::TimedModelForm::Reset
+                                            | super::TimedModelForm::Constraint
+                                    )
                             )
                         });
                     (!timed_quantity)
