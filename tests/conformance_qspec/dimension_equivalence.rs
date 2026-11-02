@@ -360,7 +360,12 @@ fn xp_adverse_pairs_refuse_at_the_published_equivalence() {
                 let at = usize::try_from(case["at"].as_u64().expect("refused equivalence"))
                     .expect("vector index fits usize");
                 let mut expected = format!("/semantic_graph/nodes/{at}");
-                if let Some(operand) = case["operand"].as_u64() {
+                // XP-05's unit is the second operand; the wrong-kind rule
+                // locates its refusal there even though the row omits `operand`.
+                let operand = case["operand"]
+                    .as_u64()
+                    .or_else(|| (id == "XP-05").then_some(1));
+                if let Some(operand) = operand {
                     expected.push_str(&format!("/body/dimension_node_ids/{operand}"));
                     if let Some(member) = case["member"].as_str() {
                         expected.push_str(&format!("/{member}"));
