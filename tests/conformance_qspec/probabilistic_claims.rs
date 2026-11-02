@@ -48,28 +48,52 @@ fn fixture(rows: Vec<Value>, vectors: &Value) -> Value {
     for positive in positives {
         let mut declaration = positive["declaration"].clone();
         declaration["package"] = json!(package);
-        let mut occurrences = vec![positive["occurrence"].clone()];
-        if positive["id"] == "PC-01-equal-name-span-left" {
-            occurrences.push(json!({"role":"claim", "ordinal":1}));
-        }
+        let occurrences = if positive["id"] == "PC-01-equal-name-span-left" {
+            let duplicate_context = vectors["reader_refusals"]
+                .as_array()
+                .expect("reader refusals")
+                .iter()
+                .find(|case| case["id"] == "PC-R4-duplicate-declaration-occurrence-row")
+                .expect("published second occurrence");
+            duplicate_context["checked_claim_context"]["declarations"]
+                .as_array()
+                .expect("claim declarations")
+                .iter()
+                .find(|node| node["node_id"] == positive["declaration"])
+                .expect("first claim context")["occurrences"]
+                .clone()
+        } else {
+            positive["resolved_node"]["occurrences"].clone()
+        };
         nodes.push(json!({
             "node_id": declaration,
             "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "claim",
-            "semantic_form": "probabilistic_claim",
+            "node_tag": positive["resolved_node"]["node_tag"],
+            "semantic_form": positive["resolved_node"]["semantic_form"],
             "semantic_type": ty,
             "dependencies": [],
             "occurrences": occurrences,
             "body": {"term":"aggregate", "members":[]}
         }));
     }
-    let mut other = positives[0]["declaration"].clone();
+    let other_context = vectors["reader_refusals"]
+        .as_array()
+        .expect("reader refusals")
+        .iter()
+        .find(|case| case["id"] == "PC-R2-wrong-kind-node")
+        .expect("published non-probabilistic declaration");
+    let other_node = other_context["checked_claim_context"]["declarations"]
+        .as_array()
+        .expect("claim declarations")
+        .iter()
+        .find(|node| node["node_id"] == other_context["value"]["declaration"])
+        .expect("wrong-kind node context");
+    let mut other = other_node["node_id"].clone();
     other["package"] = json!(package);
-    other["path"] = json!(["claim", "other"]);
     nodes.push(json!({
         "node_id": other, "schema_version": "quire.checked-semantic-graph/v2",
-        "node_tag": "claim", "semantic_form": "analysis_claim", "semantic_type": ty,
-        "dependencies": [], "occurrences": [{"role":"claim", "ordinal":0}],
+        "node_tag": other_node["node_tag"], "semantic_form": other_node["semantic_form"], "semantic_type": ty,
+        "dependencies": [], "occurrences": other_node["occurrences"],
         "body": {"term":"aggregate", "members":[]}
     }));
     wire["semantic_graph"]["nodes"]
@@ -84,6 +108,19 @@ fn fixture(rows: Vec<Value>, vectors: &Value) -> Value {
         });
     settle(&mut wire);
     let first = row(&positives[0], &package)["declaration"].clone();
+    let second = row(&positives[1], &package)["declaration"].clone();
+    let same_span = wire["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == first)
+        .expect("first claim source")["regions"]
+        .clone();
+    for entry in wire["source_map"].as_array_mut().expect("source map") {
+        if entry["node_id"] == first || entry["node_id"] == second {
+            entry["regions"] = same_span.clone();
+        }
+    }
     let mut second_occurrence = wire["source_map"]
         .as_array()
         .expect("source map")
@@ -144,6 +181,19 @@ fn published_probabilistic_claim_vectors_join_and_refuse() {
         .map(|value| row(value, package))
         .collect();
     let positive = fixture(positive_rows.clone(), &all);
+    let claim_regions: Vec<_> = positive["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .filter(|entry| {
+            positive_rows
+                .iter()
+                .any(|row| row["declaration"] == entry["node_id"])
+        })
+        .map(|entry| entry["regions"].clone())
+        .collect();
+    assert_eq!(claim_regions.len(), 3);
+    assert!(claim_regions.windows(2).all(|pair| pair[0] == pair[1]));
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&positive) else {
         panic!(
             "both published claim identities must admit: {:?}",
