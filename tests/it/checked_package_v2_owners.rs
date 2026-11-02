@@ -10,8 +10,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedCollectionKind, CheckedMemberType, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedCollectionKind, CheckedMemberType, CheckedPackageEvidence, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -113,8 +114,8 @@ fn model_package() -> (Value, Value) {
     (package, document)
 }
 
-/// The pointer of the owner of the `model_root` selecting `acme/owners`, where
-/// the reader locates a fault of the selected document.
+/// The pointer of the selected `model_root` owner, where the reader locates a
+/// fault of the selected document.
 fn root_owner(package: &Value) -> String {
     let position = package["semantic_graph"]["nodes"]
         .as_array()
@@ -147,7 +148,15 @@ fn keep_model_declaration_last(package: &mut Value) {
 }
 
 fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadResult {
-    let evidence = evidence_with_document(package, "acme/owners", document);
+    read_with_selected_model(package, "acme/owners", document)
+}
+
+fn read_with_selected_model(
+    package: &Value,
+    identity: &str,
+    document: &Value,
+) -> CheckedPackageV2ReadResult {
+    let evidence = evidence_with_document(package, identity, document);
     CheckedPackageV2::read(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
@@ -840,7 +849,7 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
     )
     .expect("QSpec selected domain JSON");
     assert!(matches!(
-        read_with_model(&package, &document),
+        read_with_selected_model(&package, "acme/orders", &document),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     let nodes = package["semantic_graph"]["nodes"]
@@ -869,6 +878,42 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
             .unwrap()
             .contains(population_id));
     }
+
+    let mut missing = CheckedPackageEvidence::new();
+    missing.support_feature(crate::support::checked_package::COMPLETE_VALUE_FEATURE);
+    let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &missing,
+    ) else {
+        panic!("missing selected domain document must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingImport);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("{}/identity", root_owner(&package)))
+    );
+
+    let mut foreign = document.clone();
+    foreign["package"]["identity"] = json!("acme/other");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_selected_model(&package, "acme/orders", &foreign)
+    else {
+        panic!("foreign domain document must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::WrongModelSelection)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("{}/identity", root_owner(&package)))
+    );
 }
 
 #[trace(
@@ -997,7 +1042,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 })
                 .collect(),
         );
-        match read_with_model(&package, &document) {
+        match read_with_selected_model(&package, "acme/orders", &document) {
             CheckedPackageV2ReadResult::Admitted(_) if case["outcome"] == "admitted" => {
                 let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
                 let application = nodes
