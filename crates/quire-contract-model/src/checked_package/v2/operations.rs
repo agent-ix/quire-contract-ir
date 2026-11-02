@@ -6125,6 +6125,7 @@ mod tests {
                 ("scalar_type", "timestamp", "timestamp"),
                 ("scalar_type", "unit", "quantity"),
                 ("scalar_type", "enum", "enum"),
+                ("scalar_type", "carried_quantity", "quantity"),
                 ("composite_type", "option", "option"),
                 ("composite_type", "sequence", "sequence"),
                 ("composite_type", "set", "set"),
