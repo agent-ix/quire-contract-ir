@@ -22,7 +22,7 @@ relationships:
 
 ## Description
 
-Verify the `agent-ix/quire-integration` temporal bridge (IR-358) against QSL's
+Verify the `agent-ix/quire-integration` temporal bridge (IR-1005) against QSL's
 admitted classification, strict `/2` package and `evaluate_v2` result, the TL
 owners' public readers and QSpec FR-095's correspondence meaning. Execute this
 case in `agent-ix/quire-integration`, where the QSL-typed bridge is owned; it
