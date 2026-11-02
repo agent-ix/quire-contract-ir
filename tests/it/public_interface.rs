@@ -1086,8 +1086,7 @@ fn qsl_package(package: &Value) -> bool {
 #[test]
 fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
     use quire_contract_model::{
-        CheckedPackageV2, ExactTypeProjection, ExactTypeProjectionError,
-        SelectedExactIdentities,
+        CheckedPackageV2, ExactTypeProjection, ExactTypeProjectionError, SelectedExactIdentities,
     };
 
     // These function types bind the externally callable read to the model
@@ -1099,8 +1098,7 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
         u64,
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> =
         CheckedPackageV2::project_exact_type;
-    let _: fn(&ExactTypeProjection) -> &quire_exact::ValueType =
-        ExactTypeProjection::value_type;
+    let _: fn(&ExactTypeProjection) -> &quire_exact::ValueType = ExactTypeProjection::value_type;
 
     let exports = exported_items();
     assert_eq!(exports, expected_items(), "model public-item inventory");
@@ -1112,33 +1110,66 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
         "SelectedRecordFieldView",
         "SelectedRecordView",
     ] {
-        assert!(exports["checked_package"].contains(item), "missing model export {item}");
+        assert!(
+            exports["checked_package"].contains(item),
+            "missing model export {item}"
+        );
     }
     let root = public_declarations(&parse_model_source(BRIDGE_ROOT, "IR root"));
-    assert!(matches!(root.as_slice(), [PublicDeclaration::Module(name)] if name == "kani"),
-        "root must not re-export the projection or QSL APIs");
+    assert!(
+        matches!(root.as_slice(), [PublicDeclaration::Module(name)] if name == "kani"),
+        "root must not re-export the projection or QSL APIs"
+    );
 
     let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut names = model_source_inventory(&repository.join("crates/quire-contract-model/src"));
     names.extend(model_source_inventory(&repository.join("src")));
-    let forbidden = [
-        "CheckedExpression", "CheckingLimits", "CheckedGraph", "TypeEnvironment",
-        "check_expression", "check_postcondition_expression", "check_clause_expression",
-        "evaluate_expression", "Evaluator", "ExpressionChecker",
-    ];
-    assert!(names.iter().all(|item| !forbidden.contains(&item.name.as_str())),
+    let forbidden = |item: &PublicName| {
+        [
+            "CheckedExpression", "CheckingLimits", "CheckedGraph", "TypeEnvironment",
+            "check_postcondition_expression", "check_clause_expression",
+            "evaluate_expression", "Evaluator", "ExpressionChecker",
+        ].contains(&item.name.as_str())
+            // The existing v1 declaration environment owns its own typed IR
+            // expression check; it is not QSL's checked-expression API.
+            || (item.name == "check_expression" && item.owner != "DeclarationEnvironment")
+    };
+    assert!(names.iter().all(|item| !forbidden(item)),
         "QSL checked-expression, checking or evaluation API entered IR");
+    for source in [
+        "pub struct CheckedExpression;",
+        "pub use qsl_semantics::check::CheckedExpression;",
+        "pub struct Existing; impl Existing { pub fn check_expression() {} }",
+        "pub fn evaluate_expression() {}",
+    ] {
+        let adverse = source_items(&parse_model_source(source, "forbidden public surface"));
+        assert!(adverse.iter().any(&forbidden),
+            "forbidden declaration escaped public-item inventory: {source}");
+    }
 
     let output = Command::new(env!("CARGO"))
-        .args(["metadata", "--locked", "--format-version", "1", "--manifest-path"])
+        .args([
+            "metadata",
+            "--locked",
+            "--format-version",
+            "1",
+            "--manifest-path",
+        ])
         .arg(repository.join("Cargo.toml"))
         .output()
         .expect("Cargo metadata must start");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let graph: Value = serde_json::from_slice(&output.stdout).expect("Cargo metadata JSON");
     let packages = graph["packages"].as_array().expect("Cargo packages");
     let package = |name: &str| {
-        let selected: Vec<_> = packages.iter().filter(|package| package["name"] == name).collect();
+        let selected: Vec<_> = packages
+            .iter()
+            .filter(|package| package["name"] == name)
+            .collect();
         assert_eq!(selected.len(), 1, "one resolved package for {name}");
         selected[0]
     };
@@ -1149,20 +1180,33 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
     let exact_id = exact["id"].as_str().expect("Exact package ID");
     let ir_id = ir["id"].as_str().expect("IR package ID");
     let model_dependencies = projection_dependencies(&graph, model_id);
-    assert!(model_dependencies.contains(exact_id), "model must depend on actual Exact");
-    assert!(!model_dependencies.contains(ir_id), "model must remain cycle free from IR");
+    assert!(
+        model_dependencies.contains(exact_id),
+        "model must depend on actual Exact"
+    );
+    assert!(
+        !model_dependencies.contains(ir_id),
+        "model must remain cycle free from IR"
+    );
     let exact_dependencies = projection_dependencies(&graph, exact_id);
-    assert!(!exact_dependencies.contains(model_id) && !exact_dependencies.contains(ir_id),
-        "Exact must have no IR-model or admission dependency");
+    assert!(
+        !exact_dependencies.contains(model_id) && !exact_dependencies.contains(ir_id),
+        "Exact must have no IR-model or admission dependency"
+    );
     for id in std::iter::once(model_id).chain(model_dependencies.iter().copied()) {
-        assert!(!projection_dependencies(&graph, id).contains(id),
-            "production dependency cycle at {id}");
+        assert!(
+            !projection_dependencies(&graph, id).contains(id),
+            "production dependency cycle at {id}"
+        );
     }
     for id in [model_id, ir_id] {
         let dependencies = projection_dependencies(&graph, id);
-        assert!(packages.iter().all(|package| !dependencies.contains(
-            package["id"].as_str().expect("package ID")) || !qsl_package(package)),
-            "IR must not depend on QSL checking or evaluation");
+        assert!(
+            packages.iter().all(|package| !dependencies
+                .contains(package["id"].as_str().expect("package ID"))
+                || !qsl_package(package)),
+            "IR must not depend on QSL checking or evaluation"
+        );
     }
     // QSL's result/charge-log parity is exercised by QSL FR-390, not by
     // this IR ownership and dependency check.
@@ -1179,17 +1223,26 @@ fn exact_projection_dependency_inventory_follows_renames_and_transitive_edges() 
         {"id": "bridge", "deps": [{"name": "admission_alias", "pkg": "model",
             "dep_kinds": [{"kind": null}]}]}
     ]}});
-    assert_eq!(projection_dependencies(&graph, "model"),
+    assert_eq!(
+        projection_dependencies(&graph, "model"),
         BTreeSet::from(["model", "exact", "bridge"]),
-        "renamed transitive build edge must expose the cycle");
+        "renamed transitive build edge must expose the cycle"
+    );
     let mut dev_only = graph.clone();
     dev_only["resolve"]["nodes"][1]["deps"][0]["dep_kinds"][0]["kind"] = json!("dev");
-    assert_eq!(projection_dependencies(&dev_only, "model"), BTreeSet::from(["exact"]),
-        "a dev-only edge is not a production admission dependency");
-    assert!(qsl_package(&json!({"name": "qsl-semantics", "source": null})));
+    assert_eq!(
+        projection_dependencies(&dev_only, "model"),
+        BTreeSet::from(["exact"]),
+        "a dev-only edge is not a production admission dependency"
+    );
+    assert!(qsl_package(
+        &json!({"name": "qsl-semantics", "source": null})
+    ));
     assert!(qsl_package(&json!({"name": "renamed_checker", "source":
         "git+https://github.com/agent-ix/quire-spec-language?branch=main"})));
-    assert!(!qsl_package(&json!({"name": "quire-exact", "source": null})));
+    assert!(!qsl_package(
+        &json!({"name": "quire-exact", "source": null})
+    ));
 }
 
 #[trace("TC-456", "NFR-002-AC-1")]
