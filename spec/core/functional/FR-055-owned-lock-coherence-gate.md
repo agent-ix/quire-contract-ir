@@ -38,10 +38,12 @@ in separate work. No repository-specific revision allowance is introduced.
 
 ## Qualification Status
 
-PLANNED: these criteria precede the consumer implementation. This document neither
-removes the current script nor claims an installed-host receipt or passing consumer
-gate. Qualification must exercise the normal Make recipe and released binary, not
-only inspect recipe text or run the command outside the recipe.
+The consumer implementation in this change replaces the copied script with the
+released Quire command in the normal `make deny` recipe. The repository-owned tests
+exercise that recipe through the real released executable, including adverse scratch
+locks and the committed lock. Qualification is established by the recorded
+final-gate result; the existence of the tests and recipe alone does not claim
+a passing gate.
 
 ## Dependencies
 
@@ -50,10 +52,9 @@ only inspect recipe text or run the command outside the recipe.
 
 ## Consumer Verification Plan
 
-PLANNED: repository-owned integration tests bind each new criterion on actual
-`#[test]` functions. The tests run the normal `make deny` recipe in a scratch
-consumer tree with the actual released Quire executable. They may isolate the
-unrelated Cargo policy stage to make the checker observation decisive, but may
-not substitute the checker, copy its algorithm, or treat a malformed-input refusal
-as coherence evidence. Final qualification separately runs the repository's
-normal unchanged gates on its committed lock.
+Repository-owned integration tests bind the Test criteria on actual `#[test]`
+functions. They run the normal `make deny` recipe in a scratch consumer tree with
+the released Quire executable. They isolate the unrelated Cargo policy stage to
+make the checker observation decisive without substituting the checker, copying
+its algorithm, or treating a malformed-input refusal as coherence evidence. Final
+qualification separately runs the repository's normal gates on its committed lock.

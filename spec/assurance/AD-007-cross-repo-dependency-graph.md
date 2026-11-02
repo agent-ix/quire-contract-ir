@@ -132,7 +132,7 @@ owners or a copy is a finding.
 | Stack growth | no owner named | `qsl-walk-grow` (QSL, depended on by no one) and a direct `stacker` and `serde_stacker` in IR model | two sites, no shared type; recorded, not a copy (O-3) |
 | Exact scalar, text, composite kernel, `Meter`, `Outcome` | `quire-exact` | RT `src/exact` (23 files, 12,080 lines) is a second implementation | two owners; 124 `pub struct` or `enum` names are shared between RT `src/exact` and `quire-exact` plus `quire-semantic-value` (same-named, not proven identical), among them `Meter`, `Integer`, `Decimal`, `Text`, `Outcome`, `ScalarLimits`; RT's own edge to `quire-exact` is declared and unused (IR-349) |
 | Semantic value (declaration, containment, unit, quantity, enumeration, origin and location, checking limits) | `quire-semantic-value` | RT holds same-named copies; no RT edge to it | two owners, as above: RT's copies are defects to delete under IR-349 (with QSL-358); no exception exists (decision A) |
-| One-copy lock check (`scripts/check_one_copy.awk`) | quire-cli `quire check-lock` (CLI FR-027; IR-736) | the same 9-line script is committed in IR, CG and RT, byte-identical on each `main` (QSL has no equivalent: no `duplicate-revisions` check exists on QSL `main`; its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone) | a copy between repositories, which this AD treats as a finding, not as the design; tool ownership is selected, while consumer removal and qualification remain planned under IR-641 (O-4) |
+| One-copy lock check (`scripts/check_one_copy.awk`) | quire-cli `quire check-lock` (CLI FR-027; IR-736) | this IR change removes its script and calls the released owner command; current CG and RT `main` have also removed their copies and do not run this separate checker; QSL has no equivalent general check | the cross-repository copies are removed in this change; IR gate qualification is determined by its recorded final-gate result (O-4) |
 | Replay, witness, envelope, terminal record, obligation identity | `qsl-replay` | IR-347 removed the IR-root `KaniProviderResult` and `KaniProviderRecord` exports | none for these IR types (FR-039, AD-005 D-3) |
 | Kani outcome type (`KaniOutcome`) | IR root crate | one owner | none |
 | Checked-package wire types, strict reader, lowering | IR model (wire contract is QSpec's) | one owner | none |
@@ -151,7 +151,7 @@ owners or a copy is a finding.
 | Crate, QSL workspace | none | the crate-level table is a DAG over normal and dev edges; `quire-exact`, `qsl-attrs`, `qsl-walk-grow` and `tools/arch-lint` have no workspace dependency |
 | IR root to QSL (ADR-011 T-5 row) | not present | neither IR manifest names QSL; `tc_041` checks it by name and by git source |
 | QSL dev edges to CG and a historical IR | not present | no QSL manifest or lock entry; routed as R-2 for QSL to restate |
-| Diamond (not a cycle) | CG reaches IR directly and through QSL `qsl-package`; CG reaches `quire-exact` through RT and through `qsl-replay` | one copy per repo is required: the `branch = "main"` rule and the one-copy lock check make each lock hold one entry per repo; that check is today a script copied into IR, CG and RT (a finding, O-4), and QSL has no general one, only `deny-multiple-versions` on `quire-canonical` (routed, R-1) |
+| Diamond (not a cycle) | CG reaches IR directly and through QSL `qsl-package`; CG reaches `quire-exact` through RT and through `qsl-replay` | one resolved revision per repository remains the IR gate target: this change adopts Quire's owned lock check in IR; CG and RT removed their copied scripts without retaining this separate gate, and QSL has no general one (O-4, R-1) |
 
 A cycle is one `dev` edge away in two places: QSL depending on RT or CG for fixtures, and any
 RT or CG crate depending on a QSL crate other than the shared kernel. The second is guarded in
@@ -196,11 +196,11 @@ Targets proposed to each owning repository; only G-1 and G-4's IR halves are IR'
   other repositories).
 - G-3. Every first-party git edge is `branch = "main"` with no `rev` (holds for IR, CG and RT;
   proposed to QSL, R-1).
-- G-4. The target is CLI FR-027 coherence within each lock, including distinct crate
-  names from one repository. Consumer adoption is planned under IR-641 (existing: IR, CG and RT run `check_one_copy.awk` over
-  their own lock, a script copied into each repository, which O-4 treats as a finding; QSL
-  has no general check, only `deny-multiple-versions` on `quire-canonical`, so for QSL this
-  invariant is a target, routed in R-1).
+- G-4. The IR target is CLI FR-027 coherence within its lock, including distinct
+  crate names from one repository. This change replaces IR's copied script with
+  the owned command. CG and RT current `main` removed their copies and retired
+  the separate gate; QSL has no general check, only `deny-multiple-versions` on
+  `quire-canonical`, so its target remains routed in R-1.
 - G-5. No public type is defined in two first-party crates (proposed target; RT `src/exact`
   fails it, IR-349).
 
@@ -216,7 +216,7 @@ What is measured today, what is open and with whom, and what is routed.
 | IR root's former `KaniProviderResult` and `KaniProviderRecord` exports were removed | IR | IR-347 |
 | IR `deny.toml` has no name-level `bans` for CG, RT or QSL crates, and `tc_041` does not check the model crate by `qsl-*` name or source; a git edge to those repositories already fails `unknown-git` (decision B) | IR | IR-343 |
 | QVC has a second RFC 8785 path (`jcs_canonicalize`, `jcs_equal`, `jcs_sha256`) | QVC, quire-canonical | R-3, VER-52 (Backlog) |
-| `check_one_copy.awk` is copied, byte-identical, into IR, CG and RT | quire-cli owns the replacement; IR, CG and RT own their planned consumer adoption | O-4, IR-641 |
+| IR's `check_one_copy.awk` copy is removed in this change; CG and RT current `main` have no copy | quire-cli owns the IR replacement; CG and RT retired the separate checker under their own decisions | O-4, IR-641 |
 | CG's `Cargo.lock` still resolves `quire-walk` from the QSL repository, which `main` of QSL no longer contains | CG | resolves on CG's next full lock refresh, which also updates the QSL source; IR-565 is CG's adaptation to IR-495 on its next bump and does not itself cover this |
 | AD-005's text on IR's own digest encoder (`digest_json`, `CanonicalWriter`) and on the absence of any IR guard was out of date | IR | corrected in this change (AD-005 Current state and Identity bullets) |
 
@@ -264,21 +264,19 @@ O-3. Is stack growth one concept? `qsl-walk-grow` is depended on by nothing and 
 (accept two call sites). Low priority; no recommendation beyond not adding a dependency from IR
 to QSL.
 
-O-4. Selected owner; consumer adoption PLANNED. IR-736 selected quire-cli's
+O-4. Selected owner; IR consumer implementation in this change. IR-736 selected quire-cli's
 released `quire check-lock` command as the sole developer-tool owner;
 [CLI FR-027](ix://agent-ix/quire-cli/FR-027) owns its algorithm and installation
-contract. IR-641 will wire the normal `make deny` recipes in IR, CG and RT to that
-command and delete all three copied scripts, without a local replacement or
-compatibility shim. [IR FR-055](../core/functional/FR-055-owned-lock-coherence-gate.md),
-[CG FR-043](ix://agent-ix/quire-contract-codegen/FR-043) and
-[RT FR-275 AC-22 through AC-26](ix://agent-ix/quire-contract-runtime/FR-275)
-own the consumer criteria. These changes are not implemented by this specification:
-the three existing copies remain an open finding until actual removal and normal
-consumer gate qualification. Existing dependency pins remain unchanged in IR-641;
-the inherited CG filament-core-data split is tracked by IR-819 and must fail the
-owned checker rather than receive an allowance. The driver is evaluated from its
-current graph and Makefile under IR-641; this decision neither assumes a historical
-driver checker nor authorizes a new driver gate implementation.
+contract. This change wires IR's normal `make deny` recipe to that command and
+deletes the IR copy without a local replacement or compatibility shim.
+[IR FR-055](../core/functional/FR-055-owned-lock-coherence-gate.md) owns its
+consumer criteria and final gate qualification. Current CG and RT `main` have
+removed their copies; [CG FR-043](ix://agent-ix/quire-contract-codegen/FR-043)
+retired its planned checker, and RT removed its separate check under
+[FR-275](ix://agent-ix/quire-contract-runtime/FR-275). This IR change does not
+claim a CG or RT checker receipt. Existing dependency manifests and lock remain
+unchanged here. The driver has no copied checker on current `main`; this change
+does not add a driver gate.
 
 ### Routed gaps
 

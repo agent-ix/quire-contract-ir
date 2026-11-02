@@ -29,6 +29,15 @@ jobs:
       - name: Lint
         run: make lint
 
+      - name: Install released Quire lock checker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/quire-check-lock"
+          gh release download -R agent-ix/quire-cli -p 'quire-*-x86_64-unknown-linux-musl.tar.gz' -D "$RUNNER_TEMP/quire-check-lock"
+          tar -xzf "$RUNNER_TEMP"/quire-check-lock/quire-*-x86_64-unknown-linux-musl.tar.gz -C "$RUNNER_TEMP/quire-check-lock"
+          chmod +x "$RUNNER_TEMP/quire-check-lock/quire"
+
       - name: Install declared minimum Rust toolchain
         run: |
           msrv=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "quire-contract-ir") | .rust_version')
@@ -36,6 +45,8 @@ jobs:
           rustup toolchain install "$msrv" --profile minimal
 
       - name: Test
+        env:
+          QUIRE_LOCK_CHECKER: ${{ runner.temp }}/quire-check-lock/quire
         run: make test
 
   supply-chain:
@@ -57,7 +68,15 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
-      - name: cargo deny check
-        run: cargo deny check
+      - name: Install released Quire lock checker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/quire-check-lock"
+          gh release download -R agent-ix/quire-cli -p 'quire-*-x86_64-unknown-linux-musl.tar.gz' -D "$RUNNER_TEMP/quire-check-lock"
+          tar -xzf "$RUNNER_TEMP"/quire-check-lock/quire-*-x86_64-unknown-linux-musl.tar.gz -C "$RUNNER_TEMP/quire-check-lock"
+          chmod +x "$RUNNER_TEMP/quire-check-lock/quire"
+      - name: Check dependency policy and lock coherence
+        run: make deny QUIRE="${{ runner.temp }}/quire-check-lock/quire"
       - name: cargo audit
         run: cargo audit
