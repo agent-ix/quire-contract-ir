@@ -716,16 +716,14 @@ fn validate_literal_values(
                     });
                 }
             }
-            CheckedTerm::Literal {
-                value_kind: LiteralKind::Integer,
-                ..
-            } if term.literal_read().is_none() => {
-                return Err(invalid(
-                    Code::InvalidPackage,
-                    Some(Cause::InvalidValue),
-                    at.key("value"),
-                    id,
-                ));
+            CheckedTerm::Literal { value_kind: LiteralKind::Integer, value, .. } => {
+                let at = at.key("value");
+                let bad = || invalid(Code::InvalidPackage, Some(Cause::InvalidValue), at.clone(), id);
+                if let Some(spelling) = value.as_str() {
+                    if let Err(failure) = super::identity::validate_rational_parts(spelling, "1", meter, &|| at.clone()) {
+                        return Err(match failure { ValidationFailure::Refused(_) => bad(), incomplete => incomplete });
+                    }
+                } else if term.literal_read().is_none() { return Err(bad()); }
             }
             CheckedTerm::Aggregate { members } => {
                 for (i, term) in members.iter().enumerate().rev() {

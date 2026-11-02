@@ -508,10 +508,10 @@ fn literal_defect(
                         .is_ok_and(|parsed| parsed.to_string() == text)
                 })),
                 LiteralKind::Quantity => {
-                    // Timed reset/bound magnitudes have already passed their
-                    // own exact reduced-rational validation. Their published
-                    // grammar permits an explicit denominator of one.
-                    let timed_quantity = graph
+                    // Closed timed and schedulability body passes already
+                    // validate exact reduced rationals, including an explicit
+                    // denominator of one.
+                    let exact_body_quantity = graph
                         .index
                         .get(&node.node_id)
                         .and_then(|&position| graph.kinds.get(position))
@@ -525,7 +525,7 @@ fn literal_defect(
                                     )
                             )
                         });
-                    (!timed_quantity)
+                    (!exact_body_quantity)
                         .then(|| value.as_str().is_some_and(canonical_quantity_magnitude))
                 }
                 LiteralKind::Boolean
