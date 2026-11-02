@@ -7,6 +7,8 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-019-AC-22
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-019-AC-24
+    type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-048
@@ -142,3 +144,20 @@ Repeat under a lock selection with no clock configuration and no
 does not synthesize rows. Confirm the existing named public-item inventory
 still has the same three temporal-binding types and accessor, with no new
 export or root-crate re-export.
+
+## Operation effect rows borrowed public read (FR-019-AC-24)
+
+Planned until IR-1267 lands. Compile a default-feature external consumer that
+strictly reads otherwise valid packages with the optional `operation_effects`
+carrier omitted and with two distinct admitted rows, one carrying an explicitly
+empty effect. Assert `operation_effect_rows()` returns `None` for omission and
+a borrowed slice in producer order for presence. Compare each typed row's
+selected document, declaring node, original operation member, four ordered
+effect collections and provenance with the admitted input. Borrow the present
+slice directly into `CheckedPackageSidecarsRef::operation_effects`, encode with
+`encode_checked_package_v2`, strictly reread, and assert the complete rows are
+equal. Neither the test nor the consumer deserializes the source JSON to obtain
+writer rows, reconstructs rows from the authenticated-view iterator, sorts
+rows or converts a raw row into an admitted view. Confirm the existing
+`operation_effects()` view still yields the same count and that no new root
+export enters the public inventory.
