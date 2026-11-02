@@ -817,6 +817,72 @@ own byte stream already refuses such a number, because its text is not the
 canonical bytes of the value read, and carries neither cause nor pointer
 (FR-038-AC-79).
 
+### Proposed source-byte integrity (IR-1273; not implemented)
+
+This subsection and AC-435 through AC-440 are a proposed delta, planned until
+IR-1273 lands. They do not describe the current reader. Reader implementation
+is gated on the QSpec owner amending FR-322's prohibition of source-byte
+integrity, both authoritative V2 schemas and the conformance schema's source
+reference, and FR-272's closed diagnostic cause pairing. QSpec owns those
+artifacts; IR neither edits nor copies them. The proposal serves QSL FR-518
+row 28m and AC-9 (spec PR 2144), cited by QSL-1501.
+
+The proposed closed `CheckedSourceRef` shape is
+`{authority, identity, source_integrity}`. `source_integrity` is exactly 64
+lowercase ASCII hexadecimal characters encoding SHA-256 of the complete raw
+source byte sequence, with no decoding, newline conversion, normalization,
+canonical JSON encoding, domain prefix or other preimage transformation.
+`CheckedArtifactRef`, `CheckedArtifactLocator` and source nominal owners retain
+their current shapes. A source's nominal identity remains its exact
+(`authority`, `identity`) pair; integrity is an additional authenticated claim,
+not a replacement identity or a package/definition digest.
+
+The caller supplies bytes through
+`CheckedPackageEvidence::insert_source_document(authority, identity, bytes)`.
+The evidence retains one byte sequence per exact pair, independently of domain
+documents. Equal raw-byte repeats succeed and retain the first sequence;
+different repeats return `SourceDocumentConflict` containing the pair and leave
+evidence unchanged. There is no filesystem lookup, URI resolution or network
+access. An unused evidence entry is neither read nor charged. No implicit
+source bytes are inferred from package bytes, domain documents or dependencies.
+
+After strict JSON, canonical-byte and ordinary closed-schema checks, a dedicated
+source-integrity phase precedes header/body, graph, lock and source-map semantic
+validation. For this phase only, absence or wrong JSON kind of
+`source_integrity` is retained as an integrity fault rather than an ordinary
+missing-member or wrong-kind decode refusal. Extra members, malformed JSON and
+other missing/wrong-kind reference members retain existing decode precedence.
+The phase visits all actual `CheckedSourceRef` sites: `lock.sources` in array
+order, then source-map entries and their regions in array order, then diagnostic
+entries and their loci in array order. At each reference, a missing, wrong-kind
+or non-lowercase-64-hex integrity value, missing caller bytes, or unequal digest
+refuses `invalid_package`/`source-integrity` at that reference's RFC 6901
+pointer, never at its integrity member. Within one reference the order is
+integrity syntax, byte availability, resource charge, digest comparison. The
+first failing reference decides; no legacy two-member source reference admits.
+
+Each first encountered pair with available bytes charges its full byte length
+against a per-read cumulative source-byte ceiling equal to `limits.bytes`,
+before hashing; this counter is separate from the existing package wire-byte
+counter. Overflow or exceeding the ceiling returns `incomplete`, limit `bytes`,
+with that ceiling, saturated consumed count and the reference pointer. Each
+visited reference consumes one `work` visit before inspection. The reader
+computes and caches at most one digest per pair per read; repeats compare their
+claim with that cached digest and do not charge source bytes again. This bounds
+hash input by `limits.bytes` and traversal by `limits.work`. Empty bytes are a
+valid source, requiring their actual SHA-256 value.
+
+All three members participate in exact source-reference equality for region
+membership in `lock.sources`; nominal owner joins still use the pair. Integrity
+checking precedes region membership, so a differing claim reports
+`source-integrity` before `invalid_source_map`. A source-map reference with a
+valid claim for a different unlocked pair retains the existing
+`invalid_source_map` refusal. The writer preserves the required integrity
+member in every reference, including diagnostics and lowering source regions;
+it never substitutes, computes from a source range or silently defaults it.
+No change to interval bounds, source interpretation, producer path identities
+or package structural equality is introduced.
+
 ### Artifact references
 
 A definition is named by its identity alone. QSpec's `DefinitionRef` is the
@@ -5559,6 +5625,13 @@ IR-661's planned relationship-navigation-only refusal does not reinstate AC-66.
 
 The timed-slot criteria FR-038-AC-335 through FR-038-AC-340 consume QSpec [FR-322](https://github.com/agent-ix/quire-specification/blob/main/spec/objects/interfaces/FR-322-checked-package-artifact.md), AC-148..150 and AC-155..157. Owner [ruling #485](https://github.com/agent-ix/quire-specification/pull/485) (`81078f14`) withdrew indexed presence (PR-02); the empty-guard-root control is GD-01 rather than withdrawn SL-08. IR #775 supplies public-reader qualification of all 19 currently published SL/SR/PR/GD cases and their earlier-stage controls.
 
+
+| FR-038-AC-435 (planned until IR-1273 lands) | The closed source reference requires `authority`, `identity`, `source_integrity`; the last is lowercase hexadecimal SHA-256 over exact raw bytes. Matching ASCII, non-UTF-8, empty and newline-distinct sources admit through the public reader with caller-supplied evidence; writer output preserves the member. Definition refs and locators remain two-member shapes. | Test |
+| FR-038-AC-436 (planned until IR-1273 lands) | Missing, null, wrong-kind, malformed or mismatching integrity, and unavailable source bytes, refuse `invalid_package`/`source-integrity` at the exact reference pointer in each lock, source-map and diagnostic site. A one-byte evidence mutation leaves package bytes unchanged and refuses as QSL FR-518 row 28m requires; no two-member compatibility path exists. | Test |
+| FR-038-AC-437 (planned until IR-1273 lands) | Multiple integrity failures select lock, source-map, diagnostic traversal order and then array order; ordinary strict JSON/canonical/closed-schema errors precede the integrity phase. An integrity mismatch precedes header/body/graph/lock/source-map semantic faults. Invalid integrity syntax precedes absent bytes, which precedes source-byte charging and mismatch comparison. | Test |
+| FR-038-AC-438 (planned until IR-1273 lands) | Evidence insertion keys by the exact authority/identity pair, equal repeats retain the first bytes and succeed, unequal repeats return the keyed SourceDocumentConflict and preserve evidence. Same identity under different authorities remains independent. No reader filesystem/network IO occurs. | Test |
+| FR-038-AC-439 (planned until IR-1273 lands) | Unique referenced source bytes exactly at limits.bytes admit; one byte above returns incomplete/bytes at the first reference requiring the excess, before hashing. Repeated pairs charge bytes once, unused evidence charges nothing, each visited reference consumes one work visit, and one below required work returns incomplete/work at the first uncharged reference. | Test |
+| FR-038-AC-440 (planned until IR-1273 lands) | Region membership compares all three reference members, nominal owners join the pair alone, a bad repeated integrity claim refuses source-integrity, and a valid but unlocked pair refuses invalid_source_map. Equal admitted packages and their lowering retain equal source references including integrity. | Test |
 
 ## Dependencies
 

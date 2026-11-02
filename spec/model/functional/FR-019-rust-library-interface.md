@@ -350,6 +350,19 @@ The package name and declared contents are read directly from the envelope. No
 identity preimage, projection, semantic digest, derived node-key helper or
 old-wire admission path is exported.
 
+## Proposed source-reference API delta (IR-1273; not implemented)
+
+FR-019-AC-6 describes the implemented two-member source reference. The
+FR-038 proposed source-byte-integrity delta is planned until IR-1273 lands and
+its QSpec owner dependencies are resolved. It changes only `CheckedSourceRef`
+to require the public third member `source_integrity: Box<str>` and adds
+`CheckedPackageEvidence::insert_source_document(authority, identity, bytes)`
+with the keyed `SourceDocumentConflict` insertion error. The eventual reader
+change must replace AC-6's source-only two-member assertion and its compile
+controls; `CheckedArtifactRef`, `CheckedArtifactLocator`, absent
+`CheckedRevision` and their existing forbidden members remain unchanged.
+No implemented API or test-evidence claim is made by this proposed delta.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
