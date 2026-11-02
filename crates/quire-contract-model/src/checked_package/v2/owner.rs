@@ -121,15 +121,70 @@ fn check_one(
     }
 }
 
+// This lookup is only for ordinary anonymous-function shape checks. Monitor
+// entries defer those checks to plan admission; unrelated nodes need no index.
+#[ix_trace_rs::string_edge]
+fn anonymous_function_nodes<'a>(
+    nodes: &'a [CheckedSemanticNodeV2],
+    monitor_entries: &BTreeSet<super::CheckedNodeId>,
+) -> BTreeMap<&'a super::CheckedNodeId, &'a CheckedSemanticNodeV2> {
+    let mut targets = BTreeSet::new();
+    for node in nodes {
+        if node.owner.is_some()
+            || node.declaration.is_some()
+            || monitor_entries.contains(&node.node_id)
+            || CheckedNodeTag::from_wire(&node.node_tag)
+                .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+                != Some(CheckedNodeKind::Function(super::FunctionForm::PureFunction))
+        {
+            continue;
+        }
+        let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(&node.body)
+        else {
+            continue;
+        };
+        if !matches!(members, [_, _] | [_, _, _]) {
+            continue;
+        }
+        // Collect possible targets only; anonymous_body_shape remains the sole
+        // authority for the closed syntax and the target kinds.
+        for member in members {
+            let Some(super::CheckedTermView::Binding { name, value }) = CheckedTerm::view(member)
+            else {
+                continue;
+            };
+            if name == "parameters" {
+                if let Some(super::CheckedTermView::Aggregate { members }) =
+                    CheckedTerm::view(value)
+                {
+                    targets.extend(
+                        members
+                            .iter()
+                            .filter_map(super::structural::reference_target),
+                    );
+                }
+            } else if matches!(name, "body" | "measure") {
+                targets.extend(super::structural::reference_target(value));
+            }
+        }
+    }
+    let mut selected = BTreeMap::new();
+    if !targets.is_empty() {
+        for node in nodes {
+            if targets.contains(&node.node_id) {
+                // Preserve the raw lookup's last duplicate until ordinary
+                // identity validation reports duplicate node IDs.
+                selected.insert(&node.node_id, node);
+            }
+        }
+    }
+    selected
+}
+
 /// Checks owner presence and variant before package identity validation.
 pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     let monitor_entries = super::monitor_plan::entry_candidates(&wire.semantic_graph.nodes);
-    let nodes = wire
-        .semantic_graph
-        .nodes
-        .iter()
-        .map(|node| (&node.node_id, node))
-        .collect::<BTreeMap<_, _>>();
+    let nodes = anonymous_function_nodes(&wire.semantic_graph.nodes, &monitor_entries);
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         let kind = CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form));
@@ -171,6 +226,7 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
                 node.semantic_type == node.node_id,
                 node.owner.as_ref(),
                 node.owner.is_none()
+                    && node.declaration.is_none()
                     && (monitor_entries.contains(&node.node_id)
                         || (kind
                             == Some(CheckedNodeKind::Function(super::FunctionForm::PureFunction))
@@ -438,4 +494,97 @@ pub(super) fn validate_owner_joins(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod anonymous_lookup_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn node(index: usize, tag: &str, form: &str, body: Value) -> Value {
+        let id = json!({"package":"test/owners", "path":[index.to_string()], "ordinal":0});
+        json!({
+            "schema_version":"quire.checked-semantic-graph/v2", "node_id":id,
+            "node_tag":tag, "semantic_form":form, "semantic_type":id,
+            "body":body, "dependencies":[], "occurrences":[]
+        })
+    }
+
+    fn wire(nodes: Vec<Value>) -> CheckedPackageWireV2 {
+        serde_json::from_value(json!({
+            "contract_version":"quire.checked-package/v2", "name":"test/owners",
+            "lock":{"sources":[], "edition":{"role":"edition", "definition":{"authority":"test", "identity":"edition"}},
+                "profile_selections":[], "definition_selections":[], "required_features":[], "dependency_selections":[]},
+            "semantic_graph":{"graph_version":"quire.checked-semantic-graph/v2", "nodes":nodes},
+            "source_map":[], "capability_report":[],
+            "diagnostics":{"catalog":{"authority":"test", "identity":"diagnostics"}, "entries":[]}
+        })).expect("owner-schema input")
+    }
+
+    /// Trace: TC-048, FR-038-AC-425.
+    #[test]
+    fn anonymous_owner_lookup_preserves_last_duplicate_target() {
+        let expression = node(
+            1,
+            "expression",
+            "reference",
+            json!({"term":"aggregate", "members":[]}),
+        );
+        let function = node(
+            0,
+            "function",
+            "pure_function",
+            json!({"term":"aggregate", "members":[
+                {"term":"binding", "name":"parameters", "value":{"term":"aggregate", "members":[]}},
+                {"term":"binding", "name":"body", "value":{"term":"reference", "target":expression["node_id"]}}
+            ]}),
+        );
+        let wrong = node(
+            1,
+            "scalar_type",
+            "integer",
+            json!({"term":"aggregate", "members":[]}),
+        );
+        assert!(validate_owner_schema(&wire(vec![
+            function.clone(),
+            wrong.clone(),
+            expression.clone()
+        ]))
+        .is_ok());
+        let failure = validate_owner_schema(&wire(vec![function, expression, wrong]))
+            .expect_err("last duplicate has wrong target kind");
+        let ValidationFailure::Refused(refusal) = failure else {
+            panic!("owner refusal")
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(
+            refusal.loci[0].path,
+            JsonPointer::parse("/semantic_graph/nodes/0")
+        );
+    }
+
+    /// Trace: TC-048, FR-038-AC-425.
+    #[test]
+    fn owner_schema_irrelevant_nodes_scaling() {
+        for count in [1_000, 100_000] {
+            let input = wire(
+                (0..count)
+                    .map(|i| {
+                        node(
+                            i,
+                            "scalar_type",
+                            "integer",
+                            json!({"term":"aggregate", "members":[]}),
+                        )
+                    })
+                    .collect(),
+            );
+            let started = std::time::Instant::now();
+            assert!(validate_owner_schema(&input).is_ok());
+            eprintln!(
+                "owner schema {count} irrelevant nodes: {:?}",
+                started.elapsed()
+            );
+        }
+    }
 }
