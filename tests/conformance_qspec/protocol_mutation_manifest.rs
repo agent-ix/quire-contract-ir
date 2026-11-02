@@ -89,13 +89,13 @@ fn assert_manifest_refusal(id: &str, expected_locus: &str) {
 }
 
 #[test]
-#[trace("TC-946")]
+#[trace("TC-946", "FR-038-AC-435")]
 fn qspec_protocol_mutation_v13_refuses_wrong_result_type() {
     assert_manifest_refusal("V13", "/semantic_graph/nodes/64");
 }
 
 #[test]
-#[trace("TC-946")]
+#[trace("TC-946", "FR-038-AC-436")]
 fn qspec_protocol_mutation_v14_refuses_state_clause_protocol_member() {
     assert_manifest_refusal("V14", "/semantic_graph/nodes/54");
 }
