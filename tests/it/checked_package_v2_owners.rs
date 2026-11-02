@@ -1294,6 +1294,65 @@ fn tc_228_declared_record_tuple_and_function_carry_their_source_owner() {
     }
 }
 
+/// Trace: FR-038-AC-420, QSpec FR-322-AC-68.
+#[trace("TC-048", "FR-038-AC-420")]
+#[test]
+fn declared_event_keeps_source_owner() {
+    let package = source_package_form("model", "event_type", "Deposited");
+    let node = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("event node");
+    assert_eq!(node["owner"]["kind"], "source");
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Trace: FR-038-AC-420, QSpec FR-322 owner-presence rule.
+#[trace("TC-048", "FR-038-AC-420")]
+#[test]
+fn undeclared_event_requires_model_owner_wire_shape() {
+    let (mut base, document) = model_package();
+    let position = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    base["semantic_graph"]["nodes"][position]["semantic_form"] = json!("event_type");
+    let pointer = format!("/semantic_graph/nodes/{position}");
+    let mut absent = base.clone();
+    absent["semantic_graph"]["nodes"][position]
+        .as_object_mut()
+        .expect("event node")
+        .remove("owner");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&absent, &document) else {
+        panic!("ownerless event must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(pointer.as_str())
+    );
+
+    let mut source = base.clone();
+    let selected_source = &base["lock"]["sources"][0];
+    source["semantic_graph"]["nodes"][position]["owner"] = json!({
+        "kind": "source", "authority": selected_source["authority"],
+        "identity": selected_source["identity"],
+    });
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&source, &document) else {
+        panic!("source-owned undeclared event must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("{pointer}/owner").as_str())
+    );
+}
+
 #[trace("TC-228", "FR-038-AC-153")]
 #[test]
 fn tc_228_anonymous_locus_nominal_and_application_nodes_are_owner_free() {
