@@ -55,6 +55,7 @@ mod checked_package_v2_protocol_body;
 mod checked_package_v2_protocol_reference;
 mod checked_package_v2_reader;
 mod checked_package_v2_recursive_leaves;
+mod checked_package_v2_schedulability;
 mod checked_package_v2_refinement;
 mod checked_package_v2_require_bounds;
 mod checked_package_v2_structural_keys;
