@@ -15,6 +15,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-304
+    type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-51
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-52
@@ -4561,6 +4563,35 @@ identity, declaration, frame and resource refusals retain their existing
 precedence; the native literal and operation checks run in the existing
 operation step under the same bounded work accounting.
 
+### Text literal membership (planned until IR-1260 lands)
+
+The strict reader SHALL apply QSpec FR-322's "Text literal membership" rule to
+each `literal` whose `value_kind` is `text` and whose `type` resolves to a
+`bounded_domain`/`text_bounds` node. The `value` is the retained sequence:
+the reader SHALL not normalize, rewrite, or coerce it. Under `nfc`, `nfd`,
+`nfkc`, and `nfkd`, it SHALL already equal its normalization under
+`quire.value.text.unicode-17.0.0/v1`; `unicode-scalars` and `binary-utf8`
+require no normalization. The reader SHALL count Unicode scalar values for
+the first five profiles and UTF-8 bytes for `binary-utf8`, and admit only
+lengths in the type's inclusive `[min, max]` interval. A non-normalized value
+or a length below or above the bounds SHALL refuse `ill_typed`/`type-mismatch`
+at that literal's `value` member (at
+`/semantic_graph/nodes/{n}/body/value` for a root literal), with the
+containing graph node as locus. It SHALL expose no admitted package for that
+refusal.
+
+The existing literal-family check SHALL run first: a `text` literal typed by
+a node outside the `text` family refuses `ill_typed`/`operator-ineligible` at
+its `type` before the reader examines `value`. A `text` literal typed by a
+plain `scalar_type`/`text` node has no length or normalization bound. The
+package refusal is distinct from FR-141's runtime
+`text_length_out_of_domain`. The reader SHALL use the existing Unicode 17.0.0
+normalization dependency and SHALL not carry a second table or normalize the
+retained value. Its conformance test SHALL read QSpec's
+`proposals/checked-package-v2/text-literal-vectors.json` by reference from
+the selected QSpec checkout, including `TX-01` through `TX-14` and `TX-13s`;
+it SHALL store no copy of the vector or schema.
+
 ### Carried quantity type and conversion
 
 The V2 reader SHALL admit the anonymous `scalar_type`/`carried_quantity`
@@ -5231,6 +5262,9 @@ adds none of them to the checked-package wire or the cycle-free model API.
 | FR-038-AC-406 | planned until the IR-1226 reader lands. The strict reader admits QSpec STD-640 positive vectors OEC-01..07 by reference, including each of the four effect kinds, an intentionally empty effect, multiple own operations and equal member names under distinct selected documents or declaring objects. A present row exposes the exact producer frame entries and provenance through a borrowed typed read; an absent optional carrier yields no effect rows and a typed unavailable-witness outcome for an operation-effect request, never an inferred empty effect. The canonical writer emits the same top-level member from optional borrowed typed input rows and omits it for `None`; a raw input row alone cannot mint an admitted view. | Test |
 | FR-038-AC-407 | planned until the IR-1226 reader lands. The strict reader applies QSpec TC-977's OES-01..14 schema refusals and OER-01..26 semantic refusals to complete selected packages, checking each published code, cause and primary RFC 6901 locus. An explicitly `null`, empty or non-array `operation_effects` refuses `malformed_wire` at `/operation_effects`, unlike omission. It refuses missing/extra row or effect members, wrong entry kinds or provenance, foreign/wrong-kind declaring nodes, undeclared or inherited-only operations, dropped/invented effect entries, repeated or descending keys and missing coverage before admission, in the published precedence. | Test |
 | FR-038-AC-408 | planned until the IR-1226 reader lands. Each visited carrier row and effect entry consumes one validation visit before inspection; a limit one below the required work returns incomplete at the first uncharged locus without a partial effect view. Equal admitted packages and their clones yield equal borrowed row data or equal typed outcomes. TC-048 reads the QSpec STD-640 vector file through the selected checkout and holds no local vector or schema copy. | Test |
+| FR-038-AC-409 | planned until IR-1260 lands. A root or nested `text` literal typed by `Text[min, max; profile]` admits exactly when its retained `value` is already normalized under `nfc`, `nfd`, `nfkc`, or `nfkd` when applicable and its scalar-count length (UTF-8 byte count for `binary-utf8`) is within the inclusive bounds. The reader does not normalize or coerce the value. A plain `scalar_type`/`text` literal remains unbounded. | Test (TC-048; QSpec TC-233 DL-07..DL-10) |
+| FR-038-AC-410 | planned until IR-1260 lands. A bounded Text literal below `min`, above `max`, or not in its declared normal form refuses `ill_typed`/`type-mismatch` at its exact `value` pointer, with the containing node as locus and no admitted package. A literal typed by a non-Text family refuses `ill_typed`/`operator-ineligible` at `type` first. No package refusal is reported as FR-141 runtime `text_length_out_of_domain`. | Test (TC-048; QSpec TC-233 DL-08..DL-10) |
+| FR-038-AC-411 | planned until IR-1260 lands. The conformance test reads QSpec `proposals/checked-package-v2/text-literal-vectors.json` at the selected checkout by reference and checks `TX-01`..`TX-14` plus `TX-13s`, including exact admission, refusal code/cause, primary RFC 6901 pointer and graph-node locus. It recomputes length and normalization with the reader's pinned Unicode 17.0.0 implementation and keeps no local vector, schema, table, or fixture copy. | Test (TC-048; QSpec TC-233 DL-07..DL-10) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
