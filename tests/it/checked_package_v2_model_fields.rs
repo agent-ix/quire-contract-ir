@@ -1699,6 +1699,9 @@ fn admitted_selected_records_project_complete_exact_views() {
         missing.code,
         ExactTypeProjectionErrorCode::UnavailableIdentityWitness
     );
+    assert_eq!(missing.requested.as_ref(), tick_node);
+    assert_eq!(missing.at.as_deref(), Some(tick_node));
+    assert_eq!(missing.form.as_ref(), "model/record_value_type");
     let mut conflicting_fields = field_rows.clone();
     let duplicate_member_id = conflicting_fields[1].member_id.clone();
     conflicting_fields[2].member_id = duplicate_member_id;
@@ -4734,6 +4737,8 @@ fn exact_reference_projection_preserves_each_selected_object_identity() {
         assert_eq!(own.code, ExactTypeProjectionErrorCode::UnsupportedExactType);
         assert_eq!(own.at.as_deref(), Some(&row.structural_node));
         assert_eq!(own.form.as_ref(), "model/object_type");
+        assert_eq!(own.requested.as_ref(), &row.structural_node);
+        assert_eq!(own.work, 2);
         let missing =
             SelectedExactIdentities::from_stage_rows(&admitted, [rows[1 - index].clone()], [])
                 .unwrap();
@@ -4746,6 +4751,8 @@ fn exact_reference_projection_preserves_each_selected_object_identity() {
         );
         assert_eq!(error.at.as_deref(), Some(&row.structural_node));
         assert_eq!(error.requested.as_ref(), &references[index]);
+        assert_eq!(error.form.as_ref(), "model/object_type");
+        assert_eq!(error.work, 3);
     }
     assert_ne!(
         admitted
@@ -4765,6 +4772,8 @@ fn exact_reference_projection_preserves_each_selected_object_identity() {
     assert_eq!(error.code, ExactTypeProjectionErrorCode::ForeignNode);
     assert_eq!(error.requested.as_ref(), &foreign);
     assert_eq!(error.at, None);
+    assert_eq!(error.form.as_ref(), "unknown_node");
+    assert_eq!(error.work, 1);
 
     // A dangling target never reaches the admitted projection boundary.
     let nodes = wire["semantic_graph"]["nodes"].as_array_mut().unwrap();
