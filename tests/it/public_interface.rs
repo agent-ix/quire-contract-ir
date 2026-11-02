@@ -8,6 +8,7 @@ use std::{
     process::Command,
 };
 
+use crate::support::cargo_graph::production_graph;
 use ix_trace_rs::trace;
 use quire_contract_model::{CheckedNodeId, CheckedNodePathSegment, DiagnosticCode, Std001Code};
 use serde_json::{json, Value};
@@ -1044,35 +1045,6 @@ fn tc_058_model_root_exports_exactly_the_documented_public_items() {
         .any(|line| line == "pub mod selected_population;"));
 }
 
-// Resolve Cargo package IDs, rather than dependency aliases: a renamed or
-// transitive edge must retain its actual owner in the architecture inventory.
-fn projection_dependencies<'a>(graph: &'a Value, root: &str) -> BTreeSet<&'a str> {
-    let nodes: BTreeMap<_, _> = graph["resolve"]["nodes"]
-        .as_array()
-        .expect("resolved Cargo nodes")
-        .iter()
-        .map(|node| (node["id"].as_str().expect("package ID"), node))
-        .collect();
-    let mut reached = BTreeSet::new();
-    let mut pending = vec![root];
-    while let Some(id) = pending.pop() {
-        for edge in nodes[id]["deps"].as_array().expect("resolved edges") {
-            if edge["dep_kinds"]
-                .as_array()
-                .expect("dependency kinds")
-                .iter()
-                .any(|kind| kind["kind"].is_null() || kind["kind"] == "build")
-            {
-                let dependency = edge["pkg"].as_str().expect("resolved target ID");
-                if reached.insert(dependency) {
-                    pending.push(dependency);
-                }
-            }
-        }
-    }
-    reached
-}
-
 fn qsl_package(package: &Value) -> bool {
     let name = package["name"].as_str().expect("package name");
     name.starts_with("qsl-")
@@ -1203,7 +1175,7 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
     let model_id = model["id"].as_str().expect("model package ID");
     let exact_id = exact["id"].as_str().expect("Exact package ID");
     let ir_id = ir["id"].as_str().expect("IR package ID");
-    let model_dependencies = projection_dependencies(&graph, model_id);
+    let model_dependencies = production_graph(&graph, model_id, |_| false).expect("acyclic model production graph");
     assert!(
         model_dependencies.contains(exact_id),
         "model must depend on actual Exact"
@@ -1212,19 +1184,14 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
         !model_dependencies.contains(ir_id),
         "model must remain cycle free from IR"
     );
-    let exact_dependencies = projection_dependencies(&graph, exact_id);
+    let exact_dependencies = production_graph(&graph, exact_id, |_| false).expect("acyclic Exact production graph");
     assert!(
         !exact_dependencies.contains(model_id) && !exact_dependencies.contains(ir_id),
         "Exact must have no IR-model or admission dependency"
     );
-    for id in std::iter::once(model_id).chain(model_dependencies.iter().copied()) {
-        assert!(
-            !projection_dependencies(&graph, id).contains(id),
-            "production dependency cycle at {id}"
-        );
-    }
     for id in [model_id, ir_id] {
-        let dependencies = projection_dependencies(&graph, id);
+        let dependencies = production_graph(&graph, id, |_| false)
+            .expect("acyclic IR production graph");
         assert!(
             packages.iter().all(|package| !dependencies
                 .contains(package["id"].as_str().expect("package ID"))
@@ -1239,7 +1206,11 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
 #[trace("FR-352-AC-8", "TC-058")]
 #[test]
 fn exact_projection_dependency_inventory_follows_renames_and_transitive_edges() {
-    let graph = json!({"resolve": {"nodes": [
+    let graph = json!({"packages": [
+        {"id": "model", "name": "quire-contract-model"},
+        {"id": "exact", "name": "quire-exact"},
+        {"id": "bridge", "name": "ordinary-library"}
+    ], "resolve": {"nodes": [
         {"id": "model", "deps": [{"name": "numeric_alias", "pkg": "exact",
             "dep_kinds": [{"kind": null}]}]},
         {"id": "exact", "deps": [{"name": "helper", "pkg": "bridge",
@@ -1248,15 +1219,22 @@ fn exact_projection_dependency_inventory_follows_renames_and_transitive_edges() 
             "dep_kinds": [{"kind": null}]}]}
     ]}});
     assert_eq!(
-        projection_dependencies(&graph, "model"),
-        BTreeSet::from(["model", "exact", "bridge"]),
+        production_graph(&graph, "model", |_| false),
+        Err("production dependency cycle at model".to_owned()),
         "renamed transitive build edge must expose the cycle"
+    );
+    let mut acyclic = graph.clone();
+    acyclic["resolve"]["nodes"][2]["deps"] = json!([]);
+    assert_eq!(
+        production_graph(&acyclic, "model", |_| false).unwrap(),
+        BTreeSet::from(["model".into(), "exact".into(), "bridge".into()]),
+        "canonical IDs must survive aliases and transitive build edges"
     );
     let mut dev_only = graph.clone();
     dev_only["resolve"]["nodes"][1]["deps"][0]["dep_kinds"][0]["kind"] = json!("dev");
     assert_eq!(
-        projection_dependencies(&dev_only, "model"),
-        BTreeSet::from(["exact"]),
+        production_graph(&dev_only, "model", |_| false).unwrap(),
+        BTreeSet::from(["model".into(), "exact".into()]),
         "a dev-only edge is not a production admission dependency"
     );
     assert!(qsl_package(
