@@ -4947,15 +4947,21 @@ and validate their ordinary expression bodies without executing them.
 QSpec owns the producer program semantics, tick cover, capacity derivation,
 runtime modular delta, progress assertion and outcome production.
 
-For the published twelve-binding form, the root SHALL have exactly the ordered
+For the published fifteen-binding form, the root SHALL have exactly the ordered
 bindings `clause`, `state`, `inputs`, `scope`, `results`, `init`, `on_event`,
 `on_watermark`, `counter_width_bits`, `max_reading_gap`, `max_event_rate`,
-`buffers`. The clause references a `temporal`/`temporal_clause`; state, inputs
+`buffers`, `counter`, `tick_unit`, `uncertainty`. The clause references a `temporal`/`temporal_clause`; state, inputs
 and scope reference record types; results references a sequence type; the
-three entry references resolve to anonymous pure functions. The clause's
+three entry references resolve to anonymous pure functions. `tick_unit` SHALL
+reference a `scalar_type`/`unit` whose `dimension_node_id` is exactly the base
+Time dimension by identity (QSpec FR-322-AC-127); a wrong node kind or dimension
+SHALL refuse `invalid_semantic_graph` at `tick_unit`, not
+`invalid-time-quantity`. The clause's
 existing temporal-binding row supplies the clock; the reader SHALL NOT invent
 a second clock binding. Each buffer has exactly ordered `subformula` and
-`capacity` bindings. The remaining shape, types and literals SHALL satisfy
+`capacity` bindings, with an integer capacity literal. Width and gap SHALL be
+integer literals, rate and uncertainty rational literals, and counter a text
+literal; a wrong literal kind is a shape refusal at its binding. The remaining shape, types and literals SHALL satisfy
 QSpec FR-487 Properties, including the exact six-case outcome union and its
 `Incomplete` and `Failed` payload records.
 
@@ -4964,10 +4970,12 @@ node-id order. Within one root it SHALL check shape, reference kinds, signatures
 and outcome payloads, premise ranges, then buffers and state, in that order.
 The first defect SHALL determine the refusal. Shape and reference-kind failures
 are `invalid_semantic_graph` at the breaking root binding; missing bindings use
-their expected index, extra bindings the index after the twelfth. Entry parameter
+their expected index, extra bindings the index after the fifteenth. Entry parameter
 or result mismatches are `ill_typed`/`type-mismatch` at the entry binding;
-outcome union or payload mismatches use that pair at `results`. Integer premise
-range failures are `invalid_package`/`invalid-value` at the literal. A repeated,
+outcome union or payload mismatches use that pair at `results`. Premise range or noncanonical rational
+failures are `invalid_package`/`invalid-value` at the literal's `value`.
+Premise checks SHALL follow body order: width, gap, rate, each buffer capacity,
+counter, uncertainty. A repeated,
 descending or unreached subformula is `invalid_semantic_graph` at `buffers`;
 a missing, extra, misordered or mistyped state field uses that code at `state`.
 The state has exactly integer `now`, then one sequence field `buffer_<n>` per
@@ -4981,21 +4989,33 @@ semantic type refuses `invalid_semantic_graph` at the root's `/dependencies`.
 `init` SHALL have no parameters and return State; `on_event` SHALL take
 (State, integer delta, Inputs), and `on_watermark` SHALL take
 (State, integer boundary, Scope); both SHALL return the exact (State, Results)
-tuple type. Width SHALL be 1..64, gap 0..2^width-1, event rate at least 1,
-and each capacity at least 1. The reader SHALL NOT recalculate a producer's
+tuple type. Width SHALL be 1..64, gap 0..2^width-1, exact rational event rate greater than 0 in events per tick,
+each integer capacity at least 1, counter text nonempty, and exact rational
+uncertainty at least 0 in ticks. Rate and uncertainty SHALL satisfy the canonical
+rational spelling of QSpec FR-322-AC-114. The reader SHALL NOT recalculate a producer's
 capacity by running the program or treat a runtime verdict as an admission
 result. Buffer extension remains the existing flatten/sequence expression;
 no operation identity is added.
 
-#### Monitor uncertainty admission seam (planned until IR-721 lands)
+#### Identity-bearing tick premises (planned until IR-721 lands)
 
-The published twelve-binding form above does not provide an explicit admitted
-uncertainty/tick-interval premise needed by the runtime consumer. Until QSpec
-publishes that amendment, these rows do not claim complete uncertainty admission.
-The reader contract SHALL NOT infer such a premise from a default, add an
-unpublished binding, or invent wire or identity rules. This isolated premise
-seam must be aligned with the published QSpec amendment before complete
-uncertainty admission can be claimed by the IR-721 implementation.
+The counter name is a separate admitted premise from the clause's clock name.
+The tick unit's exact root scale supplies the tick scale; the reader SHALL NOT
+invent a repeated scale or a default counter, rate or uncertainty. Tick intervals
+SHALL remain derived from the clause interval bounds multiplied by the clause
+clock unit scale and divided by the tick-unit scale, as exact rationals. They
+SHALL NOT become extra bound metadata or rounded wire values. Runtime sound
+rounding uses the uncertainty-widened cover `[k-u, k+1+u)` under QSpec FR-487;
+the reader exposes the premises without performing runtime execution.
+
+The root content key SHALL include, in published body order, referenced node
+index segments, width and gap decimal text, canonical rational rate text, each
+buffer's subformula index and capacity decimal text, counter text, tick-unit
+index and canonical rational uncertainty text. Every premise change SHALL be
+observable through the resolved root key, including a fractional event rate,
+zero uncertainty, a different counter or tick unit. Entry body changes SHALL
+remain observable through the entry key and consequently the root key. The
+existing structural-key validation applies before any admitted view escapes.
 
 #### Borrowed monitor-plan reads (planned until IR-721 lands)
 
@@ -5016,8 +5036,11 @@ indexed wire selector. Each entry SHALL
 expose `node_id` and `result_type` as `&'a CheckedNodeId`, `body` as
 `&'a CheckedTerm`, and `parameter_types` as an exact-size borrowed iterator
 of `&'a CheckedNodeId` in signature order. The plan's `counter_width_bits`
-SHALL return `u8`, `max_reading_gap` SHALL return `u64`, and `max_event_rate`
-SHALL return `&'a str` containing the exact canonical positive decimal integer.
+SHALL return `u8`, `max_reading_gap` SHALL return `u64`, and `counter` SHALL return the exact nonempty `&'a str`. `tick_unit` SHALL
+return `&'a CheckedNodeId`. `max_event_rate` and `uncertainty` SHALL return
+`&'a CheckedRational`, the existing exact canonical numerator/denominator
+string type, retaining fractional values and canonical zero without floating
+point conversion or numeric narrowing.
 `buffers` SHALL return an exact-size iterator of `CheckedMonitorBufferRef<'a>`;
 each buffer's `subformula` SHALL return `&'a CheckedNodeId` and `capacity`
 SHALL return the exact canonical positive decimal `&'a str`, with no host-width
@@ -5456,13 +5479,14 @@ IR-661's planned relationship-navigation-only refusal does not reinstate AC-66.
 
 The timed-slot criteria FR-038-AC-335 through FR-038-AC-340 consume QSpec [FR-322](https://github.com/agent-ix/quire-specification/blob/main/spec/objects/interfaces/FR-322-checked-package-artifact.md), AC-148..150 and AC-155..157. Owner [ruling #485](https://github.com/agent-ix/quire-specification/pull/485) (`81078f14`) withdrew indexed presence (PR-02); the empty-guard-root control is GD-01 rather than withdrawn SL-08. IR #775 supplies public-reader qualification of all 19 currently published SL/SR/PR/GD cases and their earlier-stage controls.
 
-| FR-038-AC-421 | planned until IR-721 lands. The strict reader admits QSpec FR-487 MP-01 and MP-02 as distinct temporal monitor-plan roots with their exact twelve ordered bindings, State, Inputs, Scope, Results, three ordinary pure-function signatures, six-case outcome and integer premises. The anonymous ownerless root has generated source occurrences and semantic_type equal to State; generic owner/source-map checks retain precedence. A capacity edit remains admitted; the entries' expression bodies are checked without execution and flatten/sequence extension MP-32 adds no operation identity. | Test |
-| FR-038-AC-422 | planned until IR-721 lands. Missing, reordered and extra bindings, noninteger premise shape and wrong reference kinds (MP-03..MP-09, MP-28) refuse invalid_semantic_graph at the first breaking binding. Missing bindings use the expected index and an extra uses the index after the twelfth. Each refusal retains the root node locus and exact primary pointer; no admitted view escapes. | Test |
+| FR-038-AC-421 | planned until IR-721 lands. The strict reader admits QSpec FR-487 MP-01 and MP-02 as distinct temporal monitor-plan roots with their exact fifteen ordered bindings, State, Inputs, Scope, Results, three ordinary pure-function signatures, six-case outcome and exact integer/rational/text/unit premises. The anonymous ownerless root has generated source occurrences and semantic_type equal to State; generic owner/source-map checks retain precedence. A capacity edit remains admitted; the entries' expression bodies are checked without execution and flatten/sequence extension MP-32 adds no operation identity. | Test |
+| FR-038-AC-422 | planned until IR-721 lands. Missing, reordered and extra bindings, wrong premise literal kinds and wrong reference kinds (MP-03..MP-09, MP-28, MP-35, MP-37, MP-39..MP-42) refuse invalid_semantic_graph at the first breaking binding. Missing bindings use the expected index and an extra uses the index after the fifteenth. Each refusal retains the root node locus and exact primary pointer; no admitted view escapes. | Test |
 | FR-038-AC-423 | planned until IR-721 lands. Entry arity, parameter order/type and result-type defects, and missing/extra outcome cases or wrong Failed payload (MP-10..MP-17, MP-29), refuse ill_typed/type-mismatch at the applicable entry binding or results binding. Ordinary function body typing remains enforced before any admitted entry view is returned. | Test |
-| FR-038-AC-424 | planned until IR-721 lands. Out-of-range width, gap, event rate and capacity (MP-18..MP-22) refuse invalid_package/invalid-value at the literal; descending/repeated/unreached buffer subformulas and missing, mistyped, extra or misordered state fields (MP-23..MP-27, MP-30, MP-31) refuse invalid_semantic_graph at buffers or state. State is exactly integer now then one buffer_<n> sequence per ordered buffer. | Test |
+| FR-038-AC-424 | planned until IR-721 lands. Out-of-range width, gap, event rate and capacity (MP-18..MP-22), negative uncertainty, empty counter, negative rate and noncanonical rational spellings (MP-34, MP-36, MP-38, MP-46, MP-47) refuse invalid_package/invalid-value at the literal's value; descending/repeated/unreached buffer subformulas and missing, mistyped, extra or misordered state fields (MP-23..MP-27, MP-30, MP-31) refuse invalid_semantic_graph at buffers or state. State is exactly integer now then one buffer_<n> sequence per ordered buffer. | Test |
 | FR-038-AC-425 | planned until IR-721 lands. Paired defects select shape before reference kind, signatures/outcome before premise range, and range before buffers/state; a wrong dependencies set selects the earlier graph-shape invalid_semantic_graph at /dependencies. Two defective roots stored opposite structural order choose the structurally first root at the post-temporal plan step. The exact code, optional cause, primary pointer and root node locus are asserted for each control. | Test |
-| FR-038-AC-426 | planned until IR-721 lands. A default-feature consumer iterates admitted plans and reads the specified typed root/type/clause keys, resolved root and entry structural content keys through structural_key, exact entry signatures and bodies, width/gap/event-rate and ordered buffers/capacities through private-field borrowed views. Two plans sharing labels but differing selected keys remain distinct; empty plans yield an empty iterator. An entry or root content change is observed through the corresponding structural keys without a new persistent plan identity. Raw wire values cannot mint these views, package lifetimes bound all borrows, and reads execute no body. | Test |
-| FR-038-AC-427 | planned until IR-721 lands. TC-048 reads QSpec proposals/checked-package-v2/monitor-plan-vectors.json MP-01..MP-32 by reference from the selected QSpec checkout, constructs complete selected packages around the MP-01..MP-31 root recipes and separately exercises MP-32's flatten/sequence expression, and checks exact admission or refusal code, cause, primary RFC 6901 pointer and structural locus. No upstream vector, schema or fixture is copied into IR. These controls qualify reader admission independently of the pending QSL producer; real producer qualification remains separate. | Test |
+| FR-038-AC-426 | planned until IR-721 lands. A default-feature consumer iterates admitted plans and reads the specified typed root/type/clause keys, resolved root and entry structural content keys through structural_key, exact entry signatures and bodies, width/gap/counter/tick-unit and exact rational event-rate/uncertainty plus ordered buffers/capacities through private-field borrowed views. Two plans sharing labels but differing selected keys remain distinct; empty plans yield an empty iterator. An entry or root content change is observed through the corresponding structural keys without a new persistent plan identity. Raw wire values cannot mint these views, package lifetimes bound all borrows, and reads execute no body. | Test |
+| FR-038-AC-427 | planned until IR-721 lands. TC-048 reads QSpec proposals/checked-package-v2/monitor-plan-vectors.json MP-01..MP-47 by reference from the selected QSpec checkout, constructs complete selected packages around the MP-01..MP-31 and MP-33..MP-47 root recipes and separately exercises MP-32's flatten/sequence expression, and checks exact admission or refusal code, cause, primary RFC 6901 pointer and structural locus. No upstream vector, schema or fixture is copied into IR. These controls qualify reader admission independently of the pending QSL producer; real producer qualification remains separate. | Test |
+| FR-038-AC-428 | planned until IR-721 lands. MP-33 and MP-43..MP-45 admit zero uncertainty, changed counter, fractional rational rate and changed tick unit with distinct resolved root content keys; a capacity edit MP-02 also changes that key. MP-40 and MP-41 refuse invalid_semantic_graph at tick_unit for a wrong node kind or non-Time unit by the exact base-Time identity test, never invalid-time-quantity. Exact rate and uncertainty are borrowed CheckedRational values with no floating conversion or narrowing. Tick intervals remain derivable from the selected clause and clock/tick-unit scales with no extra binding or rounded metadata; counter, uncertainty and unit are read from the admitted root rather than defaulted. Paired premise defects verify body-order checking through counter and uncertainty after buffer capacities. | Test |
 
 ## Dependencies
 
