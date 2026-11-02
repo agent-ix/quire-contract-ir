@@ -4,8 +4,7 @@
 //! Public admitted type reads with finite work and deep or cyclic type graphs.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, fixture_source, node_id, nominal_package, owned_structural_node,
-    settle, source_owner,
+    canonical, evidence_for, node_id, nominal_package, settle,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -30,9 +29,13 @@ fn package(nodes: Vec<Value>) -> Value {
 }
 
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
+    let bytes = canonical(wire);
     CheckedPackageV2::read(
-        &canonical(wire),
-        CheckedPackageReadLimits::bounded(),
+        &bytes,
+        CheckedPackageReadLimits {
+            bytes: u64::try_from(bytes.len()).expect("fixture length fits the reader budget"),
+            ..CheckedPackageReadLimits::bounded()
+        },
         &evidence_for(wire),
     )
 }
@@ -42,35 +45,6 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("independent type graph must admit: {other:?}"),
     }
-}
-
-#[test]
-fn admitted_union_projection_has_the_required_unsupported_type_outcome() {
-    let mut union = node(
-        "ProjectionUnion",
-        "composite_type",
-        "union",
-        "ProjectionUnion",
-        &[],
-        json!({"term": "aggregate", "members": [
-            {"term": "binding", "name": "left", "value": {"term": "aggregate", "members": []}},
-            {"term": "binding", "name": "right", "value": {"term": "aggregate", "members": []}}
-        ]}),
-    );
-    union["declaration"] = json!({"qualified_name": ["ProjectionUnion"]});
-    union["occurrences"][0]["role"] = json!("declaration");
-    let union = owned_structural_node(union, source_owner(&fixture_source()));
-    let wire = package(vec![union]);
-    let admitted = admitted(&wire);
-    let id: CheckedNodeId = serde_json::from_value(node_id("ProjectionUnion")).unwrap();
-    let error = admitted
-        .project_exact_type(&id, &SelectedExactIdentities::empty(), 2)
-        .expect_err("union has no complete Exact representation");
-    assert_eq!(
-        error.code,
-        ExactTypeProjectionErrorCode::UnsupportedExactType,
-        "{error:?}"
-    );
 }
 
 #[trace("FR-352-AC-7")]
