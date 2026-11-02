@@ -84,7 +84,7 @@ fn scalar(name: &str, form: &str) -> Value {
     )
 }
 
-/// `Text[nfc]`: a `text_bounds` domain binding the `nfc` profile over `text`.
+/// `Text[0, 65535; nfc]`: a bounded `nfc` Text domain.
 fn nfc_text() -> Value {
     node(
         "nfc",
@@ -93,10 +93,11 @@ fn nfc_text() -> Value {
         "text",
         &["text"],
         "type",
-        aggregate(vec![binding(
-            "text_profile",
-            literal("text", "text", "nfc"),
-        )]),
+        aggregate(vec![
+            binding("min", literal("integer", "integer", "0")),
+            binding("max", literal("integer", "integer", "65535")),
+            binding("text_profile", literal("text", "text", "nfc")),
+        ]),
     )
 }
 
