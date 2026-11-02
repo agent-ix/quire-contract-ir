@@ -49,6 +49,7 @@ mod checked_package_v2_node_map;
 mod checked_package_v2_nominal_api;
 mod checked_package_v2_operand_families;
 mod checked_package_v2_operation_arguments;
+mod checked_package_v2_operation_effects;
 mod checked_package_v2_owners;
 mod checked_package_v2_parameters;
 mod checked_package_v2_protocol_body;

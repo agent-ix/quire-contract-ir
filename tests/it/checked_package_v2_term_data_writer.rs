@@ -41,6 +41,7 @@ fn encode(
             refinement_step_rows: None,
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            operation_effects: None,
             checked_term_data: term_data,
             temporal_bindings: temporal_bindings.as_deref(),
         },

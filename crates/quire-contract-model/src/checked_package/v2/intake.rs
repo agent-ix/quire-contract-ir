@@ -88,6 +88,7 @@ type BorrowedWire<'a> = CheckedPackageEnvelope<
     Vec<super::refinement::CheckedRefinementStepRowRegion>,
     super::checked_term_data::CheckedTermDataV2,
     Vec<super::temporal_binding::TemporalBinding>,
+    Vec<super::CheckedOperationEffectRow>,
     Vec<CheckedCapability>,
     BorrowedDiagnostics<'a>,
 >;
@@ -184,6 +185,13 @@ pub(super) fn decode_borrowed_wire(
                 }
                 refusal.code = CheckedPackageRefusalCode::MalformedWire;
             }
+            if refusal.code == CheckedPackageRefusalCode::UnknownMember
+                && refusal
+                    .primary_path()
+                    .is_some_and(|path| path.as_str().starts_with("/operation_effects"))
+            {
+                refusal.code = CheckedPackageRefusalCode::MalformedWire;
+            }
             if refusal.code == CheckedPackageRefusalCode::MalformedWire {
                 if let Some(at) = refusal.primary_path().cloned() {
                     if let Some(member) = invalid_node_id_field(bytes, &at) {
@@ -192,6 +200,8 @@ pub(super) fn decode_borrowed_wire(
                         refusal.set_primary_path(Some(member));
                     } else if let Some(member) = missing_probabilistic_occurrence(bytes, &at) {
                         refusal.set_primary_path(Some(member));
+                    } else if let Some(parent) = operation_effect_schema_parent_path(&at) {
+                        refusal.set_primary_path(Some(parent));
                     }
                 }
             }
@@ -245,6 +255,7 @@ pub(super) fn decode_borrowed_wire(
         refinement_step_rows: wire.refinement_step_rows,
         checked_term_data: wire.checked_term_data,
         temporal_bindings: wire.temporal_bindings,
+        operation_effects: wire.operation_effects,
         capability_report: wire.capability_report,
         diagnostics: CheckedDiagnosticsV2 {
             catalog: diagnostics.catalog,
@@ -267,6 +278,50 @@ pub(super) fn decode_borrowed_wire(
                 .collect::<Result<Vec<_>, ValidationFailure>>()?,
         },
     })
+}
+
+#[ix_trace_rs::string_edge]
+fn operation_effect_schema_parent_path(at: &JsonPointer) -> Option<JsonPointer> {
+    let path = at.as_str().strip_prefix("/operation_effects/")?;
+    if let Some((index, member)) = path.split_once('/') {
+        if !member.contains('/')
+            && !matches!(
+                member,
+                "document" | "declaring" | "operation" | "effect" | "provenance"
+            )
+        {
+            let index: usize = index.parse().ok()?;
+            return Some(JsonPointer::root().key("operation_effects").index(index));
+        }
+    }
+    let (index, path) = path.split_once("/effect/")?;
+    let index: usize = index.parse().ok()?;
+    if let Some(entry) = path
+        .strip_prefix("modifies/")
+        .and_then(|entry| entry.strip_suffix("/kind"))
+    {
+        let entry: usize = entry.parse().ok()?;
+        return Some(
+            JsonPointer::root()
+                .key("operation_effects")
+                .index(index)
+                .key("effect")
+                .key("modifies")
+                .index(entry),
+        );
+    }
+    if path.is_empty()
+        || path.contains('/')
+        || matches!(path, "modifies" | "creates" | "deletes" | "deletes_scoped")
+    {
+        return None;
+    }
+    Some(
+        JsonPointer::root()
+            .key("operation_effects")
+            .index(index)
+            .key("effect"),
+    )
 }
 
 #[ix_trace_rs::string_edge]

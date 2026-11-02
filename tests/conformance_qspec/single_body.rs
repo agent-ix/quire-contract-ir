@@ -67,6 +67,7 @@ fn published_single_body_packages_round_trip_through_the_writer() {
                 refinement_step_rows: read.refinement_step_rows(),
             },
             quire_contract_model::CheckedPackageSidecarsRef {
+                operation_effects: None,
                 checked_term_data: read.checked_term_data(),
                 temporal_bindings: read.temporal_bindings(),
             },

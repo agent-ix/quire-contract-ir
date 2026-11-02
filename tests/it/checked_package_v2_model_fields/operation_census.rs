@@ -15,6 +15,108 @@ fn with_operations(short: &str, parents: &[&str], operations: Vec<Value>) -> Val
     declared
 }
 
+fn effect_row(short: &str, operation: &str, modifies: Vec<Value>) -> Value {
+    json!({
+        "document": IDENTITY,
+        "declaring": node_id(&declaration_key(short, OBJECT)),
+        "operation": operation,
+        "effect": {"modifies": modifies, "creates": [], "deletes": [], "deletes_scoped": []},
+        "provenance": {
+            "origin": "model_document_operation_frame",
+            "member": format!("{}/{}", orders(short), operation)
+        }
+    })
+}
+
+#[trace("TC-977", "FR-354-AC-10", "FR-354-AC-11", "FR-038-AC-406")]
+#[test]
+fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
+    let mut ledger = object(
+        "Ledger",
+        &[],
+        &[field("balance", "ix://quire/native/Integer")],
+    );
+    let mut pay = operation("Ledger", "pay");
+    pay["params"] = json!([parameter(
+        "Ledger",
+        "pay",
+        "amount",
+        "ix://quire/native/Integer"
+    )]);
+    pay["returns"] = parameter("Ledger", "pay", "result", "ix://quire/native/Boolean");
+    let balance = format!("{}/balance", orders("Ledger"));
+    pay["frame"]["modifies"] = json!([balance]);
+    let mut taxed = operation("Ledger", "payTaxed");
+    taxed["params"] = json!([
+        parameter("Ledger", "payTaxed", "amount", "ix://quire/native/Integer"),
+        parameter("Ledger", "payTaxed", "tax", "ix://quire/native/Integer")
+    ]);
+    taxed["returns"] = parameter("Ledger", "payTaxed", "result", "ix://quire/native/Boolean");
+    ledger["operations"] = json!([pay, taxed]);
+    let (mut wire, evidence, _) =
+        self::package(&document(vec![ledger]), &[("Ledger", OBJECT)], &[]);
+    let modification = json!({
+        "kind": "field",
+        "declaration": node_id(&declaration_key("Ledger", OBJECT)),
+        "name": "balance",
+        "scope": "every-object"
+    });
+    wire["operation_effects"] = json!([
+        effect_row("Ledger", "pay", vec![modification]),
+        effect_row("Ledger", "payTaxed", vec![])
+    ]);
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        read_with(&wire, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("selected Ledger operations and effects must admit");
+    };
+    let ledger_id: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key("Ledger", OBJECT)))
+            .expect("Ledger structural identity");
+    let witnessed = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [SelectedExactDeclarationRow::new(
+            ledger_id.clone(),
+            IDENTITY,
+            SelectedExactDeclarationForm::ObjectType,
+            orders("Ledger"),
+            SelectedExactIdentity::Object(EffectiveId::new(
+                None,
+                OriginalDeclarationKey::new(IDENTITY, orders("Ledger")),
+            )),
+        )],
+        [],
+    )
+    .expect("selected object identity");
+    let projected = admitted
+        .project_selected_type_declarations(&witnessed, &[], &[], 10_000)
+        .expect("witnessed Ledger type environment");
+    let object = &projected.objects()[0];
+    assert_eq!(object.original_identity(), orders("Ledger"));
+    assert_eq!(object.operations().len(), 2);
+    assert_eq!(object.operations()[0].name(), "pay");
+    assert_eq!(object.operations()[0].parameters()[0].name(), "amount");
+    assert_eq!(
+        object.operations()[0].parameters()[0].value_type(),
+        &ValueType::Integer
+    );
+    assert_eq!(object.operations()[0].result(), Some(&ValueType::Boolean));
+    assert_eq!(object.operations()[0].effect().modifies.len(), 1);
+    assert_eq!(object.operations()[1].name(), "payTaxed");
+    assert_eq!(object.operations()[1].parameters().len(), 2);
+    assert!(object.operations()[1].effect().modifies.is_empty());
+    assert_eq!(
+        admitted
+            .clone()
+            .project_selected_type_declarations(&witnessed, &[], &[], 10_000),
+        Ok(projected.clone())
+    );
+    let exhausted = admitted
+        .project_selected_type_declarations(&witnessed, &[], &[], projected.work() - 1)
+        .expect_err("finite work refuses before exposing a partial view");
+    assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+}
+
 #[trace("TC-464", "FR-355-AC-1", "FR-355-AC-5")]
 #[test]
 fn complete_census_includes_unreferenced_operations_without_bodies_or_anchors() {
