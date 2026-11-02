@@ -191,6 +191,7 @@ fn encode_producer(wire: &Value, sidecar: Option<&CheckedTermDataV2>) -> Vec<u8>
         CheckedPackageSidecarsRef {
             checked_term_data: sidecar,
             temporal_bindings: temporal_bindings.as_deref(),
+            schedulability_claims: None,
         },
         &capabilities,
         &diagnostics,
