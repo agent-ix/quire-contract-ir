@@ -648,3 +648,47 @@ fn sparse_high_occurrence_ordinals_resolve_independently_of_array_position() {
         wire
     );
 }
+
+#[trace("TC-048", "FR-038-AC-399")]
+#[test]
+fn malformed_exact_task_literals_refuse_at_payload_before_interpretation() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+    for (member, spelling) in [
+        (2, "1/0"),
+        (2, "2/4"),
+        (2, "-0/1"),
+        (2, "01/1"),
+        (2, "not-a-rational"),
+        (8, "07"),
+        (8, "1/1"),
+    ] {
+        let mut wire = package("fixed-priority", false, false, 1);
+        let n = wire["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
+        wire["semantic_graph"]["nodes"][n]["body"]["members"][4]["value"]["members"][0]
+            ["members"][member]["value"]["value"] = json!(spelling);
+        fixtures::refresh_identity(&mut wire);
+        refuses(
+            &wire,
+            Code::InvalidPackage,
+            Some(Cause::InvalidValue),
+            &format!("/semantic_graph/nodes/{n}/body/members/4/value/members/0/members/{member}/value/value"),
+        );
+    }
+    let mut negative = package("fixed-priority", false, false, 1);
+    let n = negative["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .len()
+        - 1;
+    negative["semantic_graph"]["nodes"][n]["body"]["members"][4]["value"]["members"][0]
+        ["members"][2]["value"]["value"] = json!("-1/2");
+    fixtures::refresh_identity(&mut negative);
+    refuses(
+        &negative,
+        Code::InvalidTimedModel,
+        Some(Cause::InvalidTaskSet),
+        &format!("/semantic_graph/nodes/{n}/body/members/4/value/members/0"),
+    );
+}
