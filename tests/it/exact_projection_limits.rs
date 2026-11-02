@@ -6,8 +6,9 @@
 use crate::support::checked_package::{canonical, evidence_for, node_id, nominal_package, settle};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
-    ExactTypeProjectionErrorCode, SelectedExactIdentities,
+    CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageV2, CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode,
+    SelectedExactIdentities,
 };
 use quire_exact::{Integer, IntegerInterval, ValueType};
 use serde_json::{json, Value};
@@ -122,4 +123,3 @@ fn admitted_projection_bounds_deep_and_cyclic_types_on_a_small_stack() {
         }
     }).expect("spawn small-stack reader").join().expect("bounded public reads must not grow the stack with type depth");
 }
-
