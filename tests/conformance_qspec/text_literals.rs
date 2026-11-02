@@ -9,7 +9,9 @@ use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
+use quire_exact::TextProfile;
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 
 fn index(package: &Value, tag: &str, form: &str) -> usize {
     package["semantic_graph"]["nodes"]
@@ -76,7 +78,7 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
     )
 }
 
-#[trace("TC-048", "FR-038-AC-409", "FR-038-AC-410")]
+#[trace("TC-048", "FR-038-AC-409", "FR-038-AC-410", "FR-038-AC-411")]
 #[test]
 fn qspec_text_literal_vectors_match_reader() {
     let vectors = read_json(&proposal_dir_of(&fixtures_dir()).join("text-literal-vectors.json"))
@@ -84,15 +86,45 @@ fn qspec_text_literal_vectors_match_reader() {
     let types = vectors["types"].as_object().expect("QSpec types");
     let cases = vectors["cases"].as_array().expect("QSpec cases");
     assert_eq!(cases.len(), 15, "published TX-01..TX-14 plus TX-13s");
+    let actual_ids = cases
+        .iter()
+        .map(|case| case["id"].as_str().expect("case id").to_owned())
+        .collect::<BTreeSet<_>>();
+    let expected_ids = (1..=14)
+        .map(|number| format!("TX-{number:02}"))
+        .chain(std::iter::once("TX-13s".to_owned()))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(actual_ids, expected_ids, "exact published TX id set");
     for case in cases {
         let id = case["id"].as_str().expect("case id");
         let ty = &types[case["type"].as_str().expect("type key")];
-        let (package, position) = bounded_literal(
-            ty["min"].as_u64().expect("minimum"),
-            ty["max"].as_u64().expect("maximum"),
-            ty["text_profile"].as_str().expect("profile"),
-            case["value"].clone(),
+        let min = ty["min"].as_u64().expect("minimum");
+        let max = ty["max"].as_u64().expect("maximum");
+        let profile = TextProfile::from_code(ty["text_profile"].as_str().expect("profile"))
+            .expect("published Text profile");
+        let retained = case["value"].as_str().expect("retained Text payload");
+        let length = profile.length(retained);
+        let normalized = profile
+            .normalization()
+            .is_none_or(|form| retained.chars().eq(form.apply(retained)));
+        assert_eq!(
+            case["length"].as_u64(),
+            Some(length),
+            "{id}: retained length"
         );
+        assert_eq!(
+            case["normalized"].as_bool(),
+            Some(normalized),
+            "{id}: retained normalization"
+        );
+        let expected_outcome = if normalized && (min..=max).contains(&length) {
+            "admitted"
+        } else {
+            "refused"
+        };
+        assert_eq!(case["expected"], expected_outcome, "{id}: vector oracle");
+        let (package, position) =
+            bounded_literal(min, max, profile.as_str(), case["value"].clone());
         match (case["expected"].as_str(), read(&package)) {
             (Some("admitted"), CheckedPackageV2ReadResult::Admitted(_)) => {}
             (Some("refused"), CheckedPackageV2ReadResult::Refused(refusal)) => {
@@ -107,13 +139,23 @@ fn qspec_text_literal_vectors_match_reader() {
                     Some(format!("/semantic_graph/nodes/{position}/body/value")),
                     "{id}: {refusal:?}"
                 );
+                assert_eq!(
+                    refusal.locus,
+                    Some(
+                        serde_json::from_value(
+                            package["semantic_graph"]["nodes"][position]["node_id"].clone()
+                        )
+                        .expect("containing graph-node identity")
+                    ),
+                    "{id}: graph-node locus"
+                );
             }
             (expected, actual) => panic!("{id}: expected {expected:?}, got {actual:?}"),
         }
     }
 }
 
-#[trace("TC-048", "FR-038-AC-409", "FR-038-AC-411")]
+#[trace("TC-048", "FR-038-AC-409", "FR-038-AC-410")]
 #[test]
 fn compatibility_forms_and_family_precedence_are_reader_controls() {
     for (profile, retained, expected) in [
@@ -144,7 +186,7 @@ fn compatibility_forms_and_family_precedence_are_reader_controls() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-411")]
+#[trace("TC-048", "FR-038-AC-409", "FR-038-AC-410")]
 #[test]
 fn scalar_text_stays_unbounded_and_nested_bounds_report_the_literal_pointer() {
     let (mut scalar, position) = bounded_literal(1, 2, "nfc", json!("beyond"));
@@ -189,6 +231,16 @@ fn scalar_text_stays_unbounded_and_nested_bounds_report_the_literal_pointer() {
         Some(format!(
             "/semantic_graph/nodes/{nested_position}/body/members/0/value/value"
         )),
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(
+            serde_json::from_value(
+                nested["semantic_graph"]["nodes"][nested_position]["node_id"].clone()
+            )
+            .expect("nested containing node")
+        ),
         "{refusal:?}"
     );
 }
