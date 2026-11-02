@@ -3038,8 +3038,17 @@ fn check_relationship_member(
     let Some(population) = linked else {
         return ineligible(member_at("population"));
     };
-    // A reaches application's ends share one declared type (checked above).
-    if population_object_type_typed(population, term_of) != Some(destination_id.clone()) {
+    // The population belongs to the end selected by the member's role. The
+    // producer-supplied destination label does not define that end's type.
+    let Some(role_end_form) = owner.package.end_declaration_form(&receiver.type_ref) else {
+        return ineligible(member_at("population"));
+    };
+    let Some(role_end_id) =
+        owners.declaration_id(&owner.package.identity, &receiver.type_ref, role_end_form)
+    else {
+        return ineligible(member_at("population"));
+    };
+    if population_object_type_typed(population, term_of).as_ref() != Some(role_end_id) {
         return ineligible(member_at("population"));
     }
     Ok(None)
@@ -5125,29 +5134,67 @@ mod tests {
     /// Exercise the real caller with a checked selected model and its real owners.
     /// Only this private graph's retained kind/raw metadata are damaged below;
     /// the mismatched states do not claim package admission.
-    #[trace("TC-048")]
+    #[trace("TC-048", "FR-038-AC-274")]
     #[test]
     fn tc_048_relationship_population_caller_uses_retained_kind() {
-        use crate::checked_package::v2::model_members::{tests as model_tests, MemberType};
+        use crate::checked_package::v2::model_members::{
+            declaration_id, tests as model_tests, DeclarationForm, MemberType,
+        };
         use crate::checked_package::v2::{BoundedDomainForm, CompositeTypeForm};
         let mut relation = model_tests::relationship();
         relation["targetEnd"]["type"] = json!("ix://acme/orders/Widget");
         let boolean = MemberType::Boolean.node_id("checked").expect("boolean key");
-        let run = |raw_population: bool, typed_population: bool| {
+        let widget = "ix://acme/orders/Widget";
+        let gadget = "ix://acme/orders/Gadget";
+        let run = |raw_population: bool,
+                   typed_population: bool,
+                   population_object: &str,
+                   destination_label: &str| {
             relationship_member_outcome_with_graph(
                 relation.clone(),
                 "links",
-                "ix://acme/orders/Widget",
+                widget,
                 "quire.op.model.reaches",
                 &boolean,
                 |nodes, kinds, operation| {
+                    operation["member"]["destination_type"] = json!(declaration_id(
+                        "acme/orders",
+                        DeclarationForm::ObjectType,
+                        destination_label,
+                    ));
+                    let reference = if population_object == widget {
+                        nodes[4].node_id.clone()
+                    } else {
+                        let object = declaration_id(
+                            "acme/orders",
+                            DeclarationForm::ObjectType,
+                            population_object,
+                        );
+                        let reference = MemberType::Reference(object.clone())
+                            .node_id("checked")
+                            .expect("population reference key");
+                        let mut reference_node = graph_node(
+                            'g',
+                            "composite_type",
+                            "reference",
+                            &reference,
+                            json!({"term": "aggregate", "members": [
+                                {"term": "reference", "target": object}
+                            ]}),
+                        );
+                        reference_node.node_id = reference.clone();
+                        reference_node.semantic_type = reference.clone();
+                        kinds.push(CheckedNodeKind::CompositeType(CompositeTypeForm::Reference));
+                        nodes.push(reference_node);
+                        reference
+                    };
                     let set = graph_node(
                         'c',
                         "composite_type",
                         "set",
                         &node_id('c'),
                         json!({"term": "aggregate", "members": [
-                            {"term": "reference", "target": nodes[4].node_id}
+                            {"term": "reference", "target": reference}
                         ]}),
                     );
                     let mut population = graph_node(
@@ -5182,17 +5229,32 @@ mod tests {
                 },
             )
         };
-        let baseline = run(true, true);
+        let baseline = run(true, true, widget, gadget);
         assert_eq!(
             baseline.0, None,
-            "matching population must reach the valid-use path"
+            "the role-end population admits despite a different destination label"
         );
-        let raw_nonpopulation = run(false, true);
+        assert_eq!(
+            run(true, true, widget, widget).0,
+            baseline.0,
+            "changing only the producer destination label cannot change the population check"
+        );
+        let wrong_object = run(true, true, gadget, gadget);
+        assert_eq!(
+            wrong_object.0,
+            Some((
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+                "/semantic_graph/nodes/0/body/operation/member/population".into(),
+            )),
+            "matching the destination label must not admit the wrong role-end type"
+        );
+        let raw_nonpopulation = run(false, true, widget, gadget);
         assert_eq!(
             raw_nonpopulation, baseline,
             "retained population kind preserves result and actual work"
         );
-        let typed_nonpopulation = run(true, false);
+        let typed_nonpopulation = run(true, false, widget, gadget);
         assert_eq!(
             typed_nonpopulation.0,
             Some((
