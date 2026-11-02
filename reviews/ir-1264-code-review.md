@@ -24,11 +24,11 @@ No production-code findings.
 ## Coverage
 
 - FR-038 owner-presence paragraph, role: examined.
-- FR-038-AC-417, role: examined.
+- FR-038-AC-420, role: examined.
 - FR-347 Scope paragraph, role: examined.
 - QSpec FR-322 owner table and AC-68, role: context_only.
 - QSpec TC-281 EV-01 and EV-02, role: context_only.
 
 ## Evidence
 
-The two changed requirement documents pass scoped Quire validation and `git diff --check`. AC-417 is planned until IR-1264 lands and has no code trace tag yet. The diff adds no hash, digest, pin, or tracking record.
+The two changed requirement documents pass scoped Quire validation and `git diff --check`. AC-420 is planned until IR-1264 lands and has no code trace tag yet. The diff adds no hash, digest, pin, or tracking record.
