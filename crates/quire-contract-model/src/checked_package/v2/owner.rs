@@ -20,6 +20,7 @@ enum OwnerRequirement {
     None,
 }
 
+#[ix_trace_rs::string_edge]
 fn requirement(
     kind: Option<CheckedNodeKind>,
     node_tag: &str,
