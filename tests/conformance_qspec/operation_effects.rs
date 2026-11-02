@@ -228,7 +228,8 @@ fn case(vectors: &Value, id: &str) -> Value {
     "FR-322-AC-303",
     "FR-038-AC-406",
     "FR-038-AC-407",
-    "FR-038-AC-408"
+    "FR-038-AC-408",
+    "FR-354-AC-11"
 )]
 #[test]
 fn tc_977_published_operation_effect_vectors() {
@@ -275,9 +276,11 @@ fn tc_977_published_operation_effect_vectors() {
                 row["expected_code"].as_str().unwrap(),
                 "{id}"
             );
-            if let Some(cause) = row["expected_cause"].as_str() {
-                assert_eq!(refusal.cause.map(cause_word), Some(cause), "{id}");
-            }
+            assert_eq!(
+                refusal.cause.map(cause_word),
+                row["expected_cause"].as_str(),
+                "{id}"
+            );
             assert_eq!(
                 refusal.loci[0].path.as_ref().expect("path").to_string(),
                 row["locus"],

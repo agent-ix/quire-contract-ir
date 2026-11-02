@@ -186,9 +186,10 @@ pub(super) fn decode_borrowed_wire(
                 refusal.code = CheckedPackageRefusalCode::MalformedWire;
             }
             if refusal.code == CheckedPackageRefusalCode::UnknownMember
-                && refusal
-                    .primary_path()
-                    .is_some_and(|path| path.as_str().starts_with("/operation_effects"))
+                && refusal.primary_path().is_some_and(|path| {
+                    path.as_str() == "/operation_effects"
+                        || path.as_str().starts_with("/operation_effects/")
+                })
             {
                 refusal.code = CheckedPackageRefusalCode::MalformedWire;
             }

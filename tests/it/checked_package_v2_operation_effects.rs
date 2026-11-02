@@ -7,10 +7,10 @@ use crate::support::checked_package::{canonical, evidence_for, node_id, v2_all_f
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedOperationEffectRow, CheckedPackageReadLimits,
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
-    CheckedPackageSidecarsRef, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    encode_checked_package_v2, CheckedOperationEffectRow, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
+    CheckedPackageRefusalCode as Code, CheckedPackageSidecarsRef,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -28,11 +28,54 @@ fn empty_row(operation: &str) -> Value {
 }
 
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
-        &canonical(wire),
-        CheckedPackageReadLimits::bounded(),
-        &evidence_for(wire),
-    )
+    read_at(wire, CheckedPackageReadLimits::bounded())
+}
+
+fn read_at(wire: &Value, limits: CheckedPackageReadLimits) -> CheckedPackageV2ReadResult {
+    CheckedPackageV2::read(&canonical(wire), limits, &evidence_for(wire))
+}
+
+#[trace("TC-977", "FR-038-AC-408")]
+#[test]
+fn tight_work_limit_precedes_duplicate_effect_inspection() {
+    let mut wire = present();
+    let entry = json!({"kind":"field","declaration":node_id("fixture/1515"),
+        "name":"balance","scope":"every-object"});
+    wire["operation_effects"][0]["effect"]["modifies"] = json!([entry.clone(), entry]);
+    refusal(
+        &wire,
+        Code::MalformedWire,
+        None,
+        "/operation_effects/0/effect/modifies",
+    );
+
+    let mut low = 0;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match read_at(&wire, limits) {
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
+            CheckedPackageV2ReadResult::Refused(_) => high = middle,
+            other => panic!("duplicate must never admit: {other:?}"),
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high;
+    assert!(matches!(
+        read_at(&wire, limits),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
+    limits.work = high - 1;
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(&wire, limits) else {
+        panic!("work one below duplicate inspection must be incomplete");
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(
+        incomplete.path.as_ref().map(|path| path.as_str()),
+        Some("/operation_effects/0/effect/modifies/1")
+    );
 }
 
 fn present() -> Value {
@@ -96,6 +139,14 @@ fn explicit_null_and_empty_carrier_refuse_at_member() {
         wire["operation_effects"] = value;
         refusal(&wire, Code::MalformedWire, None, "/operation_effects");
     }
+}
+
+#[trace("TC-977", "FR-038-AC-407")]
+#[test]
+fn similarly_named_unknown_top_level_member_stays_unknown() {
+    let mut wire = v2_all_families();
+    wire["operation_effects_extra"] = json!([]);
+    refusal(&wire, Code::UnknownMember, None, "/operation_effects_extra");
 }
 
 #[trace("TC-977", "FR-038-AC-407")]

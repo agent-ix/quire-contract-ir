@@ -197,7 +197,11 @@ fn scoped_key(entry: &CheckedScopedDeletion) -> (u8, &str) {
     }
 }
 
-fn check_shape(row: &CheckedOperationEffectRow, at: &JsonPointer) -> Result<(), ValidationFailure> {
+fn check_shape(
+    row: &CheckedOperationEffectRow,
+    meter: &mut WorkMeter,
+    at: &JsonPointer,
+) -> Result<(), ValidationFailure> {
     if row.document.is_empty() {
         return Err(malformed(at.clone().key("document")));
     }
@@ -209,7 +213,8 @@ fn check_shape(row: &CheckedOperationEffectRow, at: &JsonPointer) -> Result<(), 
     }
     let effect_at = at.clone().key("effect");
     let mut seen = BTreeSet::new();
-    for entry in &row.effect.modifies {
+    for (index, entry) in row.effect.modifies.iter().enumerate() {
+        meter.charge(1, || effect_at.clone().key("modifies").index(index))?;
         if let CheckedFrameModification::Field { name, .. } = entry {
             if !is_identifier(name) {
                 return Err(malformed(effect_at.clone().key("modifies")));
@@ -223,12 +228,17 @@ fn check_shape(row: &CheckedOperationEffectRow, at: &JsonPointer) -> Result<(), 
         ("creates", &row.effect.creates),
         ("deletes", &row.effect.deletes),
     ] {
-        if entries.iter().collect::<BTreeSet<_>>().len() != entries.len() {
-            return Err(malformed(effect_at.clone().key(name)));
+        let mut seen = BTreeSet::new();
+        for (index, entry) in entries.iter().enumerate() {
+            meter.charge(1, || effect_at.clone().key(name).index(index))?;
+            if !seen.insert(entry) {
+                return Err(malformed(effect_at.clone().key(name)));
+            }
         }
     }
     let mut seen = BTreeSet::new();
-    for entry in &row.effect.deletes_scoped {
+    for (index, entry) in row.effect.deletes_scoped.iter().enumerate() {
+        meter.charge(1, || effect_at.clone().key("deletes_scoped").index(index))?;
         if let CheckedScopedDeletion::Parameter { name } = entry {
             if !is_identifier(name) {
                 return Err(malformed(effect_at.clone().key("deletes_scoped")));
@@ -254,13 +264,11 @@ fn validate_effect_entries(
     models: &RetainedModels,
     selection: usize,
     declaring_form: DeclarationForm,
-    meter: &mut WorkMeter,
     at: &JsonPointer,
 ) -> Result<(), ValidationFailure> {
     let effect_at = at.clone().key("effect");
     for (index, entry) in row.effect.modifies.iter().enumerate() {
         let entry_at = effect_at.clone().key("modifies").index(index);
-        meter.charge(1, || entry_at.clone())?;
         let (declaration, field) = match entry {
             CheckedFrameModification::Relationship { declaration } => (declaration, None),
             CheckedFrameModification::Field {
@@ -333,7 +341,6 @@ fn validate_effect_entries(
     ] {
         for (index, entry) in entries.iter().enumerate() {
             let entry_at = effect_at.clone().key(kind).index(index);
-            meter.charge(1, || entry_at.clone())?;
             let entry_owner = models.owner_by_key(entry).ok_or_else(|| {
                 refused(
                     Code::MissingDeclaration,
@@ -357,7 +364,6 @@ fn validate_effect_entries(
     }
     for (index, entry) in row.effect.deletes_scoped.iter().enumerate() {
         let entry_at = effect_at.clone().key("deletes_scoped").index(index);
-        meter.charge(1, || entry_at.clone())?;
         match entry {
             CheckedScopedDeletion::Receiver if declaring_form != DeclarationForm::ObjectType => {
                 return Err(refused(
@@ -539,7 +545,7 @@ pub(super) fn validate(
     for (index, row) in rows.iter().enumerate() {
         let at = row_at(index);
         meter.charge(1, || at.clone())?;
-        check_shape(row, &at)?;
+        check_shape(row, meter, &at)?;
         if !models
             .selected_models()
             .iter()
@@ -607,15 +613,7 @@ pub(super) fn validate(
                 at.clone().key("provenance").key("member"),
             ));
         }
-        validate_effect_entries(
-            row,
-            operation,
-            models,
-            owner.selection,
-            owner.form,
-            meter,
-            &at,
-        )?;
+        validate_effect_entries(row, operation, models, owner.selection, owner.form, &at)?;
         compare_source_frame(row, operation, models, owner.package, &at)?;
         let key = (
             row.document.as_ref(),
