@@ -41,8 +41,9 @@ in separate work. No repository-specific revision allowance is introduced.
 The consumer implementation in this change replaces the copied script with the
 released Quire command in the normal `make deny` recipe. The repository-owned tests
 exercise that recipe through the real released executable, including adverse scratch
-locks and the committed lock. Full final-gate qualification remains pending; the
-existence of the tests and recipe alone does not claim a passing gate.
+locks and the committed lock. Qualification is established by the recorded
+final-gate result; the existence of the tests and recipe alone does not claim
+a passing gate.
 
 ## Dependencies
 
