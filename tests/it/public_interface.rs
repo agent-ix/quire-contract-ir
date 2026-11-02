@@ -1134,8 +1134,10 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
             // expression check; it is not QSL's checked-expression API.
             || (item.name == "check_expression" && item.owner != "DeclarationEnvironment")
     };
-    assert!(names.iter().all(|item| !forbidden(item)),
-        "QSL checked-expression, checking or evaluation API entered IR");
+    assert!(
+        names.iter().all(|item| !forbidden(item)),
+        "QSL checked-expression, checking or evaluation API entered IR"
+    );
     for source in [
         "pub struct CheckedExpression;",
         "pub use qsl_semantics::check::CheckedExpression;",
@@ -1143,8 +1145,10 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
         "pub fn evaluate_expression() {}",
     ] {
         let adverse = source_items(&parse_model_source(source, "forbidden public surface"));
-        assert!(adverse.iter().any(&forbidden),
-            "forbidden declaration escaped public-item inventory: {source}");
+        assert!(
+            adverse.iter().any(&forbidden),
+            "forbidden declaration escaped public-item inventory: {source}"
+        );
     }
 
     let output = Command::new(env!("CARGO"))
