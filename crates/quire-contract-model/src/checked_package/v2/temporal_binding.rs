@@ -268,10 +268,18 @@ pub(super) fn validate(
     for (row_index, (row, &position)) in rows.iter().zip(&resolved).enumerate() {
         let node = &nodes[position];
         let at = row_pointer(row_index);
+        let law = profile_law(node);
+        if law
+            .as_ref()
+            .is_some_and(|law| TemporalProfile::from_wire(&law.identity).is_none())
+        {
+            // The temporal step owns unknown-profile classification at the
+            // law definition. Do not let this row's profile join preempt it.
+            continue;
+        }
         if clause_clock_name(node) != Some(row.clock_name.as_ref()) {
             return Err(invalid(at.clone().key("clock_name"), &row.declaration));
         }
-        let law = profile_law(node);
         let profile = configured_profile(node);
         let mut selected = false;
         if let Some(law) = law.as_ref() {

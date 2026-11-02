@@ -2474,8 +2474,8 @@ fn tc_048_unknown_profile_precedes_temporal_binding_profile_join() {
     let mut package = v2_all_families();
     let mut binding = package["temporal_bindings"][0].clone();
     let clause_at = clause(&package);
-    package["semantic_graph"]["nodes"][clause_at]["body"]["operation"]["laws"][0]
-        ["definition"]["identity"] = json!("quire.fixture.temporal-profile/v1");
+    package["semantic_graph"]["nodes"][clause_at]["body"]["operation"]["laws"][0]["definition"]
+        ["identity"] = json!("quire.fixture.temporal-profile/v1");
     settle(&mut package);
 
     let current_clause = clause(&package);
@@ -2486,10 +2486,7 @@ fn tc_048_unknown_profile_precedes_temporal_binding_profile_join() {
         &package,
         Code::UnknownProfile,
         Cause::UnsupportedSelection,
-        &at_node(
-            current_clause,
-            "/body/operation/laws/0/definition",
-        ),
+        &at_node(current_clause, "/body/operation/laws/0/definition"),
     );
 }
 
