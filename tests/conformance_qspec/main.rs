@@ -63,6 +63,7 @@ mod operation_effects;
 mod probabilistic_claims;
 mod projection_read_form;
 mod protocol_locations;
+mod protocol_mutation_manifest;
 mod protocol_vectors;
 mod reaches_population;
 mod schedulability;

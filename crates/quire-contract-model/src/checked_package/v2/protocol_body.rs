@@ -5333,14 +5333,13 @@ pub(super) fn validate_protocol_nodes(
     // Placement is one complete pass, so it precedes every operator defect.
     let mut validated = vec![None; nodes.len()];
     for &position in index.values() {
-        let Some(CheckedTerm::Application {
-            operator: ApplicationOperator::ProtocolControl,
-            ..
-        }) = terms.get(position).and_then(Option::as_ref)
-        else {
-            continue;
-        };
-        if !matches!(
+        if matches!(
+            terms.get(position).and_then(Option::as_ref),
+            Some(CheckedTerm::Application {
+                operator: ApplicationOperator::ProtocolControl,
+                ..
+            })
+        ) && !matches!(
             kinds.get(position),
             Some(CheckedNodeKind::Protocol(form)) if *form != ProtocolForm::ProtocolReference
         ) {
@@ -5349,6 +5348,34 @@ pub(super) fn validate_protocol_nodes(
                 &nodes[position],
                 ProtocolBodyDefect::OperatorIneligible,
             ));
+        }
+        if kinds.get(position) == Some(&CheckedNodeKind::State(StateForm::StateClause)) {
+            let mut has_protocol_member_reference = false;
+            if let Some(body) = terms.get(position).and_then(Option::as_ref) {
+                body.visit_reference_targets(&mut |target| {
+                    has_protocol_member_reference |= index
+                        .get(target)
+                        .and_then(|&target_position| kinds.get(target_position))
+                        .is_some_and(|kind| {
+                            matches!(
+                                kind,
+                                CheckedNodeKind::Protocol(form)
+                                    if !matches!(
+                                        form,
+                                        ProtocolForm::ProtocolClause | ProtocolForm::ProtocolReference
+                                    )
+                            )
+                        });
+                });
+            }
+            if has_protocol_member_reference {
+                return Err(ValidationFailure::refused_at(
+                    Code::IllTyped,
+                    node_pointer(position),
+                    Some(Cause::OperatorIneligible),
+                    nodes[position].node_id.clone(),
+                ));
+            }
         }
     }
 
@@ -5371,6 +5398,18 @@ pub(super) fn validate_protocol_nodes(
         let (operator, arguments) =
             validate_envelope(form, body, &node.semantic_type, selected_profile)
                 .map_err(|defect| body_defect(position, node, defect))?;
+        if index
+            .get(&node.semantic_type)
+            .and_then(|&type_position| kinds.get(type_position))
+            != Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
+        {
+            return Err(ValidationFailure::refused_at(
+                Code::IllTyped,
+                node_pointer(position),
+                Some(Cause::OperatorIneligible),
+                node.node_id.clone(),
+            ));
+        }
         validated[position] = Some((operator, arguments));
 
         if !has_temporal_profile && matches!(operator, "await" | "compensate") {
