@@ -329,13 +329,15 @@ pub(super) struct OperationDecl {
     pub(super) redefines: Option<Box<str>>,
 }
 
-/// Shallow Semantic IR operation-frame members; the first three are required
-/// when `frame` is present, while an absent frame is intentionally empty.
+/// Shallow Semantic IR operation-frame members; absent arrays mean empty effects.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SourceOperationFrame {
+    #[serde(default)]
     pub(super) modifies: Vec<Box<str>>,
+    #[serde(default)]
     pub(super) creates: Vec<Box<str>>,
+    #[serde(default)]
     pub(super) deletes: Vec<Box<str>>,
     #[serde(default)]
     pub(super) modifies_receiver: Vec<Box<str>>,

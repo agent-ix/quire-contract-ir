@@ -52,6 +52,7 @@ mod model_root;
 mod model_tuple_union;
 mod node_index;
 mod node_ordinal;
+mod operation_effects;
 mod probabilistic_claims;
 mod projection_read_form;
 mod protocol_locations;
