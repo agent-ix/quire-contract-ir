@@ -2465,6 +2465,31 @@ fn tc_048_an_unknown_profile_is_checked_first_and_is_not_read_as_bounded() {
     );
 }
 
+/// A typed clock row must not preempt an unknown temporal profile's definition
+/// refusal. The producer captured the row under the original known profile,
+/// so keep that row after changing the profile identity.
+#[trace("TC-048", "FR-038-AC-108")]
+#[test]
+fn tc_048_unknown_profile_precedes_temporal_binding_profile_join() {
+    let mut package = v2_all_families();
+    let mut binding = package["temporal_bindings"][0].clone();
+    let clause_at = clause(&package);
+    package["semantic_graph"]["nodes"][clause_at]["body"]["operation"]["laws"][0]["definition"]
+        ["identity"] = json!("quire.fixture.temporal-profile/v1");
+    settle(&mut package);
+
+    let current_clause = clause(&package);
+    binding["declaration"] = package["semantic_graph"]["nodes"][current_clause]["node_id"].clone();
+    package["temporal_bindings"] = json!([binding]);
+    expect(
+        "an unknown profile with its captured clock binding",
+        &package,
+        Code::UnknownProfile,
+        Cause::UnsupportedSelection,
+        &at_node(current_clause, "/body/operation/laws/0/definition"),
+    );
+}
+
 /// A clause whose `laws` is not exactly one `temporal_profile` law skips the
 /// profile check and its profile fit: its law defect refuses at the operation
 /// step, at the first law past the catalogued one (`operation-law-mismatch`,
