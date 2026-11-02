@@ -263,7 +263,7 @@ impl TermBindingName {
 }
 /// A node's declared qualified name (FR-208). Present exactly where the
 /// schema's `DeclarationOccurrenceRule` requires it and forbidden where
-/// `DeclarationTagRules` forbids it; see [`validate_declaration`].
+/// `DeclarationTagRules` forbids it; see `validate_declaration`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedDeclaration {

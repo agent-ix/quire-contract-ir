@@ -226,7 +226,12 @@ FR-038-AC-400 is implemented. The borrowed
 identity, claim occurrence, closed typed claim/task field reads and the
 existing typed `CheckedTerm` body, using
 the exact signatures FR-038 specifies. Fields remain private and no public
-constructor can mint the view. The closed `ClaimForm::Schedulability` variant
+constructor can mint the view. Task views use `CheckedSchedulabilityTaskRef<'a>`.
+The claim view's `declaration`, `occurrence` and `body` reads borrow admitted
+values. `CheckedPackageV2::schedulability_claim_rows` borrows the raw producer
+identity rows, and `CheckedPackageSidecarsRef::schedulability_claims` supplies
+those optional borrowed rows to the complete writer.
+The closed `ClaimForm::Schedulability` variant
 joins that surface with the carrier implementation. These exports are included
 in the implemented public inventory. No QSL
 engine, task-product certificate or task-transition identity type enters the
@@ -250,7 +255,7 @@ operation has its own owning requirement, as listed below.
 | `binding` | types `BoundClause`, `BoundPackage`; constants `EXECUTABLE_PROJECTION_FORMAT`, `EXECUTABLE_PROJECTION_SCHEMA` | FR-023 |
 | `conformance` | functions `expected_inventory`, `run_corpus`; types `ConformanceOperation`, `FixtureResult`, `FixtureStatus`, `RunnerError`, `RunnerErrorCode`, `ToolIdentity`, `ValidationOptions`; constants `CONFORMANCE_BOUNDARIES`, `CONFORMANCE_PROTOCOL`, `CONFORMANCE_SCHEMA_ID`, `MAX_CONFORMANCE_FILE_BYTES`, `MAX_CONFORMANCE_FIXTURES`, `MAX_CONFORMANCE_TOTAL_BYTES`, `PACKAGE_SCHEMA_ID`, `PUBLIC_CONSTRUCT_TAGS` | FR-018 through FR-020 |
 | `code` | types `Std001Code`, `Std001CodeError`; macro `std001_code` | FR-044, STD-001 |
-| `checked_package` | types `CheckedSchedulabilityClaimRow` (raw producer identity row), `CheckedSchedulabilityClaimRef<'a>`, `CheckedSchedulabilityTaskRef<'a>`, `CheckedSchedulabilityKind`, `CheckedSchedulingPolicy`, `CheckedTaskArrival`, `CheckedTaskCriticality` with FR-038's closed typed field accessors and borrowed `declaration`, `occurrence` and `body` reads; associated `CheckedPackageV2::schedulability_claims` iterator and `schedulability_claim_rows` borrowed wire-row read; `CheckedPackageSidecarsRef::schedulability_claims` optional borrowed rows; `ClaimForm::Schedulability` | FR-038 |
+| `checked_package` | types `CheckedSchedulabilityClaimRow`, `CheckedSchedulabilityClaimRef`, `CheckedSchedulabilityTaskRef`, `CheckedSchedulabilityKind`, `CheckedSchedulingPolicy`, `CheckedTaskArrival`, `CheckedTaskCriticality` | FR-038 |
 | `certificate_member` (planned until IR-1250 lands) | type `CertificateMember` | FR-070 |
 | `limits` | constants `MAX_SEMANTIC_COLLECTION_ITEMS`, `MAX_SEMANTIC_DEPTH`, `MAX_SEMANTIC_NODES`, `MAX_WIRE_JSON_DEPTH` | FR-019 |
 | `output_mapping` | functions `assemble_output_package`, `map_admitted_request`, `map_admitted_request_controlled`; types `AdmittedMappingObligation`, `AdmittedMappingRequest`, `CompletedMappings`, `GeneratedOutputPackage`, `MappingCancellation`, `MappingCancellationToken`, `MappingCandidate`, `MappingCause`, `MappingCondition`, `MappingDependencyKind`, `MappingDependencyRef`, `MappingDisposition`, `MappingExecutionControl`, `MappingLimits`, `MappingRecordSource`, `MappingRequestError`, `MappingRequestErrorCode`, `MappingSourcePackageRef`, `MappingWorkBudget`, `ModelSourceSelection`, `NativeSourceSelection`, `ObservationAdequacyRef`, `ObservationAdequacyState`, `OutputByteRegion`, `OutputCapability`, `OutputGeneratorIdentity`, `OutputMappingProfile`, `OutputMappingRecord`, `OutputTargetFamily`, `ProtocolAdequacyRef`, `ProtocolAdequacyState`, `RequestedMappingObligation`, `SemanticSourceSelection`, `SourceFactState`, `StructuralObservationOutcome`, `StructuralObservationRef`, `StructuralObserverIdentity`; trait `OutputMapper`; constants `OUTPUT_MAPPING_REVISION` | FR-032 through FR-034, STD-003 |
