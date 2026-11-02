@@ -5,7 +5,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, index_fixture_node_ids, node_id,
-    protocol_named_node, rebuild_source_map, refresh_identity, select_model, settle,
+    protocol_named_node, rebuild_source_map, refresh_identity, select_model, settle, source_owner,
     structural_fixture_id, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
@@ -1353,12 +1353,19 @@ fn process_and_machine_anchors_refuse_non_object_context_forms() {
             let context = match rejected {
                 "event_type" => {
                     let body = json!({"term":"aggregate","members":[]});
-                    let id = node_id("refinement/unselected-event-type");
-                    package["semantic_graph"]["nodes"].as_array_mut().expect("nodes").push(json!({
-                        "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
-                        "node_tag":"model","semantic_form":"event_type","semantic_type":id,
-                        "dependencies":[],"occurrences":[{"role":"type","ordinal":0}],"body":body
-                    }));
+                    let id = node_id("qualified:Example/UnselectedEvent");
+                    let source = package["lock"]["sources"][0].clone();
+                    package["semantic_graph"]["nodes"]
+                        .as_array_mut()
+                        .expect("nodes")
+                        .push(json!({
+                            "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+                            "node_tag":"model","semantic_form":"event_type","semantic_type":id,
+                            "dependencies":[],
+                            "occurrences":[{"role":"declaration","ordinal":0}],
+                            "declaration":{"qualified_name":["Example","UnselectedEvent"]},
+                            "owner":source_owner(&source),"body":body
+                        }));
                     id
                 }
                 "systems_interface" => {
@@ -1390,7 +1397,9 @@ fn process_and_machine_anchors_refuse_non_object_context_forms() {
                     .as_array_mut()
                     .expect("source map")
                     .push(json!({
-                        "node_id":context,"role":"type","ordinal":0,
+                        "node_id":context,
+                        "role":if rejected == "event_type" { "declaration" } else { "type" },
+                        "ordinal":0,
                         "regions":[{"source":source,"start":10,"end":11}]
                     }));
                 refresh_identity(&mut package);

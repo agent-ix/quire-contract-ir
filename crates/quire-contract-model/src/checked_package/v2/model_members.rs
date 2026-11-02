@@ -528,6 +528,8 @@ pub(super) struct DomainModel {
     pub(super) persistence_operations: BTreeMap<Box<str>, FieldBearingTypeDecl>,
     /// Record value types, with their own and inherited fields.
     pub(super) record_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
+    /// Event type declarations, by their exact selected identities.
+    pub(super) event_types: BTreeSet<Box<str>>,
     /// Ordered positions of each selected tuple value type.
     pub(super) tuple_types: BTreeMap<Box<str>, Vec<SelectedTypeRef>>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
@@ -3154,6 +3156,7 @@ pub(super) fn read_semantic_ir(
         persistence_interfaces: BTreeSet::new(),
         persistence_operations: BTreeMap::new(),
         record_types: BTreeMap::new(),
+        event_types: BTreeSet::new(),
         tuple_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
         aliases,
@@ -3303,6 +3306,7 @@ pub(super) fn read_semantic_ir(
                     scope.record_field_forbidden.insert(node);
                 }
                 if meaning == meaning::Kind::EventType {
+                    model.event_types.insert((*node).into());
                     scope.events.insert(node);
                 }
                 if meaning == meaning::Kind::PersistenceInterface {

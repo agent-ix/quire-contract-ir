@@ -109,8 +109,8 @@ fn evidence(wire: &Value) -> CheckedPackageEvidence {
     "TC-048",
     "FR-019-AC-23",
     "FR-038-AC-426",
-    "FR-038-AC-431",
-    "FR-038-AC-432"
+    "FR-038-AC-433",
+    "FR-038-AC-434"
 )]
 #[test]
 fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {

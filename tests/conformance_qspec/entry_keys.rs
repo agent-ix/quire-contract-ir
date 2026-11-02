@@ -128,7 +128,7 @@ fn admit(wire: &Value) -> Box<CheckedPackageV2> {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-432")]
+#[trace("TC-048", "FR-038-AC-434")]
 #[test]
 fn entry_keys_published_paths_and_admission_cover_optional_measure() {
     let vectors = vectors();
@@ -198,7 +198,7 @@ fn entry_keys_published_paths_and_admission_cover_optional_measure() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-432")]
+#[trace("TC-048", "FR-038-AC-434")]
 #[test]
 fn entry_keys_measure_function_is_admitted_without_a_monitor_root() {
     let vectors = vectors();
@@ -220,7 +220,7 @@ fn entry_keys_measure_function_is_admitted_without_a_monitor_root() {
     assert_eq!(package.monitor_plans().len(), 0);
 }
 
-#[trace("TC-048", "FR-038-AC-432")]
+#[trace("TC-048", "FR-038-AC-434")]
 #[test]
 fn entry_keys_assigned_label_is_resolved_without_recomputation() {
     let vectors = vectors();
@@ -243,7 +243,7 @@ fn entry_keys_assigned_label_is_resolved_without_recomputation() {
     assert_eq!(before.graph().nodes[n].body, after.graph().nodes[n].body);
 }
 
-#[trace("TC-048", "FR-038-AC-432")]
+#[trace("TC-048", "FR-038-AC-434")]
 #[test]
 fn entry_keys_malformed_measure_and_descriptor_bindings_keep_owner_refusals() {
     let vectors = vectors();

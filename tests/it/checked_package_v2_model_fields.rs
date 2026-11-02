@@ -577,6 +577,7 @@ fn package(
                 | INTERFACE
                 | "relationship"
                 | "record_value_type"
+                | "event_type"
                 | "tuple_value_type"
                 | "process"
                 | "state_machine"
@@ -706,6 +707,106 @@ fn admit(document: &Value, declared: &[(&str, &str)], reads: &[Read]) -> Checked
         CheckedPackageV2ReadResult::Admitted(package) => *package,
         other => panic!("expected admission, got {other:?}"),
     }
+}
+
+/// Trace: FR-038-AC-420, QSpec FR-322-AC-68, TC-281 EV-01/EV-02.
+#[trace("TC-048", "TC-281", "FR-038-AC-420")]
+#[test]
+fn tc_281_event_type_model_owner_joins_only_selected_event_declarations() {
+    let mut event = typed_object(
+        "OrderPlaced",
+        "event",
+        &[],
+        &[field("occurred_at", "ix://quire/native/Timestamp")],
+    );
+    event["occurrenceField"] = json!(format!("{}/occurred_at", orders("OrderPlaced")));
+    let mut selected = document(vec![
+        event,
+        typed_object("Money", "record", &[], &[]),
+        object("Order", &[], &[]),
+    ]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct catalog")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    let (base, evidence, _) = package(&selected, &[("OrderPlaced", "event_type")], &[]);
+    let position = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "event_type")
+        .expect("event node");
+    assert_eq!(
+        base["semantic_graph"]["nodes"][position]["owner"]["kind"],
+        "model"
+    );
+    assert!(matches!(
+        read_with(&base, &evidence, CheckedPackageReadLimits::bounded()),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    for wrong in ["Money", "Order", "Absent"] {
+        let mut package = base.clone();
+        package["semantic_graph"]["nodes"][position]["owner"]["node"] = json!(orders(wrong));
+        settle(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_with(&package, &evidence, CheckedPackageReadLimits::bounded())
+        else {
+            panic!("EV-02 owner naming {wrong} must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::MissingDeclaration,
+            "{wrong}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MissingSelection),
+            "{wrong}"
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{position}/node_id").as_str()),
+            "{wrong}"
+        );
+    }
+
+    let pointer = format!("/semantic_graph/nodes/{position}");
+    let mut absent = base.clone();
+    absent["semantic_graph"]["nodes"][position]
+        .as_object_mut()
+        .expect("event node")
+        .remove("owner");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&absent, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("ownerless event must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(pointer.as_str())
+    );
+
+    let mut source = base.clone();
+    let selected_source = &base["lock"]["sources"][0];
+    source["semantic_graph"]["nodes"][position]["owner"] = json!({
+        "kind": "source", "authority": selected_source["authority"],
+        "identity": selected_source["identity"],
+    });
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&source, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("source-owned undeclared event must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("{pointer}/owner").as_str())
+    );
 }
 
 /// The public runtime projection returns selected record and object facts.

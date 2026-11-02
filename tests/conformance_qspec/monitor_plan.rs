@@ -66,7 +66,7 @@ fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
     "FR-038-AC-426",
     "FR-038-AC-427",
     "FR-038-AC-429",
-    "FR-038-AC-431"
+    "FR-038-AC-433"
 )]
 #[test]
 fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
@@ -993,7 +993,7 @@ fn monitor_plan_entry_owner_exception_cannot_admit_a_model_descriptor() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-431")]
+#[trace("TC-048", "FR-038-AC-433")]
 #[test]
 fn monitor_plan_event_position_old_shape_is_refused() {
     let vectors = recipes();
@@ -1015,7 +1015,7 @@ fn monitor_plan_event_position_old_shape_is_refused() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-431", "FR-038-AC-432")]
+#[trace("TC-048", "FR-038-AC-433", "FR-038-AC-434")]
 #[test]
 fn monitor_plan_genuine_measure_entry_keeps_signature_and_closed_body_checks() {
     let vectors = recipes();
@@ -1101,7 +1101,7 @@ fn monitor_plan_genuine_measure_entry_keeps_signature_and_closed_body_checks() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-431")]
+#[trace("TC-048", "FR-038-AC-433")]
 #[test]
 fn monitor_plan_event_position_is_the_exact_final_integer_field() {
     let vectors = recipes();
