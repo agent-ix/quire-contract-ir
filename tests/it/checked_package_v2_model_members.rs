@@ -530,6 +530,18 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
         candidates[0].effective_precondition,
         candidates[1].effective_precondition
     );
+    let mut wrong_precondition_type = package.clone();
+    let non_boolean_body = wrong_precondition_type["checked_term_data"]["dispatch_tables"][0]
+        ["candidates"][1]["operation_body"]
+        .clone();
+    wrong_precondition_type["checked_term_data"]["dispatch_tables"][0]["candidates"][0]
+        ["effective_precondition"] = non_boolean_body;
+    let refusal = refused(&wrong_precondition_type, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some("/checked_term_data/dispatch_tables/0/candidates/0/effective_precondition".to_owned())
+    );
     assert!(matches!(
         admitted.dispatch_candidates(&call, &occurrence, 2),
         Err(

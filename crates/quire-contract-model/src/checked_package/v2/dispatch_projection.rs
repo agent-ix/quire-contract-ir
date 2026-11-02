@@ -7,7 +7,7 @@ use super::model_fields::RetainedModels;
 use super::model_members::Budget;
 use super::{
     ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ExpressionForm,
-    FunctionForm, ModelForm, RawCheckedPackageWireV2, WorkMeter,
+    FunctionForm, ModelForm, RawCheckedPackageWireV2, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -168,15 +168,22 @@ pub(super) fn validate_checked_term_data(
                 return Err(invalid(at.clone().key("operation_body")));
             }
             if let Some(precondition) = candidate.effective_precondition.as_ref() {
-                let precondition_kind = index
-                    .get(precondition)
-                    .and_then(|position| kinds.get(*position));
-                if !matches!(
-                    precondition_kind,
-                    Some(CheckedNodeKind::Function(
-                        FunctionForm::Predicate | FunctionForm::PureFunction
-                    ))
-                ) {
+                let precondition_position = index.get(precondition).copied();
+                let precondition_kind =
+                    precondition_position.and_then(|position| kinds.get(position));
+                let has_boolean_result = precondition_position
+                    .and_then(|position| nodes.get(position))
+                    .and_then(|node| index.get(&node.semantic_type))
+                    .and_then(|position| kinds.get(*position))
+                    == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean));
+                let valid_precondition = match precondition_kind {
+                    Some(CheckedNodeKind::Function(FunctionForm::Predicate)) => true,
+                    Some(CheckedNodeKind::Function(FunctionForm::PureFunction)) => {
+                        has_boolean_result
+                    }
+                    _ => false,
+                };
+                if !valid_precondition {
                     return Err(invalid(at.clone().key("effective_precondition")));
                 }
             }
