@@ -984,11 +984,17 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
         let owner = case["owner_node"]
             .as_str()
             .map(|node| json!({"kind":"model","identity":"acme/orders","node":node}));
-        let mut population = node_id(&format!("relation/population/{id}"));
-        population["package"] = owner.as_ref().map_or_else(
-            || package["name"].clone(),
-            |owner| owner["identity"].clone(),
-        );
+        let population = if let Some(owner) = &owner {
+            json!({
+                "package": owner["identity"],
+                "path": ["relation", "population", owner["node"]],
+                "ordinal": 0,
+            })
+        } else {
+            let mut id = node_id(&format!("relation/population/{id}"));
+            id["package"] = package["name"].clone();
+            id
+        };
         let mut population_node = json!({
             "node_id":population,"schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"relation","semantic_form":"population",
