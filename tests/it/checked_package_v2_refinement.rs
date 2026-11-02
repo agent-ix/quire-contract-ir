@@ -1975,8 +1975,7 @@ fn assert_refinement_dependency_matrix(
         for bad_row in [false, true] {
             let mut candidate = package.clone();
             if bad_row {
-                candidate["semantic_graph"]["nodes"][position]["body"]["steps"][0]
-                    ["source_class"] = json!("unknown-operation");
+                inject_refinement_row_defect(&mut candidate, position);
             }
             candidate["semantic_graph"]["nodes"][position]["dependencies"] = json!(edges);
             // Do not settle: the reader and writer must see the authored defect.
@@ -2102,7 +2101,7 @@ fn refinement_expression_operands_enter_dependencies_before_row_meaning() {
         4,
         "independent reference, member, population, annotation controls"
     );
-    let term = json!({"term":"application", "operator":"model_reaches",
+    let term = json!({"term":"application", "operator":"reaches",
     "operation":{"identity":"quire.op.model.reaches", "laws":[], "mode":null,
         "member":{"kind":"relationship", "declaration":operands[1], "population":operands[2]},
         "leaves":[]},
