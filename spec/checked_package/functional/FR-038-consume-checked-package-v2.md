@@ -27,9 +27,13 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-66
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-68
+    type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-73
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-74
+    type: references
+  - target: ix://agent-ix/quire-specification/TC-281
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-120
     type: references
@@ -2602,8 +2606,8 @@ The optional `owner` member of `CheckedSemanticNodeV2` has QSpec FR-322's closed
 `SourceOwner` `{kind: "source", authority, identity}` or `ModelOwner`
 `{kind: "model", identity, node}`. The owner is part of the node's declared meaning; changing it can change
 its structural package or path and always requires the owner join to be checked.
-A node is structural for this presence rule when it is not an application. Every declared structural node SHALL carry the declaring
-unit's `SourceOwner`. An undeclared `model`/`object_type`,
+A node is structural for this presence rule when it is not an application. Every declared structural node, including a declared `model`/`event_type`, SHALL carry the declaring
+unit's `SourceOwner`. An undeclared `model`/`object_type`, `model`/`event_type`,
 `model`/`systems_interface`, `relation`/`relationship`,
 `relation`/`population` or `function` node
 SHALL carry its `ModelOwner`. Every other node SHALL omit `owner`: this
@@ -5334,6 +5338,7 @@ adds none of them to the checked-package wire or the cycle-free model API.
 | FR-038-AC-417 | planned until IR-1263 lands. A `bounded_domain`/`text_bounds` node with exactly ordered `aggregate{min, max, text_profile}` admits when both bounds are canonical nonnegative integer literals with `min <= max` and the text profile is one of `unicode-scalars`, `nfc`, `nfd`, `nfkc`, `nfkd`, or `binary-utf8`. `Text[0, 64; nfc]` and the equal-bound `Text[2, 2; binary-utf8]` admit; no unbounded `Text[profile]` shape exists. | Test |
 | FR-038-AC-418 | planned until IR-1263 lands. A profile-only `Text[nfc]`, absent `min`, `max` or `text_profile`, an extra or reordered member, a noninteger or negative bound, `min > max`, or a profile outside the six refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}`, with that node as locus and no admitted package. Shape refusal precedes Text literal membership even when a literal typed by the malformed node would itself fail its length or normalization check. | Test |
 | FR-038-AC-419 | planned until IR-1263 lands. TC-048 reads QSpec `proposals/checked-package-v2/text-bounds-shape-vectors.json` from the selected checkout by reference, verifies the exact `TS-01` through `TS-10` case set, and checks each through the public strict reader for admission or the specified code, cause, primary RFC 6901 node pointer and structural node locus. It stores no local vector or schema copy; the existing profile-only recursive-leaves fixture gains explicit `min` and `max` so its positive read remains valid. | Test |
+| FR-038-AC-420 | planned until IR-1264 lands. A structural `model`/`event_type` node without `declaration` requires `ModelOwner`: the selected event type in QSpec TC-281 EV-01 passes the owner join, while EV-02's owners naming a record value type, object type or absent declaration refuse `missing_declaration`/`missing-selection` at the node's `node_id`. A structural `model`/`event_type` node with `declaration` retains its required `SourceOwner`. An undeclared event node with `SourceOwner` or an owner of another kind refuses `malformed_wire` at `/semantic_graph/nodes/{N}/owner`; an absent required owner refuses `malformed_wire` at `/semantic_graph/nodes/{N}` under QSpec FR-322's owner-presence rule. | Test (TC-048; QSpec FR-322-AC-68, TC-281 EV-01/EV-02) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

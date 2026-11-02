@@ -234,9 +234,9 @@ as FR-038 states.
 ### Scope
 
 Only `record_value_type` is covered. QSL FR-359 also treats an event type as
-a record value, but the reader admits no `model`/`event_type` node until QSpec
-adds one (FR-359 cross-repo requirement 7); event conformance joins this rule
-with that form.
+a record value. QSpec FR-322 defines the `model`/`event_type` node and its
+owner-presence rule; event conformance at the positions in this FR remains
+outside this requirement's scope (FR-359 cross-repo requirement 7).
 
 ## Acceptance Criteria
 
