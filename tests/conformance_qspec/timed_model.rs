@@ -1160,7 +1160,7 @@ fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() 
                 .as_array_mut()
                 .expect("clause aggregate");
             if repeated {
-                members[1] = members[0].clone();
+                members.insert(1, members[0].clone());
             } else {
                 members.swap(0, 1);
             }
