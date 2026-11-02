@@ -985,7 +985,9 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
             .as_str()
             .map(|node| json!({"kind":"model","identity":"acme/orders","node":node}));
         let mut population = node_id(&format!("relation/population/{id}"));
-        population["package"] = json!("acme/orders");
+        if owner.is_some() {
+            population["package"] = json!("acme/orders");
+        }
         let mut population_node = json!({
             "node_id":population,"schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"relation","semantic_form":"population",
