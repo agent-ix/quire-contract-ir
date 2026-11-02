@@ -1255,6 +1255,52 @@ fn selected_record_invariant_owner_joins_its_real_declaration() {
     );
 }
 
+/// Trace: FR-038-AC-420, QSpec FR-322-AC-68.
+#[trace("TC-048", "TC-281", "FR-038-AC-420")]
+#[test]
+fn selected_event_invariant_owner_joins_its_real_declaration() {
+    let (base, mut document) = model_package();
+    let event = "ix://acme/owners/OrderPlaced";
+    let occurrence = format!("{event}/occurred_at");
+    document["constructs"][0]["construct"]["meaning"] = json!("quire.meaning.model.event-type/v1");
+    document["types"][0]["identity"] = json!(event);
+    document["types"][0]["displayName"] = json!("OrderPlaced");
+    document["types"][0]["fields"] = json!([{
+        "identity": occurrence, "name": "occurred_at", "typeRef": "ix://quire/native/Timestamp",
+        "presence": "required", "nullable": false, "defaultKind": "none",
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+    }]);
+    document["types"][0]["occurrenceField"] = json!(occurrence);
+    let package = owned_clause(base, &document, event, "invariant");
+    let result = read_with_model(&package, &document);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "selected event invariant must pass the owner join: {result:?}"
+    );
+
+    let mut wrong = package;
+    let position = wrong["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "function" && node["owner"]["node"] == event)
+        .expect("event-owned clause");
+    wrong["semantic_graph"]["nodes"][position]["owner"]["node"] = json!("ix://acme/owners/Absent");
+    refresh_identity(&mut wrong);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&wrong, &document) else {
+        panic!("invariant owned by an absent event must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+    );
+}
+
 fn refused(package: &Value, code: CheckedPackageRefusalCode, path: &str) {
     let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
         panic!("owner mutation must refuse");
@@ -1292,6 +1338,23 @@ fn tc_228_declared_record_tuple_and_function_carry_their_source_owner() {
             CheckedPackageV2ReadResult::Admitted(_)
         ));
     }
+}
+
+/// Trace: FR-038-AC-420, QSpec FR-322-AC-68.
+#[trace("TC-048", "FR-038-AC-420")]
+#[test]
+fn declared_event_keeps_source_owner() {
+    let package = source_package_form("model", "event_type", "Deposited");
+    let node = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("event node");
+    assert_eq!(node["owner"]["kind"], "source");
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
 }
 
 #[trace("TC-228", "FR-038-AC-153")]
