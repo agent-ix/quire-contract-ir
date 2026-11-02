@@ -96,8 +96,12 @@ member; inherited visibility SHALL NOT change that declaring owner or duplicate
 the operation as an own declaration on a subtype. Contract IR SHALL refuse a
 missing, foreign, duplicate or conflicting producer fact, mismatched owner or
 member, or unrepresentable signature or effect before exposing any partial
-type-declaration view. It SHALL NOT derive an effect from an operation name,
-callable frame, state/frame node or default empty effect. Until the QSL producer
+type-declaration view. Contract IR SHALL compare the producer fact's ordered
+parameter names and projected types and optional result with the
+admission-retained operation signature, even when document, owner and member
+match, and SHALL return a typed conflicting-witness refusal for any difference
+before exposing a type-declaration view. It SHALL NOT derive an effect from an
+operation name, callable frame, state/frame node or default empty effect. Until the QSL producer
 supplies the selected operation effect facts, an object with operations SHALL
 return typed unavailable-witness; the admitted model signature alone does not
 authorize a complete `ObjectTypeDeclaration`. The projection SHALL charge
@@ -171,7 +175,7 @@ typed outcomes.
 | FR-354-AC-8 | Public API and dependency inspection finds the runtime projections in IR model, no QSL `Scope`, `CheckedGraph`, evaluator, supplied-state admission or mirror expression type in IR, and no claimed success for a producer decision absent from the package. | Inspection |
 | FR-354-AC-9 | Captured protocol semantic location reads preserve the exact application, occurrence, per-term ordinal, closed origin and child path; two terms sharing one application occurrence remain distinct. Foreign, absent or non-application targets, missing source occurrences, duplicate keys and malformed origin or ordinal shapes refuse before admission. An absent sidecar and an absent selected row return distinct typed outcomes; a bounded read returns the complete borrowed row at its exact work limit and reports charged exhaustion one below without a partial value or source-region inference. | Test |
 | FR-354-AC-10 | A selected `Ledger` with own `pay` and `payTaxed` operations (the QSL `child_composite` signature pattern) exposes them in declaration order with their selected declaring owner and original member identities, ordered typed parameters, optional result and producer-declared effects, including an empty effect and a nonempty effect in the test case, sufficient for QSL `ObjectTypeDeclaration::with_operations`; inherited visibility does not change ownership or add an own operation to the subtype. | Test |
-| FR-354-AC-11 | A missing, foreign, duplicate or conflicting operation/effect fact, wrong owner/member, or unrepresentable signature/effect returns a named typed outcome without any partial declaration view; an admitted signature without the required producer effect fact refuses. Repeated bounded reads of the admitted package and its clone agree, and a limit one below the charged work reports exhaustion without a partial view. | Test |
+| FR-354-AC-11 | A missing, foreign, duplicate or conflicting operation/effect fact, wrong owner/member, or unrepresentable signature/effect returns a named typed outcome without any partial declaration view; an admitted signature without the required producer effect fact refuses. A producer fact with matching document, owner and member but reordered or changed parameter names/types, or a changed optional result, returns typed conflicting-witness rather than an operation view. Repeated bounded reads of the admitted package and its clone agree, and a limit one below the charged work reports exhaustion without a partial view. | Test |
 
 ## Dependencies
 
