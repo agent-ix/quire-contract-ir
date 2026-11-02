@@ -1175,7 +1175,8 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
     let model_id = model["id"].as_str().expect("model package ID");
     let exact_id = exact["id"].as_str().expect("Exact package ID");
     let ir_id = ir["id"].as_str().expect("IR package ID");
-    let model_dependencies = production_graph(&graph, model_id, |_| false).expect("acyclic model production graph");
+    let model_dependencies =
+        production_graph(&graph, model_id, |_| false).expect("acyclic model production graph");
     assert!(
         model_dependencies.contains(exact_id),
         "model must depend on actual Exact"
@@ -1184,14 +1185,15 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
         !model_dependencies.contains(ir_id),
         "model must remain cycle free from IR"
     );
-    let exact_dependencies = production_graph(&graph, exact_id, |_| false).expect("acyclic Exact production graph");
+    let exact_dependencies =
+        production_graph(&graph, exact_id, |_| false).expect("acyclic Exact production graph");
     assert!(
         !exact_dependencies.contains(model_id) && !exact_dependencies.contains(ir_id),
         "Exact must have no IR-model or admission dependency"
     );
     for id in [model_id, ir_id] {
-        let dependencies = production_graph(&graph, id, |_| false)
-            .expect("acyclic IR production graph");
+        let dependencies =
+            production_graph(&graph, id, |_| false).expect("acyclic IR production graph");
         assert!(
             packages.iter().all(|package| !dependencies
                 .contains(package["id"].as_str().expect("package ID"))
