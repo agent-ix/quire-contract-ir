@@ -237,12 +237,14 @@ in the implemented public inventory. No QSL
 engine, task-product certificate or task-transition identity type enters the
 cycle-free model API through this read.
 
-The borrowed monitor-plan surface of FR-038-AC-421 through FR-038-AC-428 is
+The borrowed monitor-plan surface of FR-038-AC-421 through FR-038-AC-429 is
 planned until IR-721 lands. It exposes admitted plan and ordinary entry keys,
 typed bodies and premises without executing a body or minting another identity.
 The associated `CheckedPackageV2::monitor_plans` and immutable reads use the
 exact signatures in FR-038, including borrowed `CheckedRational` rate and
-uncertainty, counter text and tick-unit identity.
+uncertainty, counter text and tick-unit identity. The required `on_gap` read
+returns the same private borrowed entry-view type as the other three entries
+with its exact two-parameter signature and resolved content key.
 
 ### Public items
 

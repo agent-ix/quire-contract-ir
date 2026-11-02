@@ -329,3 +329,7 @@ scope:
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | No findings (placeholder) | - |
+
+## Disposition round 1
+
+**PASS** at 29d8df90a861307edecc46ceb4476eea08b10999. Inspected the fix diff: only the existing FR-038 rows were moved into their table and the blank line before FR-019-AC-23 was removed, plus verbatim review artifacts were committed. CommonMark table-cell parsing discovers all nine added IDs exactly once. The current computed matrix and advisor each discover all nine obligations; their planned status does not claim implementation evidence. The published fifteen-binding QSpec target remains authoritative; no unpublished on_gap signature or executor behavior was inferred. No new defects found. No source edits, build or Cargo command was performed.

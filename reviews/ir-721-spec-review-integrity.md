@@ -330,3 +330,14 @@ scope:
 | --- | --- | --- | --- |
 | FND-001 | medium | AC-421 through AC-428 are detached pipe rows without a table header after prose, so Markdown renders them as a paragraph and quoin advise does not discover the eight new obligations. Move them into the existing Acceptance Criteria table or supply a complete header and separator. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:5482 |
 | FND-002 | medium | AC-23 is separated from the acceptance table by a blank line without a new header, so Markdown renders it as a paragraph and quoin advise does not discover the new API obligation. Move it into the existing table or supply a complete header and separator. | spec/model/functional/FR-019-rust-library-interface.md:376 |
+
+## Disposition round 1
+
+**PASS** at 29d8df90a861307edecc46ceb4476eea08b10999. Inspected the fix diff: only the existing FR-038 rows were moved into their table and the blank line before FR-019-AC-23 was removed, plus verbatim review artifacts were committed. CommonMark table-cell parsing discovers all nine added IDs exactly once. The current computed matrix and advisor each discover all nine obligations; their planned status does not claim implementation evidence. The published fifteen-binding QSpec target remains authoritative; no unpublished on_gap signature or executor behavior was inferred. No new defects found. No source edits, build or Cargo command was performed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-038-AC-421 through AC-428 now belong to the existing table; CommonMark, matrix and advisor all discover them. |
+| FND-002 | fixed | FR-019-AC-23 now immediately follows AC-22 within the table; CommonMark, matrix and advisor discover it. |
