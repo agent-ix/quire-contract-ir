@@ -38,7 +38,7 @@ relationships:
 
 When QSL FR-045 returns a `Supported` classification for a temporal declaration
 in a strict `quire.compiled-protocol/2` package, the temporal bridge in
-`agent-ix/quire-integration` (IR-358) SHALL construct and owner-read the TL
+`agent-ix/quire-integration` (IR-1005) SHALL construct and owner-read the TL
 formula and valuation request, then join the native and TL results through one
 bridge-owned correspondence record. The bridge SHALL take the target and
 outstanding premises from the QSL classification and preserve the meaning
@@ -47,12 +47,16 @@ contract; it assigns no QSL-typed API to either Contract IR package.
 
 ## Inputs
 
-- The strict `/2` package and declaration admitted under QSL FR-050.
-- The authenticated `Classification` returned by QSL
-  `temporal::mapping_support_v2`, including its retained selection.
-- The QSL FR-043 `temporal::Trace` used by native `evaluate_v2`, with explicit
-  Boolean valuation cells, clock and observation binding, captures, anchor,
-  closure and history boundary.
+- The strict `/2` package and declaration admitted under QSL FR-050. The
+  concrete QSL admitted-package argument remains pending until the QSL-838
+  successor type is named.
+- The consumed QSL surface is
+  `quire_spec_language::temporal::{mapping_support_v2, Classification, Trace, Report, evaluate_v2}`:
+  the authenticated `Classification` returned by `mapping_support_v2` includes
+  its retained selection; the `Trace` used by native `evaluate_v2` carries
+  explicit Boolean valuation cells, clock and observation binding, captures,
+  anchor, closure and history boundary; and the `Report` is the native result
+  supplied to the join.
 - Exact selected public contracts for TL formula, trace or position history,
   request and mapped result.
 - Caller-configured byte, node, position, valuation, support, cause and work
@@ -71,12 +75,14 @@ result axes QSpec FR-095 names.
 ### Boundary and interface
 
 The `agent-ix/quire-integration` bridge SHALL implement the public profile
-`quire.native-temporal-correspondence/v1`. Its public operations SHALL be
-equivalent to:
+`quire.native-temporal-correspondence/v1`. It consumes
+`quire_spec_language::temporal::{mapping_support_v2, Classification, Trace, Report, evaluate_v2}`;
+its admitted-package argument's concrete QSL type remains pending until the
+QSL-838 successor is named. Its public operations SHALL be equivalent to:
 
 ```text
 temporal::project_tl(
-  &quire_spec_language::protocol_artifact::v2::AdmittedPackage,
+  admitted_package: /* QSL type pending QSL-838 successor */,
   declaration,
   &quire_spec_language::temporal::Classification,
   &quire_spec_language::temporal::Trace,
@@ -281,7 +287,7 @@ an exact and one-over boundary without constructing a default-sized artifact.
 
 ## Dependencies
 
-- `agent-ix/quire-integration` (IR-358) owns the QSL-typed `project_tl` bridge,
+- `agent-ix/quire-integration` (IR-1005) owns the QSL-typed `project_tl` bridge,
   strict projection and join readers, correspondence value, and executable
   TC-461 evidence. This Contract IR requirement remains the cross-repository
   contract for FR-350-AC-1 through FR-350-AC-6 and FR-350-AC-8; AC-7 remains
