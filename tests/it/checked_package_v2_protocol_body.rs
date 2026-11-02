@@ -6,9 +6,9 @@
 use crate::support::checked_package::{
     admitted_protocol_families, application_node_key, canonical, evidence_for,
     evidence_with_document, family_key, family_model_document, node_id, protocol_named_node,
-    protocol_role_node, reassign_node_id, rebuild_source_map, refresh_identity, refusal,
-    refusal_at_id, rename_node, select_model, selected_interface_model_node, settle,
-    v2_all_families,
+    protocol_role_node, reassign_node_id, rebuild_source_map, refresh_identity,
+    refresh_identity_projection, refusal, refusal_at_id, rename_node, select_model,
+    selected_interface_model_node, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -6274,6 +6274,269 @@ pub(crate) fn package_with_admitted_compensation() -> (Value, usize, usize) {
     settle(&mut package);
     let compensation = protocol_position(&package, "compensation");
     (package, root, compensation)
+}
+
+fn compensation_clock_case(
+    case: &Value,
+    declarations: &[Value],
+) -> (Value, std::collections::BTreeMap<String, Value>) {
+    assert_eq!(
+        case["lock_temporal_profile"],
+        if case["id"] == "CB-08" {
+            "none"
+        } else {
+            "event_position"
+        }
+    );
+    let clock_of = |key: &str| {
+        declarations
+            .iter()
+            .find(|declaration| declaration["key"] == key)
+            .expect("published declaration")["clock"]
+            .clone()
+    };
+    let (mut package, _, first) = package_with_admitted_compensation();
+    let mut second = package["semantic_graph"]["nodes"][first].clone();
+    second["node_id"] = node_id("qualified:Example/OrderFlow/compensate/UndoSecond");
+    second["declaration"]["qualified_name"] =
+        json!(["Example", "OrderFlow", "compensate", "UndoSecond"]);
+    package["semantic_graph"]["nodes"][first]["body"]["arguments"][4]["value"]["value"] =
+        clock_of("k1");
+    second["body"]["arguments"][4]["value"]["value"] = clock_of("k2");
+    let second_id = second["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second);
+    let protocol_clause = clause_position(&package);
+    let reference = json!({"term": "reference", "target": second_id});
+    package["semantic_graph"]["nodes"][protocol_clause]["body"]["arguments"][8]["value"]["members"]
+        .as_array_mut()
+        .expect("compensations")
+        .push(reference);
+
+    let temporal_clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "temporal" && node["semantic_form"] == "temporal_clause"
+        })
+        .expect("temporal clause");
+    if case["id"] == "CB-01" {
+        package["semantic_graph"]["nodes"][temporal_clause]["body"]["arguments"][1]["value"] =
+            clock_of("c");
+    } else {
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .remove(temporal_clause);
+        package
+            .as_object_mut()
+            .expect("package")
+            .remove("temporal_bindings");
+    }
+    if case["id"] == "CB-08" {
+        let selections = package["lock"]["profile_selections"]
+            .as_array_mut()
+            .expect("selections");
+        for selection in selections {
+            if selection["role"] == "temporal_profile" {
+                selection["definition"]["identity"] = json!("quire.temporal.infinite-trace/v1");
+            }
+        }
+        for node in package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+        {
+            if let Some(laws) = node
+                .get_mut("body")
+                .and_then(|body| body.get_mut("operation"))
+                .and_then(|operation| operation.get_mut("laws"))
+                .and_then(Value::as_array_mut)
+            {
+                for law in laws {
+                    if law["role"] == "temporal_profile" {
+                        law["definition"]["identity"] = json!("quire.temporal.infinite-trace/v1");
+                    }
+                }
+            }
+        }
+    }
+    settle(&mut package);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let mut ids = std::collections::BTreeMap::new();
+    ids.insert(
+        "k1".to_owned(),
+        nodes[protocol_position(&package, "compensation")]["node_id"].clone(),
+    );
+    ids.insert("k2".to_owned(), second_id);
+    ids.insert(
+        "aw".to_owned(),
+        nodes[protocol_position(&package, "control")]["node_id"].clone(),
+    );
+    if case["id"] == "CB-01" {
+        let clause = nodes
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "temporal" && node["semantic_form"] == "temporal_clause"
+            })
+            .expect("temporal clause");
+        ids.insert("c".to_owned(), clause["node_id"].clone());
+    }
+    let mut rows = case["rows"].as_array().expect("rows").clone();
+    for row in &mut rows {
+        let key = row["declaration"].as_str().expect("declaration key");
+        row["declaration"] = ids[key].clone();
+    }
+    if case["id"] == "CB-01" {
+        rows.sort_by(|left, right| {
+            let left: CheckedNodeId =
+                serde_json::from_value(left["declaration"].clone()).expect("id");
+            let right: CheckedNodeId =
+                serde_json::from_value(right["declaration"].clone()).expect("id");
+            left.cmp(&right)
+        });
+    }
+    if case["id"] != "CB-08" {
+        package["temporal_bindings"] = Value::Array(rows);
+    }
+    refresh_identity_projection(&mut package);
+    (package, ids)
+}
+
+/// Trace: FR-038-AC-412, FR-038-AC-413, FR-038-AC-414, FR-038-AC-415,
+/// FR-038-AC-416, FR-019-AC-22; QSpec TC-233 TB-01..TB-03.
+#[trace(
+    "TC-048",
+    "TC-058",
+    "FR-038-AC-412",
+    "FR-038-AC-413",
+    "FR-038-AC-414",
+    "FR-038-AC-415",
+    "FR-038-AC-416",
+    "FR-019-AC-22"
+)]
+#[test]
+fn compensation_clock_rows_follow_published_cases() {
+    let root = match std::env::var_os("QUIRE_SPECIFICATION_DIR") {
+        Some(root) => root,
+        None if std::env::var_os("QSPEC_CONFORMANCE").is_none() => return,
+        None => panic!("QUIRE_SPECIFICATION_DIR required for compensation conformance"),
+    };
+    let root = std::path::PathBuf::from(root);
+    let path = root.join("proposals/checked-package-v2/temporal-clock-binding-vectors.json");
+    let vectors: Value =
+        serde_json::from_slice(&std::fs::read(path).expect("published vectors")).expect("vectors");
+    let cases = vectors["compensation_cases"].as_array().expect("CB cases");
+    let declarations = vectors["compensation_declarations"]
+        .as_array()
+        .expect("published declarations");
+    for (case, expected_id) in cases.iter().zip([
+        "CB-01", "CB-02", "CB-03", "CB-04", "CB-05", "CB-06", "CB-07", "CB-08",
+    ]) {
+        assert_eq!(case["id"], expected_id);
+    }
+    assert_eq!(cases.len(), 8);
+    for case in cases {
+        let id = case["id"].as_str().expect("case id");
+        let (package, ids) = compensation_clock_case(case, declarations);
+        match read(&package) {
+            CheckedPackageV2ReadResult::Admitted(admitted) if case["expected"] == "admitted" => {
+                if id == "CB-08" {
+                    assert!(admitted.temporal_bindings().is_none(), "{id}");
+                    continue;
+                }
+                let rows = admitted.temporal_bindings().expect("admitted clock rows");
+                assert_eq!(
+                    rows.len(),
+                    case["rows"].as_array().expect("rows").len(),
+                    "{id}"
+                );
+                for (row, published) in rows
+                    .iter()
+                    .zip(package["temporal_bindings"].as_array().expect("rows"))
+                {
+                    let expected: CheckedNodeId =
+                        serde_json::from_value(published["declaration"].clone()).expect("id");
+                    assert_eq!(row.declaration, expected, "{id}");
+                    assert_eq!(
+                        row.clock_name.as_ref(),
+                        published["clock_name"].as_str().expect("clock name"),
+                        "{id}"
+                    );
+                    let expected: quire_contract_model::ClockConfiguration =
+                        serde_json::from_value(published["clock"].clone()).expect("clock");
+                    assert_eq!(row.clock, expected, "{id}");
+                }
+                assert_ne!(ids["k1"], ids["k2"], "{id}");
+                if id == "CB-01" {
+                    let mut missing = package.clone();
+                    missing
+                        .as_object_mut()
+                        .expect("package")
+                        .remove("temporal_bindings");
+                    refresh_identity_projection(&mut missing);
+                    let nodes = missing["semantic_graph"]["nodes"]
+                        .as_array()
+                        .expect("nodes");
+                    let first = nodes
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, node)| {
+                            ["c", "k1", "k2"]
+                                .iter()
+                                .any(|key| node["node_id"] == ids[*key])
+                        })
+                        .min_by_key(|(position, _)| *position)
+                        .expect("required declaration");
+                    assert_eq!(
+                        read(&missing),
+                        refusal_at_id(
+                            CheckedPackageRefusalCode::InvalidPackage,
+                            &format!("/semantic_graph/nodes/{}/body", first.0),
+                            Some(CheckedPackageRefusalCause::TimedNodeReference),
+                            &first.1["node_id"],
+                        )
+                    );
+                }
+            }
+            CheckedPackageV2ReadResult::Refused(actual) if case["expected"] == "refused" => {
+                assert_eq!(case["code"], "invalid_package", "{id}");
+                assert_eq!(case["cause"], "timed-node-reference", "{id}");
+                let key = match id {
+                    "CB-03" | "CB-05" => &ids["k2"],
+                    "CB-04" | "CB-06" => &ids["k1"],
+                    "CB-07" => &ids["aw"],
+                    _ => panic!("unexpected refused case {id}"),
+                };
+                let pointer = if id == "CB-03" {
+                    let position = package["semantic_graph"]["nodes"]
+                        .as_array()
+                        .expect("nodes")
+                        .iter()
+                        .position(|node| node["node_id"] == *key)
+                        .expect("missing node");
+                    format!("/semantic_graph/nodes/{position}/body")
+                } else {
+                    case["locus"].as_str().expect("locus").to_owned()
+                };
+                assert_eq!(
+                    actual,
+                    refusal_at_id(
+                        CheckedPackageRefusalCode::InvalidPackage,
+                        &pointer,
+                        Some(CheckedPackageRefusalCause::TimedNodeReference),
+                        key,
+                    ),
+                    "{id}"
+                );
+            }
+            other => panic!("{id}: unexpected package result {other:?}"),
+        }
+    }
 }
 
 /// Trace: FR-038-AC-288

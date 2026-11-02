@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! Typed clock configuration rows for temporal clause declarations.
+//! Typed clock configuration rows for temporal and compensation declarations.
 
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, LawRole,
-    RawSemanticNodeV2, TemporalForm, TemporalProfile, WorkMeter,
+    ProtocolForm, RawSemanticNodeV2, TemporalForm, TemporalProfile, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -58,13 +58,13 @@ pub enum ClockConfiguration {
     },
 }
 
-/// One admitted clock selection keyed by a temporal clause's structural ID.
+/// One admitted clock selection keyed by a declaration's structural ID.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TemporalBinding {
-    /// Exact temporal clause declaration ID.
+    /// Exact temporal clause or compensation declaration ID.
     pub declaration: CheckedNodeId,
-    /// Exact nonempty text of the clause clock argument.
+    /// Exact nonempty text of the declaration's clock argument.
     pub clock_name: Box<str>,
     /// Closed clock configuration.
     pub clock: ClockConfiguration,
@@ -202,9 +202,7 @@ fn profile_law(node: &RawSemanticNodeV2) -> Option<super::CheckedArtifactRef> {
     (law.role_class() == Some(LawRole::TemporalProfile)).then(|| law.definition.clone())
 }
 
-fn configured_profile(node: &RawSemanticNodeV2) -> Option<TemporalProfile> {
-    let law = profile_law(node)?;
-    let profile = TemporalProfile::from_wire(&law.identity)?;
+fn clock_configured(profile: TemporalProfile) -> Option<TemporalProfile> {
     matches!(
         profile,
         TemporalProfile::EventPositionFalseExtension
@@ -214,11 +212,44 @@ fn configured_profile(node: &RawSemanticNodeV2) -> Option<TemporalProfile> {
     .then_some(profile)
 }
 
+fn configured_profile(node: &RawSemanticNodeV2) -> Option<TemporalProfile> {
+    clock_configured(TemporalProfile::from_wire(&profile_law(node)?.identity)?)
+}
+
+fn selected_profile(lock: &CheckedPackageLockV2) -> Option<TemporalProfile> {
+    let selection = lock
+        .profile_selections
+        .iter()
+        .find(|selection| selection.role == CheckedSelectionRole::TemporalProfile)?;
+    clock_configured(TemporalProfile::from_wire(&selection.definition.identity)?)
+}
+
 #[ix_trace_rs::string_edge]
-fn clause_clock_name(node: &RawSemanticNodeV2) -> Option<&str> {
-    let term = node.body.get("arguments")?.as_array()?.get(1)?;
+fn clock_name(node: &RawSemanticNodeV2, argument: usize) -> Option<&str> {
+    let term = node.body.get("arguments")?.as_array()?.get(argument)?;
+    let term = if term.get("term")?.as_str()? == "binding" {
+        term.get("value")?
+    } else {
+        term
+    };
     (term.get("term")?.as_str()? == "literal" && term.get("value_kind")?.as_str()? == "text")
         .then(|| term.get("value")?.as_str())?
+}
+
+fn clock_matches(profile: Option<TemporalProfile>, clock: &ClockConfiguration) -> bool {
+    matches!(
+        (profile, clock),
+        (
+            Some(TemporalProfile::EventPositionFalseExtension),
+            ClockConfiguration::EventPosition { .. }
+        ) | (
+            Some(TemporalProfile::FixedSampleFalseExtension),
+            ClockConfiguration::FixedSample { .. }
+        ) | (
+            Some(TemporalProfile::TimestampedEventFiniteWindow),
+            ClockConfiguration::TimestampedEvent { .. }
+        )
+    )
 }
 
 /// Validate row coverage before per-node joins and compare names before kinds.
@@ -233,6 +264,7 @@ pub(super) fn validate(
 ) -> Result<(), ValidationFailure> {
     let rows = rows.unwrap_or_default();
     validate_shape(rows, meter)?;
+    let compensation_profile = selected_profile(lock);
     let mut seen = BTreeSet::new();
     let mut previous = None;
     let mut resolved = Vec::with_capacity(rows.len());
@@ -244,7 +276,11 @@ pub(super) fn validate(
         let Some(&position) = index.get(&row.declaration) else {
             return Err(invalid(at.key("declaration"), &row.declaration));
         };
-        if kinds[position] != CheckedNodeKind::Temporal(TemporalForm::TemporalClause) {
+        if !matches!(
+            kinds[position],
+            CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
+                | CheckedNodeKind::Protocol(ProtocolForm::Compensation)
+        ) {
             return Err(invalid(at.key("declaration"), &row.declaration));
         }
         let structural = structural_keys[position].as_ref();
@@ -255,11 +291,13 @@ pub(super) fn validate(
         resolved.push(position);
     }
     let missing = index.values().copied().filter(|&position| {
-        kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
+        (kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
             && configured_profile(&nodes[position]).is_some()
+            || kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation)
+                && compensation_profile.is_some())
             && !seen.contains(&nodes[position].node_id)
     });
-    if let Some(position) = missing.min_by_key(|&position| structural_keys[position].as_ref()) {
+    if let Some(position) = missing.min() {
         return Err(invalid(
             node_pointer(position).key("body"),
             &nodes[position].node_id,
@@ -268,6 +306,15 @@ pub(super) fn validate(
     for (row_index, (row, &position)) in rows.iter().zip(&resolved).enumerate() {
         let node = &nodes[position];
         let at = row_pointer(row_index);
+        if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
+            if clock_name(node, 4) != Some(row.clock_name.as_ref()) {
+                return Err(invalid(at.clone().key("clock_name"), &row.declaration));
+            }
+            if !clock_matches(compensation_profile, &row.clock) {
+                return Err(invalid(at.key("clock").key("kind"), &row.declaration));
+            }
+            continue;
+        }
         let law = profile_law(node);
         if law
             .as_ref()
@@ -277,7 +324,7 @@ pub(super) fn validate(
             // law definition. Do not let this row's profile join preempt it.
             continue;
         }
-        if clause_clock_name(node) != Some(row.clock_name.as_ref()) {
+        if clock_name(node, 1) != Some(row.clock_name.as_ref()) {
             return Err(invalid(at.clone().key("clock_name"), &row.declaration));
         }
         let profile = configured_profile(node);
@@ -293,20 +340,7 @@ pub(super) fn validate(
                 }
             }
         }
-        let kind_matches = matches!(
-            (profile, &row.clock),
-            (
-                Some(TemporalProfile::EventPositionFalseExtension),
-                ClockConfiguration::EventPosition { .. }
-            ) | (
-                Some(TemporalProfile::FixedSampleFalseExtension),
-                ClockConfiguration::FixedSample { .. }
-            ) | (
-                Some(TemporalProfile::TimestampedEventFiniteWindow),
-                ClockConfiguration::TimestampedEvent { .. }
-            )
-        );
-        if !selected || !kind_matches {
+        if !selected || !clock_matches(profile, &row.clock) {
             return Err(invalid(at.key("clock").key("kind"), &row.declaration));
         }
     }
