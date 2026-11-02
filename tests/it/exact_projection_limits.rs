@@ -3,9 +3,15 @@
 
 //! Public admitted type reads with finite work and deep or cyclic type graphs.
 
-use crate::support::checked_package::{canonical, evidence_for, fixture_source, node_id, nominal_package, owned_structural_node, settle, source_owner};
+use crate::support::checked_package::{
+    canonical, evidence_for, fixture_source, node_id, nominal_package, owned_structural_node,
+    settle, source_owner,
+};
 use ix_trace_rs::trace;
-use quire_contract_model::{CheckedNodeId, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode, SelectedExactIdentities};
+use quire_contract_model::{
+    CheckedNodeId, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
+    ExactTypeProjectionErrorCode, SelectedExactIdentities,
+};
 use quire_exact::{Integer, IntegerInterval, ValueType};
 use serde_json::{json, Value};
 
@@ -24,7 +30,11 @@ fn package(nodes: Vec<Value>) -> Value {
 }
 
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(&canonical(wire), CheckedPackageReadLimits::bounded(), &evidence_for(wire))
+    CheckedPackageV2::read(
+        &canonical(wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(wire),
+    )
 }
 
 fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
@@ -36,18 +46,31 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
 
 #[test]
 fn admitted_union_projection_has_the_required_unsupported_type_outcome() {
-    let mut union = node("ProjectionUnion", "composite_type", "union", "ProjectionUnion", &[], json!({"term": "aggregate", "members": [
-        {"term": "binding", "name": "left", "value": {"term": "aggregate", "members": []}},
-        {"term": "binding", "name": "right", "value": {"term": "aggregate", "members": []}}
-    ]}));
+    let mut union = node(
+        "ProjectionUnion",
+        "composite_type",
+        "union",
+        "ProjectionUnion",
+        &[],
+        json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "left", "value": {"term": "aggregate", "members": []}},
+            {"term": "binding", "name": "right", "value": {"term": "aggregate", "members": []}}
+        ]}),
+    );
     union["declaration"] = json!({"qualified_name": ["ProjectionUnion"]});
     union["occurrences"][0]["role"] = json!("declaration");
     let union = owned_structural_node(union, source_owner(&fixture_source()));
     let wire = package(vec![union]);
     let admitted = admitted(&wire);
     let id: CheckedNodeId = serde_json::from_value(node_id("ProjectionUnion")).unwrap();
-    let error = admitted.project_exact_type(&id, &SelectedExactIdentities::empty(), 2).expect_err("union has no complete Exact representation");
-    assert_eq!(error.code, ExactTypeProjectionErrorCode::UnsupportedExactType, "{error:?}");
+    let error = admitted
+        .project_exact_type(&id, &SelectedExactIdentities::empty(), 2)
+        .expect_err("union has no complete Exact representation");
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType,
+        "{error:?}"
+    );
 }
 
 #[trace("FR-352-AC-7")]
