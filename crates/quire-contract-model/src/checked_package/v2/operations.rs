@@ -1239,6 +1239,11 @@ fn operation_defect(
         }
     }
     if let Some(failure) =
+        check_ieee_fma_result(application, &operation, entry, graph, owners, catalog)
+    {
+        return Ok(Some(failure));
+    }
+    if let Some(failure) =
         check_type_argument_member_result(application, &operation, entry, graph, owners, catalog)
     {
         return Ok(Some(failure));
@@ -2221,6 +2226,47 @@ fn check_operands(
         }
     }
     Ok(None)
+}
+
+/// The IEEE FMA catalog entries require their result to have the same fixed
+/// float family as their three operands.
+#[ix_trace_rs::string_edge]
+fn check_ieee_fma_result(
+    application: Application<'_>,
+    operation: &OperationWire,
+    entry: &OperationCatalogEntry,
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    catalog: &OperationCatalog,
+) -> Option<ValidationFailure> {
+    if !matches!(
+        operation.identity.as_ref(),
+        "quire.op.ieee.float32.fma" | "quire.op.ieee.float64.fma"
+    ) {
+        return None;
+    }
+    let result_type = graph
+        .terms
+        .get(application.position)
+        .and_then(Option::as_ref)
+        .and_then(|term| match term {
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
+            _ => None,
+        });
+    let typed = match (&entry.result, result_type) {
+        (CatalogResult::Other(expected), Some(result_type)) => {
+            resolve_selected_family(result_type, graph, owners)
+                .is_some_and(|actual| catalog.family_fits(actual, expected))
+        }
+        _ => false,
+    };
+    (!typed).then(|| {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["result_type"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    })
 }
 
 /// The members of the structural union or selected model union `type_id`

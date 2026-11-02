@@ -47,6 +47,7 @@ mod extension;
 mod fairness_targets;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;
+mod fma_application;
 mod grouped_ordinal;
 mod hybrid;
 mod model_option_types;
