@@ -177,6 +177,8 @@ pub(super) fn decode_borrowed_wire(
                         refusal.set_primary_path(Some(member));
                     } else if let Some(member) = invalid_clock_field(bytes, &at) {
                         refusal.set_primary_path(Some(member));
+                    } else if let Some(member) = missing_probabilistic_occurrence(bytes, &at) {
+                        refusal.set_primary_path(Some(member));
                     }
                 }
             }
@@ -252,6 +254,17 @@ pub(super) fn decode_borrowed_wire(
                 .collect::<Result<Vec<_>, ValidationFailure>>()?,
         },
     })
+}
+
+fn missing_probabilistic_occurrence(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+    let prefix = "/checked_term_data/probabilistic_claims/";
+    let index = at.as_str().strip_prefix(prefix)?;
+    if index.is_empty() || !index.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let row: BTreeMap<&str, &RawValue> = serde_json::from_str(source_raw(bytes, at)?).ok()?;
+    (row.contains_key("declaration") && !row.contains_key("occurrence"))
+        .then(|| at.clone().key("occurrence"))
 }
 
 #[ix_trace_rs::string_edge]
