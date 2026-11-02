@@ -2075,6 +2075,125 @@ fn refinement_history_reference_dependencies_exclude_type_annotations() {
     );
 }
 
+/// Dependency validation precedes expression and row meaning. These controls
+/// keep an invalid row while distinguishing references/member operands from
+/// literal/result annotations (QSpec FR-375's exact local-list rule).
+#[trace("TC-062", "FR-061-AC-6")]
+#[test]
+fn refinement_expression_operands_enter_dependencies_before_row_meaning() {
+    let (base, evidence, position, object, type_id, _) = ac5_history_package();
+    let original_dependencies = base["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array()
+        .expect("dependencies")
+        .clone();
+    let operands = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter(|node| {
+            node["node_id"] != base["semantic_graph"]["nodes"][position]["node_id"]
+                && !original_dependencies.contains(&node["node_id"])
+        })
+        .take(4)
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        operands.len(),
+        4,
+        "independent reference, member, population, annotation controls"
+    );
+    let term = json!({"term":"application", "operator":"model_reaches",
+    "operation":{"identity":"quire.op.model.reaches", "laws":[], "mode":null,
+        "member":{"kind":"relationship", "declaration":operands[1], "population":operands[2]},
+        "leaves":[]},
+    "result_type":operands[3], "arguments":[
+        {"term":"reference", "target":operands[0]},
+        {"term":"literal", "type":operands[3], "value_kind":"text", "value":"annotation"}
+    ]});
+    for location in ["field", "receiver", "argument", "initial", "update"] {
+        let mut package = base.clone();
+        let node = &mut package["semantic_graph"]["nodes"][position];
+        match location {
+            "field" => {
+                node["body"]["objects"] = json!([{
+                    "abstract_type":object, "concrete_type":object,
+                    "fields":[{"name":"unknown-field", "expression":term}]
+                }])
+            }
+            "receiver" | "argument" => {
+                node["body"]["steps"][0]["target"] = json!({
+                    "kind":"operation", "operation":node["body"]["steps"][0]["source_node"],
+                    "receiver":if location == "receiver" {term.clone()} else {
+                        json!({"term":"literal", "type":type_id, "value_kind":"text", "value":"wrong receiver"})
+                    },
+                    "arguments":if location == "argument" {json!([term])} else {json!([])}
+                });
+            }
+            "initial" => node["body"]["histories"][0]["initial"] = term.clone(),
+            "update" => node["body"]["histories"][0]["updates"][0]["expression"] = term.clone(),
+            _ => unreachable!("closed test location table"),
+        }
+        let mut expected = original_dependencies.clone();
+        expected.extend_from_slice(&operands[..3]);
+        expected.sort_by(node_id_order);
+        expected.dedup();
+        node["dependencies"] = json!(expected);
+        let CheckedPackageV2ReadResult::Refused(row_refusal) = read(&package, &evidence) else {
+            panic!("{location}: the independent wrong expression must refuse");
+        };
+        let dependencies_at = format!("/semantic_graph/nodes/{position}/dependencies");
+        assert_ne!(
+            row_refusal.loci[0].path.as_ref().unwrap().as_str(),
+            dependencies_at,
+            "{location}: exact dependency set must reach row meaning: {row_refusal:?}"
+        );
+        assert_ne!(
+            row_refusal.code,
+            CheckedPackageRefusalCode::MalformedWire,
+            "{location}: control must reach semantics rather than fail wire decoding"
+        );
+        let bytes = writer_bytes(&package);
+        assert_eq!(
+            bytes,
+            canonical_indexed(&package),
+            "{location}: writer changed expression"
+        );
+        let CheckedPackageV2ReadResult::Refused(written_refusal) =
+            CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
+        else {
+            panic!("{location}: writer must not heal the row defect");
+        };
+        assert_eq!(row_refusal.code, written_refusal.code);
+        assert_eq!(row_refusal.cause, written_refusal.cause);
+        assert_eq!(row_refusal.loci, written_refusal.loci);
+        for omitted in &operands[..3] {
+            let mut candidate = package.clone();
+            candidate["semantic_graph"]["nodes"][position]["dependencies"]
+                .as_array_mut()
+                .expect("dependencies")
+                .retain(|id| id != omitted);
+            ac5_refusal_preserved_by_writer(
+                &candidate,
+                &evidence,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                &dependencies_at,
+            );
+        }
+        let mut extra_annotation = package.clone();
+        let dependencies = extra_annotation["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies");
+        dependencies.push(operands[3].clone());
+        dependencies.sort_by(node_id_order);
+        ac5_refusal_preserved_by_writer(
+            &extra_annotation,
+            &evidence,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &dependencies_at,
+        );
+    }
+}
+
 #[trace("TC-062", "FR-061-AC-1", "FR-061-AC-6")]
 #[test]
 fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
