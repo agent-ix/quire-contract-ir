@@ -4089,13 +4089,7 @@ mod tests {
     #[test]
     fn tc_451_schedulability_rows_match_private_wire_without_normalization() {
         let mut wire = tc_451_private_owned_wire();
-        let declaration = wire
-            .semantic_graph
-            .nodes
-            .first()
-            .expect("fixture node")
-            .node_id
-            .clone();
+        let declaration = super::test_support::id('b');
         let rows = vec![
             super::CheckedSchedulabilityClaimRow {
                 declaration: declaration.clone(),
