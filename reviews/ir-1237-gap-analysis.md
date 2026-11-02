@@ -37,3 +37,10 @@ Ticket: IR-1237. Compared the computed Quire matrix, trace tags, public writer a
 - FR-051-AC-6, role: examined. Excerpt: A default-feature external producer constructs two typed nonempty probabilistic-claim rows using QSpec `PC-01` and `PC-02` identities by reference, passes them through the borrowed public encoder, and the strict reader admits both with their exact distinct declaration `NodeRef` and claim occurrence. The bytes equal the same four-array private envelope's canonical bytes; no name/span inference, row dropping, sorting or pre-admission occurs on the writer path. `None` and `Some` with four empty arrays remain distinct through write/read round trips.
 - Computed matrix: FR-038-AC-390..395 and FR-019-AC-18 tagged; FR-051-AC-6 absent from the criterion set.
 - Plan completion: not assessed
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head e0996a76 removes the blank line; computed matrix now mints FR-051-AC-6 and reports two tagged tests. |
+| FND-002 | fixed | Head e0996a76 adds a typed two-row QSpec producer encode and strict read test, plus absent/present empty round trips. |

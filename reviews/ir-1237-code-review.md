@@ -35,3 +35,9 @@ Ticket: IR-1237. Reviewed frozen head 53670148b9953fc398561c8e103f44fdf1548da0 a
 - FR-019-AC-18, role: examined. Excerpt: The default-feature model crate exports `ClaimForm::ProbabilisticClaim` and the public `CheckedProbabilisticClaim` row with exact typed `declaration: CheckedNodeId` and `occurrence: CheckedOccurrence` members, usable in the fourth required `CheckedTermDataV2::probabilistic_claims` array and borrowed `encode_checked_package_v2` input. A public consumer constructs nonempty rows without importing a private wire type or passing display name or source span as identity, and reads the same typed values from a strictly admitted package. The existing public-item inventory includes the row type when implementation lands.
 - QSpec FR-322-AC-288 and FR-322-AC-297, role: examined against the owning checkout.
 - `make string-edge`: failed; unmarked branch-gating occurrence at `intake.rs:273`.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head e0996a76 adds `#[ix_trace_rs::string_edge]` to the helper; `make string-edge` passes. |
