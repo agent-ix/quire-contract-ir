@@ -2611,7 +2611,7 @@ neither exposes an admitted node from which to read enum details.
 
 ## Authenticated schedulability claim carrier (FR-038-AC-396 through FR-038-AC-400)
 
-planned until IR-1252 lands. Read QSpec's
+Implemented. Read QSpec's
 `proposals/checked-package-v2/schedulability-claim-vectors.json`, TC-976 and
 FR-482/TC-967 body cases directly from the selected checkout; state that
 checkout's revision in execution evidence. Build complete IR-owned packages

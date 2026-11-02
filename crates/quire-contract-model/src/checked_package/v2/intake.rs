@@ -88,6 +88,7 @@ type BorrowedWire<'a> = CheckedPackageEnvelope<
     Vec<super::refinement::CheckedRefinementStepRowRegion>,
     super::checked_term_data::CheckedTermDataV2,
     Vec<super::temporal_binding::TemporalBinding>,
+    Vec<super::CheckedSchedulabilityClaimRow>,
     Vec<CheckedCapability>,
     BorrowedDiagnostics<'a>,
 >;
@@ -171,6 +172,21 @@ pub(super) fn decode_borrowed_wire(
 ) -> Result<RawCheckedPackageWireV2, ValidationFailure> {
     let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|mut failure| {
         if let ValidationFailure::Refused(ref mut refusal) = failure {
+            if refusal.code == CheckedPackageRefusalCode::UnknownMember {
+                if let Some(index) = refusal
+                    .primary_path()
+                    .and_then(|at| at.as_str().strip_prefix("/schedulability_claims/"))
+                    .and_then(|suffix| suffix.split('/').next())
+                    .and_then(|index| index.parse::<usize>().ok())
+                {
+                    refusal.code = CheckedPackageRefusalCode::MalformedWire;
+                    refusal.set_primary_path(Some(
+                        JsonPointer::root()
+                            .key("schedulability_claims")
+                            .index(index),
+                    ));
+                }
+            }
             if refusal.code == CheckedPackageRefusalCode::UnknownMember
                 && refusal
                     .primary_path()
@@ -198,6 +214,13 @@ pub(super) fn decode_borrowed_wire(
         }
         failure
     })?;
+    if wire
+        .schedulability_claims
+        .as_ref()
+        .is_some_and(Vec::is_empty)
+    {
+        return Err(malformed(JsonPointer::root().key("schedulability_claims")));
+    }
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
     let mut nodes = Vec::with_capacity(graph.nodes.len());
@@ -245,6 +268,7 @@ pub(super) fn decode_borrowed_wire(
         refinement_step_rows: wire.refinement_step_rows,
         checked_term_data: wire.checked_term_data,
         temporal_bindings: wire.temporal_bindings,
+        schedulability_claims: wire.schedulability_claims,
         capability_report: wire.capability_report,
         diagnostics: CheckedDiagnosticsV2 {
             catalog: diagnostics.catalog,
@@ -595,6 +619,24 @@ pub(super) fn check_lossless_source(
         }
     } else if root.contains_key("temporal_bindings") {
         return Err(malformed(JsonPointer::root().key("temporal_bindings")));
+    }
+    if let Some(rows) = &wire.schedulability_claims {
+        let originals = raw_array(
+            root.get("schedulability_claims").copied(),
+            &["schedulability_claims"],
+        )?;
+        if rows.is_empty() || originals.len() != rows.len() {
+            return Err(malformed(JsonPointer::root().key("schedulability_claims")));
+        }
+        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
+            let at = JsonPointer::root()
+                .key("schedulability_claims")
+                .index(index);
+            super::lossless::compare(original, row, at.clone(), &["declaration"])?;
+            compare_id_member(original, "declaration", &row.declaration, at)?;
+        }
+    } else if root.contains_key("schedulability_claims") {
+        return Err(malformed(JsonPointer::root().key("schedulability_claims")));
     }
     compare_items(
         &["diagnostics", "entries"],

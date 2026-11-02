@@ -57,6 +57,7 @@ mod checked_package_v2_reader;
 mod checked_package_v2_recursive_leaves;
 mod checked_package_v2_refinement;
 mod checked_package_v2_require_bounds;
+mod checked_package_v2_schedulability;
 mod checked_package_v2_structural_keys;
 mod checked_package_v2_temporal;
 mod checked_package_v2_term_data_writer;

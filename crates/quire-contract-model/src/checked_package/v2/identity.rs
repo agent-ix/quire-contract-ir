@@ -920,6 +920,7 @@ impl NominalKind {
                 | ClaimForm::SynthesisRequest
                 | ClaimForm::StateGraph
                 | ClaimForm::StepRelation
+                | ClaimForm::Schedulability
                 | ClaimForm::ProbabilisticClaim,
             ) => None,
             K::Correspondence(
@@ -2164,15 +2165,19 @@ fn validate_rational(
     meter: &mut WorkMeter,
     at: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
-    let numerator =
-        integer_magnitude(&rational.numerator).ok_or_else(|| invalid(at().key("numerator")))?;
-    require(positive_integer(&rational.denominator), || {
-        at().key("denominator")
-    })?;
-    require(
-        coprime(numerator.digits, &rational.denominator, meter, at)?,
-        at,
-    )
+    validate_rational_parts(&rational.numerator, &rational.denominator, meter, at)
+}
+
+/// Shared signed exact-rational syntax and metered reduction check.
+pub(super) fn validate_rational_parts(
+    numerator: &str,
+    denominator: &str,
+    meter: &mut WorkMeter,
+    at: &dyn Fn() -> JsonPointer,
+) -> Result<(), ValidationFailure> {
+    let numerator = integer_magnitude(numerator).ok_or_else(|| invalid(at().key("numerator")))?;
+    require(positive_integer(denominator), || at().key("denominator"))?;
+    require(coprime(numerator.digits, denominator, meter, at)?, at)
 }
 
 fn validate_enum_declaration(

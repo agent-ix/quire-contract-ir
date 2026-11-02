@@ -132,6 +132,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     .expect("wire");
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); 4];
     let mut package = CheckedPackageV2 {
+        schedulability_claim_index: Vec::new(),
         node_index: super::super::retained_node_index(&wire),
         structural_keys: Vec::new(),
         source_index: super::super::retained_source_index(&wire),

@@ -427,6 +427,7 @@ fn encoded(package: &Value) -> Vec<u8> {
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: None,
             temporal_bindings: temporal_bindings.as_deref(),
+            schedulability_claims: None,
         },
         &capabilities,
         &diagnostics,

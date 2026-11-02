@@ -57,6 +57,7 @@ mod projection_read_form;
 mod protocol_locations;
 mod protocol_vectors;
 mod reaches_population;
+mod schedulability;
 mod selection_vectors;
 mod single_body;
 mod temporal_clock_bindings;
@@ -498,6 +499,7 @@ fn code_word(code: Code) -> &'static str {
         Code::InvalidPackage => "invalid_package",
         Code::IllTyped => "ill_typed",
         Code::WrongSnapshot => "wrong_snapshot",
+        Code::InvalidTimedModel => "invalid_timed_model",
         Code::AmbiguousDeclaration => "ambiguous_declaration",
         Code::MissingImport => "missing_import",
         Code::UnknownProfile => "unknown_profile",
@@ -554,6 +556,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::DeclarationForm => "declaration-form",
         Cause::WrongExport => "wrong-export",
         Cause::WrongObservation => "wrong-observation",
+        Cause::InvalidTaskSet => "invalid-task-set",
     }
 }
 
@@ -783,6 +786,7 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
             quire_contract_model::CheckedPackageSidecarsRef {
                 checked_term_data: admitted.checked_term_data(),
                 temporal_bindings: admitted.temporal_bindings(),
+                schedulability_claims: None,
             },
             admitted.capability_report(),
             admitted.diagnostics(),
@@ -1184,6 +1188,7 @@ fn qspec_admitted_values_members_and_catalog_constraints_are_exact() {
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
+            schedulability_claims: None,
         },
         admitted.capability_report(),
         admitted.diagnostics(),
@@ -1534,6 +1539,7 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         quire_contract_model::CheckedPackageSidecarsRef {
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
+            schedulability_claims: None,
         },
         admitted.capability_report(),
         admitted.diagnostics(),

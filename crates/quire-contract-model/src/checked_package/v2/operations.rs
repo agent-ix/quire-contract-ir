@@ -508,23 +508,24 @@ fn literal_defect(
                         .is_ok_and(|parsed| parsed.to_string() == text)
                 })),
                 LiteralKind::Quantity => {
-                    // Timed reset/bound magnitudes have already passed their
-                    // own exact reduced-rational validation. Their published
-                    // grammar permits an explicit denominator of one.
-                    let timed_quantity = graph
+                    // Closed timed and schedulability body passes already
+                    // validate exact reduced rationals, including an explicit
+                    // denominator of one.
+                    let exact_body_quantity = graph
                         .index
                         .get(&node.node_id)
                         .and_then(|&position| graph.kinds.get(position))
                         .is_some_and(|kind| {
                             matches!(
                                 kind,
-                                CheckedNodeKind::TimedModel(
-                                    super::TimedModelForm::Reset
-                                        | super::TimedModelForm::Constraint
-                                )
+                                CheckedNodeKind::Claim(ClaimForm::Schedulability)
+                                    | CheckedNodeKind::TimedModel(
+                                        super::TimedModelForm::Reset
+                                            | super::TimedModelForm::Constraint
+                                    )
                             )
                         });
-                    (!timed_quantity)
+                    (!exact_body_quantity)
                         .then(|| value.as_str().is_some_and(canonical_quantity_magnitude))
                 }
                 LiteralKind::Boolean
@@ -1424,6 +1425,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ClaimForm::SynthesisRequest
             | ClaimForm::StateGraph
             | ClaimForm::StepRelation
+            | ClaimForm::Schedulability
             | ClaimForm::ProbabilisticClaim,
         ) => None,
         K::Correspondence(
@@ -1574,6 +1576,7 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ClaimForm::SynthesisRequest
             | ClaimForm::StateGraph
             | ClaimForm::StepRelation
+            | ClaimForm::Schedulability
             | ClaimForm::ProbabilisticClaim,
         ) => false,
         K::Correspondence(

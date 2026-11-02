@@ -108,6 +108,8 @@ pub enum CheckedPackageRefusalCode {
     UnknownProfile,
     /// A decision reads a fact unavailable in its owner's observation.
     WrongSnapshot,
+    /// A schedulability task set violates its policy premises.
+    InvalidTimedModel,
 }
 
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
@@ -245,6 +247,8 @@ pub enum CheckedPackageRefusalCause {
     /// value its RFC 8785 encoding loses; paired with `noncanonical_wire`
     /// (QSpec FR-272).
     InexactNumber,
+    /// A schedulability task set violates its declared premises.
+    InvalidTaskSet,
 }
 
 /// An RFC 6901 JSON pointer into the checked-package document the reader

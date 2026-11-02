@@ -1060,6 +1060,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     };
     let wire = super::super::CheckedPackageWireV2 {
         temporal_bindings: None,
+        schedulability_claims: None,
         contract_version: raw.contract_version,
         name: raw.name,
         lock: raw.lock,
@@ -1083,6 +1084,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
         .collect();
     Fixture {
         package: CheckedPackageV2 {
+            schedulability_claim_index: Vec::new(),
             node_index: super::super::retained_node_index(&wire),
             structural_keys: Vec::new(),
             source_index: super::super::retained_source_index(&wire),

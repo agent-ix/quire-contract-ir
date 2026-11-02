@@ -302,6 +302,7 @@ closed_vocabulary! {
         ProbabilisticClaim => "probabilistic_claim",
         StateGraph => "state_graph",
         StepRelation => "step_relation",
+        Schedulability => "schedulability",
     }
 }
 

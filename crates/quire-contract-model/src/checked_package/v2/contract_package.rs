@@ -2585,6 +2585,7 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::OperationModeTypeMismatch
         | Cause::InvalidDerivedShape
         | Cause::DeclarationNominalMismatch => code == Code::InvalidPackage,
+        Cause::InvalidTaskSet => code == Code::InvalidTimedModel,
         Cause::AmbiguousName => code == Code::AmbiguousDeclaration,
         Cause::InsufficientNextCharge => false,
         Cause::OperatorIneligible

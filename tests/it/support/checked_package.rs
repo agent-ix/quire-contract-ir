@@ -1969,6 +1969,28 @@ pub fn rebuild_source_map(package: &mut Value) {
     package["source_map"] = source_map_for(&nodes, &source);
 }
 
+/// Rebuilds source correspondence for every actual node occurrence, preserving
+/// the first occurrence's regions for each additional role and ordinal.
+pub fn rebuild_complete_source_map(package: &mut Value) {
+    rebuild_source_map(package);
+    let mut extra = Vec::new();
+    for node in package["semantic_graph"]["nodes"].as_array().unwrap() {
+        let template = package["source_map"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["node_id"] == node["node_id"])
+            .expect("first occurrence source row");
+        for occurrence in node["occurrences"].as_array().unwrap().iter().skip(1) {
+            let mut row = template.clone();
+            row["role"] = occurrence["role"].clone();
+            row["ordinal"] = occurrence["ordinal"].clone();
+            extra.push(row);
+        }
+    }
+    package["source_map"].as_array_mut().unwrap().extend(extra);
+}
+
 /// Re-derives the application key of the node at `position` from its own
 /// members, after a test changed its body, and renames it everywhere it is
 /// referenced.
