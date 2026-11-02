@@ -3,7 +3,10 @@
 
 //! Production admission and public reads of the optional operation-effect carrier.
 
-use crate::support::checked_package::{canonical, evidence_for, node_id, v2_all_families};
+use crate::support::checked_package::{
+    canonical, evidence_for, evidence_with_document, family_model_document, node_id,
+    v2_all_families,
+};
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
@@ -97,13 +100,21 @@ fn refusal(wire: &Value, code: Code, cause: Option<Cause>, path: &str) {
     );
 }
 
-#[trace("TC-977", "FR-322-AC-303", "FR-038-AC-406", "FR-019-AC-21")]
+#[trace(
+    "TC-977",
+    "TC-058",
+    "FR-322-AC-303",
+    "FR-038-AC-406",
+    "FR-019-AC-21",
+    "FR-019-AC-24"
+)]
 #[test]
 fn absent_and_intentionally_empty_effect_are_distinct() {
     let CheckedPackageV2ReadResult::Admitted(absent) = read(&v2_all_families()) else {
         panic!("baseline package must admit");
     };
     assert!(absent.operation_effects().is_none());
+    assert!(absent.operation_effect_rows().is_none());
 
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&present()) else {
         panic!("present empty effect carrier must admit");
@@ -112,6 +123,7 @@ fn absent_and_intentionally_empty_effect_are_distinct() {
         .operation_effects()
         .expect("present carrier")
         .collect::<Vec<_>>();
+    assert_eq!(admitted.operation_effect_rows().map(<[_]>::len), Some(2));
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].document(), "test/families");
     assert_eq!(
@@ -171,15 +183,44 @@ fn invented_effect_and_missing_coverage_refuse_without_a_view() {
     );
 }
 
-#[trace("TC-977", "FR-038-AC-406", "FR-019-AC-21")]
+#[trace("TC-977", "TC-058", "FR-038-AC-406", "FR-019-AC-21", "FR-019-AC-24")]
 #[test]
-fn typed_writer_carries_admitted_effect_rows() {
-    let wire = present();
-    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&wire) else {
+fn admitted_effect_rows_round_trip_through_typed_writer() {
+    let mut wire = present();
+    wire["operation_effects"][0]["effect"]["modifies"] = json!([{
+        "kind": "field", "declaration": node_id("fixture/1515"),
+        "name": "balance", "scope": "every-object"
+    }]);
+    let mut document = family_model_document();
+    document["types"][0]["operations"][0]["frame"] =
+        json!({"modifies": ["ix://test/families/Account/balance"]});
+    let evidence = evidence_with_document(&wire, "test/families", &document);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) else {
         panic!("present carrier must admit before typed encoding");
     };
-    let rows: Vec<CheckedOperationEffectRow> =
-        serde_json::from_value(wire["operation_effects"].clone()).expect("typed writer rows");
+    let rows: &[CheckedOperationEffectRow] = admitted
+        .operation_effect_rows()
+        .expect("present admitted producer rows");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].document.as_ref(), "test/families");
+    assert_eq!(rows[0].operation.as_ref(), "deposit");
+    assert_eq!(rows[1].operation.as_ref(), "withdraw");
+    assert_eq!(
+        rows[0].provenance.member.as_ref(),
+        "ix://test/families/Account/deposit"
+    );
+    assert_eq!(rows[0].effect.modifies.len(), 1);
+    assert!(rows[0].effect.creates.is_empty());
+    assert!(rows[0].effect.deletes.is_empty());
+    assert!(rows[0].effect.deletes_scoped.is_empty());
+    assert!(rows[1].effect.modifies.is_empty());
+    assert!(rows[1].effect.creates.is_empty());
+    assert!(rows[1].effect.deletes.is_empty());
+    assert!(rows[1].effect.deletes_scoped.is_empty());
     let encoded = encode_checked_package_v2(
         wire["name"].as_str().expect("package name"),
         admitted.lock(),
@@ -190,7 +231,7 @@ fn typed_writer_carries_admitted_effect_rows() {
         },
         CheckedPackageSidecarsRef {
             schedulability_claims: None,
-            operation_effects: Some(&rows),
+            operation_effects: Some(rows),
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
         },
@@ -199,13 +240,10 @@ fn typed_writer_carries_admitted_effect_rows() {
         Limits::new(1 << 24),
     )
     .expect("typed carrier encodes");
-    let reread = CheckedPackageV2::read(
-        &encoded,
-        CheckedPackageReadLimits::bounded(),
-        &evidence_for(&wire),
-    );
+    let reread = CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence);
     let CheckedPackageV2ReadResult::Admitted(reread) = reread else {
         panic!("encoded typed carrier must admit: {reread:?}");
     };
+    assert_eq!(reread.operation_effect_rows(), Some(rows));
     assert_eq!(reread.operation_effects().unwrap().count(), rows.len());
 }
