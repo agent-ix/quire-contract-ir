@@ -288,3 +288,33 @@ scope:
 - FR-350-AC-6 (untagged): spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md
 - FR-350-AC-7 (untagged): spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md
 - FR-350-AC-8 (untagged): spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md
+
+## Review carry — pass 1
+
+The review carries to frozen PR head `12ddb85e860e8804fc804f73919c8b565b163700`. Local HEAD and GitHub PR head agree. The merge combines review-artifact parent `d1281f487348c38a60e97ab1695c79df2c1774a5` with main `dcfe1b25da9dbe8e7d84b51ee57198a23843a39f`. No Rust, Cargo manifest, lockfile or Makefile difference exists from the original reviewed candidate, so the source/test analysis and its focused evidence remain applicable.
+
+The single FR-019 resolution preserves implemented AC-23 verbatim from the reader branch and planned AC-24 verbatim from main. The operation-effect inventory row and complete TC-058 document also match main verbatim. AC-24 describes IR-1267's separate planned raw operation-effect-row read and does not assert that reader PR #824 implements it. Scoped Quire validation and merge diff whitespace checks pass. No new finding was found; the original verdict carries, including the whole-repository gap limitation.
+
+The prior aggregate strict-coverage failure contains 98 unbacked rows and zero contradicted statuses. A structural git-show comparison confirms all 98 exact table rows exist unchanged on base `2aba7d2f4f04e624f57cfbf2c38948b8ddaff628`; the reader diff removes no evidence declarations and changes no module configuration. This is structural evidence of inheritance, not a baseline coverage-engine rerun. No coverage-engine or aggregate result is claimed for this merged head. Parent-owned final aggregate/hosted qualification remains required. Actual QSL producer, downstream lowering/execution and overall IR-721 completion remain open.
+
+Additional context examined:
+
+```yaml
+scope:
+- id: FR-019-AC-24
+  path: spec/model/functional/FR-019-rust-library-interface.md
+  role: context_only
+  excerpt: planned until IR-1267 lands. A default-feature external consumer calls
+    `CheckedPackageV2::operation_effect_rows(&self) -> Option<&[CheckedOperationEffectRow]>`
+    only after strict package admission. It obtains `None` when the optional carrier
+    was omitted and a borrowed, nonempty slice of the exact admitted producer rows
+    when present, retaining row order, selected document and declaring identities,
+    original operation members, all four ordered effect collections and provenance;
+    an explicitly empty effect remains a present row. It passes that slice directly
+    as `CheckedPackageSidecarsRef::operation_
+- id: TC-058
+  path: spec/model/matrix/TC-058-model-crate-public-interface.md
+  role: context_only
+  excerpt: Existing public-interface test case; the complete merged document matches
+    incoming main verbatim.
+```
