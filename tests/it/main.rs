@@ -73,6 +73,7 @@ mod conformance;
 mod conformance_mismatch_independence;
 mod cycle_free_model;
 mod executable_binding;
+mod exact_projection_limits;
 mod expression;
 mod fr014_recheck;
 mod fr019_api;
