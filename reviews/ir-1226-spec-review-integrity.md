@@ -20,3 +20,9 @@ Checked consistency and completeness of the added operation projection against t
 ## Verdict
 
 Changes requested. This is the same underlying defect as base FND-001, recorded in the integrity lens so both methods retain their own artifact.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1: AC-11 now names reordered or changed parameter names/types and changed optional result under matching document, owner and member, with typed conflicting-witness refusal. |

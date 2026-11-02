@@ -20,3 +20,9 @@ Reviewed the added FR-354 operation input, behavior, AC-1, AC-10, AC-11 and QSL/
 ## Verdict
 
 Changes requested. QSL FR-103 owns the effect and QSpec STD-640 is correctly identified as an unshipped producer dependency. The Ledger example is a signature pattern; its test case will need to add a nonempty effect because the historical child-composite fixture uses empty frames.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1: FR-354 Behavior now compares the producer fact's ordered parameter names and types and optional result with the retained signature; AC-11 names matching-key disagreement and typed conflicting-witness refusal. |
