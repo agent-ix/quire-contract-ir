@@ -92,12 +92,13 @@ fn reverse_graph_indexes(value: &mut Value, node_count: usize) -> usize {
     remap_graph_indexes(value, &old_to_new)
 }
 
-fn remap_graph_indexes(value: &mut Value, old_to_new: &[usize]) -> usize {
+pub(super) fn remap_graph_indexes(value: &mut Value, old_to_new: &[usize]) -> usize {
     match value {
         Value::Object(map) if map.len() == 1 && map.contains_key("node") => {
             let old = map["node"].as_u64().expect("published index");
             let old: usize = old.try_into().expect("index fits usize");
             let new = old_to_new.get(old).expect("published index in range");
+            assert_ne!(*new, usize::MAX, "retained fixture names a dropped node");
             map.insert("node".into(), json!(new));
             1
         }
@@ -137,7 +138,13 @@ fn remap_source_references(value: &mut Value, old_to_new: &[usize]) -> usize {
 // Resolve this small published fixture's output indexes independently of the
 // reader, so the source and output tables can be compared by structural key.
 fn fixture_structural_key_from_ids(ids: &[CheckedNodeId], position: usize) -> CheckedNodeId {
-    let id = &ids[position];
+    fixture_structural_key_for_id(ids, &ids[position])
+}
+
+pub(super) fn fixture_structural_key_for_id(
+    ids: &[CheckedNodeId],
+    id: &CheckedNodeId,
+) -> CheckedNodeId {
     CheckedNodeId {
         package: id.package.clone(),
         path: id
@@ -158,7 +165,32 @@ fn fixture_structural_key_from_ids(ids: &[CheckedNodeId], position: usize) -> Ch
     }
 }
 
-fn fixture_structural_key<Body>(
+pub(super) fn fixture_graph_ids(wire: &Value) -> Vec<CheckedNodeId> {
+    wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("fixture graph nodes")
+        .iter()
+        .map(|node| {
+            serde_json::from_value::<CheckedNodeId>(node["node_id"].clone())
+                .expect("fixture node id")
+        })
+        .collect()
+}
+
+pub(super) fn sort_fixture_node_refs(wire: &Value, references: &mut [Value]) {
+    let ids = fixture_graph_ids(wire);
+    sort_fixture_node_refs_with_ids(&ids, references);
+}
+
+pub(super) fn sort_fixture_node_refs_with_ids(ids: &[CheckedNodeId], references: &mut [Value]) {
+    references.sort_by(|left, right| {
+        let left: CheckedNodeId = serde_json::from_value(left.clone()).expect("left node ref");
+        let right: CheckedNodeId = serde_json::from_value(right.clone()).expect("right node ref");
+        fixture_structural_key_for_id(ids, &left).cmp(&fixture_structural_key_for_id(ids, &right))
+    });
+}
+
+pub(super) fn fixture_structural_key<Body>(
     nodes: &[CheckedSemanticNodeV2<Body>],
     position: usize,
 ) -> CheckedNodeId {

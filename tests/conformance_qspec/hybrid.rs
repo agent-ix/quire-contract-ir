@@ -1326,13 +1326,19 @@ fn qspec_protocol_reference_join_refuses_at_its_target() {
         .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
         .expect("Boolean type")["node_id"]
         .clone();
+    let boolean_index = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == boolean)
+        .expect("Boolean type index");
     let body = json!({"term":"reference", "target":boolean});
     let key = fixture_support::structural_id(
         "example",
         vec![
             json!("protocol"),
             json!("protocol_reference"),
-            boolean.clone(),
+            json!({"node":boolean_index}),
         ],
         0,
     );

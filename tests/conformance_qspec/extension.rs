@@ -308,7 +308,7 @@ fn tc_459_held_extension_fixtures_admit() {
                 clause["value"]["target"].clone()
             })
             .collect::<Vec<_>>();
-        sort_node_ids(&mut targets);
+        node_index::sort_fixture_node_refs(&package, &mut targets);
         assert_eq!(form["dependencies"], json!(targets));
         for (ordinal, expected_form) in [(0, "text"), (1, "integer_range")] {
             let target = &form["body"]["clauses"][ordinal]["value"]["target"];
