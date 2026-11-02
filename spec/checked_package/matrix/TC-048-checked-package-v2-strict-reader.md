@@ -23,6 +23,12 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-416
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-417
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-418
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-419
+    type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-064
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
@@ -2654,6 +2660,23 @@ engine input. Re-encode the admitted package with its borrowed raw carrier
 rows through FR-051's complete writer, then read again and compare all rows
 and the body, including the two-occurrence case. This case does not run or
 qualify the QSL task-product checker.
+
+## Text bounds shape (FR-038-AC-417 through FR-038-AC-419)
+
+Planned until IR-1263 lands. Read QSpec's
+`proposals/checked-package-v2/text-bounds-shape-vectors.json` directly from
+the selected checkout. Assert the exact `TS-01` through `TS-10` case set;
+construct complete IR-owned V2 packages with each published body, keeping all
+other package facts valid. Read through the public strict reader and compare
+admission or exact `invalid_package`/`invalid-derived-shape`, primary RFC 6901
+node pointer and structural node locus. Independently check the complete
+ordered three-binding shape, nonnegative integer bounds, inclusive ordering
+and six-profile vocabulary. Include an equal-bound positive and self-built
+reordered, wrong-kind and negative-bound adverse controls. Give a literal
+typed by a profile-only node a value that would fail literal membership if
+the node were valid; assert shape refusal at the type node before the literal
+`value` check. Repair the existing recursive-leaves positive fixture with
+explicit `min` and `max`. Do not copy QSpec's vector or schema.
 
 ## Text literal membership (FR-038-AC-409 through FR-038-AC-411)
 
