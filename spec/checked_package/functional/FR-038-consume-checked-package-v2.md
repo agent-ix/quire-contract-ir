@@ -17,6 +17,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-304
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-305
+    type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-51
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-52
@@ -1594,6 +1596,44 @@ model identity on read-back.
 The reader tests SHALL use QSpec's `positive-timed-model-nodes.json` and
 `timed-model-node-vectors.json` through `QUIRE_SPECIFICATION_DIR`, without storing a copy
 of either fixture in this repository.
+
+### Compensation temporal binding rows (planned until IR-1262 lands)
+
+The V2 reader SHALL admit a `temporal_bindings` row whose `declaration` equals
+the `node_id` of that `protocol`/`compensation` node with operator `compensate`.
+It SHALL use the existing `TemporalBinding` wire shape and borrowed
+`CheckedPackageV2::temporal_bindings()` read. A compensation row's `clock_name`
+SHALL equal the node's fifth, text-valued `clock` argument. Its clock
+configuration kind SHALL match the lock's `temporal_profile` selection; the
+reader SHALL NOT require a per-compensation temporal-profile law. When that
+selection is clock-configured, each compensation node SHALL have exactly one
+row. When it selects no clock configuration, compensation nodes require no
+row and an absent `temporal_bindings` member remains admitted.
+
+Clause and compensation rows SHALL share the same array in ascending
+structural `NodeRef` order, with one row per distinct declaration even when
+model, selected profile and clock name coincide. After aggregate-order
+validation and before per-node joins, a missing required row SHALL refuse
+`invalid_package`/`timed-node-reference` at the declaration's own
+`/semantic_graph/nodes/{N}/body`, choosing the lowest graph index among
+missing clauses and compensations. A duplicate SHALL refuse at the second
+`/temporal_bindings/{i}` row. A row whose declaration is absent or is neither
+a temporal clause nor a compensation, including an `await`, SHALL refuse at
+`/temporal_bindings/{i}/declaration`. For an otherwise resolved row, the
+reader SHALL compare the clock name before the configuration kind: a name
+mismatch SHALL refuse at `/temporal_bindings/{i}/clock_name`; a kind mismatch
+SHALL refuse at `/temporal_bindings/{i}/clock/kind`. Each refusal SHALL carry
+the same code and cause above and the affected declaration's `CheckedNodeId`
+as its node locus; an absent or wrong-kind row uses its supplied declaration
+id. The reader SHALL expose admitted rows by their exact
+declaration ids without selecting by array position or clock name.
+
+QSpec's `temporal-clock-binding-vectors.json` publishes abstract compensation
+cases `CB-01` through `CB-08` under TC-233 `TB-01` through `TB-03`. IR reader
+tests SHALL build full compensation packages around those cases and read the
+published vector data through the selected QSpec checkout; they SHALL NOT
+copy the vector, schema or fixture into this repository. The
+`TemporalBinding` schema and existing clause-row payloads remain unchanged.
 
 ### Protocol node bodies and reader step
 
@@ -5265,6 +5305,11 @@ adds none of them to the checked-package wire or the cycle-free model API.
 | FR-038-AC-409 | planned until IR-1260 lands. A root or nested `text` literal typed by `Text[min, max; profile]` admits exactly when its retained `value` is already normalized under `nfc`, `nfd`, `nfkc`, or `nfkd` when applicable and its scalar-count length (UTF-8 byte count for `binary-utf8`) is within the inclusive bounds. The reader does not normalize or coerce the value. A plain `scalar_type`/`text` literal remains unbounded. | Test (TC-048; QSpec TC-233 DL-07..DL-10) |
 | FR-038-AC-410 | planned until IR-1260 lands. A bounded Text literal below `min`, above `max`, or not in its declared normal form refuses `ill_typed`/`type-mismatch` at its exact `value` pointer, with the containing node as locus and no admitted package. A literal typed by a non-Text family refuses `ill_typed`/`operator-ineligible` at `type` first. No package refusal is reported as FR-141 runtime `text_length_out_of_domain`. | Test (TC-048; QSpec TC-233 DL-08..DL-10) |
 | FR-038-AC-411 | planned until IR-1260 lands. The conformance test reads QSpec `proposals/checked-package-v2/text-literal-vectors.json` at the selected checkout by reference and checks `TX-01`..`TX-14` plus `TX-13s`, including exact admission, refusal code/cause, primary RFC 6901 pointer and graph-node locus. It recomputes length and normalization with the reader's pinned Unicode 17.0.0 implementation and keeps no local vector, schema, table, or fixture copy. | Test (TC-048; QSpec TC-233 DL-07..DL-10) |
+| FR-038-AC-412 | planned until IR-1262 lands. A clock-configured package with one temporal clause and two `protocol`/`compensation` nodes admits three `temporal_bindings` rows (`CB-01`), and a package with two compensations and no clause admits two (`CB-02`). Each compensation row is keyed by that node's own `node_id`; equal model, profile and clock names do not merge rows. The one array is in ascending structural `NodeRef` order. The borrowed reader returns the exact admitted declaration ids, names and closed configurations without a per-compensation profile law. | Test (TC-048; QSpec TC-233 TB-01) |
+| FR-038-AC-413 | planned until IR-1262 lands. With a lock selection that has no clock configuration, two compensation nodes and no `temporal_bindings` member admit (`CB-08`); the reader exposes absence rather than synthesizing rows. Existing clause-row payloads retain their admitted values and the `TemporalBinding` wire schema is unchanged. | Test (TC-048; QSpec TC-233 TB-03) |
+| FR-038-AC-414 | planned until IR-1262 lands. A missing required compensation row (`CB-03`) refuses `invalid_package`/`timed-node-reference` at that node's `/semantic_graph/nodes/{N}/body`, choosing the lowest graph index among missing clauses and compensations. A repeated row (`CB-04`) refuses at its second `/temporal_bindings/{i}` entry; an `await` or other non-clause, non-compensation declaration (`CB-07`) refuses at `/temporal_bindings/{i}/declaration`. Each refusal reports the relevant node as its structural locus and yields no admitted package. | Test (TC-048; QSpec TC-233 TB-02..TB-03) |
+| FR-038-AC-415 | planned until IR-1262 lands. For a resolved compensation row, a changed `clock_name` (`CB-05`) refuses `invalid_package`/`timed-node-reference` at `/temporal_bindings/{i}/clock_name` before configuration checking; a configuration kind differing from the lock's `temporal_profile` selection (`CB-06`) refuses that pair at `/temporal_bindings/{i}/clock/kind`. The reader uses the node's fifth text-valued `clock` argument and the lock selection, with no per-node temporal-profile law. | Test (TC-048; QSpec TC-233 TB-02) |
+| FR-038-AC-416 | planned until IR-1262 lands. TC-048 reads QSpec `proposals/checked-package-v2/temporal-clock-binding-vectors.json` by reference through the selected checkout and checks `CB-01` through `CB-08` against exact admission or code, cause, primary RFC 6901 pointer and node locus. Because the compensation cases are abstract, the test constructs full compensation packages around their published declarations and rows; it keeps no local copy of the vectors, schema or fixture. | Test (TC-048; QSpec TC-233 TB-01..TB-03) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
