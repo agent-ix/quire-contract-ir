@@ -773,6 +773,40 @@ fn tc_281_event_type_model_owner_joins_only_selected_event_declarations() {
             "{wrong}"
         );
     }
+
+    let pointer = format!("/semantic_graph/nodes/{position}");
+    let mut absent = base.clone();
+    absent["semantic_graph"]["nodes"][position]
+        .as_object_mut()
+        .expect("event node")
+        .remove("owner");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&absent, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("ownerless event must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(pointer.as_str())
+    );
+
+    let mut source = base.clone();
+    let selected_source = &base["lock"]["sources"][0];
+    source["semantic_graph"]["nodes"][position]["owner"] = json!({
+        "kind": "source", "authority": selected_source["authority"],
+        "identity": selected_source["identity"],
+    });
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&source, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("source-owned undeclared event must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some(format!("{pointer}/owner").as_str())
+    );
 }
 
 /// The public runtime projection returns selected record and object facts.
