@@ -1404,10 +1404,7 @@ fn validate(
         dispatch_projection::validate_checked_term_data(
             data, wire, &kinds, &terms, &models, &mut meter,
         )?;
-    } else if kinds
-        .iter()
-        .any(|kind| *kind == CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim))
-    {
+    } else if kinds.contains(&CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)) {
         return Err(ValidationFailure::refused_because(
             CheckedPackageRefusalCode::InvalidPackage,
             JsonPointer::root().key("checked_term_data"),
