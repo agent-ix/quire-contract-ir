@@ -25,3 +25,14 @@ Inspect the private generic envelope declaration: one top-level field list serve
 ## Expected Results
 
 The output is the exact closed FR-322 V2 envelope. The compile probes enforce the intended public boundary, the reader admits valid structural identities, malformed mutations return exact typed refusals, and canonical failures return no bytes. QSL producer adoption and integrated memory evidence remain separate.
+
+## Schedulability carrier round trip (FR-051-AC-7)
+
+planned until IR-1252 lands. Read QSpec TC-976 and SCC-01/02 identities by
+reference and construct complete IR packages with valid FR-482 bodies. Encode
+using the optional borrowed schedulability rows, admit with the public strict
+reader, borrow the retained rows and re-encode/read. Compare all rows and exact
+body fields, including a shared node's two occurrences. Assert exact-length
+success and one-byte-short typed canonical error without bytes. `None` omits
+the member and `Some(empty)` emits it empty; reversed or missing-coverage rows
+are not repaired by encoding and remain subject to strict reader refusal.

@@ -42,6 +42,28 @@ The public `encode_checked_package_v2` function takes a package `name`, `&Checke
 
 The producer-facing API remains the one typed encode function. `CheckedPackageV2` remains a reader-admitted value, never constructed by this function. QSL's adoption of this API is a separate producer task; an IR synthetic external-consumer test does not claim QSL adoption.
 
+### Schedulability carrier preservation (planned until IR-1252 lands)
+
+`CheckedPackageSidecarsRef<'a>` SHALL gain
+`schedulability_claims: Option<&'a [CheckedSchedulabilityClaimRow]>` using
+[FR-038](./FR-038-consume-checked-package-v2.md)'s raw identity row. The
+complete encoder SHALL omit the top-level index for `None` and encode exactly
+the supplied rows for `Some`, retaining declaration identities, numeric
+occurrence ordinals and row order. This includes a supplied empty array;
+encoding it does not assert admission. The same optional field SHALL be
+retained by owned read, raw-term intake, lossless comparison and the borrowed
+canonical envelope. The encoder borrows the index without cloning it or the
+claim body; it neither sorts rows nor fills missing coverage. Public raw rows
+are producer inputs and cannot construct an authenticated claim view.
+
+An admitted package's `schedulability_claim_rows` read supplies the borrowed
+rows for complete re-encoding. The exact-length and one-byte-short limits
+apply to the entire envelope including the index. Re-reading valid encoded
+bytes SHALL preserve the exact admitted claim body, identity and occurrence;
+invalid supplied rows remain subject to FR-038's independent strict refusal.
+This extends the existing complete writer only and introduces no new envelope
+builder, evaluator or certificate member.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -53,6 +75,7 @@ The producer-facing API remains the one typed encode function. `CheckedPackageV2
 | FR-051-AC-5 | Given shared typed checked-term-data inputs built from QSpec FR-322's equality, protocol-location, dispatch and probabilistic-claim vectors, the public encoder emits all four arrays with canonical bytes matching the private envelope at the same limit. It preserves each array's producer order and a present dispatch row with an empty candidate set. At the complete sidecar envelope's exact byte limit it returns those bytes; one byte below it returns only the canonical limit error and no bytes. Writer success alone does not claim strict reader admission; FR-051-AC-6 and FR-038-AC-390 through FR-038-AC-395 require the nonempty probabilistic round trip. | Test |
 
 | FR-051-AC-6 | A default-feature external producer constructs two typed nonempty probabilistic-claim rows using QSpec `PC-01` and `PC-02` identities by reference, passes them through the borrowed public encoder, and the strict reader admits both with their exact distinct declaration `NodeRef` and claim occurrence. The bytes equal the same four-array private envelope's canonical bytes; no name/span inference, row dropping, sorting or pre-admission occurs on the writer path. `None` and `Some` with four empty arrays remain distinct through write/read round trips. | Test (TC-451, TC-233) |
+| FR-051-AC-7 | planned until IR-1252 lands. An external producer encodes the complete SCC-01 and SCC-02 packages with `CheckedPackageSidecarsRef::schedulability_claims`; strict read and borrowed re-encode/read preserve the complete FR-482 body and every exact declaration-occurrence row, including both shared-node occurrences. The bytes equal the private envelope's canonical bytes at an exact measured byte limit; one byte less returns only the typed canonical limit error. `None` omits the index and `Some(empty)` encodes an empty array, with no writer normalization; malformed joins, missing coverage or reversed rows can be encoded but retain FR-038's refusal on read. No row or body clone or admission-proof constructor is introduced. | Test |
 
 ## Dependencies
 
