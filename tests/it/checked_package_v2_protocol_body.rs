@@ -6421,9 +6421,12 @@ fn compensation_clock_case(
 )]
 #[test]
 fn compensation_clock_rows_follow_published_cases() {
-    let root = std::path::PathBuf::from(
-        std::env::var_os("QUIRE_SPECIFICATION_DIR").expect("selected QSpec checkout"),
-    );
+    let root = match std::env::var_os("QUIRE_SPECIFICATION_DIR") {
+        Some(root) => root,
+        None if std::env::var_os("QSPEC_CONFORMANCE").is_none() => return,
+        None => panic!("QUIRE_SPECIFICATION_DIR required for compensation conformance"),
+    };
+    let root = std::path::PathBuf::from(root);
     let path = root.join("proposals/checked-package-v2/temporal-clock-binding-vectors.json");
     let vectors: Value =
         serde_json::from_slice(&std::fs::read(path).expect("published vectors")).expect("vectors");
