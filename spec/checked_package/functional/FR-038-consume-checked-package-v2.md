@@ -19,6 +19,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-305
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-306
+    type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-51
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-52
@@ -4603,6 +4605,25 @@ identity, declaration, frame and resource refusals retain their existing
 precedence; the native literal and operation checks run in the existing
 operation step under the same bounded work accounting.
 
+### Text bounds shape (planned until IR-1263 lands)
+
+The strict reader SHALL admit a `bounded_domain`/`text_bounds` node only when
+its body is an `aggregate` of exactly three bindings, in order: `min` and
+`max` are canonical nonnegative integer literals with `min <= max`, and
+`text_profile` is a text literal naming one of `unicode-scalars`, `nfc`,
+`nfd`, `nfkc`, `nfkd`, or `binary-utf8`. This is the complete
+`Text[min, max; profile]` type; a profile-only `Text[profile]` is not a type.
+
+The reader SHALL refuse a missing, extra, reordered, wrongly typed or invalid
+binding, including an inverted interval or an unknown profile, as
+`invalid_package`/`invalid-derived-shape` at the exact
+`/semantic_graph/nodes/{n}` pointer, with that node as locus and no admitted
+package. It SHALL check this shape before membership of any literal typed by
+the node. Its conformance test SHALL read QSpec's
+`proposals/checked-package-v2/text-bounds-shape-vectors.json` by reference
+from the selected checkout, checking `TS-01` through `TS-10` without storing
+a local copy of the vector or schema.
+
 ### Text literal membership (planned until IR-1260 lands)
 
 The strict reader SHALL apply QSpec FR-322's "Text literal membership" rule to
@@ -5310,6 +5331,9 @@ adds none of them to the checked-package wire or the cycle-free model API.
 | FR-038-AC-414 | planned until IR-1262 lands. A missing required compensation row (`CB-03`) refuses `invalid_package`/`timed-node-reference` at that node's `/semantic_graph/nodes/{N}/body`, choosing the lowest graph index among missing clauses and compensations. A repeated row (`CB-04`) refuses at its second `/temporal_bindings/{i}` entry; an `await` or other non-clause, non-compensation declaration (`CB-07`) refuses at `/temporal_bindings/{i}/declaration`. Each refusal reports the relevant node as its structural locus and yields no admitted package. | Test (TC-048; QSpec TC-233 TB-02..TB-03) |
 | FR-038-AC-415 | planned until IR-1262 lands. For a resolved compensation row, a changed `clock_name` (`CB-05`) refuses `invalid_package`/`timed-node-reference` at `/temporal_bindings/{i}/clock_name` before configuration checking; a configuration kind differing from the lock's `temporal_profile` selection (`CB-06`) refuses that pair at `/temporal_bindings/{i}/clock/kind`. The reader uses the node's fifth text-valued `clock` argument and the lock selection, with no per-node temporal-profile law. | Test (TC-048; QSpec TC-233 TB-02) |
 | FR-038-AC-416 | planned until IR-1262 lands. TC-048 reads QSpec `proposals/checked-package-v2/temporal-clock-binding-vectors.json` by reference through the selected checkout and checks `CB-01` through `CB-08` against exact admission or code, cause, primary RFC 6901 pointer and node locus. Because the compensation cases are abstract, the test constructs full compensation packages around their published declarations and rows; it keeps no local copy of the vectors, schema or fixture. | Test (TC-048; QSpec TC-233 TB-01..TB-03) |
+| FR-038-AC-417 | planned until IR-1263 lands. A `bounded_domain`/`text_bounds` node with exactly ordered `aggregate{min, max, text_profile}` admits when both bounds are canonical nonnegative integer literals with `min <= max` and the text profile is one of `unicode-scalars`, `nfc`, `nfd`, `nfkc`, `nfkd`, or `binary-utf8`. `Text[0, 64; nfc]` and the equal-bound `Text[2, 2; binary-utf8]` admit; no unbounded `Text[profile]` shape exists. | Test |
+| FR-038-AC-418 | planned until IR-1263 lands. A profile-only `Text[nfc]`, absent `min`, `max` or `text_profile`, an extra or reordered member, a noninteger or negative bound, `min > max`, or a profile outside the six refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}`, with that node as locus and no admitted package. Shape refusal precedes Text literal membership even when a literal typed by the malformed node would itself fail its length or normalization check. | Test |
+| FR-038-AC-419 | planned until IR-1263 lands. TC-048 reads QSpec `proposals/checked-package-v2/text-bounds-shape-vectors.json` from the selected checkout by reference, verifies the exact `TS-01` through `TS-10` case set, and checks each through the public strict reader for admission or the specified code, cause, primary RFC 6901 node pointer and structural node locus. It stores no local vector or schema copy; the existing profile-only recursive-leaves fixture gains explicit `min` and `max` so its positive read remains valid. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
