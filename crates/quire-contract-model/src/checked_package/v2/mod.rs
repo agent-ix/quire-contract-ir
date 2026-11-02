@@ -138,7 +138,10 @@ pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
     CheckedScalarOperandRange,
 };
-pub use schedulability::*;
+pub use schedulability::{
+    CheckedSchedulabilityClaimRef, CheckedSchedulabilityClaimRow, CheckedSchedulabilityKind,
+    CheckedSchedulabilityTaskRef, CheckedSchedulingPolicy, CheckedTaskArrival, CheckedTaskCriticality,
+};
 pub use step_relation::{
     CheckedStepExecution, CheckedStepRelationBody, CheckedStepRelationCapability,
     CheckedStepRelationObligationIdentity,
@@ -757,7 +760,7 @@ pub struct CheckedPackageSidecarsRef<'a> {
 
 /// Canonically encodes a complete checked-package V2 envelope under the
 /// caller's byte limits. The supplied name is the package's identity. An
-/// absent checked-term or temporal sidecar is omitted.
+/// absent checked-term, temporal or schedulability sidecar is omitted.
 pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
     name: &str,
     lock: &CheckedPackageLockV2,
@@ -4077,6 +4080,40 @@ mod tests {
             let owned_bytes = serde_json::to_vec(&serde_json::to_value(&wire).expect("wire value"))
                 .expect("private wire bytes");
             assert_eq!(bytes, owned_bytes);
+        }
+    }
+
+    #[trace("TC-451", "FR-051-AC-7", "FR-038-AC-400")]
+    #[test]
+    fn tc_451_schedulability_rows_match_private_wire_without_normalization() {
+        let mut wire = tc_451_private_owned_wire();
+        let declaration = wire.semantic_graph.nodes.first().expect("fixture node").node_id.clone();
+        let rows = vec![
+            super::CheckedSchedulabilityClaimRow { declaration: declaration.clone(), occurrence: 9 },
+            super::CheckedSchedulabilityClaimRow { declaration, occurrence: 2 },
+        ];
+        for rows in [None, Some(Vec::new()), Some(rows)] {
+            wire.schedulability_claims = rows;
+            let bytes = super::encode_checked_package_v2(
+                &wire.name, &wire.lock, &wire.semantic_graph,
+                super::CheckedPackageSourceCorrespondenceRef {
+                    source_map: &wire.source_map,
+                    refinement_step_rows: wire.refinement_step_rows.as_deref(),
+                },
+                super::CheckedPackageSidecarsRef {
+                    checked_term_data: wire.checked_term_data.as_ref(),
+                    temporal_bindings: wire.temporal_bindings.as_deref(),
+                    schedulability_claims: wire.schedulability_claims.as_deref(),
+                },
+                &wire.capability_report, &wire.diagnostics,
+                quire_canonical::Limits::new(u64::MAX),
+            ).expect("producer rows encode unchanged");
+            let expected = serde_json::to_vec(&serde_json::to_value(&wire).expect("private envelope")).expect("canonical value");
+            assert_eq!(bytes, expected);
+            if wire.schedulability_claims.as_ref().is_none_or(|rows| !rows.is_empty()) {
+                let decoded = super::intake::decode_borrowed_wire(&bytes).expect("closed intake");
+                assert_eq!(decoded.schedulability_claims, wire.schedulability_claims);
+            }
         }
     }
 
