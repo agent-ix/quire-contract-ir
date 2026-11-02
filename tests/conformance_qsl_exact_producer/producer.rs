@@ -52,7 +52,10 @@ fn selected_document() -> Value {
         vec![field("Ledger", "id", "Integer", false)],
     );
     ledger["identityFields"] = json!([identity("Ledger/id")]);
-    json!({"contractVersion":"2.0.0", "package":{"identity":MODEL,"version":"1", "mappingVersions":[], "profileVersions":[]},
+    json!({"contractVersion":"2.0.0",
+        "canonicalization":{"algorithm":"rfc8785-v1"},
+        "source":{"identity":identity("spec"), "version":"1.0.0", "dialect":"spec-bundle"},
+        "occurrences":[], "extensions":[], "package":{"identity":MODEL,"version":"1", "mappingVersions":[], "profileVersions":[]},
     "constructs":[
         {"kind":{"module":MODEL,"name":"record"},"moduleVersion":"1.0.0",
             "construct":{"identity":"none","shape":"record",
