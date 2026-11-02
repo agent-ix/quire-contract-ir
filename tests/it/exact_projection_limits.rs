@@ -55,15 +55,17 @@ fn admitted_union_projection_has_the_required_unsupported_type_outcome() {
 fn admitted_projection_bounds_deep_and_cyclic_types_on_a_small_stack() {
     std::thread::Builder::new().stack_size(256 * 1024).spawn(|| {
         let empty = || json!({"term": "aggregate", "members": []});
-        let mut nodes = vec![node("integer", "scalar_type", "integer", "integer", &[], empty())];
+        let mut nodes = vec![node("integer", "scalar_type", "integer", "integer", &[], empty()), node("text", "scalar_type", "text", "text", &[], empty())];
         nodes.push(node("digit", "bounded_domain", "integer_range", "integer", &["integer"], json!({"term": "aggregate", "members": [
             {"term": "binding", "name": "min", "value": {"term": "literal", "type": node_id("integer"), "value_kind": "integer", "value": "0"}},
             {"term": "binding", "name": "max", "value": {"term": "literal", "type": node_id("integer"), "value_kind": "integer", "value": "9"}}
         ]})));
-        nodes.push(node("parameter", "value", "parameter", "digit", &[], json!({"term": "aggregate", "members": [
-            {"term": "binding", "name": "name", "value": {"term": "literal", "type": node_id("integer"), "value_kind": "text", "value": "digit_parameter"}},
+        let mut parameter = node("parameter", "value", "parameter", "digit", &[], json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "name", "value": {"term": "literal", "type": node_id("text"), "value_kind": "text", "value": "digit_parameter"}},
             {"term": "binding", "name": "level", "value": {"term": "literal", "type": node_id("integer"), "value_kind": "integer", "value": "0"}}
-        ]})));
+        ]}));
+        parameter["occurrences"][0]["role"] = json!("expression");
+        nodes.push(parameter);
         let mut target = "integer".to_owned();
         for index in 0..4096 {
             let name = format!("deep-{index}");
