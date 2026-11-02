@@ -144,6 +144,7 @@ enum StructuralForm {
     TimedModel,
     Parameter,
     CompoundUnit,
+    CarriedQuantity,
     Frame,
     OperationAnchor,
     StateClause,
@@ -169,6 +170,7 @@ impl StructuralForm {
             Self::Hybrid
             | Self::TimedModel
             | Self::CompoundUnit
+            | Self::CarriedQuantity
             | Self::UnionType
             | Self::UnionValue => None,
         }
@@ -184,6 +186,7 @@ impl StructuralForm {
             K::TimedModel(_) => Some(Self::TimedModel),
             K::Value(ValueForm::Parameter) => Some(Self::Parameter),
             K::ScalarType(ScalarTypeForm::CompoundUnit) => Some(Self::CompoundUnit),
+            K::ScalarType(ScalarTypeForm::CarriedQuantity) => Some(Self::CarriedQuantity),
             K::ScalarType(
                 ScalarTypeForm::Boolean
                 | ScalarTypeForm::Integer
@@ -615,6 +618,7 @@ pub(super) fn validate_structural_nodes_with_keys(
             Some(StructuralForm::CompoundUnit) => {
                 compound_unit_dependencies_defect(node, term, &graph)
             }
+            Some(StructuralForm::CarriedQuantity) => None,
             Some(StructuralForm::OperationAnchor) => term
                 .and_then(typed_anchor_body)
                 .is_none()
@@ -700,6 +704,7 @@ pub(super) fn validate_derived_type_shapes(
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
     models: &[super::model_members::DomainModel],
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
@@ -828,6 +833,9 @@ pub(super) fn validate_derived_type_shapes(
                         true
                     })
             }
+            CheckedNodeKind::ScalarType(ScalarTypeForm::CarriedQuantity) => {
+                carried_quantity_shape(node, term, &graph, terms, structural_keys)
+            }
             _ => continue,
         };
         if !valid {
@@ -840,6 +848,100 @@ pub(super) fn validate_derived_type_shapes(
         }
     }
     Ok(())
+}
+
+fn carried_quantity_shape(
+    node: &CheckedSemanticNodeV2,
+    term: Option<&CheckedTerm>,
+    graph: &Graph<'_>,
+    terms: &[Option<CheckedTerm>],
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
+) -> bool {
+    let Some([unit_term, carrier_term, rounding_term]) = term
+        .and_then(typed_aggregate)
+        .and_then(|members| <&[CheckedTerm; 3]>::try_from(members).ok())
+    else {
+        return false;
+    };
+    let Some(unit) = typed_binding(unit_term, "unit").and_then(typed_reference) else {
+        return false;
+    };
+    let Some(carrier) = typed_binding(carrier_term, "carrier").and_then(typed_reference) else {
+        return false;
+    };
+    let Some(CheckedTerm::Literal {
+        type_id: text_type,
+        value_kind: LiteralKind::Text,
+        value,
+    }) = typed_binding(rounding_term, "rounding")
+    else {
+        return false;
+    };
+    let Some(rounding) = value.as_str() else {
+        return false;
+    };
+    let Some(carrier_kind) = graph.kind(carrier) else {
+        return false;
+    };
+    let carrier_valid = match carrier_kind {
+        CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => true,
+        CheckedNodeKind::BoundedDomain(BoundedDomainForm::DecimalRange) => graph
+            .index
+            .get(carrier)
+            .and_then(|&position| terms.get(position))
+            .and_then(Option::as_ref)
+            .and_then(typed_aggregate)
+            .is_some_and(|members| {
+                members.iter().any(|member| {
+                    matches!(typed_binding(member, "rounding"), Some(CheckedTerm::Literal { value, .. })
+                        if value.as_str() == Some(rounding))
+                })
+            }),
+        _ => false,
+    };
+    if node.semantic_type != node.node_id
+        || node.declaration.is_some()
+        || node.owner.is_some()
+        || node.recursion_group.is_some()
+        || graph.kind(unit) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+        || !carrier_valid
+        || !graph.type_matches(text_type, ScalarTypeForm::Text)
+        || !super::operation_catalog::operation_catalog()
+            .mode_value_admitted(super::OperationModeKind::Rounding, rounding)
+    {
+        return false;
+    }
+    let (Some(unit), Some(carrier), Some(text_type), Some(actual)) = (
+        super::node_index::resolve_id(unit, structural_keys),
+        super::node_index::resolve_id(carrier, structural_keys),
+        super::node_index::resolve_id(text_type, structural_keys),
+        super::node_index::resolve_id(&node.node_id, structural_keys),
+    ) else {
+        return false;
+    };
+    let expected_dependencies = if unit <= carrier {
+        vec![unit.clone(), carrier.clone()]
+    } else {
+        vec![carrier.clone(), unit.clone()]
+    };
+    let actual_dependencies = node
+        .dependencies
+        .iter()
+        .map(|dependency| super::node_index::resolve_id(dependency, structural_keys))
+        .collect::<Option<Vec<_>>>();
+    if actual_dependencies.as_deref() != Some(expected_dependencies.as_slice()) {
+        return false;
+    }
+    actual.path
+        == vec![
+            CheckedNodePathSegment::Name("scalar_type".into()),
+            CheckedNodePathSegment::Name("carried_quantity".into()),
+            CheckedNodePathSegment::Node(unit.into()),
+            CheckedNodePathSegment::Node(carrier.into()),
+            CheckedNodePathSegment::Name("rounding".into()),
+            CheckedNodePathSegment::Node(text_type.into()),
+            CheckedNodePathSegment::Name(rounding.into()),
+        ]
 }
 
 /// Join an admitted bounded type's actual members to the selected Semantic IR
