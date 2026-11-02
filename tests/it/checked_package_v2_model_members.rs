@@ -346,13 +346,14 @@ fn add_dispatch_precondition(
     key: &str,
     name: &str,
     boolean_type: &Value,
+    form: &str,
     value: bool,
 ) -> Value {
     let body = json!({"term":"aggregate", "members":[
         {"term":"binding", "name":"parameters", "value":{"term":"aggregate", "members":[]}},
         {"term":"binding", "name":"body", "value":{"term":"literal", "type":boolean_type, "value_kind":"boolean", "value":value}}
     ]});
-    let mut node = wire_node(key, "function", "predicate", "scalar/boolean", &[], body);
+    let mut node = wire_node(key, "function", form, "scalar/boolean", &[], body);
     node["occurrences"] = json!([{"role":"declaration", "ordinal":0}]);
     node["declaration"] = json!({"qualified_name":[name]});
     node["owner"] = source_owner(&fixture_source());
@@ -459,6 +460,7 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
         "qualified:dispatch_precondition_first",
         "dispatch_precondition_first",
         &boolean_type,
+        "pure_function",
         true,
     );
     let second_precondition = add_dispatch_precondition(
@@ -466,6 +468,7 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
         "qualified:dispatch_precondition_second",
         "dispatch_precondition_second",
         &boolean_type,
+        "predicate",
         false,
     );
     let witness = json!({"declaring":declaring, "operation":"total"});

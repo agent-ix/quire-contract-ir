@@ -171,7 +171,12 @@ pub(super) fn validate_checked_term_data(
                 let precondition_kind = index
                     .get(precondition)
                     .and_then(|position| kinds.get(*position));
-                if precondition_kind != Some(&CheckedNodeKind::Function(FunctionForm::Predicate)) {
+                if !matches!(
+                    precondition_kind,
+                    Some(CheckedNodeKind::Function(
+                        FunctionForm::Predicate | FunctionForm::PureFunction
+                    ))
+                ) {
                     return Err(invalid(at.clone().key("effective_precondition")));
                 }
             }
