@@ -269,6 +269,7 @@ pub(super) fn decode_borrowed_wire(
     })
 }
 
+#[ix_trace_rs::string_edge]
 fn probabilistic_row_unknown_member_path(at: &JsonPointer) -> Option<JsonPointer> {
     let remainder = at
         .as_str()

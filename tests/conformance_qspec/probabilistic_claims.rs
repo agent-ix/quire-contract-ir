@@ -5,10 +5,12 @@
 use crate::fixture_support::{canonical, evidence_for, refresh_identity, settle, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageSidecarsRef, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedNodeId,
+    CheckedOccurrenceRole, CheckedPackageLimit, CheckedPackageLockV2, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSidecarsRef,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedProbabilisticClaim, CheckedRefinementStepRowRegion, CheckedSemanticGraphV2,
+    CheckedSourceMapEntry, CheckedTermDataV2, TemporalBinding,
 };
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf};
@@ -160,6 +162,110 @@ fn read_at(wire: &Value, work: u64) -> CheckedPackageV2ReadResult {
 
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
     read_at(wire, CheckedPackageReadLimits::bounded().work)
+}
+
+fn encode_producer(wire: &Value, sidecar: Option<&CheckedTermDataV2>) -> Vec<u8> {
+    let lock: CheckedPackageLockV2 = serde_json::from_value(wire["lock"].clone()).expect("lock");
+    let graph: CheckedSemanticGraphV2<Value> =
+        serde_json::from_value(wire["semantic_graph"].clone()).expect("graph");
+    let source_map: Vec<CheckedSourceMapEntry> =
+        serde_json::from_value(wire["source_map"].clone()).expect("source map");
+    let refinement_step_rows: Option<Vec<CheckedRefinementStepRowRegion>> = wire
+        .get("refinement_step_rows")
+        .map(|value| serde_json::from_value(value.clone()).expect("refinement rows"));
+    let temporal_bindings: Option<Vec<TemporalBinding>> = wire
+        .get("temporal_bindings")
+        .map(|value| serde_json::from_value(value.clone()).expect("temporal bindings"));
+    let capabilities: Vec<CheckedCapability> =
+        serde_json::from_value(wire["capability_report"].clone()).expect("capabilities");
+    let diagnostics: CheckedDiagnosticsV2 =
+        serde_json::from_value(wire["diagnostics"].clone()).expect("diagnostics");
+    encode_checked_package_v2(
+        wire["name"].as_str().expect("package name"),
+        &lock,
+        &graph,
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: &source_map,
+            refinement_step_rows: refinement_step_rows.as_deref(),
+        },
+        CheckedPackageSidecarsRef {
+            checked_term_data: sidecar,
+            temporal_bindings: temporal_bindings.as_deref(),
+        },
+        &capabilities,
+        &diagnostics,
+        quire_canonical::Limits::new(1 << 24),
+    )
+    .expect("typed producer envelope encodes")
+}
+
+#[test]
+#[trace("TC-451", "TC-233", "FR-051-AC-6", "FR-019-AC-18")]
+fn typed_pc_rows_encode_then_strictly_read() {
+    let all = vectors();
+    let rows: Vec<_> = all["positive"]["probabilistic_claims"]
+        .as_array()
+        .expect("published claim rows")
+        .iter()
+        .map(|value| row(value, "test/families"))
+        .collect();
+    assert_eq!(rows.len(), 2);
+    let typed_rows: Vec<CheckedProbabilisticClaim> = rows
+        .iter()
+        .map(|row| CheckedProbabilisticClaim {
+            declaration: serde_json::from_value(row["declaration"].clone())
+                .expect("typed declaration"),
+            occurrence: serde_json::from_value(row["occurrence"].clone())
+                .expect("typed occurrence"),
+        })
+        .collect();
+    let sidecar = CheckedTermDataV2 {
+        probabilistic_claims: typed_rows.clone(),
+        ..Default::default()
+    };
+    let wire = fixture(rows, &all);
+    let bytes = encode_producer(&wire, Some(&sidecar));
+    assert_eq!(bytes, canonical(&wire));
+    let CheckedPackageV2ReadResult::Admitted(admitted) = CheckedPackageV2::read(
+        &bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) else {
+        panic!("typed producer rows must strictly admit");
+    };
+    assert_eq!(
+        admitted
+            .checked_term_data()
+            .expect("sidecar")
+            .probabilistic_claims,
+        typed_rows
+    );
+}
+
+#[test]
+#[trace("TC-451", "FR-051-AC-6", "FR-038-AC-390")]
+fn absent_and_four_empty_arrays_remain_distinct_after_write_and_read() {
+    let base = v2_all_families();
+    let absent = encode_producer(&base, None);
+    let empty = CheckedTermDataV2::default();
+    let present = encode_producer(&base, Some(&empty));
+    assert_ne!(absent, present);
+    let CheckedPackageV2ReadResult::Admitted(absent_read) = CheckedPackageV2::read(
+        &absent,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&base),
+    ) else {
+        panic!("absent sidecar must admit");
+    };
+    let CheckedPackageV2ReadResult::Admitted(present_read) = CheckedPackageV2::read(
+        &present,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&base),
+    ) else {
+        panic!("present empty sidecar must admit");
+    };
+    assert!(absent_read.checked_term_data().is_none());
+    assert_eq!(present_read.checked_term_data(), Some(&empty));
 }
 
 #[test]
