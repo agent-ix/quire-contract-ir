@@ -597,7 +597,8 @@ fn literal_defect(
     None
 }
 
-/// `None` keeps an unbounded Text literal outside the bounded-membership rule.
+/// `None` keeps scalar and profile-only Text literals outside the
+/// bounded-membership rule.
 fn text_literal_membership(
     type_id: &CheckedNodeId,
     value: &Value,
@@ -621,13 +622,16 @@ fn text_literal_membership(
             graph.nodes[position].node_id.clone(),
         )
     };
-    let (min, max, profile) = graph
+    let Some((min, max, profile)) = graph
         .terms
         .get(position)
-        .ok_or_else(malformed)?
-        .as_ref()
+        .and_then(Option::as_ref)
         .and_then(super::equality_projection::text_bounds)
-        .ok_or_else(malformed)?;
+    else {
+        // A profile-only Text domain has no literal length bounds. The
+        // membership rule applies only to complete Text[min, max; profile].
+        return Ok(None);
+    };
     let profile = TextProfile::from_code(profile).ok_or_else(malformed)?;
     let min = min.parse().map_err(|_| malformed())?;
     let max = max.parse().map_err(|_| malformed())?;
