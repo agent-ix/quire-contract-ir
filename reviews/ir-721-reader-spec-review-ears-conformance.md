@@ -337,3 +337,204 @@ scope:
     row participates i'
 bindings: []
 ```
+
+## Final main-merge carry — pass 5
+
+Frozen main-merge carry head `47bdf036717575ebcf9d132c5155dffb36e777da` matches local and GitHub PR heads; tree clean. Parents are the reviewed-source/review-record head `ef9909be2e6db4a35bbc28feea5d9291768eab95` (reader source from `09b843ee4e3a482395846990eacebe0d782db2fa`) and main `6c5e430c58e802f5fb84a25c967c7520797d7269`. No new merge defect was found; reader review carries and FND-002 remains fixed.
+
+Historical IDs in all earlier sections and finding/disposition records remain unchanged. The exact live mapping is:
+
+| Historical reader criterion | Live reader criterion | Meaning |
+| --- | --- | --- |
+| FR-038-AC-431 | FR-038-AC-433 | Final integer event_position State admission; MP-74..76, with runtime MP-77 context |
+| FR-038-AC-432 | FR-038-AC-434 | Producer entry keys and genuine optional-measure admission; EK-01..08; SR-1290 FND-002 |
+
+The current FR-038-AC-431 and AC-432 are main's separate planned FMA obligations from IR-1265, not the historical reader criteria meant by earlier sections of these artifacts. Neither these reader tests nor the historical FND-002 disposition claim FMA coverage. Main owns those existing live IDs; only the previously unmerged reader criteria were renumbered. The reader AC texts are byte-identical after ID substitution, and all three affected source/test files differ only by those trace-ID substitutions. Owning prose references follow the same mapping.
+
+The monitor-plan implementation, including exact final State shape, anonymous optional-measure helper and entry parser/index, is byte-identical to the prior reviewed source. The owner.rs merge is exactly the previous reader owner logic plus main's Event additions: model event_type requires the correct model owner; selected exact event declaration identities populate DomainModel.event_types and participate in owner/invariant joins. The model_members.rs result matches main byte-for-byte. Both main's Event owner logic and the reader's bounded anonymous-function exception survive, with no additional semantic change. Historical SR files are preserved.
+
+Fresh supplied logs inspected at this merge: 15 monitor groups, 5 entry-key groups (one identity overlap), 28 owner controls, one actual default consumer/read/roundtrip, nine intended-error negative probes, three default reader controls, and fmt/string-edge/workspace/default-model Clippy all pass. The earlier two known population NFD failures remain separately reported, not hidden by these focused owner controls. Parent's prior full native run had five scanner-PATH environment failures; no source defect or pass is inferred from them. The environment-corrected full native run and final compile/corpus/spec/hosted gates remain parent-owned and pending after this carry. Draft HOLD stays in effect; Luna alone owns merge.
+
+Fresh static matrix at the merged head: 962 obligations, 808 tagged, 131 untagged, 1 ignored-only, 22 method-without-symbol. All thirteen live reader/interface criteria examined here are tagged, including AC-433/434. Main's planned FMA AC-431/432 are untagged and are distinct from the carried reader scope. Whole-repository gap verdict remains FAIL; no clean-repository claim is made. Prior strict-coverage 98-unbacked/zero-contradicted results and structural inheritance comparison apply only to their recorded earlier head. No merged-head strict-coverage count or baseline engine replay is claimed.
+
+Reader qualification still means 63 admission recipes plus existing MP-32 and by-reference EK controls. MP-77 and the other runtime controls remain unexecuted reader context. Actual producer closure, RT/driver lowering, runtime differential qualification and overall IR-721 completion remain open. No Cargo was run by this reviewer. Scoped renumber Quire validation and merge whitespace checks pass. Plan completion: not assessed.
+
+```yaml
+criterion_id_mapping:
+- historical_id: FR-038-AC-431
+  live_id: FR-038-AC-433
+  meaning: monitor State final integer event_position; MP-74..76 admission controls
+    and runtime-owned MP-77 context
+- historical_id: FR-038-AC-432
+  live_id: FR-038-AC-434
+  meaning: formal producer entry keys, genuine optional-measure function admission,
+    EK-01..08; includes SR-1290 FND-002
+scope:
+- id: FR-038-AC-420
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: context_only
+  excerpt: 'A structural `model`/`event_type` node without `declaration` requires
+    `ModelOwner`: the selected event type in QSpec TC-281 EV-01 passes the owner join,
+    while EV-02''s owners naming a record value type, object type or absent declaration
+    refuse `missing_declaration`/`missing-selection` at the node''s `node_id`. A structural
+    `model`/`event_type` node with `declaration` retains its required `SourceOwner`.
+    An undeclared event node with `SourceOwner` or an owner of another kind refuses
+    `malformed_wire` at `/semantic_graph/nodes/{N}/owner`; an absent required owner
+    refuses `malformed_wire` at `/semant'
+- id: FR-038-AC-421
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. The strict reader admits QSpec FR-487 MP-01
+    and MP-02 as distinct temporal monitor-plan roots with their exact seventeen ordered
+    bindings, State, Inputs, Scope, Results, four ordinary pure-function signatures,
+    six-case outcome and exact integer/rational/text/unit premises. The anonymous
+    ownerless root has generated source occurrences and semantic_type equal to State;
+    generic owner/source-map checks retain precedence. A capacity edit remains admitted;
+    the entries' expression bodies are checked without execution and flatten/sequence
+    extension MP-32 adds no operation
+- id: FR-038-AC-422
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. Missing, reordered and extra bindings, wrong
+    premise literal kinds and wrong reference kinds (MP-03..MP-09, MP-28, MP-35, MP-37,
+    MP-39..MP-42) refuse invalid_semantic_graph at the first breaking binding. Missing
+    bindings use the expected index and an extra uses the index after the seventeenth.
+    Each refusal retains the root node locus and exact primary pointer; no admitted
+    view escapes.
+- id: FR-038-AC-423
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. Entry arity, parameter order/type and result-type
+    defects, and missing/extra outcome cases or wrong Failed payload (MP-10..MP-17,
+    MP-29), refuse ill_typed/type-mismatch at the applicable entry binding or results
+    binding. Ordinary function body typing remains enforced before any admitted entry
+    view is returned.
+- id: FR-038-AC-424
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. Out-of-range width, gap, event rate and capacity
+    (MP-18..MP-22), negative uncertainty, empty counter, negative rate and noncanonical
+    rational spellings (MP-34, MP-36, MP-38, MP-46, MP-47) refuse invalid_package/invalid-value
+    at the literal's value; descending/repeated/unreached buffer subformulas and missing,
+    mistyped, extra or misordered state fields (MP-23..MP-27, MP-30, MP-31) refuse
+    invalid_semantic_graph at buffers or state. State is exactly integer now, integer
+    history_start, one buffer_<n> sequence per ordered buffer, then activations with
+    the specified ord
+- id: FR-038-AC-425
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. Paired defects select shape before reference
+    kind, signatures/outcome before premise range, and range before buffers/state;
+    a wrong dependencies set selects the earlier graph-shape invalid_semantic_graph
+    at /dependencies. Two defective roots stored opposite structural order choose
+    the structurally first root at the post-temporal plan step. The exact code, optional
+    cause, primary pointer and root node locus are asserted for each control.
+- id: FR-038-AC-426
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. A default-feature consumer iterates admitted
+    plans and reads the specified typed root/type/clause keys, resolved root and entry
+    structural content keys through structural_key, exact entry signatures and bodies,
+    width/gap/counter/tick-unit/activation-capacity and exact rational event-rate/uncertainty
+    plus ordered buffers/capacities through private-field borrowed views. Two plans
+    sharing labels but differing selected keys remain distinct; empty plans yield
+    an empty iterator. An entry or root content change is observed through the corresponding
+    structural keys withou
+- id: FR-038-AC-427
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. TC-048 reads QSpec proposals/checked-package-v2/monitor-plan-vectors.json
+    MP-01..MP-77 by reference from the selected QSpec checkout, constructs complete
+    selected packages around the MP-01..MP-31 and MP-33..MP-53 and MP-58..MP-65 root
+    recipes (MP-74..MP-76 planned under AC-433) and separately exercises MP-32's flatten/sequence
+    expression, and checks exact admission or refusal code, cause, primary RFC 6901
+    pointer and structural locus. No upstream vector, schema or fixture is copied
+    into IR. MP-54..MP-57, MP-66..MP-73 and MP-77 remain by-reference QSL/runtime
+    execu
+- id: FR-038-AC-428
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. MP-33 and MP-43..MP-45 admit zero uncertainty,
+    changed counter, fractional rational rate and changed tick unit with distinct
+    resolved root content keys; a capacity edit MP-02 also changes that key. MP-40
+    and MP-41 refuse invalid_semantic_graph at tick_unit for a wrong node kind or
+    non-Time unit by the exact base-Time identity test, never invalid-time-quantity.
+    Exact rate and uncertainty are borrowed CheckedRational values with no floating
+    conversion or narrowing. Tick intervals remain derivable from the selected clause
+    and clock/tick-unit scales with no extra bind
+- id: FR-038-AC-429
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. By-reference MP-48 and MP-49 refuse a missing
+    on_gap or wrong reference kind as invalid_semantic_graph with no cause at /semantic_graph/nodes/{n}/body/members/15;
+    MP-50..MP-52 refuse reordered or noninteger gap parameters and a wrong return
+    type as ill_typed/type-mismatch at the same binding, retaining the root structural
+    locus. MP-53 admits a changed on_gap node with a distinct resolved root content
+    key. The mandatory borrowed on_gap entry view exposes exactly (State, integer
+    gap) and (State, Results), its whole checked body and resolved entry key; no Option/defa
+- id: FR-038-AC-430
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: Implemented reader admission. By-reference MP-58 admits activation_capacity
+    0 with a distinct root content key and the borrowed canonical nonnegative decimal
+    getter returns "0" without narrowing. MP-59 refuses a negative value as invalid_package/invalid-value
+    at /semantic_graph/nodes/{n}/body/members/16/value; MP-60 and MP-61 refuse absent
+    or noninteger activation capacity as invalid_semantic_graph with no cause at member
+    16. MP-62..MP-65 refuse missing history_start or activations, missing origin in
+    an activation record and a noninteger history_start as invalid_semantic_graph
+    with no cause at
+- id: FR-038-AC-431
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: context_only
+  excerpt: planned until IR-1265 lands. The public strict reader admits QSpec `FM-01`
+    and `FM-02` as generic `application` terms whose operator is `call`, identity
+    is `quire.op.ieee.float64.fma` or `quire.op.ieee.float32.fma`, and three `reference`
+    arguments name the same-width operands in a, b, c order. The result has that width;
+    the operation carries one selected `ieee_profile` law and a `rounding` mode, with
+    no member or leaves. No dedicated FMA node or callee argument is required.
+- id: FR-038-AC-432
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: context_only
+  excerpt: 'planned until IR-1265 lands. The public strict reader checks QSpec `FM-03`
+    through `FM-12`: wrong arity, wrong or mixed operand width, an integer operand,
+    or wrong-width result refuse `ill_typed`/`operator-ineligible`; absent rounding
+    mode refuses `invalid_package`/`operation-mode-mismatch`; absent `ieee_profile`
+    law refuses `invalid_package`/`operation-law-missing`. TC-048 reads the exact
+    `FM-01` through `FM-12` case set from QSpec `proposals/checked-package-v2/fma-application-vectors.json`
+    by reference and compares admission or code and cause on complete IR-owned packages,
+    without storing a '
+- id: FR-038-AC-433
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: planned until IR-721 lands. The exact monitor State is now, history_start,
+    the ordered buffer_<n> fields, activations, then integer event_position. By-reference
+    QSpec MP-74..MP-76 refuse a missing event_position, text-typed event_position
+    or placement before activations as invalid_semantic_graph with no cause at /semantic_graph/nodes/{n}/body/members/1,
+    retaining the root structural locus. Updated positive State contexts admit with
+    no added root binding or public getter. MP-77, MP-57 and MP-69 remain by-reference
+    QSL/runtime controls for init zero, one increment per admitted event including
+    ba
+- id: FR-038-AC-434
+  path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  role: examined
+  excerpt: 'planned until IR-721 lands. TC-048 reads QSpec entry-key-vectors.json
+    EK-01..EK-08 by reference: the published declaration-less function path has parameter
+    count, ordered parameter indices, body-root index and optional measure index;
+    equal content gives equal paths and a changed body, reordered parameter or measure
+    gives a different path. Complete package controls admit genuine declaration-less
+    pure_function bodies with exactly ordered parameters/body and an optional final
+    measure, including EK-06 with typed parameter references, body-root reference
+    and measure reference. Negative controls rej'
+- id: FR-019-AC-23
+  path: spec/model/functional/FR-019-rust-library-interface.md
+  role: examined
+  excerpt: 'Implemented; evidence: `default_feature_consumer_reads_an_actual_admitted_monitor_plan`
+    and the monitor-view compile-fail doctests. A default-feature external consumer
+    imports CheckedMonitorPlanRef, CheckedMonitorEntryRef and CheckedMonitorBufferRef
+    and uses CheckedPackageV2::monitor_plans and the exact typed accessor signatures
+    of FR-038, including the nonnegative decimal activation_capacity getter. Compile
+    controls show no public view constructor, mutable field, unchecked raw-to-admitted
+    conversion or borrow escaping the selected package lifetime. The implemented inventory
+    row participates i'
+bindings: []
+```
