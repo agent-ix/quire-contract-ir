@@ -3,9 +3,7 @@
 
 //! Public admitted type reads with finite work and deep or cyclic type graphs.
 
-use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_package, settle,
-};
+use crate::support::checked_package::{canonical, evidence_for, node_id, nominal_package, settle};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
