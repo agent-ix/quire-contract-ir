@@ -1008,9 +1008,9 @@ fn quantity_chain(kind: CheckedNodeKind) -> QuantityChain {
     use CheckedNodeKind as K;
     match kind {
         K::Extension(_) | K::Hybrid(_) | K::TimedModel(_) => QuantityChain::Other,
-        K::ScalarType(ScalarTypeForm::Unit | ScalarTypeForm::CompoundUnit) => {
-            QuantityChain::Quantity
-        }
+        K::ScalarType(
+            ScalarTypeForm::Unit | ScalarTypeForm::CompoundUnit | ScalarTypeForm::CarriedQuantity,
+        ) => QuantityChain::Quantity,
         K::ScalarType(
             ScalarTypeForm::Integer
             | ScalarTypeForm::Rational
@@ -1109,7 +1109,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
-            | ScalarTypeForm::CompoundUnit,
+            | ScalarTypeForm::CompoundUnit
+            | ScalarTypeForm::CarriedQuantity,
         ) => false,
         K::CompositeType(
             CompositeTypeForm::Sequence

@@ -39,6 +39,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+mod carried_quantity;
 mod dependency_call;
 mod dimension_equivalence;
 mod extension;
