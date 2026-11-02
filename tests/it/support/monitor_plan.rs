@@ -71,16 +71,50 @@ pub(super) fn operands(term: &Value, wire: &Value, out: &mut Vec<Value>, labels:
         other => panic!("fixture content term {other}"),
     }
 }
+pub(super) fn function_path(wire: &Value, form: &str, body: &Value) -> Vec<Value> {
+    let members = body["members"]
+        .as_array()
+        .expect("ordinary function bindings");
+    assert!(matches!(members.len(), 2 | 3));
+    assert_eq!(members[0]["name"], "parameters");
+    assert_eq!(members[1]["name"], "body");
+    let parameters = members[0]["value"]["members"]
+        .as_array()
+        .expect("parameter references");
+    let mut path = vec![
+        json!("function"),
+        json!(form),
+        json!(parameters.len().to_string()),
+    ];
+    for parameter in parameters {
+        path.push(json!({"node":position(wire,&parameter["target"])}));
+    }
+    path.push(json!({"node":position(wire,&members[1]["value"]["target"])}));
+    if let Some(measure) = members.get(2) {
+        assert_eq!(measure["name"], "measure");
+        path.push(json!({"node":position(wire,&measure["value"]["target"])}));
+    }
+    path
+}
+
 pub(super) fn rekey(wire: &mut Value, position: usize) {
     let node = &wire["semantic_graph"]["nodes"][position];
     let old = node["node_id"].clone();
-    let mut path = vec![node["node_tag"].clone(), node["semantic_form"].clone()];
-    operands(
-        &node["body"],
-        wire,
-        &mut path,
-        node["semantic_form"] != "monitor_plan",
-    );
+    let path = if node["node_tag"] == "function"
+        && node.get("declaration").is_none()
+        && node.get("owner").is_none()
+    {
+        function_path(wire, node["semantic_form"].as_str().unwrap(), &node["body"])
+    } else {
+        let mut path = vec![node["node_tag"].clone(), node["semantic_form"].clone()];
+        operands(
+            &node["body"],
+            wire,
+            &mut path,
+            node["semantic_form"] != "monitor_plan",
+        );
+        path
+    };
     let fresh = json!({"package":old["package"],"path":path,"ordinal":old["ordinal"]});
     fn replace(value: &mut Value, old: &Value, fresh: &Value) {
         if value == old {
@@ -114,7 +148,9 @@ pub(super) fn append(
 ) -> Value {
     let n = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
     let mut path = vec![json!(tag), json!(form), json!(suffix), json!(n.to_string())];
-    if matches!(tag, "function" | "expression") {
+    if tag == "function" {
+        path = function_path(wire, form, &body);
+    } else if tag == "expression" {
         operands(&body, wire, &mut path, true);
     }
     let id = json!({"package":wire["name"],"path":path,"ordinal":0});
@@ -438,7 +474,7 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
             ),
             binding("body", reference(&expression)),
         ]);
-        let entry = append(
+        let mut entry = append(
             &mut wire,
             "function",
             fact["form"].as_str().unwrap(),
@@ -446,6 +482,13 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
             body,
             &format!("{name}{}", fact["index"]),
         );
+        if let Some(discriminator) = fact["index"].as_u64() {
+            // A selected different node may share a producer path. Ordinals
+            // are producer-assigned and distinguish those exact identities.
+            let n = position(&wire, &entry);
+            wire["semantic_graph"]["nodes"][n]["node_id"]["ordinal"] = json!(discriminator);
+            entry = wire["semantic_graph"]["nodes"][n]["node_id"].clone();
+        }
         if fact["declared"] == true {
             let n = position(&wire, &entry);
             wire["semantic_graph"]["nodes"][n]["owner"] = wire["semantic_graph"]["nodes"]

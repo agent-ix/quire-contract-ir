@@ -65,12 +65,13 @@ fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
     "FR-038-AC-425",
     "FR-038-AC-426",
     "FR-038-AC-427",
-    "FR-038-AC-429"
+    "FR-038-AC-429",
+    "FR-038-AC-431"
 )]
 #[test]
 fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
     let vectors = recipes();
-    assert_eq!(vectors["cases"].as_array().unwrap().len(), 60);
+    assert_eq!(vectors["cases"].as_array().unwrap().len(), 63);
     let mut base_key = None;
     for case in vectors["cases"].as_array().unwrap() {
         let mut facts = vectors["base"].clone();
@@ -158,6 +159,7 @@ fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
         "history_cases",
         "reporting_cases",
         "overflow_cases",
+        "position_cases",
     ] {
         execution_ids.extend(
             vectors["gap_cases"][group]
@@ -170,6 +172,7 @@ fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
     execution_ids.sort_unstable();
     let expected = (54..=57)
         .chain(66..=73)
+        .chain(std::iter::once(77))
         .map(|n| format!("MP-{n:02}"))
         .collect::<Vec<_>>();
     assert_eq!(
@@ -988,4 +991,26 @@ fn monitor_plan_entry_owner_exception_cannot_admit_a_model_descriptor() {
             format!("/semantic_graph/nodes/{n}")
         );
     }
+}
+
+#[trace("TC-048", "FR-038-AC-431")]
+#[test]
+fn monitor_plan_event_position_old_shape_is_refused() {
+    let vectors = recipes();
+    let case = vectors["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "MP-74")
+        .unwrap();
+    let mut facts = vectors["base"].clone();
+    patch(&mut facts, &case["set"]);
+    let (wire, root) = materialize(&facts);
+    refusal(
+        &wire,
+        Code::InvalidSemanticGraph,
+        None,
+        &binding_path(root, 1),
+        root,
+    );
 }

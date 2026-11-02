@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 mod carried_quantity;
 mod dependency_call;
 mod dimension_equivalence;
+mod entry_keys;
 mod extension;
 mod fairness_targets;
 #[path = "../it/support/checked_package.rs"]
