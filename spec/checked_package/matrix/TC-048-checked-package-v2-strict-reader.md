@@ -3,6 +3,8 @@ id: TC-048
 title: "CheckedPackage V2 strict reader validates structural identities"
 type: TC
 relationships:
+  - target: ix://agent-ix/quire-specification/TC-976
+    type: references
   - target: ix://agent-ix/quire-contract-ir/FR-038
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-064
@@ -2606,3 +2608,31 @@ unit and dimension-equivalence bodies and assert each yields no enum details;
 an admitted model-owned empty aggregate has no nominal enum body. Keep the
 existing malformed-body and wrong-owner reader refusals as adverse controls:
 neither exposes an admitted node from which to read enum details.
+
+## Authenticated schedulability claim carrier (FR-038-AC-396 through FR-038-AC-400)
+
+planned until IR-1252 lands. Read QSpec's
+`proposals/checked-package-v2/schedulability-claim-vectors.json`, TC-976 and
+FR-482/TC-967 body cases directly from the selected checkout; state that
+checkout's revision in execution evidence. Build complete IR-owned packages
+with the resolved graph, type/unit and claim-occurrence context those cases
+require, rather than submitting the identity-row vector as a package. Run
+SCC-01/02 through the public strict reader and inspect the exact borrowed
+identity, occurrence and typed body. Run every SCC schema and reader refusal
+against the corresponding complete positive context, compare its exact code,
+cause and RFC 6901 primary locus, and retain both occurrences for SCC-10.
+Include absent-local, wrong-kind, wrong-role and omitted-index controls.
+
+Exercise the FR-482 positive schedulable/response forms, all ordered body
+checks and the published adverse bodies, including policy-specific task-set
+premises and the EDF equal-priority positive control. Combine defects to prove
+wire/graph/aggregate, carrier declaration, occurrence, duplicate, order,
+coverage and body precedence. Measure the existing validation budget charge;
+the exact positive budget admits, one less refuses at the first uncharged row
+without any admitted or partial claim view. The empty no-claim case omits the
+index and exposes an empty iterator. Confirm that the public read borrows the
+retained graph body and takes no timed-model, release-binding or successor
+engine input. Re-encode the admitted package with its borrowed raw carrier
+rows through FR-051's complete writer, then read again and compare all rows
+and the body, including the two-occurrence case. This case does not run or
+qualify the QSL task-product checker.
