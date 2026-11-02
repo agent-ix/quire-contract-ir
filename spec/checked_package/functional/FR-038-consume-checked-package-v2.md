@@ -817,6 +817,68 @@ own byte stream already refuses such a number, because its text is not the
 canonical bytes of the value read, and carries neither cause nor pointer
 (FR-038-AC-79).
 
+### Source-byte integrity (planned until IR-1273 lands)
+
+[QSpec FR-322](ix://agent-ix/quire-specification/FR-322) now requires every
+checked-package V2 `SourceRef` to be the closed
+`{authority, identity, source_integrity}` object. The `source_integrity`
+member is exactly 64 lowercase ASCII hexadecimal characters encoding SHA-256
+of the complete raw bytes of the named source document. The reader SHALL
+compute this value at read time from caller-supplied bytes, without decoding,
+newline conversion, normalization, canonical JSON encoding, a domain prefix
+or a length prefix. It SHALL NOT retain a digest as a file, version or tool
+tracking record. An empty source is valid and has the SHA-256 of zero bytes.
+The nominal source identity remains the exact (`authority`, `identity`) pair;
+`DefinitionRef`, `CheckedArtifactLocator` and nominal owners do not acquire an
+integrity member.
+
+The caller SHALL supply source bytes by that exact pair through
+`CheckedPackageEvidence::insert_source_document(authority, identity, bytes)`.
+One byte sequence is retained per pair, independently of domain package
+documents. Equal raw-byte repeats succeed and retain the first sequence;
+unequal repeats return a keyed `SourceDocumentConflict` and leave evidence
+unchanged. The reader SHALL NOT infer bytes from the checked package, a domain
+document or a dependency, or perform filesystem, URI or network lookup. An
+unused evidence entry is not read or charged.
+
+After strict JSON and canonical-byte checks, and before all other V2 checks
+including closed-schema validation, the reader SHALL verify the
+`source_integrity` member of each recognizable `CheckedSourceRef`. It SHALL
+visit `lock.sources` in array order; then `source_map` entries and regions in
+array order; then `refinement_step_rows` in array order; then
+`diagnostics.entries` and their loci in array order. A position that is not an
+object or whose `authority` or `identity` is not a string is left to ordinary
+schema checks, as are unrelated missing or extra members. At a recognizable
+reference, an absent, null, wrong-kind, non-lowercase-hex or wrong-length
+integrity value, absent caller bytes, or a claim unequal to the SHA-256 of
+those bytes SHALL refuse `invalid_package`/`source-integrity` at that
+reference's RFC 6901 pointer, never at the `source_integrity` member pointer. The first failing
+reference in the stated order decides; there is no two-member admission path.
+For one reference, integrity syntax precedes byte availability, resource
+charging and value comparison.
+
+The source-byte input and reference visits SHALL be bounded by the caller's
+existing `CheckedPackageReadLimits::bytes` and `work` ceilings. Source bytes
+for each referenced pair are charged once per read against a separate
+cumulative source-byte count, before SHA-256 computation; repeated references
+do not recharge the same bytes. Each visited reference charges one work visit.
+Exceeding either ceiling returns the existing `incomplete` outcome for `bytes`
+or `work` before computing an over-budget digest, with no partial package.
+The byte-limit outcome has no pointer under FR-038-AC-26; a denied work visit
+names the reference whose visit was denied. No digest catalog, pinned value or
+persistent tracking record is created.
+
+Every source-reference site in the lock, source map, refinement-step regions
+and diagnostic loci SHALL retain its integrity member in the admitted package
+and typed writer output. Exact source-reference equality for lock membership
+uses all three members; nominal owner joins continue to use the pair alone.
+Verification precedes owner joins and source-map agreement, so a bad claim
+refuses `source-integrity`; a valid claim for an unlocked pair retains the
+existing source-map refusal. The reader does not interpret the source text or
+derive a node identity from the integrity value. These requirements are
+planned until IR-1273 lands; the current two-member reader is not claimed as
+QSpec-conformant.
+
 ### Artifact references
 
 A definition is named by its identity alone. QSpec's `DefinitionRef` is the
@@ -836,13 +898,16 @@ each place the wire has one:
   `quire-verification-contracts`, publishes them as `{authority, identity}`;
   this reader holds no copy of it).
 
-A source reference is the closed shape `{authority, identity}`, with both
-members nonempty strings. This reader's source reference type is
+A source reference in the current reader, until IR-1273 lands, is the closed
+shape `{authority, identity}`, with both members nonempty strings. The planned
+QSpec-conformant shape and byte check are specified above. This reader's source
+reference type is
 `CheckedSourceRef`. It is the member type of
 `lock.sources` and the `source` of every `source_map` region and every
-`diagnostics.entries[].loci[]` region. Source references identify the producer's
+`refinement_step_rows` region and `diagnostics.entries[].loci[]` region. Source
+references identify the producer's
 source and the source ranges still identify locations within it; the reader
-does not authenticate the source's bytes. A source reference has no `revision`,
+does not yet authenticate the source's bytes. A source reference has no `revision`,
 `digest_domain` or `digest`. A changed source-map reference changes the complete canonical bytes of a lowered `ContractPackage` under FR-035; it changes no content-derived identifier.
 
 Both shapes are closed under `deny_unknown_fields`, so there is one refusal
@@ -1308,7 +1373,8 @@ equal, the diamond is admitted. The reader reports the first failing entry in
 lock order and no later one. Every direct entry is supplied before any
 `dependency_reference` check.
 
-The reader reads no source bytes or replay `byte_provision`. A missing domain
+Until IR-1273 lands, the reader reads no source bytes or replay
+`byte_provision`. A missing domain
 document still refuses at its model-root owner. There is no
 `stale_dependency`, `content-mismatch`, `digest_domain_mismatch` or
 `byte-digest-mismatch` refusal in this V2 read surface.
@@ -5550,6 +5616,12 @@ copying QSL execution semantics into IR.
 | FR-038-AC-434 | planned until IR-721 lands. TC-048 reads QSpec entry-key-vectors.json EK-01..EK-08 by reference: the published declaration-less function path has parameter count, ordered parameter indices, body-root index and optional measure index; equal content gives equal paths and a changed body, reordered parameter or measure gives a different path. Complete package controls admit genuine declaration-less pure_function bodies with exactly ordered parameters/body and an optional final measure, including EK-06 with typed parameter references, body-root reference and measure reference. Negative controls reject malformed measure, duplicate, extra, reordered and clause-only bindings under the existing ordinary validation precedence and exact refusal loci, without executing or semantically rechecking a measure. Those controls resolve the supplied keys, refuse EK-07's duplicate package/path/ordinal as invalid_semantic_graph at the second node_id, and admit EK-08's owner-chosen model accessor label unchanged. The reader recomputes no producer path and adds no refusal for a path differing from the derivation. Root plus four entry keys remain the identity; no independent PlanId or copied upstream vector is introduced. | Test |
 | FR-038-AC-435 | Every admitted `quire.op.protocol.control` body on a protocol member has `result_type` and node `semantic_type` equal to the package's Boolean scalar-type node; equality of those two references to another type is insufficient. A resolved non-Boolean type refuses `ill_typed`/`operator-ineligible` at the containing protocol node with no admitted package. TC-048 reads the merged QSpec STD-609 protocol-node mutation manifest and base fixture by reference, applies V13 unchanged, and checks that exact code and cause at `/semantic_graph/nodes/64`, with that node as structural locus. | Test |
 | FR-038-AC-436 | A state-clause body reference to a protocol member node other than a `protocol_clause` or `protocol_reference` carrier refuses `ill_typed`/`operator-ineligible` at the containing state-clause node with no admitted package, even when the referenced member is Boolean typed. The protocol step applies this placement rule after earlier graph and state defects. TC-048 reads the same merged manifest and base fixture by reference, applies V14 unchanged, and checks that exact code and cause at `/semantic_graph/nodes/54`, with that node as structural locus. | Test |
+| FR-038-AC-437 | planned until IR-1273 lands. The public reader admits QSpec SI-P1 and SI-P2 using the exact raw source bytes published by `source-documents.json` and caller-supplied evidence. The required `source_integrity` value is computed from those bytes at read time; empty bytes and changed line endings are distinguished. The typed writer retains every source reference's three members, while definition refs, locators and nominal owners retain their existing shapes. No QSpec fixture, source document or digest value is copied into IR. | Test |
+| FR-038-AC-438 | planned until IR-1273 lands. The public reader refuses QSpec SI-R1..SI-R11 with exact `invalid_package`/`source-integrity` and the reference pointer for absent, null, wrong-kind, malformed or mismatching claims and unsupplied source bytes at lock, source-map, refinement-step and diagnostic sites. SI-R6 mutates one supplied byte without changing package bytes. No two-member source reference admits. | Test |
+| FR-038-AC-439 | planned until IR-1273 lands. QSpec SI-R12 and SI-R13 choose the first failing reference in lock, source-map, refinement-step, diagnostic and array order. SI-R14 chooses a failing integrity claim before the owner/source-map join; SI-R16 chooses it before a later closed-schema defect. SI-R15, whose claims hold, retains the ordinary invalid-value source-map refusal. Strict JSON and canonical-byte refusals precede integrity verification. | Test |
+| FR-038-AC-440 | planned until IR-1273 lands. The public evidence insertion operation keys raw bytes by exact authority and identity. Equal repeats retain the first bytes; unequal repeats return keyed `SourceDocumentConflict` and leave evidence unchanged. The same identity under a different authority is independent. Reader controls verify that unused evidence, filesystem paths and network names supply no implicit source bytes. | Test |
+| FR-038-AC-441 | planned until IR-1273 lands. Referenced source bytes exactly at the source-byte ceiling admit, and a first byte past it returns `incomplete`/`bytes` before hashing with no pointer or partial package. Repeated references to one pair charge its bytes once and each reference charges one work visit; a work ceiling one below the required visits returns `incomplete`/`work` at the denied reference. Unused evidence charges neither ceiling. | Test |
+| FR-038-AC-442 | planned until IR-1273 lands. Exact source-reference equality for region membership includes `source_integrity`; nominal owner joins use authority and identity alone. A changed claim for a repeated pair refuses source-integrity before lock membership, while a valid claim for an unlocked pair retains the existing source-map refusal. Equal admitted packages and their lowering retain equal source references; neither reader nor writer stores a tracking digest record. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
