@@ -176,6 +176,12 @@ pub(super) fn decode_borrowed_wire(
                     .primary_path()
                     .is_some_and(|path| path.as_str().starts_with("/checked_term_data"))
             {
+                if let Some(row) = refusal
+                    .primary_path()
+                    .and_then(probabilistic_row_unknown_member_path)
+                {
+                    refusal.set_primary_path(Some(row));
+                }
                 refusal.code = CheckedPackageRefusalCode::MalformedWire;
             }
             if refusal.code == CheckedPackageRefusalCode::MalformedWire {
@@ -261,6 +267,23 @@ pub(super) fn decode_borrowed_wire(
                 .collect::<Result<Vec<_>, ValidationFailure>>()?,
         },
     })
+}
+
+fn probabilistic_row_unknown_member_path(at: &JsonPointer) -> Option<JsonPointer> {
+    let remainder = at
+        .as_str()
+        .strip_prefix("/checked_term_data/probabilistic_claims/")?;
+    let (index, member) = remainder.split_once('/')?;
+    if member.is_empty() || member.contains('/') {
+        return None;
+    }
+    let index: usize = index.parse().ok()?;
+    Some(
+        JsonPointer::root()
+            .key("checked_term_data")
+            .key("probabilistic_claims")
+            .index(index),
+    )
 }
 
 fn missing_probabilistic_occurrence(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
