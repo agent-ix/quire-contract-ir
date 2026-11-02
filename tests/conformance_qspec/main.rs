@@ -781,6 +781,7 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
                 refinement_step_rows: admitted.refinement_step_rows(),
             },
             quire_contract_model::CheckedPackageSidecarsRef {
+                operation_effects: None,
                 checked_term_data: admitted.checked_term_data(),
                 temporal_bindings: admitted.temporal_bindings(),
             },
@@ -1182,6 +1183,7 @@ fn qspec_admitted_values_members_and_catalog_constraints_are_exact() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
         },
@@ -1532,6 +1534,7 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
         },
