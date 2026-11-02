@@ -69,3 +69,13 @@ scope:
 ## Coverage
 
 tests with TS-01..10 and all six profiles pass; final aggregate gate is owned by the lead.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The fix compares canonical decimal bounds without narrowing, checks literal lengths the same way, and saturates only the Exact equality maximum because retained Text lengths are u64. |
+
+## Disposition verdict
+
+**PASS (round 1, source review at 5707491b)** — The original finding is fixed. Focused QSpec 4/4 and equality 2/2 checks pass. The code lead owns the final aggregate gate.

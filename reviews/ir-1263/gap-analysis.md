@@ -69,3 +69,13 @@ scope:
 ## Coverage
 
 quoin matrix reports AC-417, AC-418 and AC-419 tagged; it has no run evidence. Focused named tests passed 3/3. Plan completion: not assessed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The public-reader control now admits max above u64, refuses a literal below min above u64 at the literal value pointer, and refuses inverted large bounds as malformed. |
+
+## Disposition verdict
+
+**PASS (round 1, source review at 5707491b)** — The original finding is fixed. Focused QSpec 4/4 and equality 2/2 checks pass. The code lead owns the final aggregate gate.
