@@ -30,3 +30,7 @@ No requirement-text finding. The code-review artifact records a separate event i
 ## Evidence
 
 The requirement still distinguishes declared event SourceOwner from undeclared event ModelOwner and records the exact adverse wire and selected-model-owner outcomes. The changed integration tests carry FR-038-AC-420 trace tags and pass through the public reader. Scoped Quire validation passed.
+
+## Post-gate fixture repair check
+
+The rebase preserved FR-038-AC-420 and the newly merged main criteria AC-421..430 without changing AC-420's wording. Only the planned-until marker remains removed by this PR. The fixture repairs make existing tests conform to the requirement's declared-event `SourceOwner` case; no new requirement finding arose.

@@ -43,3 +43,7 @@ One medium finding. The frozen PR is not ready to merge until the event invarian
 ## Current Verdict
 
 Round 1: FND-001 is fixed. No new finding arose from the fix. The PR is mergeable from this review.
+
+## Post-gate fixture repair check
+
+At PR head `90d2564d`, the same reviewer checked the three fixture edits made after the first aggregate gate found owner-invalid synthetic events. `tc_056_exactly_fifteen_model_forms_admit` and `tc_048_model_export_is_not_a_v2_model_form` now give their synthetic event node a declaration occurrence, a matching `SourceOwner`, self type and source map, while leaving their form-admission assertions in place. The refinement test similarly gives its synthetic event a valid declaration and source owner so its asserted `invalid_model_binding`/`malformed-declaration` at the anchor remains the first refusal. The three tests passed individually in `/tmp/ir1264-fixture-{frame,reader,refinement}.log`; the four focused owner regressions passed in `/tmp/ir1264-owner-regressions.log`. The rebase preserved FR-038-AC-420 and main's separate AC-421..430. No new finding arose; FND-001 remains fixed. These focused checks do not substitute for the code lead's final aggregate gate on the current head.

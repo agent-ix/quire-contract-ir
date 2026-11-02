@@ -33,3 +33,7 @@ PASS for the scoped PR diff. This is not a repository-wide completion claim: the
 ## Evidence
 
 The new TC-281 test uses the public strict reader with a selected event construct and checks admission, exact EV-02 refusal code/cause and `node_id` path for record, object and absent declaration owners. The declared-source-owner test checks public-reader admission. The same TC-281 test checks absent owner and SourceOwner wire refusals with exact primary paths. Neither test replaces the reader under test or stores QSpec's vectors as a copied fixture.
+
+## Post-gate fixture repair check
+
+The three changed synthetic event fixtures are existing tests, and each now reaches its original form or refinement assertion with an owner-valid event node. The distinct FR-038-AC-420 owner tests remain tagged and pass focused checks. The rebase preserved AC-420 alongside main's AC-421..430. No new PR-scope traceability or test-oracle gap was found; the matrix totals above describe the original reviewed base, not the later main.
