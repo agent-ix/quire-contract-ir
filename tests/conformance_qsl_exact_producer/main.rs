@@ -132,6 +132,8 @@ fn genuine_qsl_model_identities_join_admitted_record_and_reference_projection() 
         "FR-352-AC-9 producer, record/reference projections and typed adverse joins passed"
     ));
 
+    print!("{}", String::from_utf8_lossy(&emitted.stdout));
+
     // The public projection signature requires the joined table. These probes
     // establish that typed boundary, not unforgeability of public stage rows.
     for (name, supplied) in [
@@ -185,5 +187,6 @@ fn genuine_qsl_model_identities_join_admitted_record_and_reference_projection() 
                 .contains("SelectedExactIdentities"),
             "{name}: {errors:?}"
         );
+        println!("{name}: E0308 rejects a bare input at the joined-witness boundary");
     }
 }

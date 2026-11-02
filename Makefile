@@ -29,6 +29,7 @@ help:
 	@echo "  make conformance-qsl-ir703 - Fresh ConfigVersion V2 producer/IR accessor check (needs QUIRE_SPEC_LANGUAGE_DIR and its current binaries)"
 	@echo "  make conformance-qsl-ir769 - Fresh QSL scalar result context through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
 	@echo "  make conformance-qsl-ir779 - QSL FR-062 RR-13 path conditions through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
+	@echo "  make conformance-qsl-exact-producer - Real QSL selected identities through IR projection (needs QUIRE_SPEC_LANGUAGE_DIR; sequential native helper)"
 	@echo "  make conformance-qsl-ir760 - QSL-emitted Population<T>[N] through the default-feature model consumer (needs QUIRE_SPEC_LANGUAGE_DIR)"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"

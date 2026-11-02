@@ -4,7 +4,7 @@
 //! External typed consumer of QSL's selected-model identity producer.
 
 use qsl_foundation::SourceIdentity;
-use qsl_package::{emit::emit_checked, CheckedPackage};
+use qsl_package::{emit_checked, CheckedPackage};
 use qsl_semantics::{check::PackageDeclarations, model::intake};
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2,
@@ -129,7 +129,7 @@ fn main() {
     let wire: Value = serde_json::from_slice(emission.package.bytes()).expect("V2 envelope");
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(MODEL, &document)
+        .insert_domain_package_document(MODEL, document.as_slice())
         .expect("same selected document");
     for feature in wire["lock"]["required_features"]
         .as_array()
@@ -144,7 +144,7 @@ fn main() {
     ) else {
         panic!("the actual QSL emission must admit with its selected document");
     };
-    // No identity is minted, copied from a fixture, or serialized across processes.
+    // The consumer neither mints identities nor serializes witness rows across processes.
     let witnesses = checked
         .graph()
         .selected_exact_identities(&admitted)
