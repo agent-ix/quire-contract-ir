@@ -822,8 +822,10 @@ canonical bytes of the value read, and carries neither cause nor pointer
 This subsection and AC-437 through AC-442 are a proposed delta, planned until
 IR-1273 lands. They do not describe the current reader. Reader implementation
 is gated on the QSpec owner amending FR-322's prohibition of source-byte
-integrity, both authoritative V2 schemas and the conformance schema's source
-reference, and FR-272's closed diagnostic cause pairing. QSpec owns those
+integrity, the authoritative checked-package V2 schema
+`proposals/checked-package-v2/schema.json` and the conformance-corpus
+source-reference schema `proposals/conformance-corpus-v1/schema.json`, and
+FR-272's closed diagnostic cause pairing. QSpec owns those
 artifacts; IR neither edits nor copies them. The proposal serves QSL FR-518
 row 28m and AC-9 (spec PR 2144), cited by QSL-1501.
 
