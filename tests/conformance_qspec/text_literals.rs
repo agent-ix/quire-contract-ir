@@ -78,6 +78,207 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
     )
 }
 
+fn text_bounds_package(members: &[Value], literal: &str) -> (Value, usize) {
+    let (mut package, literal_position) = bounded_literal(0, 64, "nfc", json!(literal));
+    let bounds_position = literal_position - 1;
+    let integer = fixture_support::node_id(&fixture_support::family_key("a3a3"));
+    let text = fixture_support::node_id(&fixture_support::family_key("a1a1"));
+    let members = members
+        .iter()
+        .map(|member| {
+            let value_kind = member["value_kind"].as_str().expect("member value kind");
+            let type_id = match value_kind {
+                "integer" => &integer,
+                "text" => &text,
+                other => panic!("unknown member value kind {other}"),
+            };
+            json!({"term": "binding", "name": member["name"], "value": {
+                "term": "literal", "type": type_id, "value_kind": value_kind,
+                "value": member["value"]
+            }})
+        })
+        .collect::<Vec<_>>();
+    package["semantic_graph"]["nodes"][bounds_position]["body"] =
+        json!({"term": "aggregate", "members": members});
+    fixture_support::settle(&mut package);
+    (package, bounds_position)
+}
+
+fn assert_text_shape_refusal(package: &Value, position: usize, context: &str) {
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
+        panic!(
+            "{context}: malformed Text bounds must refuse: {:?}",
+            read(package)
+        );
+    };
+    assert_eq!(refusal.code, Code::InvalidPackage, "{context}: {refusal:?}");
+    assert_eq!(
+        refusal.cause,
+        Some(Cause::InvalidDerivedShape),
+        "{context}: {refusal:?}"
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{position}")),
+        "{context}: {refusal:?}"
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(
+            serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+                .expect("Text bounds node identity")
+        ),
+        "{context}: structural node locus"
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-417", "FR-038-AC-418", "FR-038-AC-419")]
+#[test]
+fn qspec_text_bounds_shape_vectors_match_reader() {
+    let vectors =
+        read_json(&proposal_dir_of(&fixtures_dir()).join("text-bounds-shape-vectors.json"))
+            .expect("QSpec Text bounds shape vectors");
+    let cases = vectors["cases"].as_array().expect("QSpec cases");
+    let actual_ids = cases
+        .iter()
+        .map(|case| case["id"].as_str().expect("case id").to_owned())
+        .collect::<BTreeSet<_>>();
+    let expected_ids = (1..=10)
+        .map(|number| format!("TS-{number:02}"))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(cases.len(), 10, "published TS case count");
+    assert_eq!(actual_ids, expected_ids, "exact published TS id set");
+    for case in cases {
+        let id = case["id"].as_str().expect("case id");
+        let members = case["members"].as_array().expect("shape members");
+        let literal = match id {
+            "TS-02" => "ab",
+            "TS-03" => "e\u{301}", // Not NFC: shape refusal must win over membership.
+            _ => "outside-bounds",
+        };
+        let (package, position) = text_bounds_package(members, literal);
+        match (case["expected"].as_str(), read(&package)) {
+            (Some("admitted"), CheckedPackageV2ReadResult::Admitted(_)) => {}
+            (Some("refused"), _) => {
+                assert_eq!(case["code"], "invalid_package", "{id}: vector code");
+                assert_eq!(case["cause"], "invalid-derived-shape", "{id}: vector cause");
+                assert_eq!(
+                    case["locus"], "/semantic_graph/nodes/{n}",
+                    "{id}: vector locus"
+                );
+                assert_text_shape_refusal(&package, position, id);
+            }
+            (expected, actual) => panic!("{id}: expected {expected:?}, got {actual:?}"),
+        }
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-417", "FR-038-AC-418")]
+#[test]
+fn text_bounds_reordered_wrong_kind_and_negative_bound_refuse_before_membership() {
+    let correct = vec![
+        json!({"name": "min", "value_kind": "integer", "value": "0"}),
+        json!({"name": "max", "value_kind": "integer", "value": "1"}),
+        json!({"name": "text_profile", "value_kind": "text", "value": "nfc"}),
+    ];
+    let mut reordered = correct.clone();
+    reordered.swap(0, 1);
+    let mut wrong_kind = correct.clone();
+    wrong_kind[0]["value_kind"] = json!("text");
+    let mut negative = correct;
+    negative[0]["value"] = json!("-1");
+    for (name, members) in [
+        ("reordered", reordered),
+        ("wrong-kind", wrong_kind),
+        ("negative", negative),
+    ] {
+        let (package, position) = text_bounds_package(&members, "outside-bounds");
+        assert_text_shape_refusal(&package, position, name);
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-417", "FR-038-AC-418")]
+#[test]
+fn text_bounds_accept_all_six_profiles_and_refuse_noncanonical_minimum() {
+    for profile in [
+        "unicode-scalars",
+        "nfc",
+        "nfd",
+        "nfkc",
+        "nfkd",
+        "binary-utf8",
+    ] {
+        let members = vec![
+            json!({"name": "min", "value_kind": "integer", "value": "1"}),
+            json!({"name": "max", "value_kind": "integer", "value": "1"}),
+            json!({"name": "text_profile", "value_kind": "text", "value": profile}),
+        ];
+        let (package, _) = text_bounds_package(&members, "a");
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{profile}: complete equal bounds must admit: {:?}",
+            read(&package)
+        );
+    }
+    let noncanonical = vec![
+        json!({"name": "min", "value_kind": "integer", "value": "01"}),
+        json!({"name": "max", "value_kind": "integer", "value": "1"}),
+        json!({"name": "text_profile", "value_kind": "text", "value": "nfc"}),
+    ];
+    let (package, position) = text_bounds_package(&noncanonical, "a");
+    assert_text_shape_refusal(&package, position, "noncanonical minimum");
+}
+
+#[trace("TC-048", "FR-038-AC-417", "FR-038-AC-418")]
+#[test]
+fn canonical_text_bounds_above_u64_are_shapes_and_check_literal_membership() {
+    let beyond_u64 = "18446744073709551616";
+    let members = |min: &str, max: &str| {
+        vec![
+            json!({"name": "min", "value_kind": "integer", "value": min}),
+            json!({"name": "max", "value_kind": "integer", "value": max}),
+            json!({"name": "text_profile", "value_kind": "text", "value": "nfc"}),
+        ]
+    };
+    let (package, _) = text_bounds_package(&members("0", beyond_u64), "a");
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "canonical maximum beyond u64 admits an in-range literal: {:?}",
+        read(&package)
+    );
+
+    let (package, bounds_position) = text_bounds_package(&members(beyond_u64, beyond_u64), "a");
+    let literal_position = bounds_position + 1;
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!(
+            "large minimum must reach literal membership: {:?}",
+            read(&package)
+        );
+    };
+    assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::TypeMismatch), "{refusal:?}");
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{literal_position}/body/value"
+        )),
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(
+            serde_json::from_value(
+                package["semantic_graph"]["nodes"][literal_position]["node_id"].clone()
+            )
+            .expect("literal node identity")
+        )
+    );
+
+    let (package, position) =
+        text_bounds_package(&members("18446744073709551617", beyond_u64), "a");
+    assert_text_shape_refusal(&package, position, "inverted large bounds");
+}
+
 #[trace("TC-048", "FR-038-AC-409", "FR-038-AC-410", "FR-038-AC-411")]
 #[test]
 fn qspec_text_literal_vectors_match_reader() {

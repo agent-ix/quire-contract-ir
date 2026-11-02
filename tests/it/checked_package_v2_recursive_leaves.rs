@@ -88,9 +88,11 @@ fn scalar(name: &str, form: &str) -> Typed {
     )
 }
 
-/// `Text[nfc]`: a `text_bounds` domain binding the `nfc` profile over `text`.
+/// `Text[0, 65535; nfc]`: a bounded `nfc` Text domain.
 fn nfc_text() -> Typed {
     let body = json!({"term": "aggregate", "members": [
+        binding("min", literal("integer", "integer", "0")),
+        binding("max", literal("integer", "integer", "65535")),
         binding("text_profile", literal("text", "text", "nfc")),
     ]});
     node(

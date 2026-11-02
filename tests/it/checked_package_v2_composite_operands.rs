@@ -1366,7 +1366,20 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
         let id = f.ty("bounded_domain", form, Some(&ty), aggregate(vec![]));
         types.insert(form.into(), id);
     }
-    let text_bounds = f.ty("bounded_domain", "text_bounds", Some(&text), profile);
+    let mut text_bounds_body = bounds_body(&integer, "0", "65535");
+    text_bounds_body["members"]
+        .as_array_mut()
+        .expect("Text bounds members")
+        .push(binding(
+            "text_profile",
+            json!({"term":"literal","type":node_id(&text),"value_kind":"text","value":"nfc"}),
+        ));
+    let text_bounds = f.ty(
+        "bounded_domain",
+        "text_bounds",
+        Some(&text),
+        text_bounds_body,
+    );
     types.insert("text_bounds".into(), text_bounds);
     let model_reference = f.model_reference();
     let model_set = f.collection("set", &model_reference);

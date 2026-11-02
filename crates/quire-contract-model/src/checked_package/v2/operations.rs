@@ -42,7 +42,7 @@ use crate::checked_package::shared::{
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::One;
-use quire_exact::{TextProfile, TextType};
+use quire_exact::TextProfile;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -597,8 +597,7 @@ fn literal_defect(
     None
 }
 
-/// `None` keeps scalar and profile-only Text literals outside the
-/// bounded-membership rule.
+/// `None` keeps scalar Text literals outside the bounded-membership rule.
 fn text_literal_membership(
     type_id: &CheckedNodeId,
     value: &Value,
@@ -617,8 +616,8 @@ fn text_literal_membership(
     let malformed = || {
         ValidationFailure::refused_at(
             CheckedPackageRefusalCode::InvalidPackage,
-            node_pointer(position).key("body"),
-            None,
+            node_pointer(position),
+            Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
             graph.nodes[position].node_id.clone(),
         )
     };
@@ -628,21 +627,21 @@ fn text_literal_membership(
         .and_then(Option::as_ref)
         .and_then(super::equality_projection::text_bounds)
     else {
-        // A profile-only Text domain has no literal length bounds. The
-        // membership rule applies only to complete Text[min, max; profile].
-        return Ok(None);
+        return Err(malformed());
     };
     let profile = TextProfile::from_code(profile).ok_or_else(malformed)?;
-    let min = min.parse().map_err(|_| malformed())?;
-    let max = max.parse().map_err(|_| malformed())?;
-    let text_type = TextType::new(min, max, profile).map_err(|_| malformed())?;
     let Some(retained) = value.as_str() else {
         return Ok(Some(false));
     };
     let normalized = profile
         .normalization()
         .is_none_or(|form| retained.chars().eq(form.apply(retained)));
-    Ok(Some(normalized && text_type.admits(retained)))
+    let length = profile.length(retained).to_string();
+    let in_bounds = super::structural::canonical_non_negative_cmp(min, &length)
+        != std::cmp::Ordering::Greater
+        && super::structural::canonical_non_negative_cmp(&length, max)
+            != std::cmp::Ordering::Greater;
+    Ok(Some(normalized && in_bounds))
 }
 
 fn canonical_uuid(value: &str) -> bool {
