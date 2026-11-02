@@ -1190,9 +1190,8 @@ fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() 
             } else {
                 members.swap(0, 1);
             }
-            fixture_support::settle(&mut adverse);
-            sort_timed_graph_dependencies(&mut adverse);
-            fixture_support::settle(&mut adverse);
+            // Swapping or repeating a reference preserves the exact dependency
+            // set. Keep the authored tied regions rather than rebuilding them.
             let CheckedPackageV2ReadResult::Refused(refusal) =
                 read_package_with_document(&adverse, "adverse equal-region clauses", &document)
                     .expect("selected adverse package read")
