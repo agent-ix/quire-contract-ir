@@ -1604,6 +1604,7 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
 
 /// Complete record projections read every retained effective field, including
 /// inherited fields and members with no expression read.
+#[trace("FR-352-AC-2")]
 #[test]
 fn admitted_selected_records_project_complete_exact_views() {
     let mut selected = document(vec![
@@ -1729,6 +1730,25 @@ fn admitted_selected_records_project_complete_exact_views() {
             projection
         })
         .collect::<Vec<_>>();
+    let digit = ValueType::Int(quire_exact::IntegerInterval::new(Integer::from(0_i64), Integer::from(9_i64)).unwrap());
+    for (index, expected_fields) in [
+        vec![("Receipt", "total", ValueType::Integer, Presence::Required)],
+        vec![("Receipt", "total", ValueType::Integer, Presence::Required), ("Attempt", "note", ValueType::String, Presence::Optional)],
+        vec![("Flag", "total", ValueType::Boolean, Presence::Required), ("Flag", "set", ValueType::Boolean, Presence::Required)],
+        vec![("Tick", "count", digit, Presence::Required)],
+    ].into_iter().enumerate() {
+        let expected = expected_fields.into_iter().map(|(owner, name, ty, presence)| (
+            format!("{}/{name}", orders(owner)), name.to_owned(),
+            MemberId::new(MemberOwner::Node(records[index].2.clone()), format!("{owner}/{name}")).unwrap(), ty, presence,
+        )).collect::<Vec<_>>();
+        let actual = projections[index].record_view().unwrap().fields().iter().map(|field| (
+            field.ir_identity().to_owned(), field.name().to_owned(), field.member_id().clone(), field.value_type().clone(), field.presence(),
+        )).collect::<Vec<_>>();
+        assert_eq!(actual, expected, "complete ordered {} fields", records[index].0);
+        for other in index + 1..records.len() {
+            assert_ne!(projections[index].value_type(), projections[other].value_type());
+        }
+    }
     assert_eq!(
         projections[0].record_view().expect("Receipt").fields()[0].value_type(),
         &ValueType::Integer,
@@ -4432,3 +4452,133 @@ fn tc_227_declaring_node_errors_follow_field_order_before_name_order() {
 mod operation_census;
 
 mod option_types;
+
+/// Selected identity rows must join the complete admitted declaration key.
+#[trace("FR-352-AC-4")]
+#[test]
+fn exact_projection_identity_joins_refuse_changed_and_competing_owners() {
+    let mut selected = document(vec![
+        typed_object("Receipt", "record", &[], &[]),
+        typed_object("OtherReceipt", "record", &[], &[]),
+    ]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind": {"module": IDENTITY, "name": "record"},
+        "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+    }));
+    let admitted = admit(&selected, &[("Receipt", "record_value_type"), ("OtherReceipt", "record_value_type")], &[]);
+    let row = |name: &str| SelectedExactDeclarationRow::new(
+        serde_json::from_value(node_id(&declaration_key(name, "record_value_type"))).unwrap(),
+        IDENTITY, SelectedExactDeclarationForm::RecordValueType, orders(name),
+        SelectedExactIdentity::Record(NodeKey::new("selected", vec![PathSegment::Text(name.into())], 0).unwrap()),
+    );
+    let receipt = row("Receipt");
+    let other = row("OtherReceipt");
+    let identities = SelectedExactIdentities::from_stage_rows(&admitted, [receipt.clone(), other.clone()], []).unwrap();
+    for expected in [&receipt, &other] {
+        let SelectedExactIdentity::Record(key) = &expected.exact_identity else { panic!("record row") };
+        assert_eq!(admitted.project_exact_type(&expected.structural_node, &identities, 100).unwrap().value_type(), &ValueType::Composite(key.clone()));
+    }
+    let check = |rows: Vec<SelectedExactDeclarationRow>, locus: &CheckedNodeId, code| {
+        let error = SelectedExactIdentities::from_stage_rows(&admitted, rows, []).expect_err("invalid identity join");
+        assert_eq!(error.code, code);
+        assert_eq!(error.requested.as_ref(), locus);
+        assert_eq!(error.at.as_deref(), Some(locus));
+        assert_eq!(error.form.as_ref(), "selected_identity");
+        assert_eq!(error.work, 0);
+    };
+    for changed in [
+        { let mut row = receipt.clone(); row.structural_node.path[2] = CheckedNodePathSegment::Name("different-declaration".into()); row },
+        { let mut row = receipt.clone(); row.structural_node.ordinal += 1; row },
+        { let mut row = receipt.clone(); row.structural_node.package = "foreign/package".into(); row },
+    ] {
+        check(vec![changed.clone()], &changed.structural_node, ExactTypeProjectionErrorCode::ForeignNode);
+        let error = admitted.project_exact_type(&changed.structural_node, &identities, 100).expect_err("structural key must resolve exactly");
+        assert_eq!(error.code, ExactTypeProjectionErrorCode::ForeignNode);
+        assert_eq!(error.requested.as_ref(), &changed.structural_node);
+        assert_eq!(error.at, None);
+        assert_eq!(error.form.as_ref(), "unknown_node");
+        assert_eq!(error.work, 1);
+    }
+    for changed in [
+        { let mut row = receipt.clone(); row.selected_document = "alias/orders".into(); row },
+        { let mut row = receipt.clone(); row.original_identity = "ix://another/orders/Receipt".into(); row },
+        { let mut row = receipt.clone(); row.form = SelectedExactDeclarationForm::ObjectType; row },
+        { let mut row = other.clone(); row.original_identity = receipt.original_identity.clone(); row },
+    ] {
+        check(vec![changed.clone()], &changed.structural_node, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
+    }
+    check(vec![receipt.clone(), receipt.clone()], &receipt.structural_node, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
+    let mut conflicting = receipt.clone();
+    conflicting.exact_identity = other.exact_identity.clone();
+    check(vec![receipt.clone(), conflicting], &receipt.structural_node, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
+    let mut shared_key = other.clone();
+    shared_key.exact_identity = receipt.exact_identity.clone();
+    check(vec![receipt, shared_key], &other.structural_node, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
+}
+
+/// A reference exposes only its selected object's witnessed EffectiveId.
+#[trace("FR-352-AC-3")]
+#[test]
+fn exact_reference_projection_preserves_each_selected_object_identity() {
+    let selected = document(vec![object("Node", &[], &[]), object("OtherNode", &[], &[])]);
+    let (mut wire, evidence, _) = package(&selected, &[("Node", OBJECT), ("OtherNode", OBJECT)], &[]);
+    for name in ["Node", "OtherNode"] {
+        let target = declaration_key(name, OBJECT);
+        let key = format!("composite_type/reference/{target}");
+        wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(wire_node(
+            &key, "composite_type", "reference", &key, &[&target],
+            json!({"term": "aggregate", "members": [reference(&target)]}),
+        ));
+    }
+    settle(&mut wire);
+    index_fixture_node_ids(&mut wire);
+    let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
+        other => panic!("reference package must admit: {other:?}"),
+    };
+    let rows = ["Node", "OtherNode"].map(|name| SelectedExactDeclarationRow::new(
+        serde_json::from_value(node_id(&declaration_key(name, OBJECT))).unwrap(),
+        IDENTITY, SelectedExactDeclarationForm::ObjectType, orders(name),
+        SelectedExactIdentity::Object(EffectiveId::new(None, OriginalDeclarationKey::new(IDENTITY, orders(name)))),
+    ));
+    let identities = SelectedExactIdentities::from_stage_rows(&admitted, rows.clone(), []).unwrap();
+    let references = wire["semantic_graph"]["nodes"].as_array().unwrap().iter()
+        .filter(|node| node["semantic_form"] == "reference")
+        .map(|node| serde_json::from_value::<CheckedNodeId>(node["node_id"].clone()).unwrap()).collect::<Vec<_>>();
+    assert_eq!(references.len(), 2);
+    for (index, row) in rows.iter().enumerate() {
+        let SelectedExactIdentity::Object(identity) = &row.exact_identity else { panic!("object row") };
+        let projected = admitted.project_exact_type(&references[index], &identities, 100).unwrap();
+        assert_eq!(projected.value_type(), &ValueType::Reference(identity.clone()));
+        assert_eq!(projected.node(), &references[index]);
+        let own = admitted.project_exact_type(&row.structural_node, &identities, 100).expect_err("an object is not a standalone Exact ValueType");
+        assert_eq!(own.code, ExactTypeProjectionErrorCode::UnsupportedExactType);
+        assert_eq!(own.at.as_deref(), Some(&row.structural_node));
+        assert_eq!(own.form.as_ref(), "model/object_type");
+        let missing = SelectedExactIdentities::from_stage_rows(&admitted, [rows[1-index].clone()], []).unwrap();
+        let error = admitted.project_exact_type(&references[index], &missing, 100).expect_err("another object cannot witness this reference");
+        assert_eq!(error.code, ExactTypeProjectionErrorCode::UnavailableIdentityWitness);
+        assert_eq!(error.at.as_deref(), Some(&row.structural_node));
+        assert_eq!(error.requested.as_ref(), &references[index]);
+    }
+    assert_ne!(admitted.project_exact_type(&references[0], &identities, 100).unwrap().value_type(), admitted.project_exact_type(&references[1], &identities, 100).unwrap().value_type());
+    let mut foreign = references[0].clone();
+    foreign.package = "foreign/package".into();
+    let error = admitted.project_exact_type(&foreign, &identities, 100).expect_err("foreign reference");
+    assert_eq!(error.code, ExactTypeProjectionErrorCode::ForeignNode);
+    assert_eq!(error.requested.as_ref(), &foreign);
+    assert_eq!(error.at, None);
+
+    // A dangling target never reaches the admitted projection boundary.
+    let nodes = wire["semantic_graph"]["nodes"].as_array_mut().unwrap();
+    let node = nodes.iter_mut().find(|node| node["semantic_form"] == "reference").unwrap();
+    node["body"]["members"][0]["target"] = node_id("missing-object");
+    settle(&mut wire);
+    match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Refused(error) => {
+            assert_eq!(error.code, CheckedPackageRefusalCode::InvalidPackage);
+            assert_eq!(error.cause, CheckedPackageRefusalCause::UnresolvedNode);
+        }
+        other => panic!("dangling reference must refuse before projection: {other:?}"),
+    }
+}
