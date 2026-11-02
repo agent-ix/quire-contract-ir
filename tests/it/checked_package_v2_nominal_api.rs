@@ -9,9 +9,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodePathSegment, CheckedPackageReadLimits, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRational, CheckedTerm, DimensionTerm,
-    NominalBody,
+    CheckedDeclaredNodeId, CheckedDimensionOperand, CheckedNodeId, CheckedNodePathSegment,
+    CheckedPackageNodeRef, CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedRational, CheckedTerm, DimensionTerm, NominalBody,
 };
 use serde_json::{json, Value};
 
@@ -21,6 +21,30 @@ fn node_id(value: &Value) -> CheckedNodeId {
 
 fn rational(value: &Value) -> CheckedRational {
     serde_json::from_value(value.clone()).expect("fixture rational")
+}
+
+/// The public constructor keeps local and selected-package operand shapes distinct.
+#[trace("TC-058", "FR-019-AC-17")]
+#[test]
+fn public_dimension_operands_keep_distinct_wire_forms() {
+    let local = node_id(&json!({"package":"test/families","path":["Time"],"ordinal":0}));
+    let foreign = node_id(&json!({"package":"acme/clock","path":["Time"],"ordinal":0}));
+    let package = CheckedPackageNodeRef {
+        package: "acme/clock".into(),
+        node: CheckedDeclaredNodeId::try_new(foreign.clone()).expect("declared id"),
+    };
+    let body = NominalBody::try_dimension_equivalence(
+        [
+            CheckedDimensionOperand::Local(local.clone()),
+            CheckedDimensionOperand::Package(package),
+        ],
+        rational(&json!({"numerator":"1","denominator":"1"})),
+    )
+    .expect("closed operands");
+    assert_eq!(
+        serde_json::to_value(body).expect("serialize body")["dimension_node_ids"],
+        json!([local, {"package":"acme/clock","node":foreign}]),
+    );
 }
 
 fn constructor(body: &Value) -> NominalBody {
@@ -54,8 +78,8 @@ fn constructor(body: &Value) -> NominalBody {
         ),
         "dimension_equivalence" => NominalBody::try_dimension_equivalence(
             [
-                node_id(&body["dimension_node_ids"][0]),
-                node_id(&body["dimension_node_ids"][1]),
+                CheckedDimensionOperand::Local(node_id(&body["dimension_node_ids"][0])),
+                CheckedDimensionOperand::Local(node_id(&body["dimension_node_ids"][1])),
             ],
             rational(&body["root_scale"]),
         ),
@@ -390,7 +414,10 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
     for numerator in ["0", "-1"] {
         assert_malformed(
             NominalBody::try_dimension_equivalence(
-                [id.clone(), id.clone()],
+                [
+                    CheckedDimensionOperand::Local(id.clone()),
+                    CheckedDimensionOperand::Local(id.clone()),
+                ],
                 CheckedRational {
                     numerator: numerator.into(),
                     denominator: "1".into(),
@@ -399,7 +426,14 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
             "/root_scale/numerator",
         );
     }
-    assert!(NominalBody::try_dimension_equivalence([id.clone(), id], one).is_ok());
+    assert!(NominalBody::try_dimension_equivalence(
+        [
+            CheckedDimensionOperand::Local(id.clone()),
+            CheckedDimensionOperand::Local(id)
+        ],
+        one
+    )
+    .is_ok());
 }
 
 #[trace("TC-048", "FR-038-AC-374")]

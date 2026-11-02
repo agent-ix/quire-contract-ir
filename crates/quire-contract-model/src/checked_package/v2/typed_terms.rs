@@ -2344,8 +2344,20 @@ impl Encode for CheckedTerm {
                     writer.string("dimension_equivalence")?;
                     writer.name("dimension_node_ids")?;
                     writer.begin_array()?;
-                    for id in dimension_node_ids {
-                        id.encode_into(writer)?;
+                    for operand in dimension_node_ids {
+                        match operand {
+                            super::identity::CheckedDimensionOperand::Local(id) => {
+                                id.encode_into(writer)?;
+                            }
+                            super::identity::CheckedDimensionOperand::Package(reference) => {
+                                writer.begin_object()?;
+                                writer.name("package")?;
+                                writer.string(&reference.package)?;
+                                writer.name("node")?;
+                                reference.node.node_id().encode_into(writer)?;
+                                writer.end_object()?;
+                            }
+                        }
                     }
                     writer.end_array()?;
                     writer.name("root_scale")?;

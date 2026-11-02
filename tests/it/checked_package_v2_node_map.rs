@@ -9,15 +9,16 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedAbstractionFrame, CheckedAbstractionObject,
-    CheckedAbstractionPopulation, CheckedArtifactRef, CheckedFairnessTarget, CheckedNodeId,
-    CheckedNodePathSegment, CheckedOperationMember, CheckedPackageEvidence,
-    CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRational, CheckedSemanticNodeV2,
-    CheckedTerm, DimensionTerm, LiteralKind, NominalBody, RefinementAbstractClass,
-    RefinementAssume, RefinementClassCatalog, RefinementConcreteClass, RefinementEnsure,
-    RefinementFairnessKind, RefinementField, RefinementGranularity, RefinementHistory,
-    RefinementHistoryUpdate, RefinementKey, RefinementObject, RefinementPackageNodeKey,
-    RefinementPopulation, RefinementStep, RefinementStepArgument, RefinementStepTarget,
+    CheckedAbstractionPopulation, CheckedArtifactRef, CheckedDimensionOperand,
+    CheckedFairnessTarget, CheckedNodeId, CheckedNodePathSegment, CheckedOperationMember,
+    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCode,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedRational, CheckedSemanticNodeV2, CheckedTerm, DimensionTerm, LiteralKind, NominalBody,
+    RefinementAbstractClass, RefinementAssume, RefinementClassCatalog, RefinementConcreteClass,
+    RefinementEnsure, RefinementFairnessKind, RefinementField, RefinementGranularity,
+    RefinementHistory, RefinementHistoryUpdate, RefinementKey, RefinementObject,
+    RefinementPackageNodeKey, RefinementPopulation, RefinementStep, RefinementStepArgument,
+    RefinementStepTarget,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -695,7 +696,10 @@ fn remaining_closed_forms_map_every_typed_identity_slot() {
         (
             CheckedTerm::NominalBody(Box::new(
                 NominalBody::try_dimension_equivalence(
-                    [id("dimension-a"), id("dimension-b")],
+                    [
+                        CheckedDimensionOperand::Local(id("dimension-a")),
+                        CheckedDimensionOperand::Local(id("dimension-b")),
+                    ],
                     ratio,
                 )
                 .expect("valid equivalence"),
