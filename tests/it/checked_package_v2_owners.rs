@@ -1090,7 +1090,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 assert_eq!(
                     serde_json::to_value(refusal.code).unwrap(),
                     json!(expected_code),
-                    "{id}"
+                    "{id}: {refusal:?}"
                 );
                 if let Some(cause) = case["expected_cause"].as_str() {
                     assert_eq!(
