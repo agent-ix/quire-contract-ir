@@ -7,6 +7,12 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-038
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-409
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-410
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-411
+    type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-064
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
@@ -26,6 +32,8 @@ relationships:
   - target: ix://agent-ix/quire-specification/TC-966
     type: references
   - target: ix://agent-ix/quire-specification/TC-367
+    type: references
+  - target: ix://agent-ix/quire-specification/TC-233
     type: references
 ---
 # TC-048: CheckedPackage V2 strict reader validates structural identities
@@ -2636,3 +2644,30 @@ engine input. Re-encode the admitted package with its borrowed raw carrier
 rows through FR-051's complete writer, then read again and compare all rows
 and the body, including the two-occurrence case. This case does not run or
 qualify the QSL task-product checker.
+
+## Text literal membership (FR-038-AC-409 through FR-038-AC-411)
+
+planned until IR-1260 lands. Read QSpec's
+`proposals/checked-package-v2/text-literal-vectors.json` directly from the
+selected checkout. For `TX-01`
+through `TX-14` and `TX-13s`, build complete IR-owned V2 packages around
+each vector's type and retained value. Read each package through the public
+strict reader; compare admission or exact code, cause, primary RFC 6901
+pointer and containing graph-node locus. Recompute length and normal-form
+membership with the reader's existing Unicode 17.0.0 implementation, and
+cross-check each authored vector's `length` and `normalized` labels. Store
+no copy of the vector, schema or normalization tables.
+
+Add self-built controls for the parts of AC-409 and AC-410 outside that QSpec
+vector file. For each of `nfkc` and `nfkd`, use a compatibility character
+such as U+FB00 with bounds that admit both one and two scalars: its
+un-normalized spelling refuses at `value`, while `ff` admits. Put an
+out-of-bounds Text literal inside a valid application's argument and assert
+its nested `value` pointer, then repeat at a root. A plain
+`scalar_type`/`text` literal with a decomposed value and length above the
+bounded control's maximum admits without normalization or length bounds.
+Finally give a `text` literal a known non-Text `integer` type and a value
+that would independently fail Text membership; assert `ill_typed`/
+`operator-ineligible` at `type` before any `value` refusal. Keep all
+structural keys and other package facts valid so none of these controls
+passes only because of an earlier unrelated refusal.
