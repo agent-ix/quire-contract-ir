@@ -254,28 +254,14 @@ impl CheckedPackageV2 {
     pub fn schedulability_claims(
         &self,
     ) -> impl ExactSizeIterator<Item = CheckedSchedulabilityClaimRef<'_>> + '_ {
-        self.wire
-            .schedulability_claims
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .map(|row| {
-                let position = self.node_index[&row.declaration];
-                let node = &self.wire.semantic_graph.nodes[position];
-                let occurrence = node
-                    .occurrences
-                    .iter()
-                    .find(|occurrence| {
-                        occurrence.role == CheckedOccurrenceRole::Claim
-                            && occurrence.ordinal == row.occurrence
-                    })
-                    .expect("admitted occurrence join");
-                CheckedSchedulabilityClaimRef {
-                    declaration: &node.node_id,
-                    occurrence,
-                    body: &node.body,
-                }
-            })
+        self.schedulability_claim_index.iter().map(|&(node, occurrence)| {
+            let node = &self.wire.semantic_graph.nodes[node];
+            CheckedSchedulabilityClaimRef {
+                declaration: &node.node_id,
+                occurrence: &node.occurrences[occurrence],
+                body: &node.body,
+            }
+        })
     }
 }
 
@@ -299,8 +285,20 @@ pub(super) fn validate_carrier(
     index: &BTreeMap<&CheckedNodeId, usize>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
-) -> Result<(), ValidationFailure> {
+) -> Result<Vec<(usize, usize)>, ValidationFailure> {
     let root = JsonPointer::root().key("schedulability_claims");
+    let mut occurrences = BTreeMap::new();
+    for (p, node) in nodes.iter().enumerate().filter(|(p, _)| claim(kinds[*p])) {
+        let mut by_ordinal = BTreeMap::new();
+        for (position, occurrence) in node.occurrences.iter().enumerate() {
+            meter.charge(1, || node_pointer(p).key("occurrences").index(position))?;
+            if occurrence.role == CheckedOccurrenceRole::Claim {
+                by_ordinal.insert(occurrence.ordinal, position);
+            }
+        }
+        occurrences.insert(p, by_ordinal);
+    }
+    let mut joined = Vec::with_capacity(rows.map_or(0, <[CheckedSchedulabilityClaimRow]>::len));
     let mut seen = BTreeSet::new();
     let mut previous = None;
     for (i, row) in rows.unwrap_or_default().iter().enumerate() {
@@ -317,18 +315,9 @@ pub(super) fn validate_carrier(
                 &row.declaration,
             ));
         };
-        if !nodes[position]
-            .occurrences
-            .iter()
-            .any(|o| o.role == CheckedOccurrenceRole::Claim && o.ordinal == row.occurrence)
-        {
-            return Err(invalid(
-                Code::InvalidPackage,
-                Some(Cause::InvalidValue),
-                at.key("occurrence"),
-                &row.declaration,
-            ));
-        }
+        let Some(&occurrence_position) = occurrences.get(&position).and_then(|occurrences| occurrences.get(&row.occurrence)) else {
+            return Err(invalid(Code::InvalidPackage, Some(Cause::InvalidValue), at.key("occurrence"), &row.declaration));
+        };
         let key = (structural_keys[position].as_ref(), row.occurrence);
         if !seen.insert(key) {
             return Err(invalid(
@@ -347,6 +336,7 @@ pub(super) fn validate_carrier(
             ));
         }
         previous = Some(key);
+        joined.push((position, occurrence_position));
     }
     let expected = nodes
         .iter()
@@ -365,7 +355,7 @@ pub(super) fn validate_carrier(
             Cause::InvalidValue,
         ));
     }
-    Ok(())
+    Ok(joined)
 }
 
 const CLAIM_FIELDS: &[&str] = &["kind", "policy", "task", "bound", "tasks"];
@@ -393,17 +383,17 @@ fn binding_at(at: &JsonPointer, i: usize) -> JsonPointer {
     at.clone().key("members").index(i)
 }
 fn nonnegative(term: &CheckedTerm) -> bool {
-    match literal(term).value {
-        CheckedLiteralValue::Integer(value) => value.sign() != num_bigint::Sign::Minus,
-        CheckedLiteralValue::Rational { numerator, .. } => {
+    match term.literal_read().map(|read| read.value) {
+        Some(CheckedLiteralValue::Integer(value)) => value.sign() != num_bigint::Sign::Minus,
+        Some(CheckedLiteralValue::Rational { numerator, .. }) => {
             numerator.sign() != num_bigint::Sign::Minus
         }
         _ => false,
     }
 }
 fn zero(term: &CheckedTerm) -> bool {
-    match literal(term).value {
-        CheckedLiteralValue::Rational { numerator, .. } => numerator == num_bigint::BigInt::from(0),
+    match term.literal_read().map(|read| read.value) {
+        Some(CheckedLiteralValue::Rational { numerator, .. }) => numerator == num_bigint::BigInt::from(0),
         _ => false,
     }
 }
@@ -631,7 +621,9 @@ pub(super) fn validate_bodies(
 pub(super) fn validate_graph(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for &p in index.values() {
         if !claim(kinds[p]) {
@@ -656,6 +648,36 @@ pub(super) fn validate_graph(
                     &node.node_id,
                 ));
             }
+        }
+        if let Some(body) = terms[p].as_ref() {
+            validate_literal_values(body, node_pointer(p).key("body"), &node.node_id, meter)?;
+        }
+
+    }
+    Ok(())
+}
+
+fn validate_literal_values(body: &CheckedTerm, at: JsonPointer, id: &CheckedNodeId, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
+    let mut pending = vec![(body, at)];
+    while let Some((term, at)) = pending.pop() {
+        match term {
+            CheckedTerm::Literal { value_kind: LiteralKind::Quantity, value, .. } => {
+                let at = at.key("value");
+                let bad = || invalid(Code::InvalidPackage, Some(Cause::InvalidValue), at.clone(), id);
+                let spelling = value.as_str().ok_or_else(bad)?;
+                let (numerator, denominator) = spelling.split_once('/').unwrap_or((spelling, "1"));
+                if let Err(failure) = super::identity::validate_rational_parts(numerator, denominator, meter, &|| at.clone()) {
+                    return Err(match failure { ValidationFailure::Refused(_) => bad(), incomplete => incomplete });
+                }
+            }
+            CheckedTerm::Literal { value_kind: LiteralKind::Integer, .. } if term.literal_read().is_none() => {
+                return Err(invalid(Code::InvalidPackage, Some(Cause::InvalidValue), at.key("value"), id));
+            }
+            CheckedTerm::Aggregate { members } => {
+                for (i, term) in members.iter().enumerate().rev() { pending.push((term, at.clone().key("members").index(i))); }
+            }
+            CheckedTerm::Binding { value, .. } => pending.push((value, at.key("value"))),
+            _ => {}
         }
     }
     Ok(())

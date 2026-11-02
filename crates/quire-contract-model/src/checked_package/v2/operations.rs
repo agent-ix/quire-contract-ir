@@ -518,7 +518,7 @@ fn literal_defect(
                         .is_some_and(|kind| {
                             matches!(
                                 kind,
-                                CheckedNodeKind::TimedModel(
+                                CheckedNodeKind::Claim(ClaimForm::Schedulability) | CheckedNodeKind::TimedModel(
                                     super::TimedModelForm::Reset
                                         | super::TimedModelForm::Constraint
                                 )

@@ -828,6 +828,7 @@ pub enum CheckedPackageV2ReadResult {
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
+    schedulability_claim_index: Vec<(usize, usize)>,
     terms: Vec<CheckedTerm>,
     /// Admission-derived lookup; excluded from content equality.
     node_index: BTreeMap<CheckedNodeId, usize>,
@@ -1183,6 +1184,7 @@ impl CheckedPackageV2 {
         validate_owner_schema(&wire)?;
         let ValidatedPackage {
             kinds,
+            schedulability_claim_index,
             terms,
             models,
             lowering_facts,
@@ -1253,6 +1255,7 @@ impl CheckedPackageV2 {
         Ok(Self {
             wire,
             kinds,
+            schedulability_claim_index,
             terms,
             node_index,
             structural_keys,
@@ -1356,6 +1359,7 @@ fn check_package_header(wire: &RawCheckedPackageWireV2) -> Result<(), Validation
 
 struct ValidatedPackage {
     kinds: Vec<CheckedNodeKind>,
+    schedulability_claim_index: Vec<(usize, usize)>,
     terms: Vec<CheckedTerm>,
     models: RetainedModels,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
@@ -1364,6 +1368,7 @@ struct ValidatedPackage {
 
 struct ValidatedGraph {
     kinds: Vec<CheckedNodeKind>,
+    schedulability_claim_index: Vec<(usize, usize)>,
     terms: Vec<CheckedTerm>,
     declarations: DeclarationIndex,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
@@ -1388,6 +1393,7 @@ fn validate(
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
     let ValidatedGraph {
         kinds,
+        schedulability_claim_index,
         terms,
         declarations,
         lowering_facts,
@@ -1421,6 +1427,7 @@ fn validate(
     }
     Ok(ValidatedPackage {
         kinds,
+        schedulability_claim_index,
         terms,
         models,
         lowering_facts,
@@ -2849,7 +2856,7 @@ fn validate_graph(
         Some(models),
     )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
-    schedulability::validate_graph(&graph.nodes, &kinds, &index)?;
+    schedulability::validate_graph(&graph.nodes, &kinds, &terms, &index, meter)?;
     validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index, models)?;
     validate_selected_type_bounds(models, &terms, structural_keys)?;
     for &position in index.values() {
@@ -3040,7 +3047,7 @@ fn validate_graph(
         models,
         meter,
     )?;
-    schedulability::validate_carrier(
+    let schedulability_claim_index = schedulability::validate_carrier(
         &wire.name,
         wire.schedulability_claims.as_deref(),
         &graph.nodes,
@@ -3230,6 +3237,7 @@ fn validate_graph(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ValidatedGraph {
         kinds,
+        schedulability_claim_index,
         terms,
         declarations,
         lowering_facts,
