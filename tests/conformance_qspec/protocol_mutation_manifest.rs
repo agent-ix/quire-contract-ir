@@ -13,7 +13,7 @@ fn read(wire: &Value, document: &std::path::Path) -> CheckedPackageV2ReadResult 
         .expect("QSpec protocol package read")
 }
 
-fn assert_manifest_refusal(id: &str, expected_locus: &str) {
+fn assert_manifest_refusal(id: &str, expected_locus: &str, node_index: usize) {
     let fixtures = fixtures_dir();
     let manifest = read_json(&fixtures.join("protocol-node-mutation-manifest.json"))
         .expect("QSpec STD-609 manifest");
@@ -86,16 +86,26 @@ fn assert_manifest_refusal(id: &str, expected_locus: &str) {
         expected_locus,
         "{id}"
     );
+    assert_eq!(
+        refusal.locus,
+        Some(
+            serde_json::from_value(
+                mutated["semantic_graph"]["nodes"][node_index]["node_id"].clone()
+            )
+            .expect("published protocol node identity")
+        ),
+        "{id}: structural node locus"
+    );
 }
 
 #[test]
 #[trace("TC-946", "FR-038-AC-435")]
 fn qspec_protocol_mutation_v13_refuses_wrong_result_type() {
-    assert_manifest_refusal("V13", "/semantic_graph/nodes/64");
+    assert_manifest_refusal("V13", "/semantic_graph/nodes/64", 64);
 }
 
 #[test]
 #[trace("TC-946", "FR-038-AC-436")]
 fn qspec_protocol_mutation_v14_refuses_state_clause_protocol_member() {
-    assert_manifest_refusal("V14", "/semantic_graph/nodes/54");
+    assert_manifest_refusal("V14", "/semantic_graph/nodes/54", 54);
 }
