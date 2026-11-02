@@ -28,7 +28,7 @@ The output is the exact closed FR-322 V2 envelope. The compile probes enforce th
 
 ## Schedulability carrier round trip (FR-051-AC-7)
 
-planned until IR-1252 lands. Read QSpec TC-976 and SCC-01/02 identities by
+Implemented. Read QSpec TC-976 and SCC-01/02 identities by
 reference and construct complete IR packages with valid FR-482 bodies. Encode
 using the optional borrowed schedulability rows, admit with the public strict
 reader, borrow the retained rows and re-encode/read. Compare all rows and exact
