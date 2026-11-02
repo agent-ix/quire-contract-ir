@@ -4576,8 +4576,8 @@ fn exact_reference_projection_preserves_each_selected_object_identity() {
     settle(&mut wire);
     match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
         CheckedPackageV2ReadResult::Refused(error) => {
-            assert_eq!(error.code, CheckedPackageRefusalCode::InvalidPackage);
-            assert_eq!(error.cause, CheckedPackageRefusalCause::UnresolvedNode);
+            assert_eq!(error.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
+            assert_eq!(error.cause, None);
         }
         other => panic!("dangling reference must refuse before projection: {other:?}"),
     }
