@@ -197,6 +197,38 @@ fn text_bounds_reordered_wrong_kind_and_negative_bound_refuse_before_membership(
     }
 }
 
+#[trace("TC-048", "FR-038-AC-417", "FR-038-AC-418")]
+#[test]
+fn text_bounds_accept_all_six_profiles_and_refuse_noncanonical_minimum() {
+    for profile in [
+        "unicode-scalars",
+        "nfc",
+        "nfd",
+        "nfkc",
+        "nfkd",
+        "binary-utf8",
+    ] {
+        let members = vec![
+            json!({"name": "min", "value_kind": "integer", "value": "1"}),
+            json!({"name": "max", "value_kind": "integer", "value": "1"}),
+            json!({"name": "text_profile", "value_kind": "text", "value": profile}),
+        ];
+        let (package, _) = text_bounds_package(&members, "a");
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{profile}: complete equal bounds must admit: {:?}",
+            read(&package)
+        );
+    }
+    let noncanonical = vec![
+        json!({"name": "min", "value_kind": "integer", "value": "01"}),
+        json!({"name": "max", "value_kind": "integer", "value": "1"}),
+        json!({"name": "text_profile", "value_kind": "text", "value": "nfc"}),
+    ];
+    let (package, position) = text_bounds_package(&noncanonical, "a");
+    assert_text_shape_refusal(&package, position, "noncanonical minimum");
+}
+
 #[trace("TC-048", "FR-038-AC-409", "FR-038-AC-410", "FR-038-AC-411")]
 #[test]
 fn qspec_text_literal_vectors_match_reader() {
