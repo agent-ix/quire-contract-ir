@@ -54,6 +54,7 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCode, JsonPointer,
 };
 use ix_trace_rs::string_edge;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// The fixed declaration body shape in raw intake and admitted typed nodes.
@@ -322,8 +323,26 @@ pub(super) struct OperationDecl {
     pub(super) identity: Box<str>,
     pub(super) parameters: Vec<TypedSlot>,
     pub(super) result: Option<TypedSlot>,
+    /// The admitted selected document's declared frame, before carrier comparison.
+    pub(super) frame: SourceOperationFrame,
     /// The IR node identity of the member this one redefines.
     pub(super) redefines: Option<Box<str>>,
+}
+
+/// Shallow Semantic IR operation-frame members; the first three are required
+/// when `frame` is present, while an absent frame is intentionally empty.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SourceOperationFrame {
+    pub(super) modifies: Vec<Box<str>>,
+    pub(super) creates: Vec<Box<str>>,
+    pub(super) deletes: Vec<Box<str>>,
+    #[serde(default)]
+    pub(super) modifies_receiver: Vec<Box<str>>,
+    #[serde(default)]
+    pub(super) deletes_receiver: bool,
+    #[serde(default)]
+    pub(super) deletes_parameters: Vec<Box<str>>,
 }
 
 /// One object, record value type or systems interface declaration.
@@ -4345,10 +4364,25 @@ fn semantic_ir_object_type<'v>(
         let result = operation.get("returns").map(|returns| {
             references.slot(returns, &joined(&base, Segment::Name("returns")), defects)
         });
+        let frame = match operation.get("frame") {
+            Some(raw) => match serde_json::from_value(raw.clone()) {
+                Ok(frame) => frame,
+                Err(_) => {
+                    defects.push(
+                        Row::Meaning,
+                        &joined(&base, Segment::Name("frame")),
+                        ModelRefusal::malformed(),
+                    );
+                    SourceOperationFrame::default()
+                }
+            },
+            None => SourceOperationFrame::default(),
+        };
         operations.push(OperationDecl {
             identity: operation_identity,
             parameters,
             result,
+            frame,
             redefines: references.redefinition(operation, &base, defects),
         });
     }
