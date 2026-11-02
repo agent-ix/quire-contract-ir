@@ -1366,6 +1366,14 @@ impl CheckedPackageV2 {
             .map(|rows| rows.iter().map(CheckedOperationEffectRef::admitted))
     }
 
+    /// Admitted producer operation-effect rows for borrowed typed re-encoding.
+    ///
+    /// Absence means the optional carrier was omitted; a present slice preserves
+    /// the selected row order and all admitted effect data.
+    pub fn operation_effect_rows(&self) -> Option<&[CheckedOperationEffectRow]> {
+        self.wire.operation_effects.as_deref()
+    }
+
     /// The reported capabilities.
     pub fn capability_report(&self) -> &[CheckedCapability] {
         &self.wire.capability_report
