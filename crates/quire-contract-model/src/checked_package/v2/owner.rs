@@ -123,6 +123,7 @@ fn check_one(
 
 // This lookup is only for ordinary anonymous-function shape checks. Monitor
 // entries defer those checks to plan admission; unrelated nodes need no index.
+#[ix_trace_rs::string_edge]
 fn anonymous_function_nodes<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     monitor_entries: &BTreeSet<super::CheckedNodeId>,
