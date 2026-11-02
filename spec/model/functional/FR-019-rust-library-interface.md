@@ -237,7 +237,7 @@ in the implemented public inventory. No QSL
 engine, task-product certificate or task-transition identity type enters the
 cycle-free model API through this read.
 
-The borrowed monitor-plan surface of FR-038-AC-421 through FR-038-AC-429 is
+The borrowed monitor-plan surface of FR-038-AC-421 through FR-038-AC-430 is
 planned until IR-721 lands. It exposes admitted plan and ordinary entry keys,
 typed bodies and premises without executing a body or minting another identity.
 The associated `CheckedPackageV2::monitor_plans` and immutable reads use the
@@ -245,6 +245,8 @@ exact signatures in FR-038, including borrowed `CheckedRational` rate and
 uncertainty, counter text and tick-unit identity. The required `on_gap` read
 returns the same private borrowed entry-view type as the other three entries
 with its exact two-parameter signature and resolved content key.
+The plan's `activation_capacity` read returns the exact canonical nonnegative
+decimal `&str`, including zero, without a host-width bound.
 
 ### Public items
 
@@ -374,7 +376,7 @@ old-wire admission path is exported.
 | FR-019-AC-20 | A default-feature external consumer exhaustively matches `ScalarTypeForm::CarriedQuantity` in the public closed vocabulary, reads an admitted carried quantity node's exact typed unit, carrier and rounding body bindings, and distinguishes integer-carrier exact and nearest-even nodes by their structural ids. The implemented inventory includes the extended vocabulary; no evaluation outcome type enters this row. | Test (TC-058) |
 | FR-019-AC-21 | A default-feature external producer constructs `CheckedOperationEffectRow` inputs and passes them as optional borrowed `CheckedPackageSidecarsRef::operation_effects` to the V2 encoder without raw JSON; the fixed provenance origin is emitted with the supplied member identity. A default-feature external consumer obtains `None` from `CheckedPackageV2::operation_effects` when the optional carrier is absent and borrowed `CheckedOperationEffectRef` values when present. It reads selected document, declaring `CheckedNodeId`, original operation member, four ordered typed frame-entry collections and provenance. An explicitly empty declared effect remains a present row with four empty collections. Raw input cannot be converted to an admitted view without strict package admission; the view has no public fields or unchecked constructor. The five public types and associated reads appear in the implemented inventory. | Test |
 | FR-019-AC-22 | planned until IR-1262 lands. A default-feature external consumer calls the existing `CheckedPackageV2::temporal_bindings()` read on a reader-admitted package with a temporal clause and two compensation nodes, then borrows three `TemporalBinding` rows in ascending structural `NodeRef` order. Each compensation row exposes its own exact `CheckedNodeId`, clock name and typed `ClockConfiguration`; equal model, profile and clock names do not collapse the two rows. Under a lock selection with no clock configuration, the same consumer observes admitted absence. No raw JSON, new public type or unchecked row constructor is needed. | Test (TC-058; QSpec TC-233 TB-01..TB-03) |
-| FR-019-AC-23 | planned until IR-721 lands. A default-feature external consumer imports CheckedMonitorPlanRef, CheckedMonitorEntryRef and CheckedMonitorBufferRef and uses CheckedPackageV2::monitor_plans and the exact typed accessor signatures of FR-038. Compile controls show no public view constructor, mutable field, unchecked raw-to-admitted conversion or borrow escaping the selected package lifetime. The planned inventory row remains excluded until implementation lands; no PlanId or downstream executor type is added to the model API. | Test |
+| FR-019-AC-23 | planned until IR-721 lands. A default-feature external consumer imports CheckedMonitorPlanRef, CheckedMonitorEntryRef and CheckedMonitorBufferRef and uses CheckedPackageV2::monitor_plans and the exact typed accessor signatures of FR-038, including the nonnegative decimal activation_capacity getter. Compile controls show no public view constructor, mutable field, unchecked raw-to-admitted conversion or borrow escaping the selected package lifetime. The planned inventory row remains excluded until implementation lands; no PlanId or downstream executor type is added to the model API. | Test |
 
 ## Dependencies
 

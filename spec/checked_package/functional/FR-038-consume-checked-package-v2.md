@@ -4947,10 +4947,10 @@ and validate their ordinary expression bodies without executing them.
 QSpec owns the producer program semantics, tick cover, capacity derivation,
 runtime modular delta, progress assertion and outcome production.
 
-For the published sixteen-binding form, the root SHALL have exactly the ordered
+For the published seventeen-binding form, the root SHALL have exactly the ordered
 bindings `clause`, `state`, `inputs`, `scope`, `results`, `init`, `on_event`,
 `on_watermark`, `counter_width_bits`, `max_reading_gap`, `max_event_rate`,
-`buffers`, `counter`, `tick_unit`, `uncertainty`, `on_gap`. The clause references a `temporal`/`temporal_clause`; state, inputs
+`buffers`, `counter`, `tick_unit`, `uncertainty`, `on_gap`, `activation_capacity`. The clause references a `temporal`/`temporal_clause`; state, inputs
 and scope reference record types; results references a sequence type; the
 four entry references resolve to anonymous pure functions. `tick_unit` SHALL
 reference a `scalar_type`/`unit` whose `dimension_node_id` is exactly the base
@@ -4959,7 +4959,7 @@ SHALL refuse `invalid_semantic_graph` at `tick_unit`, not
 `invalid-time-quantity`. The clause's
 existing temporal-binding row supplies the clock; the reader SHALL NOT invent
 a second clock binding. Each buffer has exactly ordered `subformula` and
-`capacity` bindings, with an integer capacity literal. Width and gap SHALL be
+`capacity` bindings, with an integer capacity literal. Width, gap and activation capacity SHALL be
 integer literals, rate and uncertainty rational literals, and counter a text
 literal; a wrong literal kind is a shape refusal at its binding. The remaining shape, types and literals SHALL satisfy
 QSpec FR-487 Properties, including the exact six-case outcome union and its
@@ -4970,19 +4970,25 @@ node-id order. Within one root it SHALL check shape, reference kinds, signatures
 and outcome payloads, premise ranges, then buffers and state, in that order.
 The first defect SHALL determine the refusal. Shape and reference-kind failures
 are `invalid_semantic_graph` at the breaking root binding; missing bindings use
-their expected index, extra bindings the index after the sixteenth. Entry parameter
+their expected index, extra bindings the index after the seventeenth. Entry parameter
 or result mismatches are `ill_typed`/`type-mismatch` at the entry binding;
 outcome union or payload mismatches use that pair at `results`. Premise range or noncanonical rational
 failures are `invalid_package`/`invalid-value` at the literal's `value`.
 Premise checks SHALL follow body order: width, gap, rate, each buffer capacity,
-counter, uncertainty. A repeated,
+counter, uncertainty, activation capacity. A repeated,
 descending or unreached subformula is `invalid_semantic_graph` at `buffers`;
 a missing, extra, misordered or mistyped state field uses that code at `state`.
-The state has exactly integer `now`, then one sequence field `buffer_<n>` per
-buffer in order. The runtime supplies a checked modular gap above `max_reading_gap` to
+The state SHALL have exactly integer `now`, integer `history_start`, one
+sequence field `buffer_<n>` per buffer in order, then `activations`, a sequence
+of records with exactly ordered fields `subformula` (integer), `origin`
+(integer), and `status`. The published plan contract leaves the type of
+`status` unspecified; the reader SHALL preserve its ordinary admitted field
+type without inventing an additional plan-specific type constraint. The runtime supplies a checked modular gap above `max_reading_gap` to
 `on_gap` instead of `on_event`. QSpec FR-487 Counter-gap path and QSL own
 which open instances yield `Failed(ReadingGapExceeded)`, removal of those
-instances, advancement of `now` by the gap and the new reading baseline.
+instances, clearing history buffers, setting both time markers to the faulting
+tick, poll/baseline behavior and report-once settlement. These are producer
+program/runtime semantics, not additional reader execution checks.
 The reader SHALL check the closed shape, reference, signature and content
 identity without executing or re-deriving those program semantics.
 Each refusal SHALL carry the root's structural node locus
@@ -5000,11 +5006,17 @@ order, and return the same exact (State, Results) tuple type. Its required
 reference is member 15, an anonymous `function`/`pure_function`; a missing
 member or wrong reference kind refuses `invalid_semantic_graph` there, while
 a parameter order/type/arity or result mismatch refuses
-`ill_typed`/`type-mismatch` there. The closed sixteen-binding form admits no
-optional entry, synthesized default or prior fifteen-binding compatibility.
+`ill_typed`/`type-mismatch` there. The closed seventeen-binding form admits no
+optional entry, synthesized default or prior fifteen- or sixteen-binding compatibility.
 Width SHALL be 1..64, gap 0..2^width-1, exact rational event rate greater than 0 in events per tick,
 each integer capacity at least 1, counter text nonempty, and exact rational
-uncertainty at least 0 in ticks. Rate and uncertainty SHALL satisfy the canonical
+uncertainty at least 0 in ticks, and integer `activation_capacity` at least 0.
+Zero activation capacity is valid; no host-width upper bound is introduced.
+The QSL-owned activation overflow result is
+`Incomplete(LimitReached{limit: activation, value: activation_capacity,
+setting: monitor.max_activations})`. This is the existing LimitReached record
+shape with the activation resource and setting values, not a new outcome or
+reader-executed overflow algorithm. Rate and uncertainty SHALL satisfy the canonical
 rational spelling of QSpec FR-322-AC-114. The reader SHALL NOT recalculate a producer's
 capacity by running the program or treat a runtime verdict as an admission
 result. Buffer extension remains the existing flatten/sequence expression;
@@ -5024,7 +5036,8 @@ the reader exposes the premises without performing runtime execution.
 The root content key SHALL include, in published body order, referenced node
 index segments, width and gap decimal text, canonical rational rate text, each
 buffer's subformula index and capacity decimal text, counter text, tick-unit
-index, canonical rational uncertainty text and the `on_gap` node index. Every premise change SHALL be
+index, canonical rational uncertainty text, the `on_gap` node index and activation
+capacity canonical decimal text. Every premise change SHALL be
 observable through the resolved root key, including a fractional event rate,
 zero uncertainty, a different counter or tick unit. Entry body changes SHALL
 remain observable through the entry key and consequently the root key. The
@@ -5054,6 +5067,8 @@ return `&'a CheckedNodeId`. `max_event_rate` and `uncertainty` SHALL return
 `&'a CheckedRational`, the existing exact canonical numerator/denominator
 string type, retaining fractional values and canonical zero without floating
 point conversion or numeric narrowing.
+`activation_capacity` SHALL return the exact canonical nonnegative decimal
+`&'a str`, including `"0"`, with no numeric narrowing or default.
 `buffers` SHALL return an exact-size iterator of `CheckedMonitorBufferRef<'a>`;
 each buffer's `subformula` SHALL return `&'a CheckedNodeId` and `capacity`
 SHALL return the exact canonical positive decimal `&'a str`, with no host-width
@@ -5481,15 +5496,16 @@ copying QSL execution semantics into IR.
 | FR-038-AC-418 | planned until IR-1263 lands. A profile-only `Text[nfc]`, absent `min`, `max` or `text_profile`, an extra or reordered member, a noninteger or negative bound, `min > max`, or a profile outside the six refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}`, with that node as locus and no admitted package. Shape refusal precedes Text literal membership even when a literal typed by the malformed node would itself fail its length or normalization check. | Test |
 | FR-038-AC-419 | planned until IR-1263 lands. TC-048 reads QSpec `proposals/checked-package-v2/text-bounds-shape-vectors.json` from the selected checkout by reference, verifies the exact `TS-01` through `TS-10` case set, and checks each through the public strict reader for admission or the specified code, cause, primary RFC 6901 node pointer and structural node locus. It stores no local vector or schema copy; the existing profile-only recursive-leaves fixture gains explicit `min` and `max` so its positive read remains valid. | Test |
 | FR-038-AC-420 | planned until IR-1264 lands. A structural `model`/`event_type` node without `declaration` requires `ModelOwner`: the selected event type in QSpec TC-281 EV-01 passes the owner join, while EV-02's owners naming a record value type, object type or absent declaration refuse `missing_declaration`/`missing-selection` at the node's `node_id`. A structural `model`/`event_type` node with `declaration` retains its required `SourceOwner`. An undeclared event node with `SourceOwner` or an owner of another kind refuses `malformed_wire` at `/semantic_graph/nodes/{N}/owner`; an absent required owner refuses `malformed_wire` at `/semantic_graph/nodes/{N}` under QSpec FR-322's owner-presence rule. | Test (TC-048; QSpec FR-322-AC-68, TC-281 EV-01/EV-02) |
-| FR-038-AC-421 | planned until IR-721 lands. The strict reader admits QSpec FR-487 MP-01 and MP-02 as distinct temporal monitor-plan roots with their exact sixteen ordered bindings, State, Inputs, Scope, Results, four ordinary pure-function signatures, six-case outcome and exact integer/rational/text/unit premises. The anonymous ownerless root has generated source occurrences and semantic_type equal to State; generic owner/source-map checks retain precedence. A capacity edit remains admitted; the entries' expression bodies are checked without execution and flatten/sequence extension MP-32 adds no operation identity. | Test |
-| FR-038-AC-422 | planned until IR-721 lands. Missing, reordered and extra bindings, wrong premise literal kinds and wrong reference kinds (MP-03..MP-09, MP-28, MP-35, MP-37, MP-39..MP-42) refuse invalid_semantic_graph at the first breaking binding. Missing bindings use the expected index and an extra uses the index after the sixteenth. Each refusal retains the root node locus and exact primary pointer; no admitted view escapes. | Test |
+| FR-038-AC-421 | planned until IR-721 lands. The strict reader admits QSpec FR-487 MP-01 and MP-02 as distinct temporal monitor-plan roots with their exact seventeen ordered bindings, State, Inputs, Scope, Results, four ordinary pure-function signatures, six-case outcome and exact integer/rational/text/unit premises. The anonymous ownerless root has generated source occurrences and semantic_type equal to State; generic owner/source-map checks retain precedence. A capacity edit remains admitted; the entries' expression bodies are checked without execution and flatten/sequence extension MP-32 adds no operation identity. | Test |
+| FR-038-AC-422 | planned until IR-721 lands. Missing, reordered and extra bindings, wrong premise literal kinds and wrong reference kinds (MP-03..MP-09, MP-28, MP-35, MP-37, MP-39..MP-42) refuse invalid_semantic_graph at the first breaking binding. Missing bindings use the expected index and an extra uses the index after the seventeenth. Each refusal retains the root node locus and exact primary pointer; no admitted view escapes. | Test |
 | FR-038-AC-423 | planned until IR-721 lands. Entry arity, parameter order/type and result-type defects, and missing/extra outcome cases or wrong Failed payload (MP-10..MP-17, MP-29), refuse ill_typed/type-mismatch at the applicable entry binding or results binding. Ordinary function body typing remains enforced before any admitted entry view is returned. | Test |
-| FR-038-AC-424 | planned until IR-721 lands. Out-of-range width, gap, event rate and capacity (MP-18..MP-22), negative uncertainty, empty counter, negative rate and noncanonical rational spellings (MP-34, MP-36, MP-38, MP-46, MP-47) refuse invalid_package/invalid-value at the literal's value; descending/repeated/unreached buffer subformulas and missing, mistyped, extra or misordered state fields (MP-23..MP-27, MP-30, MP-31) refuse invalid_semantic_graph at buffers or state. State is exactly integer now then one buffer_<n> sequence per ordered buffer. | Test |
+| FR-038-AC-424 | planned until IR-721 lands. Out-of-range width, gap, event rate and capacity (MP-18..MP-22), negative uncertainty, empty counter, negative rate and noncanonical rational spellings (MP-34, MP-36, MP-38, MP-46, MP-47) refuse invalid_package/invalid-value at the literal's value; descending/repeated/unreached buffer subformulas and missing, mistyped, extra or misordered state fields (MP-23..MP-27, MP-30, MP-31) refuse invalid_semantic_graph at buffers or state. State is exactly integer now, integer history_start, one buffer_<n> sequence per ordered buffer, then activations with the specified ordered record fields. | Test |
 | FR-038-AC-425 | planned until IR-721 lands. Paired defects select shape before reference kind, signatures/outcome before premise range, and range before buffers/state; a wrong dependencies set selects the earlier graph-shape invalid_semantic_graph at /dependencies. Two defective roots stored opposite structural order choose the structurally first root at the post-temporal plan step. The exact code, optional cause, primary pointer and root node locus are asserted for each control. | Test |
-| FR-038-AC-426 | planned until IR-721 lands. A default-feature consumer iterates admitted plans and reads the specified typed root/type/clause keys, resolved root and entry structural content keys through structural_key, exact entry signatures and bodies, width/gap/counter/tick-unit and exact rational event-rate/uncertainty plus ordered buffers/capacities through private-field borrowed views. Two plans sharing labels but differing selected keys remain distinct; empty plans yield an empty iterator. An entry or root content change is observed through the corresponding structural keys without a new persistent plan identity. Raw wire values cannot mint these views, package lifetimes bound all borrows, and reads execute no body. | Test |
-| FR-038-AC-427 | planned until IR-721 lands. TC-048 reads QSpec proposals/checked-package-v2/monitor-plan-vectors.json MP-01..MP-57 by reference from the selected QSpec checkout, constructs complete selected packages around the MP-01..MP-31 and MP-33..MP-53 root recipes and separately exercises MP-32's flatten/sequence expression, and checks exact admission or refusal code, cause, primary RFC 6901 pointer and structural locus. No upstream vector, schema or fixture is copied into IR. MP-54..MP-57 remain by-reference QSL/runtime execution controls under AC-429. These controls qualify reader admission independently of the pending QSL producer; real producer qualification remains separate. | Test |
+| FR-038-AC-426 | planned until IR-721 lands. A default-feature consumer iterates admitted plans and reads the specified typed root/type/clause keys, resolved root and entry structural content keys through structural_key, exact entry signatures and bodies, width/gap/counter/tick-unit/activation-capacity and exact rational event-rate/uncertainty plus ordered buffers/capacities through private-field borrowed views. Two plans sharing labels but differing selected keys remain distinct; empty plans yield an empty iterator. An entry or root content change is observed through the corresponding structural keys without a new persistent plan identity. Raw wire values cannot mint these views, package lifetimes bound all borrows, and reads execute no body. | Test |
+| FR-038-AC-427 | planned until IR-721 lands. TC-048 reads QSpec proposals/checked-package-v2/monitor-plan-vectors.json MP-01..MP-73 by reference from the selected QSpec checkout, constructs complete selected packages around the MP-01..MP-31 and MP-33..MP-53 and MP-58..MP-65 root recipes and separately exercises MP-32's flatten/sequence expression, and checks exact admission or refusal code, cause, primary RFC 6901 pointer and structural locus. No upstream vector, schema or fixture is copied into IR. MP-54..MP-57 and MP-66..MP-73 remain by-reference QSL/runtime execution controls under AC-429/AC-430. These controls qualify reader admission independently of the pending QSL producer; real producer qualification remains separate. | Test |
 | FR-038-AC-428 | planned until IR-721 lands. MP-33 and MP-43..MP-45 admit zero uncertainty, changed counter, fractional rational rate and changed tick unit with distinct resolved root content keys; a capacity edit MP-02 also changes that key. MP-40 and MP-41 refuse invalid_semantic_graph at tick_unit for a wrong node kind or non-Time unit by the exact base-Time identity test, never invalid-time-quantity. Exact rate and uncertainty are borrowed CheckedRational values with no floating conversion or narrowing. Tick intervals remain derivable from the selected clause and clock/tick-unit scales with no extra binding or rounded metadata; counter, uncertainty and unit are read from the admitted root rather than defaulted. Paired premise defects verify body-order checking through counter and uncertainty after buffer capacities. | Test |
-| FR-038-AC-429 | planned until IR-721 lands. By-reference MP-48 and MP-49 refuse a missing on_gap or wrong reference kind as invalid_semantic_graph with no cause at /semantic_graph/nodes/{n}/body/members/15; MP-50..MP-52 refuse reordered or noninteger gap parameters and a wrong return type as ill_typed/type-mismatch at the same binding, retaining the root structural locus. MP-53 admits a changed on_gap node with a distinct resolved root content key. The mandatory borrowed on_gap entry view exposes exactly (State, integer gap) and (State, Results), its whole checked body and resolved entry key; no Option/default or fifteen-binding compatibility is admitted. MP-54..MP-57 are consumed by reference as QSL/runtime execution controls, not executed or turned into package-reader verdicts: the reader qualifies admission of their valid program shape independently of runtime gap outcomes. | Test |
+| FR-038-AC-429 | planned until IR-721 lands. By-reference MP-48 and MP-49 refuse a missing on_gap or wrong reference kind as invalid_semantic_graph with no cause at /semantic_graph/nodes/{n}/body/members/15; MP-50..MP-52 refuse reordered or noninteger gap parameters and a wrong return type as ill_typed/type-mismatch at the same binding, retaining the root structural locus. MP-53 admits a changed on_gap node with a distinct resolved root content key. The mandatory borrowed on_gap entry view exposes exactly (State, integer gap) and (State, Results), its whole checked body and resolved entry key; no Option/default or fifteen- or sixteen-binding compatibility is admitted. MP-54..MP-57 are consumed by reference as QSL/runtime execution controls, not executed or turned into package-reader verdicts: the reader qualifies admission of their valid program shape independently of runtime gap outcomes. | Test |
+| FR-038-AC-430 | planned until IR-721 lands. By-reference MP-58 admits activation_capacity 0 with a distinct root content key and the borrowed canonical nonnegative decimal getter returns "0" without narrowing. MP-59 refuses a negative value as invalid_package/invalid-value at /semantic_graph/nodes/{n}/body/members/16/value; MP-60 and MP-61 refuse absent or noninteger activation capacity as invalid_semantic_graph with no cause at member 16. MP-62..MP-65 refuse missing history_start or activations, missing origin in an activation record and a noninteger history_start as invalid_semantic_graph with no cause at the state binding, retaining the root structural locus. Additional wrong order, extra field, noninteger subformula/origin and nonsequence activations controls enforce the exact state shape without inventing a type for status. MP-66..MP-73 remain QSL/runtime-owned history, poll, reporting and activation-overflow execution controls consumed by reference; no body is executed or admission refusal inferred from their runtime outcomes. The published activation LimitReached payload retains the existing typed record shape. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
