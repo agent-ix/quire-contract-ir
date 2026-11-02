@@ -124,3 +124,21 @@ bindings:
   ac_id: FR-038-AC-425
   trace: correct
 ```
+
+## Upstream repair merge carry — pass 1
+
+Frozen carry head `c5aee31225b1bb564daa0e1576785faf4c8708f6` matches local and GitHub PR heads; tree clean. It merges the reviewed owner-index/review-record parent `b64745524e5f1ecbe6e93422f111a230d8065398` with main `cf7396b43260ffc1a62d530785d690357b082968`. owner.rs and both originally committed PR #827 review artifacts are byte-identical to the first parent. Only the owner's existing optimization differs from fresh main among this PR's production/spec/test files; incoming FMA/certificate/schedulability changes are upstream material, not new own-lane edits. No new finding was found; the scoped owner-index code and gap checks carry.
+
+Main's schedulability implementation matches the second parent exactly. It filters claim nodes before collecting and sorting their resolved structural keys; the sort is therefore restricted to selected claims, including an empty list for a graph without claims. The separately owned repair has now landed, resolving the external prerequisite recorded in the original review. This carry does not reimplement or take ownership of that repair.
+
+The unchanged owner helper retains the K=0 empty-target fast path and small-K raw target index. Only real candidate parameter/body/measure references are decoded; there is no global node-ID canonicalization, serialization, structural expansion or sort. Raw lookup preserves last-duplicate target behavior and the original owner-versus-identity diagnostic order. The authoritative anonymous-body syntax/kind check, optional measure handling, selected monitor deferral and existing model/source ownership logic are unchanged. No PR #824 historical artifact is edited by this carry.
+
+Fresh supplied logs at this exact merge head and selected QSpec `abe4c25e2c07fa2c8327c37d896d72cc1191a062` pass: two owner-stage units; 15 monitor groups covering 63 reader recipes; five entry-key groups (one existing overlap); three default reader controls; all 30 owner controls with no exclusions; one actual default public consumer/read/roundtrip; nine intended-error negative probes; fmt/string-edge/workspace-all-targets-conformance-cli/default-model strict Clippy. Both tc_229_qspec_published_population_binding_fixture_admits and tc_229_qspec_population_reference_cases_match_reader now pass under the selected current input. The earlier NFD failures/exclusions are historical observations, not current-head failures.
+
+The debug owner-stage scaling observation is 0.930 ms for 1k irrelevant nodes and 122.895 ms for 100k. It remains smoke/observation evidence, without a timing assertion or end-to-end scaling claim. The required final-head node_index long-chain test and parent-owned serial native/full-target, compile, corpus, spec and hosted gates have not yet run for this candidate. They are the next action now that the upstream repair is present. No Cargo, Kani/CBMC/backend proof, source edit, commit or merge was performed by this reviewer. PR #827 remains DRAFT HOLD until final qualification and Luna's merge decision.
+
+The current QSpec amendment adds runtime-owned AtomProjection controls MP-78..80 and no State/root shape change. Its LimitReached payload retains the existing typed record; the reader does not evaluate atoms or restrict the runtime Text/string value to an invented plan-specific limit enum. These controls grant no additional reader execution credit. Actual producer closure, RT/QSL lowering, runtime differential qualification and overall IR-721 remain open.
+
+The original whole-repository matrix/coverage counts and FAIL verdict are historical results for the original review head. Incoming main may discharge previous FMA obligations; this narrow unchanged-source carry does not recompute or claim a clean current whole-repository matrix or strict-coverage result. It verifies no new owner-index traceability gap: the source and its two test tags are unchanged. Parent's final spec gate owns fresh aggregate status. Plan completion: not assessed.
+
+**Scoped carry: PASS; no introduced findings.** Whole-repository assurance is not promoted to PASS.
