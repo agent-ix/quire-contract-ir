@@ -6,9 +6,9 @@
 use crate::support::checked_package::{
     admitted_protocol_families, application_node_key, canonical, evidence_for,
     evidence_with_document, family_key, family_model_document, node_id, protocol_named_node,
-    protocol_role_node, reassign_node_id, rebuild_source_map, refresh_identity, refusal,
-    refusal_at_id, rename_node, select_model, selected_interface_model_node, settle,
-    v2_all_families,
+    protocol_role_node, reassign_node_id, rebuild_source_map, refresh_identity,
+    refresh_identity_projection, refusal, refusal_at_id, rename_node, select_model,
+    selected_interface_model_node, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -4882,7 +4882,6 @@ fn await_admits_compensation_anchor_form() {
         .expect("root sequence")
         .rotate_right(2);
     settle(&mut package);
-    add_compensation_clock(&mut package);
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "compensation anchor must admit: {:?}",
@@ -6255,24 +6254,6 @@ fn event_compensation_requires_a_template_target() {
     );
 }
 
-fn add_compensation_clock(package: &mut Value) {
-    let compensation = protocol_position(package, "compensation");
-    let declaration = package["semantic_graph"]["nodes"][compensation]["node_id"].clone();
-    let clock_name = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][4]
-        ["value"]["value"]
-        .clone();
-    let clock = package["temporal_bindings"][0]["clock"].clone();
-    let rows = package["temporal_bindings"].as_array_mut().expect("rows");
-    rows.push(json!({"declaration": declaration, "clock_name": clock_name, "clock": clock}));
-    rows.sort_by(|left, right| {
-        let left: CheckedNodeId = serde_json::from_value(left["declaration"].clone()).expect("id");
-        let right: CheckedNodeId =
-            serde_json::from_value(right["declaration"].clone()).expect("id");
-        left.cmp(&right)
-    });
-    refresh_identity(package);
-}
-
 pub(crate) fn package_with_admitted_compensation() -> (Value, usize, usize) {
     let (state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
     let (mut package, root) = package_with_step_control_on(state, "event");
@@ -6291,7 +6272,6 @@ pub(crate) fn package_with_admitted_compensation() -> (Value, usize, usize) {
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][1]["value"]["members"] =
         json!([{"term": "reference", "target": local_key}]);
     settle(&mut package);
-    add_compensation_clock(&mut package);
     let compensation = protocol_position(&package, "compensation");
     (package, root, compensation)
 }
@@ -6329,13 +6309,8 @@ fn compensation_clock_case(
         .expect("nodes")
         .push(second);
     let protocol_clause = clause_position(&package);
-    let control = protocol_position(&package, "control");
     let reference = json!({"term": "reference", "target": second_id});
     package["semantic_graph"]["nodes"][protocol_clause]["body"]["arguments"][8]["value"]["members"]
-        .as_array_mut()
-        .expect("compensations")
-        .push(reference.clone());
-    package["semantic_graph"]["nodes"][control]["body"]["arguments"][1]["value"]["members"]
         .as_array_mut()
         .expect("compensations")
         .push(reference);
@@ -6374,7 +6349,12 @@ fn compensation_clock_case(
             .as_array_mut()
             .expect("nodes")
         {
-            if let Some(laws) = node["body"]["operation"]["laws"].as_array_mut() {
+            if let Some(laws) = node
+                .get_mut("body")
+                .and_then(|body| body.get_mut("operation"))
+                .and_then(|operation| operation.get_mut("laws"))
+                .and_then(Value::as_array_mut)
+            {
                 for law in laws {
                     if law["role"] == "temporal_profile" {
                         law["definition"]["identity"] = json!("quire.temporal.infinite-trace/v1");
@@ -6423,7 +6403,7 @@ fn compensation_clock_case(
     if case["id"] != "CB-08" {
         package["temporal_bindings"] = Value::Array(rows);
     }
-    refresh_identity(&mut package);
+    refresh_identity_projection(&mut package);
     (package, ids)
 }
 
@@ -6495,7 +6475,7 @@ fn compensation_clock_rows_follow_published_cases() {
                         .as_object_mut()
                         .expect("package")
                         .remove("temporal_bindings");
-                    refresh_identity(&mut missing);
+                    refresh_identity_projection(&mut missing);
                     let nodes = missing["semantic_graph"]["nodes"]
                         .as_array()
                         .expect("nodes");

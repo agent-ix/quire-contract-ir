@@ -2170,26 +2170,45 @@ pub fn settle(package: &mut Value) {
     refresh_identity(package);
 }
 
-/// Keep the synthetic package's clock rows paired with its configured clauses
-/// after fixture mutations have changed profile laws or structural node IDs.
+/// Keep synthetic clock rows paired with configured clauses and compensations
+/// after fixture mutations have changed laws or structural node IDs.
 #[ix_trace_rs::string_edge]
 pub fn refresh_temporal_bindings(package: &mut Value) {
+    let selected_profile = package["lock"]["profile_selections"]
+        .as_array()
+        .and_then(|selections| {
+            selections
+                .iter()
+                .find(|selection| selection["role"] == "temporal_profile")
+        })
+        .and_then(|selection| selection["definition"]["identity"].as_str());
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
     let mut rows = nodes
         .iter()
         .filter_map(|node| {
-            if node["node_tag"] != "temporal" || node["semantic_form"] != "temporal_clause" {
-                return None;
-            }
-            let [law] = node["body"]["operation"]["laws"].as_array()?.as_slice() else {
+            let (profile, name) = if node["node_tag"] == "temporal"
+                && node["semantic_form"] == "temporal_clause"
+            {
+                let [law] = node["body"]["operation"]["laws"].as_array()?.as_slice() else {
+                    return None;
+                };
+                if law["role"] != "temporal_profile" {
+                    return None;
+                }
+                (
+                    law["definition"]["identity"].as_str()?,
+                    node["body"]["arguments"][1]["value"].as_str()?,
+                )
+            } else if node["node_tag"] == "protocol" && node["semantic_form"] == "compensation" {
+                (
+                    selected_profile?,
+                    node["body"]["arguments"][4]["value"]["value"].as_str()?,
+                )
+            } else {
                 return None;
             };
-            if law["role"] != "temporal_profile" {
-                return None;
-            }
-            let profile = law["definition"]["identity"].as_str()?;
             let clock = match profile {
                 "quire.temporal.event-position.false-extension/v1" => {
                     json!({"kind": "event_position", "sequence_authority": "fixture-events"})
@@ -2205,7 +2224,6 @@ pub fn refresh_temporal_bindings(package: &mut Value) {
                 }
                 _ => return None,
             };
-            let name = node["body"]["arguments"][1]["value"].as_str()?;
             Some((
                 node["node_id"].clone(),
                 json!({
