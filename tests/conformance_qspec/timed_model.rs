@@ -676,7 +676,7 @@ fn sort_timed_graph_dependencies(package: &mut Value) {
 }
 
 /// Public-reader evidence over QSpec's selected package and exact AO patches.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-342")]
 #[test]
 fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
     let fixtures = fixtures_dir();
@@ -763,7 +763,7 @@ fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
 
 /// Each published order defect remains present while an earlier reader stage
 /// refuses a second, independent defect.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-342")]
 #[test]
 fn timed_aggregate_order_preserves_earlier_refusal_stages() {
     let fixtures = fixtures_dir();
@@ -834,6 +834,28 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
             "{id}"
         );
 
+        let mut duplicate = ordered_defect.clone();
+        let nodes = duplicate["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        let later = nodes.len();
+        nodes.push(nodes[0].clone());
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package_with_document(&duplicate, id, &document).expect("duplicate-id AO read")
+        else {
+            panic!("{id}: duplicate structural id must refuse before aggregate order");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidSemanticGraph, None),
+            "{id}"
+        );
+        assert_eq!(
+            refusal.loci[0].path.clone().unwrap().to_string(),
+            format!("/semantic_graph/nodes/{later}/node_id"),
+            "{id}"
+        );
+
         let mut missing_dependency = ordered_defect.clone();
         let first_place = missing_dependency["semantic_graph"]["nodes"][root_position]["body"]
             ["members"][3]["value"]["members"][0]["target"]
@@ -869,7 +891,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
 
 /// Distinct place paths remain ordered by their structural key when their
 /// minimum source regions coincide.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-342")]
 #[test]
 fn timed_aggregate_equal_regions_use_place_path_tie_break() {
     let fixtures = fixtures_dir();
@@ -943,7 +965,7 @@ fn timed_aggregate_repeated_reference_refuses_as_order_defect() {
     );
 }
 
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-342")]
 #[test]
 fn timed_aggregate_source_identity_precedes_region_start() {
     let fixtures = fixtures_dir();
@@ -1016,7 +1038,7 @@ fn timed_aggregate_source_identity_precedes_region_start() {
 
 /// Each remaining timed-root aggregate has an admitted two-member control
 /// and an identity-current swapped reference that the public reader rejects.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-342")]
 #[test]
 fn timed_aggregate_each_root_branch_enforces_source_order() {
     let fixtures = fixtures_dir();
@@ -1072,66 +1094,122 @@ fn timed_aggregate_each_root_branch_enforces_source_order() {
     }
 }
 
-/// Trace: FR-038-AC-359, TC-048.
+/// QSpec FR-322-AC-265 orders equal-region clauses by structural member key.
+#[trace("TC-048", "FR-038-AC-342")]
 #[test]
 fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() {
     let fixtures = fixtures_dir();
-    let mut package = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
+    let fixture = read_json(&fixtures.join("positive-timed-clause-nodes.json"))
         .expect("published dense clause package");
     let document = proposal_dir_of(&fixtures).join("domain-package-acme-timed-clauses.json");
-    let root_position = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("graph nodes")
-        .iter()
-        .position(|node| node["semantic_form"] == "timed_model")
-        .expect("timed root");
-    let members = &package["semantic_graph"]["nodes"][root_position]["body"]["members"][8]["value"]
-        ["members"];
-    let first = members[0]["target"].clone();
-    let second = members[1]["target"].clone();
-    assert_ne!(first, second);
-    let first_region = package["source_map"]
-        .as_array()
-        .expect("source map")
-        .iter()
-        .find(|entry| entry["node_id"] == first)
-        .expect("first constraint source")["regions"][0]
-        .clone();
-    package["source_map"]
-        .as_array_mut()
-        .expect("source map")
-        .iter_mut()
-        .find(|entry| entry["node_id"] == second)
-        .expect("second constraint source")["regions"][0] = first_region;
-    let admitted = read_package_with_document(&package, "equal region distinct clauses", &document)
-        .expect("selected package read");
-    assert!(
-        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
-        "{admitted:?}"
-    );
+    for binding in [4, 5, 6, 8] {
+        let mut package = fixture.clone();
+        let root = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["semantic_form"] == "timed_model")
+            .expect("timed root");
+        let members = &package["semantic_graph"]["nodes"][root]["body"]["members"][binding]
+            ["value"]["members"];
+        let first = members[0]["target"].clone();
+        let second = members[1]["target"].clone();
+        assert_ne!(first, second, "binding {binding} needs distinct clauses");
+        let first_region = package["source_map"]
+            .as_array()
+            .expect("source map")
+            .iter()
+            .find(|entry| entry["node_id"] == first)
+            .expect("first clause source")["regions"][0]
+            .clone();
+        // Tie every occurrence, so the minimum region cannot come from another entry.
+        for entry in package["source_map"].as_array_mut().expect("source map") {
+            if entry["node_id"] == second {
+                entry["regions"] = json!([first_region]);
+            }
+        }
+        if binding == 5 {
+            // The published guard pair is source-ordered touch, arm. At a
+            // region tie, QSpec's operation-name key orders arm before touch.
+            let nodes = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes");
+            let operation_name = |id: &Value| {
+                let guard = nodes
+                    .iter()
+                    .find(|node| node["node_id"] == *id)
+                    .expect("guard");
+                let operation = &guard["body"]["members"][0]["value"]["target"];
+                let anchor = nodes
+                    .iter()
+                    .find(|node| node["node_id"] == *operation)
+                    .expect("anchor");
+                anchor["body"]["members"][1]["value"]["value"].clone()
+            };
+            assert_eq!(operation_name(&first), json!("touch"));
+            assert_eq!(operation_name(&second), json!("arm"));
+            package["semantic_graph"]["nodes"][root]["body"]["members"][binding]["value"]
+                ["members"]
+                .as_array_mut()
+                .expect("guard aggregate")
+                .swap(0, 1);
+        }
+        let CheckedPackageV2ReadResult::Admitted(admitted) =
+            read_package_with_document(&package, "equal-region distinct clauses", &document)
+                .expect("selected package read")
+        else {
+            panic!("binding {binding}: ordered equal-region clauses must admit");
+        };
+        let expected = package["semantic_graph"]["nodes"][root]["body"].clone();
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[root].body).expect("typed body"),
+            expected
+        );
+        let encoded = encode_package(&admitted);
+        let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
+        assert_eq!(
+            written["semantic_graph"]["nodes"][root]["body"], expected,
+            "binding {binding}: writer changed root order"
+        );
+        let CheckedPackageV2ReadResult::Admitted(reread) =
+            read_package_with_document(&written, "written tied-region clauses", &document)
+                .expect("written package read")
+        else {
+            panic!("binding {binding}: writer output must admit");
+        };
+        assert_eq!(admitted.graph(), reread.graph());
 
-    let members = package["semantic_graph"]["nodes"][root_position]["body"]["members"][8]["value"]
-        ["members"]
-        .as_array_mut()
-        .expect("constraints");
-    members.swap(0, 1);
-    fixture_support::settle(&mut package);
-    sort_timed_graph_dependencies(&mut package);
-    fixture_support::settle(&mut package);
-    let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_package_with_document(&package, "reversed equal region clauses", &document)
-            .expect("selected package read")
-    else {
-        panic!("reversed equal-region clauses must refuse");
-    };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidSemanticGraph, None)
-    );
-    assert_eq!(
-        refusal.loci[0].path.clone().unwrap().to_string(),
-        format!("/semantic_graph/nodes/{root_position}/body/members/8/value/members/1")
-    );
+        for repeated in [false, true] {
+            let mut adverse = package.clone();
+            let members = adverse["semantic_graph"]["nodes"][root]["body"]["members"][binding]
+                ["value"]["members"]
+                .as_array_mut()
+                .expect("clause aggregate");
+            if repeated {
+                members.insert(1, members[0].clone());
+            } else {
+                members.swap(0, 1);
+            }
+            // Swapping or repeating a reference preserves the exact dependency
+            // set. Keep the authored tied regions rather than rebuilding them.
+            let CheckedPackageV2ReadResult::Refused(refusal) =
+                read_package_with_document(&adverse, "adverse equal-region clauses", &document)
+                    .expect("selected adverse package read")
+            else {
+                panic!("binding {binding}, repeated={repeated}: must refuse");
+            };
+            assert_eq!(
+                (refusal.code, refusal.cause),
+                (Code::InvalidSemanticGraph, None),
+                "binding {binding}, repeated={repeated}"
+            );
+            assert_eq!(
+                refusal.loci[0].path.clone().unwrap().to_string(),
+                format!("/semantic_graph/nodes/{root}/body/members/{binding}/value/members/1"),
+                "binding {binding}, repeated={repeated}"
+            );
+        }
+    }
 }
 
 /// The slot fixture selects the complete FCD document, including its named
@@ -1374,7 +1452,7 @@ fn timed_model_published_schema_vectors_refuse_before_semantic_validation() {
     }
 }
 
-#[trace("TC-048", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30")]
+#[trace("TC-048", "QSpec-TM-09", "QSpec-TM-21", "QSpec-TM-30", "FR-038-AC-342")]
 #[test]
 fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
     let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
