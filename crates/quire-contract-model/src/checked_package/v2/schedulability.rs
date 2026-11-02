@@ -451,8 +451,17 @@ pub(super) fn validate_bodies(
             continue;
         }
         let node = &nodes[p];
-        if node.occurrences.iter().any(|occurrence| occurrence.role != CheckedOccurrenceRole::Claim) {
-            return Err(invalid(Code::InvalidSemanticGraph, None, node_pointer(p).key("occurrences"), &node.node_id));
+        if node
+            .occurrences
+            .iter()
+            .any(|occurrence| occurrence.role != CheckedOccurrenceRole::Claim)
+        {
+            return Err(invalid(
+                Code::InvalidSemanticGraph,
+                None,
+                node_pointer(p).key("occurrences"),
+                &node.node_id,
+            ));
         }
         let at = node_pointer(p).key("body");
         let fail = |code, cause, at| invalid(code, cause, at, &node.node_id);
