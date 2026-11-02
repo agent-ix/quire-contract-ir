@@ -4612,6 +4612,113 @@ second row. A missing `occurrence` is a closed-schema `malformed_wire` refusal
 at the missing member's published locus. Refusal loci follow the existing RFC
 6901 location contract.
 
+### Authenticated schedulability claim carrier (planned until IR-1252 lands)
+
+The strict reader SHALL admit the optional top-level `schedulability_claims`
+index defined by [QSpec FR-322](ix://agent-ix/quire-specification/FR-322),
+AC-300 and “Schedulability claim carrier”, and validate every
+`claim`/`schedulability` body under
+[QSpec FR-482](ix://agent-ix/quire-specification/FR-482). The closed
+`ClaimForm` vocabulary gains `Schedulability`. The index is absent when there
+is no schedulability claim occurrence; otherwise it contains exactly one
+closed `{declaration, occurrence}` row for each such occurrence. The row's
+`declaration` is a local structural `CheckedNodeId`; its wire `occurrence`
+is the non-negative integer ordinal of that node's `claim` occurrence.
+A shared claim node with two occurrences has two rows. The index contains
+identity references only; the graph retains the complete claim body once.
+
+After aggregate-order validation and before the FR-482 body step, the reader
+SHALL visit index rows in array order. Before inspecting a row it charges one
+validation visit against the caller's existing finite reader budget. It
+checks the local declaration join before the owned `claim` occurrence join,
+then repeated keys before canonical order; total occurrence coverage is last.
+Canonical row order is structural declaration identity followed by occurrence
+ordinal. Exhaustion returns the existing incomplete/resource-exhaustion
+reader result at the first uncharged row, without an admitted package or
+partial typed claim view. No new cap, budget or alternate admission path is
+introduced. Wire validation and existing graph/aggregate stages retain their
+earlier precedence; a combined-defect control makes each adjacent carrier
+check's precedence observable.
+
+A missing index or missing occurrence row refuses
+`invalid_package`/`invalid-value` at `/schedulability_claims`. An absent,
+foreign, wrong-kind or wrong-form declaration refuses the same code/cause at
+`/schedulability_claims/{i}/declaration`; an unowned occurrence or an
+occurrence of a role other than `claim` refuses there at `/occurrence`.
+A repeated pair refuses `invalid_package`/`conflicting-definition` at the
+later row, before the order check. A descending distinct pair refuses
+`invalid_package`/`invalid-value` at the later row. Missing or extra row
+members and negative or non-integer occurrence ordinals are `malformed_wire`
+at QSpec TC-976's exact row/member locus. Every refusal uses the existing
+ordered typed diagnostic `loci`, with the exact RFC 6901 primary pointer and
+no admitted view.
+
+The reader SHALL apply the complete FR-482 body checks in its published
+order: shape, literals, form fit, task order, unit, then task-set premises.
+This is the last body step, after the protocol step, visiting schedulability
+nodes in ascending structural node-id order. The body has the ordered five
+claim bindings and eleven bindings per task, retains exact rational time
+values in one package time unit, and has Boolean semantic type, no declaration
+or owner and empty dependencies. Admission checks the `schedulable` and
+`response` forms; fixed-priority, EDF and AMC policy premises; task ordering;
+non-negative BCET, jitter and blocking; positive period, deadline and WCET;
+HI/LO work bounds; policy-specific priorities and EDF/AMC restrictions.
+FR-482 owns the exact binding/literal/aggregate loci and typed codes and
+causes for these checks; ordinary graph and term checks still precede them.
+The reader preserves producer-assigned structural identities and does not
+compute a body-derived node id.
+
+The raw wire row `CheckedSchedulabilityClaimRow` has public
+`declaration: CheckedNodeId` and `occurrence: u64` fields. It is an untrusted
+producer value, not an authenticated view. The admitted package's
+`schedulability_claim_rows(&self) -> Option<&[CheckedSchedulabilityClaimRow]>`
+borrows its retained index for complete re-encoding under
+[FR-051](./FR-051-encode-checked-package-v2-envelope.md). Complete read/encode/read
+preserves every row and body and the absent member; the lossless reader check
+includes this member rather than silently dropping it.
+
+After full admission, `CheckedPackageV2::schedulability_claims(&self)` SHALL
+return `impl ExactSizeIterator<Item = CheckedSchedulabilityClaimRef<'_>> + '_`
+in canonical index order. Each borrowed view has private fields and no public
+constructor; `declaration(&self) -> &CheckedNodeId`,
+`occurrence(&self) -> &CheckedOccurrence` and `body(&self) -> &CheckedTerm`
+borrow the exact admitted graph identity, owned claim occurrence and FR-482
+body. Thus policy, task fields, units and response bound are available through
+the existing typed term tree without copying the body or parsing raw JSON.
+An admitted package without this index yields an empty iterator. The view
+cannot outlive its package or be minted from a caller-asserted row. Repeated
+reads are deterministic and perform no second validation or evaluation.
+
+The borrowed claim view SHALL also expose `kind() -> CheckedSchedulabilityKind`
+(closed variants `Schedulable`, `Response`),
+`policy() -> CheckedSchedulingPolicy` (`FixedPriority`, `Edf`, `Amc`),
+`response_task() -> Option<&str>`, `response_bound() -> Option<CheckedLiteralRead<'_>>`
+and `tasks() -> impl ExactSizeIterator<Item = CheckedSchedulabilityTaskRef<'_>> + '_`.
+The two response accessors are present exactly for `Response`. Each task view
+has `name() -> &str`, `arrival() -> CheckedTaskArrival` (`Periodic`, `Sporadic`),
+`criticality() -> CheckedTaskCriticality` (`Lo`, `Hi`), and immutable
+`period`, `deadline`, `bcet`, `wcet`, `jitter` and `blocking` accessors returning
+`CheckedLiteralRead<'_>`. Its `wcet_hi` accessor returns
+`Option<CheckedLiteralRead<'_>>`, present exactly for `Hi`; `priority` returns
+`Option<CheckedLiteralRead<'_>>`, present exactly when a priority was declared.
+All time reads, including response bound, have `LiteralKind::Quantity`, exact
+`CheckedLiteralValue::Rational` magnitude and the admitted common unit's
+`type_id`; a present priority has `LiteralKind::Integer` and exact
+`CheckedLiteralValue::Integer`. No float conversion, default priority or
+second unit normalization occurs. Tasks iterate in admitted task-name order.
+The task view, like the claim view, has private fields and no public
+constructor. These accessors rely on admission: downstream consumers need not
+repeat binding-shape or policy validation to obtain the fields. Existing
+literal reads may decode exact numeric values; the body remains borrowed and
+no entire task or body copy is needed.
+
+The IR read ends at that authenticated claim. The QSL FR-418 checker owns
+joining it to a selected timed model, resolving source release bindings and
+recomputing source/scheduler successors. `TaskTransitionTemplate` and
+`TaskProductCertificate` remain backend-provider certificate values; exact
+`TaskTransitionIdentity` remains concrete replay/search evidence. This carrier
+adds none of them to the checked-package wire or the cycle-free model API.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -4643,6 +4750,11 @@ at the missing member's published locus. Refusal loci follow the existing RFC
 | FR-038-AC-393 | QSpec `PC-R4`'s second row for one declaration with a different valid occurrence and `PC-R5`'s repeated declaration-occurrence key both refuse `invalid_package`/`conflicting-definition` at the later row. `PC-R7`'s reversal of two valid rows refuses `invalid_package`/`invalid-semantic-graph` at the second row. Structural declaration identity and occurrence determine order; display name, source span and graph-array position do not. | Test (TC-048, TC-233) |
 | FR-038-AC-394 | IR tests read QSpec's published `checked-term-data-vectors.json` by reference and construct a complete valid V2 package in the test from its `PC-01` and `PC-02` row identities and resolved-node context. They run the positive and probabilistic-claim adverse mutations against the public strict reader and compare each published typed code, cause and exact RFC 6901 locus. No upstream artifact or vector content is copied into this repository, and the vector file is not treated as a complete checked-package fixture. An exact measured sidecar-work limit admits the IR-constructed positive; one below its measured charge returns `resource_exhausted` at its final probabilistic-claim row without a partial typed sidecar view. | Test (TC-048, TC-233) |
 | FR-038-AC-395 | A package with a `claim`/`probabilistic_claim` graph node passes the closed `ClaimForm::ProbabilisticClaim` vocabulary and ordinary typed term-body checks, then graph identity, exact dependencies, declaration, owner, occurrence and source-map joins before its probabilistic sidecar row is checked. The node and complete body survive admitted read/write without a fabricated formula or identity. An unknown claim form, malformed term body or broken graph join retains its existing earlier-stage typed refusal rather than being accepted by a matching sidecar row. | Test (TC-048, TC-058) |
+| FR-038-AC-396 | planned until IR-1252 lands. The public strict reader admits complete packages constructed around QSpec TC-976 SCC-01 and SCC-02, retains one row for occurrence 0 and two distinct rows for the shared node's occurrences 0 and 1 respectively, and exposes their exact borrowed declaration, claim occurrence and FR-482 body in canonical order. A package with no schedulability occurrence omits the index and returns an empty typed iterator. Equal display names or source regions do not select or merge claims. | Test |
+| FR-038-AC-397 | planned until IR-1252 lands. SCC-03/04/05/12 refuse `malformed_wire` at their published row/member loci. SCC-06/07/08 refuse `invalid_package`/`invalid-value` at the published declaration/occurrence loci; additional absent-local, wrong-kind and wrong-role controls have the same corresponding refusal. SCC-09 refuses `invalid_package`/`conflicting-definition` at the later row; SCC-11 refuses `invalid_package`/`invalid-value` there. SCC-10 and an omitted required index refuse that code/cause at `/schedulability_claims`. Each refusal compares the exact typed primary locus and exposes no admitted package. | Test |
+| FR-038-AC-398 | planned until IR-1252 lands. Wire and graph/aggregate validation precede carrier joins; declaration precedes occurrence, repeated key precedes order, coverage follows all rows, and carrier validation precedes FR-482 body validation. Combined defects distinguish each adjacent check. Each visited row charges one existing validation visit before inspection; an exact measured budget admits the positive package, and one below the measured charge refuses with the existing incomplete/resource-exhaustion result at the first uncharged row and no partial typed claim view. | Test |
+| FR-038-AC-399 | planned until IR-1252 lands. The reader admits the full FR-482 schedulable/response bodies and validates its shape, literal vocabulary, form fit, strict task order, common time unit and policy-specific task-set premises in that order after the protocol body step. QSpec FR-482-AC-3's adverse bodies, including negative/excess BCET, wrong time unit, duplicate fixed-priority priorities and the EDF equal-priority positive control, have their exact published codes, causes and loci. Existing graph refusals for nonempty dependencies, owner, semantic type or identity precede the dependent body checks. The typed claim/task accessors return the closed kind, policy, arrival and criticality variants, task names, optional response fields, optional HI work and priority, and exact quantity magnitudes with the common unit identity; absent priority stays absent. Consumers require no raw JSON or binding-shape validation. The typed read retains every policy, task and exact time-value member without interpreting model releases or successors. | Test |
+| FR-038-AC-400 | planned until IR-1252 lands. TC-048 reads QSpec's `proposals/checked-package-v2/schedulability-claim-vectors.json`, TC-976 and FR-482/TC-967 cases by reference from a selected QSpec checkout, constructs complete IR packages around their resolved-node context, applies every carrier mutation and compares admission or exact typed code, cause and primary locus. The evidence states the selected checkout revision; no upstream schema, fixture or vector is copied into IR and the row vectors are not treated as complete packages. Complete public read/encode/read retains every identity row and the body, including both shared-node occurrences and the absent index; the private envelope, raw intake and borrowed encoder agree on the optional member. The default-feature public read requires no timed-model, release-binding or scheduler-engine input and adds no task-transition template wire member. | Test |
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-050) |
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those six finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
