@@ -127,7 +127,7 @@ inventory or the root-crate boundary.
 
 ## Compensation temporal binding borrowed public read (FR-019-AC-22)
 
-Planned until IR-1262 lands. Compile a default-feature external consumer
+Implemented. Compile a default-feature external consumer
 that imports the already public `TemporalBinding`, `ClockConfiguration` and
 `CheckedNodeId` through `quire_contract_model`, not `quire_contract_ir`.
 Give it a complete package built with typed producer inputs and admitted by

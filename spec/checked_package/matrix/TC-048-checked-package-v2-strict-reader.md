@@ -2713,7 +2713,7 @@ passes only because of an earlier unrelated refusal.
 
 ## Compensation temporal binding reader (FR-038-AC-412 through FR-038-AC-416)
 
-Planned until IR-1262 lands. Read QSpec's
+Implemented. Read QSpec's
 `proposals/checked-package-v2/temporal-clock-binding-vectors.json`
 `compensation_cases` `CB-01` through `CB-08` from the selected checkout.
 These cases are abstract: construct complete IR-owned packages with the
