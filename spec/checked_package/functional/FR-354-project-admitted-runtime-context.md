@@ -54,12 +54,11 @@ owns runtime interpretation and supplied-state admission.
 - For an object type's own declared operations, producer-supplied selected
   operation facts from the same QSL selection as the admitted package. Each
   fact identifies the selected document, declaring object and original operation
-  member, and carries the declaration's ordered parameters, result and effect
-  (`modifies`, `creates`, `deletes`). QSL [FR-103](ix://agent-ix/quire-spec-language/FR-103)
-  owns the declared effect; the admitted IR model currently retains operation
-  signatures but no declared effect. This is a required upstream producer
-  contract (QSpec STD-640), not an existing checked-package member or an
-  IR-derived effect.
+  member, and carries the declared effect (`modifies`, `creates`, `deletes`,
+  `deletes_scoped`). The admission-retained selected operation alone supplies
+  its ordered parameter and optional result signature. QSL
+  [FR-103](ix://agent-ix/quire-spec-language/FR-103) owns the declared effect;
+  QSpec STD-640 carries that effect without a second signature witness.
 
 ## Outputs
 
@@ -88,19 +87,16 @@ from the complete view, but Contract IR SHALL NOT claim that a newly constructed
 environment was itself the producer's checked result.
 
 For each selected object operation, Contract IR SHALL preserve its declaring
-object and original member identity, ordered parameter names and projected
-types, optional result type, and the QSL producer's declared effect, including
+object and original member identity, admission-retained ordered parameter names
+and projected types, admission-retained optional result type, and the QSL producer's declared effect, including
 an intentionally empty effect. It SHALL join the producer operation fact to
 the admission-retained selected document, object declaration and own operation
 member; inherited visibility SHALL NOT change that declaring owner or duplicate
 the operation as an own declaration on a subtype. Contract IR SHALL refuse a
 missing, foreign, duplicate or conflicting producer fact, mismatched owner or
-member, or unrepresentable signature or effect before exposing any partial
-type-declaration view. Contract IR SHALL compare the producer fact's ordered
-parameter names and projected types and optional result with the
-admission-retained operation signature, even when document, owner and member
-match, and SHALL return a typed conflicting-witness refusal for any difference
-before exposing a type-declaration view. It SHALL NOT derive an effect from an
+member, a producer row with no admission-retained own operation, or
+unrepresentable admission-retained signature or producer effect before exposing
+any partial type-declaration view. It SHALL NOT derive an effect from an
 operation name, callable frame, state/frame node or default empty effect. Until the QSL producer
 supplies the selected operation effect facts, an object with operations SHALL
 return typed unavailable-witness; the admitted model signature alone does not
@@ -175,7 +171,7 @@ typed outcomes.
 | FR-354-AC-8 | Public API and dependency inspection finds the runtime projections in IR model, no QSL `Scope`, `CheckedGraph`, evaluator, supplied-state admission or mirror expression type in IR, and no claimed success for a producer decision absent from the package. | Inspection |
 | FR-354-AC-9 | Captured protocol semantic location reads preserve the exact application, occurrence, per-term ordinal, closed origin and child path; two terms sharing one application occurrence remain distinct. Foreign, absent or non-application targets, missing source occurrences, duplicate keys and malformed origin or ordinal shapes refuse before admission. An absent sidecar and an absent selected row return distinct typed outcomes; a bounded read returns the complete borrowed row at its exact work limit and reports charged exhaustion one below without a partial value or source-region inference. | Test |
 | FR-354-AC-10 | A selected `Ledger` with own `pay` and `payTaxed` operations (the QSL `child_composite` signature pattern) exposes them in declaration order with their selected declaring owner and original member identities, ordered typed parameters, optional result and producer-declared effects, including an empty effect and a nonempty effect in the test case, sufficient for QSL `ObjectTypeDeclaration::with_operations`; inherited visibility does not change ownership or add an own operation to the subtype. | Test |
-| FR-354-AC-11 | A missing, foreign, duplicate or conflicting operation/effect fact, wrong owner/member, or unrepresentable signature/effect returns a named typed outcome without any partial declaration view; an admitted signature without the required producer effect fact refuses. A producer fact with matching document, owner and member but reordered or changed parameter names/types, or a changed optional result, returns typed conflicting-witness rather than an operation view. Repeated bounded reads of the admitted package and its clone agree, and a limit one below the charged work reports exhaustion without a partial view. | Test |
+| FR-354-AC-11 | A missing, foreign, duplicate or conflicting operation/effect fact, wrong document, owner or member, a producer row with no admission-retained own operation, or unrepresentable admission-retained signature or producer effect returns a named typed outcome without any partial declaration view; an admitted signature without the required producer effect fact refuses. The operation signature comes only from the admission-retained selected `OperationDecl`; the QSpec STD-640 producer effect row contains no parameter or result signature to compare. Repeated bounded reads of the admitted package and its clone agree, and a limit one below the charged work reports exhaustion without a partial view. | Test |
 
 ## Dependencies
 

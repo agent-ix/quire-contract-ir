@@ -88,6 +88,7 @@ fn encode(
             refinement_step_rows: None,
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            operation_effects: None,
             checked_term_data: None,
             temporal_bindings: None,
         },
