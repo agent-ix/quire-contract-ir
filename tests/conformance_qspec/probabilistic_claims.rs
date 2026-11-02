@@ -189,6 +189,7 @@ fn encode_producer(wire: &Value, sidecar: Option<&CheckedTermDataV2>) -> Vec<u8>
             refinement_step_rows: refinement_step_rows.as_deref(),
         },
         CheckedPackageSidecarsRef {
+            operation_effects: None,
             checked_term_data: sidecar,
             temporal_bindings: temporal_bindings.as_deref(),
             schedulability_claims: None,
@@ -326,6 +327,7 @@ fn published_probabilistic_claim_vectors_join_and_refuse() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         CheckedPackageSidecarsRef {
+            operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
             schedulability_claims: admitted.schedulability_claim_rows(),

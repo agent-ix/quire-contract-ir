@@ -1061,6 +1061,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     let wire = super::super::CheckedPackageWireV2 {
         temporal_bindings: None,
         schedulability_claims: None,
+        operation_effects: None,
         contract_version: raw.contract_version,
         name: raw.name,
         lock: raw.lock,

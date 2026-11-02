@@ -164,6 +164,8 @@ pub use checked_package::{
     CheckedMemberType, CheckedModelField, CheckedModelFieldsError, CheckedModelObjectFields,
     CheckedModelOperation, CheckedModelOperations, CheckedNodeId, CheckedNodeKind,
     CheckedNodeOwner, CheckedNodePathSegment, CheckedNodeProjectionV2, CheckedNodeTag,
+    CheckedOperationEffect, CheckedOperationEffectOrigin, CheckedOperationEffectProvenance,
+    CheckedOperationEffectRef, CheckedOperationEffectRow,
     CheckedOccurrence, CheckedOccurrenceRole, CheckedOperationModeView, CheckedOperationParameter,
     CheckedOperationReadError, CheckedOperationReadErrorCode, CheckedOperationViewError,
     CheckedOriginalDeclarationId, CheckedPackageDispatchResult, CheckedPackageEvidence,
@@ -213,9 +215,10 @@ pub use checked_package::{
     SelectedOperationMemberRow, SelectedOperationMembers, SelectedRecordFieldView,
     SelectedRecordView, SelectedSourceUnitRow, SelectedTupleDeclarationRow,
     SelectedTypeDeclarations, SelectedTypeDeclarationsError, SelectedTypeDimension,
-    SelectedTypeObject, SelectedTypeObjectField, SelectedTypeRecord, SelectedTypeTuple,
-    SelectedTypeUnit, StateForm, TemporalBinding, TemporalForm, TimedModelForm, ValueForm,
-    CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
+    SelectedTypeObject, SelectedTypeObjectField, SelectedTypeObjectOperation,
+    SelectedTypeOperationParameter, SelectedTypeRecord, SelectedTypeTuple, SelectedTypeUnit,
+    StateForm, TemporalBinding, TemporalForm, TimedModelForm, ValueForm, CHECKED_PACKAGE_V2,
+    CONTRACT_PACKAGE_VERSION,
 };
 
 pub use checked_package::CheckedFieldReadForm;
