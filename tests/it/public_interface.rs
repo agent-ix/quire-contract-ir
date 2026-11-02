@@ -1190,6 +1190,13 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
     let model = package("quire-contract-model");
     let exact = package("quire-exact");
     let ir = package("quire-contract-ir");
+    for package in [model, ir] {
+        assert!(
+            package["dependencies"].as_array().expect("declared dependencies")
+                .iter().all(|dependency| !qsl_package(dependency)),
+            "even disabled optional or developer dependencies must not introduce QSL into IR"
+        );
+    }
     let model_id = model["id"].as_str().expect("model package ID");
     let exact_id = exact["id"].as_str().expect("Exact package ID");
     let ir_id = ir["id"].as_str().expect("IR package ID");
