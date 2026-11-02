@@ -297,7 +297,8 @@ impl StructuralForm {
                 | TemporalForm::Window
                 | TemporalForm::Activation
                 | TemporalForm::Deadline
-                | TemporalForm::Terminal,
+                | TemporalForm::Terminal
+                | TemporalForm::MonitorPlan,
             ) => None,
             K::Protocol(
                 ProtocolForm::ProtocolClause

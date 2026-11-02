@@ -37,6 +37,7 @@ mod model_enum_witness;
 mod model_fields;
 mod model_members;
 mod model_root;
+mod monitor_plan;
 mod natural;
 mod node_index;
 mod operation_catalog;
@@ -112,6 +113,7 @@ pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
     CheckedModelObjectFields,
 };
+pub use monitor_plan::{CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef};
 pub use protocol_locations::CheckedProtocolLocationReadError;
 mod exact_projection;
 pub use exact_projection::{
@@ -848,6 +850,7 @@ pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
     schedulability_claim_index: Vec<(usize, usize)>,
+    monitor_plan_index: Vec<monitor_plan::Plan>,
     terms: Vec<CheckedTerm>,
     /// Admission-derived lookup; excluded from content equality.
     node_index: BTreeMap<CheckedNodeId, usize>,
@@ -1204,6 +1207,7 @@ impl CheckedPackageV2 {
         let ValidatedPackage {
             kinds,
             schedulability_claim_index,
+            monitor_plan_index,
             terms,
             models,
             lowering_facts,
@@ -1277,6 +1281,7 @@ impl CheckedPackageV2 {
             wire,
             kinds,
             schedulability_claim_index,
+            monitor_plan_index,
             terms,
             node_index,
             structural_keys,
@@ -1391,6 +1396,7 @@ fn check_package_header(wire: &RawCheckedPackageWireV2) -> Result<(), Validation
 struct ValidatedPackage {
     kinds: Vec<CheckedNodeKind>,
     schedulability_claim_index: Vec<(usize, usize)>,
+    monitor_plan_index: Vec<monitor_plan::Plan>,
     terms: Vec<CheckedTerm>,
     models: RetainedModels,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
@@ -1400,6 +1406,7 @@ struct ValidatedPackage {
 struct ValidatedGraph {
     kinds: Vec<CheckedNodeKind>,
     schedulability_claim_index: Vec<(usize, usize)>,
+    monitor_plan_index: Vec<monitor_plan::Plan>,
     terms: Vec<CheckedTerm>,
     declarations: DeclarationIndex,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
@@ -1425,6 +1432,7 @@ fn validate(
     let ValidatedGraph {
         kinds,
         schedulability_claim_index,
+        monitor_plan_index,
         terms,
         declarations,
         lowering_facts,
@@ -1466,6 +1474,7 @@ fn validate(
     Ok(ValidatedPackage {
         kinds,
         schedulability_claim_index,
+        monitor_plan_index,
         terms,
         models,
         lowering_facts,
@@ -2057,7 +2066,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | TemporalForm::Window
             | TemporalForm::Activation
             | TemporalForm::Deadline
-            | TemporalForm::Terminal,
+            | TemporalForm::Terminal
+            | TemporalForm::MonitorPlan,
         ) => true,
         K::Protocol(ProtocolForm::ProtocolReference) => true,
         K::Protocol(
@@ -2369,7 +2379,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | TemporalForm::Window
             | TemporalForm::Activation
             | TemporalForm::Deadline
-            | TemporalForm::Terminal,
+            | TemporalForm::Terminal
+            | TemporalForm::MonitorPlan,
         ) => BodyGrammar::Term,
         K::Protocol(
             ProtocolForm::ProtocolClause
@@ -2764,6 +2775,24 @@ fn validate_graph(
                 }
             }
         }
+        if kind == CheckedNodeKind::Temporal(TemporalForm::MonitorPlan) {
+            if node.owner.is_some() {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at("owner"),
+                ));
+            }
+            if let Some(i) = node
+                .occurrences
+                .iter()
+                .position(|o| o.role != CheckedOccurrenceRole::Generated)
+            {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::InvalidSourceMap,
+                    at("occurrences").index(i),
+                ));
+            }
+        }
         kinds.push(kind);
         validate_declaration(kind, &node.occurrences, node.declaration.as_ref(), position)?;
         validate_node_id(&node.semantic_type, || at("semantic_type"))?;
@@ -2938,6 +2967,13 @@ fn validate_graph(
             ));
         }
     }
+    monitor_plan::validate_dependencies(
+        &graph.nodes,
+        &kinds,
+        &references,
+        &index,
+        structural_keys,
+    )?;
     refinement::validate_dependencies(&graph.nodes, &kinds, &terms, &index, structural_keys)?;
     let imported_nominals = validate_nominal_nodes(
         &graph.nodes,
@@ -2981,6 +3017,44 @@ fn validate_graph(
         &owners,
         &wire.lock,
         &wire.diagnostics.entries,
+        meter,
+    )?;
+    if kinds.contains(&CheckedNodeKind::Temporal(TemporalForm::MonitorPlan)) {
+        validate_source_map_entries(
+            graph
+                .nodes
+                .iter()
+                .map(|node| (&node.node_id, node.occurrences.as_slice())),
+            &wire.source_map,
+            &wire.lock.sources,
+            limits,
+        )?;
+    }
+    let early_operation_views =
+        if kinds.contains(&CheckedNodeKind::Temporal(TemporalForm::MonitorPlan)) {
+            Some(validate_operations(
+                &graph.nodes,
+                &kinds,
+                OperationNodeOrder {
+                    wire_index: &index,
+                    structural_keys,
+                },
+                &terms,
+                &wire.lock,
+                &owners,
+                dependencies,
+                meter,
+            )?)
+        } else {
+            None
+        };
+    let monitor_plan_index = monitor_plan::validate(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+        models,
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, meter)?;
@@ -3136,19 +3210,22 @@ fn validate_graph(
         &owners,
         meter,
     )?;
-    let admitted_views = validate_operations(
-        &graph.nodes,
-        &kinds,
-        OperationNodeOrder {
-            wire_index: &index,
-            structural_keys,
-        },
-        &terms,
-        &wire.lock,
-        &owners,
-        dependencies,
-        meter,
-    )?;
+    let admitted_views = match early_operation_views {
+        Some(views) => views,
+        None => validate_operations(
+            &graph.nodes,
+            &kinds,
+            OperationNodeOrder {
+                wire_index: &index,
+                structural_keys,
+            },
+            &terms,
+            &wire.lock,
+            &owners,
+            dependencies,
+            meter,
+        )?,
+    };
     for (position, views) in admitted_views {
         let Some(Some(CheckedTerm::Application { operation, .. })) = terms.get_mut(position) else {
             return Err(refuse(
@@ -3286,6 +3363,7 @@ fn validate_graph(
     Ok(ValidatedGraph {
         kinds,
         schedulability_claim_index,
+        monitor_plan_index,
         terms,
         declarations,
         lowering_facts,
@@ -4025,6 +4103,7 @@ mod tests {
                 let wire = tc_451_private_owned_wire();
                 let package = super::CheckedPackageV2 {
                     schedulability_claim_index: Vec::new(),
+                    monitor_plan_index: Vec::new(),
                     node_index: Default::default(),
                     structural_keys: keys,
                     source_index: Default::default(),

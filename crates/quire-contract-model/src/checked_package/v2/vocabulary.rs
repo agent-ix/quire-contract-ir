@@ -276,6 +276,7 @@ closed_vocabulary! {
         Activation => "activation",
         Deadline => "deadline",
         Terminal => "terminal",
+        MonitorPlan => "monitor_plan",
     }
 }
 

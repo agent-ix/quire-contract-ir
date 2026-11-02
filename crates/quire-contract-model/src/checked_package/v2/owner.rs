@@ -28,6 +28,7 @@ fn requirement(
     body: &Value,
     self_typed: bool,
     owner: Option<&CheckedNodeOwner>,
+    monitor_entry: bool,
 ) -> OwnerRequirement {
     if kind == Some(CheckedNodeKind::Model(super::ModelForm::ModelRoot)) {
         return OwnerRequirement::ModelRoot;
@@ -45,6 +46,18 @@ fn requirement(
     if declaration.is_some() {
         return OwnerRequirement::Source;
     }
+    // Only complete ordinary pure-function bodies are owner-free outside a
+    // monitor. Candidate entries defer their closed body/signature refusal to
+    // the plan step, which also owns a wrong function kind at its binding.
+    if owner.is_none()
+        && matches!(kind, Some(CheckedNodeKind::Function(_)))
+        && (monitor_entry
+            || (kind == Some(CheckedNodeKind::Function(super::FunctionForm::PureFunction))
+                && super::monitor_plan::anonymous_body_shape(body)))
+    {
+        return OwnerRequirement::None;
+    }
+
     if matches!(
         kind,
         Some(CheckedNodeKind::ScalarType(
@@ -113,6 +126,7 @@ fn check_one(
 
 /// Checks owner presence and variant before package identity validation.
 pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
+    let monitor_entries = super::monitor_plan::entry_candidates(&wire.semantic_graph.nodes);
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         let kind = CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form));
@@ -153,6 +167,7 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
                 &node.body,
                 node.semantic_type == node.node_id,
                 node.owner.as_ref(),
+                monitor_entries.contains(&node.node_id),
             ),
             node.owner.as_ref(),
             node_pointer(position),

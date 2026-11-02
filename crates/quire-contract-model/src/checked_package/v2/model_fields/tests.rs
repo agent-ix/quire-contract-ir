@@ -1086,6 +1086,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     Fixture {
         package: CheckedPackageV2 {
             schedulability_claim_index: Vec::new(),
+            monitor_plan_index: Vec::new(),
             node_index: super::super::retained_node_index(&wire),
             structural_keys: Vec::new(),
             source_index: super::super::retained_source_index(&wire),

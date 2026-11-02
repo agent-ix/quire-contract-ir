@@ -21,6 +21,13 @@ name = "selected_population_public"
 path = "tests/selected_population_public.rs"
 test = false
 
+# By-reference consumer qualification needs the selected QSpec checkout and
+# runs explicitly with conformance-qspec, outside ordinary workspace tests.
+[[test]]
+name = "monitor_plan_public"
+path = "tests/monitor_plan_public.rs"
+test = false
+
 [features]
 # Test-only deterministic allocation-failure injection for the output-mapping
 # pipeline. Outside the stable surface (FR-019); enabled only by the root
