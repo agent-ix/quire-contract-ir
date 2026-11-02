@@ -2603,15 +2603,17 @@ IR-1141 replaces content-key authentication with structural node identities;
 owner joining remains an independent admission step.
 
 The optional `owner` member of `CheckedSemanticNodeV2` has QSpec FR-322's closed `NodeOwner` shape:
-`SourceOwner` `{kind: "source", authority, identity}` or `ModelOwner`
-`{kind: "model", identity, node}`. The owner is part of the node's declared meaning; changing it can change
+`SourceOwner` `{kind: "source", authority, identity}`, `ModelOwner`
+`{kind: "model", identity, node}` or `ModelRootOwner` `{kind: "model_root", identity}`.
+The owner is part of the node's declared meaning; changing it can change
 its structural package or path and always requires the owner join to be checked.
-A node is structural for this presence rule when it is not an application. Every declared structural node, including a declared `model`/`event_type`, SHALL carry the declaring
-unit's `SourceOwner`. An undeclared `model`/`object_type`, `model`/`event_type`,
-`model`/`systems_interface`, `relation`/`relationship`,
-`relation`/`population` or `function` node
-SHALL carry its `ModelOwner`. Every other node SHALL omit `owner`: this
-includes anonymous types, undeclared values and parameters, nominal nodes with their own closed owner rule and application nodes. A
+A node is structural for this presence rule when it belongs to no recursion group
+and its body is not an application. The reader SHALL apply QSpec FR-322's entire
+`OwnerPresenceRule` table: a structural node with `declaration`, including a
+declared `model`/`event_type`, requires `SourceOwner`; a structural
+`model`/`event_type` without `declaration` requires `ModelOwner`. The table also
+specifies the other source-owned and model-owned forms, `model`/`model_root`
+with `ModelRootOwner`, and the forms on which `owner` must be absent. A
 `DefinitionOwner` is not a node owner. The reader SHALL derive no missing
 owner from occurrences, the source map, the lock, or node position.
 
@@ -2629,7 +2631,8 @@ pair; a mismatch SHALL refuse `invalid_package`/`invalid-value` at the
 occurrence's source-map entry, even when the other source is lock-selected.
 A `ModelOwner` SHALL match a `model_root` owner by `identity`, and
 its `node` SHALL resolve in that package's admitted document to the kind
-the node represents: `model`/`object_type` requires an object type without
+the node represents: `model`/`event_type` requires an event type,
+`model`/`object_type` requires an object type without
 `interfaceFeatures`, `model`/`systems_interface` requires an object type with
 `interfaceFeatures`, `relation`/`relationship` requires a relationship, and
 `relation`/`population` requires a raw population record whose `identity` is
