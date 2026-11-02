@@ -8,10 +8,10 @@ use super::model_members::{DeclarationForm, MemberType};
 use super::nominal_reads::{NominalDeclarationRow, NominalIdentity, NominalReadCode};
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedNodePathSegment,
-    CheckedOperationEffect, CheckedOperationEffectProvenance, CheckedPackageV2,
-    CheckedRational, DimensionTerm, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
-    ScalarTypeForm, SelectedExactIdentities, SelectedExactIdentity, SelectedRecordView,
-    SelectedSourceUnitRow, SelectedTupleDeclarationRow,
+    CheckedOperationEffect, CheckedOperationEffectProvenance, CheckedPackageV2, CheckedRational,
+    DimensionTerm, ExactTypeProjectionError, ExactTypeProjectionErrorCode, ScalarTypeForm,
+    SelectedExactIdentities, SelectedExactIdentity, SelectedRecordView, SelectedSourceUnitRow,
+    SelectedTupleDeclarationRow,
 };
 use quire_exact::{EffectiveId, NodeKey, PathSegmentView, Presence, UnitId, ValueType};
 use std::collections::{BTreeMap, BTreeSet};

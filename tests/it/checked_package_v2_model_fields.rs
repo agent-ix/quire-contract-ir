@@ -922,7 +922,7 @@ fn selected_runtime_types_refuse_unprojected_object_redefinition() {
     assert_eq!(error.form.as_ref(), "object_field_redefinition");
 }
 
-/// An object's operations need admitted callable facts before a type view can succeed.
+/// An object's own operations need admitted effect facts before a type view can succeed.
 #[test]
 fn selected_runtime_types_refuse_object_operations_without_callable_facts() {
     let mut operated = object("Runner", &[], &[]);
@@ -953,9 +953,9 @@ fn selected_runtime_types_refuse_object_operations_without_callable_facts() {
         .expect_err("operation-bearing object cannot yield a partial type view");
     assert_eq!(
         error.code,
-        ExactTypeProjectionErrorCode::UnsupportedExactType
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
     );
-    assert_eq!(error.form.as_ref(), "object_operations");
+    assert_eq!(error.form.as_ref(), "object_operation_effect");
 }
 
 /// A selected tuple needs its producer's tuple identity row.
