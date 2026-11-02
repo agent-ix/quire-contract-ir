@@ -176,6 +176,8 @@ pub(super) fn check(
             BodyGrammar::Term => {
                 if kind == CheckedNodeKind::Claim(super::ClaimForm::StepRelation) {
                     scan_members(&node.body, &at).map(|_| ())
+                } else if kind == CheckedNodeKind::Claim(super::ClaimForm::Schedulability) {
+                    check_term_with_empty_leaf(&node.body, &at, Place::BodyRoot, false, true)
                 } else if kind == CheckedNodeKind::State(super::StateForm::OperationAnchor) {
                     check_anchor_flat_wire(&node.body, &at)
                 } else if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
@@ -539,9 +541,21 @@ fn check_term(
     place: Place,
     details: bool,
 ) -> Result<(), ValidationFailure> {
+    check_term_with_empty_leaf(root, at, place, details, false)
+}
+
+// FR-482 task records additionally use an empty aggregate for absent HI work
+// and priority. It is a terminal leaf here, so the ordinary flat bound remains.
+fn check_term_with_empty_leaf(
+    root: &Value,
+    at: &Trail<'_>,
+    place: Place,
+    details: bool,
+    empty_leaf: bool,
+) -> Result<(), ValidationFailure> {
     let cursor = Cursor::at(at);
     let node = cursor.root(root, place);
-    match walk(&mut Flat { cursor, details }, node) {
+    match walk(&mut Flat { cursor, details, empty_leaf }, node) {
         ControlFlow::Continue(()) => Ok(()),
         ControlFlow::Break(failure) => Err(failure),
     }
@@ -623,6 +637,7 @@ impl<'a> Walk for Scan<'a> {
 struct Flat<'a> {
     cursor: Cursor<'a>,
     details: bool,
+    empty_leaf: bool,
 }
 
 impl<'a> Walk for Flat<'a> {
@@ -654,6 +669,9 @@ impl<'a> Walk for Flat<'a> {
                 Place::BodyRoot => Place::Member,
                 Place::Member | Place::TupleMember => Place::GroupMember,
                 Place::BindingValue => aggregate_stratum(value),
+                Place::LeafOnly if self.empty_leaf && wire.array(crate::checked_package::common::TermField::Members).is_some_and(<[Value]>::is_empty) => {
+                    return ControlFlow::Continue(());
+                }
                 Place::GroupMember | Place::LeafOnly => {
                     return ControlFlow::Break(self.outside_grammar());
                 }
