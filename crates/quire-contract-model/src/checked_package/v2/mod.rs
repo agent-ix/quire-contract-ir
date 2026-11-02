@@ -95,8 +95,9 @@ pub use contract_package::{
 };
 pub use dispatch_projection::{CheckedDispatchReadError, CheckedDispatchView};
 pub use equality_projection::{
-    AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, EqualityWitnessKind,
-    SelectedEqualityApplicationRow,
+    AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, EqualityDimensionRole,
+    EqualityFactWitness, EqualityOperandTypeRole, EqualityUnitRole, EqualityWitnessKind,
+    SelectedEqualityApplicationRow, SelectedEqualityFactRow,
 };
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;
@@ -2827,9 +2828,10 @@ fn validate_graph(
         &terms,
         &index,
         structural_keys,
+        Some(models),
     )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
-    validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index)?;
+    validate_derived_type_shapes(&graph.nodes, &kinds, &terms, &index, models)?;
     validate_selected_type_bounds(models, &terms, structural_keys)?;
     for &position in index.values() {
         if !matches!(

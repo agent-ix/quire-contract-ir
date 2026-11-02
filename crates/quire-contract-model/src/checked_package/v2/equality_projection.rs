@@ -7,8 +7,8 @@ use super::extension::integer_range_bounds;
 use super::operations::is_type_shaped;
 use super::{
     ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
-    CheckedResolvedEqualityUnitForm, CheckedTerm, ExpressionForm, RawCheckedPackageWireV2,
-    ScalarTypeForm, WorkMeter,
+    CheckedResolvedEqualityUnitForm, CheckedTerm, ExpressionForm, ModelForm,
+    RawCheckedPackageWireV2, ScalarTypeForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -16,12 +16,13 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
 use quire_exact::{
-    Integer, IntegerInterval, LimitKind, Location, Meter, NodeKey, ScalarLimits, TextProfile,
-    TextType, UnitId, ValueType,
+    Integer, IntegerInterval, LimitKind, Location, Meter, NodeKey, Rational, ScalarLimits,
+    TextProfile, TextType, UnitId, ValueType, VariantId,
 };
 use quire_semantic_value::declaration::{
-    AdmittedEqualityDecision, EqualityDecisionDescriptor, EqualityOperand, EqualityOperator,
-    EqualitySchedule,
+    AdmittedEqualityDecision, EqualityDecisionDescriptor, EqualityEnumDeclarationDescriptor,
+    EqualityEnumMemberDescriptor, EqualityOperand, EqualityOperator, EqualitySchedule,
+    EqualityUnitDescriptor, EqualityUnitEdgeDescriptor, EqualityUnitForm,
 };
 use quire_semantic_value::reader_admission::{
     mint_admitted_equality_decision, EqualityMaterializationError, ReaderSeal,
@@ -254,6 +255,124 @@ pub struct SelectedEqualityApplicationRow {
     pub location: Location,
 }
 
+/// One QSL-selected equality fact joined to its emitted structural node.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedEqualityFactRow {
+    /// Exact application identity retained by the producer.
+    pub application: NodeKey,
+    /// Emitted application node.
+    pub checked_application: CheckedNodeId,
+    /// Emitted application occurrence.
+    pub occurrence: CheckedOccurrence,
+    /// Source-map correspondence for that occurrence.
+    pub source_map_entry: CheckedSourceMapEntry,
+    /// Original key of this fact's structural node.
+    pub structural_key: NodeKey,
+    /// Emitted structural node of this fact.
+    pub structural_node: CheckedNodeId,
+    /// Owner of the emitted structural node, if present.
+    pub owner: Option<CheckedNodeOwner>,
+    /// Checker-held Exact type for a typed operand or comparison fact.
+    pub value_type: Option<ValueType>,
+    /// The producer's selected fact and role.
+    pub fact: EqualityFactWitness,
+}
+
+/// A QSL-selected fact used by an admitted equality decision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EqualityFactWitness {
+    /// Source or conversion-target operand type.
+    OperandType {
+        position: usize,
+        role: EqualityOperandTypeRole,
+    },
+    /// Resolved unit and its quantity type.
+    Unit {
+        unit_id: UnitId,
+        quantity_type: CheckedNodeId,
+        operand_position: usize,
+        role: EqualityUnitRole,
+    },
+    /// A dimension declaration in a resolved unit's identity closure.
+    DimensionDeclaration {
+        unit_id: UnitId,
+        operand_position: usize,
+        role: EqualityDimensionRole,
+        ordinal: usize,
+    },
+    /// An ordered direct term of a declared dimension.
+    DimensionTerm {
+        unit_id: UnitId,
+        operand_position: usize,
+        ordinal: usize,
+        base: NodeKey,
+        base_node: CheckedNodeId,
+        exponent: Box<str>,
+    },
+    /// An ordered conversion edge to another declared unit.
+    ConversionEdge {
+        unit_id: UnitId,
+        operand_position: usize,
+        ordinal: usize,
+        target: NodeKey,
+        target_node: CheckedNodeId,
+        scale: super::CheckedRational,
+        offset: super::CheckedRational,
+    },
+    /// Compared Text or Plan type.
+    TextPlanType {
+        position: usize,
+        role: EqualityOperandTypeRole,
+    },
+    /// One selected enum member and its exact source and lowered identities.
+    EnumMember {
+        source_declaration: NodeKey,
+        source_declaration_node: CheckedNodeId,
+        declaration: NodeKey,
+        declaration_node: CheckedNodeId,
+        member: NodeKey,
+        member_node: CheckedNodeId,
+        case: Box<str>,
+        ordinal: usize,
+        ordered: bool,
+    },
+}
+
+/// Source or selected conversion-target role for an equality type fact.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EqualityOperandTypeRole {
+    Source,
+    ConversionTarget,
+}
+
+/// Source or conversion-target role for a selected resolved unit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EqualityUnitRole {
+    Source,
+    ConversionTarget,
+}
+
+fn unit_role(role: EqualityOperandTypeRole) -> EqualityUnitRole {
+    match role {
+        EqualityOperandTypeRole::Source => EqualityUnitRole::Source,
+        EqualityOperandTypeRole::ConversionTarget => EqualityUnitRole::ConversionTarget,
+    }
+}
+
+struct OperandFactSelection {
+    position: usize,
+    role: EqualityOperandTypeRole,
+}
+
+/// Role of a dimension declaration retained for a resolved unit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EqualityDimensionRole {
+    UnitDimension,
+    ConversionDimension,
+    CompoundBase,
+    BaseDimension,
+}
+
 impl SelectedEqualityApplicationRow {
     /// Carry the producer's full application correspondence.
     pub fn new(
@@ -442,6 +561,61 @@ fn missing_witness(
     error
 }
 
+fn selected_fact<'a>(
+    package: &CheckedPackageV2,
+    application: &CheckedNodeId,
+    application_row: &SelectedEqualityApplicationRow,
+    rows: &'a [SelectedEqualityFactRow],
+    at: &CheckedNodeId,
+    kind: EqualityWitnessKind,
+    predicate: impl Fn(&EqualityFactWitness) -> bool,
+    work: &mut ReadWork,
+) -> Result<&'a SelectedEqualityFactRow, AdmittedEqualityReadError> {
+    let mut found = None;
+    for row in rows {
+        work.charge(application, &row.structural_node)?;
+        if row.checked_application != *application || row.occurrence != application_row.occurrence {
+            continue;
+        }
+        if row.structural_node.package != package.wire.name {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::ForeignEqualityWitness,
+                application,
+                &row.structural_node,
+                work.consumed,
+                0,
+            ));
+        }
+        if row.application != application_row.node_key
+            || row.source_map_entry != application_row.source_map_entry
+            || package
+                .node(&row.structural_node)
+                .is_none_or(|node| node.owner != row.owner)
+        {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                &row.structural_node,
+                work.consumed,
+                0,
+            ));
+        }
+        if predicate(&row.fact) && row.structural_node == *at {
+            if found.is_some() {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::DuplicateEqualityWitness,
+                    application,
+                    at,
+                    work.consumed,
+                    0,
+                ));
+            }
+            found = Some(row);
+        }
+    }
+    found.ok_or_else(|| missing_witness(application, at, kind, work))
+}
+
 fn exact_type(
     package: &CheckedPackageV2,
     application: &CheckedNodeId,
@@ -529,17 +703,251 @@ fn exact_type(
     }
 }
 
+fn operand_type(
+    package: &CheckedPackageV2,
+    application: &CheckedNodeId,
+    application_row: &SelectedEqualityApplicationRow,
+    decision: &super::CheckedEqualityDecision,
+    rows: &[SelectedEqualityFactRow],
+    type_id: &CheckedNodeId,
+    selection: OperandFactSelection,
+    work: &mut ReadWork,
+) -> Result<ValueType, AdmittedEqualityReadError> {
+    let witness = match decision.schedule {
+        super::CheckedEqualitySchedule::Text => EqualityWitnessKind::TextType,
+        super::CheckedEqualitySchedule::Enum => EqualityWitnessKind::EnumDeclaration,
+        super::CheckedEqualitySchedule::Quantity => EqualityWitnessKind::QuantityType,
+        super::CheckedEqualitySchedule::Plan => EqualityWitnessKind::PlanType,
+    };
+    let primitive_plan = if decision.schedule == super::CheckedEqualitySchedule::Plan {
+        match exact_type(package, application, type_id, work) {
+            Ok(value) => Some(value),
+            Err(error)
+                if error.code == AdmittedEqualityReadErrorCode::UnavailableEqualityWitness =>
+            {
+                None
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        None
+    };
+    let OperandFactSelection { position, role } = selection;
+    let mut has_fact = false;
+    for row in rows {
+        work.charge(application, &row.structural_node)?;
+        if row.checked_application == *application
+            && row.structural_node == *type_id
+            && matches!(row.fact, EqualityFactWitness::OperandType { position: p, role: r }
+            if p == position && r == role)
+        {
+            has_fact = true;
+        }
+    }
+    if !has_fact {
+        if let Some(projected) = primitive_plan.as_ref() {
+            return Ok(projected.clone());
+        }
+    }
+    let operand_row = selected_fact(
+        package,
+        application,
+        application_row,
+        rows,
+        type_id,
+        witness,
+        |fact| {
+            matches!(fact, EqualityFactWitness::OperandType { position: p, role: r }
+            if *p == position && *r == role)
+        },
+        work,
+    )?;
+    let value = operand_row
+        .value_type
+        .as_ref()
+        .ok_or_else(|| missing_witness(application, type_id, witness, work))?;
+    if decision.schedule == super::CheckedEqualitySchedule::Text
+        && (!matches!(value, ValueType::Text(_))
+            || !matches!(
+                package.node_kind(type_id),
+                Some(
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Text)
+                        | CheckedNodeKind::BoundedDomain(BoundedDomainForm::TextBounds)
+                )
+            ))
+    {
+        return Err(read_error(
+            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+            application,
+            type_id,
+            work.consumed,
+            0,
+        ));
+    }
+    if decision.schedule == super::CheckedEqualitySchedule::Text
+        && package.node_kind(type_id)
+            == Some(CheckedNodeKind::BoundedDomain(
+                BoundedDomainForm::TextBounds,
+            ))
+        && exact_type(package, application, type_id, work)? != *value
+    {
+        return Err(read_error(
+            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+            application,
+            type_id,
+            work.consumed,
+            0,
+        ));
+    }
+    if let Some(projected) = primitive_plan {
+        if projected != *value {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                type_id,
+                work.consumed,
+                0,
+            ));
+        }
+    }
+    if matches!(
+        decision.schedule,
+        super::CheckedEqualitySchedule::Text | super::CheckedEqualitySchedule::Plan
+    ) && (role == EqualityOperandTypeRole::ConversionTarget
+        || [&decision.left, &decision.right][position]
+            .conversion_target
+            .is_none())
+    {
+        let type_row = selected_fact(
+            package,
+            application,
+            application_row,
+            rows,
+            type_id,
+            witness,
+            |fact| {
+                matches!(fact, EqualityFactWitness::TextPlanType { position: p, role: r }
+                if *p == position && *r == role)
+            },
+            work,
+        )?;
+        if type_row.structural_key != operand_row.structural_key
+            || type_row.value_type.as_ref() != Some(value)
+        {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                type_id,
+                work.consumed,
+                0,
+            ));
+        }
+    }
+    if decision.schedule == super::CheckedEqualitySchedule::Quantity {
+        let unit_row = selected_fact(
+            package,
+            application,
+            application_row,
+            rows,
+            type_id,
+            EqualityWitnessKind::QuantityType,
+            |fact| {
+                matches!(fact, EqualityFactWitness::Unit { quantity_type, operand_position, role: r, .. }
+                if quantity_type == type_id && *operand_position == position && *r == unit_role(role))
+            },
+            work,
+        )?;
+        let EqualityFactWitness::Unit { unit_id, .. } = &unit_row.fact else {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                type_id,
+                work.consumed,
+                0,
+            ));
+        };
+        let mut selected_unit = false;
+        for unit in &decision.units {
+            work.charge(application, &unit.unit)?;
+            if unit.quantity_type == *type_id && unit.unit == unit_row.structural_node {
+                selected_unit = true;
+            }
+        }
+        if value != &ValueType::Quantity(unit_id.clone()) || !selected_unit {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                type_id,
+                work.consumed,
+                0,
+            ));
+        }
+    }
+    if let ValueType::Composite(key) = value {
+        if &operand_row.structural_key != key
+            || !matches!(
+                package.node_kind(type_id),
+                Some(
+                    CheckedNodeKind::CompositeType(_)
+                        | CheckedNodeKind::Model(
+                            ModelForm::RecordValueType
+                                | ModelForm::TupleValueType
+                                | ModelForm::VariantType
+                        )
+                )
+            )
+        {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                type_id,
+                work.consumed,
+                0,
+            ));
+        }
+    }
+    Ok(value.clone())
+}
+
 fn operand(
     package: &CheckedPackageV2,
     application: &CheckedNodeId,
+    application_row: &SelectedEqualityApplicationRow,
+    decision: &super::CheckedEqualityDecision,
+    rows: &[SelectedEqualityFactRow],
     selected: &super::CheckedEqualityOperandDecision,
+    position: usize,
     work: &mut ReadWork,
 ) -> Result<EqualityOperand, AdmittedEqualityReadError> {
-    let source = exact_type(package, application, &selected.source_type, work)?;
+    let source = operand_type(
+        package,
+        application,
+        application_row,
+        decision,
+        rows,
+        &selected.source_type,
+        OperandFactSelection {
+            position,
+            role: EqualityOperandTypeRole::Source,
+        },
+        work,
+    )?;
     match &selected.conversion_target {
         Some(target) => Ok(EqualityOperand::converted(
             source,
-            exact_type(package, application, target, work)?,
+            operand_type(
+                package,
+                application,
+                application_row,
+                decision,
+                rows,
+                target,
+                OperandFactSelection {
+                    position,
+                    role: EqualityOperandTypeRole::ConversionTarget,
+                },
+                work,
+            )?,
         )),
         None => Ok(EqualityOperand::typed(source)),
     }
@@ -593,15 +1001,16 @@ fn materialization_refusal(
 fn join_source_unit(
     package: &CheckedPackageV2,
     application: &CheckedNodeId,
-    unit: &super::CheckedResolvedEqualityUnit,
+    unit_node: &CheckedNodeId,
+    expected_id: &UnitId,
     rows: &[SelectedSourceUnitRow],
     work: &mut ReadWork,
 ) -> Result<(), AdmittedEqualityReadError> {
-    work.charge(application, &unit.unit)?;
-    let Some(node) = package.node(&unit.unit) else {
+    work.charge(application, unit_node)?;
+    let Some(node) = package.node(unit_node) else {
         return Err(missing_witness(
             application,
-            &unit.unit,
+            unit_node,
             EqualityWitnessKind::SourceUnit,
             work,
         ));
@@ -612,7 +1021,7 @@ fn join_source_unit(
     } = node.owner.as_ref().ok_or_else(|| {
         missing_witness(
             application,
-            &unit.unit,
+            unit_node,
             EqualityWitnessKind::QuantityType,
             work,
         )
@@ -620,7 +1029,7 @@ fn join_source_unit(
     else {
         return Err(missing_witness(
             application,
-            &unit.unit,
+            unit_node,
             EqualityWitnessKind::QuantityType,
             work,
         ));
@@ -637,12 +1046,12 @@ fn join_source_unit(
                 0,
             ));
         }
-        if row.structural_node == unit.unit {
+        if row.structural_node == *unit_node {
             if found.is_some() {
                 return Err(read_error(
                     AdmittedEqualityReadErrorCode::DuplicateEqualityWitness,
                     application,
-                    &unit.unit,
+                    unit_node,
                     work.consumed,
                     0,
                 ));
@@ -653,22 +1062,26 @@ fn join_source_unit(
     let row = found.ok_or_else(|| {
         missing_witness(
             application,
-            &unit.unit,
+            unit_node,
             EqualityWitnessKind::SourceUnit,
             work,
         )
     })?;
     let mut selected_source = false;
     for source in &package.lock().sources {
-        work.charge(application, &unit.unit)?;
+        work.charge(application, unit_node)?;
         if source.authority == *authority && source.identity == *identity {
             selected_source = true;
         }
     }
-    for _ in &row.qualified_declaration {
-        work.charge(application, &unit.unit)?;
+    for segment in &row.qualified_declaration {
+        work.charge_amount(
+            application,
+            unit_node,
+            u64::try_from(segment.len()).unwrap_or(u64::MAX),
+        )?;
     }
-    if package.node_kind(&unit.unit) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+    if package.node_kind(unit_node) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
         || &row.source_authority != authority
         || &row.source_identity != identity
         || !selected_source
@@ -676,9 +1089,310 @@ fn join_source_unit(
             .declaration
             .as_ref()
             .is_none_or(|declaration| declaration.qualified_name != row.qualified_declaration)
-        || !matches!(row.unit_id, UnitId::Declared(_))
-        || !matches!(unit.form, CheckedResolvedEqualityUnitForm::Declared { .. })
+        || row.unit_id != *expected_id
+        || !matches!(expected_id, UnitId::Declared(_))
     {
+        return Err(read_error(
+            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+            application,
+            unit_node,
+            work.consumed,
+            0,
+        ));
+    }
+    Ok(())
+}
+
+fn join_compound_root(
+    package: &CheckedPackageV2,
+    application: &CheckedNodeId,
+    root: &CheckedNodeId,
+    key: &NodeKey,
+    source_rows: &[SelectedSourceUnitRow],
+    work: &mut ReadWork,
+) -> Result<(), AdmittedEqualityReadError> {
+    work.charge(application, root)?;
+    let owner = package.node(root).and_then(|node| node.owner.as_ref());
+    match owner {
+        Some(CheckedNodeOwner::Source { .. }) => join_source_unit(
+            package,
+            application,
+            root,
+            &UnitId::declared(key.clone()),
+            source_rows,
+            work,
+        ),
+        Some(CheckedNodeOwner::Model { identity, node }) => {
+            let mut selected = false;
+            for model in package.models.selected_models() {
+                work.charge(application, root)?;
+                if model.identity == *identity && model.units.contains_key(node) {
+                    selected = true;
+                }
+            }
+            if package.node_kind(root) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+                && selected
+            {
+                Ok(())
+            } else {
+                Err(missing_witness(
+                    application,
+                    root,
+                    EqualityWitnessKind::QuantityType,
+                    work,
+                ))
+            }
+        }
+        _ => Err(missing_witness(
+            application,
+            root,
+            EqualityWitnessKind::QuantityType,
+            work,
+        )),
+    }
+}
+
+fn checked_rational(
+    value: &super::CheckedRational,
+    application: &CheckedNodeId,
+    at: &CheckedNodeId,
+    work: &mut ReadWork,
+) -> Result<Rational, AdmittedEqualityReadError> {
+    work.charge_amount(
+        application,
+        at,
+        u64::try_from(
+            value
+                .numerator
+                .len()
+                .saturating_add(value.denominator.len()),
+        )
+        .unwrap_or(u64::MAX),
+    )?;
+    let numerator: Integer = value.numerator.parse().map_err(|_| {
+        read_error(
+            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+            application,
+            at,
+            work.consumed,
+            0,
+        )
+    })?;
+    let denominator: Integer = value.denominator.parse().map_err(|_| {
+        read_error(
+            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+            application,
+            at,
+            work.consumed,
+            0,
+        )
+    })?;
+    Rational::new(numerator, denominator).map_err(|_| {
+        read_error(
+            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+            application,
+            at,
+            work.consumed,
+            0,
+        )
+    })
+}
+
+fn validate_dimension_terms(
+    package: &CheckedPackageV2,
+    application: &CheckedNodeId,
+    application_row: &SelectedEqualityApplicationRow,
+    unit_id: &UnitId,
+    operand_position: usize,
+    rows: &[SelectedEqualityFactRow],
+    work: &mut ReadWork,
+) -> Result<(), AdmittedEqualityReadError> {
+    let mut seen = BTreeSet::new();
+    for declaration in rows {
+        work.charge(application, &declaration.structural_node)?;
+        if declaration.checked_application != *application
+            || !matches!(&declaration.fact,
+                EqualityFactWitness::DimensionDeclaration { unit_id: id, operand_position: position, .. }
+                if id == unit_id && *position == operand_position)
+            || !seen.insert(declaration.structural_node.clone())
+        {
+            continue;
+        }
+        let body = match package.term(&declaration.structural_node) {
+            Some(CheckedTerm::NominalBody(body)) => body,
+            Some(_)
+                if matches!(
+                    package
+                        .node(&declaration.structural_node)
+                        .and_then(|node| node.owner.as_ref()),
+                    Some(CheckedNodeOwner::Model { .. })
+                ) =>
+            {
+                continue
+            }
+            _ => {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &declaration.structural_node,
+                    work.consumed,
+                    0,
+                ))
+            }
+        };
+        let Some(terms) = body.dimension_details() else {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                &declaration.structural_node,
+                work.consumed,
+                0,
+            ));
+        };
+        for (ordinal, term) in terms.iter().enumerate() {
+            work.charge(application, &term.dimension_node_id)?;
+            work.charge_amount(
+                application,
+                &declaration.structural_node,
+                u64::try_from(term.exponent.len()).unwrap_or(u64::MAX),
+            )?;
+            let fact = selected_fact(
+                package,
+                application,
+                application_row,
+                rows,
+                &declaration.structural_node,
+                EqualityWitnessKind::BaseDimensionTerm,
+                |fact| {
+                    matches!(fact, EqualityFactWitness::DimensionTerm {
+                    unit_id: id, operand_position: position, ordinal: n, .. }
+                    if id == unit_id && *position == operand_position && *n == ordinal)
+                },
+                work,
+            )?;
+            let EqualityFactWitness::DimensionTerm {
+                base,
+                base_node,
+                exponent,
+                ..
+            } = &fact.fact
+            else {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &declaration.structural_node,
+                    work.consumed,
+                    0,
+                ));
+            };
+            if fact.structural_key != declaration.structural_key
+                || *base_node != term.dimension_node_id
+                || exponent != &term.exponent
+            {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &declaration.structural_node,
+                    work.consumed,
+                    0,
+                ));
+            }
+            let base_row = selected_fact(
+                package,
+                application,
+                application_row,
+                rows,
+                base_node,
+                EqualityWitnessKind::BaseDimensionTerm,
+                |fact| {
+                    matches!(fact, EqualityFactWitness::DimensionDeclaration {
+                    unit_id: id, operand_position: position, role: EqualityDimensionRole::BaseDimension, .. }
+                    if id == unit_id && *position == operand_position)
+                },
+                work,
+            )?;
+            if &base_row.structural_key != base {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    base_node,
+                    work.consumed,
+                    0,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn quantity_unit(
+    package: &CheckedPackageV2,
+    application: &CheckedNodeId,
+    application_row: &SelectedEqualityApplicationRow,
+    decision: &super::CheckedEqualityDecision,
+    unit: &super::CheckedResolvedEqualityUnit,
+    rows: &[SelectedEqualityFactRow],
+    source_rows: &[SelectedSourceUnitRow],
+    work: &mut ReadWork,
+) -> Result<EqualityUnitDescriptor, AdmittedEqualityReadError> {
+    let roles = [
+        (0, EqualityUnitRole::Source, &decision.left.source_type),
+        (1, EqualityUnitRole::Source, &decision.right.source_type),
+    ];
+    let targets = [
+        decision.left.conversion_target.as_ref(),
+        decision.right.conversion_target.as_ref(),
+    ];
+    let binding = roles
+        .iter()
+        .find(|(_, _, id)| **id == unit.quantity_type)
+        .map(|(position, role, _)| (*position, *role))
+        .or_else(|| {
+            targets
+                .iter()
+                .enumerate()
+                .find(|(_, id)| id.is_some_and(|id| *id == unit.quantity_type))
+                .map(|(position, _)| (position, EqualityUnitRole::ConversionTarget))
+        })
+        .ok_or_else(|| {
+            missing_witness(
+                application,
+                &unit.quantity_type,
+                EqualityWitnessKind::QuantityType,
+                work,
+            )
+        })?;
+    let row = selected_fact(
+        package,
+        application,
+        application_row,
+        rows,
+        &unit.unit,
+        EqualityWitnessKind::QuantityType,
+        |fact| {
+            matches!(fact, EqualityFactWitness::Unit { quantity_type, operand_position, role, .. }
+            if *quantity_type == unit.quantity_type && *operand_position == binding.0 && *role == binding.1)
+        },
+        work,
+    )?;
+    let EqualityFactWitness::Unit { unit_id, .. } = &row.fact else {
+        return Err(read_error(
+            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+            application,
+            &unit.unit,
+            work.consumed,
+            0,
+        ));
+    };
+    let expected_kind = match &unit.form {
+        CheckedResolvedEqualityUnitForm::Declared { .. } => {
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
+        }
+        CheckedResolvedEqualityUnitForm::Compound { .. } => {
+            CheckedNodeKind::ScalarType(ScalarTypeForm::CompoundUnit)
+        }
+    };
+    if package.node_kind(&unit.unit) != Some(expected_kind) {
         return Err(read_error(
             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
             application,
@@ -687,7 +1401,488 @@ fn join_source_unit(
             0,
         ));
     }
-    Ok(())
+    if matches!(
+        package
+            .node(&unit.unit)
+            .and_then(|node| node.owner.as_ref()),
+        Some(CheckedNodeOwner::Source { .. })
+    ) {
+        join_source_unit(package, application, &unit.unit, unit_id, source_rows, work)?;
+    }
+    let dimensions = |terms: &[super::CheckedUnitDimensionTerm], role, work: &mut ReadWork| {
+        terms.iter().map(|term| {
+            let fact = selected_fact(package, application, application_row, rows,
+                &term.dimension, EqualityWitnessKind::BaseDimensionTerm,
+                |fact| matches!(fact, EqualityFactWitness::DimensionDeclaration { unit_id: id, operand_position, role: r, .. }
+                    if id == unit_id && *operand_position == binding.0 && *r == role), work)?;
+            work.charge_amount(application, &term.dimension,
+                u64::try_from(term.exponent.len()).unwrap_or(u64::MAX))?;
+            let exponent = term.exponent.parse::<Integer>().map_err(|_| read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness, application,
+                &term.dimension, work.consumed, 0))?;
+            Ok((fact.structural_key.clone(), exponent))
+        }).collect::<Result<Vec<_>, AdmittedEqualityReadError>>()
+    };
+    let form = match &unit.form {
+        CheckedResolvedEqualityUnitForm::Declared {
+            dimension_node,
+            dimension_terms,
+            root_unit,
+            path,
+        } => {
+            if unit_id.declared_key() != Some(&row.structural_key) {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &unit.unit,
+                    work.consumed,
+                    0,
+                ));
+            }
+            let dimension = selected_fact(
+                package,
+                application,
+                application_row,
+                rows,
+                dimension_node,
+                EqualityWitnessKind::DimensionDeclaration,
+                |fact| {
+                    matches!(fact, EqualityFactWitness::DimensionDeclaration { unit_id: id, operand_position, role: EqualityDimensionRole::UnitDimension, .. }
+                    if id == unit_id && *operand_position == binding.0)
+                },
+                work,
+            )?;
+            let dimension_key = dimension.structural_key.clone();
+            let dimension_terms =
+                dimensions(dimension_terms, EqualityDimensionRole::BaseDimension, work)?;
+            let mut edges = Vec::new();
+            let mut source = unit.unit.clone();
+            for (ordinal, edge) in path.iter().enumerate() {
+                let fact = selected_fact(
+                    package,
+                    application,
+                    application_row,
+                    rows,
+                    &source,
+                    EqualityWitnessKind::ConversionEdgeTarget,
+                    |fact| {
+                        matches!(fact, EqualityFactWitness::ConversionEdge { unit_id: id, operand_position, ordinal: n, .. }
+                        if id == unit_id && *operand_position == binding.0 && *n == ordinal)
+                    },
+                    work,
+                )?;
+                let EqualityFactWitness::ConversionEdge {
+                    target,
+                    target_node,
+                    scale,
+                    offset,
+                    ..
+                } = &fact.fact
+                else {
+                    return Err(read_error(
+                        AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                        application,
+                        &fact.structural_node,
+                        work.consumed,
+                        0,
+                    ));
+                };
+                for rational in [&edge.scale, &edge.offset] {
+                    work.charge_amount(
+                        application,
+                        &fact.structural_node,
+                        u64::try_from(
+                            rational
+                                .numerator
+                                .len()
+                                .saturating_add(rational.denominator.len()),
+                        )
+                        .unwrap_or(u64::MAX),
+                    )?;
+                }
+                if target_node != &edge.target || scale != &edge.scale || offset != &edge.offset {
+                    return Err(read_error(
+                        AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                        application,
+                        &fact.structural_node,
+                        work.consumed,
+                        0,
+                    ));
+                }
+                if matches!(
+                    package.node(&source).and_then(|node| node.owner.as_ref()),
+                    Some(CheckedNodeOwner::Source { .. })
+                ) {
+                    let Some(CheckedTerm::NominalBody(body)) = package.term(&source) else {
+                        return Err(read_error(
+                            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                            application,
+                            &source,
+                            work.consumed,
+                            0,
+                        ));
+                    };
+                    let Some((_, selected_target, selected_scale, selected_offset)) =
+                        body.unit_details()
+                    else {
+                        return Err(read_error(
+                            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                            application,
+                            &source,
+                            work.consumed,
+                            0,
+                        ));
+                    };
+                    if selected_target != Some(&edge.target)
+                        || selected_scale != &edge.scale
+                        || selected_offset != &edge.offset
+                    {
+                        return Err(read_error(
+                            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                            application,
+                            &source,
+                            work.consumed,
+                            0,
+                        ));
+                    }
+                }
+                if matches!(
+                    package
+                        .node(&edge.target)
+                        .and_then(|node| node.owner.as_ref()),
+                    Some(CheckedNodeOwner::Source { .. })
+                ) {
+                    let Some(CheckedTerm::NominalBody(body)) = package.term(&edge.target) else {
+                        return Err(read_error(
+                            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                            application,
+                            &edge.target,
+                            work.consumed,
+                            0,
+                        ));
+                    };
+                    let Some((target_dimension, _, _, _)) = body.unit_details() else {
+                        return Err(read_error(
+                            AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                            application,
+                            &edge.target,
+                            work.consumed,
+                            0,
+                        ));
+                    };
+                    selected_fact(
+                        package,
+                        application,
+                        application_row,
+                        rows,
+                        target_dimension,
+                        EqualityWitnessKind::DimensionDeclaration,
+                        |fact| {
+                            matches!(fact, EqualityFactWitness::DimensionDeclaration {
+                            unit_id: id, operand_position, role: EqualityDimensionRole::ConversionDimension, .. }
+                            if id == unit_id && *operand_position == binding.0)
+                        },
+                        work,
+                    )?;
+                }
+                edges.push(EqualityUnitEdgeDescriptor {
+                    target: target.clone(),
+                    scale: checked_rational(scale, application, &fact.structural_node, work)?,
+                    offset: checked_rational(offset, application, &fact.structural_node, work)?,
+                });
+                source = edge.target.clone();
+            }
+            if source != *root_unit {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    root_unit,
+                    work.consumed,
+                    0,
+                ));
+            }
+            EqualityUnitForm::Declared {
+                dimension_node: dimension_key,
+                dimension_terms,
+                path: edges,
+            }
+        }
+        CheckedResolvedEqualityUnitForm::Compound {
+            dimension_terms,
+            terms,
+        } => {
+            let Some(root_terms) = unit_id.compound_terms() else {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &unit.unit,
+                    work.consumed,
+                    0,
+                ));
+            };
+            if root_terms.len() != terms.len() {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &unit.unit,
+                    work.consumed,
+                    0,
+                ));
+            }
+            for ((root_key, exponent), term) in root_terms.iter().zip(terms) {
+                join_compound_root(
+                    package,
+                    application,
+                    &term.root_unit,
+                    root_key,
+                    source_rows,
+                    work,
+                )?;
+                work.charge_amount(
+                    application,
+                    &term.root_unit,
+                    u64::try_from(term.exponent.len()).unwrap_or(u64::MAX),
+                )?;
+                if &term.exponent.parse::<Integer>().map_err(|_| {
+                    read_error(
+                        AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                        application,
+                        &term.root_unit,
+                        work.consumed,
+                        0,
+                    )
+                })? != exponent
+                {
+                    return Err(read_error(
+                        AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                        application,
+                        &term.root_unit,
+                        work.consumed,
+                        0,
+                    ));
+                }
+            }
+            EqualityUnitForm::Compound {
+                dimension_terms: dimensions(
+                    dimension_terms,
+                    EqualityDimensionRole::CompoundBase,
+                    work,
+                )?,
+            }
+        }
+    };
+    validate_dimension_terms(
+        package,
+        application,
+        application_row,
+        unit_id,
+        binding.0,
+        rows,
+        work,
+    )?;
+    Ok(EqualityUnitDescriptor {
+        id: unit_id.clone(),
+        form,
+    })
+}
+
+fn enum_descriptors(
+    package: &CheckedPackageV2,
+    application: &CheckedNodeId,
+    application_row: &SelectedEqualityApplicationRow,
+    decision: &super::CheckedEqualityDecision,
+    compared_type: &ValueType,
+    rows: &[SelectedEqualityFactRow],
+    work: &mut ReadWork,
+) -> Result<
+    (
+        Vec<EqualityEnumDeclarationDescriptor>,
+        Vec<EqualityEnumMemberDescriptor>,
+    ),
+    AdmittedEqualityReadError,
+> {
+    let mut declarations: Vec<EqualityEnumDeclarationDescriptor> = Vec::new();
+    let mut members = Vec::new();
+    let ValueType::Enum(expected_shape) = compared_type else {
+        return Err(missing_witness(
+            application,
+            &decision.left.source_type,
+            EqualityWitnessKind::EnumDeclaration,
+            work,
+        ));
+    };
+    let mut expected_variants = Vec::new();
+    for variant in expected_shape.variants() {
+        work.charge(application, &decision.left.source_type)?;
+        expected_variants.push(variant);
+    }
+    if decision.enum_members.len() != expected_variants.len() {
+        return Err(missing_witness(
+            application,
+            &decision.left.source_type,
+            EqualityWitnessKind::EnumMember,
+            work,
+        ));
+    }
+    let compared_node = decision
+        .left
+        .conversion_target
+        .as_ref()
+        .unwrap_or(&decision.left.source_type);
+    for wire in &decision.enum_members {
+        let row = selected_fact(
+            package,
+            application,
+            application_row,
+            rows,
+            &wire.member,
+            EqualityWitnessKind::EnumMember,
+            |fact| {
+                matches!(fact, EqualityFactWitness::EnumMember { member_node, .. }
+                if *member_node == wire.member)
+            },
+            work,
+        )?;
+        let EqualityFactWitness::EnumMember {
+            source_declaration,
+            source_declaration_node,
+            declaration,
+            declaration_node,
+            member,
+            member_node,
+            case,
+            ordinal,
+            ordered,
+        } = &row.fact
+        else {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                &wire.member,
+                work.consumed,
+                0,
+            ));
+        };
+        work.charge_amount(
+            application,
+            &wire.member,
+            u64::try_from(case.len()).unwrap_or(u64::MAX),
+        )?;
+        if &wire.enum_type != compared_node
+            || source_declaration_node != &wire.enum_type
+            || member_node != &wire.member
+            || member != &row.structural_key
+            || case != &wire.case
+            || u64::try_from(*ordinal).ok() != Some(wire.ordinal)
+            || ordered != &wire.ordered
+            || !matches!(
+                package.node_kind(source_declaration_node),
+                Some(
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Enum)
+                        | CheckedNodeKind::Model(ModelForm::VariantType)
+                )
+            )
+            || !matches!(
+                package.node_kind(declaration_node),
+                Some(
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Enum)
+                        | CheckedNodeKind::Model(ModelForm::VariantType)
+                )
+            )
+            || package.node_kind(member_node) != Some(CheckedNodeKind::Value(ValueForm::EnumValue))
+            || package
+                .node(member_node)
+                .is_none_or(|node| node.semantic_type != *declaration_node)
+        {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                &wire.member,
+                work.consumed,
+                0,
+            ));
+        }
+        let Some(ValueType::Enum(shape)) = row.value_type.as_ref() else {
+            return Err(missing_witness(
+                application,
+                &wire.member,
+                EqualityWitnessKind::EnumDeclaration,
+                work,
+            ));
+        };
+        let variant =
+            VariantId::new(source_declaration.clone(), case.to_string()).map_err(|_| {
+                read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &wire.member,
+                    work.consumed,
+                    0,
+                )
+            })?;
+        work.charge_amount(
+            application,
+            &wire.member,
+            u64::try_from(expected_variants.len()).unwrap_or(u64::MAX),
+        )?;
+        if shape != expected_shape
+            || shape.is_ordered() != *ordered
+            || expected_variants
+                .get(*ordinal)
+                .is_none_or(|expected| *expected != &variant)
+        {
+            return Err(read_error(
+                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                application,
+                &wire.member,
+                work.consumed,
+                0,
+            ));
+        }
+        work.charge_amount(
+            application,
+            &wire.member,
+            u64::try_from(declarations.len()).unwrap_or(u64::MAX),
+        )?;
+        let declaration_index = declarations.iter().position(|row| row.key == *declaration);
+        if let Some(index) = declaration_index {
+            let declaration_row = &mut declarations[index];
+            if declaration_row.ordered != *ordered || declaration_row.members.len() != *ordinal {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &wire.member,
+                    work.consumed,
+                    0,
+                ));
+            }
+            declaration_row.members.push(case.to_string());
+        } else {
+            if *ordinal != 0 {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &wire.member,
+                    work.consumed,
+                    0,
+                ));
+            }
+            declarations.push(EqualityEnumDeclarationDescriptor {
+                key: declaration.clone(),
+                ordered: *ordered,
+                members: vec![case.to_string()],
+            });
+        }
+        members.push(EqualityEnumMemberDescriptor {
+            variant,
+            declaration: declaration.clone(),
+            member: member.clone(),
+            ordered: *ordered,
+            position: *ordinal,
+            case: case.clone(),
+        });
+    }
+    Ok((declarations, members))
 }
 
 impl CheckedPackageV2 {
@@ -701,6 +1896,7 @@ impl CheckedPackageV2 {
         application: &CheckedNodeId,
         occurrence: &CheckedOccurrence,
         application_rows: &[SelectedEqualityApplicationRow],
+        fact_rows: &[SelectedEqualityFactRow],
         source_unit_rows: &[SelectedSourceUnitRow],
         work_limit: u64,
     ) -> Result<AdmittedEqualityDecision, AdmittedEqualityReadError> {
@@ -870,66 +2066,73 @@ impl CheckedPackageV2 {
                 &work,
             ));
         };
-        if let Some(unit) = decision.units.first() {
-            if matches!(
-                self.node(&unit.unit).and_then(|node| node.owner.as_ref()),
-                Some(CheckedNodeOwner::Source { .. })
-            ) {
-                join_source_unit(self, application, unit, source_unit_rows, &mut work)?;
-            }
-            let (first_missing, witness) = match &unit.form {
-                CheckedResolvedEqualityUnitForm::Declared { dimension_node, .. } => {
-                    (dimension_node, EqualityWitnessKind::DimensionDeclaration)
-                }
-                CheckedResolvedEqualityUnitForm::Compound {
-                    dimension_terms,
-                    terms,
-                } => {
-                    if let Some(term) = dimension_terms.first() {
-                        (&term.dimension, EqualityWitnessKind::BaseDimensionTerm)
-                    } else if let Some(term) = terms.first() {
-                        (&term.root_unit, EqualityWitnessKind::CompoundUnit)
-                    } else {
-                        (&unit.unit, EqualityWitnessKind::CompoundUnit)
-                    }
-                }
-            };
-            return Err(missing_witness(application, first_missing, witness, &work));
-        }
-        if let Some(member) = decision.enum_members.first() {
-            return Err(missing_witness(
-                application,
-                &member.member,
-                EqualityWitnessKind::EnumMember,
-                &work,
-            ));
-        }
+        let units = decision
+            .units
+            .iter()
+            .map(|unit| {
+                quantity_unit(
+                    self,
+                    application,
+                    row,
+                    decision,
+                    unit,
+                    fact_rows,
+                    source_unit_rows,
+                    &mut work,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         work.charge(application, &decision.left.source_type)?;
-        let left = operand(self, application, &decision.left, &mut work)?;
+        let left = operand(
+            self,
+            application,
+            row,
+            decision,
+            fact_rows,
+            &decision.left,
+            0,
+            &mut work,
+        )?;
         work.charge(application, &decision.right.source_type)?;
-        let right = operand(self, application, &decision.right, &mut work)?;
+        let right = operand(
+            self,
+            application,
+            row,
+            decision,
+            fact_rows,
+            &decision.right,
+            1,
+            &mut work,
+        )?;
         let schedule = match decision.schedule {
             super::CheckedEqualitySchedule::Text => EqualitySchedule::Text,
             super::CheckedEqualitySchedule::Enum => EqualitySchedule::Enum,
             super::CheckedEqualitySchedule::Quantity => EqualitySchedule::Quantity,
             super::CheckedEqualitySchedule::Plan => EqualitySchedule::Plan,
         };
-        if matches!(
-            schedule,
-            EqualitySchedule::Text | EqualitySchedule::Enum | EqualitySchedule::Quantity
-        ) {
-            return Err(missing_witness(
+        let (enum_declarations, enum_members) = if schedule == EqualitySchedule::Enum {
+            let compared = left.target().unwrap_or_else(|| left.source());
+            if right.target().unwrap_or_else(|| right.source()) != compared {
+                return Err(read_error(
+                    AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
+                    application,
+                    &decision.right.source_type,
+                    work.consumed,
+                    0,
+                ));
+            }
+            enum_descriptors(
+                self,
                 application,
-                &decision.left.source_type,
-                match schedule {
-                    EqualitySchedule::Text => EqualityWitnessKind::TextType,
-                    EqualitySchedule::Enum => EqualityWitnessKind::EnumDeclaration,
-                    EqualitySchedule::Quantity => EqualityWitnessKind::QuantityType,
-                    EqualitySchedule::Plan => EqualityWitnessKind::PlanType,
-                },
-                &work,
-            ));
-        }
+                row,
+                decision,
+                compared,
+                fact_rows,
+                &mut work,
+            )?
+        } else {
+            (Vec::new(), Vec::new())
+        };
         let descriptor = EqualityDecisionDescriptor {
             location: row.location.clone(),
             operator: match decision.operator {
@@ -939,9 +2142,9 @@ impl CheckedPackageV2 {
             left,
             right,
             schedule,
-            units: Vec::new(),
-            enum_declarations: Vec::new(),
-            enum_members: Vec::new(),
+            units,
+            enum_declarations,
+            enum_members,
         };
         let mut meter = exact_meter(work.limit - work.consumed);
         mint_admitted_equality_decision(ReaderSeal, descriptor, &mut meter).map_err(|cause| {
