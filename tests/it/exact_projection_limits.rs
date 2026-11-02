@@ -3,14 +3,20 @@
 
 //! Public admitted type reads with finite work and deep or cyclic type graphs.
 
-use crate::support::checked_package::{canonical, evidence_for, evidence_with_document, node_id, nominal_package, select_model, settle, structural_id};
+use crate::support::checked_package::{
+    canonical, evidence_for, evidence_with_document, node_id, nominal_package, select_model,
+    settle, structural_id,
+};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageV2, CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode,
-    SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities, SelectedExactIdentity,
+    SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
+    SelectedExactIdentities, SelectedExactIdentity,
 };
-use quire_exact::{Integer, IntegerInterval, MemberId, MemberOwner, NodeKey, PathSegment, Presence, ValueType};
+use quire_exact::{
+    Integer, IntegerInterval, MemberId, MemberOwner, NodeKey, PathSegment, Presence, ValueType,
+};
 use serde_json::{json, Value};
 
 fn node(name: &str, tag: &str, form: &str, ty: &str, dependencies: &[&str], body: Value) -> Value {
