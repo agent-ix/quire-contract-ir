@@ -2137,6 +2137,7 @@ fn refinement_expression_operands_enter_dependencies_before_row_meaning() {
         expected.sort_by(node_id_order);
         expected.dedup();
         node["dependencies"] = json!(expected);
+        inject_refinement_row_defect(&mut package, position);
         let CheckedPackageV2ReadResult::Refused(row_refusal) = read(&package, &evidence) else {
             panic!("{location}: the independent wrong expression must refuse");
         };
