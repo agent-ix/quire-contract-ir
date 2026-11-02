@@ -1901,6 +1901,15 @@ fn selected_population_package() -> (Value, CheckedPackageEvidence, Value, Value
     (package, evidence, id, object_id)
 }
 
+fn inject_refinement_row_defect(package: &mut Value, position: usize) {
+    let body = &mut package["semantic_graph"]["nodes"][position]["body"];
+    if body["steps"].as_array().expect("steps").is_empty() {
+        body["class_catalog"]["concrete"][0]["class"] = json!("unknown-operation");
+    } else {
+        body["steps"][0]["source_class"] = json!("unknown-operation");
+    }
+}
+
 /// Each authored necessary edge is removed in isolation; unrelated local nodes
 /// are added in isolation. Both defects must precede an independent row join.
 fn assert_refinement_dependency_matrix(
@@ -1985,8 +1994,7 @@ fn assert_refinement_dependency_matrix(
         }
     }
     let mut bad_row = package.clone();
-    bad_row["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_class"] =
-        json!("unknown-operation");
+    inject_refinement_row_defect(&mut bad_row, position);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&bad_row, evidence) else {
         panic!("the independent wrong operation must refuse with correct dependencies");
     };
@@ -7686,7 +7694,7 @@ fn refinement_catalog_reads_single_segment_protocol_clause() {
 
 /// Provenance: IR-874 timeout class on an admitted await node.
 /// Trace: FR-038-AC-325
-#[trace("TC-048", "FR-038-AC-325", "FR-061-AC-6")]
+#[trace("TC-048", "FR-038-AC-325")]
 #[test]
 fn refinement_catalog_joins_timeout_on_await_node() {
     let (base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
@@ -7866,6 +7874,7 @@ fn refinement_catalog_joins_selected_abstract_clause_and_binder() {
 }
 
 /// Provenance: IR-874 catalog graph join.
+#[trace("FR-061-AC-6")]
 #[test]
 fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     let (mut dependency_wire, dependency_evidence) =
