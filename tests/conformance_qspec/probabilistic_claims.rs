@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Agent-IX
 //! Read the owning QSpec probabilistic-claim vectors through the strict reader.
 
 use crate::fixture_support::{canonical, evidence_for, refresh_identity, settle, v2_all_families};
@@ -328,6 +329,25 @@ fn four_array_schema_and_graph_admission_precede_sidecar_join() {
         "/checked_term_data/probabilistic_claims/0/occurrence"
     );
 
+    let mut wrong_kind = valid.clone();
+    let other_kind = valid["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type")
+        .expect("scalar type")["node_id"]
+        .clone();
+    wrong_kind["checked_term_data"]["probabilistic_claims"][0]["declaration"] = other_kind;
+    refresh_identity(&mut wrong_kind);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_kind) else {
+        panic!("wrong-kind declaration must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().expect("path").as_str(),
+        "/checked_term_data/probabilistic_claims/0/declaration"
+    );
+
     let claim_position = valid["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -340,6 +360,20 @@ fn four_array_schema_and_graph_admission_precede_sidecar_join() {
     refresh_identity(&mut malformed_body);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&malformed_body) else {
         panic!("malformed claim body must refuse before sidecar join");
+    };
+    assert!(refusal.loci[0]
+        .path
+        .as_ref()
+        .expect("path")
+        .as_str()
+        .starts_with("/semantic_graph/nodes/"));
+
+    let mut unknown_form = valid.clone();
+    unknown_form["semantic_graph"]["nodes"][claim_position]["semantic_form"] =
+        json!("unknown_claim_form");
+    refresh_identity(&mut unknown_form);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&unknown_form) else {
+        panic!("unknown claim form must refuse before sidecar join");
     };
     assert!(refusal.loci[0]
         .path
