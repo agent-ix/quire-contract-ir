@@ -1192,8 +1192,11 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
     let ir = package("quire-contract-ir");
     for package in [model, ir] {
         assert!(
-            package["dependencies"].as_array().expect("declared dependencies")
-                .iter().all(|dependency| !qsl_package(dependency)),
+            package["dependencies"]
+                .as_array()
+                .expect("declared dependencies")
+                .iter()
+                .all(|dependency| !qsl_package(dependency)),
             "even disabled optional or developer dependencies must not introduce QSL into IR"
         );
     }
