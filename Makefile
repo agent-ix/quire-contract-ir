@@ -92,7 +92,7 @@ test:
 # they have no checkout.
 .PHONY: conformance-qspec-compile
 conformance-qspec-compile:
-	$(CARGO) test $(LOCKED) --workspace --no-run --test conformance_qspec --test monitor_plan_public --test it
+	$(CARGO) test $(LOCKED) --workspace --no-run --test conformance_qspec --test monitor_plan_public --test temporal_binding_public --test it
 
 .PHONY: conformance-qspec
 conformance-qspec:
@@ -114,6 +114,11 @@ conformance-qspec:
 	[ "$$status" -eq 0 ] || exit "$$status"; \
 	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
 	[ "$$passed" -eq 1 ] || { echo 'required QSpec compensation clock vector test did not run exactly once' >&2; exit 1; }
+	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) -p quire-contract-model --test temporal_binding_public default_feature_consumer_borrows_admitted_clock_rows -- --exact 2>&1); \
+	status=$$?; printf '%s\n' "$$output"; \
+	[ "$$status" -eq 0 ] || exit "$$status"; \
+	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
+	[ "$$passed" -eq 1 ] || { echo 'required QSpec temporal binding public consumer did not run exactly once' >&2; exit 1; }
 
 # TC-445's producer-origin case is explicit: the QSL checkout supplies its own
 # current fixture and compiler executables, and the test records the revision

@@ -20,10 +20,12 @@ fn borrowed_rows(package: &CheckedPackageV2) -> Option<&[TemporalBinding]> {
 #[trace("FR-019-AC-22", "TC-058")]
 #[test]
 fn default_feature_consumer_borrows_admitted_clock_rows() {
-    let proposal = PathBuf::from(
-        std::env::var_os("QUIRE_SPECIFICATION_DIR").expect("selected QSpec checkout"),
-    )
-    .join("proposals/checked-package-v2");
+    let root = match std::env::var_os("QUIRE_SPECIFICATION_DIR") {
+        Some(root) => root,
+        None if std::env::var_os("QSPEC_CONFORMANCE").is_none() => return,
+        None => panic!("QUIRE_SPECIFICATION_DIR required for temporal binding conformance"),
+    };
+    let proposal = PathBuf::from(root).join("proposals/checked-package-v2");
     let fixture_name = "fixtures/positive-timed-clause-nodes.json";
     let fixture: Value = serde_json::from_slice(
         &fs::read(proposal.join(fixture_name)).expect("published checked package"),

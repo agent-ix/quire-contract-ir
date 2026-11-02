@@ -13,7 +13,7 @@ Ticket: IR-1262. Reviewed the PR diff against QSpec FR-322-AC-305, IR FR-038-AC-
 
 ## Verdict
 
-**PASS after disposition** — The reader keeps the original temporal clause behavior, requires one row per clock-configured compensation declaration, joins the fifth clock argument and selected lock profile, and returns the specified typed refusals. The QSpec vector test runs in the named conformance gate. The test-evidence gap for FR-019-AC-22 is recorded in the separate gap-analysis artifact.
+**PASS after disposition** — The reader keeps the original temporal clause behavior, requires one row per clock-configured compensation declaration, joins the fifth clock argument and selected lock profile, and returns the specified typed refusals. The QSpec vector and public consumer tests run in the named conformance gate. The test-evidence gap for FR-019-AC-22 is recorded in the separate gap-analysis artifact.
 
 ## Rust review
 
@@ -24,9 +24,14 @@ The new code stays in the cycle-free model crate, preserves the wire schema and 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The compensation vector test skipped without a QSpec checkout, but the named `conformance-qspec` target did not select it. The published CB cases therefore had no routine execution gate. | `tests/it/checked_package_v2_protocol_body.rs`; `Makefile` |
+| FND-002 | medium | The default-feature temporal-binding public consumer test required a QSpec checkout in ordinary CI, which has none. It also had no explicit execution in the QSpec conformance gate. | `crates/quire-contract-model/tests/temporal_binding_public.rs`; `Makefile` |
 
 ## Dispositions
 
 ### FND-001
 
 Fixed. `conformance-qspec` selects the exact compensation vector test with `QSPEC_CONFORMANCE=1` and requires one passing execution; `conformance-qspec-compile` includes the `it` test binary.
+
+### FND-002
+
+Fixed. The public consumer skips only outside conformance mode when no QSpec checkout is selected. `conformance-qspec` requires one passing execution with `QSPEC_CONFORMANCE=1`, and `conformance-qspec-compile` includes its test binary.
