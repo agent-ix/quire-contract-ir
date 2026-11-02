@@ -42,6 +42,7 @@ use crate::checked_package::shared::{
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::One;
+use quire_exact::{TextProfile, TextType};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -500,6 +501,20 @@ fn literal_defect(
                     node.node_id.clone(),
                 ));
             }
+            if *kind == LiteralKind::Text {
+                match text_literal_membership(type_id, value, graph) {
+                    Ok(Some(false)) => {
+                        return Some(ValidationFailure::refused_at(
+                            CheckedPackageRefusalCode::IllTyped,
+                            path.key("value"),
+                            Some(CheckedPackageRefusalCause::TypeMismatch),
+                            node.node_id.clone(),
+                        ));
+                    }
+                    Err(failure) => return Some(failure),
+                    Ok(Some(true) | None) => {}
+                }
+            }
             let valid_native = match kind {
                 LiteralKind::String => Some(value.is_string()),
                 LiteralKind::Uuid => Some(value.as_str().is_some_and(canonical_uuid)),
@@ -580,6 +595,54 @@ fn literal_defect(
         }
     }
     None
+}
+
+/// `None` keeps scalar and profile-only Text literals outside the
+/// bounded-membership rule.
+fn text_literal_membership(
+    type_id: &CheckedNodeId,
+    value: &Value,
+    graph: &Graph<'_>,
+) -> Result<Option<bool>, ValidationFailure> {
+    let Some(&position) = graph.index.get(type_id) else {
+        return Ok(None);
+    };
+    if graph.kinds.get(position)
+        != Some(&CheckedNodeKind::BoundedDomain(
+            BoundedDomainForm::TextBounds,
+        ))
+    {
+        return Ok(None);
+    }
+    let malformed = || {
+        ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            node_pointer(position).key("body"),
+            None,
+            graph.nodes[position].node_id.clone(),
+        )
+    };
+    let Some((min, max, profile)) = graph
+        .terms
+        .get(position)
+        .and_then(Option::as_ref)
+        .and_then(super::equality_projection::text_bounds)
+    else {
+        // A profile-only Text domain has no literal length bounds. The
+        // membership rule applies only to complete Text[min, max; profile].
+        return Ok(None);
+    };
+    let profile = TextProfile::from_code(profile).ok_or_else(malformed)?;
+    let min = min.parse().map_err(|_| malformed())?;
+    let max = max.parse().map_err(|_| malformed())?;
+    let text_type = TextType::new(min, max, profile).map_err(|_| malformed())?;
+    let Some(retained) = value.as_str() else {
+        return Ok(Some(false));
+    };
+    let normalized = profile
+        .normalization()
+        .is_none_or(|form| retained.chars().eq(form.apply(retained)));
+    Ok(Some(normalized && text_type.admits(retained)))
 }
 
 fn canonical_uuid(value: &str) -> bool {

@@ -96,7 +96,7 @@ fn invalid(path: JsonPointer) -> ValidationFailure {
     )
 }
 
-fn text_bounds(term: &CheckedTerm) -> Option<(&str, &str, &str)> {
+pub(super) fn text_bounds(term: &CheckedTerm) -> Option<(&str, &str, &str)> {
     fn bound<'a>(term: &'a CheckedTerm, expected: &str) -> Option<&'a str> {
         let CheckedTerm::Binding { name, value } = term else {
             return None;
