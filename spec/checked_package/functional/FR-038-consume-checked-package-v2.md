@@ -61,6 +61,10 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-282
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-288
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-297
+    type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-299
     type: references
   - target: ix://agent-ix/quire-specification/FR-342-AC-11
@@ -4564,6 +4568,50 @@ namespace. Two nodes of one namespace with that name SHALL refuse
 `ambiguous_declaration`/`ambiguous-name` at the later node in node-id order.
 The reader SHALL decide this before operation admission.
 
+### Present checked-term data and probabilistic claim admission
+
+The optional QSpec FR-322 checked-term-data sidecar is a closed, present V2
+object with four required arrays: `equality_decisions`, `protocol_locations`,
+`dispatch_tables` and `probabilistic_claims`. Each array may be empty. An absent
+sidecar and a present sidecar with four empty arrays remain distinct on read
+and write. A present object missing any array, or containing an unknown member,
+is malformed wire at the missing object or offending member. The public typed
+`CheckedTermDataV2` and private owned, raw-intake and borrowed-encode wire paths
+use this same four-array shape; a nonempty `probabilistic_claims` array is not
+refused merely for being nonempty.
+
+The closed `ClaimForm` vocabulary includes `ProbabilisticClaim` for the
+`claim`/`probabilistic_claim` semantic form. Its body is an ordinary retained
+typed term under FR-322's claim-node body grammar; this requirement does not
+add a new body production or infer a formula from the sidecar. The reader
+applies the existing graph shape, structural identity, exact dependencies,
+declaration, owner, occurrence and source-map checks before joining a sidecar
+row. The writer preserves that node's complete body and structural identity.
+The sidecar row carries only claim identity and occurrence.
+
+Each probabilistic-claim row has exactly the required `declaration` and
+`occurrence` members. `declaration` is the exact graph-local structural
+`NodeRef` of one `claim`/`probabilistic_claim` declaration; `occurrence` is one
+of that declaration node's own occurrences with role `claim`. The reader
+resolves the declaration and occurrence without using display name, source
+span, graph-array position or declaration order as identity. Every
+probabilistic-claim declaration has exactly one row in a present sidecar.
+Rows are in ascending structural declaration identity, then occurrence order.
+The reader retains admitted row identities in the typed sidecar view and
+charges each row to its sidecar work limit before inspection.
+
+For an absent-local, foreign, wrong-kind or non-probabilistic declaration, the
+reader refuses `invalid_package`/`invalid-value` at that row's `declaration`.
+An occurrence absent from the named declaration, or one with a role other
+than `claim`, refuses the same code and cause at that row's `occurrence`.
+A second row for one declaration, including a second valid occurrence or the
+same `(declaration, occurrence)` key, refuses
+`invalid_package`/`conflicting-definition` at the later row. Reversed
+otherwise-valid rows refuse `invalid_package`/`invalid-semantic-graph` at the
+second row. A missing `occurrence` is a closed-schema `malformed_wire` refusal
+at the missing member's published locus. Refusal loci follow the existing RFC
+6901 location contract.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -4589,6 +4637,12 @@ The reader SHALL decide this before operation admission.
 | FR-038-AC-387 | The public reader admits QSpec `XP-01` and `XP-10`, with each local dimension operand as a local `NodeRef` and each foreign dimension operand as a closed `PackageNodeRef {package, node}` of a directly selected dependency. It resolves the foreign declared dimension in that dependency's admitted package, preserves the authored operand form in the typed nominal body and writer, compares the two resolved structural node ids for distinctness and ascending order, and retains only local operands in the equivalence node's `dependencies`. No foreign dimension node is minted into the importing graph. | Test (TC-280) |
 | FR-038-AC-388 | For QSpec `XP-11`, `XP-12` and `XP-15`, a package operand naming only a closure dependency, no selected dependency or the importing package refuses `missing_declaration`/`missing-selection` at `/semantic_graph/nodes/{i}/body/dimension_node_ids/{k}/package`. `XP-13` names no node in its directly selected dependency and refuses `missing_declaration`/`missing-name` at the corresponding `/node`. The reader checks these operands in listed order before pair rules; neither package display names nor an imported graph node substitute for the selected dependency lookup. | Test (TC-280) |
 | FR-038-AC-389 | QSpec `XP-14` supplies a self-minted foreign-package `NodeRef` and refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{i}/body/dimension_node_ids/{k}`. A local operand naming no graph node, or a local or package operand resolving to a node other than `scalar_type`/`dimension`, refuses the same code at that operand before pair validation; `XP-05` names a unit node and refuses there at its wrong-kind operand. QSpec `XP-02` through `XP-04` and `XP-06` through `XP-09` keep their published `invalid_semantic_graph` pair outcomes after operand resolution; a valid mixed-package equivalence still admits. Reversed or duplicate resolved structural dimensions refuse `invalid_semantic_graph` at the later equivalence node in structural node-id order. | Test (TC-280) |
+| FR-038-AC-390 | A present `CheckedTermDataV2` has exactly four required arrays, `equality_decisions`, `protocol_locations`, `dispatch_tables` and `probabilistic_claims`, including when all are empty. `None` omits the sidecar, while `Some(empty)` retains it through typed write and strict read. Removing any required array or adding an unknown member refuses `malformed_wire` at the missing object or unknown member; the public and private wire paths agree. | Test (TC-048, TC-451) |
+| FR-038-AC-391 | The strict reader admits an IR-constructed complete V2 package containing QSpec `checked-term-data-vectors.json` positive `PC-01` and `PC-02` identities as two nonempty probabilistic-claim rows. It retains each exact local `claim`/`probabilistic_claim` declaration `NodeRef` and its own declared `claim` occurrence. Their equal display names and source spans do not merge them or determine identity; a probabilistic-claim declaration without its one required row is refused under QSpec FR-322-AC-297. | Test (TC-048, TC-233) |
+| FR-038-AC-392 | The reader checks QSpec `PC-S1` missing occurrence and `PC-S2` extra member as closed-schema `malformed_wire` refusals. For `PC-R1` foreign, `PC-R2` wrong-kind, `PC-R3` absent-local and a non-probabilistic claim declaration, it returns `invalid_package`/`invalid-value` at `/checked_term_data/probabilistic_claims/{i}/declaration`; for `PC-R6` mis-mapped occurrence or wrong occurrence role, it returns that code/cause at `/checked_term_data/probabilistic_claims/{i}/occurrence`. Each refusal has the exact published primary RFC 6901 locus and no admitted package. | Test (TC-048, TC-233) |
+| FR-038-AC-393 | QSpec `PC-R4`'s second row for one declaration with a different valid occurrence and `PC-R5`'s repeated declaration-occurrence key both refuse `invalid_package`/`conflicting-definition` at the later row. `PC-R7`'s reversal of two valid rows refuses `invalid_package`/`invalid-semantic-graph` at the second row. Structural declaration identity and occurrence determine order; display name, source span and graph-array position do not. | Test (TC-048, TC-233) |
+| FR-038-AC-394 | IR tests read QSpec's published `checked-term-data-vectors.json` by reference and construct a complete valid V2 package in the test from its `PC-01` and `PC-02` row identities and resolved-node context. They run the positive and probabilistic-claim adverse mutations against the public strict reader and compare each published typed code, cause and exact RFC 6901 locus. No upstream artifact or vector content is copied into this repository, and the vector file is not treated as a complete checked-package fixture. An exact measured sidecar-work limit admits the IR-constructed positive; one below its measured charge returns `resource_exhausted` at its final probabilistic-claim row without a partial typed sidecar view. | Test (TC-048, TC-233) |
+| FR-038-AC-395 | A package with a `claim`/`probabilistic_claim` graph node passes the closed `ClaimForm::ProbabilisticClaim` vocabulary and ordinary typed term-body checks, then graph identity, exact dependencies, declaration, owner, occurrence and source-map joins before its probabilistic sidecar row is checked. The node and complete body survive admitted read/write without a fabricated formula or identity. An unknown claim form, malformed term body or broken graph join retains its existing earlier-stage typed refusal rather than being accepted by a matching sidecar row. | Test (TC-048, TC-058) |
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-050) |
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those six finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
