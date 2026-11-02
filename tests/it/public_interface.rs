@@ -617,11 +617,12 @@ fn macro_items(
     let name = item.mac.path.segments.last().unwrap().ident.to_string();
     let first = out.len();
     match name.as_str() {
-        "diagnostic_codes" | "mapping_error_codes" => {
-            let owner = if name == "diagnostic_codes" {
-                "DiagnosticCode"
-            } else {
-                "MappingRequestErrorCode"
+        "diagnostic_codes" | "mapping_error_codes" | "certificate_members" => {
+            let owner = match name.as_str() {
+                "diagnostic_codes" => "DiagnosticCode",
+                "mapping_error_codes" => "MappingRequestErrorCode",
+                "certificate_members" => "CertificateMember",
+                _ => unreachable!(),
             };
             out.push(PublicName::item("", owner));
             out.extend(
@@ -696,6 +697,7 @@ fn macro_items(
                 let known = [
                     "diagnostic_codes",
                     "mapping_error_codes",
+                    "certificate_members",
                     "registered_codes",
                     "identifier_type",
                     "positive_revision",
