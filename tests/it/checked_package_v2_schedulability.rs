@@ -280,6 +280,7 @@ fn absent_index_stays_absent_and_raw_rows_do_not_authenticate_claims() {
     assert_eq!(read.schedulability_claims().len(), 0);
     let encoded: Value = serde_json::from_slice(&encode(&read)).unwrap();
     assert!(encoded.get("schedulability_claims").is_none());
+    assert_eq!(encoded, wire, "absent-index complete package is lossless");
     let mut missing = package("fixed-priority", false, false, 1);
     let row: CheckedSchedulabilityClaimRow =
         serde_json::from_value(missing["schedulability_claims"][0].clone())
@@ -438,4 +439,212 @@ fn carrier_work_is_charged_before_a_row_is_resolved() {
         "/schedulability_claims/0"
     );
     assert_eq!(report.limit, high - 1);
+}
+
+fn refuses(
+    wire: &Value,
+    code: quire_contract_model::CheckedPackageRefusalCode,
+    cause: Option<quire_contract_model::CheckedPackageRefusalCause>,
+    path: &str,
+) {
+    let result = CheckedPackageV2::read(
+        &fixtures::canonical(wire),
+        CheckedPackageReadLimits::bounded(),
+        &fixtures::evidence_for(wire),
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("{path}: expected refusal, got {result:?}")
+    };
+    assert_eq!(refusal.code, code, "{refusal:?}");
+    assert_eq!(refusal.cause, cause, "{refusal:?}");
+    assert_eq!(refusal.loci.len(), 1);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        path,
+        "{refusal:?}"
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-397", "FR-038-AC-400")]
+#[test]
+fn carrier_join_checks_have_deterministic_precedence() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+    for case in [
+        "absent-local",
+        "wrong-kind",
+        "wrong-role",
+        "wire-before-graph",
+        "graph-before-carrier",
+        "aggregate-before-carrier",
+        "declaration-before-occurrence",
+        "duplicate-before-order",
+        "every-row-before-coverage",
+        "carrier-before-body",
+    ] {
+        let mut wire = package("fixed-priority", false, false, 2);
+        let n = wire["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
+        let mut code = Code::InvalidPackage;
+        let mut cause = Some(Cause::InvalidValue);
+        let path = match case {
+            "absent-local" => {
+                wire["schedulability_claims"][0]["declaration"]["path"] = json!(["missing-local"]);
+                "/schedulability_claims/0/declaration".to_owned()
+            }
+            "wrong-kind" => {
+                wire["schedulability_claims"][0]["declaration"] =
+                    wire["semantic_graph"]["nodes"][0]["node_id"].clone();
+                "/schedulability_claims/0/declaration".to_owned()
+            }
+            "wrong-role" => {
+                wire["semantic_graph"]["nodes"][n]["occurrences"][0]["role"] = json!("expression");
+                "/schedulability_claims/0/occurrence".to_owned()
+            }
+            "wire-before-graph" => {
+                wire["schedulability_claims"][0]["occurrence"] = json!(-1);
+                wire["semantic_graph"]["nodes"][n]["dependencies"] =
+                    json!([wire["semantic_graph"]["nodes"][0]["node_id"].clone()]);
+                code = Code::MalformedWire;
+                cause = None;
+                "/schedulability_claims/0/occurrence".to_owned()
+            }
+            "graph-before-carrier" => {
+                wire["schedulability_claims"][0]["occurrence"] = json!(99);
+                wire["semantic_graph"]["nodes"][n]["dependencies"] =
+                    json!([wire["semantic_graph"]["nodes"][0]["node_id"].clone()]);
+                code = Code::InvalidSemanticGraph;
+                cause = None;
+                format!("/semantic_graph/nodes/{n}/dependencies")
+            }
+            "aggregate-before-carrier" => {
+                wire["schedulability_claims"][0]["occurrence"] = json!(99);
+                wire["semantic_graph"]["nodes"][n]["body"]["members"] = json!("not-an-array");
+                code = Code::MalformedWire;
+                cause = None;
+                format!("/semantic_graph/nodes/{n}/body/members")
+            }
+            "declaration-before-occurrence" => {
+                wire["schedulability_claims"][0]["declaration"]["package"] = json!("foreign");
+                wire["schedulability_claims"][0]["occurrence"] = json!(99);
+                "/schedulability_claims/0/declaration".to_owned()
+            }
+            "duplicate-before-order" => {
+                let first = wire["schedulability_claims"][1].clone();
+                let second = wire["schedulability_claims"][0].clone();
+                wire["schedulability_claims"] = json!([first.clone(), first, second]);
+                cause = Some(Cause::ConflictingDefinition);
+                "/schedulability_claims/1".to_owned()
+            }
+            "every-row-before-coverage" => {
+                wire["schedulability_claims"][1]["occurrence"] = json!(99);
+                "/schedulability_claims/1/occurrence".to_owned()
+            }
+            "carrier-before-body" => {
+                wire["schedulability_claims"][0]["occurrence"] = json!(99);
+                wire["semantic_graph"]["nodes"][n]["body"]["members"][1]["value"]["value"] =
+                    json!("unknown-policy");
+                "/schedulability_claims/0/occurrence".to_owned()
+            }
+            _ => unreachable!(),
+        };
+        fixtures::rebuild_source_map(&mut wire);
+        fixtures::refresh_identity(&mut wire);
+        refuses(&wire, code, cause, &path);
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-400")]
+#[test]
+fn exact_measured_work_admits_and_one_less_has_no_admitted_view() {
+    let wire = package("amc", false, true, 2);
+    let bytes = fixtures::canonical(&wire);
+    let evidence = fixtures::evidence_for(&wire);
+    let read = |work| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    };
+    let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        match read(middle) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
+            other => panic!("valid claim changed outcome: {other:?}"),
+        }
+    }
+    let CheckedPackageV2ReadResult::Admitted(exact) = read(high) else {
+        panic!("exact measured work must admit")
+    };
+    assert_eq!(exact.schedulability_claims().len(), 2);
+    let CheckedPackageV2ReadResult::Incomplete(report) = read(high - 1) else {
+        panic!("one less work returns no authenticated view")
+    };
+    assert_eq!(
+        report.limit_kind,
+        quire_contract_model::CheckedPackageLimit::Work
+    );
+    assert_eq!(report.limit, high - 1);
+}
+
+#[trace("TC-451", "FR-038-AC-399", "FR-051-AC-7")]
+#[test]
+fn complete_claim_writer_has_exact_canonical_byte_boundary() {
+    let wire = package("fixed-priority", true, false, 2);
+    let read = admitted(&wire);
+    let expected = fixtures::canonical(&wire);
+    let length = u64::try_from(expected.len()).unwrap();
+    let write = |limit| {
+        encode_checked_package_v2(
+            read.name(),
+            read.lock(),
+            read.graph(),
+            CheckedPackageSourceCorrespondenceRef {
+                source_map: read.source_map(),
+                refinement_step_rows: read.refinement_step_rows(),
+            },
+            CheckedPackageSidecarsRef {
+                checked_term_data: read.checked_term_data(),
+                temporal_bindings: read.temporal_bindings(),
+                schedulability_claims: read.schedulability_claim_rows(),
+            },
+            read.capability_report(),
+            read.diagnostics(),
+            quire_canonical::Limits::new(limit),
+        )
+    };
+    assert_eq!(write(length).expect("exact canonical limit"), expected);
+    match write(length - 1) {
+        Err(quire_canonical::Error::Limit(limit)) => {
+            assert_eq!(limit.kind, quire_canonical::LimitKind::CanonicalBytes);
+            assert_eq!(limit.bound, length - 1);
+        }
+        other => panic!("one less byte returns typed limit without output: {other:?}"),
+    }
+}
+
+#[trace("TC-451", "FR-019-AC-19", "FR-038-AC-398")]
+#[test]
+fn sparse_high_occurrence_ordinals_resolve_independently_of_array_position() {
+    let mut wire = package("fixed-priority", false, false, 2);
+    let n = wire["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
+    wire["semantic_graph"]["nodes"][n]["occurrences"] = json!([
+        {"role":"claim","ordinal":9_000_001},
+        {"role":"claim","ordinal":47},
+    ]);
+    wire["schedulability_claims"][0]["occurrence"] = json!(47);
+    wire["schedulability_claims"][1]["occurrence"] = json!(9_000_001);
+    fixtures::rebuild_source_map(&mut wire);
+    fixtures::refresh_identity(&mut wire);
+    let read = admitted(&wire);
+    let claims = read.schedulability_claims().collect::<Vec<_>>();
+    assert_eq!(claims.len(), 2);
+    assert_eq!(claims[0].occurrence().ordinal, 47);
+    assert_eq!(claims[1].occurrence().ordinal, 9_000_001);
+    assert!(std::ptr::eq(claims[0].body(), claims[1].body()));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&encode(&read)).unwrap(),
+        wire
+    );
 }

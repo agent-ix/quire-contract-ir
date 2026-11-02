@@ -218,7 +218,7 @@ fn refuses(package: &Value, code: Code, cause: Option<Cause>, locus: &str) {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-396", "FR-038-AC-398", "FR-038-AC-400")]
+#[trace("TC-048", "FR-038-AC-396", "FR-038-AC-399", "FR-038-AC-400")]
 #[test]
 fn published_carrier_positives_authenticate_each_owned_occurrence() {
     let vectors = recipes();
@@ -290,7 +290,24 @@ fn every_published_carrier_semantic_refusal_has_exact_cause_and_locus() {
             }
             "SCC-07-wrong-node-form" => {
                 let n = position(&wire);
+                let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
+                let over = nodes[27]["node_id"].clone();
+                let target = nodes[4]["node_id"].clone();
+                assert_eq!(nodes[27]["semantic_form"], "parameter");
+                assert_eq!(nodes[4]["node_tag"], "expression");
+                let text = type_id(&wire, "text");
+                let mut dependencies = vec![over.clone(), target.clone()];
+                dependencies.sort_by_key(|id| fixture_support::resolved_fixture_id(id, nodes));
+                // SN-01's possible/over/empty-from/predicate shape instantiated
+                // with this published package's checked parameter and predicate.
                 wire["semantic_graph"]["nodes"][n]["semantic_form"] = json!("state_graph");
+                wire["semantic_graph"]["nodes"][n]["dependencies"] = json!(dependencies);
+                wire["semantic_graph"]["nodes"][n]["body"] = aggregate(vec![
+                    binding("kind", literal(&text, "text", "possible")),
+                    binding("over", json!({"term":"reference","target":over})),
+                    binding("from", aggregate(vec![])),
+                    binding("target", json!({"term":"reference","target":target})),
+                ]);
             }
             "SCC-08-unowned-occurrence" => {
                 wire["schedulability_claims"][0]["occurrence"] = json!(1)
@@ -352,7 +369,7 @@ fn task_path(n: usize, t: usize) -> String {
     format!("/semantic_graph/nodes/{n}/body/members/4/value/members/{t}")
 }
 
-#[trace("TC-048", "FR-038-AC-398", "FR-038-AC-400")]
+#[trace("TC-048", "FR-038-AC-399", "FR-038-AC-400")]
 #[test]
 fn published_body_refusals_cover_shape_literals_fit_order_units_and_task_premises() {
     let vectors = recipes();
@@ -499,7 +516,7 @@ fn published_body_refusals_cover_shape_literals_fit_order_units_and_task_premise
     }
 }
 
-#[trace("TC-048", "FR-038-AC-398", "FR-038-AC-400")]
+#[trace("TC-048", "FR-038-AC-399", "FR-038-AC-400")]
 #[test]
 fn published_body_positive_variants_retain_response_high_work_and_fixed_work() {
     let vectors = recipes();
@@ -576,7 +593,7 @@ fn published_body_positive_variants_retain_response_high_work_and_fixed_work() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-398", "FR-038-AC-400")]
+#[trace("TC-048", "FR-038-AC-399", "FR-038-AC-400")]
 #[test]
 fn body_validation_stages_choose_the_first_defect() {
     let vectors = recipes();
