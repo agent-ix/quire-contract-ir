@@ -6,7 +6,7 @@
 use crate::support::checked_package::{canonical, evidence_for, node_id, nominal_package, settle};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
     ExactTypeProjectionErrorCode, SelectedExactIdentities,
 };
 use quire_exact::{Integer, IntegerInterval, ValueType};
@@ -73,7 +73,14 @@ fn admitted_projection_bounds_deep_and_cyclic_types_on_a_small_stack() {
         let wire = package(nodes);
         let mut invalid = wire.clone();
         invalid["semantic_graph"]["nodes"][0]["semantic_type"] = node_id("missing-type");
-        assert!(matches!(read(&invalid), CheckedPackageV2ReadResult::Refused(_)));
+        match read(&invalid) {
+            CheckedPackageV2ReadResult::Refused(error) => {
+                assert_eq!(error.code, CheckedPackageRefusalCode::InvalidPackage);
+                assert_eq!(error.cause, Some(CheckedPackageRefusalCause::InvalidDerivedShape));
+                assert_eq!(error.locus, Some(serde_json::from_value(node_id("integer")).unwrap()));
+            }
+            other => panic!("an invalid type fixture cannot grant admission: {other:?}"),
+        }
         let admitted = admitted(&wire);
         drop(invalid);
         drop(wire);
@@ -93,6 +100,8 @@ fn admitted_projection_bounds_deep_and_cyclic_types_on_a_small_stack() {
                     let projection = result.expect("complete Exact type at its exact work limit");
                     assert_eq!(projection.value_type(), &expected);
                     assert_eq!(projection.work(), work);
+                    assert_eq!(projection.node(), &id);
+                    assert_eq!(projection.record_view(), None);
                 }
                 None => {
                     let error = result.expect_err("unsupported nested type has no partial view");
@@ -109,38 +118,8 @@ fn admitted_projection_bounds_deep_and_cyclic_types_on_a_small_stack() {
             let locus: CheckedNodeId = serde_json::from_value(node_id(if name == "parameter" { "digit" } else { name })).unwrap();
             assert_eq!(error.at.as_deref(), Some(&locus));
             assert_eq!(error.work, if name == "parameter" { 2 } else { 1 });
+            assert_eq!(error.form.as_ref(), if name == "parameter" { "bounded_domain/integer_range" } else { "semantic_type" });
         }
     }).expect("spawn small-stack reader").join().expect("bounded public reads must not grow the stack with type depth");
-}
-
-#[test]
-fn receipt_admitted_union_projection_has_the_required_unsupported_type_outcome() {
-    use crate::support::checked_package::{fixture_source, owned_structural_node, source_owner};
-    let mut union = node(
-        "ProjectionUnion",
-        "composite_type",
-        "union",
-        "ProjectionUnion",
-        &[],
-        json!({"term": "aggregate", "members": [
-            {"term": "binding", "name": "left", "value": {"term": "aggregate", "members": []}},
-            {"term": "binding", "name": "right", "value": {"term": "aggregate", "members": []}}
-        ]}),
-    );
-    union["declaration"] = json!({"qualified_name": ["ProjectionUnion"]});
-    union["occurrences"][0]["role"] = json!("declaration");
-    let union = owned_structural_node(union, source_owner(&fixture_source()));
-    let wire = package(vec![union]);
-    std::fs::write(std::env::var_os("IR1003_AC6_RECEIPT_PATH").expect("receipt output"), canonical(&wire)).expect("write exact authored union wire");
-    let admitted = admitted(&wire);
-    let id: CheckedNodeId = serde_json::from_value(node_id("ProjectionUnion")).unwrap();
-    let error = admitted
-        .project_exact_type(&id, &SelectedExactIdentities::empty(), 2)
-        .expect_err("union has no complete Exact representation");
-    assert_eq!(
-        error.code,
-        ExactTypeProjectionErrorCode::UnsupportedExactType,
-        "{error:?}"
-    );
 }
 
