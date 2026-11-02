@@ -673,7 +673,7 @@ macro_rules! checked_package_envelope {
             checked_term_data: Option<T>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             temporal_bindings: Option<B>,
-            #[serde(default, deserialize_with = "operation_effects::present_rows", skip_serializing_if = "Option::is_none")]
+            #[serde(default, deserialize_with = "operation_effects::present_rows", bound(deserialize = "E: Deserialize<'de>"), skip_serializing_if = "Option::is_none")]
             operation_effects: Option<E>,
         }
 
