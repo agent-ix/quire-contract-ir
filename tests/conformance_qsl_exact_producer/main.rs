@@ -54,9 +54,10 @@ fn genuine_qsl_model_identities_join_admitted_record_and_reference_projection() 
         target.is_absolute(),
         "producer target must be an absolute owned path"
     );
-    let scratch =
-        Scratch(env::temp_dir().join(format!("ir1003-exact-producer-{}", std::process::id())));
-    fs::create_dir(&scratch.0).expect("create owned scratch");
+    let scratch_path =
+        env::temp_dir().join(format!("ir1003-exact-producer-{}", std::process::id()));
+    fs::create_dir(&scratch_path).expect("create owned scratch");
+    let scratch = Scratch(scratch_path);
     let helper = scratch.0.join("helper");
     fs::create_dir_all(helper.join("src/bin")).expect("create helper bins");
     let mut manifest = String::from(
