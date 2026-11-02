@@ -4775,27 +4775,24 @@ fn exact_reference_projection_preserves_each_selected_object_identity() {
     assert_eq!(error.form.as_ref(), "unknown_node");
     assert_eq!(error.work, 1);
 
-    // A dangling target never reaches the admitted projection boundary.
-    let nodes = wire["semantic_graph"]["nodes"].as_array_mut().unwrap();
-    let node = nodes
-        .iter_mut()
-        .find(|node| node["semantic_form"] == "reference")
-        .unwrap();
-    node["body"]["members"][0]["target"] = node_id("missing-object");
-    settle(&mut wire);
-    match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
-        CheckedPackageV2ReadResult::Refused(error) => {
-            assert_eq!(
-                error.code,
-                CheckedPackageRefusalCode::InvalidPackage,
-                "{error:?}"
-            );
-            assert_eq!(
-                error.cause,
-                Some(CheckedPackageRefusalCause::InvalidDerivedShape),
-                "{error:?}"
-            );
+    // Foreign and dangling targets never reach the admitted projection boundary.
+    let position = wire["semantic_graph"]["nodes"].as_array().unwrap().iter()
+        .position(|node| node["semantic_form"] == "reference").unwrap();
+    let mut foreign_target = node_id(&declaration_key("Node", OBJECT));
+    foreign_target["package"] = json!("foreign/package");
+    for target in [node_id("missing-object"), foreign_target] {
+        let mut adverse = wire.clone();
+        adverse["semantic_graph"]["nodes"][position]["body"]["members"][0]["target"] = target;
+        settle(&mut adverse);
+        match read_with(&adverse, &evidence, CheckedPackageReadLimits::bounded()) {
+            CheckedPackageV2ReadResult::Refused(error) => {
+                assert_eq!(error.code, CheckedPackageRefusalCode::InvalidPackage);
+                assert_eq!(error.cause, Some(CheckedPackageRefusalCause::InvalidDerivedShape));
+                assert_eq!(error.locus.as_ref(), Some(&references[0]));
+                assert_eq!(error.loci.len(), 1);
+                assert_eq!(error.loci[0].path, Some(crate::support::checked_package::pointer(&format!("/semantic_graph/nodes/{position}/node_id"))));
+            }
+            other => panic!("invalid reference target must refuse before projection: {other:?}"),
         }
-        other => panic!("dangling reference must refuse before projection: {other:?}"),
     }
 }
