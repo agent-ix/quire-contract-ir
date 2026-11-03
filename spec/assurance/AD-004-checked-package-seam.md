@@ -2,7 +2,7 @@
 id: AD-004
 title: "QSpec to IR seam: the quire.checked-package/v2 reader and lowering"
 type: ArchitectureDescription
-status: proposed
+status: accepted
 owner: kreneskyp
 system: quire-contract-model checked_package module (reader, lowerer, evidence), its inputs from QSpec's wire contract and QSL's emission, and its output to codegen
 relationships:
@@ -37,6 +37,13 @@ states what the reader takes, what it asserts about identity, what it refuses, w
 the producer and the contract disagree, and which disagreements are open.
 
 Out of scope: how QSL emits, what QSpec's text should say (routed), and the Kani profile.
+
+This is staged architecture acceptance, not a claim that the current reader conforms to
+every published QSpec source-reference rule. IR-1273 remains Backlog under the recorded
+2026-11-02 MVP deferral: the current two-member `CheckedSourceRef` and evidence API do
+not verify QSpec FR-322's `source_integrity` claim. QSpec FR-322/FR-323 and QSL FR-518
+need owner-led rescope for the deferred MVP boundary; until then the published rule and
+implemented reader remain distinct. The other QSpec questions in Risks remain routed.
 
 ## Views
 
@@ -214,8 +221,10 @@ What is measured today, what is open and with whom, and what is routed.
 - QSpec FR-322 now requires `source_integrity` verification before closed-schema
   checks. IR's `CheckedSourceRef` still has only `authority` and `identity`, and
   its evidence API still lacks caller-supplied source bytes. IR-1273 is the
-  reader convergence gap; this AD describes the published contract and the
-  implemented reader separately until that gap lands. Measured sources:
+  deferred reader convergence gap; this AD describes the published contract and the
+  implemented reader separately until that gap lands or QSpec and QSL rescope their
+  dependent requirements. No present reader-conformance claim follows from this AD's
+  accepted status. Measured sources:
   QSpec `b1feb484` `spec/objects/interfaces/FR-322-checked-package-artifact.md:3191-3240`;
   IR `36bcd0a2` `crates/quire-contract-model/src/checked_package/shared.rs:1514-1523`.
 - IR's own tests build packages in-repo from IR's own vocabulary
@@ -241,7 +250,7 @@ What is measured today, what is open and with whom, and what is routed.
 | --- | --- | --- | --- |
 | Recursive compared type: refuse (matches the reference reader, which IR follows) or 0 leaves for no-text cyclic types; adopt `recursion:<d>` leaves | QSpec (STD-129) | IR does not change before the ruling | IR widening first would diverge from the reference reader |
 | `record_value_type` field names | QSpec | rule that a field entry on that form names no declared field, or add the form to `ModelDeclarationNode` | IR keeps a documented deviation |
-| Source-byte integrity reader convergence | IR (IR-1273, deferred) | Add caller-supplied raw bytes and verify every QSpec `source_integrity` claim with the specified refusal order and locus before claiming conformance | The current reader admits two-member source references that the published wire refuses |
+| Source-byte integrity reader convergence | IR (IR-1273, Backlog under the 2026-11-02 MVP deferral); QSpec and QSL own dependent FR-322/FR-323 and FR-518 rescope | Keep the present mismatch explicit; implement the reader only when the deferred requirement is reprioritized, and have QSpec/QSL state the MVP scope they own | The current reader admits two-member source references that the published wire refuses; acceptance here does not certify source-byte integrity |
 | Five ADR-002 members have no wire carrier | QSpec | publish carriers or state they are out of v2 | reader refuses forever |
 | Duplicate `FR-341` ids in QSpec | QSpec | renumber one | citations by id are ambiguous |
 
