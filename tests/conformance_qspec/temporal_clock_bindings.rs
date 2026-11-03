@@ -21,17 +21,23 @@ fn name_vectors() -> Value {
         .expect("published temporal clause name vectors")
 }
 
-fn replace_clause(value: &mut Value, clause: &Value) {
+fn replace_clause(value: &mut Value, clause: &Value, nodes: &[Value]) {
     match value {
         Value::String(text) if text == "<clause>" => *value = clause.clone(),
+        Value::String(text) if text.starts_with("<node ") && text.ends_with('>') => {
+            let index = text[6..text.len() - 1]
+                .parse::<usize>()
+                .expect("node index");
+            *value = nodes.get(index).expect("placeholder node")["node_id"].clone();
+        }
         Value::Array(items) => {
             for item in items {
-                replace_clause(item, clause);
+                replace_clause(item, clause, nodes);
             }
         }
         Value::Object(members) => {
             for member in members.values_mut() {
-                replace_clause(member, clause);
+                replace_clause(member, clause, nodes);
             }
         }
         _ => {}
@@ -42,7 +48,13 @@ fn apply_occurrence_patch(package: &mut Value, patch: &Value, clause: &Value) {
     let path = patch["path"].as_str().expect("patch path");
     let (parent, member) = path.rsplit_once('/').expect("patch member");
     let mut value = patch["value"].clone();
-    replace_clause(&mut value, clause);
+    replace_clause(
+        &mut value,
+        clause,
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes"),
+    );
     if patch["op"] == "move" {
         let from = patch["from"].as_str().expect("move source");
         let (source_parent, source_member) = from.rsplit_once('/').expect("move member");
