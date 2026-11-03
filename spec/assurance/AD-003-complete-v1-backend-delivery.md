@@ -2,7 +2,7 @@
 id: AD-003
 title: "Complete V1 target-neutral IR and backend delivery architecture"
 type: ArchitectureDescription
-status: proposed
+status: accepted
 owner: kreneskyp
 system: complete-V1 Contract IR, runtime, codegen, Kani, replay, and output mappings
 relationships:
@@ -23,10 +23,16 @@ relationships:
 
 Contract IR owns the cycle-free, versioned `ContractPackage` representation and
 the exact lowering boundary. Runtime owns typed native oracle execution; codegen
-owns deterministic provider generation, the Kani family lowerings, bounded
-Kani harnesses, the Kani transcript parser, and the replay adapter; QSL's `qsl-replay` owns the
+owns deterministic provider generation, the remaining collection and graph Kani lowerings, bounded
+Kani harnesses, the Kani transcript parser, and replay request construction; QSL's `qsl-replay` owns the
 counterexample envelope, replay request and result, and the replay facade. Output mapping remains a derived-output boundary. Native Quire remains
-the sole source and semantic authority.
+the sole source and semantic authority. The checked-arithmetic lowerer and corpus arm were retired
+under CG FR-015-AC-109; CG `bec3f380` `spec/assurance/AD-004-cg-crate-layout.md:327`
+records collection and graph as the remaining paths. QSL ADR-011 E9 assigns the replay-facade
+call to the orchestrating driver, with CG building the request (QSL `adde683e`,
+`spec/decisions/ADR-011-stage-dag-and-dependency-architecture.md:264-266`).
+CG `bec3f380` still calls `qsl_replay::replay` in `src/replay/function.rs:180-197,809-817`;
+IR-492 tracks that transition residual.
 
 ## Views
 
@@ -34,7 +40,7 @@ the sole source and semantic authority.
 checked native package -> exact per-item lowering -> ContractPackage
 ContractPackage -> capability negotiation -> runtime oracle | codegen provider
 codegen provider -> bounded Kani/artifacts/results -> qsl_replay::WitnessEnvelope
-qsl_replay::WitnessEnvelope -> codegen replay adapter -> qsl_replay::replay -> ReplayResult
+qsl_replay::WitnessEnvelope -> CG replay request -> driver E9 call -> qsl_replay::replay -> ReplayResult
 ContractPackage -> output mapping package -> OCL | SysML/KerML | FRETish outputs
 ```
 

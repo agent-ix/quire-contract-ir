@@ -2,7 +2,7 @@
 id: AD-006
 title: "IR to codegen seam: the checked-package and Kani types codegen consumes"
 type: ArchitectureDescription
-status: proposed
+status: accepted
 owner: kreneskyp
 system: quire-contract-ir root crate and quire-contract-model public items that quire-contract-codegen imports, the import path it uses, and the Cargo edge between the two repositories
 relationships:
@@ -93,11 +93,11 @@ Codegen's manifest now declares both IR packages: `quire-contract-model` for mod
 
 | Edge | Allowed | Held by | Gap |
 | --- | --- | --- | --- |
-| codegen to IR | yes, root crate and model crate | codegen `Cargo.toml`; codegen `make deny` checks one revision of each IR package | none for the model import path |
-| IR to codegen | no | nothing in IR yet; AD-005 decision D makes it a cargo-deny `bans` failure (IR-343) | the forbidden list in `tests/it/cycle_free_model.rs` does not name `quire-contract-codegen` |
-| IR to QSL | no | `tc_041` today; target: cargo-deny `bans` entries as well (AD-005 decision D) | no deny entry exists yet |
+| codegen to IR | yes, root crate and model crate | codegen `Cargo.toml:33-37` declares both; current `Cargo.lock` has one entry for each | CG `make deny` runs only `cargo deny check` (`Makefile:145-147`); one-revision lock qualification is missing (IR-1292) |
+| IR to codegen | no | IR `deny.toml:17-23` bans the crate by name; `tests/it/cycle_free_model.rs:206-249,360-404` rejects it on model production paths and in any direct root dependency kind | no known gap on those guarded edges |
+| IR to QSL | no | TC-041 checks model production paths and every direct root dependency kind by name/source; `deny.toml:31-44` rejects unlisted Git sources | no QSL name ban covers a model dev path or registry edge (AD-005 D-1) |
 | codegen to QSL | only `qsl-replay` | codegen `deny.toml` exceptions and QSL's `arch-lint api-surface` T12-A | not an IR concern |
-| IR and codegen both to runtime | IR no, codegen yes | AD-001 for IR (runtime: no edge in either direction with IR) | no IR test (AD-005 D-2) |
+| IR and codegen both to runtime | IR no, codegen yes | IR `deny.toml:17-23` bans runtime by name; TC-041 checks model production and direct root edges; CG `Cargo.toml:38` declares RT | no known gap on those guarded IR edges |
 
 ### Failure outcomes and who reports them
 
@@ -138,9 +138,9 @@ Local labels; the repository assigns requirement ids when one is authored.
 - G-4. `Proved` carries a check count and a request with count zero returns `KaniOutcomeError`
   (FR-030-AC-4; implemented by `proved` and verified by tagged TC-223 tests; `non_success`
   separately refuses a `Proved` or `Counterexample` request).
-- G-5. Target: neither IR package depends on the codegen or runtime packages, as a cargo-deny `bans` build failure in `make deny` (AD-005 D-2; IR-343); no such entry exists today.
-- G-6. Codegen's lock holds one `quire-contract-model` and one `quire-contract-ir` (existing
-  gate).
+- G-5. Neither IR package depends on codegen or runtime: the two name-level bans exist in `deny.toml:17-23`, and TC-041 checks the model production graph and every direct root dependency kind (AD-005 D-2).
+- G-6. Codegen's current lock has one `quire-contract-model` and one `quire-contract-ir`,
+  but `make deny` does not enforce that count. IR-1292 owns the missing CG lock gate.
 - G-7. Every lowering request codegen sends yields exactly one record (AD-004; FR-035).
 
 ## Risks
