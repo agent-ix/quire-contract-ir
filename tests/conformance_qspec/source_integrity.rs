@@ -5,7 +5,7 @@
 
 use super::{
     cause_word, code_word, fixtures_dir, proposal_dir_of, read_json,
-    read_package_with_sources_override, DOMAIN_DOCUMENT,
+    read_package_with_sources_override, SourceSupply, DOMAIN_DOCUMENT,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{CheckedPackageReadLimits, CheckedPackageV2ReadResult};
@@ -79,9 +79,11 @@ fn published_source_integrity_vectors_follow_raw_supplied_bytes() {
             true,
             CheckedPackageReadLimits::bounded(),
             None,
-            Some(supplied),
-            row.get("flip_byte"),
-            None,
+            SourceSupply {
+                selected: Some(supplied),
+                flip_byte: row.get("flip_byte"),
+                ..SourceSupply::default()
+            },
         )
         .expect("production reader with published evidence");
         if row["expected"]["admitted"] == true {
@@ -141,9 +143,7 @@ fn paired_source_faults_follow_site_then_array_order() {
             true,
             CheckedPackageReadLimits::bounded(),
             None,
-            None,
-            None,
-            None,
+            SourceSupply::default(),
         )
         .expect("production read")
     };
@@ -235,9 +235,10 @@ fn source_byte_and_visit_limits_charge_references_exactly() {
             true,
             limits,
             None,
-            None,
-            None,
-            Some(("agent-ix", "example-a", bytes)),
+            SourceSupply {
+                override_bytes: Some(("agent-ix", "example-a", bytes)),
+                ..SourceSupply::default()
+            },
         )
         .expect("production read")
     };

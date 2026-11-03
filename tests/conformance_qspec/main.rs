@@ -367,10 +367,15 @@ fn read_package_with_document_override(
         hold_retention,
         limits,
         document_override,
-        None,
-        None,
-        None,
+        SourceSupply::default(),
     )
+}
+
+#[derive(Clone, Copy, Default)]
+struct SourceSupply<'a> {
+    selected: Option<&'a [Value]>,
+    flip_byte: Option<&'a Value>,
+    override_bytes: Option<(&'a str, &'a str, &'a [u8])>,
 }
 
 fn read_package_with_sources_override(
@@ -380,14 +385,12 @@ fn read_package_with_sources_override(
     hold_retention: bool,
     limits: CheckedPackageReadLimits,
     document_override: Option<&[u8]>,
-    supplied: Option<&[Value]>,
-    flip_byte: Option<&Value>,
-    source_override: Option<(&str, &str, &[u8])>,
+    sources: SourceSupply<'_>,
 ) -> Result<CheckedPackageV2ReadResult, String> {
     // The reader takes canonical bytes; the published files are indented.
     let bytes = serde_json::to_vec(package).map_err(|error| error.to_string())?;
     let mut evidence = CheckedPackageEvidence::new();
-    insert_published_sources(&mut evidence, supplied, flip_byte, source_override)?;
+    insert_published_sources(&mut evidence, sources)?;
     if hold_retention
         && package["lock"]["definition_selections"]
             .as_array()
@@ -507,9 +510,7 @@ fn read_package_with_sources_override(
 /// Supply raw source bytes from QSpec's published index by exact pair.
 fn insert_published_sources(
     evidence: &mut CheckedPackageEvidence,
-    supplied: Option<&[Value]>,
-    flip_byte: Option<&Value>,
-    source_override: Option<(&str, &str, &[u8])>,
+    sources: SourceSupply<'_>,
 ) -> Result<(), String> {
     let proposal = proposal_dir_of(&fixtures_dir());
     let index = read_json(&proposal.join("source-documents.json"))?;
@@ -519,7 +520,7 @@ fn insert_published_sources(
     for document in documents {
         let authority = document["authority"].as_str().ok_or("source authority")?;
         let identity = document["identity"].as_str().ok_or("source identity")?;
-        if supplied.is_some_and(|pairs| {
+        if sources.selected.is_some_and(|pairs| {
             !pairs
                 .iter()
                 .any(|pair| pair["authority"] == authority && pair["identity"] == identity)
@@ -532,15 +533,19 @@ fn insert_published_sources(
         }
         let mut bytes = std::fs::read(proposal.join(file))
             .map_err(|error| format!("cannot read source {file}: {error}"))?;
-        if let Some((override_authority, override_identity, override_bytes)) = source_override {
+        if let Some((override_authority, override_identity, override_bytes)) =
+            sources.override_bytes
+        {
             if override_authority == authority && override_identity == identity {
                 bytes = override_bytes.to_vec();
             }
         }
-        if flip_byte
+        if sources
+            .flip_byte
             .is_some_and(|flip| flip["authority"] == authority && flip["identity"] == identity)
         {
-            let index = flip_byte
+            let index = sources
+                .flip_byte
                 .and_then(|flip| flip["index"].as_u64())
                 .ok_or("flip_byte index")?;
             let index = usize::try_from(index).map_err(|_| "flip_byte index overflow")?;
