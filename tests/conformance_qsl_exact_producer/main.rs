@@ -274,43 +274,22 @@ fn fresh_qsl_four_points_survive_source_drop_at_the_public_accessor() {
         "exact points in the authoritative carrier"
     );
 
-    fs::write(helper.join("src/bin/caller_point.rs"),
-        "fn consume(p: &quire_contract_model::CheckedPackageV2, n: &quire_contract_model::CheckedNodeId, c: &quire_contract_model::CheckedOccurrence, supplied: quire_contract_model::ExecutionPoint) { let _ = p.clause_execution_point(n, (n,c), supplied); } fn main() {}\n"
-    ).expect("external caller-point rejection control");
-    let refused = cargo(
-        &helper,
-        &target,
-        &[
-            "check",
-            "--offline",
-            "--locked",
-            "-j2",
-            "--bin",
-            "caller_point",
-            "--message-format=json",
-        ],
-    );
-    assert_eq!(
-        refused.status.code(),
-        Some(101),
-        "caller point must not enter accessor"
-    );
-    let messages = String::from_utf8(refused.stdout).expect("compiler JSON");
-    let errors = messages
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|message| {
-            message["reason"] == "compiler-message" && message["message"]["level"] == "error"
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        errors.len(),
-        1,
-        "only the intended signature refusal: {errors:?}\n{}",
-        String::from_utf8_lossy(&refused.stderr)
-    );
-    assert_eq!(errors[0]["target"]["name"], "caller_point");
-    assert_eq!(errors[0]["message"]["code"]["code"], "E0061");
+    for (name, source, code) in [
+        ("caller_point", "fn consume(p: &quire_contract_model::CheckedPackageV2, n: &quire_contract_model::CheckedNodeId, c: &quire_contract_model::CheckedOccurrence, supplied: quire_contract_model::ExecutionPoint) { let _ = p.clause_execution_point(n, (n,c), supplied); } fn main() {}\n", "E0061"),
+        ("caller_bindings", "fn consume(p: &quire_contract_model::CheckedPackageV2, n: &quire_contract_model::CheckedNodeId, supplied: &qsl_replay::spine::StateClauseExecutionPoints) { let _ = p.clause_execution_point(n, supplied); } fn main() {}\n", "E0308"),
+    ] {
+        let consumer = helper.join(format!("src/bin/{name}.rs"));
+        fs::write(&consumer, source).expect("external caller-input rejection control");
+        let refused = cargo(&helper, &target, &["check", "--offline", "--locked", "-j2", "--bin", name, "--message-format=json"]);
+        assert_eq!(refused.status.code(), Some(101), "{name} must not enter accessor");
+        let messages = String::from_utf8(refused.stdout).expect("compiler JSON");
+        let errors = messages.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|message| message["reason"] == "compiler-message" && message["message"]["level"] == "error").collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "only the intended {name} signature refusal: {errors:?}\n{}", String::from_utf8_lossy(&refused.stderr));
+        assert_eq!(errors[0]["target"]["name"], name);
+        assert_eq!(errors[0]["target"]["src_path"].as_str().map(Path::new), Some(consumer.as_path()));
+        assert_eq!(errors[0]["message"]["code"]["code"], code);
+        assert!(errors[0]["message"]["rendered"].as_str().expect("compiler diagnostic").contains("clause_execution_point"), "{name} must refuse at the admitted accessor");
+    }
 }
 
 fn assert_accessor_reads_only_admitted_terms() {
