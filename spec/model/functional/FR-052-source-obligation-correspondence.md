@@ -201,9 +201,11 @@ and `SkippedRow` records but no owner-issued terminal state or scan diagnostics;
 `Spec::from_path` can yield an empty corpus with a diagnostic, and directory
 discovery can discard walk errors. Therefore neither that return value nor a
 zero-row or zero-skipped-row result may be promoted to `Complete` by Contract
-IR. The Quire owner-issued API and its lossless typed stop projection are
-pending PLAT-1165. Until it exists, the Quire outcome stays absent or
-incomplete and the full census remains Planned/UNRUN.
+IR. PLAT-1165 supplies Quire's owner-issued inventory API. The AC-16 native
+consumer controls borrow its terminal state, entries and original typed causes;
+they do not supply the separate owner-native neutral outcome adapter or its
+lossless typed stop projection. Producer delivery and these controls alone do
+not establish the full census, which remains Planned/UNRUN.
 
 The neutral stop projection is closed over owner paths that actually exist.
 QSL's current `qsl_inventory` projects `TypeReport::exhaustion()` to
@@ -515,11 +517,13 @@ AC-7, AC-9, AC-10 and AC-11 name owner scopes, owner-native enumerators or
 owner adapter tests, and they remain Planned/UNRUN pending owner-native
 adapters. AC-25 is Implemented by the IR V2 reader-result adapter and traced
 tests. AC-26 and AC-27 remain Planned until their owner adapters and traced
-tests land. Quire's selected-scope producer awaits PLAT-1165. AC-11's first sentence is exercised at the
-neutral boundary by the AC-13 tests, but its second sentence needs owner
-adapter tests, so AC-11 stays Planned as a whole. AC-16 remains Planned/UNRUN
-pending PLAT-1165. Synthetic completion does not establish the full
-matched-source FR-052 census or close IR-759. Passing the AC-17 through AC-23
+tests land. AC-16 is Implemented by IR-812's external consumer controls over
+PLAT-1165's real Quire producer, including full-output comparison, zero-mapping
+criteria, source edits, valid empty input, typed native partial failures and
+stop causes. AC-11's first sentence is exercised at the neutral boundary by
+the AC-13 tests, but its second sentence needs owner adapter tests, so AC-11
+stays Planned as a whole. Neither synthetic completion nor AC-16 establishes
+the full matched-source FR-052 census or closes IR-759. Passing the AC-17 through AC-23
 checks does not by itself change the status of any other criterion.
 
 ## Dependencies
