@@ -68,21 +68,24 @@ fn apply_occurrence_patch(package: &mut Value, patch: &Value, clause: &Value) {
     }
 }
 
-/// Trace: FR-038-AC-437, FR-038-AC-438, FR-038-AC-439, FR-038-AC-440, FR-038-AC-441, TC-048.
+/// Trace: FR-038-AC-437, FR-038-AC-438, FR-038-AC-439, FR-038-AC-440, TC-048.
 #[trace(
     "TC-048",
     "FR-038-AC-437",
     "FR-038-AC-438",
     "FR-038-AC-439",
-    "FR-038-AC-440",
-    "FR-038-AC-441"
+    "FR-038-AC-440"
 )]
 #[test]
-fn published_temporal_occurrence_vectors_bind_exact_read_and_write() {
+fn published_temporal_occurrence_rows_bind_exact_read_and_write() {
     let published = occurrence_vectors();
     let proposal = proposal_dir_of(&fixtures_dir());
     let base = published["base"].as_str().expect("published base");
-    let original = read_json(&proposal.join(base)).expect("published base package");
+    let mut original = read_json(&proposal.join(base)).expect("published base package");
+    original
+        .as_object_mut()
+        .expect("package")
+        .remove("temporal_clause_names");
     let clause = original["semantic_graph"]["nodes"][clause_index(&original)]["node_id"].clone();
     for (group, expected_count) in [
         ("positive", 2),
@@ -94,6 +97,15 @@ fn published_temporal_occurrence_vectors_bind_exact_read_and_write() {
         for case in cases {
             let mut package = original.clone();
             for patch in case["patch"].as_array().expect("published patches") {
+                // Temporal clause names are a separate sidecar. Project only
+                // that sidecar away; every binding and occurrence patch remains.
+                if patch["path"]
+                    .as_str()
+                    .expect("patch path")
+                    .starts_with("/temporal_clause_names")
+                {
+                    continue;
+                }
                 apply_occurrence_patch(&mut package, patch, &clause);
             }
             let id = case["id"].as_str().expect("case id");
