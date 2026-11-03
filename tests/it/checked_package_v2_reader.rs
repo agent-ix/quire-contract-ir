@@ -42,7 +42,9 @@ fn admitted(value: &Value) -> Box<CheckedPackageV2> {
 }
 
 fn refused(value: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageRefusal {
-    refused_bytes(&canonical(value), evidence)
+    let mut complete_evidence = evidence.clone();
+    insert_fixture_sources(value, &mut complete_evidence);
+    refused_bytes(&canonical(value), &complete_evidence)
 }
 
 fn refused_bytes(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPackageRefusal {
