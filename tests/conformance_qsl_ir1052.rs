@@ -165,4 +165,28 @@ fn qsl_boolean_transition_readback_retains_typed_subject_inputs_and_result() {
     let post = node(&package, target(bindings[4].1));
     assert_eq!(post.semantic_form.as_ref(), "state_clause");
     assert_eq!(post.semantic_type, *result_type, "post result is Boolean");
+    let CheckedTerm::Application {
+        operator: ApplicationOperator::StateClause,
+        arguments: post_arguments,
+        ..
+    } = &post.body
+    else {
+        panic!("post is a typed state clause application");
+    };
+    let [_, _, post_result] = post_arguments.as_slice() else {
+        panic!("post clause has parameters, anchor, and result");
+    };
+    let result = node(&package, target(post_result));
+    assert_eq!(
+        result.semantic_type, *result_type,
+        "post expression is Boolean"
+    );
+    let CheckedTerm::Application { operation, .. } = &result.body else {
+        panic!("post result is a typed field projection");
+    };
+    let (_, field_name) = operation
+        .projection_field()
+        .expect("admitted post result operation")
+        .expect("post result field projection");
+    assert_eq!(field_name, "on", "Switch post result field");
 }
