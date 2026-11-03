@@ -200,6 +200,7 @@ enum Ty {
     Tuple(String),
     Variant(String),
     Quantity(String),
+    CarriedRational(String, Box<Ty>),
     Option(Box<Ty>),
     Collection(Kind, Box<Ty>, Option<(u64, u64)>),
 }
@@ -257,6 +258,9 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         CheckedMemberType::Tuple(target) => Ty::Tuple(path_label(target)),
         CheckedMemberType::Variant(target) => Ty::Variant(path_label(target)),
         CheckedMemberType::Quantity(target) => Ty::Quantity(path_label(target)),
+        CheckedMemberType::CarriedRational { unit, carrier } => {
+            Ty::CarriedRational(path_label(unit), Box::new(ty_of(carrier)))
+        }
         CheckedMemberType::Option(element) => Ty::Option(Box::new(ty_of(element))),
         CheckedMemberType::Collection {
             kind,
@@ -364,6 +368,30 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
                     "rational_range",
                     &rational,
                     &[&rational],
+                    body,
+                )
+            });
+            key
+        }
+        Ty::CarriedRational(unit, carrier) => {
+            let carrier = type_nodes(carrier, nodes);
+            let text = "scalar_type/text".to_owned();
+            nodes
+                .entry(text.clone())
+                .or_insert_with(|| wire_node(&text, "scalar_type", "text", &text, &[], empty()));
+            let key = format!("scalar_type/carried_quantity/{unit}/{carrier}/exact");
+            let body = json!({"term":"aggregate","members":[
+                {"term":"binding","name":"unit","value":{"term":"reference","target":node_id(unit)}},
+                {"term":"binding","name":"carrier","value":{"term":"reference","target":node_id(&carrier)}},
+                {"term":"binding","name":"rounding","value":{"term":"literal","type":node_id(&text),"value":"exact","value_kind":"text"}}
+            ]});
+            nodes.entry(key.clone()).or_insert_with(|| {
+                wire_node(
+                    &key,
+                    "scalar_type",
+                    "carried_quantity",
+                    &key,
+                    &[unit, &carrier],
                     body,
                 )
             });
@@ -3586,6 +3614,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
         Ty::Tuple(_) => Ty::Tuple(other.to_owned()),
         Ty::Variant(_) => Ty::Variant(other.to_owned()),
         Ty::Quantity(_) => Ty::Quantity(other.to_owned()),
+        Ty::CarriedRational(..) => Ty::Boolean,
         Ty::Option(element) => Ty::Option(Box::new(perturbed(element, other))),
         Ty::Collection(kind, element, Some((lower, upper))) => {
             let bounds = if upper > lower {
@@ -3878,6 +3907,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::Tuple(_) => 14,
             CheckedMemberType::Variant(_) => 7,
             CheckedMemberType::Quantity(_) => 11,
+            CheckedMemberType::CarriedRational { .. } => 20,
             CheckedMemberType::Option(_) => 4,
             CheckedMemberType::Collection { .. } => 5,
         }

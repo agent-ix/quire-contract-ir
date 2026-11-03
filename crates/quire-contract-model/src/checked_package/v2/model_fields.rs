@@ -1094,6 +1094,13 @@ pub enum CheckedMemberType {
         /// Inclusive maximum denominator.
         denominator_max: i128,
     },
+    /// A bounded Rational magnitude carried by an exact unit.
+    CarriedRational {
+        /// The checked unit node.
+        unit: CheckedNodeId,
+        /// The rational carrier's exact bounds.
+        carrier: Box<CheckedMemberType>,
+    },
     /// `Text[min, max; profile]` from a selected value type.
     TextBounds {
         /// Inclusive minimum text length.
@@ -1172,6 +1179,10 @@ impl From<&MemberType> for CheckedMemberType {
                 numerator_max: bounds.numerator_max,
                 denominator_min: bounds.denominator_min,
                 denominator_max: bounds.denominator_max,
+            },
+            MemberType::CarriedRational(bounds, unit) => Self::CarriedRational {
+                unit: unit.clone(),
+                carrier: Box::new(Self::from(&MemberType::RationalRange(*bounds))),
             },
             MemberType::TextBounds(bounds) => Self::TextBounds {
                 lower: bounds.lower,

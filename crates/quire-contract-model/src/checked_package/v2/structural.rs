@@ -1032,13 +1032,15 @@ pub(super) fn validate_selected_type_bounds(
     let mut selected = Vec::new();
     for model in models {
         for bounds in model.value_types.values().flatten() {
-            let ValueBounds::Integer(expected) = bounds else {
+            let member_type = match bounds {
+                ValueBounds::Integer(expected) => MemberType::IntRange(*expected),
+                ValueBounds::Rational(expected, _) => MemberType::RationalRange(*expected),
+                ValueBounds::Text(_) => continue,
+            };
+            let Some(id) = member_type.node_id(&model.checked_package) else {
                 continue;
             };
-            let Some(id) = (MemberType::IntRange(*expected)).node_id(&model.checked_package) else {
-                continue;
-            };
-            selected.push((*expected, std::sync::Arc::new(id)));
+            selected.push((bounds.clone(), std::sync::Arc::new(id)));
         }
     }
     if selected.is_empty() {
@@ -1074,9 +1076,6 @@ pub(super) fn validate_selected_type_bounds(
             .and_then(Option::as_ref)
             .and_then(typed_aggregate)
             .and_then(|members| {
-                let [minimum, maximum] = members else {
-                    return None;
-                };
                 let bound = |term, name| match typed_binding(term, name)? {
                     CheckedTerm::Literal {
                         value_kind: LiteralKind::Integer,
@@ -1085,9 +1084,30 @@ pub(super) fn validate_selected_type_bounds(
                     } => value.as_str()?.parse::<i128>().ok(),
                     _ => None,
                 };
-                Some((bound(minimum, "min")?, bound(maximum, "max")?))
+                match (&expected, members) {
+                    (ValueBounds::Integer(_), [minimum, maximum]) => {
+                        Some(vec![bound(minimum, "min")?, bound(maximum, "max")?])
+                    }
+                    (ValueBounds::Rational(..), [nmin, nmax, dmin, dmax]) => Some(vec![
+                        bound(nmin, "numerator_min")?,
+                        bound(nmax, "numerator_max")?,
+                        bound(dmin, "denominator_min")?,
+                        bound(dmax, "denominator_max")?,
+                    ]),
+                    _ => None,
+                }
             });
-        if actual != Some((expected.lower, expected.upper)) {
+        let expected_values = match expected {
+            ValueBounds::Integer(bounds) => vec![bounds.lower, bounds.upper],
+            ValueBounds::Rational(bounds, _) => vec![
+                bounds.numerator_min,
+                bounds.numerator_max,
+                bounds.denominator_min,
+                bounds.denominator_max,
+            ],
+            ValueBounds::Text(_) => continue,
+        };
+        if actual != Some(expected_values) {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
                 node_pointer(position).key("node_id"),

@@ -511,7 +511,7 @@ pub(super) struct RationalBounds {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum ValueBounds {
     Integer(IntegerBounds),
-    Rational(RationalBounds),
+    Rational(RationalBounds, Option<CheckedNodeId>),
     Text(TextBounds),
 }
 
@@ -711,6 +711,8 @@ pub(super) enum MemberType {
     IntRange(IntegerBounds),
     /// `Rational[n1, n2; d1, d2]`.
     RationalRange(RationalBounds),
+    /// `Quantity<u, Rational[n1, n2; d1, d2]>`.
+    CarriedRational(RationalBounds, CheckedNodeId),
     /// `Text[min, max; profile]`.
     TextBounds(TextBounds),
     /// `Reference<O>`, over `O`'s model declaration node.
@@ -800,6 +802,26 @@ impl MemberType {
                         CheckedNodePathSegment::Name(bounds.denominator_max.to_string().into()),
                     ],
                 )),
+                Task::Read(Self::CarriedRational(bounds, unit)) => {
+                    let carrier = Self::RationalRange(*bounds).node_id(package)?;
+                    ids.push(derived_id(
+                        package,
+                        "scalar_type",
+                        "carried_quantity",
+                        vec![
+                            CheckedNodePathSegment::Node(std::sync::Arc::new(unit.clone())),
+                            CheckedNodePathSegment::Node(std::sync::Arc::new(carrier)),
+                            CheckedNodePathSegment::Name("rounding".into()),
+                            CheckedNodePathSegment::Node(std::sync::Arc::new(derived_id(
+                                package,
+                                "scalar_type",
+                                "text",
+                                Vec::new(),
+                            ))),
+                            CheckedNodePathSegment::Name("exact".into()),
+                        ],
+                    ));
+                }
                 Task::Read(Self::TextBounds(bounds)) => ids.push(bounded_id(
                     package,
                     "text_bounds",
@@ -1306,7 +1328,10 @@ impl DomainModel {
         if let Some(bounds) = self.value_types.get(type_ref) {
             return bounds.as_ref().map(|bounds| match bounds {
                 ValueBounds::Integer(range) => MemberType::IntRange(*range),
-                ValueBounds::Rational(bounds) => MemberType::RationalRange(*bounds),
+                ValueBounds::Rational(bounds, None) => MemberType::RationalRange(*bounds),
+                ValueBounds::Rational(bounds, Some(unit)) => {
+                    MemberType::CarriedRational(*bounds, unit.clone())
+                }
                 ValueBounds::Text(bounds) => MemberType::TextBounds(bounds.clone()),
             });
         }
@@ -2518,7 +2543,7 @@ fn member_identity(member: &Value, owner: &str) -> Result<Box<str>, ModelRefusal
 /// An FCD value type bound as `Int[lo, hi]` or `Text[min, max; profile]`.
 // Reads a selected domain package document's value type.
 #[ix_trace_rs::string_edge]
-fn semantic_ir_value_type(value: &Value) -> Option<ValueBounds> {
+fn semantic_ir_value_type(value: &Value, unit_refs: &UnitRefs) -> Option<ValueBounds> {
     let constraint = |keyword: &str| -> Option<&Value> {
         let mut found = list(value, "constraints")
             .ok()?
@@ -2539,12 +2564,37 @@ fn semantic_ir_value_type(value: &Value) -> Option<ValueBounds> {
             _ => None,
         }
     };
-    match value.get("scalar").and_then(Value::as_str)? {
+    let scalar = value.get("scalar").and_then(Value::as_str)?;
+    if scalar != "rational" && value.get("unit").is_some() {
+        return None;
+    }
+    match scalar {
         "integer" => {
             let (lower, upper) = (integer("min")?, integer("max")?);
             (lower <= upper).then_some(ValueBounds::Integer(IntegerBounds { lower, upper }))
         }
         "rational" => {
+            let constraints = list(value, "constraints").ok()?;
+            if constraints.len() != 4 {
+                return None;
+            }
+            let identity = text(value, "identity").ok()?;
+            let keywords = [
+                "minNumerator",
+                "maxNumerator",
+                "minDenominator",
+                "maxDenominator",
+            ];
+            if constraints.iter().any(|constraint| {
+                !keywords.contains(
+                    &constraint
+                        .get("keyword")
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
+                ) || constraint.get("appliesTo").and_then(Value::as_str) != Some(identity)
+            }) {
+                return None;
+            }
             let rational_integer = |keyword| -> Option<i128> {
                 let operands = constraint(keyword)?.get("operands")?.as_object()?;
                 if operands.len() != 1 {
@@ -2558,10 +2608,20 @@ fn semantic_ir_value_type(value: &Value) -> Option<ValueBounds> {
                 denominator_min: rational_integer("minDenominator")?,
                 denominator_max: rational_integer("maxDenominator")?,
             };
+            let unit = match value.get("unit") {
+                None => None,
+                Some(Value::String(unit))
+                    if unit.starts_with("ix://quire/unit/")
+                        && unit.len() > "ix://quire/unit/".len() =>
+                {
+                    Some(unit_refs.get(unit.as_str())?.clone())
+                }
+                Some(_) => return None,
+            };
             (bounds.numerator_min <= bounds.numerator_max
                 && bounds.denominator_min > 0
                 && bounds.denominator_min <= bounds.denominator_max)
-                .then_some(ValueBounds::Rational(bounds))
+                .then_some(ValueBounds::Rational(bounds, unit))
         }
         "string" => {
             let (lower, upper) = (
@@ -3328,9 +3388,10 @@ pub(super) fn read_semantic_ir(
                 }
             }
             meaning::Kind::ValueType => {
-                model
-                    .value_types
-                    .insert((*node).into(), semantic_ir_value_type(declared));
+                model.value_types.insert(
+                    (*node).into(),
+                    semantic_ir_value_type(declared, &model.unit_refs),
+                );
             }
             meaning::Kind::TupleValueType => {
                 model.tuple_types.insert((*node).into(), Vec::new());
@@ -4557,6 +4618,79 @@ mod structural_member_type_tests {
             json!(["bounded_domain","integer_range","min",
                 {"package":"example","path":["scalar_type","integer"],"ordinal":0},
                 "-9","max","9"])
+        );
+    }
+
+    /// Trace: FR-069-AC-8, FR-322-AC-380.
+    #[test]
+    fn selected_rational_bounds_require_four_integer_carriers_and_name_the_rational_shape() {
+        let declared = |value: serde_json::Value| {
+            json!({"identity":"ix://example/Ratio",
+            "scalar":"rational","constraints":value})
+        };
+        let constraints = |nmin: serde_json::Value| {
+            json!([
+                {"keyword":"minNumerator","appliesTo":"ix://example/Ratio","operands":{"value":nmin}},
+                {"keyword":"maxNumerator","appliesTo":"ix://example/Ratio","operands":{"value":7}},
+                {"keyword":"minDenominator","appliesTo":"ix://example/Ratio","operands":{"value":1}},
+                {"keyword":"maxDenominator","appliesTo":"ix://example/Ratio","operands":{"value":12}}
+            ])
+        };
+        let unit_refs = std::sync::Arc::new(std::collections::BTreeMap::new());
+        let value = super::semantic_ir_value_type(&declared(constraints(json!(-3))), &unit_refs)
+            .expect("bounded Rational");
+        let super::ValueBounds::Rational(bounds, None) = value else {
+            panic!("Rational value type must retain Rational bounds");
+        };
+        let id = MemberType::RationalRange(bounds)
+            .node_id("example")
+            .expect("rational range");
+        assert_eq!(
+            serde_json::to_value(id).expect("encode rational range")["path"],
+            json!(["bounded_domain","rational_range","numerator_min",
+                {"package":"example","path":["scalar_type","integer"],"ordinal":0},
+                "-3","numerator_max","7","denominator_min","1","denominator_max","12"])
+        );
+        let unit = super::derived_id("example", "scalar_type", "unit", Vec::new());
+        let mut refs = std::collections::BTreeMap::new();
+        refs.insert("ix://quire/unit/m".into(), unit.clone());
+        let refs = std::sync::Arc::new(refs);
+        let mut with_unit = declared(constraints(json!(-3)));
+        with_unit["unit"] = json!("ix://quire/unit/m");
+        let super::ValueBounds::Rational(carried_bounds, Some(actual_unit)) =
+            super::semantic_ir_value_type(&with_unit, &refs).expect("unit-bearing Rational")
+        else {
+            panic!("unit-bearing Rational must retain its unit");
+        };
+        assert_eq!(actual_unit, unit);
+        let carried = MemberType::CarriedRational(carried_bounds, actual_unit)
+            .node_id("example")
+            .expect("carried Rational");
+        assert_eq!(
+            carried.path[0],
+            super::CheckedNodePathSegment::Name("scalar_type".into())
+        );
+        assert_eq!(
+            carried.path[1],
+            super::CheckedNodePathSegment::Name("carried_quantity".into())
+        );
+        assert_eq!(
+            carried.path[4],
+            super::CheckedNodePathSegment::Name("rounding".into())
+        );
+        assert_eq!(
+            carried.path[6],
+            super::CheckedNodePathSegment::Name("exact".into())
+        );
+        for bad in [json!("-3"), json!(-3.5), json!(null)] {
+            assert!(
+                super::semantic_ir_value_type(&declared(constraints(bad)), &unit_refs).is_none(),
+                "wrong bound carrier must not become a bounded type"
+            );
+        }
+        assert!(
+            super::semantic_ir_value_type(&declared(json!([])), &unit_refs).is_none(),
+            "unbounded Rational must remain unmapped"
         );
     }
 }

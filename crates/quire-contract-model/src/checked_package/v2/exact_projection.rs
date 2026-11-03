@@ -846,6 +846,7 @@ pub(super) fn project_record_field_type(
         | MemberType::JsonObject
         | MemberType::Clock
         | MemberType::RationalRange(_)
+        | MemberType::CarriedRational(..)
         | MemberType::TextBounds(_)
         | MemberType::Variant(_)
         | MemberType::Option(_)
