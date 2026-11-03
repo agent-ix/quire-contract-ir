@@ -23,7 +23,7 @@ fn array_member<'a>(raw: &'a RawValue, member: &str) -> Option<Vec<&'a RawValue>
     serde_json::from_str(raw_member(Some(raw), member)?.get()).ok()
 }
 
-fn source_member<'a>(raw: &'a RawValue) -> Option<&'a RawValue> {
+fn source_member(raw: &RawValue) -> Option<&RawValue> {
     raw_member(Some(raw), "source")
 }
 

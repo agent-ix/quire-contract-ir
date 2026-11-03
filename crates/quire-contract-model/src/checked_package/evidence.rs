@@ -100,6 +100,8 @@ pub struct CheckedExtensionClauseSchema {
     pub type_ref: Box<str>,
 }
 
+type SourceDocuments = BTreeMap<Box<str>, BTreeMap<Box<str>, Box<[u8]>>>;
+
 /// Domain package documents, dependency packages and reader-supported
 /// features for one read.
 ///
@@ -111,9 +113,10 @@ pub struct CheckedExtensionClauseSchema {
 /// [`CheckedPackageV2`] under the identity its `import` names (FR-322
 /// `dependency_selections`); the reader binds it to the selection entry of
 /// that identity and never reads a dependency's bytes itself.
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CheckedPackageEvidence {
-    source_documents: BTreeMap<Box<str>, BTreeMap<Box<str>, Box<[u8]>>>,
+    source_documents: SourceDocuments,
     domain_packages: BTreeMap<Box<str>, Box<[u8]>>,
     dependency_packages: BTreeMap<Box<str>, Arc<CheckedPackageV2>>,
     extension_definitions: BTreeMap<CheckedArtifactRef, CheckedExtensionDefinition>,
