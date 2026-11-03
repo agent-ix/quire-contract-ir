@@ -182,16 +182,20 @@ impl Package {
         for dependency in names {
             self.add(&dependency, all);
         }
+        let tag = row["tag"].as_str().expect("node tag");
+        let form = row["form"].as_str().expect("node form");
+        if form == "rational_range" {
+            self.add("rational", all);
+        }
         let id = json!({
             "package": self.wire["name"],
             "path": expand(&row["path"], &self.ids),
             "ordinal": 0,
         });
-        let tag = row["tag"].as_str().expect("node tag");
-        let form = row["form"].as_str().expect("node form");
         let semantic_type = match (tag, form) {
             ("bounded_domain", "integer_range") => self.ids["integer"].clone(),
             ("bounded_domain", "decimal_range") => self.ids["decimal"].clone(),
+            ("bounded_domain", "rational_range") => self.ids["rational"].clone(),
             _ => id.clone(),
         };
         let mut dependencies = Vec::new();
@@ -321,7 +325,7 @@ impl Package {
     }
 }
 
-/// Trace: FR-038-AC-401 through FR-038-AC-405; FR-019-AC-20.
+/// Trace: FR-038-AC-401 through FR-038-AC-405, FR-038-AC-450 through FR-038-AC-452; FR-019-AC-20.
 #[trace(
     "TC-048",
     "TC-058",
@@ -330,6 +334,9 @@ impl Package {
     "FR-038-AC-403",
     "FR-038-AC-404",
     "FR-038-AC-405",
+    "FR-038-AC-450",
+    "FR-038-AC-451",
+    "FR-038-AC-452",
     "FR-019-AC-20"
 )]
 #[test]
@@ -340,8 +347,8 @@ fn published_carried_quantity_vectors_read_as_wire() {
     let evaluation = vectors["evaluation"]
         .as_array()
         .expect("evaluation controls");
-    assert_published_ids(wire, "CQ-W", 15);
-    assert_published_ids(evaluation, "CQ-E", 20);
+    assert_published_ids(wire, "CQ-W", 19);
+    assert_published_ids(evaluation, "CQ-E", 26);
     for case in wire {
         let id = case["id"].as_str().expect("vector id");
         let mut package = Package::new();
