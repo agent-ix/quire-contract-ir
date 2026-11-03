@@ -248,7 +248,20 @@ fn published_leaf_graphs_keep_their_application_location_admissible() {
             .iter()
             .find(|row| row["application"] == graph_application["node_id"])
             .unwrap_or_else(|| &vector["value"][0]);
-        let (wire, position) = fixture(vec![row.clone()]);
+        let mut application_row = row.clone();
+        application_row["application"] = graph_application["node_id"].clone();
+        application_row["occurrence"] = graph_application["occurrences"][0].clone();
+        let mut application_vector = vector.clone();
+        application_vector["value"] = json!([application_row]);
+        let wire = published_leaf_fixture(&application_vector);
+        let position = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|node| {
+                node["node_id"] == wire["checked_term_data"]["protocol_locations"][0]["application"]
+            })
+            .unwrap();
         let package = admitted(&wire);
         let application = &package.graph().nodes[position];
         assert!(
