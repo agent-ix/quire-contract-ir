@@ -104,6 +104,13 @@ fn main() {
     let mut selections = Vec::new();
     for (name, expected) in points {
         let marker = format!(" {name} using ");
+        let name_at = source
+            .find(&marker)
+            .expect("independently authored clause name");
+        let start_of_clause = source[..name_at].rfind('\n').map_or(0, |at| at + 1);
+        let end_of_clause = source[name_at..]
+            .find('\n')
+            .map_or(source.len(), |at| name_at + at);
         let entries = wire["source_map"]
             .as_array()
             .expect("source map")
@@ -119,14 +126,19 @@ fn main() {
                                 usize::try_from(region["start"].as_u64().expect("start")).unwrap();
                             let end =
                                 usize::try_from(region["end"].as_u64().expect("end")).unwrap();
-                            source
-                                .get(start..end)
-                                .expect("source region")
-                                .contains(&marker)
+                            region["source"]["identity"] == "test:execution-points"
+                                && start >= start_of_clause
+                                && end <= end_of_clause
+                                && start < end
                         })
             })
             .collect::<Vec<_>>();
-        assert_eq!(entries.len(), 1, "one authentic claim for {name}");
+        assert_eq!(
+            entries.len(),
+            1,
+            "one authentic claim for {name} at {start_of_clause}..{end_of_clause}; source map: {}",
+            wire["source_map"]
+        );
         let entry = entries[0];
         let id: CheckedNodeId =
             serde_json::from_value(entry["node_id"].clone()).expect("selected clause");
