@@ -499,9 +499,19 @@ pub(super) struct TextBounds {
     pub(super) profile: Box<str>,
 }
 
+/// Exact limits of a selected `Rational[n1, n2; d1, d2]`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct RationalBounds {
+    pub(super) numerator_min: i128,
+    pub(super) numerator_max: i128,
+    pub(super) denominator_min: i128,
+    pub(super) denominator_max: i128,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum ValueBounds {
     Integer(IntegerBounds),
+    Rational(RationalBounds),
     Text(TextBounds),
 }
 
@@ -699,6 +709,8 @@ pub(super) enum MemberType {
     Clock,
     /// `Int[lo, hi]`.
     IntRange(IntegerBounds),
+    /// `Rational[n1, n2; d1, d2]`.
+    RationalRange(RationalBounds),
     /// `Text[min, max; profile]`.
     TextBounds(TextBounds),
     /// `Reference<O>`, over `O`'s model declaration node.
@@ -766,6 +778,27 @@ impl MemberType {
                     bounds.lower.to_string(),
                     bounds.upper.to_string(),
                     None,
+                )),
+                Task::Read(Self::RationalRange(bounds)) => ids.push(derived_id(
+                    package,
+                    "bounded_domain",
+                    "rational_range",
+                    vec![
+                        CheckedNodePathSegment::Name("numerator_min".into()),
+                        CheckedNodePathSegment::Node(std::sync::Arc::new(derived_id(
+                            package,
+                            "scalar_type",
+                            "integer",
+                            Vec::new(),
+                        ))),
+                        CheckedNodePathSegment::Name(bounds.numerator_min.to_string().into()),
+                        CheckedNodePathSegment::Name("numerator_max".into()),
+                        CheckedNodePathSegment::Name(bounds.numerator_max.to_string().into()),
+                        CheckedNodePathSegment::Name("denominator_min".into()),
+                        CheckedNodePathSegment::Name(bounds.denominator_min.to_string().into()),
+                        CheckedNodePathSegment::Name("denominator_max".into()),
+                        CheckedNodePathSegment::Name(bounds.denominator_max.to_string().into()),
+                    ],
                 )),
                 Task::Read(Self::TextBounds(bounds)) => ids.push(bounded_id(
                     package,
@@ -1273,6 +1306,7 @@ impl DomainModel {
         if let Some(bounds) = self.value_types.get(type_ref) {
             return bounds.as_ref().map(|bounds| match bounds {
                 ValueBounds::Integer(range) => MemberType::IntRange(*range),
+                ValueBounds::Rational(bounds) => MemberType::RationalRange(*bounds),
                 ValueBounds::Text(bounds) => MemberType::TextBounds(bounds.clone()),
             });
         }
@@ -2509,6 +2543,18 @@ fn semantic_ir_value_type(value: &Value) -> Option<ValueBounds> {
         "integer" => {
             let (lower, upper) = (integer("min")?, integer("max")?);
             (lower <= upper).then_some(ValueBounds::Integer(IntegerBounds { lower, upper }))
+        }
+        "rational" => {
+            let bounds = RationalBounds {
+                numerator_min: integer("numerator_min")?,
+                numerator_max: integer("numerator_max")?,
+                denominator_min: integer("denominator_min")?,
+                denominator_max: integer("denominator_max")?,
+            };
+            (bounds.numerator_min <= bounds.numerator_max
+                && bounds.denominator_min > 0
+                && bounds.denominator_min <= bounds.denominator_max)
+                .then_some(ValueBounds::Rational(bounds))
         }
         "string" => {
             let (lower, upper) = (

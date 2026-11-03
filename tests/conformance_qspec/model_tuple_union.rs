@@ -481,6 +481,21 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
                         }));
                     }
                 }
+                for (member, keyword) in [
+                    ("numerator_min", "numerator_min"),
+                    ("numerator_max", "numerator_max"),
+                    ("denominator_min", "denominator_min"),
+                    ("denominator_max", "denominator_max"),
+                ] {
+                    if let Some(bound) = declared[member].as_str() {
+                        constraints.push(json!({
+                            "identity":format!("{identity}/constraint/{keyword}"),
+                            "appliesTo":identity,
+                            "diagnosticCode":format!("acme.shapes.{}_{}", identity.rsplit('/').next().expect("name").to_ascii_uppercase(), keyword.to_ascii_uppercase()),
+                            "keyword":keyword,"operands":{"value":bound},"origin":origin
+                        }));
+                    }
+                }
                 if let Some(profile) = declared["profile"].as_str() {
                     constraints.push(json!({
                         "identity":format!("{identity}/constraint/format"),"appliesTo":identity,
