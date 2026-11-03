@@ -1,5 +1,6 @@
 //! Closed FR-375 refinement body vocabulary and reader checks.
 
+use super::protocol_body::ChannelDelivery;
 use super::CheckedTerm;
 use crate::checked_package::common::{
     validate_term, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
@@ -3527,13 +3528,16 @@ fn protocol_member_classes(
         | CatalogOperator::Finish => Some(vec![path]),
         CatalogOperator::Channel => {
             let delivery = super::protocol_body::binding_value(arguments, "delivery")
-                .and_then(super::protocol_body::text_value)?;
+                .and_then(super::protocol_body::text_value)
+                .and_then(ChannelDelivery::parse)?;
+            // An interval enables neither `duplicate` nor `lose` (FR-465).
             Some(match delivery {
-                "unknown" => vec![format!("duplicate {path}"), format!("lose {path}")],
-                "at-least-once" => vec![format!("duplicate {path}")],
-                "at-most-once" => vec![format!("lose {path}")],
-                "exactly-once-premise" => Vec::new(),
-                _ => return None,
+                ChannelDelivery::Unknown => {
+                    vec![format!("duplicate {path}"), format!("lose {path}")]
+                }
+                ChannelDelivery::AtLeastOnce => vec![format!("duplicate {path}")],
+                ChannelDelivery::AtMostOnce => vec![format!("lose {path}")],
+                ChannelDelivery::ExactlyOncePremise | ChannelDelivery::Between { .. } => Vec::new(),
             })
         }
         CatalogOperator::Role => {
@@ -3916,5 +3920,52 @@ pub(super) fn visit_reference_targets<'a>(
         for update in &history.updates {
             update.expression.visit_reference_targets(visitor);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    fn channel_classes(delivery: &str) -> Option<Vec<String>> {
+        let argument = CheckedTerm::decode_admitted(&json!({
+            "term": "binding", "name": "delivery", "value": {
+                "term": "literal", "value_kind": "text", "value": delivery,
+                "type": {"package": "test/protocol", "path": ["text"], "ordinal": 0}
+            }
+        }))
+        .expect("valid delivery binding");
+        let clause: Vec<Box<str>> = vec!["Example".into(), "OrderFlow".into()];
+        let name: Vec<Box<str>> = vec!["Charges".into()];
+        protocol_member_classes(CatalogOperator::Channel, &[argument], &clause, &name)
+            .map(|classes| classes.into_iter().map(|class| class.name).collect())
+    }
+
+    /// QSpec FR-465 and FR-426: a delivery count interval enables neither the
+    /// `duplicate` nor the `lose` step, so it contributes no channel class;
+    /// the four policy words keep their classes.
+    /// Trace: FR-038-AC-286
+    #[trace("TC-947")]
+    #[test]
+    fn channel_classes_follow_delivery_and_an_interval_has_none() {
+        let path = "Example::OrderFlow::Charges";
+        assert_eq!(
+            channel_classes("unknown"),
+            Some(vec![format!("duplicate {path}"), format!("lose {path}")])
+        );
+        assert_eq!(
+            channel_classes("at-least-once"),
+            Some(vec![format!("duplicate {path}")])
+        );
+        assert_eq!(
+            channel_classes("at-most-once"),
+            Some(vec![format!("lose {path}")])
+        );
+        assert_eq!(channel_classes("exactly-once-premise"), Some(Vec::new()));
+        assert_eq!(channel_classes("[0,1]"), Some(Vec::new()));
+        assert_eq!(channel_classes("[2,2]"), Some(Vec::new()));
+        assert_eq!(channel_classes("[2,1]"), None);
     }
 }
