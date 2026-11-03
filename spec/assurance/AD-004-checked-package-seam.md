@@ -211,19 +211,19 @@ What is measured today, what is open and with whom, and what is routed.
   remain IR refusals and do not prove caller Text admission. The QVC operation
   catalog owns the identity vocabulary; QSL owns producer lowering, IR owns
   strict admission and CG owns its caller-ingress oracle. No widening of
-  `numeric.convert` is required. Measured sources: QSpec `b1feb484`
+  `numeric.convert` is required. Sources: QSpec
   `spec/objects/interfaces/FR-322-checked-package-artifact.md:3123-3126`;
-  QSL `adde683e` `spec/functional/FR-093-lower-checked-value-expressions-to-fr-322-terms.md:852`;
-  CG `bec3f380` `spec/decisions/ADR-006-caller-text-admission-boundary.md:24-31,72-75`
+  QSL `spec/functional/FR-093-lower-checked-value-expressions-to-fr-322-terms.md:852`;
+  CG `spec/decisions/ADR-006-caller-text-admission-boundary.md:24-31,72-75`
   and `spec/oracle/functional/FR-035-caller-text-admission.md:33-38`.
 - QSpec FR-322 still requires `source_integrity` verification before closed-schema
   checks. IR's `CheckedSourceRef` has only `authority` and `identity`, and its
   evidence API receives no source bytes. IR-1273 was canceled after the
   source-byte check failed the feature-necessity test; QSpec and QSL own
   removal of their dependent requirements. No present reader-conformance claim
-  for that published rule follows from this AD's accepted status. Measured sources:
-  QSpec `b1feb484` `spec/objects/interfaces/FR-322-checked-package-artifact.md:3191-3240`;
-  IR `36bcd0a2` `crates/quire-contract-model/src/checked_package/shared.rs:1514-1523`.
+  for that published rule follows from this AD's accepted status. Sources:
+  QSpec `spec/objects/interfaces/FR-322-checked-package-artifact.md:3191-3240`;
+  IR `crates/quire-contract-model/src/checked_package/shared.rs:1514-1523`.
 - IR's own tests build packages in-repo from IR's own vocabulary
   (`tests/it/support/checked_package.rs`; FR-038 matrix row). That cannot see a shape QSL emits
   and IR's builder does not. The IR-reader test over a real QSL emission lives in QSL

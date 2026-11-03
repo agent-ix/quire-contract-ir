@@ -27,9 +27,8 @@ relationships:
 
 AD-004 describes the QSpec-to-IR reader seam; AD-005 and AD-006 describe IR's QSL
 and codegen consumers. This AD records the current repository edges and concept
-owners. Its measurement is from IR `36bcd0a2`, CG `bec3f380`, RT `06d99d1c`,
-QSL `adde683e` and QSpec `b1feb484` on 2026-11-02. Manifest and source
-locations below are evidence for this snapshot, not revisions to pin.
+owners. The dependency manifests and source locations below identify the
+owner boundaries considered by this decision.
 
 ## System Boundary
 
@@ -41,7 +40,7 @@ path. QSpec owns the published wire contract; it is not a runtime dependency
 of IR.
 
 This is acceptance of the staged dependency and ownership architecture. RT's
-accepted AD-001 through AD-004 (`quire-contract-runtime` main `1c4b99ed`)
+accepted AD-001 through AD-004 in `quire-contract-runtime`
 record one temporary expression-port exception under IR-1009. The exception
 does not complete the FR-275 one-owner end state. QSpec's source-integrity
 text still conflicts with IR's two-member reader; IR-1273 was canceled and
@@ -75,12 +74,12 @@ is not itself a Cargo edge.
 | --- | --- | --- |
 | Exact scalar, text, composite kernel, `Meter` and `Outcome` | standalone quire-exact | QSL `Cargo.toml:12-15`, CG `Cargo.toml:31-32`, RT `Cargo.toml:35-38` take the shared crate. RT `src/exact/mod.rs:6-9` says its scalar and metering copies have moved. The former count of 23 duplicate RT files and 124 shared public names no longer describes current main. |
 | Semantic values, declarations and shared checking vocabulary | standalone quire-semantic-value | The same three consumers declare direct dependencies. RT `src/exact/mod.rs:24-30` imports shared definition, node and value types. |
-| Expression checking and evaluation | shared evaluator as end-state owner; RT runtime-maintainers hold a temporary exception | RT `src/exact/mod.rs:8-9,33-39` retains the existing `expression.rs` implementation and `mod.rs` public surface. IR-1009 and RT AD-004:139-159 (`1c4b99ed`) bound this staged exception to those existing paths, with no new copy, semantic expansion or consumer use. The usable shared `no_std + alloc` evaluator is deferred; the port is not a second settled owner. |
+| Expression checking and evaluation | shared evaluator as end-state owner; RT runtime-maintainers hold a temporary exception | RT `src/exact/mod.rs:8-9,33-39` retains the existing `expression.rs` implementation and `mod.rs` public surface. IR-1009 and RT AD-004:139-159 bound this staged exception to those existing paths, with no new copy, semantic expansion or consumer use. The usable shared `no_std + alloc` evaluator is deferred; the port is not a second settled owner. |
 | Checked-package wire types, strict reader and lowering | IR model, with QSpec owning the published wire | QSL and CG consume the model crate; AD-004 routes correction of QSpec's unsupported source-integrity rule, with no IR reader change scheduled. |
 | Compile-side package and emitter | QSL `qsl-package` | QSL produces and verifies through IR's model reader (AD-005). |
 | Kani outcome type | IR root crate | CG imports the root for this surface (AD-006); QSL `qsl-replay` owns replay envelopes and terminal records. |
 | Generated-code runtime | RT | Native exact execution is distinct from QSL's source evaluation and CG's generation. |
-| Canonical JSON encoding | quire-canonical | IR, CG and QSL consume the owned encoder. QVC also depends on it (`quire-verification-contracts` `5070338d`, `Cargo.toml:37`); QVC's `jcs_canonicalize` delegates to `quire_canonical::to_vec` (`src/lib.rs:616-623`). |
+| Canonical JSON encoding | quire-canonical | IR, CG and QSL consume the owned encoder. QVC also depends on it (`quire-verification-contracts/Cargo.toml:37`); QVC's `jcs_canonicalize` delegates to `quire_canonical::to_vec` (`quire-verification-contracts/src/lib.rs:616-623`). |
 | Verification-facing JCS equality and SHA API | quire-verification-contracts | QVC FR-001:13-15,25-37,54-79 owns the public helpers over quire-canonical's `Encode` contract; `src/lib.rs:629-644` implements the equality and SHA wrappers over canonical bytes. They are not a second encoder implementation or an unresolved migration. |
 | First-party lock coherence command | quire-cli `quire check-lock` | IR `Makefile:188-192` invokes the owned command. The copied IR `scripts/check_one_copy.awk` was removed by IR-641. Each repository qualifies its own lock. |
 
@@ -120,4 +119,4 @@ question of whether to extract them is closed by current manifests.
 | RT's ported expression checker remains under `src/exact/expression.rs` beside the shared evaluator target | RT runtime-maintainers own IR-1009's bounded exception and its expiry at the usable shared `no_std + alloc` evaluator cutover; RT AD-004:150-159,204-206 leaves FR-275 end-state completion open. |
 | QSpec's source-integrity text conflicts with the canceled IR-1273 decision | QSpec FR-322/FR-323 and QSL FR-518 require owner-led correction; AD-004 keeps published and implemented shapes distinct until then. |
 | CG's direct IR-root edge outlives its Kani outcome use | CG owns the import audit (AD-006); no bridge is added to IR. |
-| A first-party lock resolves two revisions of the same crate | Each consuming repository owns its lock qualification. IR invokes `quire check-lock` (`Makefile:188-192`); CG `make deny` currently invokes only `cargo deny check` (`bec3f380`, `Makefile:145-147`), and IR-1292 owns that missing CG gate. |
+| A first-party lock resolves two revisions of the same crate | Each consuming repository owns its lock qualification. IR invokes `quire check-lock` (`Makefile:188-192`); CG `make deny` currently invokes only `cargo deny check` (`quire-contract-codegen/Makefile:145-147`), and IR-1292 owns that missing CG gate. |
