@@ -39,3 +39,23 @@ Plan completion: not assessed
 ## Validation
 
 Inspected retained focused-test.log: one passing integration test, including all three real compiler checks. Inspected clippy.log: successful workspace conformance-cli integration-target check; fmt.log has no errors. The initial failed relative-path matcher run is retained, and the corrected matcher accepts absolute or relative primary span paths without weakening symbol/diagnostic attribution. No redundant Cargo gate rerun; the lead owns the final complete native integration run. Matrix read used the lead-specified quire executable. No specification or verification-method changes; spec-review and specification sub-analyses are inapplicable.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The offline scratch consumer resolves an unlocked graph and fails its healthy compilation when the fetched Git cache lacks the moving branch reference, despite the workspace locked graph being available. | tests/it/default_mapping_surface.rs:46 |
+
+The original PASS above assessed warm-cache evidence and did not establish this hosted-cache condition. The hosted full run failed only this new test; cold-cache-before-lock-seed.log independently reproduces the healthy compiler setup failure on quire-canonical's unavailable origin/main reference. This is a test provisioning defect, not absence evidence for FR-019-AC-4. The original finding table and review comment are preserved.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | The scratch consumer now seeds Cargo.lock from the existing workspace Cargo.lock before offline compilation. This reuses the graph the workspace already fetched while retaining the independent workspace and default-feature dependency. Cold-cache-after-lock-seed.log passes the healthy compile and both unchanged precise negative probes; inspection confirms the quire-canonical cache still has no origin/main reference. |
+
+## Disposition validation
+
+Reviewed the seven added lines in the same PR. No manifest feature override, network fallback, skip, weakened diagnostic assertion, repository lock change or new maintained source/version record is introduced. The copied lockfile is ephemeral compiler scratch state, removed with the owned scratch directory; Cargo adapts its package entries to the independent consumer without importing workspace dev features. The existing repository lockfile remains the sole maintained dependency selection.
+
+The cold-cache before and after logs retain the reproduced failure and corrected result (one focused test passed). No concurrent Cargo execution was performed by this reviewer. Final aggregate gate remains the lead's responsibility.

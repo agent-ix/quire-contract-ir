@@ -39,3 +39,7 @@ Plan completion: not assessed
 ## Validation
 
 Inspected retained focused-test.log: one passing integration test, including all three real compiler checks. Inspected clippy.log: successful workspace conformance-cli integration-target check; fmt.log has no errors. The initial failed relative-path matcher run is retained, and the corrected matcher accepts absolute or relative primary span paths without weakening symbol/diagnostic attribution. No redundant Cargo gate rerun; the lead owns the final complete native integration run. Matrix read used the lead-specified quire executable. No specification or verification-method changes; spec-review and specification sub-analyses are inapplicable.
+
+## Follow-up validation (disposition pass 1)
+
+Original review above relied on warm-cache evidence. A hosted run exposed a healthy-consumer setup failure; code-review FND-002 records that defect and its fix. The seven-line runtime lock seed preserves the independent default-feature manifest and every compiler assertion, so the FR-019-AC-4 binding remains correct. The cold-cache before log reproduces the missing moving-branch reference; the after log passes one focused test including the healthy consumer and both negative probes, with that reference still absent. No new gap finding. Full aggregate gate remains pending with the lead.
