@@ -160,6 +160,7 @@ fn selected_dimension_operand_admits_and_retains_package_form() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            temporal_clause_names: admitted.temporal_clause_names(),
             operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),

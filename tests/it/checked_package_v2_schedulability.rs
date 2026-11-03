@@ -167,6 +167,7 @@ fn encode(read: &CheckedPackageV2) -> Vec<u8> {
             refinement_step_rows: read.refinement_step_rows(),
         },
         CheckedPackageSidecarsRef {
+            temporal_clause_names: read.temporal_clause_names(),
             operation_effects: None,
             checked_term_data: read.checked_term_data(),
             temporal_bindings: read.temporal_bindings(),
@@ -333,6 +334,7 @@ fn complete_writer_preserves_supplied_index_order_without_repair() {
             refinement_step_rows: read.refinement_step_rows(),
         },
         CheckedPackageSidecarsRef {
+            temporal_clause_names: read.temporal_clause_names(),
             operation_effects: None,
             checked_term_data: read.checked_term_data(),
             temporal_bindings: read.temporal_bindings(),
@@ -641,6 +643,7 @@ fn complete_claim_writer_has_exact_canonical_byte_boundary() {
                 refinement_step_rows: read.refinement_step_rows(),
             },
             CheckedPackageSidecarsRef {
+                temporal_clause_names: read.temporal_clause_names(),
                 operation_effects: None,
                 checked_term_data: read.checked_term_data(),
                 temporal_bindings: read.temporal_bindings(),

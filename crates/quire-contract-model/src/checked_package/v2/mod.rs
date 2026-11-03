@@ -60,6 +60,7 @@ mod step_relation;
 mod structural;
 mod temporal;
 mod temporal_binding;
+mod temporal_clause_names;
 mod timed_model;
 mod typed_terms;
 mod vocabulary;
@@ -156,6 +157,7 @@ pub use step_relation::{
     CheckedStepRelationObligationIdentity,
 };
 pub use temporal_binding::{ClockConfiguration, ClockExactNumber, TemporalBinding};
+pub use temporal_clause_names::TemporalClauseName;
 pub use typed_terms::*;
 pub use vocabulary::*;
 
@@ -674,7 +676,7 @@ macro_rules! checked_package_envelope {
     ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
         #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, H, E, A, D> {
+        struct CheckedPackageEnvelope<C, N, L, G, S, R, T, B, M, H, E, A, D> {
             $($name: $parameter,)+
             #[serde(default, skip_serializing_if = "Option::is_none")]
             refinement_step_rows: Option<R>,
@@ -682,6 +684,8 @@ macro_rules! checked_package_envelope {
             checked_term_data: Option<T>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             temporal_bindings: Option<B>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            temporal_clause_names: Option<M>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             schedulability_claims: Option<H>,
             #[serde(default, deserialize_with = "operation_effects::present_rows", bound(deserialize = "E: Deserialize<'de>"), skip_serializing_if = "Option::is_none")]
@@ -697,6 +701,7 @@ macro_rules! checked_package_envelope {
             &[refinement::CheckedRefinementStepRowRegion],
             &checked_term_data::CheckedTermDataV2,
             &[temporal_binding::TemporalBinding],
+            &[TemporalClauseName],
             &[CheckedSchedulabilityClaimRow],
             &[CheckedOperationEffectRow],
             &[CheckedCapability],
@@ -714,6 +719,9 @@ macro_rules! checked_package_envelope {
                 }
                 if let Some(rows) = &self.temporal_bindings {
                     encode::elements(writer, "temporal_bindings", rows)?;
+                }
+                if let Some(rows) = &self.temporal_clause_names {
+                    encode::elements(writer, "temporal_clause_names", rows)?;
                 }
                 if let Some(rows) = self.schedulability_claims {
                     encode::elements(writer, "schedulability_claims", rows)?;
@@ -746,6 +754,7 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     Vec<refinement::CheckedRefinementStepRowRegion>,
     checked_term_data::CheckedTermDataV2,
     Vec<temporal_binding::TemporalBinding>,
+    Vec<TemporalClauseName>,
     Vec<CheckedSchedulabilityClaimRow>,
     Vec<CheckedOperationEffectRow>,
     Vec<CheckedCapability>,
@@ -770,6 +779,8 @@ pub struct CheckedPackageSidecarsRef<'a> {
     pub checked_term_data: Option<&'a CheckedTermDataV2>,
     /// Exact temporal declaration clock rows, when present.
     pub temporal_bindings: Option<&'a [TemporalBinding]>,
+    /// Exact temporal-clause occurrence names, when present.
+    pub temporal_clause_names: Option<&'a [TemporalClauseName]>,
     /// Untrusted identity rows, preserved exactly as supplied.
     pub schedulability_claims: Option<&'a [CheckedSchedulabilityClaimRow]>,
     /// Selected model operation effect rows, absent when unavailable.
@@ -812,6 +823,7 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         refinement_step_rows: sources.refinement_step_rows,
         checked_term_data: sidecars.checked_term_data,
         temporal_bindings: sidecars.temporal_bindings,
+        temporal_clause_names: sidecars.temporal_clause_names,
         schedulability_claims: sidecars.schedulability_claims,
         operation_effects: sidecars.operation_effects,
         capability_report,
@@ -1242,6 +1254,7 @@ impl CheckedPackageV2 {
             refinement_step_rows,
             checked_term_data,
             temporal_bindings,
+            temporal_clause_names,
             schedulability_claims,
             operation_effects,
             capability_report,
@@ -1271,6 +1284,7 @@ impl CheckedPackageV2 {
             refinement_step_rows,
             checked_term_data,
             temporal_bindings,
+            temporal_clause_names,
             schedulability_claims,
             operation_effects,
             capability_report,
@@ -1355,6 +1369,11 @@ impl CheckedPackageV2 {
     /// Admitted temporal clock rows, keyed by exact clause or compensation ID.
     pub fn temporal_bindings(&self) -> Option<&[TemporalBinding]> {
         self.wire.temporal_bindings.as_deref()
+    }
+
+    /// Borrow exact admitted temporal-clause occurrence names.
+    pub fn temporal_clause_names(&self) -> Option<&[TemporalClauseName]> {
+        self.wire.temporal_clause_names.as_deref()
     }
 
     /// Admitted selected operation effects, absent when the producer supplied no carrier.
@@ -2920,6 +2939,14 @@ fn validate_graph(
         &wire.lock,
         meter,
     )?;
+    temporal_clause_names::validate(
+        wire.temporal_clause_names.as_deref(),
+        &graph.nodes,
+        &kinds,
+        &index,
+        structural_keys,
+        meter,
+    )?;
     // Graph-shape body and dependency rules precede declaration, frame, state
     // and operation checks. All of them
     // run before the dependency and body-reference edges below are resolved,
@@ -4203,6 +4230,7 @@ mod tests {
                     refinement_step_rows: wire.refinement_step_rows.as_deref(),
                 },
                 super::CheckedPackageSidecarsRef {
+                    temporal_clause_names: wire.temporal_clause_names.as_deref(),
                     operation_effects: wire.operation_effects.as_deref(),
                     checked_term_data: wire.checked_term_data.as_ref(),
                     temporal_bindings: wire.temporal_bindings.as_deref(),
@@ -4261,6 +4289,7 @@ mod tests {
                     refinement_step_rows: wire.refinement_step_rows.as_deref(),
                 },
                 super::CheckedPackageSidecarsRef {
+                    temporal_clause_names: wire.temporal_clause_names.as_deref(),
                     operation_effects: wire.operation_effects.as_deref(),
                     checked_term_data: wire.checked_term_data.as_ref(),
                     temporal_bindings: wire.temporal_bindings.as_deref(),
@@ -4345,6 +4374,7 @@ mod tests {
                             refinement_step_rows: wire.refinement_step_rows.as_deref(),
                         },
                         super::CheckedPackageSidecarsRef {
+                            temporal_clause_names: wire.temporal_clause_names.as_deref(),
                             operation_effects: wire.operation_effects.as_deref(),
                             checked_term_data: wire.checked_term_data.as_ref(),
                             temporal_bindings: wire.temporal_bindings.as_deref(),

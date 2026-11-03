@@ -552,7 +552,7 @@ pub fn identity_input(package: &Value) -> Value {
     input
 }
 
-/// Rebuilds the identity projection and configured clock rows after graph edits.
+/// Rebuilds the identity projection, clock rows, and clause names after graph edits.
 pub fn refresh_identity(package: &mut Value) {
     refresh_identity_projection(package);
     refresh_temporal_bindings(package);
@@ -1887,6 +1887,11 @@ fn application_node(
         "result_type": node_id(result_type),
         "arguments": arguments,
     });
+    let occurrence_role = if node_tag == "temporal" && semantic_form == "temporal_clause" {
+        "claim"
+    } else {
+        "generated"
+    };
     json!({
         "node_id": node_id(&key),
         "schema_version": "quire.checked-semantic-graph/v2",
@@ -1894,7 +1899,7 @@ fn application_node(
         "semantic_form": semantic_form,
         "semantic_type": semantic_type,
         "dependencies": dependencies.iter().map(|d| node_id(d)).collect::<Vec<_>>(),
-        "occurrences": [{"role": "generated", "ordinal": 0}],
+        "occurrences": [{"role": occurrence_role, "ordinal": 0}],
         "body": body,
     })
 }
@@ -2178,7 +2183,7 @@ pub fn settle(package: &mut Value) {
     refresh_identity(package);
 }
 
-/// Keep synthetic clock rows paired with configured clauses and compensations
+/// Keep synthetic clock and declared-name rows paired with their occurrences
 /// after fixture mutations have changed laws or structural node IDs.
 #[ix_trace_rs::string_edge]
 pub fn refresh_temporal_bindings(package: &mut Value) {
@@ -2232,23 +2237,44 @@ pub fn refresh_temporal_bindings(package: &mut Value) {
                 }
                 _ => return None,
             };
-            Some((
-                node["node_id"].clone(),
-                json!({
-                    "declaration": node["node_id"],
-                    "clock_name": name,
-                    "clock": clock,
-                }),
-            ))
+            Some(
+                node["occurrences"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(|occurrence| {
+                        let expected_role = if node["semantic_form"] == "compensation" {
+                            "declaration"
+                        } else {
+                            "claim"
+                        };
+                        (occurrence["role"] == expected_role).then(|| {
+                            (
+                                node["node_id"].clone(),
+                                occurrence["ordinal"].as_u64().expect("occurrence ordinal"),
+                                json!({
+                                    "declaration": node["node_id"],
+                                    "occurrence": occurrence["ordinal"],
+                                    "clock_name": name,
+                                    "clock": clock,
+                                }),
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
         })
+        .flatten()
         .collect::<Vec<_>>();
     if rows.len() > 1 {
         let ids = nodes
             .iter()
             .map(|node| node["node_id"].clone())
             .collect::<Vec<_>>();
-        rows.sort_by_cached_key(|(declaration, _)| {
-            structural_fixture_id_in_graph(declaration, &ids, &mut Default::default())
+        rows.sort_by_cached_key(|(declaration, occurrence, _)| {
+            (
+                structural_fixture_id_in_graph(declaration, &ids, &mut Default::default()),
+                *occurrence,
+            )
         });
     }
     if rows.is_empty() {
@@ -2257,7 +2283,53 @@ pub fn refresh_temporal_bindings(package: &mut Value) {
             .expect("package")
             .remove("temporal_bindings");
     } else {
-        package["temporal_bindings"] = Value::Array(rows.into_iter().map(|(_, row)| row).collect());
+        package["temporal_bindings"] =
+            Value::Array(rows.into_iter().map(|(_, _, row)| row).collect());
+    }
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let ids = nodes
+        .iter()
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+    let mut names = nodes
+        .iter()
+        .filter(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "temporal_clause")
+        .flat_map(|node| {
+            node["occurrences"]
+                .as_array()
+                .expect("clause occurrences")
+                .iter()
+                .filter(|occurrence| occurrence["role"] == "claim")
+                .map(|occurrence| {
+                    let ordinal = occurrence["ordinal"].as_u64().expect("claim ordinal");
+                    (
+                        node["node_id"].clone(),
+                        ordinal,
+                        json!({
+                            "declaration": node["node_id"],
+                            "occurrence": ordinal,
+                            "name": format!("Clause{ordinal}"),
+                        }),
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        package
+            .as_object_mut()
+            .expect("package")
+            .remove("temporal_clause_names");
+    } else {
+        names.sort_by_cached_key(|(declaration, ordinal, _)| {
+            (
+                structural_fixture_id_in_graph(declaration, &ids, &mut Default::default()),
+                *ordinal,
+            )
+        });
+        package["temporal_clause_names"] =
+            Value::Array(names.into_iter().map(|(_, _, row)| row).collect());
     }
 }
 

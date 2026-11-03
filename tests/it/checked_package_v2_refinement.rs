@@ -798,6 +798,9 @@ fn writer_bytes(package: &Value) -> Vec<u8> {
     let temporal_bindings: Option<Vec<quire_contract_model::TemporalBinding>> = package
         .get("temporal_bindings")
         .map(|value| serde_json::from_value(value.clone()).expect("temporal bindings"));
+    let temporal_clause_names: Option<Vec<quire_contract_model::TemporalClauseName>> = package
+        .get("temporal_clause_names")
+        .map(|value| serde_json::from_value(value.clone()).expect("temporal names"));
     encode_checked_package_v2(
         name,
         &lock,
@@ -807,6 +810,7 @@ fn writer_bytes(package: &Value) -> Vec<u8> {
             refinement_step_rows: rows.as_deref(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            temporal_clause_names: temporal_clause_names.as_deref(),
             operation_effects: None,
             checked_term_data: None,
             temporal_bindings: temporal_bindings.as_deref(),

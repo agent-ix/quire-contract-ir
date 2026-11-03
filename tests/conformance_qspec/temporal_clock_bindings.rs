@@ -11,6 +11,361 @@ fn vectors() -> Value {
         .expect("published temporal clock vectors")
 }
 
+fn occurrence_vectors() -> Value {
+    read_json(&proposal_dir_of(&fixtures_dir()).join("temporal-clock-occurrence-vectors.json"))
+        .expect("published temporal occurrence vectors")
+}
+
+fn name_vectors() -> Value {
+    read_json(&proposal_dir_of(&fixtures_dir()).join("temporal-clause-name-vectors.json"))
+        .expect("published temporal clause name vectors")
+}
+
+fn replace_clause(value: &mut Value, clause: &Value, nodes: &[Value]) {
+    match value {
+        Value::String(text) if text == "<clause>" => *value = clause.clone(),
+        Value::String(text) if text.starts_with("<node ") && text.ends_with('>') => {
+            let index = text[6..text.len() - 1]
+                .parse::<usize>()
+                .expect("node index");
+            *value = nodes.get(index).expect("placeholder node")["node_id"].clone();
+        }
+        Value::Array(items) => {
+            for item in items {
+                replace_clause(item, clause, nodes);
+            }
+        }
+        Value::Object(members) => {
+            for member in members.values_mut() {
+                replace_clause(member, clause, nodes);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn apply_occurrence_patch(package: &mut Value, patch: &Value, clause: &Value) {
+    let path = patch["path"].as_str().expect("patch path");
+    let (parent, member) = path.rsplit_once('/').expect("patch member");
+    let mut value = patch["value"].clone();
+    replace_clause(
+        &mut value,
+        clause,
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes"),
+    );
+    if patch["op"] == "move" {
+        let from = patch["from"].as_str().expect("move source");
+        let (source_parent, source_member) = from.rsplit_once('/').expect("move member");
+        let source = package.pointer_mut(source_parent).expect("move parent");
+        value = source
+            .as_array_mut()
+            .expect("move source array")
+            .remove(source_member.parse::<usize>().expect("source index"));
+    }
+    let target = package.pointer_mut(parent).expect("patch parent");
+    match (patch["op"].as_str().expect("patch operation"), target) {
+        ("add" | "move", Value::Array(items)) => {
+            items.insert(member.parse::<usize>().expect("insert index"), value);
+        }
+        ("replace", Value::Array(items)) => {
+            items[member.parse::<usize>().expect("replace index")] = value;
+        }
+        ("replace", Value::Object(members)) => {
+            *members.get_mut(member).expect("replacement member") = value;
+        }
+        ("add", Value::Object(members)) => {
+            assert!(
+                members.insert(member.to_owned(), value).is_none(),
+                "new member"
+            );
+        }
+        ("remove", Value::Object(members)) => {
+            members.remove(member).expect("removed member");
+        }
+        ("remove", Value::Array(items)) => {
+            items.remove(member.parse::<usize>().expect("remove index"));
+        }
+        (operation, _) => panic!("unsupported occurrence patch {operation} at {path}"),
+    }
+}
+
+fn assert_vector_node_locus(
+    refusal: &quire_contract_model::CheckedPackageRefusal,
+    package: &Value,
+    group: &str,
+    pointer: &str,
+    carrier: &str,
+    id: &str,
+) {
+    let expected = if group != "semantic_refusals" {
+        None
+    } else if let Some(suffix) = pointer.strip_prefix("/semantic_graph/nodes/") {
+        let index = suffix
+            .split('/')
+            .next()
+            .expect("node index")
+            .parse::<usize>()
+            .expect("node index");
+        Some(package["semantic_graph"]["nodes"][index]["node_id"].clone())
+    } else if let Some(suffix) = pointer
+        .strip_prefix(carrier)
+        .and_then(|suffix| suffix.strip_prefix('/'))
+    {
+        let index = suffix
+            .split('/')
+            .next()
+            .expect("row index")
+            .parse::<usize>()
+            .expect("row index");
+        Some(package[carrier.trim_start_matches('/')][index]["declaration"].clone())
+    } else {
+        None
+    };
+    let expected: Option<CheckedNodeId> =
+        expected.map(|node| serde_json::from_value(node).expect("structural node locus"));
+    assert_eq!(
+        refusal.locus.as_ref(),
+        expected.as_ref(),
+        "{id}: structural node locus"
+    );
+}
+
+/// Trace: FR-038-AC-437, FR-038-AC-438, FR-038-AC-439, FR-038-AC-440, FR-038-AC-441, TC-048.
+#[trace(
+    "TC-048",
+    "FR-038-AC-437",
+    "FR-038-AC-438",
+    "FR-038-AC-439",
+    "FR-038-AC-440",
+    "FR-038-AC-441"
+)]
+#[test]
+fn published_temporal_occurrence_vectors_bind_exact_read_and_write() {
+    let published = occurrence_vectors();
+    let proposal = proposal_dir_of(&fixtures_dir());
+    let base = published["base"].as_str().expect("published base");
+    let original = read_json(&proposal.join(base)).expect("published base package");
+    let clause = original["semantic_graph"]["nodes"][clause_index(&original)]["node_id"].clone();
+    for (group, expected_count) in [
+        ("positive", 2),
+        ("schema_refusals", 3),
+        ("semantic_refusals", 9),
+    ] {
+        let cases = published[group].as_array().expect("published cases");
+        assert_eq!(cases.len(), expected_count, "{group} case count");
+        for case in cases {
+            let mut package = original.clone();
+            for patch in case["patch"].as_array().expect("published patches") {
+                apply_occurrence_patch(&mut package, patch, &clause);
+            }
+            let id = case["id"].as_str().expect("case id");
+            let outcome = read_temporal_package(&package);
+            if group == "positive" {
+                let CheckedPackageV2ReadResult::Admitted(admitted) = outcome else {
+                    panic!("{id}: expected admission, got {outcome:?}");
+                };
+                let rows = admitted.temporal_bindings().expect("two occurrence rows");
+                assert_eq!(
+                    rows.len(),
+                    case["bindings"].as_u64().expect("binding count") as usize,
+                    "{id}"
+                );
+                assert_eq!(
+                    rows[0].declaration, rows[1].declaration,
+                    "{id}: shared node"
+                );
+                assert_eq!(
+                    (rows[0].occurrence, rows[1].occurrence),
+                    (0, 1),
+                    "{id}: exact ordinals"
+                );
+                assert_eq!(
+                    rows[0].clock == rows[1].clock,
+                    id.contains("same-configuration"),
+                    "{id}: configuration distinction"
+                );
+                let encoded = encode_checked_package_v2(
+                    admitted.name(),
+                    admitted.lock(),
+                    admitted.graph(),
+                    CheckedPackageSourceCorrespondenceRef {
+                        source_map: admitted.source_map(),
+                        refinement_step_rows: admitted.refinement_step_rows(),
+                    },
+                    quire_contract_model::CheckedPackageSidecarsRef {
+                        temporal_clause_names: admitted.temporal_clause_names(),
+                        operation_effects: None,
+                        checked_term_data: admitted.checked_term_data(),
+                        temporal_bindings: admitted.temporal_bindings(),
+                        schedulability_claims: None,
+                    },
+                    admitted.capability_report(),
+                    admitted.diagnostics(),
+                    quire_canonical::Limits::new(1 << 24),
+                )
+                .expect("encoded occurrence package");
+                let CheckedPackageV2ReadResult::Admitted(round_trip) = read_package_with_document(
+                    &serde_json::from_slice(&encoded).expect("encoded JSON"),
+                    id,
+                    &proposal.join("domain-package-acme-timed-clauses.json"),
+                )
+                .expect("round-trip read") else {
+                    panic!("{id}: encoded package must admit");
+                };
+                assert_eq!(
+                    round_trip.temporal_bindings(),
+                    admitted.temporal_bindings(),
+                    "{id}: rows retained"
+                );
+                assert_eq!(
+                    round_trip.temporal_clause_names(),
+                    admitted.temporal_clause_names(),
+                    "{id}: names retained"
+                );
+            } else {
+                let CheckedPackageV2ReadResult::Refused(refusal) = outcome else {
+                    panic!("{id}: expected refusal, got {outcome:?}");
+                };
+                assert_eq!(code_word(refusal.code), case["expected"]["code"], "{id}");
+                if let Some(cause) = case["expected"]["cause"].as_str() {
+                    assert_eq!(refusal.cause.map(cause_word), Some(cause), "{id}");
+                }
+                assert_eq!(
+                    refusal.loci[0]
+                        .path
+                        .as_ref()
+                        .expect("refusal pointer")
+                        .to_string(),
+                    case["expected"]["locus"],
+                    "{id}"
+                );
+                assert_vector_node_locus(
+                    &refusal,
+                    &package,
+                    group,
+                    case["expected"]["locus"]
+                        .as_str()
+                        .expect("expected pointer"),
+                    "/temporal_bindings",
+                    id,
+                );
+            }
+        }
+    }
+}
+
+/// Trace: FR-038-AC-442, FR-038-AC-443, FR-038-AC-444, FR-038-AC-445, FR-038-AC-446, TC-048.
+#[trace(
+    "TC-048",
+    "FR-038-AC-442",
+    "FR-038-AC-443",
+    "FR-038-AC-444",
+    "FR-038-AC-445",
+    "FR-038-AC-446"
+)]
+#[test]
+fn published_temporal_clause_names_admit_and_refuse_at_exact_loci() {
+    let published = name_vectors();
+    let proposal = proposal_dir_of(&fixtures_dir());
+    let base = read_json(&proposal.join(published["base"].as_str().expect("base")))
+        .expect("published clause package");
+    let clause = base["semantic_graph"]["nodes"][clause_index(&base)]["node_id"].clone();
+    for (group, count) in [
+        ("positive", 3),
+        ("schema_refusals", 8),
+        ("shape_refusals", 1),
+        ("semantic_refusals", 11),
+    ] {
+        let cases = published[group].as_array().expect("cases");
+        assert_eq!(cases.len(), count, "{group}");
+        for case in cases {
+            let mut package = base.clone();
+            for patch in case["patch"].as_array().expect("patches") {
+                apply_occurrence_patch(&mut package, patch, &clause);
+            }
+            let id = case["id"].as_str().expect("case id");
+            let outcome = read_temporal_package(&package);
+            if group == "positive" {
+                let CheckedPackageV2ReadResult::Admitted(admitted) = outcome else {
+                    panic!("{id}: expected admission, got {outcome:?}");
+                };
+                let names = admitted.temporal_clause_names().expect("admitted names");
+                let expected = case["names"].as_array().expect("expected names");
+                assert_eq!(names.len(), expected.len(), "{id}");
+                for (row, name) in names.iter().zip(expected) {
+                    assert_eq!(row.name.as_ref(), name.as_str().expect("name"), "{id}");
+                }
+                if names.len() == 2 {
+                    assert_eq!(names[0].declaration, names[1].declaration, "{id}");
+                    assert_eq!((names[0].occurrence, names[1].occurrence), (0, 1), "{id}");
+                }
+                let encoded = encode_checked_package_v2(
+                    admitted.name(),
+                    admitted.lock(),
+                    admitted.graph(),
+                    CheckedPackageSourceCorrespondenceRef {
+                        source_map: admitted.source_map(),
+                        refinement_step_rows: admitted.refinement_step_rows(),
+                    },
+                    quire_contract_model::CheckedPackageSidecarsRef {
+                        operation_effects: None,
+                        checked_term_data: admitted.checked_term_data(),
+                        temporal_bindings: admitted.temporal_bindings(),
+                        temporal_clause_names: admitted.temporal_clause_names(),
+                        schedulability_claims: None,
+                    },
+                    admitted.capability_report(),
+                    admitted.diagnostics(),
+                    quire_canonical::Limits::new(1 << 24),
+                )
+                .expect("encoded named package");
+                let output: Value = serde_json::from_slice(&encoded).expect("encoded package");
+                assert_eq!(
+                    encoded,
+                    quire_canonical::to_vec(&package, quire_canonical::Limits::new(1 << 24))
+                        .expect("published package canonical bytes"),
+                    "{id}: exact canonical package"
+                );
+                let CheckedPackageV2ReadResult::Admitted(round_trip) =
+                    read_temporal_package(&output)
+                else {
+                    panic!("{id}: writer read-back must admit");
+                };
+                assert_eq!(
+                    round_trip.temporal_clause_names(),
+                    admitted.temporal_clause_names(),
+                    "{id}"
+                );
+            } else {
+                let CheckedPackageV2ReadResult::Refused(refusal) = outcome else {
+                    panic!("{id}: expected refusal, got {outcome:?}");
+                };
+                assert_eq!(code_word(refusal.code), case["expected"]["code"], "{id}");
+                if let Some(cause) = case["expected"]["cause"].as_str() {
+                    assert_eq!(refusal.cause.map(cause_word), Some(cause), "{id}");
+                }
+                assert_eq!(
+                    refusal.loci[0].path.as_ref().expect("pointer").to_string(),
+                    case["expected"]["locus"],
+                    "{id}"
+                );
+                assert_vector_node_locus(
+                    &refusal,
+                    &package,
+                    group,
+                    case["expected"]["locus"]
+                        .as_str()
+                        .expect("expected pointer"),
+                    "/temporal_clause_names",
+                    id,
+                );
+            }
+        }
+    }
+}
+
 fn clause_index(package: &Value) -> usize {
     package["semantic_graph"]["nodes"]
         .as_array()
@@ -62,6 +417,7 @@ fn selected_package(case: &Value) -> Value {
     fixture_support::reassign_node_id(&mut package, &old_id, &new_id);
     package["temporal_bindings"] = json!([{
         "declaration": new_id,
+        "occurrence": 0,
         "clock_name": case["clock_name"],
         "clock": case["clock"]
     }]);
@@ -111,6 +467,23 @@ fn add_second_clause(package: &mut Value) {
         .clone();
     source_entry["node_id"] = second_id;
     source_map.push(source_entry);
+    let mut name = package["temporal_clause_names"][0].clone();
+    name["declaration"] = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("second clause")["node_id"]
+        .clone();
+    let names = package["temporal_clause_names"]
+        .as_array_mut()
+        .expect("names");
+    names.push(name);
+    names.sort_by(|left, right| {
+        let left: CheckedNodeId = serde_json::from_value(left["declaration"].clone()).expect("id");
+        let right: CheckedNodeId =
+            serde_json::from_value(right["declaration"].clone()).expect("id");
+        left.cmp(&right)
+    });
 }
 
 fn read_temporal_package(package: &Value) -> CheckedPackageV2ReadResult {
@@ -122,6 +495,124 @@ fn read_temporal_package(package: &Value) -> CheckedPackageV2ReadResult {
     ));
     read_package_with_document(package, "temporal clock package", &document)
         .expect("published package read")
+}
+
+fn read_temporal_at_work(package: &Value, work: u64) -> CheckedPackageV2ReadResult {
+    let proposal = proposal_dir_of(&fixtures_dir());
+    let selected = vector_selected_documents(&proposal).expect("published selected documents");
+    let document = proposal.join(positive_document(
+        "positive-timed-clause-nodes.json",
+        &selected,
+    ));
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = work;
+    read_package_with_document_and_extensions_at_limit(
+        package,
+        "temporal work boundary",
+        &document,
+        true,
+        limits,
+    )
+    .expect("published package read")
+}
+
+fn first_refusal_work(package: &Value) -> u64 {
+    let mut lower = 0;
+    let mut upper = CheckedPackageReadLimits::bounded().work;
+    assert!(matches!(
+        read_temporal_at_work(package, upper),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
+    while lower < upper {
+        let middle = lower + (upper - lower) / 2;
+        match read_temporal_at_work(package, middle) {
+            CheckedPackageV2ReadResult::Incomplete(_) => lower = middle + 1,
+            CheckedPackageV2ReadResult::Refused(_) => upper = middle,
+            other => panic!("invalid row admitted at work {middle}: {other:?}"),
+        }
+    }
+    lower
+}
+
+/// Trace: FR-038-AC-441, FR-038-AC-447, TC-048.
+#[trace("TC-048", "FR-038-AC-441", "FR-038-AC-447")]
+#[test]
+fn temporal_sidecar_rows_charge_the_first_unavailable_work_visit() {
+    let vectors = occurrence_vectors();
+    let proposal = proposal_dir_of(&fixtures_dir());
+    let mut positive = read_json(&proposal.join(vectors["base"].as_str().expect("base")))
+        .expect("published package");
+    let clause = positive["semantic_graph"]["nodes"][clause_index(&positive)]["node_id"].clone();
+    for patch in vectors["positive"][0]["patch"]
+        .as_array()
+        .expect("twin patches")
+    {
+        apply_occurrence_patch(&mut positive, patch, &clause);
+    }
+    assert!(matches!(
+        read_temporal_package(&positive),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    for (member, malformed_pointer, visit_pointer) in [
+        (
+            "temporal_bindings",
+            "/temporal_bindings/1/clock_name",
+            "/temporal_bindings/1",
+        ),
+        (
+            "temporal_clause_names",
+            "/temporal_clause_names/1/name",
+            "/temporal_clause_names/1",
+        ),
+    ] {
+        let mut package = positive.clone();
+        let field = if member == "temporal_bindings" {
+            "clock_name"
+        } else {
+            "name"
+        };
+        package[member][1][field] = json!("");
+        let first = first_refusal_work(&package);
+        assert!(first > 0, "{member}: boundary has a predecessor");
+        let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+            read_temporal_at_work(&package, first - 1)
+        else {
+            panic!("{member}: previous work limit must be incomplete");
+        };
+        assert_eq!(
+            incomplete.limit_kind,
+            quire_contract_model::CheckedPackageLimit::Work,
+            "{member}"
+        );
+        assert_eq!(
+            (incomplete.limit, incomplete.consumed),
+            (first - 1, first),
+            "{member}"
+        );
+        assert_eq!(
+            incomplete
+                .path
+                .as_ref()
+                .expect("charged pointer")
+                .to_string(),
+            visit_pointer,
+            "{member}"
+        );
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_temporal_at_work(&package, first)
+        else {
+            panic!("{member}: first fully charged row must refuse");
+        };
+        assert_eq!(refusal.code, Code::MalformedWire, "{member}");
+        assert_eq!(
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .expect("refusal pointer")
+                .to_string(),
+            malformed_pointer,
+            "{member}"
+        );
+    }
 }
 
 fn admitted(package: &Value, case: &Value, expected_rows: usize) -> Box<CheckedPackageV2> {
@@ -338,6 +829,7 @@ fn temporal_clock_writer_retains_a_configured_clause_row() {
             refinement_step_rows: read.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            temporal_clause_names: read.temporal_clause_names(),
             operation_effects: None,
             checked_term_data: read.checked_term_data(),
             temporal_bindings: read.temporal_bindings(),

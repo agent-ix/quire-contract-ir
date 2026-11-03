@@ -4,8 +4,9 @@
 //! Typed clock configuration rows for temporal and compensation declarations.
 
 use super::{
-    CheckedNodeId, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, LawRole,
-    ProtocolForm, RawSemanticNodeV2, TemporalForm, TemporalProfile, WorkMeter,
+    CheckedNodeId, CheckedNodeKind, CheckedOccurrenceRole, CheckedPackageLockV2,
+    CheckedSelectionRole, LawRole, ProtocolForm, RawSemanticNodeV2, TemporalForm, TemporalProfile,
+    WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -58,12 +59,14 @@ pub enum ClockConfiguration {
     },
 }
 
-/// One admitted clock selection keyed by a declaration's structural ID.
+/// One admitted clock selection keyed by a declaration and source occurrence.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TemporalBinding {
     /// Exact temporal clause or compensation declaration ID.
     pub declaration: CheckedNodeId,
+    /// Ordinal of the clause's claim or compensation's declaration occurrence.
+    pub occurrence: u64,
     /// Exact nonempty text of the declaration's clock argument.
     pub clock_name: Box<str>,
     /// Closed clock configuration.
@@ -74,6 +77,7 @@ impl Encode for TemporalBinding {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         super::encode::encoded(writer, "declaration", &self.declaration)?;
+        super::encode::member(writer, "occurrence", &self.occurrence)?;
         super::encode::member(writer, "clock_name", self.clock_name.as_ref())?;
         super::encode::member(writer, "clock", &self.clock)?;
         writer.end_object()
@@ -266,13 +270,10 @@ pub(super) fn validate(
     validate_shape(rows, meter)?;
     let compensation_profile = selected_profile(lock);
     let mut seen = BTreeSet::new();
-    let mut previous = None;
+    let mut previous: Option<(&CheckedNodeId, u64)> = None;
     let mut resolved = Vec::with_capacity(rows.len());
     for (row_index, row) in rows.iter().enumerate() {
         let at = row_pointer(row_index);
-        if !seen.insert(&row.declaration) {
-            return Err(invalid(at, &row.declaration));
-        }
         let Some(&position) = index.get(&row.declaration) else {
             return Err(invalid(at.key("declaration"), &row.declaration));
         };
@@ -283,21 +284,67 @@ pub(super) fn validate(
         ) {
             return Err(invalid(at.key("declaration"), &row.declaration));
         }
-        let structural = structural_keys[position].as_ref();
-        if previous.is_some_and(|id: &CheckedNodeId| id > structural) {
-            return Err(invalid(at.key("declaration"), &row.declaration));
+        let role = if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
+            CheckedOccurrenceRole::Declaration
+        } else {
+            CheckedOccurrenceRole::Claim
+        };
+        let mut owned = false;
+        for occurrence in &nodes[position].occurrences {
+            meter.charge(1, || at.clone().key("occurrence"))?;
+            if occurrence.role == role && occurrence.ordinal == row.occurrence {
+                owned = true;
+                break;
+            }
         }
-        previous = Some(structural);
+        if !owned {
+            return Err(invalid(at.key("occurrence"), &row.declaration));
+        }
+        if !seen.insert((&row.declaration, row.occurrence)) {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                at,
+                Some(CheckedPackageRefusalCause::ConflictingDefinition),
+                row.declaration.clone(),
+            ));
+        }
+        let structural = structural_keys[position].as_ref();
+        if let Some((previous_id, previous_occurrence)) = previous {
+            if previous_id > structural {
+                return Err(invalid(at.key("declaration"), &row.declaration));
+            }
+            if previous_id == structural && previous_occurrence > row.occurrence {
+                return Err(invalid(at.key("occurrence"), &row.declaration));
+            }
+        }
+        previous = Some((structural, row.occurrence));
         resolved.push(position);
     }
-    let missing = index.values().copied().filter(|&position| {
-        (kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
-            && configured_profile(&nodes[position]).is_some()
-            || kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation)
-                && compensation_profile.is_some())
-            && !seen.contains(&nodes[position].node_id)
-    });
-    if let Some(position) = missing.min() {
+    let mut missing = None;
+    for (position, node) in nodes.iter().enumerate() {
+        let role = if kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
+            && configured_profile(node).is_some()
+        {
+            CheckedOccurrenceRole::Claim
+        } else if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation)
+            && compensation_profile.is_some()
+        {
+            CheckedOccurrenceRole::Declaration
+        } else {
+            continue;
+        };
+        for occurrence in &node.occurrences {
+            meter.charge(1, || node_pointer(position).key("body"))?;
+            if occurrence.role == role && !seen.contains(&(&node.node_id, occurrence.ordinal)) {
+                missing = Some(position);
+                break;
+            }
+        }
+        if missing.is_some() {
+            break;
+        }
+    }
+    if let Some(position) = missing {
         return Err(invalid(
             node_pointer(position).key("body"),
             &nodes[position].node_id,

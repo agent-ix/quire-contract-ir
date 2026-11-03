@@ -176,6 +176,9 @@ fn encode_producer(wire: &Value, sidecar: Option<&CheckedTermDataV2>) -> Vec<u8>
     let temporal_bindings: Option<Vec<TemporalBinding>> = wire
         .get("temporal_bindings")
         .map(|value| serde_json::from_value(value.clone()).expect("temporal bindings"));
+    let temporal_clause_names: Option<Vec<quire_contract_model::TemporalClauseName>> = wire
+        .get("temporal_clause_names")
+        .map(|value| serde_json::from_value(value.clone()).expect("temporal names"));
     let capabilities: Vec<CheckedCapability> =
         serde_json::from_value(wire["capability_report"].clone()).expect("capabilities");
     let diagnostics: CheckedDiagnosticsV2 =
@@ -189,6 +192,7 @@ fn encode_producer(wire: &Value, sidecar: Option<&CheckedTermDataV2>) -> Vec<u8>
             refinement_step_rows: refinement_step_rows.as_deref(),
         },
         CheckedPackageSidecarsRef {
+            temporal_clause_names: temporal_clause_names.as_deref(),
             operation_effects: None,
             checked_term_data: sidecar,
             temporal_bindings: temporal_bindings.as_deref(),
@@ -327,6 +331,7 @@ fn published_probabilistic_claim_vectors_join_and_refuse() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         CheckedPackageSidecarsRef {
+            temporal_clause_names: admitted.temporal_clause_names(),
             operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),

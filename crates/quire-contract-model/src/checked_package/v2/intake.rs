@@ -88,6 +88,7 @@ type BorrowedWire<'a> = CheckedPackageEnvelope<
     Vec<super::refinement::CheckedRefinementStepRowRegion>,
     super::checked_term_data::CheckedTermDataV2,
     Vec<super::temporal_binding::TemporalBinding>,
+    Vec<super::TemporalClauseName>,
     Vec<super::CheckedSchedulabilityClaimRow>,
     Vec<super::CheckedOperationEffectRow>,
     Vec<CheckedCapability>,
@@ -173,6 +174,21 @@ pub(super) fn decode_borrowed_wire(
 ) -> Result<RawCheckedPackageWireV2, ValidationFailure> {
     let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|mut failure| {
         if let ValidationFailure::Refused(ref mut refusal) = failure {
+            if refusal.code == CheckedPackageRefusalCode::UnknownMember {
+                if let Some(index) = refusal
+                    .primary_path()
+                    .and_then(|at| at.as_str().strip_prefix("/temporal_clause_names/"))
+                    .and_then(|suffix| suffix.split('/').next())
+                    .and_then(|index| index.parse::<usize>().ok())
+                {
+                    refusal.code = CheckedPackageRefusalCode::MalformedWire;
+                    refusal.set_primary_path(Some(
+                        JsonPointer::root()
+                            .key("temporal_clause_names")
+                            .index(index),
+                    ));
+                }
+            }
             if refusal.code == CheckedPackageRefusalCode::UnknownMember {
                 if let Some(index) = refusal
                     .primary_path()
@@ -279,6 +295,7 @@ pub(super) fn decode_borrowed_wire(
         refinement_step_rows: wire.refinement_step_rows,
         checked_term_data: wire.checked_term_data,
         temporal_bindings: wire.temporal_bindings,
+        temporal_clause_names: wire.temporal_clause_names,
         schedulability_claims: wire.schedulability_claims,
         operation_effects: wire.operation_effects,
         capability_report: wire.capability_report,
@@ -675,6 +692,24 @@ pub(super) fn check_lossless_source(
         }
     } else if root.contains_key("temporal_bindings") {
         return Err(malformed(JsonPointer::root().key("temporal_bindings")));
+    }
+    if let Some(rows) = &wire.temporal_clause_names {
+        let originals = raw_array(
+            root.get("temporal_clause_names").copied(),
+            &["temporal_clause_names"],
+        )?;
+        if rows.is_empty() || originals.len() != rows.len() {
+            return Err(malformed(JsonPointer::root().key("temporal_clause_names")));
+        }
+        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
+            let at = JsonPointer::root()
+                .key("temporal_clause_names")
+                .index(index);
+            super::lossless::compare(original, row, at.clone(), &["declaration"])?;
+            compare_id_member(original, "declaration", &row.declaration, at)?;
+        }
+    } else if root.contains_key("temporal_clause_names") {
+        return Err(malformed(JsonPointer::root().key("temporal_clause_names")));
     }
     if let Some(rows) = &wire.schedulability_claims {
         let originals = raw_array(
