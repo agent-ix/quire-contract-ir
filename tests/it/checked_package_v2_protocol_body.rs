@@ -6536,18 +6536,12 @@ fn compensation_clock_rows_follow_published_cases() {
                 } else {
                     case["locus"].as_str().expect("locus").to_owned()
                 };
-                let expected = if id == "CB-04" {
-                    let mut expected = refusal(CheckedPackageRefusalCode::InvalidPackage, &pointer);
-                    expected.cause = Some(cause);
-                    expected
-                } else {
-                    refusal_at_id(
-                        CheckedPackageRefusalCode::InvalidPackage,
-                        &pointer,
-                        Some(cause),
-                        key,
-                    )
-                };
+                let expected = refusal_at_id(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    &pointer,
+                    Some(cause),
+                    key,
+                );
                 assert_eq!(actual, expected, "{id}");
             }
             other => panic!("{id}: unexpected package result {other:?}"),

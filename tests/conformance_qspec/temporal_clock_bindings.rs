@@ -91,6 +91,47 @@ fn apply_occurrence_patch(package: &mut Value, patch: &Value, clause: &Value) {
     }
 }
 
+fn assert_vector_node_locus(
+    refusal: &quire_contract_model::CheckedPackageRefusal,
+    package: &Value,
+    group: &str,
+    pointer: &str,
+    carrier: &str,
+    id: &str,
+) {
+    let expected = if group != "semantic_refusals" {
+        None
+    } else if let Some(suffix) = pointer.strip_prefix("/semantic_graph/nodes/") {
+        let index = suffix
+            .split('/')
+            .next()
+            .expect("node index")
+            .parse::<usize>()
+            .expect("node index");
+        Some(package["semantic_graph"]["nodes"][index]["node_id"].clone())
+    } else if let Some(suffix) = pointer
+        .strip_prefix(carrier)
+        .and_then(|suffix| suffix.strip_prefix('/'))
+    {
+        let index = suffix
+            .split('/')
+            .next()
+            .expect("row index")
+            .parse::<usize>()
+            .expect("row index");
+        Some(package[carrier.trim_start_matches('/')][index]["declaration"].clone())
+    } else {
+        None
+    };
+    let expected: Option<CheckedNodeId> =
+        expected.map(|node| serde_json::from_value(node).expect("structural node locus"));
+    assert_eq!(
+        refusal.locus.as_ref(),
+        expected.as_ref(),
+        "{id}: structural node locus"
+    );
+}
+
 /// Trace: FR-038-AC-437, FR-038-AC-438, FR-038-AC-439, FR-038-AC-440, FR-038-AC-441, TC-048.
 #[trace(
     "TC-048",
@@ -200,6 +241,16 @@ fn published_temporal_occurrence_vectors_bind_exact_read_and_write() {
                     case["expected"]["locus"],
                     "{id}"
                 );
+                assert_vector_node_locus(
+                    &refusal,
+                    &package,
+                    group,
+                    case["expected"]["locus"]
+                        .as_str()
+                        .expect("expected pointer"),
+                    "/temporal_bindings",
+                    id,
+                );
             }
         }
     }
@@ -299,6 +350,16 @@ fn published_temporal_clause_names_admit_and_refuse_at_exact_loci() {
                     refusal.loci[0].path.as_ref().expect("pointer").to_string(),
                     case["expected"]["locus"],
                     "{id}"
+                );
+                assert_vector_node_locus(
+                    &refusal,
+                    &package,
+                    group,
+                    case["expected"]["locus"]
+                        .as_str()
+                        .expect("expected pointer"),
+                    "/temporal_clause_names",
+                    id,
                 );
             }
         }
@@ -434,6 +495,124 @@ fn read_temporal_package(package: &Value) -> CheckedPackageV2ReadResult {
     ));
     read_package_with_document(package, "temporal clock package", &document)
         .expect("published package read")
+}
+
+fn read_temporal_at_work(package: &Value, work: u64) -> CheckedPackageV2ReadResult {
+    let proposal = proposal_dir_of(&fixtures_dir());
+    let selected = vector_selected_documents(&proposal).expect("published selected documents");
+    let document = proposal.join(positive_document(
+        "positive-timed-clause-nodes.json",
+        &selected,
+    ));
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = work;
+    read_package_with_document_and_extensions_at_limit(
+        package,
+        "temporal work boundary",
+        &document,
+        true,
+        limits,
+    )
+    .expect("published package read")
+}
+
+fn first_refusal_work(package: &Value) -> u64 {
+    let mut lower = 0;
+    let mut upper = CheckedPackageReadLimits::bounded().work;
+    assert!(matches!(
+        read_temporal_at_work(package, upper),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
+    while lower < upper {
+        let middle = lower + (upper - lower) / 2;
+        match read_temporal_at_work(package, middle) {
+            CheckedPackageV2ReadResult::Incomplete(_) => lower = middle + 1,
+            CheckedPackageV2ReadResult::Refused(_) => upper = middle,
+            other => panic!("invalid row admitted at work {middle}: {other:?}"),
+        }
+    }
+    lower
+}
+
+/// Trace: FR-038-AC-441, FR-038-AC-447, TC-048.
+#[trace("TC-048", "FR-038-AC-441", "FR-038-AC-447")]
+#[test]
+fn temporal_sidecar_rows_charge_the_first_unavailable_work_visit() {
+    let vectors = occurrence_vectors();
+    let proposal = proposal_dir_of(&fixtures_dir());
+    let mut positive = read_json(&proposal.join(vectors["base"].as_str().expect("base")))
+        .expect("published package");
+    let clause = positive["semantic_graph"]["nodes"][clause_index(&positive)]["node_id"].clone();
+    for patch in vectors["positive"][0]["patch"]
+        .as_array()
+        .expect("twin patches")
+    {
+        apply_occurrence_patch(&mut positive, patch, &clause);
+    }
+    assert!(matches!(
+        read_temporal_package(&positive),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    for (member, malformed_pointer, visit_pointer) in [
+        (
+            "temporal_bindings",
+            "/temporal_bindings/1/clock_name",
+            "/temporal_bindings/1",
+        ),
+        (
+            "temporal_clause_names",
+            "/temporal_clause_names/1/name",
+            "/temporal_clause_names/1",
+        ),
+    ] {
+        let mut package = positive.clone();
+        let field = if member == "temporal_bindings" {
+            "clock_name"
+        } else {
+            "name"
+        };
+        package[member][1][field] = json!("");
+        let first = first_refusal_work(&package);
+        assert!(first > 0, "{member}: boundary has a predecessor");
+        let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+            read_temporal_at_work(&package, first - 1)
+        else {
+            panic!("{member}: previous work limit must be incomplete");
+        };
+        assert_eq!(
+            incomplete.limit_kind,
+            quire_contract_model::CheckedPackageLimit::Work,
+            "{member}"
+        );
+        assert_eq!(
+            (incomplete.limit, incomplete.consumed),
+            (first - 1, first),
+            "{member}"
+        );
+        assert_eq!(
+            incomplete
+                .path
+                .as_ref()
+                .expect("charged pointer")
+                .to_string(),
+            visit_pointer,
+            "{member}"
+        );
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_temporal_at_work(&package, first)
+        else {
+            panic!("{member}: first fully charged row must refuse");
+        };
+        assert_eq!(refusal.code, Code::MalformedWire, "{member}");
+        assert_eq!(
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .expect("refusal pointer")
+                .to_string(),
+            malformed_pointer,
+            "{member}"
+        );
+    }
 }
 
 fn admitted(package: &Value, case: &Value, expected_rows: usize) -> Box<CheckedPackageV2> {

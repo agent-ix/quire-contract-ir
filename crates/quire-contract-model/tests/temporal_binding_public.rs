@@ -17,6 +17,23 @@ fn borrowed_rows(package: &CheckedPackageV2) -> Option<&[TemporalBinding]> {
     package.temporal_bindings()
 }
 
+fn resolve_clause(value: &mut Value, clause: &Value) {
+    match value {
+        Value::String(text) if text == "<clause>" => *value = clause.clone(),
+        Value::Array(items) => {
+            for item in items {
+                resolve_clause(item, clause);
+            }
+        }
+        Value::Object(members) => {
+            for member in members.values_mut() {
+                resolve_clause(member, clause);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Trace: FR-019-AC-22, FR-019-AC-25, TC-058.
 #[trace("FR-019-AC-22", "FR-019-AC-25", "TC-058")]
 #[test]
@@ -28,10 +45,34 @@ fn default_feature_consumer_borrows_admitted_clock_rows() {
     };
     let proposal = PathBuf::from(root).join("proposals/checked-package-v2");
     let fixture_name = "fixtures/positive-timed-clause-nodes.json";
-    let fixture: Value = serde_json::from_slice(
+    let mut fixture: Value = serde_json::from_slice(
         &fs::read(proposal.join(fixture_name)).expect("published checked package"),
     )
     .expect("checked package JSON");
+    let vectors: Value = serde_json::from_slice(
+        &fs::read(proposal.join("temporal-clause-name-vectors.json"))
+            .expect("published name vectors"),
+    )
+    .expect("name vectors JSON");
+    let case = &vectors["positive"][1];
+    assert_eq!(case["id"], "CN-P2-shared-node-two-names");
+    let clause_index = vectors["clause_graph_index"]
+        .as_u64()
+        .expect("clause index") as usize;
+    let clause = fixture["semantic_graph"]["nodes"][clause_index]["node_id"].clone();
+    for patch in case["patch"].as_array().expect("twin patches") {
+        assert_eq!(patch["op"], "add");
+        let path = patch["path"].as_str().expect("patch path");
+        let (parent, index) = path.rsplit_once('/').expect("array member");
+        let mut value = patch["value"].clone();
+        resolve_clause(&mut value, &clause);
+        fixture
+            .pointer_mut(parent)
+            .expect("published patch parent")
+            .as_array_mut()
+            .expect("published array")
+            .insert(index.parse().expect("array index"), value);
+    }
     let selections: Value = serde_json::from_slice(
         &fs::read(proposal.join("selected-documents.json")).expect("published document map"),
     )
@@ -80,12 +121,14 @@ fn default_feature_consumer_borrows_admitted_clock_rows() {
             other => panic!("published temporal package must admit: {other:?}"),
         };
     let rows = borrowed_rows(&package).expect("clock rows");
-    assert_eq!(rows.len(), 1);
+    assert_eq!(rows.len(), 2);
     let expected: CheckedNodeId =
         serde_json::from_value(fixture["temporal_bindings"][0]["declaration"].clone())
             .expect("clause structural ID");
     let declaration: &CheckedNodeId = &rows[0].declaration;
     assert_eq!(declaration, &expected);
+    assert_eq!(rows[1].declaration, expected);
+    assert_eq!((rows[0].occurrence, rows[1].occurrence), (0, 1));
     assert_eq!(rows[0].clock_name.as_ref(), "model-steps");
     assert!(matches!(
         rows[0].clock,
@@ -95,16 +138,23 @@ fn default_feature_consumer_borrows_admitted_clock_rows() {
     let names = package
         .temporal_clause_names()
         .expect("admitted clause names");
-    assert_eq!(names.len(), 1);
+    assert_eq!(names.len(), 2);
     assert_eq!(names[0].declaration, expected);
-    assert_eq!(names[0].occurrence, 0);
-    assert_eq!(names[0].name.as_ref(), "Clause0");
+    assert_eq!(names[1].declaration, expected);
+    assert_eq!((names[0].occurrence, names[1].occurrence), (0, 1));
+    assert_eq!(
+        (names[0].name.as_ref(), names[1].name.as_ref()),
+        ("Clause0", "Clause1")
+    );
 
-    let supplied = [TemporalClauseName {
-        declaration: expected,
-        occurrence: 0,
-        name: "Clause0".into(),
-    }];
+    let supplied = names
+        .iter()
+        .map(|row| TemporalClauseName {
+            declaration: row.declaration.clone(),
+            occurrence: row.occurrence,
+            name: row.name.clone(),
+        })
+        .collect::<Vec<_>>();
     let encoded = encode_checked_package_v2(
         package.name(),
         package.lock(),

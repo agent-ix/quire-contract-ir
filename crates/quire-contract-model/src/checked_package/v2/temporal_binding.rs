@@ -301,10 +301,11 @@ pub(super) fn validate(
             return Err(invalid(at.key("occurrence"), &row.declaration));
         }
         if !seen.insert((&row.declaration, row.occurrence)) {
-            return Err(ValidationFailure::refused_because(
+            return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
                 at,
-                CheckedPackageRefusalCause::ConflictingDefinition,
+                Some(CheckedPackageRefusalCause::ConflictingDefinition),
+                row.declaration.clone(),
             ));
         }
         let structural = structural_keys[position].as_ref();
