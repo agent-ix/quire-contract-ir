@@ -297,3 +297,45 @@ fn strict_and_canonical_wire_checks_precede_integrity() {
     };
     assert_ne!(refusal.cause.map(cause_word), Some("source-integrity"));
 }
+
+#[trace("TC-233", "FR-038-AC-437")]
+#[test]
+fn converting_a_published_crlf_source_changes_its_integrity() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let package = read_json(&fixtures.join("positive-two-owners-a.json"))
+        .expect("published positive package");
+    let original = std::fs::read(proposal.join("source-documents/example-a.qsl"))
+        .expect("published source bytes");
+    assert!(original.windows(2).any(|window| window == b"\r\n"));
+    let converted = original
+        .windows(2)
+        .position(|window| window == b"\r\n")
+        .map(|position| {
+            let mut bytes = original.clone();
+            bytes.remove(position);
+            bytes
+        })
+        .expect("published CRLF");
+    let result = read_package_with_sources_override(
+        &package,
+        "changed line ending",
+        &proposal.join(DOMAIN_DOCUMENT),
+        true,
+        CheckedPackageReadLimits::bounded(),
+        None,
+        SourceSupply {
+            override_bytes: Some(("agent-ix", "example-a", &converted)),
+            ..SourceSupply::default()
+        },
+    )
+    .expect("production read");
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("line-ending conversion must refuse: {result:?}");
+    };
+    assert_eq!(refusal.cause.map(cause_word), Some("source-integrity"));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        "/lock/sources/0"
+    );
+}
