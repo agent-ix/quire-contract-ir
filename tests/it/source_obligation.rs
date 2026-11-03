@@ -6,15 +6,16 @@
 use ix_trace_rs::trace;
 use quire_contract_model::source_obligation::{
     build_source_obligation_census, SourceAssertionId, SourceAssertionProvenance,
-    SourceAuthoredCriterionId, SourceContractAuthorId, SourceCorrespondenceAssertion,
-    SourceCorrespondenceError, SourceCorrespondenceRejectionReason, SourceCriterionSourceBinding,
-    SourceDeclarationHandle, SourceExpressionHandle, SourceInventoryCompleteness,
-    SourceInventoryDisposition, SourceInventoryEnumerator, SourceInventoryIdentity,
-    SourceInventoryIncompleteReason, SourceInventoryOutcome, SourceInventoryOutcomeError,
-    SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope, SourceMissingMappingReason,
-    SourceObligationInput, SourceObligationSite, SourcePendingObligationId,
-    SourcePendingObligationKind, SourceProductionFunctionId, SourceProductionModuleId,
-    SourceRequirementOccurrenceId, SourceSemanticOccurrenceId, SourceTypeExhaustion,
+    SourceAuthoredCriterionId, SourceByteRegion, SourceContractAuthorId,
+    SourceCorrespondenceAssertion, SourceCorrespondenceError, SourceCorrespondenceRejectionReason,
+    SourceCriterionSourceBinding, SourceDeclarationHandle, SourceExpressionHandle,
+    SourceInventoryCompleteness, SourceInventoryDisposition, SourceInventoryEnumerator,
+    SourceInventoryIdentity, SourceInventoryIncompleteReason, SourceInventoryOutcome,
+    SourceInventoryOutcomeError, SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope,
+    SourceMissingMappingReason, SourceObligationInput, SourceObligationSite,
+    SourcePendingObligationId, SourcePendingObligationKind, SourceProductionFunctionId,
+    SourceProductionModuleId, SourceRequirementFormId, SourceRequirementOccurrenceId,
+    SourceSemanticOccurrenceId, SourceTypeExhaustion, SourceTypeExhaustionSite,
     SourceTypeWorkDimension, SourceUnitHandle,
 };
 use quire_contract_model::{
@@ -209,15 +210,15 @@ fn native_qsl_identity_fields_and_stop_causes_remain_distinct() {
         target: SourceDeclarationHandle(7),
     };
     let base = pending(site(), kind);
-    let mut changed_declaration = base;
+    let mut changed_declaration = base.clone();
     changed_declaration.site.declaration = SourceDeclarationHandle(4);
-    let mut changed_unit = base;
+    let mut changed_unit = base.clone();
     changed_unit.site.unit = SourceUnitHandle(5);
-    let mut changed_expression = base;
+    let mut changed_expression = base.clone();
     changed_expression.site.expression = None;
-    let mut changed_start = base;
+    let mut changed_start = base.clone();
     changed_start.site.start = 11;
-    let mut changed_end = base;
+    let mut changed_end = base.clone();
     changed_end.site.end = 21;
     let pending_keys = [
         base,
@@ -242,13 +243,20 @@ fn native_qsl_identity_fields_and_stop_causes_remain_distinct() {
         8
     );
 
-    let exhaustion = SourceInventoryIncompleteReason::TypeWorkExhausted(SourceTypeExhaustion {
-        dimension: SourceTypeWorkDimension::Records,
-        limit: 4,
-        prior: 4,
-        requested: 1,
-        site: site(),
-    });
+    let exhaustion =
+        SourceInventoryIncompleteReason::TypeWorkExhausted(Box::new(SourceTypeExhaustion {
+            stage: None,
+            setting: None,
+            dimension: SourceTypeWorkDimension::Records,
+            limit: 4,
+            observed: None,
+            prior: Some(4),
+            requested: Some(1),
+            site: SourceTypeExhaustionSite {
+                native: Some(site()),
+                region: None,
+            },
+        }));
     let unfinished = SourceInventoryIncompleteReason::TypeAdmissionUnfinished {
         declaration: SourceDeclarationHandle(1),
     };
@@ -273,6 +281,205 @@ fn native_qsl_identity_fields_and_stop_causes_remain_distinct() {
         report.completeness(),
         &SourceInventoryCompleteness::Incomplete(unfinished)
     );
+}
+
+#[trace("FR-052-AC-28")]
+#[test]
+fn incomplete_requirement_forms_have_distinct_qsl_identities_without_checked_nodes() {
+    let selected = source();
+    let forms = [
+        SourceRequirementFormId {
+            ordinal: 0,
+            declared_name: None,
+        },
+        SourceRequirementFormId {
+            ordinal: 1,
+            declared_name: Some("f".into()),
+        },
+        SourceRequirementFormId {
+            ordinal: 1,
+            declared_name: Some("g".into()),
+        },
+    ];
+    let rows: Vec<_> = forms
+        .into_iter()
+        .map(|form| {
+            SourceInventoryRow::new(
+                selected.clone(),
+                SourceInventoryIdentity::RequirementForm(form),
+            )
+        })
+        .collect();
+    assert!(rows
+        .iter()
+        .all(|row| row.owner() == SourceInventoryOwner::Qsl));
+    assert_eq!(
+        rows.iter()
+            .map(SourceInventoryRow::identity)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        3
+    );
+
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
+            SourceInventoryOwner::Qsl,
+            rows.clone(),
+        )),
+        Err(SourceInventoryOutcomeError::RequirementFormInComplete)
+    );
+    let mut partial = TestEnumerator::new(SourceInventoryOwner::Qsl, rows.clone());
+    partial.stop = Some(SourceInventoryIncompleteReason::EarlyStop {
+        owner: SourceInventoryOwner::Qsl,
+    });
+    let report =
+        SourceInventoryOutcome::from_enumerator(partial).expect("partial QSL form outcome");
+    assert_eq!(
+        report.completeness(),
+        &SourceInventoryCompleteness::Incomplete(SourceInventoryIncompleteReason::EarlyStop {
+            owner: SourceInventoryOwner::Qsl,
+        })
+    );
+    assert_eq!(report.items(), rows);
+    let record = SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
+        node: requirement_node("f"),
+        role: "form".into(),
+        ordinal: 1,
+    });
+    assert!(report.items().iter().all(|row| row.identity() != &record));
+}
+
+#[trace("FR-052-AC-29")]
+#[test]
+fn capability_labels_are_exact_pending_identities_distinct_from_type_kinds() {
+    let site = site();
+    let kinds = [
+        SourcePendingObligationKind::CapabilityKind("value-validity".into()),
+        SourcePendingObligationKind::CapabilityKind("operation-contract".into()),
+        SourcePendingObligationKind::Presence,
+        SourcePendingObligationKind::ArithmeticRange,
+        SourcePendingObligationKind::Nonzero,
+        SourcePendingObligationKind::SumProjection,
+        SourcePendingObligationKind::SumPrefixes,
+        SourcePendingObligationKind::GraphClosure,
+        SourcePendingObligationKind::InvocationContext,
+        SourcePendingObligationKind::CaptureInput,
+        SourcePendingObligationKind::PredicateTotal {
+            target: SourceDeclarationHandle(7),
+        },
+        SourcePendingObligationKind::PredicateTotal {
+            target: SourceDeclarationHandle(8),
+        },
+    ];
+    let rows: Vec<_> = kinds
+        .into_iter()
+        .map(|kind| {
+            SourceInventoryRow::new(
+                source(),
+                SourceInventoryIdentity::PendingObligation(pending(site, kind)),
+            )
+        })
+        .collect();
+    let report = SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
+        SourceInventoryOwner::Qsl,
+        rows.clone(),
+    ))
+    .expect("QSL obligation outcome");
+    assert_eq!(report.items(), rows);
+    assert_eq!(
+        report
+            .items()
+            .iter()
+            .map(SourceInventoryRow::identity)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        12
+    );
+    let SourceInventoryIdentity::PendingObligation(first) = report.items()[0].identity() else {
+        panic!("first QSL row must be a pending obligation");
+    };
+    assert_eq!(
+        first.kind,
+        SourcePendingObligationKind::CapabilityKind("value-validity".into())
+    );
+}
+
+#[trace("FR-052-AC-30")]
+#[test]
+fn spine_and_composed_exhaustion_preserve_only_owner_measured_fields() {
+    let s1 = SourceTypeExhaustion {
+        stage: Some("S1".into()),
+        setting: Some("s1.nodes".into()),
+        dimension: SourceTypeWorkDimension::Expressions,
+        limit: 4,
+        observed: Some(5),
+        prior: None,
+        requested: None,
+        site: SourceTypeExhaustionSite {
+            native: None,
+            region: None,
+        },
+    };
+    let s3_region = SourceByteRegion {
+        authority: "source".into(),
+        identity: "unit-a".into(),
+        start: 10,
+        end: 20,
+    };
+    let s3 = SourceTypeExhaustion {
+        stage: Some("S3".into()),
+        setting: Some("s3.work_units".into()),
+        dimension: SourceTypeWorkDimension::Constraints,
+        limit: u64::MAX,
+        observed: Some(u128::from(u64::MAX) + 1),
+        prior: None,
+        requested: None,
+        site: SourceTypeExhaustionSite {
+            native: None,
+            region: Some(s3_region.clone()),
+        },
+    };
+    let mut another_source = s3.clone();
+    another_source
+        .site
+        .region
+        .as_mut()
+        .expect("S3 region")
+        .identity = "unit-b".into();
+    assert_ne!(
+        s3, another_source,
+        "source identity distinguishes equal byte offsets"
+    );
+    let composed = SourceTypeExhaustion {
+        stage: None,
+        setting: None,
+        dimension: SourceTypeWorkDimension::Records,
+        limit: 4,
+        observed: None,
+        prior: Some(4),
+        requested: Some(1),
+        site: SourceTypeExhaustionSite {
+            native: Some(site()),
+            region: None,
+        },
+    };
+    for expected in [s1, s3, composed] {
+        let mut enumerator = TestEnumerator::new(SourceInventoryOwner::Qsl, vec![]);
+        enumerator.stop = Some(SourceInventoryIncompleteReason::TypeWorkExhausted(
+            Box::new(expected.clone()),
+        ));
+        let outcome =
+            SourceInventoryOutcome::from_enumerator(enumerator).expect("QSL stop outcome");
+        assert_eq!(
+            outcome.completeness(),
+            &SourceInventoryCompleteness::Incomplete(
+                SourceInventoryIncompleteReason::TypeWorkExhausted(Box::new(expected))
+            )
+        );
+    }
+    assert_eq!(s3_region.authority.as_ref(), "source");
+    assert_eq!(s3_region.identity.as_ref(), "unit-a");
+    assert_eq!((s3_region.start, s3_region.end), (10, 20));
 }
 
 #[trace("FR-052-AC-4")]
@@ -417,13 +624,20 @@ fn terminal_boundary_distinguishes_empty_complete_partial_and_invalid_count() {
 #[trace("FR-052-AC-12", "FR-052-AC-13", "FR-052-AC-3")]
 #[test]
 fn terminal_boundary_preserves_typed_stops_and_rejects_mismatched_rows() {
-    let exhaustion = SourceInventoryIncompleteReason::TypeWorkExhausted(SourceTypeExhaustion {
-        dimension: SourceTypeWorkDimension::Records,
-        limit: 1,
-        prior: 1,
-        requested: 1,
-        site: site(),
-    });
+    let exhaustion =
+        SourceInventoryIncompleteReason::TypeWorkExhausted(Box::new(SourceTypeExhaustion {
+            stage: None,
+            setting: None,
+            dimension: SourceTypeWorkDimension::Records,
+            limit: 1,
+            observed: None,
+            prior: Some(1),
+            requested: Some(1),
+            site: SourceTypeExhaustionSite {
+                native: Some(site()),
+                region: None,
+            },
+        }));
     let qsl_row = SourceInventoryRow::new(
         source(),
         SourceInventoryIdentity::PendingObligation(pending(
@@ -970,13 +1184,21 @@ fn every_owner_position_refuses_missing_and_typed_incomplete_outcomes() {
                 }),
             ],
             SourceInventoryOwner::Qsl => vec![
-                SourceInventoryIncompleteReason::TypeWorkExhausted(SourceTypeExhaustion {
-                    dimension: SourceTypeWorkDimension::Records,
-                    limit: 4,
-                    prior: 4,
-                    requested: 1,
-                    site: site(),
-                }),
+                SourceInventoryIncompleteReason::TypeWorkExhausted(Box::new(
+                    SourceTypeExhaustion {
+                        stage: None,
+                        setting: None,
+                        dimension: SourceTypeWorkDimension::Records,
+                        limit: 4,
+                        observed: None,
+                        prior: Some(4),
+                        requested: Some(1),
+                        site: SourceTypeExhaustionSite {
+                            native: Some(site()),
+                            region: None,
+                        },
+                    },
+                )),
                 SourceInventoryIncompleteReason::TypeAdmissionUnfinished {
                     declaration: SourceDeclarationHandle(7),
                 },

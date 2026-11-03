@@ -88,7 +88,7 @@ pub enum SourceInventoryIncompleteReason {
         cause: Box<str>,
     },
     /// QSL's type work stopped at its first unaffordable charge.
-    TypeWorkExhausted(SourceTypeExhaustion),
+    TypeWorkExhausted(Box<SourceTypeExhaustion>),
     /// QSL reported unfinished type admission for a native declaration handle.
     ///
     /// Produced only by QSL's composed-lane inventory; the spine inventory
@@ -181,19 +181,47 @@ pub struct SourceObligationSite {
     pub end: usize,
 }
 
-/// QSL's first unaffordable type-work charge, retaining its native fields.
+/// Source region of a QSL limit, including its source document identity.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourceByteRegion {
+    /// Authority of the exact original source document.
+    pub authority: Box<str>,
+    /// Identity of that document under the authority.
+    pub identity: Box<str>,
+    /// Inclusive byte offset in that document.
+    pub start: u64,
+    /// Exclusive byte offset in that document.
+    pub end: u64,
+}
+
+/// Native site and source region retained independently when QSL reports them.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourceTypeExhaustionSite {
+    /// Native handles and unit-relative span, when the owner reports them.
+    pub native: Option<SourceObligationSite>,
+    /// Exact source document and byte region, when available.
+    pub region: Option<SourceByteRegion>,
+}
+
+/// QSL's first unaffordable type-work charge, retaining only measured fields.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SourceTypeExhaustion {
+    /// Exact owner-native stage name, when reported.
+    pub stage: Option<Box<str>>,
+    /// Exact FR-255 setting name that raises the limit, when reported.
+    pub setting: Option<Box<str>>,
     /// Exhausted capacity.
     pub dimension: SourceTypeWorkDimension,
     /// Effective capacity limit.
-    pub limit: usize,
-    /// Successfully charged usage or prior depth.
-    pub prior: usize,
-    /// Unpaid increment or requested depth.
-    pub requested: usize,
-    /// Original location where work stopped.
-    pub site: SourceObligationSite,
+    pub limit: u64,
+    /// Counter value that reached the limit, when reported.
+    pub observed: Option<u128>,
+    /// Successfully charged usage or prior depth, when reported.
+    pub prior: Option<u128>,
+    /// Unpaid increment or requested depth, when reported.
+    pub requested: Option<u128>,
+    /// Native site and source region where work stopped, when known.
+    pub site: SourceTypeExhaustionSite,
 }
 
 /// QSL checked requirement occurrence: structural node plus native role and ordinal.
@@ -207,8 +235,17 @@ pub struct SourceRequirementOccurrenceId {
     pub ordinal: u64,
 }
 
+/// Identity of an S2 requirement form before a checked requirement node exists.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourceRequirementFormId {
+    /// Position among this unit's requirement forms in source order.
+    pub ordinal: u64,
+    /// Declared form name, when the form has one.
+    pub declared_name: Option<Box<str>>,
+}
+
 /// QSL's native pending-obligation kind and any target it carries.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum SourcePendingObligationKind {
     /// Presence of an optional value.
     Presence,
@@ -222,6 +259,8 @@ pub enum SourcePendingObligationKind {
     SumPrefixes,
     /// Totality of the exact callee declaration.
     PredicateTotal { target: SourceDeclarationHandle },
+    /// Exact FR-057 capability label admitted by QSL.
+    CapabilityKind(Box<str>),
     /// Runtime graph closure.
     GraphClosure,
     /// Runtime invocation context.
@@ -232,7 +271,7 @@ pub enum SourcePendingObligationKind {
 
 /// Identity of a QSL pending obligation from its exact native site and kind.
 /// Identical site and kind values denote one inventory identity.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SourcePendingObligationId {
     /// The native declaration, unit, expression, and span.
     pub site: SourceObligationSite,
@@ -408,6 +447,8 @@ pub enum SourceInventoryIdentity {
     Criterion(SourceAuthoredCriterionId),
     /// A complete checked requirement record reported by QSL.
     RequirementRecord(SourceRequirementOccurrenceId),
+    /// A partial S2 requirement form reported by QSL before a checked node exists.
+    RequirementForm(SourceRequirementFormId),
     /// A semantic node from the selected IR V2 graph.
     SemanticNode {
         /// Native checked-node identity.
@@ -430,7 +471,9 @@ impl SourceInventoryIdentity {
         match self {
             Self::Criterion(_) => SourceInventoryOwner::Quire,
             Self::SemanticNode { .. } | Self::SemanticOccurrence(_) => SourceInventoryOwner::IrV2,
-            Self::RequirementRecord(_) | Self::PendingObligation(_) => SourceInventoryOwner::Qsl,
+            Self::RequirementRecord(_) | Self::RequirementForm(_) | Self::PendingObligation(_) => {
+                SourceInventoryOwner::Qsl
+            }
             Self::ProductionModule(_) | Self::ProductionFunction(_) => {
                 SourceInventoryOwner::QuireCodeRs
             }
@@ -510,6 +553,9 @@ pub enum SourceInventoryOutcomeError {
     /// A retained row names a different selected source.
     #[error("inventory row names another source")]
     RowSourceMismatch,
+    /// A completed QSL inventory cannot contain a pre-check requirement form.
+    #[error("complete QSL inventory contains a requirement form")]
+    RequirementFormInComplete,
     /// The stopped owner differs from the selected owner.
     #[error("inventory stop cause belongs to another owner")]
     StopOwnerMismatch,
@@ -625,7 +671,14 @@ impl SourceInventoryOutcome {
                         .map_err(|_| SourceInventoryOutcomeError::AllocationFailed)?;
                     items.push(row);
                 }
-                Ok(None) => break SourceInventoryCompleteness::Complete,
+                Ok(None) => {
+                    if items.iter().any(|row: &SourceInventoryRow| {
+                        matches!(row.identity(), SourceInventoryIdentity::RequirementForm(_))
+                    }) {
+                        return Err(SourceInventoryOutcomeError::RequirementFormInComplete);
+                    }
+                    break SourceInventoryCompleteness::Complete;
+                }
                 Err(cause) => {
                     if cause.owner() != owner {
                         return Err(SourceInventoryOutcomeError::StopOwnerMismatch);
@@ -1283,6 +1336,7 @@ fn checked_census_positions(
             }
             SourceInventoryIdentity::Criterion(_) => None,
             SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::RequirementForm(_)
             | SourceInventoryIdentity::SemanticNode { .. }
             | SourceInventoryIdentity::SemanticOccurrence(_)
             | SourceInventoryIdentity::PendingObligation(_)
@@ -1358,6 +1412,7 @@ fn census_endpoints(
         .filter_map(|r| match &r.identity {
             SourceInventoryIdentity::Criterion(c) => Some(c.clone()),
             SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::RequirementForm(_)
             | SourceInventoryIdentity::SemanticNode { .. }
             | SourceInventoryIdentity::SemanticOccurrence(_)
             | SourceInventoryIdentity::PendingObligation(_)
@@ -1374,6 +1429,7 @@ fn census_endpoints(
             SourceInventoryIdentity::SemanticOccurrence(_)
             | SourceInventoryIdentity::Criterion(_)
             | SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::RequirementForm(_)
             | SourceInventoryIdentity::SemanticNode { .. }
             | SourceInventoryIdentity::PendingObligation(_)
             | SourceInventoryIdentity::ProductionModule(_)
@@ -1386,6 +1442,7 @@ fn census_endpoints(
             SourceInventoryIdentity::ProductionModule(m) => Some(m.clone()),
             SourceInventoryIdentity::Criterion(_)
             | SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::RequirementForm(_)
             | SourceInventoryIdentity::SemanticNode { .. }
             | SourceInventoryIdentity::SemanticOccurrence(_)
             | SourceInventoryIdentity::PendingObligation(_)
@@ -1401,6 +1458,7 @@ fn census_endpoints(
             SourceInventoryIdentity::ProductionFunction(_)
             | SourceInventoryIdentity::Criterion(_)
             | SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::RequirementForm(_)
             | SourceInventoryIdentity::SemanticNode { .. }
             | SourceInventoryIdentity::SemanticOccurrence(_)
             | SourceInventoryIdentity::PendingObligation(_)
@@ -1613,6 +1671,7 @@ fn census_dispositions(
                     }
                 }
                 SourceInventoryIdentity::RequirementRecord(_)
+                | SourceInventoryIdentity::RequirementForm(_)
                 | SourceInventoryIdentity::PendingObligation(_) => {
                     SourceInventoryDisposition::ZeroMappings(
                         SourceMissingMappingReason::NoAuthoredMapping,
