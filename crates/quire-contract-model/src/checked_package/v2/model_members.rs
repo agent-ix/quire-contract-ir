@@ -3457,6 +3457,22 @@ pub(super) fn read_semantic_ir(
                 }
             }
             meaning::Kind::ValueType => {
+                if declared.get("unit").is_some()
+                    && declared.get("scalar").and_then(Value::as_str) != Some("rational")
+                {
+                    let mut selected =
+                        SelectionRefusal::located(ModelRefusal::malformed(), declared, budget)?;
+                    let type_index = *document_positions
+                        .get(node)
+                        .ok_or_else(ModelRefusal::malformed)?;
+                    selected.document_pointer = Some(
+                        JsonPointer::root()
+                            .key("types")
+                            .index(type_index)
+                            .key("unit"),
+                    );
+                    return Err(selected.into());
+                }
                 let bounds = if declared.get("scalar").and_then(Value::as_str) == Some("rational") {
                     match rational_value_type(declared, &model.unit_refs) {
                         Ok(bounds) => bounds,
