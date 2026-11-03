@@ -5,8 +5,8 @@
 
 use crate::support::checked_package::{
     canonical, domain_package_document, evidence_for, insert_fixture_sources, pointer,
-    refresh_identity, select_model, settle, structural_id, v2_all_families, v2_nominal,
-    COMPLETE_VALUE_FEATURE,
+    refresh_fixture_source_claim, refresh_identity, select_model, settle, structural_id,
+    v2_all_families, v2_nominal, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -399,6 +399,7 @@ fn equal_package_names_do_not_hide_independently_admitted_metadata_conflicts() {
     let old_source = original["lock"]["sources"][1].clone();
     renamed_source["lock"]["sources"][1]["identity"] =
         json!("quire.fixture.source.secondary-renamed/v1");
+    refresh_fixture_source_claim(&mut renamed_source, "/lock/sources/1");
     let new_source = renamed_source["lock"]["sources"][1].clone();
     for entry in renamed_source["source_map"].as_array_mut().unwrap() {
         for region in entry["regions"].as_array_mut().unwrap() {
