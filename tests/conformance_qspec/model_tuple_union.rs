@@ -44,14 +44,38 @@ fn read_selected_variant_package(package: &Value, document: &Value) -> Box<Check
     }
 }
 
-fn variant_node_id(package: &Value, identity: &str) -> CheckedNodeId {
-    let node = package["semantic_graph"]["nodes"]
+fn variant_node(package: &Value, identity: &str) -> (usize, CheckedNodeId) {
+    let (position, node) = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("graph nodes")
         .iter()
-        .find(|node| node["semantic_form"] == "variant_type" && node["owner"]["node"] == identity)
+        .enumerate()
+        .find(|(_, node)| {
+            node["semantic_form"] == "variant_type" && node["owner"]["node"] == identity
+        })
         .expect("published selected variant node");
-    serde_json::from_value(node["node_id"].clone()).expect("published variant node id")
+    (
+        position,
+        serde_json::from_value(node["node_id"].clone()).expect("published variant node id"),
+    )
+}
+
+fn selected_type_position(document: &Value, identity: &str) -> usize {
+    document["types"]
+        .as_array()
+        .expect("selected types")
+        .iter()
+        .position(|declared| declared["identity"] == identity)
+        .expect("selected declaration")
+}
+
+fn selected_case_position(document: &Value, type_position: usize, name: &str) -> usize {
+    document["types"][type_position]["variants"]
+        .as_array()
+        .expect("selected variant cases")
+        .iter()
+        .position(|case| case["name"] == name)
+        .expect("selected variant case")
 }
 
 type VariantCaseBody = (String, String, usize, usize, Option<String>);
@@ -145,34 +169,65 @@ fn published_variant_bodies_and_first_payload_transition_are_retained() {
         assert!(seen.insert(id), "duplicate published family case {id}");
         let name = row["node"].as_str().expect("variant name");
         let identity = format!("ix://acme/shapes/{name}");
-        let node = variant_node_id(&package, &identity);
+        let (_, node) = variant_node(&package, &identity);
         let expected_family = row["expected"].as_str().expect("published family");
         asserted_variant_body(&admitted, &document, &node, &identity, expected_family);
     }
     assert_eq!(seen, BTreeSet::from(["TF-02", "TF-03"]));
 
     let color = "ix://acme/shapes/Color";
-    let node = variant_node_id(&package, color);
+    let (color_node_position, node) = variant_node(&package, color);
     let original_path = node.path.clone();
-    assert_eq!(document["types"][6]["identity"], color);
+    let color_type_position = selected_type_position(&document, color);
+    let green_position = selected_case_position(&document, color_type_position, "Green");
     let nullary_body = asserted_variant_body(&admitted, &document, &node, color, "enum");
     let mut payload_document = document.clone();
-    payload_document["types"][6]["variants"][1]["payloadType"] = json!("ix://quire/native/Boolean");
+    payload_document["types"][color_type_position]["variants"][green_position]["payloadType"] =
+        json!("ix://quire/native/Boolean");
     assert_ne!(payload_document, document, "selected document must change");
     let mut payload_package = package.clone();
-    let red = &mut payload_package["semantic_graph"]["nodes"][30];
-    assert_eq!(red["semantic_form"], "enum_value");
+    let graph_nodes = payload_package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes");
+    let authored_color_id = &graph_nodes[color_node_position]["node_id"];
+    let red_position = graph_nodes
+        .iter()
+        .position(|candidate| {
+            candidate["semantic_form"] == "enum_value"
+                && candidate["semantic_type"] == *authored_color_id
+                && candidate["body"]["value"] == "Red"
+        })
+        .expect("published Color Red enum value");
+    let enum_equality_position = graph_nodes
+        .iter()
+        .position(|candidate| {
+            candidate["semantic_form"] == "binary"
+                && candidate["body"]["operation"]["identity"] == "quire.op.enum.eq"
+                && candidate["dependencies"]
+                    .as_array()
+                    .is_some_and(|dependencies| {
+                        dependencies.len() == 2
+                            && dependencies.iter().all(|dependency| {
+                                graph_nodes.iter().any(|operand| {
+                                    operand["node_id"] == *dependency
+                                        && operand["semantic_type"] == *authored_color_id
+                                })
+                            })
+                    })
+        })
+        .expect("published Color enum equality");
+    let red = &mut payload_package["semantic_graph"]["nodes"][red_position];
     red["semantic_form"] = json!("union_value");
     red["body"] = json!({"term":"aggregate", "members":[{
         "term":"binding", "name":"Red", "value":{"term":"aggregate","members":[]}
     }]});
     red["dependencies"] = json!([]);
-    red["node_id"]["path"] = json!(["value", "union_value", "Red", {"node":4}]);
+    red["node_id"]["path"] = json!(["value", "union_value", "Red", {"node":color_node_position}]);
     red["occurrences"][0]["role"] = json!("expression");
     let removed = payload_package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("graph nodes")
-        .remove(36);
+        .remove(enum_equality_position);
     assert_eq!(removed["body"]["operation"]["identity"], "quire.op.enum.eq");
     super::fixture_support::settle(&mut payload_package);
     let payload_admitted = read_selected_variant_package(&payload_package, &payload_document);
@@ -196,7 +251,7 @@ fn published_variant_bodies_and_first_payload_transition_are_retained() {
 
     let mut aliased_document = payload_document.clone();
     let alias = "ix://acme/shapes/BoolAlias";
-    let origin = aliased_document["types"][6]["origin"].clone();
+    let origin = aliased_document["types"][color_type_position]["origin"].clone();
     aliased_document["types"]
         .as_array_mut()
         .expect("selected types")
@@ -205,7 +260,8 @@ fn published_variant_bodies_and_first_payload_transition_are_retained() {
             "target": "ix://quire/native/Boolean", "origin": origin,
             "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject"
         }));
-    aliased_document["types"][6]["variants"][1]["payloadType"] = json!(alias);
+    aliased_document["types"][color_type_position]["variants"][green_position]["payloadType"] =
+        json!(alias);
     let aliased = read_selected_variant_package(&payload_package, &aliased_document);
     let green = aliased
         .model_variant_body(&node)
@@ -221,7 +277,7 @@ fn published_variant_bodies_and_first_payload_transition_are_retained() {
         "payload alias resolves before retention"
     );
 
-    payload_document["types"][6]["variants"][1]
+    payload_document["types"][color_type_position]["variants"][green_position]
         .as_object_mut()
         .expect("authored case")
         .remove("payloadType")
@@ -236,9 +292,13 @@ fn published_variant_bodies_and_first_payload_transition_are_retained() {
         nullary_body,
         "removing first payload restores complete retained body"
     );
-    assert!(admitted
-        .model_variant_body(&admitted.graph().nodes[0].node_id)
-        .is_none());
+    let non_variant = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|candidate| candidate.semantic_form.as_ref() == "model_root")
+        .expect("published model root");
+    assert!(admitted.model_variant_body(&non_variant.node_id).is_none());
     let mut unselected = node.clone();
     unselected.ordinal += 1;
     assert!(admitted.model_variant_body(&unselected).is_none());
