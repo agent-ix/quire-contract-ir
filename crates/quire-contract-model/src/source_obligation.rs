@@ -553,6 +553,9 @@ pub enum SourceInventoryOutcomeError {
     /// A retained row names a different selected source.
     #[error("inventory row names another source")]
     RowSourceMismatch,
+    /// A completed QSL inventory cannot contain a pre-check requirement form.
+    #[error("complete QSL inventory contains a requirement form")]
+    RequirementFormInComplete,
     /// The stopped owner differs from the selected owner.
     #[error("inventory stop cause belongs to another owner")]
     StopOwnerMismatch,

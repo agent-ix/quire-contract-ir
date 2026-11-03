@@ -321,11 +321,25 @@ fn incomplete_requirement_forms_have_distinct_qsl_identities_without_checked_nod
         3
     );
 
-    let report = SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
-        SourceInventoryOwner::Qsl,
-        rows.clone(),
-    ))
-    .expect("QSL form outcome");
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
+            SourceInventoryOwner::Qsl,
+            rows.clone(),
+        )),
+        Err(SourceInventoryOutcomeError::RequirementFormInComplete)
+    );
+    let mut partial = TestEnumerator::new(SourceInventoryOwner::Qsl, rows.clone());
+    partial.stop = Some(SourceInventoryIncompleteReason::EarlyStop {
+        owner: SourceInventoryOwner::Qsl,
+    });
+    let report =
+        SourceInventoryOutcome::from_enumerator(partial).expect("partial QSL form outcome");
+    assert_eq!(
+        report.completeness(),
+        &SourceInventoryCompleteness::Incomplete(SourceInventoryIncompleteReason::EarlyStop {
+            owner: SourceInventoryOwner::Qsl,
+        })
+    );
     assert_eq!(report.items(), rows);
     let record = SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
         node: requirement_node("f"),
