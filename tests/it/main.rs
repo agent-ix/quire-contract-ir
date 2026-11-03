@@ -72,6 +72,7 @@ mod conformance;
 #[cfg(feature = "conformance-cli")]
 mod conformance_mismatch_independence;
 mod cycle_free_model;
+mod default_mapping_surface;
 mod exact_projection_limits;
 mod executable_binding;
 mod expression;
