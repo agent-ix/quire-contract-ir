@@ -43,6 +43,13 @@ impl Scratch {
             ),
         )
         .expect("independent default-feature consumer manifest");
+        // Reuse fetched dependency selections without inheriting workspace features.
+        // Cargo replaces the workspace root entry with this independent consumer.
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.lock"),
+            scratch.0.join("Cargo.lock"),
+        )
+        .expect("seed consumer resolution from the workspace lockfile");
         scratch
     }
 
