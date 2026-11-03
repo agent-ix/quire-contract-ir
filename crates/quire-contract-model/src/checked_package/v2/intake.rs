@@ -177,6 +177,21 @@ pub(super) fn decode_borrowed_wire(
             if refusal.code == CheckedPackageRefusalCode::UnknownMember {
                 if let Some(index) = refusal
                     .primary_path()
+                    .and_then(|at| at.as_str().strip_prefix("/temporal_clause_names/"))
+                    .and_then(|suffix| suffix.split('/').next())
+                    .and_then(|index| index.parse::<usize>().ok())
+                {
+                    refusal.code = CheckedPackageRefusalCode::MalformedWire;
+                    refusal.set_primary_path(Some(
+                        JsonPointer::root()
+                            .key("temporal_clause_names")
+                            .index(index),
+                    ));
+                }
+            }
+            if refusal.code == CheckedPackageRefusalCode::UnknownMember {
+                if let Some(index) = refusal
+                    .primary_path()
                     .and_then(|at| at.as_str().strip_prefix("/schedulability_claims/"))
                     .and_then(|suffix| suffix.split('/').next())
                     .and_then(|index| index.parse::<usize>().ok())
