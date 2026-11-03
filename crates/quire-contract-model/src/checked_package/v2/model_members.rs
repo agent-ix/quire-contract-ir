@@ -542,7 +542,7 @@ pub(super) struct DomainModel {
     pub(super) event_types: BTreeSet<Box<str>>,
     /// Ordered positions of each selected tuple value type.
     pub(super) tuple_types: BTreeMap<Box<str>, Vec<SelectedTypeRef>>,
-    /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
+    /// Value types by IR node identity; `None` for an unmapped value type.
     pub(super) value_types: BTreeMap<Box<str>, Option<ValueBounds>>,
     /// Core Semantic IR aliases, resolved before model member type mapping.
     aliases: BTreeMap<Box<str>, Box<str>>,
