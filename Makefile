@@ -156,7 +156,7 @@ conformance-qsl-exact-producer:
 	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo 'QUIRE_SPEC_LANGUAGE_DIR is required' >&2; exit 1; }
 	@artifacts=$$($(CARGO) test $(LOCKED) --workspace --no-run --test conformance_qsl_exact_producer --message-format=json) || exit $$?; \
 	binary=$$(printf '%s\n' "$$artifacts" | python3 -c 'import json,sys; rows=[json.loads(line) for line in sys.stdin]; bins=[row["executable"] for row in rows if row.get("reason")=="compiler-artifact" and row.get("target",{}).get("name")=="conformance_qsl_exact_producer" and row.get("executable")]; assert len(bins)==1, bins; print(bins[0])') || exit $$?; \
-	"$$binary" --nocapture
+	"$$binary" --nocapture --test-threads=1
 
 .PHONY: conformance-qsl-ir779
 conformance-qsl-ir779:
