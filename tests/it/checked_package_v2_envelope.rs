@@ -143,7 +143,7 @@ fn typed_envelope_has_exact_members_and_canonical_boundaries() {
     assert_eq!(bytes, canonical(&value));
     let encoded: Value = serde_json::from_slice(&bytes).expect("JSON object");
     let members = encoded.as_object().expect("envelope object");
-    assert_eq!(members.len(), 8);
+    assert_eq!(members.len(), 9);
     assert_eq!(members["contract_version"], CHECKED_PACKAGE_V2);
     assert_eq!(members["name"], value["name"]);
     assert_eq!(
@@ -156,7 +156,8 @@ fn typed_envelope_has_exact_members_and_canonical_boundaries() {
             "name",
             "semantic_graph",
             "source_map",
-            "temporal_bindings"
+            "temporal_bindings",
+            "temporal_clause_names"
         ]
     );
     let length = u64::try_from(bytes.len()).expect("byte length fits u64");
