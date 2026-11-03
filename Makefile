@@ -30,7 +30,7 @@ help:
 	@echo "  make conformance-qsl-ir703 - Fresh ConfigVersion V2 producer/IR accessor check (needs QUIRE_SPEC_LANGUAGE_DIR and its current binaries)"
 	@echo "  make conformance-qsl-ir769 - Fresh QSL scalar result context through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
 	@echo "  make conformance-qsl-ir779 - QSL FR-062 RR-13 path conditions through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
-	@echo "  make conformance-qsl-exact-producer - Real QSL selected identities through IR projection (needs QUIRE_SPEC_LANGUAGE_DIR; sequential native helper)"
+	@echo "  make conformance-qsl-exact-producer - Real QSL selected identities and execution points through IR (needs QUIRE_SPEC_LANGUAGE_DIR and QUIRE_SPECIFICATION_DIR; sequential native helpers)"
 	@echo "  make conformance-qsl-ir760 - QSL-emitted Population<T>[N] through the default-feature model consumer (needs QUIRE_SPEC_LANGUAGE_DIR)"
 	@echo "  make conformance-qsl-ir1052 - Fresh QSL Boolean transition V2 readback (needs QSL emitter)"
 	@echo "  make build            - Release build"
@@ -154,9 +154,10 @@ conformance-qsl-exact-producer-compile:
 # Finish outer Cargo before its native binary starts the isolated Cargo helper.
 conformance-qsl-exact-producer:
 	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo 'QUIRE_SPEC_LANGUAGE_DIR is required' >&2; exit 1; }
+	@test -n "$(QUIRE_SPECIFICATION_DIR)" || { echo 'QUIRE_SPECIFICATION_DIR is required' >&2; exit 1; }
 	@artifacts=$$($(CARGO) test $(LOCKED) --workspace --no-run --test conformance_qsl_exact_producer --message-format=json) || exit $$?; \
 	binary=$$(printf '%s\n' "$$artifacts" | python3 -c 'import json,sys; rows=[json.loads(line) for line in sys.stdin]; bins=[row["executable"] for row in rows if row.get("reason")=="compiler-artifact" and row.get("target",{}).get("name")=="conformance_qsl_exact_producer" and row.get("executable")]; assert len(bins)==1, bins; print(bins[0])') || exit $$?; \
-	"$$binary" --nocapture
+	"$$binary" --nocapture --test-threads=1
 
 .PHONY: conformance-qsl-ir779
 conformance-qsl-ir779:

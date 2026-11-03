@@ -100,7 +100,7 @@ fn main() {
          function keep using v(a: Domain::Ledger): Domain::Ledger pure {{ a }}\n"
     );
     let parsed = qsl_cst::parse(
-        SourceIdentity::new("agent-ix", "test:ir1003-producer", "fixture", "fixture:1"),
+        SourceIdentity::new("agent-ix", "test:ir1003-producer"),
         "identity-producer.native",
         source.as_bytes(),
         qsl_cst::Limits::default(),
