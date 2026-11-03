@@ -171,10 +171,12 @@ What is measured today, what is open and with whom, and what is routed.
   `src/` or `crates/`, because IR-274's code changes removed them. QSL states (not re-measured
   here) that the serde_json form diverges from RFC 8785 on integers above 2^53, floats, negative
   zero and key order under `preserve_order`; IR's own `serde_json` features do not enable
-  `preserve_order` (`Cargo.toml`). QVC's public `jcs_canonicalize` already delegates to
-  `quire_canonical::to_vec` (QVC `5070338d`, `src/lib.rs:616-623`), and its equality and
-  digest functions wrap those bytes (`src/lib.rs:629-644`). VER-52, if still needed,
-  concerns the wrapper API's ownership, not moving a second encoder implementation.
+  `preserve_order` (`Cargo.toml`). QVC already depends on `quire-canonical`
+  (QVC `5070338d`, `Cargo.toml:37`): its public `jcs_canonicalize` delegates
+  to `quire_canonical::to_vec` (`src/lib.rs:616-623`), while QVC owns the
+  verification-facing `jcs_equal` and `jcs_sha256` wrappers over those bytes
+  (`src/lib.rs:629-644`; QVC FR-001:13-15,25-37,54-79). There is one
+  canonical encoder implementation and no unresolved migration of QVC onto it.
 - The QSL root crate still reads the authored-contract model widely (table above), while QSL
   ADR-011 states that `check` never imports the model crate and that its checker does not ask a
   backend to decide a semantic question (FB-06). Which of these uses survive QSL's layer

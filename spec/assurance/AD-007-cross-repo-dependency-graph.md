@@ -73,7 +73,8 @@ is not itself a Cargo edge.
 | Compile-side package and emitter | QSL `qsl-package` | QSL produces and verifies through IR's model reader (AD-005). |
 | Kani outcome type | IR root crate | CG imports the root for this surface (AD-006); QSL `qsl-replay` owns replay envelopes and terminal records. |
 | Generated-code runtime | RT | Native exact execution is distinct from QSL's source evaluation and CG's generation. |
-| Canonical JSON encoding | quire-canonical | IR, CG and QSL consume the owned encoder. QVC's `jcs_canonicalize` delegates to `quire_canonical::to_vec`; `jcs_equal` and `jcs_sha256` are verification-facing wrappers over those bytes, not a second encoder (`quire-verification-contracts` `5070338d`, `src/lib.rs:616-644`). VER-52 can decide the wrapper API's ownership. |
+| Canonical JSON encoding | quire-canonical | IR, CG and QSL consume the owned encoder. QVC also depends on it (`quire-verification-contracts` `5070338d`, `Cargo.toml:37`); QVC's `jcs_canonicalize` delegates to `quire_canonical::to_vec` (`src/lib.rs:616-623`). |
+| Verification-facing JCS equality and SHA API | quire-verification-contracts | QVC FR-001:13-15,25-37,54-79 owns the public helpers over quire-canonical's `Encode` contract; `src/lib.rs:629-644` implements the equality and SHA wrappers over canonical bytes. They are not a second encoder implementation or an unresolved migration. |
 | First-party lock coherence command | quire-cli `quire check-lock` | IR `Makefile:188-192` invokes the owned command. The copied IR `scripts/check_one_copy.awk` was removed by IR-641. Each repository qualifies its own lock. |
 
 The QSL workspace still contains `qsl-walk-grow`; it is not the extracted
@@ -105,4 +106,3 @@ question of whether to extract them is closed by current manifests.
 | QSpec's source-integrity wire outruns IR's strict reader | IR-1273; keep published and implemented shapes separate in AD-004 and reader conformance claims. |
 | CG's direct IR-root edge outlives its Kani outcome use | CG owns the import audit (AD-006); no bridge is added to IR. |
 | A first-party lock resolves two revisions of the same crate | Each consuming repository owns its lock qualification. IR invokes `quire check-lock` (`Makefile:188-192`); CG `make deny` currently invokes only `cargo deny check` (`bec3f380`, `Makefile:145-147`), and IR-1292 owns that missing CG gate. |
-| QVC's verification-facing JCS wrapper API remains alongside direct quire-canonical consumers | QVC and quire-canonical, VER-52: decide whether the wrapper API is still needed; current QVC source delegates canonical encoding and is not a duplicate implementation. |
