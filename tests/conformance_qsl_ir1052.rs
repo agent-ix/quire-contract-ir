@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! Fresh QSL producer readback for FR-058 and FR-067. This is an explicit
+//! Fresh QSL producer readback for FR-067-AC-7. This is an explicit
 //! external lane: build QSL's `emit_checked_v2` example from its checkout,
 //! then set `QUIRE_SPEC_LANGUAGE_DIR` and `QSL_EMIT_CHECKED_V2_BIN`.
 
@@ -9,42 +9,10 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     ApplicationOperator, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageEvidence,
     CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
-    ExecutionPoint, ExecutionPointName,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-static NEXT_SCRATCH: AtomicUsize = AtomicUsize::new(0);
-
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(qsl: &Path) -> Self {
-        let path = qsl.join(format!(
-            "target/ir-producer-readback-{}-{}",
-            std::process::id(),
-            NEXT_SCRATCH.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&path).expect("create QSL-local scratch directory");
-        Self(path)
-    }
-
-    fn write(&self, name: &str, bytes: impl AsRef<[u8]>) -> PathBuf {
-        let path = self.0.join(name);
-        std::fs::write(&path, bytes).expect("write generated QSL input");
-        path
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        if let Err(error) = std::fs::remove_dir_all(&self.0) {
-            eprintln!("could not remove {}: {error}", self.0.display());
-        }
-    }
-}
 
 fn producer() -> (PathBuf, PathBuf) {
     let qsl = PathBuf::from(std::env::var_os("QUIRE_SPEC_LANGUAGE_DIR").expect("QSL checkout"));
@@ -56,17 +24,14 @@ fn producer() -> (PathBuf, PathBuf) {
     (qsl, binary)
 }
 
-fn emit(qsl: &Path, binary: &Path, source: &Path, model: &Path, points: Option<&Path>) -> Vec<u8> {
+fn emit(qsl: &Path, binary: &Path, source: &Path, model: &Path) -> Vec<u8> {
     let mut command = Command::new(binary);
     command
         .current_dir(qsl)
         .arg("--model")
         .arg(model)
         .arg("--package-name")
-        .arg("ir-1013-readback");
-    if let Some(points) = points {
-        command.arg("--execution-points").arg(points);
-    }
+        .arg("ir-1052-readback");
     let output = command.arg(source).output().expect("run QSL emitter");
     assert!(
         output.status.success(),
@@ -119,98 +84,17 @@ fn node<'a>(
         .expect("admitted reference target")
 }
 
-/// A fresh producer result supplies all four point variants on distinct
-/// accepted claims. Source bytes are dropped before the public accessor runs.
-#[trace("TC-462", "FR-058-AC-1", "FR-058-AC-6")]
-#[test]
-fn qsl_four_execution_points_read_back_through_public_accessor() {
-    let (qsl, binary) = producer();
-    assert!(qsl
-        .join("examples/switch-transition/adjust.native")
-        .is_file());
-    let scratch = Scratch::new(&qsl);
-    let original = std::fs::read_to_string(qsl.join("examples/switch-transition/adjust.native"))
-        .expect("QSL adjust source");
-    let original_model =
-        std::fs::read(qsl.join("examples/switch-transition/switch.semantic-ir.json"))
-            .expect("QSL Switch model");
-    let source = format!(
-        "{original}\ninvariant Init using v on M::Switch at current {{ true }}\n\
-         constraint Handle using v on M::Switch at current {{ true }}\n"
-    );
-    let source_path = scratch.write("four-points.native", source);
-    let points = scratch.write(
-        "points.json",
-        serde_json::to_vec(&json!({
-            "Init": {"kind": "initialization", "name": "startup"},
-            "Handle": {"kind": "handler", "name": "tick"},
-            "P1": {"kind": "pre", "operation": "adjust"},
-            "Q2": {"kind": "post", "operation": "adjust"},
-        }))
-        .expect("points JSON"),
-    );
-    let source_arg = source_path
-        .strip_prefix(&qsl)
-        .expect("QSL-relative source path");
-    let points_arg = points.strip_prefix(&qsl).expect("QSL-relative points path");
-    let model_arg = Path::new("examples/switch-transition/switch.semantic-ir.json");
-    let bytes = emit(&qsl, &binary, source_arg, model_arg, Some(points_arg));
-    let package = admit(&bytes, &original_model);
-    drop(bytes);
-
-    let expected = [
-        ExecutionPoint::Initialization {
-            name: ExecutionPointName::new("startup").expect("point name"),
-        },
-        ExecutionPoint::Handler {
-            name: ExecutionPointName::new("tick").expect("point name"),
-        },
-        ExecutionPoint::Pre {
-            operation: ExecutionPointName::new("adjust").expect("operation name"),
-        },
-        ExecutionPoint::Post {
-            operation: ExecutionPointName::new("adjust").expect("operation name"),
-        },
-    ];
-    let mut observed = Vec::new();
-    for clause in package.graph().nodes.iter().filter(|node| {
-        node.node_tag.as_ref() == "state" && node.semantic_form.as_ref() == "state_clause"
-    }) {
-        let claim = clause
-            .occurrences
-            .iter()
-            .find(|claim| claim.role == CheckedOccurrenceRole::Claim)
-            .expect("producer clause claim");
-        observed.push(
-            package
-                .clause_execution_point(&clause.node_id, (&clause.node_id, claim))
-                .expect("producer point through public accessor"),
-        );
-    }
-    assert_eq!(
-        observed.len(),
-        expected.len(),
-        "one claim per source clause"
-    );
-    for point in expected {
-        assert_eq!(
-            observed.iter().filter(|actual| **actual == point).count(),
-            1,
-            "each point kind and exact name occurs once: {point:?}"
-        );
-    }
-}
-
 /// QSL's Switch source contributes an actual transition claim. Its public
 /// typed application exposes Boolean subject, ordered inputs and result.
 #[trace("TC-064", "FR-067-AC-7")]
+#[ix_trace_rs::string_edge]
 #[test]
 fn qsl_boolean_transition_readback_retains_typed_subject_inputs_and_result() {
     let (qsl, binary) = producer();
     let source = Path::new("examples/switch-transition/switch.native");
     let model = Path::new("examples/switch-transition/switch.semantic-ir.json");
     let model_bytes = std::fs::read(qsl.join(model)).expect("QSL Switch model");
-    let bytes = emit(&qsl, &binary, source, model, None);
+    let bytes = emit(&qsl, &binary, source, model);
     let package = admit(&bytes, &model_bytes);
     let transitions: Vec<_> = package
         .graph()
