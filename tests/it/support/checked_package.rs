@@ -1887,6 +1887,11 @@ fn application_node(
         "result_type": node_id(result_type),
         "arguments": arguments,
     });
+    let occurrence_role = if node_tag == "temporal" && semantic_form == "temporal_clause" {
+        "claim"
+    } else {
+        "generated"
+    };
     json!({
         "node_id": node_id(&key),
         "schema_version": "quire.checked-semantic-graph/v2",
@@ -1894,7 +1899,7 @@ fn application_node(
         "semantic_form": semantic_form,
         "semantic_type": semantic_type,
         "dependencies": dependencies.iter().map(|d| node_id(d)).collect::<Vec<_>>(),
-        "occurrences": [{"role": "generated", "ordinal": 0}],
+        "occurrences": [{"role": occurrence_role, "ordinal": 0}],
         "body": body,
     })
 }
