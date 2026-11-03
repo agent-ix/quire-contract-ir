@@ -361,14 +361,23 @@ fn tk36_rational_shape(package: &mut Value, row: &Value, integer_node: &Value) -
     range_node["node_tag"] = json!("bounded_domain");
     range_node["semantic_form"] = json!("rational_range");
     range_node["semantic_type"] = rational_id;
-    range_node["body"] = json!({"term":"aggregate","members":
-        ["numerator_min", "numerator_max", "denominator_min", "denominator_max"]
-            .into_iter().zip(bounds).map(|(name, value)| json!({
-                "term":"binding","name":name,"value":{
-                    "term":"literal","type":integer_id,"value_kind":"integer","value":value
-                }
-            })).collect::<Vec<_>>()
-    });
+    let members = [
+        "numerator_min",
+        "numerator_max",
+        "denominator_min",
+        "denominator_max",
+    ]
+    .into_iter()
+    .zip(bounds)
+    .map(|(name, value)| {
+        json!({
+            "term":"binding","name":name,"value":{
+                "term":"literal","type":integer_id,"value_kind":"integer","value":value
+            }
+        })
+    })
+    .collect::<Vec<_>>();
+    range_node["body"] = json!({"term":"aggregate","members":members});
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("graph nodes")
