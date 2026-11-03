@@ -1,5 +1,5 @@
 ---
-id: SR-2026110283831
+id: SR-2026110283836
 title: "PR 852 model root identity gap-analysis"
 type: SpecReview
 analysis: gap-analysis
