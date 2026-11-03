@@ -360,10 +360,18 @@ fn published_carried_quantity_vectors_read_as_wire() {
         match id {
             "CQ-W16" | "CQ-W18" => assert_eq!(case["expected"], "admitted", "{id}"),
             "CQ-W17" => {
+                assert_eq!(
+                    case["expected"], "invalid_package/invalid-derived-shape",
+                    "{id}"
+                );
                 assert_eq!(case["code"], "invalid_package", "{id}");
                 assert_eq!(case["cause"], "invalid-derived-shape", "{id}");
             }
             "CQ-W19" => {
+                assert_eq!(
+                    case["expected"], "invalid_package/operation-mode-type-mismatch",
+                    "{id}"
+                );
                 assert_eq!(case["code"], "invalid_package", "{id}");
                 assert_eq!(case["cause"], "operation-mode-type-mismatch", "{id}");
             }
