@@ -337,6 +337,10 @@ fn tk36_rational_shape(package: &mut Value, row: &Value, integer_node: &Value) -
         bound("denominator_max"),
     ];
     assert_eq!(bounds, ["-3", "7", "1", "12"], "published TK-36 bounds");
+    let integer_index = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("model nodes")
+        .len();
     let integer_id = integer_node["node_id"].clone();
     let mut rational_node = integer_node.clone();
     rational_node["node_id"]["path"] = json!(["scalar_type", "rational"]);
@@ -348,7 +352,7 @@ fn tk36_rational_shape(package: &mut Value, row: &Value, integer_node: &Value) -
         "bounded_domain",
         "rational_range",
         "numerator_min",
-        integer_id,
+        {"node":integer_index},
         bounds[0],
         "numerator_max",
         bounds[1],
