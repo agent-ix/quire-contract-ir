@@ -5,9 +5,10 @@
 
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedArtifactRef, CheckedExtensionDefinition, CheckedNodeId, CheckedPackageEvidence,
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, ClockConfiguration,
-    TemporalBinding,
+    encode_checked_package_v2, CheckedArtifactRef, CheckedExtensionDefinition, CheckedNodeId,
+    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageSidecarsRef,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    ClockConfiguration, TemporalBinding, TemporalClauseName,
 };
 use serde_json::Value;
 use std::{fs, path::PathBuf};
@@ -16,8 +17,8 @@ fn borrowed_rows(package: &CheckedPackageV2) -> Option<&[TemporalBinding]> {
     package.temporal_bindings()
 }
 
-/// Trace: FR-019-AC-22, TC-058.
-#[trace("FR-019-AC-22", "TC-058")]
+/// Trace: FR-019-AC-22, FR-019-AC-25, TC-058.
+#[trace("FR-019-AC-22", "FR-019-AC-25", "TC-058")]
 #[test]
 fn default_feature_consumer_borrows_admitted_clock_rows() {
     let root = match std::env::var_os("QUIRE_SPECIFICATION_DIR") {
@@ -91,4 +92,43 @@ fn default_feature_consumer_borrows_admitted_clock_rows() {
         ClockConfiguration::EventPosition { ref sequence_authority }
             if sequence_authority.as_ref() == "order-events"
     ));
+    let names = package
+        .temporal_clause_names()
+        .expect("admitted clause names");
+    assert_eq!(names.len(), 1);
+    assert_eq!(names[0].declaration, expected);
+    assert_eq!(names[0].occurrence, 0);
+    assert_eq!(names[0].name.as_ref(), "Clause0");
+
+    let supplied = [TemporalClauseName {
+        declaration: expected,
+        occurrence: 0,
+        name: "Clause0".into(),
+    }];
+    let encoded = encode_checked_package_v2(
+        package.name(),
+        package.lock(),
+        package.graph(),
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: package.source_map(),
+            refinement_step_rows: package.refinement_step_rows(),
+        },
+        CheckedPackageSidecarsRef {
+            checked_term_data: package.checked_term_data(),
+            temporal_bindings: package.temporal_bindings(),
+            temporal_clause_names: Some(&supplied),
+            schedulability_claims: None,
+            operation_effects: None,
+        },
+        package.capability_report(),
+        package.diagnostics(),
+        quire_canonical::Limits::new(1 << 24),
+    )
+    .expect("typed external writer");
+    let CheckedPackageV2ReadResult::Admitted(reread) =
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("typed external writer must read back");
+    };
+    assert_eq!(reread.temporal_clause_names(), Some(supplied.as_slice()));
 }
