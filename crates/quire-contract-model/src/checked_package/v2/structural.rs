@@ -900,7 +900,14 @@ pub(super) fn validate_derived_type_shapes(
     Ok(())
 }
 
-#[ix_trace_rs::string_edge]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum RationalCarrierMode {
+    Exact,
+    #[serde(other)]
+    NonExact,
+}
+
 fn carried_quantity_shape(
     node: &CheckedSemanticNodeV2,
     term: Option<&CheckedTerm>,
@@ -936,7 +943,10 @@ fn carried_quantity_shape(
     };
     let carrier_valid = match carrier_kind {
         CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => true,
-        CheckedNodeKind::BoundedDomain(BoundedDomainForm::RationalRange) => rounding == "exact",
+        CheckedNodeKind::BoundedDomain(BoundedDomainForm::RationalRange) => matches!(
+            serde_json::from_value::<RationalCarrierMode>(value.clone()),
+            Ok(RationalCarrierMode::Exact)
+        ),
         CheckedNodeKind::BoundedDomain(BoundedDomainForm::DecimalRange) => graph
             .index
             .get(carrier)
