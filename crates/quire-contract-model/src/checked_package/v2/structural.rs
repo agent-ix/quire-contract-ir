@@ -900,6 +900,28 @@ pub(super) fn validate_derived_type_shapes(
     Ok(())
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum CheckedRoundingMode {
+    Exact,
+    CataloguedNonExact,
+}
+
+impl CheckedRoundingMode {
+    #[ix_trace_rs::string_edge]
+    fn from_literal(value: &str) -> Option<Self> {
+        if !super::operation_catalog::operation_catalog()
+            .mode_value_admitted(super::OperationModeKind::Rounding, value)
+        {
+            return None;
+        }
+        Some(if value == "exact" {
+            Self::Exact
+        } else {
+            Self::CataloguedNonExact
+        })
+    }
+}
+
 fn carried_quantity_shape(
     node: &CheckedSemanticNodeV2,
     term: Option<&CheckedTerm>,
@@ -930,11 +952,17 @@ fn carried_quantity_shape(
     let Some(rounding) = value.as_str() else {
         return false;
     };
+    let Some(rounding_mode) = CheckedRoundingMode::from_literal(rounding) else {
+        return false;
+    };
     let Some(carrier_kind) = graph.kind(carrier) else {
         return false;
     };
     let carrier_valid = match carrier_kind {
         CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => true,
+        CheckedNodeKind::BoundedDomain(BoundedDomainForm::RationalRange) => {
+            rounding_mode == CheckedRoundingMode::Exact
+        }
         CheckedNodeKind::BoundedDomain(BoundedDomainForm::DecimalRange) => graph
             .index
             .get(carrier)
@@ -956,8 +984,6 @@ fn carried_quantity_shape(
         || graph.kind(unit) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
         || !carrier_valid
         || !graph.type_matches(text_type, ScalarTypeForm::Text)
-        || !super::operation_catalog::operation_catalog()
-            .mode_value_admitted(super::OperationModeKind::Rounding, rounding)
     {
         return false;
     }
