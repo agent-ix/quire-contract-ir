@@ -351,18 +351,18 @@ The package name and declared contents are read directly from the envelope. No
 identity preimage, projection, semantic digest, derived node-key helper or
 old-wire admission path is exported.
 
-## Source-reference API delta (planned until IR-1273 lands)
+## Source-reference API
 
-FR-019-AC-6 describes the current two-member `CheckedSourceRef` and its
-compile controls. The merged QSpec FR-322 source-byte-integrity contract
-requires a third public `source_integrity: Box<str>` member, validated at read
-time against caller-supplied raw bytes. This planned change does not alter
-`CheckedArtifactRef`, `CheckedArtifactLocator` or their two-member compile
-controls, and does not introduce `CheckedRevision`. It adds
+FR-019-AC-6 describes the current three-member `CheckedSourceRef` and its
+compile controls. QSpec FR-322 source-byte integrity requires the public
+`source_integrity: Box<str>` member, validated at read time against
+caller-supplied raw bytes. `CheckedArtifactRef` and `CheckedArtifactLocator`
+retain their two-member compile controls; `CheckedRevision` is absent. The API has
 `CheckedPackageEvidence::insert_source_document(authority, identity, bytes)`
 with a keyed `SourceDocumentConflict` in the existing insertion-error enum;
-no QSL type, file lookup, digest catalog or unchecked admission constructor
-enters the public API. When the reader lands, AC-6's `CheckedSourceRef`
+the public refusal retains a `CheckedArtifactLocator` pair when its cause is
+`source-integrity`. No QSL type, file lookup, digest catalog or unchecked
+admission constructor enters the public API. AC-6's `CheckedSourceRef`
 assertion and its compile controls must be updated together with AC-25's
 producer and consumer controls. This proposed API is not yet implemented.
 
@@ -374,7 +374,7 @@ producer and consumer controls. This proposed API is not yet implemented.
 | FR-019-AC-3 | `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
 | FR-019-AC-4 | A default-feature build of `quire-contract-model` exports neither `MappingAllocationPoint` nor `MappingExecutionControl::fail_allocation_at`: code naming either fails to compile without the `fault-injection` feature. | Test (TC-018) |
 | FR-019-AC-5 | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists as implemented at the tested revision. Entries explicitly marked planned are excluded until their owning code lands; exporting a planned item fails the inventory until its row is marked implemented. The public-item inventory fails on an added or missing implemented item; no implemented item in the table is reachable through a `quire_contract_ir` path. The retired `PACKAGE_DOMAIN_V2` export is absent. | Test (TC-058) |
-| FR-019-AC-6 | The table's `CheckedArtifactRef`, `CheckedSourceRef` and `CheckedArtifactLocator` each have exactly the members `authority` and `identity`, and no `CheckedRevision` exists (FR-038 "Artifact references"). A struct literal with those two members builds for each type, while one naming a `domain`, `digest_domain` or `digest` member fails to compile. | Test (TC-018) |
+| FR-019-AC-6 | The table's `CheckedArtifactRef` and `CheckedArtifactLocator` each have exactly `authority` and `identity`; `CheckedSourceRef` has exactly `authority`, `identity` and `source_integrity`, and no `CheckedRevision` exists (FR-038 "Artifact references"). A struct literal with the specified members builds for each type. A two-member `CheckedSourceRef` literal fails to compile, as does `source_integrity` on a definition reference or locator and a `domain`, `digest_domain` or `digest` member on any of the three types. | Test (TC-018) |
 | FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
 | FR-019-AC-7 | Public compile-time/API fixtures construct and read `IntegerType` bounds, `RationalType` numerator and denominator bounds, and integer/rational literal payloads at `i64::MAX + 1`, `u64::MAX` and the permitted i128 endpoints through signed 128-bit signatures without lossy casts; exact and one-past numeric wire boundary requests through `catch_unwind` return the specified result with no public panic or partial validated value. | Test (TC-018) |
 | FR-019-AC-8 | Compile-time fixtures and public-source inspection show package and expression wire/request values are distinct from validated semantic values, validated fields are private, and no unchecked constructor or `From` conversion crosses that boundary. | Inspection (TC-018) |

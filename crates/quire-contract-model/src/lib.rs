@@ -64,7 +64,7 @@
 )]
 //! The artifact references have closed member sets (FR-019-AC-6, FR-038
 //! "Artifact references"): a definition reference is `{authority, identity}`, a
-//! source reference `{authority, identity}` and a locator
+//! source reference `{authority, identity, source_integrity}` and a locator
 //! `{authority, identity}`. Each builds with exactly its members,
 //!
 //! ```
@@ -111,6 +111,32 @@
 //!     authority: "a".into(),
 //!     identity: "i".into(),
 //!     revision: "r".into(),
+//! };
+//! ```
+//!
+//! A two-member source literal has no admission path, and the integrity
+//! member belongs on neither a definition reference nor a locator:
+//!
+//! ```compile_fail,E0063
+//! let _ = quire_contract_model::CheckedSourceRef {
+//!     authority: "a".into(),
+//!     identity: "i".into(),
+//! };
+//! ```
+//!
+//! ```compile_fail,E0560
+//! let _ = quire_contract_model::CheckedArtifactRef {
+//!     authority: "a".into(),
+//!     identity: "i".into(),
+//!     source_integrity: "claim".into(),
+//! };
+//! ```
+//!
+//! ```compile_fail,E0560
+//! let _ = quire_contract_model::CheckedArtifactLocator {
+//!     authority: "a".into(),
+//!     identity: "i".into(),
+//!     source_integrity: "claim".into(),
 //! };
 //! ```
 //!

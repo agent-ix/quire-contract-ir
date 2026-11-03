@@ -506,6 +506,8 @@ pub struct CheckedPackageRefusal {
     /// The cause tag paired with `code` under FR-322's `DiagnosticCausePairing`,
     /// present exactly when this reader determined one.
     pub cause: Option<CheckedPackageRefusalCause>,
+    /// Exact source authority and identity when `cause` is `SourceIntegrity`.
+    pub source_identity: Option<CheckedArtifactLocator>,
     /// The node key of the offending entry or node, present whenever this
     /// reader located the refusal at a specific graph node.
     pub locus: Option<CheckedNodeId>,
@@ -550,6 +552,7 @@ impl CheckedPackageRefusal {
                 source_region: None,
             }],
             cause: fields.cause,
+            source_identity: None,
             locus: fields.locus,
             contract_version: fields.contract_version,
             document_pointer: fields.document_pointer,
@@ -596,7 +599,7 @@ pub struct CheckedPackageIncomplete {
 }
 
 /// The nominal identity of one source artifact.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 pub struct CheckedArtifactLocator {
     /// Artifact identity authority.
     pub authority: Box<str>,

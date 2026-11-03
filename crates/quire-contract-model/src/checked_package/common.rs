@@ -9,8 +9,8 @@ mod closed_members;
 
 use super::shared::{push_index, push_key};
 use super::shared::{
-    CheckedArtifactRef, CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedArtifactLocator, CheckedArtifactRef, CheckedNodeId, CheckedOccurrence,
+    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry, CheckedSourceRef,
     JsonPointer, RefusalFields,
 };
@@ -81,6 +81,26 @@ impl ValidationFailure {
             contract_version: None,
             document_pointer: None,
         })))
+    }
+
+    /// A source-integrity refusal retaining both the reference pointer and its exact pair.
+    pub(super) fn refused_source_integrity(
+        path: JsonPointer,
+        authority: &str,
+        identity: &str,
+    ) -> Self {
+        let mut failure = Self::refused_because(
+            CheckedPackageRefusalCode::InvalidPackage,
+            path,
+            CheckedPackageRefusalCause::SourceIntegrity,
+        );
+        if let Self::Refused(ref mut refusal) = failure {
+            refusal.source_identity = Some(CheckedArtifactLocator {
+                authority: authority.into(),
+                identity: identity.into(),
+            });
+        }
+        failure
     }
 
     /// A repeated identity whose first and second concrete entries are both

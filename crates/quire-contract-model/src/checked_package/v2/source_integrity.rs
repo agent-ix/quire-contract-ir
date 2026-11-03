@@ -7,10 +7,7 @@ use super::intake::{raw_member, source_raw};
 use super::WorkMeter;
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::evidence::CheckedPackageEvidence;
-use crate::checked_package::shared::{
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, JsonPointer,
-};
+use crate::checked_package::shared::{CheckedPackageLimit, CheckedPackageReadLimits, JsonPointer};
 use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -57,15 +54,15 @@ impl Verifier<'_> {
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         }) else {
-            return Err(refused(at));
+            return Err(refused(at, &authority, &identity));
         };
         let Some(source) = self.evidence.source_document(&authority, &identity) else {
-            return Err(refused(at));
+            return Err(refused(at, &authority, &identity));
         };
-        if self
-            .charged_pairs
-            .insert((authority.into_boxed_str(), identity.into_boxed_str()))
-        {
+        if self.charged_pairs.insert((
+            authority.clone().into_boxed_str(),
+            identity.clone().into_boxed_str(),
+        )) {
             self.source_bytes = self
                 .source_bytes
                 .saturating_add(u64::try_from(source.len()).unwrap_or(u64::MAX));
@@ -79,18 +76,14 @@ impl Verifier<'_> {
             }
         }
         if format!("{:x}", Sha256::digest(source)) != claim {
-            return Err(refused(at));
+            return Err(refused(at, &authority, &identity));
         }
         Ok(())
     }
 }
 
-fn refused(at: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused_because(
-        CheckedPackageRefusalCode::InvalidPackage,
-        at,
-        CheckedPackageRefusalCause::SourceIntegrity,
-    )
+fn refused(at: JsonPointer, authority: &str, identity: &str) -> ValidationFailure {
+    ValidationFailure::refused_source_integrity(at, authority, identity)
 }
 
 /// Verify only the claims at the four QSpec source-reference sites, in wire order.

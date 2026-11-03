@@ -8,7 +8,9 @@ use super::{
     read_package_with_sources_override, SourceSupply, DOMAIN_DOCUMENT,
 };
 use ix_trace_rs::trace;
-use quire_contract_model::{CheckedPackageReadLimits, CheckedPackageV2ReadResult};
+use quire_contract_model::{
+    CheckedArtifactLocator, CheckedPackageReadLimits, CheckedPackageV2ReadResult,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -115,6 +117,22 @@ fn published_source_integrity_vectors_follow_raw_supplied_bytes() {
             row["expected"]["locus"],
             "{id}: pointer"
         );
+        let expected_pair = if row["expected"]["cause"] == "source-integrity" {
+            let pointer = row["expected"]["locus"].as_str().expect("source pointer");
+            let source = package
+                .pointer(pointer)
+                .expect("source at expected pointer");
+            Some(CheckedArtifactLocator {
+                authority: source["authority"]
+                    .as_str()
+                    .expect("source authority")
+                    .into(),
+                identity: source["identity"].as_str().expect("source identity").into(),
+            })
+        } else {
+            None
+        };
+        assert_eq!(refusal.source_identity, expected_pair, "{id}: source pair");
     }
 }
 
@@ -175,6 +193,15 @@ fn paired_source_faults_follow_site_then_array_order() {
             pointer,
             "{ids:?}"
         );
+        let source = package.pointer(pointer).expect("failing source reference");
+        assert_eq!(
+            refusal.source_identity,
+            Some(CheckedArtifactLocator {
+                authority: source["authority"].as_str().unwrap().into(),
+                identity: source["identity"].as_str().unwrap().into(),
+            }),
+            "{ids:?}: source pair"
+        );
     }
 
     let mut package = base;
@@ -193,6 +220,37 @@ fn paired_source_faults_follow_site_then_array_order() {
     assert_eq!(
         refusal.loci[0].path.as_ref().unwrap().as_str(),
         "/diagnostics/entries/0/loci/1/source"
+    );
+    assert_eq!(
+        refusal.source_identity,
+        Some(CheckedArtifactLocator {
+            authority: "agent-ix".into(),
+            identity: "example-a".into(),
+        })
+    );
+
+    let mut later = package["diagnostics"]["entries"][0].clone();
+    later["loci"] = serde_json::json!([package["diagnostics"]["entries"][0]["loci"][1].clone()]);
+    package["diagnostics"]["entries"]
+        .as_array_mut()
+        .expect("diagnostic entries")
+        .push(later);
+    let result = read(&package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("diagnostic entry order: expected refusal, got {result:?}");
+    };
+    assert_eq!(code_word(refusal.code), "invalid_package");
+    assert_eq!(refusal.cause.map(cause_word), Some("source-integrity"));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        "/diagnostics/entries/0/loci/1/source"
+    );
+    assert_eq!(
+        refusal.source_identity,
+        Some(CheckedArtifactLocator {
+            authority: "agent-ix".into(),
+            identity: "example-a".into(),
+        })
     );
 }
 
