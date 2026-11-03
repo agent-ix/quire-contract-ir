@@ -71,6 +71,7 @@ fn assert_activation_status_type(wire: &Value, expected: &str) {
     let status_id = &activation["body"]["members"][2]["value"]["target"];
     let status = &wire["semantic_graph"]["nodes"][position(wire, status_id)];
     match expected {
+        "integer" => assert_eq!(status["semantic_form"], "integer"),
         "record{position:integer}" => {
             assert_eq!(status["semantic_form"], "record");
             let fields = status["body"]["members"].as_array().unwrap();
@@ -108,7 +109,7 @@ fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
         let mut facts = vectors["base"].clone();
         patch(&mut facts, &case["set"]);
         let (wire, n) = materialize(&facts);
-        if matches!(case["id"].as_str(), Some("MP-81" | "MP-82")) {
+        if matches!(case["id"].as_str(), Some("MP-01" | "MP-81" | "MP-82")) {
             assert!(status_cases.insert(case["id"].as_str().unwrap()));
             assert_eq!(case["expected"], "admitted", "{}", case["id"]);
             assert_activation_status_type(
@@ -182,7 +183,7 @@ fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
             );
         }
     }
-    assert_eq!(status_cases, BTreeSet::from(["MP-81", "MP-82"]));
+    assert_eq!(status_cases, BTreeSet::from(["MP-01", "MP-81", "MP-82"]));
     assert_eq!(
         vectors["gap_cases"]["calls"].as_array().unwrap().len(),
         3,
