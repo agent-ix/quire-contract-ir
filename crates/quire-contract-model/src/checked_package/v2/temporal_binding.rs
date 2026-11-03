@@ -289,11 +289,15 @@ pub(super) fn validate(
         } else {
             CheckedOccurrenceRole::Claim
         };
-        if !nodes[position]
-            .occurrences
-            .iter()
-            .any(|occurrence| occurrence.role == role && occurrence.ordinal == row.occurrence)
-        {
+        let mut owned = false;
+        for occurrence in &nodes[position].occurrences {
+            meter.charge(1, || at.clone().key("occurrence"))?;
+            if occurrence.role == role && occurrence.ordinal == row.occurrence {
+                owned = true;
+                break;
+            }
+        }
+        if !owned {
             return Err(invalid(at.key("occurrence"), &row.declaration));
         }
         if !seen.insert((&row.declaration, row.occurrence)) {
