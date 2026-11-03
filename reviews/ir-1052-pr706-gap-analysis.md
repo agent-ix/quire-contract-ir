@@ -1,0 +1,41 @@
+---
+id: SR-2026110283811
+title: "IR-1052 PR 706 gap-analysis review"
+type: SpecReview
+analysis: gap-analysis
+scope: "agent-ix/quire-contract-ir; IR-1052; Cargo.toml, Makefile, spec/checked_package/matrix/tests.md, tests/conformance_qsl_ir1052.rs"
+review_set: subset
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/FR-067
+    type: reviews
+  - target: ix://agent-ix/quire-contract-ir/TC-064
+    type: reviews
+---
+
+## Summary
+
+Independent scoped gap-analysis review of PR #706's fresh QSL Boolean transition readback.
+
+## Verdict
+
+PASS for the reviewed PR diff; no findings. The code lead owns the final aggregate gate and merge.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | low | No findings (placeholder) | - |
+
+## Examined scope
+
+- FR-067-AC-7 (examined), `spec/checked_package/functional/FR-067-admit-boolean-state-transition.md`: IR-owned tests use the authoritative QSpec TC-233 transition package and mutation definitions directly from the selected QSpec checkout, and a QSL-1163-authored source/claim when available; they copy no QSpec or QSL schema, fixture or binary into IR. The QSL-authored positive case exposes pre-state Boolean inputs, post-state Boolean result and actual transition subject through the public IR carrier.
+- TC-064 (examined), `spec/checked_package/matrix/TC-064-boolean-state-transition-reader-writer.md`: When QSL-1163 publishes an authored Boolean transition source and checked claim, read that emitted package through the same public IR API; no upstream fixture or schema is copied into IR.
+- Changed files examined: `Cargo.toml`, `Makefile`, `spec/checked_package/matrix/tests.md`, `tests/conformance_qsl_ir1052.rs`.
+
+## Coverage
+
+The computed matrix reports FR-067-AC-7 statically tagged by the existing QSpec transition test and this new QSL producer test. The latter ran 1/1 against the freshly built QSL emitter on the reviewed branch. No changed behavior lacks an owning criterion or hides behind an ignored test. Quoin has no bound run evidence for AC-7; the focused test log is separate execution evidence. Plan completion: not assessed. This is a PR-diff finding, not a repository-wide coverage claim.
+
+## Assurance Context
+
+No active repository AssuranceProfile was found. Selected context unavailable: none. Active exceptions: none.
