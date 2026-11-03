@@ -15,7 +15,7 @@ Reviewed the FR-019 public inventory and AC-25 status edit, plus FR-038 temporal
 
 ## Verdict
 
-**CONDITIONAL** — AC-25's root-export sentence contradicts the implementation it marks implemented.
+**PASS after dispositions** — the public inventory wording is corrected and all six new FR-038 criteria are in the declared Acceptance Criteria table.
 
 ## Findings
 
@@ -43,7 +43,23 @@ Reviewed the FR-019 public inventory and AC-25 status edit, plus FR-038 temporal
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | fixed | FR-019-AC-25 now explicitly states that the model root exports the named row type, matching `lib.rs`. |
+| FND-002 | still-open | At 85c6988e a blank line separated AC-442 through AC-447 from the ID-headed Acceptance Criteria table, leaving their trace targets unminted. |
+| FND-002 | fixed | Commit 2b011fa2 removes the blank line between AC-441 and AC-442, placing AC-442 through AC-447 back in the ID-headed table. |
 
 ## Round 1 evidence
 
 The FR-019 edit matches the implemented root re-export and external test. The FR-038 status edits mark AC-412, AC-414 through AC-416 and AC-437 through AC-447 implemented; inspection of the reviewed code and tagged QSpec case tests supports those claims. AC-413 now describes the mandatory occurrence field. The changed FR-019 and FR-038 documents pass targeted Quire validation; no new defect was found.
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | A blank line after FR-038-AC-441 ends the Acceptance Criteria table. AC-442 through AC-447 form a pipe block without the ID header, so Quire's declared table target does not mint these six active criteria; their test tags cannot back them. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:5671 |
+
+## Round 2 evidence
+
+The `acceptance-criterion` trace target in the installed `spec-artifacts-process` manifest reads the `Acceptance Criteria` section's `ID` column. The table starting at FR-038 line 5240 ends at AC-441 on line 5670; line 5671 is blank and line 5672 starts with AC-442 instead of a new header. Quire validation accepts the Markdown document, but the coverage gate reported no minted target for six AC-442 through AC-447 tags. This structural trace gap escaped the earlier base review.
+
+## Round 3 evidence
+
+Commit 2b011fa2 removes exactly the blank line after FR-038-AC-441. The six following rows now remain contiguous with the `| ID | Criteria | Verification |` table and are minted by the declared acceptance-criterion target. The lead reports Quire properties extracted all 435 FR-038 criteria, ending with AC-442 through AC-447. The 84 unbacked rows in strict coverage were reproduced on clean origin/main and are unrelated baseline debt; this PR-specific trace regression is resolved.
