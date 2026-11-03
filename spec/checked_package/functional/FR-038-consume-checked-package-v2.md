@@ -4787,7 +4787,7 @@ The V2 reader SHALL admit the anonymous `scalar_type`/`carried_quantity`
 form as a self-typed member of the `quantity` family. Its body is an aggregate
 of exactly three ordered bindings: `unit` is a reference to a
 `scalar_type`/`unit` node; `carrier` is a reference to a bounded
-`bounded_domain`/`integer_range` or `/decimal_range` node; and `rounding` is
+`bounded_domain`/`integer_range`, `/decimal_range` or `/rational_range` node; and `rounding` is
 a `text` literal naming a rounding mode. The node has no declaration, owner
 or recursion group. Its structural path is
 `["scalar_type", "carried_quantity", U, C, "rounding", T, mode]`, with the
@@ -4799,18 +4799,26 @@ the rounding literal is not an additional dependency.
 
 For a decimal-range carrier, the carried node's rounding SHALL equal the
 carrier's own rounding binding. An integer-range carrier permits any admitted
-rounding mode, with `exact` for the mode-unspecified source form. A non-unit
-target, unbounded or non-integer/non-decimal carrier, invalid mode, mismatched
-decimal-carrier mode, extra or reordered body binding, non-self semantic type,
+rounding mode, with `exact` for the mode-unspecified source form. A bounded
+rational-range carrier has no rounding grid or mode binding of its own and
+SHALL require the carried node's `rounding` to be `exact`. The carrier's
+numerator and denominator bounds remain checked under the existing
+`rational_range` rule; the carried node SHALL neither re-evaluate those
+bounds nor infer a different mode. A non-unit target, an unbounded scalar
+rational or decimal carrier, another non-integer/non-decimal/non-rational
+carrier, invalid mode, mismatched decimal-carrier mode, non-`exact` mode for a
+rational-range carrier, extra or reordered body binding, non-self semantic type,
 or path inconsistent with the body SHALL refuse
 `invalid_package`/`invalid-derived-shape` at the carried node's `node_id`.
 This is the QSpec derived-shape check, after the earlier strict-wire and graph
 checks. It SHALL not reinterpret an unbounded scalar as a bounded carrier.
 
 `quire.op.quantity.convert` SHALL admit a unit-typed or carried-quantity-typed
-quantity operand and a carried-quantity result only when their units have the
-same dimension node id and the operation's `rounding` mode equals the result
-node's rounding literal. A missing or differing mode SHALL refuse
+quantity operand and a carried-quantity result, including one over a bounded
+rational-range carrier, only when their units have the same dimension node id
+and the operation's `rounding` mode equals the result node's rounding literal.
+A rational-range result therefore requires `exact` at the application. A
+missing or differing mode SHALL refuse
 `invalid_package`/`operation-mode-type-mismatch` at the application before
 the dimension check. A different dimension SHALL refuse
 `ill_typed`/`operator-ineligible` there. Conversion to a unit node continues
@@ -4819,6 +4827,10 @@ operation, including arithmetic, comparison or `collection.sum.quantity`,
 SHALL refuse `ill_typed`/`operator-ineligible`; conversion from one carried
 quantity into another remains eligible. The reader SHALL not decide value
 conversion, rounding loss, carrier membership or evaluation resource outcomes.
+In particular, a rational-range carrier has no grid and its valid conversion
+wire SHALL not produce a package-read `inexact_conversion` or
+`rational_out_of_domain` refusal: those are downstream evaluation outcomes,
+with the latter decided after `unit.target-domain` under QSpec FR-142.
 
 The public `ScalarTypeForm` vocabulary SHALL expose `CarriedQuantity` for
 the admitted form. An admitted node's existing typed body and node-kind reads
@@ -5628,7 +5640,7 @@ copying QSL execution semantics into IR.
 | FR-038-AC-372 | PLANNED/UNRUN (IR-1164/IR-1165). A selected document whose `Leaf` inherits `Base.b` admits with only the Leaf object declaration node in the graph, as QSpec FR-322-AC-30 permits; `model_object_fields(Leaf)` returns `MissingDeclaringNode` carrying the selected IR field identity of `Base.b` for the entire call, without inventing a Base ID or omitting `b`. Adding the authentic Base declaration node makes the call succeed with Base’s structural node ID. Two distinct admitted `model`/`object_type` nodes matching the same selected owner declaration identity but bearing distinct structural ordinals yield `AmbiguousDeclaringNode` for the first exposed field they own; neither node is chosen. With distinct defects, the first field in effective declaration order decides; `UnknownNode`, `NotModelObjectType` and existing `AmbiguousField` retain their earlier precedence. Malformed or unselected owners retain their independent admission refusal. | Test (TC-227) |
 | FR-038-AC-373 | PLANNED/UNRUN (IR-1164/IR-1165). A public API fixture calls `declaring_node_id()` on every successful `CheckedModelField` and exhaustively matches the closed `CheckedModelFieldsError` variants, including `MissingDeclaringNode` and `AmbiguousDeclaringNode`; it cannot construct a `CheckedModelField` with a fabricated ID through public fields. The accessor returns equal results on equal calls and a package clone, charges no new work, performs no second model-resolution walk and does not read raw graph JSON or a copied domain schema. The revised declaration-order and typed-identity controls supersede only AC-136’s former ascending-name oracle; AC-136’s field set and type obligations remain. | Test (TC-227) |
 | FR-038-AC-401 | The strict reader admits QSpec `CQ-W01` through `CQ-W04`: decimal and integer carried-quantity nodes are anonymous, self typed and of family `quantity`; the integer carrier with `exact` and with `nearest-even` produces distinct structural nodes. The public `ScalarTypeForm::CarriedQuantity` and admitted body expose the exact unit, carrier and rounding without evaluating a quantity. | Test (TC-048; QSpec TC-280) |
-| FR-038-AC-402 | The strict reader refuses `CQ-W05` through `CQ-W08` as `invalid_package`/`invalid-derived-shape` at the carried node's `node_id`: a dimension in the unit slot (`RM-CQ-UNIT`), a rational or unbounded decimal carrier (`RM-CQ-CARRIER`), and a decimal carrier whose rounding differs (`RM-CQ-MODE`). Additional missing, extra or reordered bindings and a path/body mismatch receive the same typed refusal after applicable earlier wire or graph checks. No refused node yields an admitted public type. | Test (TC-048; QSpec TC-280) |
+| FR-038-AC-402 | The strict reader refuses `CQ-W05` through `CQ-W08` as `invalid_package`/`invalid-derived-shape` at the carried node's `node_id`: a dimension in the unit slot (`RM-CQ-UNIT`), an unbounded scalar rational or decimal carrier (`RM-CQ-CARRIER`), and a decimal carrier whose rounding differs (`RM-CQ-MODE`). Additional missing, extra or reordered bindings and a path/body mismatch receive the same typed refusal after applicable earlier wire or graph checks. No refused node yields an admitted public type. | Test (TC-048; QSpec TC-280) |
 | FR-038-AC-403 | The strict reader admits `CQ-W09`, `CQ-W10` and `CQ-W15`: conversion from a unit-typed quantity or a carried quantity into a carried result of the same dimension with the exact result-pinned mode. It refuses `CQ-W11` and `CQ-W12` as `invalid_package`/`operation-mode-type-mismatch` at the application for a differing or null mode, `CQ-W13` as `ill_typed`/`operator-ineligible` there for a different dimension, and `CQ-W14` with that code and cause for a carried operand of `quantity.add`. Other quantity arithmetic, comparison and `collection.sum.quantity` also reject a carried operand. | Test (TC-048; QSpec TC-280) |
 | FR-038-AC-404 | TC-048 reads `proposals/checked-package-v2/quantity-carrier-vectors.json` from the selected QSpec checkout by reference and applies `CQ-W01` through `CQ-W15` to complete IR package reads, checking admission or exact typed code, cause and primary node or application locus. The test stores no copy of the upstream vector or schema. | Test (TC-048) |
 | FR-038-AC-405 | `CQ-E01` through `CQ-E20` are referenced as downstream evaluation controls only: the IR strict reader admits their valid carried type and conversion wire independently of the evaluator's completed, refused or incomplete outcome. The reader never emits `inexact_conversion`, `decimal_out_of_domain` or `integer_out_of_domain` as a package-read result for a valid conversion application. | Test (TC-048; QSpec TC-187) |
@@ -5674,6 +5686,9 @@ copying QSL execution semantics into IR.
 | FR-038-AC-445 | Implemented. After temporal-binding checks and before FR-370 clause-body joins, each name row completes declaration join, occurrence join, repeated-pair check and pair-order check before the next. CN-R3/R4 refuse `invalid_package`/`invalid-value` at `/temporal_clause_names/{i}/declaration` for an absent or wrong-kind node; CN-R5 refuses that pair at `/temporal_clause_names/{i}/occurrence` for an ordinal absent or not a `claim` of that node. CN-R6 refuses `invalid_package`/`conflicting-definition` at the later whole row for a repeated `(NodeRef, occurrence)` key; CN-R7 refuses `invalid_package`/`invalid-value` at the later whole row for descending pair order. CN-R9 selects the earlier repeated key over a later absent declaration; CN-R10 selects repetition over descent within one row. | Test (TC-048; QSpec FR-322-AC-351..356) |
 | FR-038-AC-446 | Implemented. After all name-row joins, duplicates and order checks, the reader requires one row for every temporal-clause `claim` occurrence. CN-R1's missing carrier and CN-R2's uncovered second occurrence refuse `invalid_package`/`invalid-value` at `/temporal_clause_names`; CN-R8's declaration-join failure and CN-R11's row descent take precedence over that missing coverage. A graph without a temporal clause admits absence, and the reader never manufactures a name or partial admitted view. | Test (TC-048; QSpec FR-322-AC-345..347, FR-322-AC-357..358) |
 | FR-038-AC-447 | Implemented. TC-048 reads QSpec `proposals/checked-package-v2/temporal-clause-name-vectors.json` by reference from the selected checkout and checks the exact CN-P1..P3, CN-S1..S8, CN-R1..R11 and CN-G1 case sets for admission or exact code, cause, primary RFC 6901 pointer and structural node locus. It also reads the temporal-clock occurrence positives whose name rows cover distinct claim occurrences. Each name row consumes one validation-work visit before inspection, within the caller's finite work budget; an exhausted budget returns `incomplete` at the first uncharged row with no partial name view. No vector, schema or fixture is copied into IR. | Test (TC-048; QSpec TC-233) |
+| FR-038-AC-448 | planned until IR-1256 rational-carrier support lands. A `scalar_type`/`carried_quantity` node over a valid bounded `rational_range` carrier with `rounding` `exact` admits as the existing public quantity-family form (CQ-W16). Its exact unit, carrier and mode remain in the three typed bindings and structural path; its dependencies are the unit and carrier nodes in ascending structural order. The reader retains the carrier's existing numerator and denominator bounds without performing value conversion or changing the public-item inventory. | Test (TC-048; QSpec FR-322-AC-382, TC-981) |
+| FR-038-AC-449 | planned until IR-1256 rational-carrier support lands. A rational-range carried node with `rounding` other than `exact` (CQ-W17) refuses `invalid_package`/`invalid-derived-shape` at its `/semantic_graph/nodes/{N}/node_id`; an unbounded scalar rational carrier remains refused under AC-402. `quire.op.quantity.convert` from a same-dimension unit-typed quantity into the valid rational-range carried node with mode `exact` admits (CQ-W18), while the otherwise identical application with `nearest-even` mode (CQ-W19) refuses `invalid_package`/`operation-mode-type-mismatch` at `/semantic_graph/nodes/{N}` before any dimension check. | Test (TC-048; QSpec FR-322-AC-382, TC-981) |
+| FR-038-AC-450 | planned until IR-1256 rational-carrier support lands. TC-048 reads the current QSpec `proposals/checked-package-v2/quantity-carrier-vectors.json` by reference, requires the exact CQ-W01..W19 wire case set and checks W16..W19 through complete strict package reads for admission or exact refusal code, cause and primary node or application pointer. It also requires the exact CQ-E01..E26 evaluation case set and checks that each valid E21..E26 carried type and conversion wire is reader-admitted independently of runtime completion, `rational_out_of_domain`/`outside-domain` or work-limit outcome; those outcomes belong to evaluation under FR-142, never to the IR package reader. No vector or schema is copied into IR. | Test (TC-048; QSpec TC-981) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
