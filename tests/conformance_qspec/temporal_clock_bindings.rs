@@ -271,6 +271,12 @@ fn published_temporal_clause_names_admit_and_refuse_at_exact_loci() {
                 )
                 .expect("encoded named package");
                 let output: Value = serde_json::from_slice(&encoded).expect("encoded package");
+                assert_eq!(
+                    encoded,
+                    quire_canonical::to_vec(&package, quire_canonical::Limits::new(1 << 24))
+                        .expect("published package canonical bytes"),
+                    "{id}: exact canonical package"
+                );
                 let CheckedPackageV2ReadResult::Admitted(round_trip) =
                     read_temporal_package(&output)
                 else {

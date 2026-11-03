@@ -552,7 +552,7 @@ pub fn identity_input(package: &Value) -> Value {
     input
 }
 
-/// Rebuilds the identity projection and configured clock rows after graph edits.
+/// Rebuilds the identity projection, clock rows, and clause names after graph edits.
 pub fn refresh_identity(package: &mut Value) {
     refresh_identity_projection(package);
     refresh_temporal_bindings(package);
@@ -2183,7 +2183,7 @@ pub fn settle(package: &mut Value) {
     refresh_identity(package);
 }
 
-/// Keep synthetic clock rows paired with configured clauses and compensations
+/// Keep synthetic clock and declared-name rows paired with their occurrences
 /// after fixture mutations have changed laws or structural node IDs.
 #[ix_trace_rs::string_edge]
 pub fn refresh_temporal_bindings(package: &mut Value) {

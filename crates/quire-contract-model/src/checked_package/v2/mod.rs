@@ -4230,7 +4230,7 @@ mod tests {
                     refinement_step_rows: wire.refinement_step_rows.as_deref(),
                 },
                 super::CheckedPackageSidecarsRef {
-                    temporal_clause_names: None,
+                    temporal_clause_names: wire.temporal_clause_names.as_deref(),
                     operation_effects: wire.operation_effects.as_deref(),
                     checked_term_data: wire.checked_term_data.as_ref(),
                     temporal_bindings: wire.temporal_bindings.as_deref(),
@@ -4289,7 +4289,7 @@ mod tests {
                     refinement_step_rows: wire.refinement_step_rows.as_deref(),
                 },
                 super::CheckedPackageSidecarsRef {
-                    temporal_clause_names: None,
+                    temporal_clause_names: wire.temporal_clause_names.as_deref(),
                     operation_effects: wire.operation_effects.as_deref(),
                     checked_term_data: wire.checked_term_data.as_ref(),
                     temporal_bindings: wire.temporal_bindings.as_deref(),
@@ -4374,7 +4374,7 @@ mod tests {
                             refinement_step_rows: wire.refinement_step_rows.as_deref(),
                         },
                         super::CheckedPackageSidecarsRef {
-                            temporal_clause_names: None,
+                            temporal_clause_names: wire.temporal_clause_names.as_deref(),
                             operation_effects: wire.operation_effects.as_deref(),
                             checked_term_data: wire.checked_term_data.as_ref(),
                             temporal_bindings: wire.temporal_bindings.as_deref(),
