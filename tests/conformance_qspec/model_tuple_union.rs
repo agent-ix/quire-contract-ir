@@ -6,7 +6,7 @@
 use super::{fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
@@ -79,7 +79,7 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     let selected = selected_document(&proposal);
     let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
-    let mut evidence = CheckedPackageEvidence::new();
+    let mut evidence = super::published_source_evidence();
     evidence
         .insert_domain_package_document(
             selected["package"]["identity"]
@@ -353,7 +353,7 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
         apply_published_intake_patch(&mut document, row);
         super::fixture_support::settle(&mut package);
 
-        let mut evidence = CheckedPackageEvidence::new();
+        let mut evidence = super::published_source_evidence();
         evidence
             .insert_domain_package_document(
                 document["package"]["identity"]
@@ -547,7 +547,7 @@ fn duration_projection_control(scenario: DurationCase) {
         package["semantic_graph"]["nodes"][11]["semantic_type"] = unit_id.clone();
     }
     super::fixture_support::settle(&mut package);
-    let mut evidence = CheckedPackageEvidence::new();
+    let mut evidence = super::published_source_evidence();
     evidence
         .insert_domain_package_document(
             selected["package"]["identity"]
@@ -754,7 +754,7 @@ fn combined_tuple_and_variant_defects_keep_published_intake_order() {
             apply_published_intake_patch(&mut document, row);
         }
         super::fixture_support::settle(&mut package);
-        let mut evidence = CheckedPackageEvidence::new();
+        let mut evidence = super::published_source_evidence();
         evidence
             .insert_domain_package_document(
                 document["package"]["identity"]
@@ -808,7 +808,7 @@ fn published_model_tuple_union_fixture_admits() {
     let package = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
 
-    let mut evidence = CheckedPackageEvidence::new();
+    let mut evidence = super::published_source_evidence();
     evidence
         .insert_domain_package_document(
             document["package"]["identity"]
@@ -863,7 +863,7 @@ fn unsupported_selected_variant_payloads_refuse_at_document_member() {
         document["types"][5]["variants"][0]["payloadType"] = json!(payload_type);
         super::fixture_support::settle(&mut package);
 
-        let mut evidence = CheckedPackageEvidence::new();
+        let mut evidence = super::published_source_evidence();
         evidence
             .insert_domain_package_document(
                 document["package"]["identity"]

@@ -6,10 +6,10 @@
 use super::{cause_word, code_word, fixtures_dir, proposal_dir_of, read_json, read_package};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
-    CompleteLoweringRecordV2, ContractDependencies, ContractDependencyInput,
-    ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    ContractDependencies, ContractDependencyInput, ContractPackageReadResult,
+    ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
 };
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -35,7 +35,7 @@ fn apply_patch(package: &mut Value, patch: &Value) {
 }
 
 fn without_dependency(package: &Value) -> CheckedPackageV2ReadResult {
-    let mut evidence = CheckedPackageEvidence::new();
+    let mut evidence = super::published_source_evidence();
     for feature in package["lock"]["required_features"]
         .as_array()
         .expect("required features")

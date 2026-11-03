@@ -27,7 +27,7 @@ fn id_for(row: &Value) -> Value {
 }
 
 fn source(identity: &str) -> Value {
-    json!({"authority":"agent-ix","identity":identity})
+    super::fixture_support::source_ref("agent-ix", identity)
 }
 
 fn dimension_node(name: &str, row: &Value, all: &Value) -> Value {
@@ -163,6 +163,7 @@ fn package(name: &str, nodes: &[Value], imports: &[&str]) -> Value {
 
 fn read(wire: &Value, imports: &[(&str, Arc<CheckedPackageV2>)]) -> CheckedPackageV2ReadResult {
     let mut evidence = CheckedPackageEvidence::new();
+    super::fixture_support::insert_fixture_sources(wire, &mut evidence);
     evidence.support_feature("quire.value.complete/v1");
     for (name, dependency) in imports {
         evidence

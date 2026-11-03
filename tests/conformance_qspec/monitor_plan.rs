@@ -71,7 +71,7 @@ fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
 #[test]
 fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
     let vectors = recipes();
-    assert_eq!(vectors["cases"].as_array().unwrap().len(), 63);
+    assert_eq!(vectors["cases"].as_array().unwrap().len(), 65);
     let mut base_key = None;
     for case in vectors["cases"].as_array().unwrap() {
         let mut facts = vectors["base"].clone();

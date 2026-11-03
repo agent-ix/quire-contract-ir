@@ -376,6 +376,7 @@ struct SourceSupply<'a> {
     selected: Option<&'a [Value]>,
     flip_byte: Option<&'a Value>,
     override_bytes: Option<(&'a str, &'a str, &'a [u8])>,
+    additional: Option<(&'a str, &'a str, &'a [u8])>,
 }
 
 fn read_package_with_sources_override(
@@ -557,7 +558,20 @@ fn insert_published_sources(
             .insert_source_document(authority, identity, bytes)
             .map_err(|error| format!("source evidence insertion failed: {error}"))?;
     }
+    if let Some((authority, identity, bytes)) = sources.additional {
+        evidence
+            .insert_source_document(authority, identity, bytes.to_vec())
+            .map_err(|error| format!("additional source evidence insertion failed: {error}"))?;
+    }
     Ok(())
+}
+
+/// Evidence for locally assembled conformance cases that use QSpec's published sources.
+fn published_source_evidence() -> CheckedPackageEvidence {
+    let mut evidence = CheckedPackageEvidence::new();
+    insert_published_sources(&mut evidence, SourceSupply::default())
+        .expect("published source documents by reference");
+    evidence
 }
 
 /// What the production reader makes of `package`: `admitted`, `incomplete`, or

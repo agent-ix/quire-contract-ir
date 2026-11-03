@@ -970,6 +970,8 @@ fn timed_aggregate_repeated_reference_refuses_as_order_defect() {
 fn timed_aggregate_source_identity_precedes_region_start() {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
+    let source_bytes = std::fs::read(proposal.join("source-documents/example.qsl"))
+        .expect("published example source bytes");
     let mut package = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
         .expect("published timed slot package");
     let document = proposal.join("domain-package-acme-timed-slots.json");
@@ -1004,8 +1006,21 @@ fn timed_aggregate_source_identity_precedes_region_start() {
         .as_array_mut()
         .expect("locked sources")
         .push(extra_source);
-    let admitted = read_package_with_document(&package, "source identity first", &document)
-        .expect("source identity control read");
+    let read_with_source = |candidate: &Value, identity: &str| {
+        read_package_with_sources_override(
+            candidate,
+            "source identity order",
+            &document,
+            true,
+            CheckedPackageReadLimits::bounded(),
+            None,
+            SourceSupply {
+                additional: Some(("agent-ix", identity, &source_bytes)),
+                ..SourceSupply::default()
+            },
+        )
+    };
+    let admitted = read_with_source(&package, "A-example").expect("source identity control read");
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
         "earlier identity precedes later start: {admitted:?}"
@@ -1021,8 +1036,7 @@ fn timed_aggregate_source_identity_precedes_region_start() {
     first_source["regions"][0]["end"] = json!(1);
     package["lock"]["sources"][1]["identity"] = json!("z-example");
     let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_package_with_document(&package, "source identity after", &document)
-            .expect("source identity refusal read")
+        read_with_source(&package, "z-example").expect("source identity refusal read")
     else {
         panic!("later source identity must refuse before numeric start");
     };

@@ -204,6 +204,7 @@ fn read(case: &Value) -> CheckedPackageV2ReadResult {
     }
     evidence.support_feature("quire.value.complete/v1");
     fixture::settle(&mut package);
+    fixture::insert_fixture_sources(&package, &mut evidence);
     CheckedPackageV2::read(
         &fixture::canonical(&package),
         CheckedPackageReadLimits::bounded(),

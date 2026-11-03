@@ -126,7 +126,7 @@ fn read_with_selected_model_document(
     package: &Value,
     document: &Value,
 ) -> CheckedPackageV2ReadResult {
-    let mut evidence = CheckedPackageEvidence::new();
+    let mut evidence = super::published_source_evidence();
     for feature in package["lock"]["required_features"]
         .as_array()
         .expect("required features")

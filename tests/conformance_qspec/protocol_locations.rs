@@ -51,6 +51,33 @@ fn fixture(mut rows: Vec<Value>) -> (Value, usize) {
     refresh_identity(&mut wire);
     (wire, position)
 }
+
+fn fixture_from_graph(mut rows: Vec<Value>, graph: &Value) -> (Value, usize) {
+    let mut wire =
+        super::read_json(&super::fixtures_dir().join("positive-operation-identities.json"))
+            .expect("published graph fixture");
+    let published = graph["nodes"].as_array().expect("published graph nodes");
+    for row in &mut rows {
+        let source = published
+            .iter()
+            .find(|node| node["node_id"] == row["application"])
+            .expect("published application node");
+        let selected = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("fixture nodes")
+            .iter()
+            .find(|node| {
+                node["node_tag"] == source["node_tag"]
+                    && node["semantic_form"] == source["semantic_form"]
+            })
+            .expect("fixture node with published semantic form");
+        row["application"] = selected["node_id"].clone();
+        row["occurrence"] = selected["occurrences"][0].clone();
+    }
+    wire["checked_term_data"] = json!({"equality_decisions":[], "protocol_locations":rows, "dispatch_tables":[], "probabilistic_claims":[]});
+    refresh_identity(&mut wire);
+    (wire, 0)
+}
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
         &canonical(wire),
@@ -120,8 +147,13 @@ fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
                 .as_array()
                 .cloned()
                 .unwrap_or_else(|| vec![vector["value"].clone()]);
-            let (wire, _) = fixture(rows);
-            let result = read(&wire);
+            let result = if let Some(graph) = vector.get("graph") {
+                let (wire, _) = fixture_from_graph(rows, graph);
+                super::read_package(&wire).expect("published graph evidence")
+            } else {
+                let (wire, _) = fixture(rows);
+                read(&wire)
+            };
             let CheckedPackageV2ReadResult::Refused(refusal) = result else {
                 panic!("{id} must refuse: {result:?}");
             };
@@ -155,6 +187,10 @@ fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
             "PL-S1-unknown-origin",
             "PL-R1-duplicate-term",
             "PL-R2-missing-term-mapping",
+            "PL-R3-leaf-literal",
+            "PL-R3-leaf-local",
+            "PL-R3-leaf-reference",
+            "PL-R3-leaf-copies-enclosing-location",
         ])
     );
 }

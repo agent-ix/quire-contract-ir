@@ -10,7 +10,7 @@ fn read_with_retention_definition(
     document: &Value,
     definition: CheckedExtensionDefinition,
 ) -> CheckedPackageV2ReadResult {
-    let mut evidence = CheckedPackageEvidence::new();
+    let mut evidence = super::published_source_evidence();
     for feature in package["lock"]["required_features"]
         .as_array()
         .expect("features")
@@ -360,7 +360,7 @@ fn tc_459_extension_evidence_conflict_retains_first_definition() {
         identity: "retention".into(),
     };
     let original = retention_definition();
-    let mut evidence = CheckedPackageEvidence::new();
+    let mut evidence = super::published_source_evidence();
     evidence
         .insert_extension_definition(reference.clone(), original.clone())
         .expect("first insertion");
