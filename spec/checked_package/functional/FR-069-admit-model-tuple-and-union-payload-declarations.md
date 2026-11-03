@@ -100,9 +100,11 @@ QSpec refusal codes, causes and loci. A tuple defect precedes a later variant
 defect, including when the tuple's type has no admitted V2 mapping.
 
 A selected value type with the four FR-154 Rational bounds SHALL retain its
-numerator and denominator limits through intake and resolve to the corresponding
-bounded Rational member type at a tuple position and a variant payload. For the
-published `TK-36` control, `Ratio` with bounds `[-3, 7; 1, 12]` is admitted in
+numerator and denominator limits through intake at a tuple position and a
+variant payload. Without a `unit`, it resolves to the corresponding bounded
+Rational member type; with a `unit` `u`, it resolves to
+`Quantity<u, Rational[n1, n2; d1, d2]>` under FR-154. For the published
+`TK-36` control, dimensionless `Ratio` with bounds `[-3, 7; 1, 12]` is admitted in
 both places and resolves through QSpec FR-322's `bounded_domain`/`rational_range`
 shape. This admission SHALL NOT turn a native Rational or a package Rational
 value type with no `constraints` into a bounded type: the unbounded `TK-22`
