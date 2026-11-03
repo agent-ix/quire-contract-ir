@@ -306,6 +306,19 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
         aggregate(vec![reference(&integer)]),
         "buffer",
     );
+    let status = match facts["state"]["activation_status"]
+        .as_str()
+        .expect("published activation status type")
+    {
+        "integer" => integer.clone(),
+        "record{position:integer}" => record(
+            &mut wire,
+            vec![("position", integer.clone())],
+            "ActivationStatus",
+        ),
+        "text" => text.clone(),
+        other => panic!("activation status type {other}"),
+    };
     let activation_fields = facts["state"]["activation_fields"]
         .as_array()
         .unwrap()
@@ -315,7 +328,7 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
             (
                 n,
                 if n == "status" {
-                    string.clone()
+                    status.clone()
                 } else {
                     integer.clone()
                 },
