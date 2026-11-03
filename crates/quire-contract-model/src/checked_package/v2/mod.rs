@@ -111,7 +111,8 @@ pub use model_enum_witness::{
 };
 pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
-    CheckedModelObjectFields,
+    CheckedModelObjectFields, CheckedModelVariantBody, CheckedModelVariantCase,
+    CheckedVariantPayloadType,
 };
 pub use monitor_plan::{CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef};
 pub use protocol_locations::CheckedProtocolLocationReadError;
