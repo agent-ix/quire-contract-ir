@@ -342,7 +342,14 @@ fn capability_labels_are_exact_pending_identities_distinct_from_type_kinds() {
     let kinds = [
         SourcePendingObligationKind::CapabilityKind("value-validity".into()),
         SourcePendingObligationKind::CapabilityKind("operation-contract".into()),
+        SourcePendingObligationKind::Presence,
+        SourcePendingObligationKind::ArithmeticRange,
+        SourcePendingObligationKind::Nonzero,
+        SourcePendingObligationKind::SumProjection,
+        SourcePendingObligationKind::SumPrefixes,
         SourcePendingObligationKind::GraphClosure,
+        SourcePendingObligationKind::InvocationContext,
+        SourcePendingObligationKind::CaptureInput,
         SourcePendingObligationKind::PredicateTotal {
             target: SourceDeclarationHandle(7),
         },
@@ -372,7 +379,7 @@ fn capability_labels_are_exact_pending_identities_distinct_from_type_kinds() {
             .map(SourceInventoryRow::identity)
             .collect::<std::collections::BTreeSet<_>>()
             .len(),
-        5
+        12
     );
     let SourceInventoryIdentity::PendingObligation(first) = report.items()[0].identity() else {
         panic!("first QSL row must be a pending obligation");
