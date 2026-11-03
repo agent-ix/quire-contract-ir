@@ -5,8 +5,8 @@
 use super::checked_term_data::CheckedProtocolSemanticLocation;
 use super::checked_term_data::{CheckedKeyOrdinal, CheckedProtocolLocationOrigin};
 use super::{
-    CheckedNodeKind, CheckedPackageV2, CheckedTerm, RawCheckedPackageWireV2, RawSemanticNodeV2,
-    WorkMeter,
+    CheckedNodeKind, CheckedPackageV2, CheckedTerm, ExpressionForm, RawCheckedPackageWireV2,
+    RawSemanticNodeV2, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -105,6 +105,15 @@ fn validate_rows(
             }
         }
         let (position, node) = selected.ok_or_else(|| invalid(at(index).key("application")))?;
+        // A leaf owns its location on its graph node. Its occurrence and a
+        // matching enclosing application location cannot make a row valid.
+        if matches!(
+            kinds.get(position),
+            Some(CheckedNodeKind::Value(_))
+                | Some(CheckedNodeKind::Expression(ExpressionForm::Reference))
+        ) {
+            return Err(invalid(at(index).key("application")));
+        }
         if !matches!(kinds.get(position), Some(CheckedNodeKind::Expression(_)))
             || !matches!(terms.get(position), Some(CheckedTerm::Application { .. }))
         {

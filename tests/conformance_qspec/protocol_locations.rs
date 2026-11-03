@@ -51,6 +51,47 @@ fn fixture(mut rows: Vec<Value>) -> (Value, usize) {
     refresh_identity(&mut wire);
     (wire, position)
 }
+
+fn published_leaf_fixture(vector: &Value) -> Value {
+    let mut wire = positive_operation_identities();
+    let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
+    let application = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["body"]["term"] == "application")
+        .unwrap();
+    let leaf = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "literal")
+        .unwrap();
+    let published_nodes = vector["graph"]["nodes"].as_array().unwrap();
+    let rows = vector["value"].as_array().unwrap();
+    let bound_rows: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            let published = published_nodes
+                .iter()
+                .find(|node| node["node_id"] == row["application"])
+                .expect("published row names a graph node");
+            let selected = if published["node_tag"] == "value"
+                || (published["node_tag"] == "expression"
+                    && published["semantic_form"] == "reference")
+            {
+                leaf
+            } else {
+                assert_eq!(published["node_tag"], "expression");
+                assert_eq!(published["body"]["term"], "application");
+                application
+            };
+            let mut bound = row.clone();
+            bound["application"] = selected["node_id"].clone();
+            bound["occurrence"] = selected["occurrences"][0].clone();
+            bound
+        })
+        .collect();
+    wire["checked_term_data"] = json!({"equality_decisions":[], "protocol_locations":bound_rows, "dispatch_tables":[], "probabilistic_claims":[]});
+    refresh_identity(&mut wire);
+    wire
+}
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
         &canonical(wire),
@@ -120,7 +161,11 @@ fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
                 .as_array()
                 .cloned()
                 .unwrap_or_else(|| vec![vector["value"].clone()]);
-            let (wire, _) = fixture(rows);
+            let wire = if id.starts_with("PL-R3-") {
+                published_leaf_fixture(vector)
+            } else {
+                fixture(rows).0
+            };
             let result = read(&wire);
             let CheckedPackageV2ReadResult::Refused(refusal) = result else {
                 panic!("{id} must refuse: {result:?}");
@@ -155,6 +200,10 @@ fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
             "PL-S1-unknown-origin",
             "PL-R1-duplicate-term",
             "PL-R2-missing-term-mapping",
+            "PL-R3-leaf-literal",
+            "PL-R3-leaf-local",
+            "PL-R3-leaf-reference",
+            "PL-R3-leaf-copies-enclosing-location",
         ])
     );
 }
