@@ -47,7 +47,7 @@ The seam is described as what crosses it, how identity is asserted, which way de
 | Item | Direction | Owner | Notes |
 | --- | --- | --- | --- |
 | `quire.checked-package/v2` bytes: `contract_version`, `name`, `lock`, `semantic_graph`, `source_map`, `capability_report`, `diagnostics` (and optional `refinement_step_rows`) | QSL (producer) to IR | QSpec FR-322 and FR-340 to FR-342 define the wire | IR holds no copy of QSpec files; it states the shape it admits in its own reader (`crates/quire-contract-model/src/checked_package/`) |
-| `CheckedPackageEvidence`: selected domain package documents (supplied under their identity), dependency packages (already admitted), supported features | caller to IR | IR defines the type | `lock.sources` and the matching source-map and diagnostic references use `{authority, identity}` without a source digest; IR joins each reference to a lock row and does not read source bytes; definition references (`lock` selections, `diagnostics.catalog`, operation laws) use the same pair without revision or digest (FR-038 "Artifact references"); package identity is the required `name` |
+| `CheckedPackageEvidence`: selected domain package documents (supplied under their identity), dependency packages (already admitted), supported features | caller to IR | IR defines the type | The implemented reader still joins two-member source references by `{authority, identity}` and receives no source bytes. Published QSpec FR-322 now requires a separate `source_integrity` claim on each source reference, backed by caller-supplied raw bytes; this reader change remains pending (IR-1273). Definition references remain two-member pairs. |
 | `quire.checked-operation-catalog/v1`: the closed catalog every V2 `application` term's `operation` is validated against | `quire-verification-contracts` (owner) to IR | `quire-verification-contracts` | IR depends on that crate and owns only the reader; it holds no copy of the catalog (`v2/operation_catalog.rs`) |
 | `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits; no depth member, and no `CheckedPackageLimit::Depth` or `CheckedPackageReadLimits::MAXIMUM_DEPTH`, FR-038-AC-117 having removed them, a breaking change for a consumer across this seam that builds any of them) | caller to IR | IR | every member finite |
 | `CheckedPackageDispatchResult`: `AdmittedV2` / `Refused` / `Incomplete` | IR to caller | IR | typed code and RFC 6901 pointer on refusal |
@@ -89,14 +89,20 @@ codegen consumer adoption remains IR-744.
   packages reached under one identity in a diamond refuse
   `invalid_package`/`conflicting-definition` with both paths. Neither package
   nor node has a content-derived id, and no stale-content refusal exists.
-- The wire carries no commit id, tool pin, version-tracking record, package
-  digest or source-byte digest. Definition and source references remain exact
-  `{authority, identity}` pairs.
+- Published QSpec FR-322 carries no commit id, tool pin, version-tracking
+  record or package digest. It now requires `SourceRef` to be
+  `{authority, identity, source_integrity}`. The first two members identify the
+  document; the third verifies the caller-supplied raw source bytes and is not
+  part of nominal identity. Definition references remain `{authority, identity}`.
+  IR's current two-member `CheckedSourceRef` and evidence API do not yet
+  implement this published contract; admission under the current reader cannot
+  be cited as source-byte authentication.
 
 ### Dependency direction
 
 IR depends on nothing of QSpec's code or QSL. QSL depends on the `quire-contract-model` package
-(under the dependency name `quire-contract-ir`) and calls `read_checked_package` through it. CG
+under that dependency name (`Cargo.toml:28,88`; `qsl-package/Cargo.toml:47`) and calls
+`read_checked_package` through it. CG
 and the driver read through the model crate directly; IR's root crate does not re-export it.
 The direction is QSpec (text) to IR (reader) to QSL, CG,
 driver (consumers); no arrow points back to IR. IR's one other inbound edge is the operation
@@ -193,10 +199,25 @@ What is measured today, what is open and with whom, and what is routed.
   a cyclic type with no text field and a `recursion:<d>` leaf for a cyclic type that reaches
   text, which QSpec has not adopted and the published leaf schema rejects, is STD-129's text
   (untrusted, not re-measured here); IR's refusal was re-measured. Open at QSpec: STD-129.
-- Text admission is a codegen term: CG's oracle matrix records text admission as refused today
-  (its FR-014 rows). Whether any catalogued `numeric.convert` admits text is an owner decision
-  that is pending with the owner. It is recorded as open, not routed to QSpec and not decided
-  here; the operation catalog it would touch is owned by `quire-verification-contracts`.
+- The conversion identity is settled: `quire.op.numeric.convert` has an
+  `exact_numeric` operand, not Text. QSpec FR-322's conversion family rule,
+  QSL FR-093-AC-47 and CG ADR-006 agree that Text to Integer lowers to
+  `quire.op.text.to_integer`; CG's six text-operand `numeric.convert` attempts
+  remain IR refusals and do not prove caller Text admission. The QVC operation
+  catalog owns the identity vocabulary; QSL owns producer lowering, IR owns
+  strict admission and CG owns its caller-ingress oracle. No widening of
+  `numeric.convert` is required. Measured sources: QSpec `b1feb484`
+  `spec/objects/interfaces/FR-322-checked-package-artifact.md:3123-3126`;
+  QSL `adde683e` `spec/functional/FR-093-lower-checked-value-expressions-to-fr-322-terms.md:852`;
+  CG `bec3f380` `spec/decisions/ADR-006-caller-text-admission-boundary.md:24-31,72-75`
+  and `spec/oracle/functional/FR-035-caller-text-admission.md:33-38`.
+- QSpec FR-322 now requires `source_integrity` verification before closed-schema
+  checks. IR's `CheckedSourceRef` still has only `authority` and `identity`, and
+  its evidence API still lacks caller-supplied source bytes. IR-1273 is the
+  reader convergence gap; this AD describes the published contract and the
+  implemented reader separately until that gap lands. Measured sources:
+  QSpec `b1feb484` `spec/objects/interfaces/FR-322-checked-package-artifact.md:3191-3240`;
+  IR `36bcd0a2` `crates/quire-contract-model/src/checked_package/shared.rs:1514-1523`.
 - IR's own tests build packages in-repo from IR's own vocabulary
   (`tests/it/support/checked_package.rs`; FR-038 matrix row). That cannot see a shape QSL emits
   and IR's builder does not. The IR-reader test over a real QSL emission lives in QSL
@@ -220,7 +241,7 @@ What is measured today, what is open and with whom, and what is routed.
 | --- | --- | --- | --- |
 | Recursive compared type: refuse (matches the reference reader, which IR follows) or 0 leaves for no-text cyclic types; adopt `recursion:<d>` leaves | QSpec (STD-129) | IR does not change before the ruling | IR widening first would diverge from the reference reader |
 | `record_value_type` field names | QSpec | rule that a field entry on that form names no declared field, or add the form to `ModelDeclarationNode` | IR keeps a documented deviation |
-| Text admission for `numeric.convert` | the owner (decision pending; not routed) | decide, then state it where the operation catalog and FR-322 can carry it | consumer paths with no admitted input |
+| Source-byte integrity reader convergence | IR (IR-1273, deferred) | Add caller-supplied raw bytes and verify every QSpec `source_integrity` claim with the specified refusal order and locus before claiming conformance | The current reader admits two-member source references that the published wire refuses |
 | Five ADR-002 members have no wire carrier | QSpec | publish carriers or state they are out of v2 | reader refuses forever |
 | Duplicate `FR-341` ids in QSpec | QSpec | renumber one | citations by id are ambiguous |
 
@@ -248,8 +269,9 @@ To QSpec:
 | R-S7 | Publish wire carriers for the five ADR-002 members or state them out of v2. |
 
 The routing ids R-S2 and R-S3 (the FR-331 provider envelope and the obligation-identity digest
-domain) belong to the replay and evidence seams and are carried in CG's AD-003, not here. R-S8
-is the owner decision on text admission above, not a QSpec routing.
+domain) belong to the replay and evidence seams and are carried in CG's AD-003, not here. The
+former text-admission question is resolved by QSpec FR-322, QSL FR-093 and CG ADR-006: no
+QSpec routing is needed for `numeric.convert`.
 
 IR-owned items, defined here because other seam ADs cite them:
 

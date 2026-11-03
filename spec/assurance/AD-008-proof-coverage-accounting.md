@@ -2,7 +2,7 @@
 id: AD-008
 title: "Proof coverage accounting across contract assurance owners"
 type: ArchitectureDescription
-status: proposed
+status: accepted
 owner: Contract IR lane
 system: proof-coverage claim inventory, evidence joins, and baseline projections across Contract IR, Contract Codegen, and Contract Runtime
 relationships:

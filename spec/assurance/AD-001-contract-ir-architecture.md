@@ -71,7 +71,7 @@ package.
 | --- | --- | --- |
 | QSpec (`quire-specification`) | the normative language, the `quire.checked-package/v2` wire contract (FR-322, FR-340 through FR-342), the FR-331 backend-provider envelope, AD-016 | Contract IR reads QSpec's contracts and cites them; it copies none of QSpec's files |
 | QSL (`quire-spec-language`) | the compiler that produces checked packages, QSL FR-045's `mapping_support_v2` classification, FR-050's strict `/2` package and FR-043's native temporal evaluator/report; also the `qsl-replay` crate and replay facade | QSL depends on `quire-contract-model`; the root crate's planned `temporal` module consumes QSL's public temporal APIs and defines no replay types |
-| codegen (`quire-contract-codegen`) | provider generation, bounded Kani harness emission, the family lowerings for checked arithmetic, collections and objects in its backend adapter, the Kani transcript parser in that adapter, and the replay adapter that builds QSL's envelope and calls `qsl_replay::replay` (QSL ADR-011 E9) | codegen depends on the root crate for the `kani` profile, input ABI, dispatch index and outcomes, and on `quire-contract-model` for model types |
+| codegen (`quire-contract-codegen`) | provider generation, bounded Kani harness emission, the active collection and finite-reference-graph lowerings in its backend adapter (checked arithmetic retired under CG FR-015-AC-109, CG AD-004:327), the Kani transcript parser in that adapter, and the replay adapter that builds QSL's request and currently calls `qsl_replay::replay`; QSL ADR-011 E9 assigns the call to the orchestrating driver (IR-492 residual) | codegen depends on the root crate for the `kani` profile, input ABI, dispatch index and outcomes, and on `quire-contract-model` for model types |
 | runtime (`quire-contract-runtime`) | the `no_std` support library generated oracles link | no dependency in either direction |
 
 ### Kani boundary
@@ -79,8 +79,7 @@ package.
 The root crate's `kani` module holds the parts of the bounded-Kani boundary
 every backend reads: the `kani-bounded/1` profile and capability matrix
 (FR-029), the finite input ABI and typed outcome (FR-030), and the dispatch
-index and module descriptors (FR-031). The family
-lowerings for checked arithmetic, collections and objects are
+index and module descriptors (FR-031). The active collection and finite-reference-graph lowerings are
 Kani-specific and belong to the backend adapter in codegen, which emits the
 harness. The dispatch index names each family module and its declared
 constructs; the lowering behind a module is codegen's.
@@ -109,9 +108,13 @@ carries one of two cause codes, solver absent or backend absent, and the only
 `Inconclusive` outcome is a vacuous proof, a run whose obligation completed
 with zero SUCCESS checks (FR-030).
 
-Replay runs only through `qsl_replay::replay`, from the codegen replay
-adapter; Contract IR has no dependency on `quire_spec_language::runtime` and
-calls no executor. The root crate depends on no QSL crate (FR-028), so the
+Replay runs through QSL's `qsl_replay::replay` facade. Today CG's replay adapter
+builds the request and calls the facade (`quire-contract-codegen` `bec3f380`,
+`src/replay/function.rs:180-197,809-817`). QSL ADR-011 E9 assigns the facade call
+to the orchestrating driver, with CG constructing the request (`adde683e`,
+`spec/decisions/ADR-011-stage-dag-and-dependency-architecture.md:264-266`);
+IR-492 tracks the current CG call as a transition residual. Contract IR has no
+dependency on `quire_spec_language::runtime` and calls no executor. The root crate depends on no QSL crate (FR-028), so the
 outcome map to `qsl_replay::TerminalValue` is not here; codegen owns it.
 
 ## Views
@@ -177,8 +180,9 @@ the authored-contract interchange.
   profile, the finite input ABI, the dispatch index and the typed outcome
   (`profile`, `abi`, `dispatch`, `outcome`), so any
   backend can read one versioned profile and input firewall. The
-  Kani-specific family lowerings for checked arithmetic, collections and
-  objects belong to codegen's backend adapter, which emits the harness.
+  Active Kani-specific collection and finite-reference-graph lowerings belong
+  to codegen's backend adapter, which emits the harness; the former arithmetic
+  lowerer and corpus arm retired under CG FR-015-AC-109.
 - Leave the map from a Kani outcome to a QSL `TerminalValue` to
   `agent-ix/quire-contract-codegen` (Linear IR-358), so the root crate
   depends on no QSL crate. Contract IR keeps the outcome's cause codes that map
