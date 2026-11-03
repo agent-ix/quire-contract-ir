@@ -267,8 +267,8 @@ impl SelectedTypeRef {
             }
             return Some(Self::Map(key.into(), value.into()));
         }
-        if name.starts_with("ix://quire/unit/") {
-            return Some(Self::Unit(name.into()));
+        if let Some(unit) = name.strip_prefix("ix://quire/unit/") {
+            return (!unit.is_empty()).then(|| Self::Unit(name.into()));
         }
         if let Some(native) = name.strip_prefix(NATIVE_PREFIX) {
             return NativeTypeRef::from_name(native).map(Self::Native);
@@ -2644,7 +2644,10 @@ fn rational_value_type(
     let unit = match value.get("unit") {
         None => None,
         Some(Value::String(name))
-            if name.starts_with("ix://quire/unit/") && name.len() > "ix://quire/unit/".len() =>
+            if matches!(
+                SelectedTypeRef::from_admitted_name(name),
+                Some(SelectedTypeRef::Unit(_))
+            ) =>
         {
             Some(
                 unit_refs
