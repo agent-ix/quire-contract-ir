@@ -1344,6 +1344,57 @@ fn tc_048_model_owners_join_model_roots_by_identity() {
     );
 }
 
+#[trace("TC-048", "FR-038-AC-20")]
+#[test]
+fn tc_048_model_root_identities_are_unique_in_either_graph_order() {
+    let mut distinct = model_owned_package(
+        model_owner("test/orders", "ix://test/orders/Length"),
+        &["test/orders", "test/other"],
+    );
+    let roots: Vec<_> = distinct["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| (node["semantic_form"] == "model_root").then_some(index))
+        .collect();
+    let [first, later] = roots.as_slice() else {
+        panic!("fixture must select exactly two model roots");
+    };
+    let (first, later) = (*first, *later);
+    for reversed in [false, true] {
+        if reversed {
+            distinct["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .swap(first, later);
+        }
+        // Both selected documents and all other reader checks pass before
+        // changing only the second root's selected identity.
+        let package = admitted_model(&distinct);
+        assert_eq!(
+            package
+                .graph()
+                .nodes
+                .iter()
+                .filter(|node| node.semantic_form.as_ref() == "model_root")
+                .count(),
+            2
+        );
+        let mut duplicate = distinct.clone();
+        duplicate["semantic_graph"]["nodes"][later]["owner"]["identity"] =
+            duplicate["semantic_graph"]["nodes"][first]["owner"]["identity"].clone();
+        assert_eq!(
+            refused(&duplicate, &model_evidence(&duplicate)),
+            refusal(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                &format!("/semantic_graph/nodes/{later}/owner")
+            ),
+            "reversed graph order: {reversed}"
+        );
+    }
+}
+
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-62")]
 #[test]
 fn tc_048_a_model_root_owner_is_exactly_kind_and_identity() {
