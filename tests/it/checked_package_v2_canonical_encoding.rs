@@ -252,6 +252,8 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
         let diagnostics: CheckedDiagnosticsV2 = typed(&package["diagnostics"]);
         let temporal_bindings: Option<Vec<quire_contract_model::TemporalBinding>> =
             package.get("temporal_bindings").map(typed_each);
+        let temporal_clause_names: Option<Vec<quire_contract_model::TemporalClauseName>> =
+            package.get("temporal_clause_names").map(typed_each);
         let encoded = encode_checked_package_v2(
             package["name"].as_str().expect("structural name"),
             &lock,
@@ -261,7 +263,7 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
                 refinement_step_rows: None,
             },
             quire_contract_model::CheckedPackageSidecarsRef {
-                temporal_clause_names: None,
+                temporal_clause_names: temporal_clause_names.as_deref(),
                 operation_effects: None,
                 checked_term_data: None,
                 temporal_bindings: temporal_bindings.as_deref(),

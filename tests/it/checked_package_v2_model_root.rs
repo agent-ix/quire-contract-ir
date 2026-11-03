@@ -127,7 +127,7 @@ fn selected_root_roundtrips_through_public_typed_writer_and_reader() {
             refinement_step_rows: first.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
-            temporal_clause_names: None,
+            temporal_clause_names: first.temporal_clause_names(),
             operation_effects: None,
             checked_term_data: first.checked_term_data(),
             temporal_bindings: first.temporal_bindings(),

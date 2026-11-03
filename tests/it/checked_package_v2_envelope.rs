@@ -34,6 +34,8 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
     let diagnostics: CheckedDiagnosticsV2 = typed(&value["diagnostics"]);
     let temporal_bindings: Option<Vec<quire_contract_model::TemporalBinding>> =
         value.get("temporal_bindings").map(typed);
+    let temporal_clause_names: Option<Vec<quire_contract_model::TemporalClauseName>> =
+        value.get("temporal_clause_names").map(typed);
     encode_checked_package_v2(
         name,
         &lock,
@@ -43,7 +45,7 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
             refinement_step_rows: refinement_step_rows.as_deref(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
-            temporal_clause_names: None,
+            temporal_clause_names: temporal_clause_names.as_deref(),
             operation_effects: None,
             checked_term_data: None,
             temporal_bindings: temporal_bindings.as_deref(),

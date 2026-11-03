@@ -230,7 +230,7 @@ fn admitted_effect_rows_round_trip_through_typed_writer() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         CheckedPackageSidecarsRef {
-            temporal_clause_names: None,
+            temporal_clause_names: admitted.temporal_clause_names(),
             schedulability_claims: None,
             operation_effects: Some(rows),
             checked_term_data: admitted.checked_term_data(),
