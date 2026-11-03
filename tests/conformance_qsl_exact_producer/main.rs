@@ -375,7 +375,7 @@ fn assert_accessor_reads_only_admitted_terms() {
     calls.visit_block(&functions[0].block);
     assert_eq!(
         calls.functions,
-        ["Some", "State", "error"]
+        ["Err", "Some", "State", "error"]
             .map(str::to_owned)
             .into_iter()
             .collect()
