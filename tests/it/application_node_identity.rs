@@ -3,6 +3,7 @@
 
 //! External construction and admission of structural checked-package identities.
 
+use crate::support::checked_package::{fixture_source_bytes, source_ref};
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
@@ -12,6 +13,18 @@ use quire_contract_model::{
     CheckedPackageV2ReadResult, CheckedSemanticGraphV2, CheckedSourceMapEntry,
 };
 use serde_json::{json, Value};
+
+fn source_evidence() -> CheckedPackageEvidence {
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence
+        .insert_source_document(
+            "agent-ix",
+            "source",
+            fixture_source_bytes("agent-ix", "source"),
+        )
+        .expect("fixture source bytes agree");
+    evidence
+}
 
 fn structural_id() -> CheckedNodeId {
     CheckedNodeId {
@@ -31,7 +44,7 @@ fn envelope() -> (
     CheckedDiagnosticsV2,
 ) {
     let id = structural_id();
-    let source = json!({"authority": "agent-ix", "identity": "source"});
+    let source = source_ref("agent-ix", "source");
     let lock = serde_json::from_value(json!({
         "sources": [source],
         "edition": {"role": "edition", "definition": {"authority": "agent-ix", "identity": "edition"}},
@@ -112,7 +125,7 @@ fn structural_identity_requires_complete_reader_admission() {
     let admitted = CheckedPackageV2::read(
         &bytes,
         CheckedPackageReadLimits::bounded(),
-        &CheckedPackageEvidence::new(),
+        &source_evidence(),
     );
     let CheckedPackageV2ReadResult::Admitted(package) = admitted else {
         panic!("complete structural package must admit: {admitted:?}");
@@ -150,7 +163,7 @@ fn repeated_structural_node_id_refuses_without_a_package() {
     let result = CheckedPackageV2::read(
         &bytes,
         CheckedPackageReadLimits::bounded(),
-        &CheckedPackageEvidence::new(),
+        &source_evidence(),
     );
     assert!(matches!(
         result,

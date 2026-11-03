@@ -1238,7 +1238,7 @@ pub fn fixture_source_bytes(authority: &str, identity: &str) -> Vec<u8> {
     format!("source fixture {authority}\n{identity}\n").into_bytes()
 }
 
-fn insert_fixture_sources(package: &Value, evidence: &mut CheckedPackageEvidence) {
+pub fn insert_fixture_sources(package: &Value, evidence: &mut CheckedPackageEvidence) {
     let mut refs = Vec::new();
     if let Some(rows) = package["lock"]["sources"].as_array() {
         refs.extend(rows.iter());
@@ -1282,6 +1282,16 @@ pub fn source_ref(authority: &str, identity: &str) -> Value {
         "identity": identity,
         "source_integrity": sha256_hex(&fixture_source_bytes(authority, identity)),
     })
+}
+
+/// Refreshes the claim of a synthetic source reference after an identity edit.
+pub fn refresh_fixture_source_claim(package: &mut Value, pointer: &str) {
+    let source = package
+        .pointer_mut(pointer)
+        .expect("fixture source pointer");
+    let authority = source["authority"].as_str().expect("source authority");
+    let identity = source["identity"].as_str().expect("source identity");
+    source["source_integrity"] = json!(sha256_hex(&fixture_source_bytes(authority, identity)));
 }
 
 /// The `quire.application-node/v1` key this crate's reader

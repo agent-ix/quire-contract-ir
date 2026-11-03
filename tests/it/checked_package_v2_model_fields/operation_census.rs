@@ -302,6 +302,7 @@ fn same_names_in_distinct_selected_packages_do_not_join_contexts_or_domains() {
             .insert_domain_package_document(identity, canonical(&document))
             .unwrap();
     }
+    crate::support::checked_package::insert_fixture_sources(&wire, &mut evidence);
     let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("independent selections admit: {other:?}"),

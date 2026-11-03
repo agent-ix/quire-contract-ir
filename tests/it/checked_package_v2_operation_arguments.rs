@@ -11,9 +11,9 @@
 //! a real Semantic IR 2.0.0 domain package document selected by the lock.
 
 use crate::support::checked_package::{
-    canonical, fixture_source, index_fixture_node_ids, node_id as fixture_node_id, nominal_package,
-    pointer, select_model, selected_model_identities, settle, source_owner, structural_id,
-    COMPLETE_VALUE_FEATURE,
+    canonical, fixture_source, index_fixture_node_ids, insert_fixture_sources,
+    node_id as fixture_node_id, nominal_package, pointer, select_model, selected_model_identities,
+    settle, source_owner, structural_id, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -699,6 +699,7 @@ impl Scene {
         settle(&mut package);
         let mut evidence = CheckedPackageEvidence::new();
         evidence.support_feature(COMPLETE_VALUE_FEATURE);
+        insert_fixture_sources(&package, &mut evidence);
         for document in &documents {
             evidence
                 .insert_domain_package_document(

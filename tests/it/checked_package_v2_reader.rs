@@ -6,10 +6,10 @@
 
 use crate::support::checked_package::{
     self, all_families_read_work, canonical, domain_package_document, evidence_for,
-    evidence_with_document, family_key, incomplete, node_id, pointer as support_pointer,
-    positive_operation_identities, refresh_identity, refusal, refusal_bytes, refusal_cause,
-    select_model, unknown_version, v2_all_families, v2_nominal, ExpectedRefusal,
-    COMPLETE_VALUE_FEATURE,
+    evidence_with_document, family_key, incomplete, insert_fixture_sources, node_id,
+    pointer as support_pointer, positive_operation_identities, refresh_fixture_source_claim,
+    refresh_identity, refusal, refusal_bytes, refusal_cause, select_model, unknown_version,
+    v2_all_families, v2_nominal, ExpectedRefusal, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -25,10 +25,12 @@ use serde_json::{json, Value};
 type Mutation = Box<dyn Fn(&mut Value)>;
 
 fn read(value: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2ReadResult {
+    let mut complete_evidence = evidence.clone();
+    insert_fixture_sources(value, &mut complete_evidence);
     CheckedPackageV2::read(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
-        evidence,
+        &complete_evidence,
     )
 }
 
@@ -400,6 +402,9 @@ fn tc_048_v2_reader_refuses_every_structural_mutation() {
             let mut mutated = base.clone();
             *mutated.pointer_mut(pointer).expect("pointer target") =
                 structural_mutation_replacement(pointer);
+            if pointer == "/lock/sources/0/authority" {
+                refresh_fixture_source_claim(&mut mutated, "/lock/sources/0");
+            }
             // Refused both as constructed and with the identity re-derived:
             // none of these five mutations touches a member
             // `refresh_identity` recomputes, so the outcome must not change
@@ -628,7 +633,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         ),
         (
             "unlocked source region",
-            Box::new(|v| v["source_map"][0]["regions"][0]["source"]["identity"] = json!("other")),
+            Box::new(|v| {
+                v["source_map"][0]["regions"][0]["source"]["identity"] = json!("other");
+                refresh_fixture_source_claim(v, "/source_map/0/regions/0/source");
+            }),
             refusal(
                 CheckedPackageRefusalCode::InvalidSourceMap,
                 "/source_map/0/regions/0/source",

@@ -4,8 +4,9 @@
 //! Public evidence insertion and first-value retention controls.
 
 use crate::support::checked_package::{
-    canonical, domain_package_document, evidence_for, pointer, refresh_identity, select_model,
-    settle, structural_id, v2_all_families, v2_nominal, COMPLETE_VALUE_FEATURE,
+    canonical, domain_package_document, evidence_for, insert_fixture_sources, pointer,
+    refresh_identity, select_model, settle, structural_id, v2_all_families, v2_nominal,
+    COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -19,8 +20,10 @@ use std::sync::Arc;
 fn read(package: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2ReadResult {
     let bytes = canonical(package);
     let limits = CheckedPackageReadLimits::bounded();
-    let direct = CheckedPackageV2::read(&bytes, limits, evidence);
-    let dispatched = read_checked_package(&bytes, limits, evidence);
+    let mut complete_evidence = evidence.clone();
+    insert_fixture_sources(package, &mut complete_evidence);
+    let direct = CheckedPackageV2::read(&bytes, limits, &complete_evidence);
+    let dispatched = read_checked_package(&bytes, limits, &complete_evidence);
     let expected = match &direct {
         CheckedPackageV2ReadResult::Admitted(package) => {
             CheckedPackageDispatchResult::AdmittedV2(package.clone())

@@ -13,9 +13,10 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, fixture_source, index_fixture_node_ids,
-    node_id as fixture_node_id, nominal_fixture_members, nominal_package, pointer,
-    rebuild_source_map, refresh_identity, refusal_bytes, refusal_cause, select_model, settle,
-    source_owner, structural_fixture_id, ExpectedRefusal, COMPLETE_VALUE_FEATURE, FIXTURE_PACKAGE,
+    insert_fixture_sources, node_id as fixture_node_id, nominal_fixture_members, nominal_package,
+    pointer, rebuild_source_map, refresh_identity, refusal_bytes, refusal_cause, select_model,
+    settle, source_owner, structural_fixture_id, ExpectedRefusal, COMPLETE_VALUE_FEATURE,
+    FIXTURE_PACKAGE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -2878,7 +2879,16 @@ fn tc_048_a_declaration_refusal_is_located_at_its_model_root() {
 fn tc_048_reading_a_domain_package_is_charged_to_the_work_limit() {
     let (package, evidence) = package_over(&domain_document(json!({})), "total");
     let mut limits = CheckedPackageReadLimits::bounded();
-    limits.work = 0;
+    limits.work = u64::try_from(
+        package["lock"]["sources"].as_array().unwrap().len()
+            + package["source_map"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| entry["regions"].as_array().unwrap().len())
+                .sum::<usize>(),
+    )
+    .unwrap();
     match CheckedPackageV2::read(&indexed_bytes(&package), limits, &evidence) {
         CheckedPackageV2ReadResult::Incomplete(CheckedPackageIncomplete {
             limit_kind,
@@ -2887,7 +2897,7 @@ fn tc_048_reading_a_domain_package_is_charged_to_the_work_limit() {
             ..
         }) => {
             assert_eq!(limit_kind, CheckedPackageLimit::Work);
-            assert_eq!(limit, 0);
+            assert_eq!(limit, limits.work);
             assert_eq!(
                 path.map(|path| path.to_string()).as_deref(),
                 Some(root_owner(&package).as_str())
@@ -2918,6 +2928,7 @@ fn read_selecting(bytes: &[u8]) -> CheckedPackageV2ReadResult {
         .insert_domain_package_document(IDENTITY.to_owned(), bytes.to_vec())
         .expect("domain evidence declarations agree on exact bytes");
     evidence.support_feature(COMPLETE_VALUE_FEATURE);
+    insert_fixture_sources(&package, &mut evidence);
     read(&package, &evidence)
 }
 

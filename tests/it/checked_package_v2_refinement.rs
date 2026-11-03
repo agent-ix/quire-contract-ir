@@ -5,8 +5,8 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, index_fixture_node_ids, node_id,
-    protocol_named_node, rebuild_source_map, refresh_identity, select_model, settle, source_owner,
-    structural_fixture_id, v2_all_families, v2_nominal,
+    protocol_named_node, rebuild_source_map, refresh_fixture_source_claim, refresh_identity,
+    select_model, settle, source_owner, structural_fixture_id, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -6153,8 +6153,11 @@ fn refinement_ineligible_step_owner_still_checks_sidecar_region() {
 
     let mut unlocked = package;
     unlocked["refinement_step_rows"][0]["region"]["source"]["identity"] = json!("test/unlocked");
+    refresh_fixture_source_claim(&mut unlocked, "/refinement_step_rows/0/region/source");
+    let mut unlocked_evidence = evidence.clone();
+    crate::support::checked_package::insert_fixture_sources(&unlocked, &mut unlocked_evidence);
     invalid_value_at(
-        read(&unlocked, &evidence),
+        read(&unlocked, &unlocked_evidence),
         "/refinement_step_rows/0/region/source",
     );
 }

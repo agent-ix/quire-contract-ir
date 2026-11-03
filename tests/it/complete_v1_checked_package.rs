@@ -257,6 +257,10 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
     // anchor: a source region rebound to an unlocked source refuses.
     let mut unlocked_anchor = base.clone();
     unlocked_anchor["source_map"][0]["regions"][0]["source"]["identity"] = json!("other");
+    crate::support::checked_package::refresh_fixture_source_claim(
+        &mut unlocked_anchor,
+        "/source_map/0/regions/0/source",
+    );
     assert_eq!(
         refused(&unlocked_anchor, &evidence_for(&unlocked_anchor)),
         refusal(
