@@ -39,11 +39,12 @@ the producer and the contract disagree, and which disagreements are open.
 Out of scope: how QSL emits, what QSpec's text should say (routed), and the Kani profile.
 
 This is staged architecture acceptance, not a claim that the current reader conforms to
-every published QSpec source-reference rule. IR-1273 remains Backlog under the recorded
-2026-11-02 MVP deferral: the current two-member `CheckedSourceRef` and evidence API do
-not verify QSpec FR-322's `source_integrity` claim. QSpec FR-322/FR-323 and QSL FR-518
-need owner-led rescope for the deferred MVP boundary; until then the published rule and
-implemented reader remain distinct. The other QSpec questions in Risks remain routed.
+every published QSpec source-reference rule. IR-1273 was canceled after its proposed
+source-byte check failed the feature-necessity test. The reader retains two-member
+`CheckedSourceRef` values and receives no source bytes. QSpec FR-322/FR-323 and QSL
+FR-518 still require owner-led correction of their source-integrity language; their
+published rule and the implemented reader remain distinct until that correction lands.
+The other QSpec questions in Risks remain routed.
 
 ## Views
 
@@ -54,7 +55,7 @@ The seam is described as what crosses it, how identity is asserted, which way de
 | Item | Direction | Owner | Notes |
 | --- | --- | --- | --- |
 | `quire.checked-package/v2` bytes: `contract_version`, `name`, `lock`, `semantic_graph`, `source_map`, `capability_report`, `diagnostics` (and optional `refinement_step_rows`) | QSL (producer) to IR | QSpec FR-322 and FR-340 to FR-342 define the wire | IR holds no copy of QSpec files; it states the shape it admits in its own reader (`crates/quire-contract-model/src/checked_package/`) |
-| `CheckedPackageEvidence`: selected domain package documents (supplied under their identity), dependency packages (already admitted), supported features | caller to IR | IR defines the type | The implemented reader still joins two-member source references by `{authority, identity}` and receives no source bytes. Published QSpec FR-322 now requires a separate `source_integrity` claim on each source reference, backed by caller-supplied raw bytes; this reader change remains pending (IR-1273). Definition references remain two-member pairs. |
+| `CheckedPackageEvidence`: selected domain package documents (supplied under their identity), dependency packages (already admitted), supported features | caller to IR | IR defines the type | The implemented reader joins two-member source references by `{authority, identity}` and receives no source bytes. IR-1273's proposed source-byte check was canceled; QSpec owns correction of its published source-reference rule. Definition references remain two-member pairs. |
 | `quire.checked-operation-catalog/v1`: the closed catalog every V2 `application` term's `operation` is validated against | `quire-verification-contracts` (owner) to IR | `quire-verification-contracts` | IR depends on that crate and owns only the reader; it holds no copy of the catalog (`v2/operation_catalog.rs`) |
 | `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits; no depth member, and no `CheckedPackageLimit::Depth` or `CheckedPackageReadLimits::MAXIMUM_DEPTH`, FR-038-AC-117 having removed them, a breaking change for a consumer across this seam that builds any of them) | caller to IR | IR | every member finite |
 | `CheckedPackageDispatchResult`: `AdmittedV2` / `Refused` / `Incomplete` | IR to caller | IR | typed code and RFC 6901 pointer on refusal |
@@ -96,14 +97,11 @@ codegen consumer adoption remains IR-744.
   packages reached under one identity in a diamond refuse
   `invalid_package`/`conflicting-definition` with both paths. Neither package
   nor node has a content-derived id, and no stale-content refusal exists.
-- Published QSpec FR-322 carries no commit id, tool pin, version-tracking
-  record or package digest. It now requires `SourceRef` to be
-  `{authority, identity, source_integrity}`. The first two members identify the
-  document; the third verifies the caller-supplied raw source bytes and is not
-  part of nominal identity. Definition references remain `{authority, identity}`.
-  IR's current two-member `CheckedSourceRef` and evidence API do not yet
-  implement this published contract; admission under the current reader cannot
-  be cited as source-byte authentication.
+- Published QSpec FR-322 still describes a three-member source reference,
+  which conflicts with the canceled IR-1273 decision. QSpec owns removal of
+  that unsupported source-byte requirement. IR's `CheckedSourceRef` and
+  definition references retain their two-member `{authority, identity}` shape;
+  admission under this reader makes no source-byte authentication claim.
 
 ### Dependency direction
 
@@ -218,13 +216,12 @@ What is measured today, what is open and with whom, and what is routed.
   QSL `adde683e` `spec/functional/FR-093-lower-checked-value-expressions-to-fr-322-terms.md:852`;
   CG `bec3f380` `spec/decisions/ADR-006-caller-text-admission-boundary.md:24-31,72-75`
   and `spec/oracle/functional/FR-035-caller-text-admission.md:33-38`.
-- QSpec FR-322 now requires `source_integrity` verification before closed-schema
-  checks. IR's `CheckedSourceRef` still has only `authority` and `identity`, and
-  its evidence API still lacks caller-supplied source bytes. IR-1273 is the
-  deferred reader convergence gap; this AD describes the published contract and the
-  implemented reader separately until that gap lands or QSpec and QSL rescope their
-  dependent requirements. No present reader-conformance claim follows from this AD's
-  accepted status. Measured sources:
+- QSpec FR-322 still requires `source_integrity` verification before closed-schema
+  checks. IR's `CheckedSourceRef` has only `authority` and `identity`, and its
+  evidence API receives no source bytes. IR-1273 was canceled after the
+  source-byte check failed the feature-necessity test; QSpec and QSL own
+  removal of their dependent requirements. No present reader-conformance claim
+  for that published rule follows from this AD's accepted status. Measured sources:
   QSpec `b1feb484` `spec/objects/interfaces/FR-322-checked-package-artifact.md:3191-3240`;
   IR `36bcd0a2` `crates/quire-contract-model/src/checked_package/shared.rs:1514-1523`.
 - IR's own tests build packages in-repo from IR's own vocabulary
@@ -250,7 +247,7 @@ What is measured today, what is open and with whom, and what is routed.
 | --- | --- | --- | --- |
 | Recursive compared type: refuse (matches the reference reader, which IR follows) or 0 leaves for no-text cyclic types; adopt `recursion:<d>` leaves | QSpec (STD-129) | IR does not change before the ruling | IR widening first would diverge from the reference reader |
 | `record_value_type` field names | QSpec | rule that a field entry on that form names no declared field, or add the form to `ModelDeclarationNode` | IR keeps a documented deviation |
-| Source-byte integrity reader convergence | IR (IR-1273, Backlog under the 2026-11-02 MVP deferral); QSpec and QSL own dependent FR-322/FR-323 and FR-518 rescope | Keep the present mismatch explicit; implement the reader only when the deferred requirement is reprioritized, and have QSpec/QSL state the MVP scope they own | The current reader admits two-member source references that the published wire refuses; acceptance here does not certify source-byte integrity |
+| Published source-reference rule after IR-1273 cancellation | QSpec owns FR-322/FR-323 correction; QSL owns FR-518 correction | Remove the unsupported source-byte requirement from the owner specifications; retain IR's two-member reader | Until corrected, the published wire text and implemented reader disagree; acceptance here does not certify source-byte integrity |
 | Five ADR-002 members have no wire carrier | QSpec | publish carriers or state they are out of v2 | reader refuses forever |
 | Duplicate `FR-341` ids in QSpec | QSpec | renumber one | citations by id are ambiguous |
 

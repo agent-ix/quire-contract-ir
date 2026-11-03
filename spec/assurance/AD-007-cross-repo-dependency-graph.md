@@ -43,8 +43,9 @@ of IR.
 This is acceptance of the staged dependency and ownership architecture. RT's
 accepted AD-001 through AD-004 (`quire-contract-runtime` main `1c4b99ed`)
 record one temporary expression-port exception under IR-1009. The exception
-does not complete the FR-275 one-owner end state. The QSpec source-integrity
-mismatch remains deferred under IR-1273 as described in AD-004.
+does not complete the FR-275 one-owner end state. QSpec's source-integrity
+text still conflicts with IR's two-member reader; IR-1273 was canceled and
+AD-004 routes the owner-spec correction.
 
 ## Views
 
@@ -75,7 +76,7 @@ is not itself a Cargo edge.
 | Exact scalar, text, composite kernel, `Meter` and `Outcome` | standalone quire-exact | QSL `Cargo.toml:12-15`, CG `Cargo.toml:31-32`, RT `Cargo.toml:35-38` take the shared crate. RT `src/exact/mod.rs:6-9` says its scalar and metering copies have moved. The former count of 23 duplicate RT files and 124 shared public names no longer describes current main. |
 | Semantic values, declarations and shared checking vocabulary | standalone quire-semantic-value | The same three consumers declare direct dependencies. RT `src/exact/mod.rs:24-30` imports shared definition, node and value types. |
 | Expression checking and evaluation | shared evaluator as end-state owner; RT runtime-maintainers hold a temporary exception | RT `src/exact/mod.rs:8-9,33-39` retains the existing `expression.rs` implementation and `mod.rs` public surface. IR-1009 and RT AD-004:139-159 (`1c4b99ed`) bound this staged exception to those existing paths, with no new copy, semantic expansion or consumer use. The usable shared `no_std + alloc` evaluator is deferred; the port is not a second settled owner. |
-| Checked-package wire types, strict reader and lowering | IR model, with QSpec owning the published wire | QSL and CG consume the model crate; source-integrity convergence is the open IR reader gap in AD-004. |
+| Checked-package wire types, strict reader and lowering | IR model, with QSpec owning the published wire | QSL and CG consume the model crate; AD-004 routes correction of QSpec's unsupported source-integrity rule, with no IR reader change scheduled. |
 | Compile-side package and emitter | QSL `qsl-package` | QSL produces and verifies through IR's model reader (AD-005). |
 | Kani outcome type | IR root crate | CG imports the root for this surface (AD-006); QSL `qsl-replay` owns replay envelopes and terminal records. |
 | Generated-code runtime | RT | Native exact execution is distinct from QSL's source evaluation and CG's generation. |
@@ -105,9 +106,10 @@ question of whether to extract them is closed by current manifests.
 - IR owns its reader and model API, not QSL's emitter or CG's generation.
   CG's root IR edge is deliberate for Kani outcomes; its model edge serves
   checked-package types. QSL's model edge points only from QSL to IR.
-- The published QSpec wire is read by reference. The IR reader's current
-  two-member source references do not yet satisfy QSpec's source-integrity
-  revision; AD-004 records the gap without changing dependency direction.
+- The published QSpec wire is read by reference. Its source-integrity revision
+  remains inconsistent with IR's two-member source references after IR-1273
+  was canceled; AD-004 routes the owner-spec correction without changing
+  dependency direction.
 - IR uses the released quire-cli lock checker. Its removal of the copied AWK
   checker does not establish lock qualification for QSL, CG or RT.
 
@@ -116,6 +118,6 @@ question of whether to extract them is closed by current manifests.
 | Risk or open work | Owner and control |
 | --- | --- |
 | RT's ported expression checker remains under `src/exact/expression.rs` beside the shared evaluator target | RT runtime-maintainers own IR-1009's bounded exception and its expiry at the usable shared `no_std + alloc` evaluator cutover; RT AD-004:150-159,204-206 leaves FR-275 end-state completion open. |
-| QSpec's source-integrity wire outruns IR's strict reader | IR-1273 is deferred under the MVP scope decision; AD-004 keeps published and implemented shapes separate, while QSpec FR-322/FR-323 and QSL FR-518 require owner-led rescope. |
+| QSpec's source-integrity text conflicts with the canceled IR-1273 decision | QSpec FR-322/FR-323 and QSL FR-518 require owner-led correction; AD-004 keeps published and implemented shapes distinct until then. |
 | CG's direct IR-root edge outlives its Kani outcome use | CG owns the import audit (AD-006); no bridge is added to IR. |
 | A first-party lock resolves two revisions of the same crate | Each consuming repository owns its lock qualification. IR invokes `quire check-lock` (`Makefile:188-192`); CG `make deny` currently invokes only `cargo deny check` (`bec3f380`, `Makefile:145-147`), and IR-1292 owns that missing CG gate. |
