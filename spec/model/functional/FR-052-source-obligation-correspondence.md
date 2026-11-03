@@ -181,10 +181,11 @@ accepts an arbitrary row slice and a caller-chosen completion flag. The adapter
 shall enumerate the complete named scope from its selected owner object; it
 shall retain every emitted row and advance to the owner's normal end before
 issuing `Complete`. Any early return, cancellation, capacity refusal, parser
-failure, missing selected module, or unfinished type admission shall issue
-`Incomplete` and retain the original typed cause, including rows emitted before
-the stop. In particular, QSL type-work exhaustion and
-`TypeDisposition::Unfinished` remain separate causes. An adapter must not
+failure, missing selected module, or, where the owner path reports it,
+unfinished type admission shall issue `Incomplete` and retain the original
+typed cause, including rows emitted before the stop. In particular, on a QSL
+owner path that reports `TypeDisposition::Unfinished`, QSL type-work
+exhaustion and that stop remain separate causes. An adapter must not
 translate an absent stop cause into `Complete`.
 
 Quire owns issuance of the authored-criterion outcome for its selected corpus
@@ -208,8 +209,8 @@ lossless typed stop projection. Producer delivery and these controls alone do
 not establish the full census, which remains Planned/UNRUN.
 
 The neutral stop projection is closed over owner paths that actually exist.
-QSL has two inventory paths. Its composed-lane
-`checking::source_inventory::qsl_inventory` projects
+QSL's implemented inventory is its composed-lane
+`checking::source_inventory::qsl_inventory`. It projects
 `TypeReport::exhaustion()` to
 `SourceInventoryIncompleteReason::TypeWorkExhausted` with dimension, limit,
 prior, requested charge and site; it projects `TypeDisposition::Unfinished`
@@ -217,13 +218,13 @@ to `TypeAdmissionUnfinished` with the declaration handle. That lane reports
 `Unfinished` with no type-work exhaustion, for example when binding stopped
 before a declaration was bound or for declarations of an admitted reference
 cycle, so `TypeAdmissionUnfinished` is the only
-non-`Complete` projection of that stop and the model keeps it. QSL's spine
-`qsl_inventory` (QSL FR-514) has no admission-unfinished stop: it maps a stage
-limit to `TypeWorkExhausted` and never produces `TypeAdmissionUnfinished`.
-How the spine's stage and setting name are carried in `SourceTypeExhaustion`
-is open under QSL-1581. `TypeAdmissionUnfinished` is retired, with no
-replacement, by the change that deletes the composed-lane inventory
-(QSL-868, QSL-830). An IR V2 reader
+non-`Complete` projection of that stop and the model keeps it. The spine
+`qsl_inventory` that QSL FR-514 specifies, not yet built (QSL-1533), has no
+admission-unfinished stop: it maps a stage limit to `TypeWorkExhausted` and
+never produces `TypeAdmissionUnfinished`. How the spine's stage and setting
+name are carried in `SourceTypeExhaustion` is open under QSL-1581.
+`TypeAdmissionUnfinished` is removed, with no replacement, under IR-1304 once
+QSL deletes the composed-lane inventory (QSL-868, QSL-830). An IR V2 reader
 limit shall retain the existing model-owned `CheckedPackageIncomplete`
 payload (`CheckedPackageLimit`, limit, consumed and optional `JsonPointer`)
 in a distinct `IrV2ReadLimit` cause, never a message string. Where an owner
