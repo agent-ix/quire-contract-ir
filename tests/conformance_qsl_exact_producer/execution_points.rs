@@ -69,7 +69,7 @@ fn main() {
         .map(|(name, point)| ((*name).to_owned(), point.clone()))
         .collect();
     let compiled = compile_package_with_execution_points(
-        SourceIdentity::new("agent-ix", "test:execution-points", "fixture", "fixture:1"),
+        SourceIdentity::new("agent-ix", "test:execution-points"),
         "execution-points".to_owned(),
         "execution-points.native",
         source.as_bytes(),
