@@ -3,7 +3,8 @@
 //! Vector origin/path/term facts remain authoritative owner data, read in place.
 
 use crate::fixture_support::{
-    canonical, evidence_for, positive_operation_identities, refresh_identity,
+    canonical, evidence_for, positive_operation_identities, refresh_identity, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::CheckedProtocolLocationReadError;
@@ -53,15 +54,23 @@ fn fixture(mut rows: Vec<Value>) -> (Value, usize) {
 }
 
 fn published_leaf_fixture(vector: &Value) -> Value {
-    let mut wire = positive_operation_identities();
+    let mut wire = v2_all_families();
+    let call = positive_operation_identities()["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["body"]["term"] == "application")
+        .unwrap()
+        .clone();
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(call);
+    settle(&mut wire);
     let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
     let application = nodes
         .iter()
         .find(|node| node["node_tag"] == "expression" && node["body"]["term"] == "application")
-        .unwrap();
-    let leaf = nodes
-        .iter()
-        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "literal")
         .unwrap();
     let published_nodes = vector["graph"]["nodes"].as_array().unwrap();
     let rows = vector["value"].as_array().unwrap();
@@ -72,16 +81,20 @@ fn published_leaf_fixture(vector: &Value) -> Value {
                 .iter()
                 .find(|node| node["node_id"] == row["application"])
                 .expect("published row names a graph node");
-            let selected = if published["node_tag"] == "value"
-                || (published["node_tag"] == "expression"
-                    && published["semantic_form"] == "reference")
-            {
-                leaf
-            } else {
-                assert_eq!(published["node_tag"], "expression");
-                assert_eq!(published["body"]["term"], "application");
-                application
-            };
+            let selected =
+                if published["node_tag"] == "value" || published["semantic_form"] == "reference" {
+                    nodes
+                        .iter()
+                        .find(|node| {
+                            node["node_tag"] == published["node_tag"]
+                                && node["semantic_form"] == published["semantic_form"]
+                        })
+                        .expect("admitted fixture contains the published leaf form")
+                } else {
+                    assert_eq!(published["node_tag"], "expression");
+                    assert_eq!(published["body"]["term"], "application");
+                    application
+                };
             let mut bound = row.clone();
             bound["application"] = selected["node_id"].clone();
             bound["occurrence"] = selected["occurrences"][0].clone();
