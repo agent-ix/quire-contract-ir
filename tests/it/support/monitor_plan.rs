@@ -336,12 +336,18 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
         })
         .collect();
     let activation = record(&mut wire, activation_fields, "Activation");
+    let activation_position = position(&wire, &activation);
+    rekey(&mut wire, activation_position);
+    let activation = wire["semantic_graph"]["nodes"][activation_position]["node_id"].clone();
     let activations = type_node(
         &mut wire,
         "sequence",
         aggregate(vec![reference(&activation)]),
         "Activations",
     );
+    let activations_position = position(&wire, &activations);
+    rekey(&mut wire, activations_position);
+    let activations = wire["semantic_graph"]["nodes"][activations_position]["node_id"].clone();
     let fields = facts["state"]["fields"]
         .as_array()
         .unwrap()
@@ -372,6 +378,9 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
             "State",
         )
     };
+    let state_position = position(&wire, &state);
+    rekey(&mut wire, state_position);
+    let state = wire["semantic_graph"]["nodes"][state_position]["node_id"].clone();
     let inputs = record(&mut wire, vec![], "Inputs");
     let scope = record(&mut wire, vec![], "Scope");
     let mut payloads = BTreeMap::new();

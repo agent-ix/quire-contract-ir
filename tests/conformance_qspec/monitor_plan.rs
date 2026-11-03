@@ -104,8 +104,13 @@ fn assert_activation_status_type(wire: &Value, expected: &str) {
 fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
     let vectors = recipes();
     let mut status_cases = BTreeSet::new();
+    let mut position_refusals = BTreeSet::new();
     let mut base_key = None;
     for case in vectors["cases"].as_array().unwrap() {
+        if matches!(case["id"].as_str(), Some("MP-74" | "MP-75" | "MP-76")) {
+            assert!(position_refusals.insert(case["id"].as_str().unwrap()));
+            assert_eq!(case["expected"], "refused", "{}", case["id"]);
+        }
         let mut facts = vectors["base"].clone();
         patch(&mut facts, &case["set"]);
         let (wire, n) = materialize(&facts);
@@ -141,9 +146,7 @@ fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
                 ));
             }
             if let Some(base) = base_key.as_ref() {
-                if !matches!(case["id"].as_str(), Some("MP-81" | "MP-82")) {
-                    assert_ne!(plan.structural_key(), base, "{} identity", case["id"]);
-                }
+                assert_ne!(plan.structural_key(), base, "{} identity", case["id"]);
             } else {
                 base_key = Some(plan.structural_key().clone());
             }
@@ -186,6 +189,10 @@ fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
         }
     }
     assert_eq!(status_cases, BTreeSet::from(["MP-01", "MP-81", "MP-82"]));
+    assert_eq!(
+        position_refusals,
+        BTreeSet::from(["MP-74", "MP-75", "MP-76"])
+    );
     assert_eq!(
         vectors["gap_cases"]["calls"].as_array().unwrap().len(),
         3,
