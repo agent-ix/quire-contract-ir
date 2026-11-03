@@ -8091,6 +8091,74 @@ fn protocol_queue_rejects_negative_literal_capacity() {
     );
 }
 
+/// QSpec FR-465-AC-10 (TC-947 CH13a, CH14a): a channel's delivery text admits
+/// a canonical count interval `[lo,hi]` with `lo <= hi` beside the four policy
+/// words, and refuses every other spelling `malformed_wire` at the term.
+/// Trace: FR-038-AC-286
+#[trace("TC-947")]
+#[test]
+fn protocol_channel_delivery_admits_canonical_count_interval() {
+    let delivery = |spelling: &str| {
+        let (mut package, queue) = package_with_member_queue();
+        let target = package["semantic_graph"]["nodes"][queue]["body"]["arguments"][0]["value"]
+            ["target"]
+            .clone();
+        let channel = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"] == target)
+            .expect("the queue's channel");
+        package["semantic_graph"]["nodes"][channel]["body"]["arguments"][4]["value"]["value"] =
+            json!(spelling);
+        settle(&mut package);
+        (read(&package), channel)
+    };
+    for admitted in [
+        "unknown",
+        "at-most-once",
+        "at-least-once",
+        "exactly-once-premise",
+        "[0,3]",
+        "[0,0]",
+        "[2,2]",
+        "[0,18446744073709551615]",
+    ] {
+        assert!(
+            matches!(
+                delivery(admitted).0,
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "{admitted} is admitted"
+        );
+    }
+    for refused in [
+        "[4,3]",
+        "[0, 3]",
+        "[00,3]",
+        "[+0,3]",
+        "[-1,3]",
+        "[0.5,3]",
+        "[0,18446744073709551616]",
+        "[3]",
+        "[0,3",
+        "0,3",
+        "[0,3]x",
+        "[,3]",
+        "exactly-once",
+    ] {
+        let (result, channel) = delivery(refused);
+        assert_eq!(
+            result,
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                &format!("/semantic_graph/nodes/{channel}/body/arguments/4/value"),
+            ),
+            "{refused} refuses malformed_wire at the delivery term"
+        );
+    }
+}
+
 /// Trace: FR-038-AC-287
 #[trace("TC-947")]
 #[test]

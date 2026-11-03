@@ -414,6 +414,53 @@ pub(super) fn text_value(term: &CheckedTerm) -> Option<&str> {
     }
 }
 
+/// A channel's `delivery` premise as QSpec FR-465 spells it: one of the four
+/// policy words, or a per-send delivery count interval `[lo,hi]`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ChannelDelivery {
+    /// `unknown`: duplication and loss are both possible.
+    Unknown,
+    /// `at-most-once`: loss is possible, duplication is not.
+    AtMostOnce,
+    /// `at-least-once`: duplication is possible, loss is not.
+    AtLeastOnce,
+    /// `exactly-once-premise`: an authored premise of one delivery per send.
+    ExactlyOncePremise,
+    /// `[lo,hi]`: one send produces `d` deliveries with `lo <= d <= hi`.
+    Between { lo: u64, hi: u64 },
+}
+
+impl ChannelDelivery {
+    /// Parses a delivery text. An interval is canonical: no space, decimal
+    /// naturals with no sign and no leading zero, at most `u64::MAX`, and
+    /// `lo <= hi`. Any other text is `None`.
+    #[string_edge]
+    pub(super) fn parse(text: &str) -> Option<Self> {
+        match text {
+            "unknown" => Some(Self::Unknown),
+            "at-most-once" => Some(Self::AtMostOnce),
+            "at-least-once" => Some(Self::AtLeastOnce),
+            "exactly-once-premise" => Some(Self::ExactlyOncePremise),
+            _ => {
+                let (lo, hi) = text.strip_prefix('[')?.strip_suffix(']')?.split_once(',')?;
+                let (lo, hi) = (canonical_natural(lo)?, canonical_natural(hi)?);
+                (lo <= hi).then_some(Self::Between { lo, hi })
+            }
+        }
+    }
+}
+
+/// A non-empty run of ASCII digits with no leading zero (`0` itself is
+/// admitted) that fits `u64`.
+fn canonical_natural(numeral: &str) -> Option<u64> {
+    let digits_only = !numeral.is_empty() && numeral.bytes().all(|byte| byte.is_ascii_digit());
+    let leading_zero = numeral.len() > 1 && numeral.starts_with('0');
+    if !digits_only || leading_zero {
+        return None;
+    }
+    numeral.parse().ok()
+}
+
 #[string_edge]
 fn clause_activation_fits(term: &CheckedTerm) -> bool {
     let Some(fields) = members(term) else {
@@ -728,21 +775,19 @@ fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTer
         }
         (ProtocolForm::Channel, "channel") => {
             let delivery = argument(arguments, 4).and_then(text_value);
-            matches!(
-                delivery,
-                Some("unknown" | "at-most-once" | "at-least-once" | "exactly-once-premise")
-            ) && argument(arguments, 3).is_some_and(|ordering| {
-                group_fields_fit(ordering, &[("kind", Shape::Text)])
-                    && argument_text(ordering, 0) == Some("unordered")
-                    || group_fields_fit(
-                        ordering,
-                        &[
-                            ("kind", Shape::Text),
-                            ("binder", Shape::Reference),
-                            ("key", Shape::Term),
-                        ],
-                    ) && argument_text(ordering, 0) == Some("fifo")
-            })
+            delivery.and_then(ChannelDelivery::parse).is_some()
+                && argument(arguments, 3).is_some_and(|ordering| {
+                    group_fields_fit(ordering, &[("kind", Shape::Text)])
+                        && argument_text(ordering, 0) == Some("unordered")
+                        || group_fields_fit(
+                            ordering,
+                            &[
+                                ("kind", Shape::Text),
+                                ("binder", Shape::Reference),
+                                ("key", Shape::Term),
+                            ],
+                        ) && argument_text(ordering, 0) == Some("fifo")
+                })
         }
         (ProtocolForm::Queue, "queue") => {
             let Some(capacity) = argument(arguments, 1) else {
@@ -1068,17 +1113,13 @@ fn enum_value_defect(
         ),
         (ProtocolForm::Channel, "channel") => {
             invalid_enum_at(arguments, 3, Some((0, true)), &["unordered", "fifo"]).or_else(|| {
-                invalid_enum_at(
-                    arguments,
-                    4,
-                    None,
-                    &[
-                        "unknown",
-                        "at-most-once",
-                        "at-least-once",
-                        "exactly-once-premise",
-                    ],
-                )
+                argument(arguments, 4)
+                    .and_then(text_value)
+                    .filter(|text| ChannelDelivery::parse(text).is_none())
+                    .map(|_| ProtocolLayoutWireDefect::EnumValue {
+                        argument: 4,
+                        member: None,
+                    })
             })
         }
         (ProtocolForm::Queue, "queue") => {
@@ -5729,6 +5770,62 @@ mod tests {
 
     fn boolean() -> Value {
         id('b')
+    }
+
+    /// QSpec FR-465-AC-10: the delivery text is one of four policy words or a
+    /// canonical count interval `[lo,hi]` of `u64` naturals with `lo <= hi`.
+    /// Trace: FR-038-AC-286
+    #[trace("TC-947")]
+    #[test]
+    fn channel_delivery_parses_policy_words_and_canonical_intervals() {
+        for (text, expected) in [
+            ("unknown", ChannelDelivery::Unknown),
+            ("at-most-once", ChannelDelivery::AtMostOnce),
+            ("at-least-once", ChannelDelivery::AtLeastOnce),
+            ("exactly-once-premise", ChannelDelivery::ExactlyOncePremise),
+            ("[0,3]", ChannelDelivery::Between { lo: 0, hi: 3 }),
+            ("[0,0]", ChannelDelivery::Between { lo: 0, hi: 0 }),
+            ("[2,2]", ChannelDelivery::Between { lo: 2, hi: 2 }),
+            (
+                "[0,18446744073709551615]",
+                ChannelDelivery::Between {
+                    lo: 0,
+                    hi: u64::MAX,
+                },
+            ),
+        ] {
+            assert_eq!(ChannelDelivery::parse(text), Some(expected), "{text}");
+        }
+        assert_ne!(
+            ChannelDelivery::parse("[0,3]"),
+            ChannelDelivery::parse("[0,4]")
+        );
+        assert_ne!(
+            ChannelDelivery::parse("[1,1]"),
+            ChannelDelivery::parse("exactly-once-premise")
+        );
+        for text in [
+            "[4,3]",
+            "[0, 3]",
+            "[ 0,3]",
+            "[00,3]",
+            "[0,03]",
+            "[+0,3]",
+            "[-1,3]",
+            "[0.5,3]",
+            "[0,18446744073709551616]",
+            "[3]",
+            "[0,3",
+            "0,3]",
+            "[0,3]x",
+            "[,3]",
+            "[0,]",
+            "[0,1,2]",
+            "",
+            "exactly-once",
+        ] {
+            assert_eq!(ChannelDelivery::parse(text), None, "{text}");
+        }
     }
 
     /// QSpec TC-946 covers the twenty names and seven forms in FR-464.
