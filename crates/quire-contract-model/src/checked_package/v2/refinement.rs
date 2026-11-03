@@ -3946,7 +3946,7 @@ mod tests {
     /// QSpec FR-465 and FR-426: a delivery count interval enables neither the
     /// `duplicate` nor the `lose` step, so it contributes no channel class;
     /// the four policy words keep their classes.
-    /// Trace: FR-038-AC-286
+    /// Trace: FR-038-AC-325
     #[trace("TC-947")]
     #[test]
     fn channel_classes_follow_delivery_and_an_interval_has_none() {
