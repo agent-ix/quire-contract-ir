@@ -83,7 +83,7 @@ fn main() {
     let wire: Value = serde_json::from_slice(compiled.bytes()).expect("emitted envelope");
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document("test/orders", &document)
+        .insert_domain_package_document("test/orders", document.as_slice())
         .expect("selected owner document");
     for feature in wire["lock"]["required_features"]
         .as_array()
@@ -135,7 +135,10 @@ fn main() {
             ordinal: entry["ordinal"].as_u64().expect("claim ordinal"),
         };
         assert!(package
-            .node(&id)
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.node_id == id)
             .expect("retained node")
             .occurrences
             .contains(&claim));
