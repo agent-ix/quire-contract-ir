@@ -2545,11 +2545,18 @@ fn semantic_ir_value_type(value: &Value) -> Option<ValueBounds> {
             (lower <= upper).then_some(ValueBounds::Integer(IntegerBounds { lower, upper }))
         }
         "rational" => {
+            let rational_integer = |keyword| -> Option<i128> {
+                let operands = constraint(keyword)?.get("operands")?.as_object()?;
+                if operands.len() != 1 {
+                    return None;
+                }
+                operands.get("value")?.as_i64().map(i128::from)
+            };
             let bounds = RationalBounds {
-                numerator_min: integer("numerator_min")?,
-                numerator_max: integer("numerator_max")?,
-                denominator_min: integer("denominator_min")?,
-                denominator_max: integer("denominator_max")?,
+                numerator_min: rational_integer("minNumerator")?,
+                numerator_max: rational_integer("maxNumerator")?,
+                denominator_min: rational_integer("minDenominator")?,
+                denominator_max: rational_integer("maxDenominator")?,
             };
             (bounds.numerator_min <= bounds.numerator_max
                 && bounds.denominator_min > 0

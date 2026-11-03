@@ -1083,6 +1083,17 @@ pub enum CheckedMemberType {
         /// The inclusive upper bound.
         upper: i128,
     },
+    /// `Rational[numerator_min, numerator_max; denominator_min, denominator_max]`.
+    RationalRange {
+        /// Inclusive minimum numerator.
+        numerator_min: i128,
+        /// Inclusive maximum numerator.
+        numerator_max: i128,
+        /// Inclusive minimum denominator.
+        denominator_min: i128,
+        /// Inclusive maximum denominator.
+        denominator_max: i128,
+    },
     /// `Text[min, max; profile]` from a selected value type.
     TextBounds {
         /// Inclusive minimum text length.
@@ -1155,6 +1166,12 @@ impl From<&MemberType> for CheckedMemberType {
             MemberType::IntRange(range) => Self::IntRange {
                 lower: range.lower,
                 upper: range.upper,
+            },
+            MemberType::RationalRange(bounds) => Self::RationalRange {
+                numerator_min: bounds.numerator_min,
+                numerator_max: bounds.numerator_max,
+                denominator_min: bounds.denominator_min,
+                denominator_max: bounds.denominator_max,
             },
             MemberType::TextBounds(bounds) => Self::TextBounds {
                 lower: bounds.lower,

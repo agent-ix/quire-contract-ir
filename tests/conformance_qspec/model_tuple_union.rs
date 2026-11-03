@@ -482,12 +482,13 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
                     }
                 }
                 for (member, keyword) in [
-                    ("numerator_min", "numerator_min"),
-                    ("numerator_max", "numerator_max"),
-                    ("denominator_min", "denominator_min"),
-                    ("denominator_max", "denominator_max"),
+                    ("numerator_min", "minNumerator"),
+                    ("numerator_max", "maxNumerator"),
+                    ("denominator_min", "minDenominator"),
+                    ("denominator_max", "maxDenominator"),
                 ] {
                     if let Some(bound) = declared[member].as_str() {
+                        let bound = bound.parse::<i64>().expect("published rational bound");
                         constraints.push(json!({
                             "identity":format!("{identity}/constraint/{keyword}"),
                             "appliesTo":identity,

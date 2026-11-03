@@ -192,6 +192,7 @@ enum Ty {
     JsonObject,
     Clock,
     Range(i128, i128),
+    RationalRange(i128, i128, i128, i128),
     TextBounds(u64, u64, String),
     /// `Reference<O>`, by the key of `O`'s model declaration node.
     Reference(String),
@@ -235,6 +236,17 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         CheckedMemberType::JsonObject => Ty::JsonObject,
         CheckedMemberType::Clock => Ty::Clock,
         CheckedMemberType::IntRange { lower, upper } => Ty::Range(*lower, *upper),
+        CheckedMemberType::RationalRange {
+            numerator_min,
+            numerator_max,
+            denominator_min,
+            denominator_max,
+        } => Ty::RationalRange(
+            *numerator_min,
+            *numerator_max,
+            *denominator_min,
+            *denominator_max,
+        ),
         CheckedMemberType::TextBounds {
             lower,
             upper,
@@ -319,6 +331,42 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
                 body,
             );
             nodes.entry(key.clone()).or_insert(node);
+            key
+        }
+        Ty::RationalRange(numerator_min, numerator_max, denominator_min, denominator_max) => {
+            let integer = type_nodes(&Ty::Integer, nodes);
+            let rational = "scalar_type/rational".to_owned();
+            nodes.entry(rational.clone()).or_insert_with(|| {
+                wire_node(
+                    &rational,
+                    "scalar_type",
+                    "rational",
+                    &rational,
+                    &[],
+                    empty(),
+                )
+            });
+            let binding = |name: &str, value: i128| {
+                json!({"term":"binding","name":name,
+                "value":{"term":"literal","type":node_id(&integer),
+                "value":value.to_string(),"value_kind":"integer"}})
+            };
+            let body = json!({"term":"aggregate","members":[
+                binding("numerator_min", *numerator_min),
+                binding("numerator_max", *numerator_max),
+                binding("denominator_min", *denominator_min),
+                binding("denominator_max", *denominator_max)]});
+            let key = format!("bounded_domain/rational_range/{numerator_min}/{numerator_max}/{denominator_min}/{denominator_max}");
+            nodes.entry(key.clone()).or_insert_with(|| {
+                wire_node(
+                    &key,
+                    "bounded_domain",
+                    "rational_range",
+                    &rational,
+                    &[&rational],
+                    body,
+                )
+            });
             key
         }
         Ty::TextBounds(lower, upper, profile) => {
@@ -3525,6 +3573,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
         Ty::Range(lower, upper) if upper > lower => Ty::Range(*lower, upper - 1),
         Ty::Range(lower, upper) if *lower < i128::MAX => Ty::Range(*lower, upper + 1),
         Ty::Range(lower, upper) => Ty::Range(lower - 1, *upper),
+        Ty::RationalRange(..) => Ty::Boolean,
         Ty::TextBounds(lower, upper, profile) if upper > lower => {
             Ty::TextBounds(*lower, upper - 1, profile.clone())
         }
@@ -3822,6 +3871,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::JsonObject => 18,
             CheckedMemberType::Clock => 12,
             CheckedMemberType::IntRange { .. } => 2,
+            CheckedMemberType::RationalRange { .. } => 19,
             CheckedMemberType::TextBounds { .. } => 13,
             CheckedMemberType::Reference(_) => 3,
             CheckedMemberType::Record(_) => 6,
