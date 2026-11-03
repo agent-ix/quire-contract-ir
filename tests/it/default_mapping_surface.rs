@@ -98,8 +98,8 @@ impl Scratch {
                         .as_u64()
                         .and_then(|n| usize::try_from(n).ok());
                     span["is_primary"] == true
-                        && span["file_name"].as_str().map(Path::new)
-                            == Some(self.0.join("src/main.rs").as_path())
+                        && span["file_name"].as_str().map(|path| self.0.join(path))
+                            == Some(self.0.join("src/main.rs"))
                         && start
                             .zip(end)
                             .and_then(|(start, end)| source.get(start..end))
