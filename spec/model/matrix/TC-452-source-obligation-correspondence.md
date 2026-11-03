@@ -131,8 +131,14 @@ For FR-052-AC-26, supply a QSL selected checked request to its owner adapter.
 Compare all `CheckedGraph::requirements()` keys and native pending-obligation
 site/kind tuples against independent owner output, including each key and site
 field, an empty scope and one omitted-row mutation with an adjusted count.
-Trigger native type-work exhaustion and unfinished admission separately, and
-compare every retained typed cause field and partial row with the owner report.
+Trigger native type-work exhaustion and compare every retained typed cause
+field and partial row with the owner report. The rest of this step depends on
+the selected QSL owner path. On the composed-lane path, separately trigger
+unfinished admission with no type-work exhaustion and compare its declaration
+handle and partial rows; it is `TypeAdmissionUnfinished`, distinct from
+`TypeWorkExhausted`. On the spine path (QSL FR-514), set a stage limit below
+the unit's need: the outcome is `Incomplete` with `TypeWorkExhausted`, and no
+spine input yields `TypeAdmissionUnfinished`.
 Verify that no caller-authored rows/count/completion flag or unsupported
 cancellation can produce `Complete` or a fabricated stop.
 
