@@ -671,7 +671,14 @@ impl SourceInventoryOutcome {
                         .map_err(|_| SourceInventoryOutcomeError::AllocationFailed)?;
                     items.push(row);
                 }
-                Ok(None) => break SourceInventoryCompleteness::Complete,
+                Ok(None) => {
+                    if items.iter().any(|row: &SourceInventoryRow| {
+                        matches!(row.identity(), SourceInventoryIdentity::RequirementForm(_))
+                    }) {
+                        return Err(SourceInventoryOutcomeError::RequirementFormInComplete);
+                    }
+                    break SourceInventoryCompleteness::Complete;
+                }
                 Err(cause) => {
                     if cause.owner() != owner {
                         return Err(SourceInventoryOutcomeError::StopOwnerMismatch);
