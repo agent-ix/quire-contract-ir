@@ -99,6 +99,17 @@ aliases (including an alias chain), and admitted unbounded `Bytes` and
 QSpec refusal codes, causes and loci. A tuple defect precedes a later variant
 defect, including when the tuple's type has no admitted V2 mapping.
 
+A selected value type with the four FR-154 Rational bounds SHALL retain its
+numerator and denominator limits through intake and resolve to the corresponding
+bounded Rational member type at a tuple position and a variant payload. For the
+published `TK-36` control, `Ratio` with bounds `[-3, 7; 1, 12]` is admitted in
+both places and resolves through QSpec FR-322's `bounded_domain`/`rational_range`
+shape. This admission SHALL NOT turn a native Rational or a package Rational
+value type with no `constraints` into a bounded type: the unbounded `TK-22`
+payload and `TK-24` position retain their respective published step-1
+refusal codes, causes, loci and reader stages. FR-154's earlier malformed-bound
+refusals and FR-038's later graph and owner checks retain their precedence.
+
 The writer of [FR-051](./FR-051-encode-checked-package-v2-envelope.md) SHALL
 encode supplied `model`/`tuple_value_type` and payload-bearing
 `model`/`variant_type` nodes through the same typed envelope, retaining each
@@ -130,7 +141,7 @@ silently skipped by an in-repo fixed count or range.
 | FR-069-AC-5 | The published `union_value`, `enum_value`, equality, case-arm and structural-leaf cases pass through the production reader: a nullary union case uses an empty-payload `union_value`; union-family `enum_value` and enum-family `union_value` refuse with the specified typed mismatch; recursive tuple/union declarations admit without a graph recursion group and their leaf walk terminates with QSpec's reachable-text rule. | Test |
 | FR-069-AC-6 | Withdrawn: this historical numbered intake and wire replay criterion included a stale tuple key refusal. No content-derived tuple key or stale-key comparison remains under QSpec FR-322-AC-160 and FR-322-AC-169 (withdrawn); the refusal has no subject. Its former `TK-01` through `TK-35` and `TW-00` through `TW-26` case numbers remain here for trace history. FR-069-AC-8 requires replay of every currently published tuple/union intake and wire case, including admitted and refused controls, without a fixed count. | Withdrawn |
 | FR-069-AC-7 | `encode_checked_package_v2` emits the supplied tuple and payload-variant nodes under the QSpec closed V2 envelope and preserves the supplied package name and selection rows. The positive typed package encodes canonically and its bytes read back with the same admitted positions, payload types, structural node ids and package name; a malformed or duplicate node id is refused by the reader. | Test |
-| FR-069-AC-8 | PLANNED/UNRUN (IR-1141). make conformance-qspec loads the current positive fixture, model-tuple-union vectors and selected document directly from QUIRE_SPECIFICATION_DIR; it replays every published tuple/union intake and wire case against production intake and reader paths, compares admission or refusal code, cause, RFC 6901 location and reader stage with the published result, and fails on an admitted partial package or panic for a malformed declaration. Missing or malformed files and omitted cases fail. No QSpec artifact is copied into IR, and no identity hash is computed. | Test, Inspection |
+| FR-069-AC-8 | PLANNED/UNRUN (IR-1141; bounded Rational slice planned until IR-1059). make conformance-qspec loads the current positive fixture, model-tuple-union vectors and selected document directly from QUIRE_SPECIFICATION_DIR; it replays every published tuple/union intake and wire case against production intake and reader paths, compares admission or refusal code, cause, RFC 6901 location and reader stage with the published result, and fails on an admitted partial package or panic for a malformed declaration. The published `TK-36` case admits through both production paths with its tuple position and variant payload resolving to `Rational[-3, 7; 1, 12]` and the selected `bounded_domain`/`rational_range` shape; `TK-22` continues to refuse `unsupported_construct`/`declaration-form` at `/variant_types/0/cases/0/payloadType`, and `TK-24` continues to refuse `invalid_model_binding`/`malformed-declaration` at `/tuple_types/0/positions/0`, each at its published reader stage. Missing or malformed files and omitted cases fail. No QSpec artifact is copied into IR, and no identity hash is computed. | Test, Inspection |
 
 ## Dependencies
 
