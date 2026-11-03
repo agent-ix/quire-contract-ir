@@ -77,7 +77,7 @@ impl Encode for TemporalBinding {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         super::encode::encoded(writer, "declaration", &self.declaration)?;
-        super::encode::member(writer, "occurrence", self.occurrence)?;
+        super::encode::member(writer, "occurrence", &self.occurrence)?;
         super::encode::member(writer, "clock_name", self.clock_name.as_ref())?;
         super::encode::member(writer, "clock", &self.clock)?;
         writer.end_object()
