@@ -4751,7 +4751,7 @@ mod structural_member_type_tests {
             .node_id("example")
             .expect("rational range");
         assert_eq!(
-            serde_json::to_value(id).expect("encode rational range")["path"],
+            serde_json::to_value(&id).expect("encode rational range")["path"],
             json!(["bounded_domain","rational_range","numerator_min",
                 {"package":"example","path":["scalar_type","integer"],"ordinal":0},
                 "-3","numerator_max","7","denominator_min","1","denominator_max","12"])
@@ -4772,20 +4772,9 @@ mod structural_member_type_tests {
             .node_id("example")
             .expect("carried Rational");
         assert_eq!(
-            carried.path[0],
-            super::CheckedNodePathSegment::Name("scalar_type".into())
-        );
-        assert_eq!(
-            carried.path[1],
-            super::CheckedNodePathSegment::Name("carried_quantity".into())
-        );
-        assert_eq!(
-            carried.path[4],
-            super::CheckedNodePathSegment::Name("rounding".into())
-        );
-        assert_eq!(
-            carried.path[6],
-            super::CheckedNodePathSegment::Name("exact".into())
+            serde_json::to_value(carried).expect("encode carried rational")["path"],
+            json!(["scalar_type", "carried_quantity", unit, id, "rounding",
+                {"package":"example","path":["scalar_type","text"],"ordinal":0}, "exact"])
         );
         for bad in [json!("-3"), json!(-3.5), json!(null)] {
             assert!(
