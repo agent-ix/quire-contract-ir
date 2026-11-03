@@ -1292,7 +1292,7 @@ fn encode_package(package: &CheckedPackageV2) -> Vec<u8> {
             refinement_step_rows: package.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
-            temporal_clause_names: None,
+            temporal_clause_names: package.temporal_clause_names(),
             operation_effects: None,
             checked_term_data: package.checked_term_data(),
             temporal_bindings: package.temporal_bindings(),

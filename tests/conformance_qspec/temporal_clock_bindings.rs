@@ -58,6 +58,12 @@ fn apply_occurrence_patch(package: &mut Value, patch: &Value, clause: &Value) {
         ("replace", Value::Object(members)) => {
             *members.get_mut(member).expect("replacement member") = value;
         }
+        ("add", Value::Object(members)) => {
+            assert!(
+                members.insert(member.to_owned(), value).is_none(),
+                "new member"
+            );
+        }
         ("remove", Value::Object(members)) => {
             members.remove(member).expect("removed member");
         }
@@ -68,24 +74,21 @@ fn apply_occurrence_patch(package: &mut Value, patch: &Value, clause: &Value) {
     }
 }
 
-/// Trace: FR-038-AC-437, FR-038-AC-438, FR-038-AC-439, FR-038-AC-440, TC-048.
+/// Trace: FR-038-AC-437, FR-038-AC-438, FR-038-AC-439, FR-038-AC-440, FR-038-AC-441, TC-048.
 #[trace(
     "TC-048",
     "FR-038-AC-437",
     "FR-038-AC-438",
     "FR-038-AC-439",
-    "FR-038-AC-440"
+    "FR-038-AC-440",
+    "FR-038-AC-441"
 )]
 #[test]
-fn published_temporal_occurrence_rows_bind_exact_read_and_write() {
+fn published_temporal_occurrence_vectors_bind_exact_read_and_write() {
     let published = occurrence_vectors();
     let proposal = proposal_dir_of(&fixtures_dir());
     let base = published["base"].as_str().expect("published base");
-    let mut original = read_json(&proposal.join(base)).expect("published base package");
-    original
-        .as_object_mut()
-        .expect("package")
-        .remove("temporal_clause_names");
+    let original = read_json(&proposal.join(base)).expect("published base package");
     let clause = original["semantic_graph"]["nodes"][clause_index(&original)]["node_id"].clone();
     for (group, expected_count) in [
         ("positive", 2),
@@ -97,15 +100,6 @@ fn published_temporal_occurrence_rows_bind_exact_read_and_write() {
         for case in cases {
             let mut package = original.clone();
             for patch in case["patch"].as_array().expect("published patches") {
-                // Temporal clause names are a separate sidecar. Project only
-                // that sidecar away; every binding and occurrence patch remains.
-                if patch["path"]
-                    .as_str()
-                    .expect("patch path")
-                    .starts_with("/temporal_clause_names")
-                {
-                    continue;
-                }
                 apply_occurrence_patch(&mut package, patch, &clause);
             }
             let id = case["id"].as_str().expect("case id");
@@ -143,7 +137,7 @@ fn published_temporal_occurrence_rows_bind_exact_read_and_write() {
                         refinement_step_rows: admitted.refinement_step_rows(),
                     },
                     quire_contract_model::CheckedPackageSidecarsRef {
-                        temporal_clause_names: None,
+                        temporal_clause_names: admitted.temporal_clause_names(),
                         operation_effects: None,
                         checked_term_data: admitted.checked_term_data(),
                         temporal_bindings: admitted.temporal_bindings(),
@@ -166,6 +160,11 @@ fn published_temporal_occurrence_rows_bind_exact_read_and_write() {
                     round_trip.temporal_bindings(),
                     admitted.temporal_bindings(),
                     "{id}: rows retained"
+                );
+                assert_eq!(
+                    round_trip.temporal_clause_names(),
+                    admitted.temporal_clause_names(),
+                    "{id}: names retained"
                 );
             } else {
                 let CheckedPackageV2ReadResult::Refused(refusal) = outcome else {
@@ -290,6 +289,23 @@ fn add_second_clause(package: &mut Value) {
         .clone();
     source_entry["node_id"] = second_id;
     source_map.push(source_entry);
+    let mut name = package["temporal_clause_names"][0].clone();
+    name["declaration"] = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("second clause")["node_id"]
+        .clone();
+    let names = package["temporal_clause_names"]
+        .as_array_mut()
+        .expect("names");
+    names.push(name);
+    names.sort_by(|left, right| {
+        let left: CheckedNodeId = serde_json::from_value(left["declaration"].clone()).expect("id");
+        let right: CheckedNodeId =
+            serde_json::from_value(right["declaration"].clone()).expect("id");
+        left.cmp(&right)
+    });
 }
 
 fn read_temporal_package(package: &Value) -> CheckedPackageV2ReadResult {
@@ -517,7 +533,7 @@ fn temporal_clock_writer_retains_a_configured_clause_row() {
             refinement_step_rows: read.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
-            temporal_clause_names: None,
+            temporal_clause_names: read.temporal_clause_names(),
             operation_effects: None,
             checked_term_data: read.checked_term_data(),
             temporal_bindings: read.temporal_bindings(),

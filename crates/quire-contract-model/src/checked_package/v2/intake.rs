@@ -280,6 +280,7 @@ pub(super) fn decode_borrowed_wire(
         refinement_step_rows: wire.refinement_step_rows,
         checked_term_data: wire.checked_term_data,
         temporal_bindings: wire.temporal_bindings,
+        temporal_clause_names: wire.temporal_clause_names,
         schedulability_claims: wire.schedulability_claims,
         operation_effects: wire.operation_effects,
         capability_report: wire.capability_report,

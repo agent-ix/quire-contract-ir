@@ -328,7 +328,7 @@ fn published_probabilistic_claim_vectors_join_and_refuse() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         CheckedPackageSidecarsRef {
-            temporal_clause_names: None,
+            temporal_clause_names: admitted.temporal_clause_names(),
             operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
