@@ -2540,7 +2540,121 @@ fn member_identity(member: &Value, owner: &str) -> Result<Box<str>, ModelRefusal
     Ok(identity.into())
 }
 
-/// An FCD value type bound as `Int[lo, hi]` or `Text[min, max; profile]`.
+type RationalValueError = (ModelRefusal, Vec<Segment>);
+
+/// FR-154's ordered Rational value-type grammar and selected-unit resolution.
+fn rational_value_type(
+    value: &Value,
+    unit_refs: &UnitRefs,
+) -> Result<Option<ValueBounds>, RationalValueError> {
+    let malformed = |path| (ModelRefusal::malformed(), path);
+    let unsupported = |path| {
+        (
+            ModelRefusal::new(
+                CheckedPackageRefusalCode::UnsupportedConstruct,
+                CheckedPackageRefusalCause::DeclarationForm,
+            ),
+            path,
+        )
+    };
+    let constraints =
+        list(value, "constraints").map_err(|_| malformed(vec![Segment::Name("constraints")]))?;
+    let identity =
+        text(value, "identity").map_err(|_| malformed(vec![Segment::Name("identity")]))?;
+    let keywords = [
+        "minNumerator",
+        "maxNumerator",
+        "minDenominator",
+        "maxDenominator",
+    ];
+    let mut found = BTreeMap::new();
+    for (index, constraint) in constraints.iter().enumerate() {
+        let keyword = constraint
+            .get("keyword")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !keywords.contains(&keyword) {
+            return Err(unsupported(vec![
+                Segment::Name("constraints"),
+                Segment::Index(index),
+                Segment::Name("keyword"),
+            ]));
+        }
+        if constraint.get("appliesTo").and_then(Value::as_str) != Some(identity) {
+            return Err(malformed(vec![
+                Segment::Name("constraints"),
+                Segment::Index(index),
+                Segment::Name("appliesTo"),
+            ]));
+        }
+        if found.insert(keyword, (index, constraint)).is_some() {
+            return Err(malformed(vec![
+                Segment::Name("constraints"),
+                Segment::Index(index),
+                Segment::Name("keyword"),
+            ]));
+        }
+    }
+    if !constraints.is_empty() {
+        for keyword in keywords {
+            if !found.contains_key(keyword) {
+                return Err(malformed(vec![Segment::Name("constraints")]));
+            }
+        }
+    }
+    let mut numbers = Vec::with_capacity(4);
+    for keyword in keywords {
+        if let Some((index, constraint)) = found.get(keyword) {
+            let operands = constraint.get("operands").and_then(Value::as_object);
+            let number = operands
+                .filter(|operands| operands.len() == 1)
+                .and_then(|operands| operands.get("value"))
+                .and_then(Value::as_i64)
+                .ok_or_else(|| {
+                    malformed(vec![
+                        Segment::Name("constraints"),
+                        Segment::Index(*index),
+                        Segment::Name("operands"),
+                    ])
+                })?;
+            numbers.push(i128::from(number));
+        }
+    }
+    let bounds = if numbers.is_empty() {
+        None
+    } else {
+        let bounds = RationalBounds {
+            numerator_min: numbers[0],
+            numerator_max: numbers[1],
+            denominator_min: numbers[2],
+            denominator_max: numbers[3],
+        };
+        if bounds.numerator_min > bounds.numerator_max
+            || bounds.denominator_min <= 0
+            || bounds.denominator_min > bounds.denominator_max
+        {
+            return Err(unsupported(vec![Segment::Name("constraints")]));
+        }
+        Some(bounds)
+    };
+    let unit = match value.get("unit") {
+        None => None,
+        Some(Value::String(name))
+            if name.starts_with("ix://quire/unit/") && name.len() > "ix://quire/unit/".len() =>
+        {
+            Some(
+                unit_refs
+                    .get(name.as_str())
+                    .cloned()
+                    .ok_or_else(|| (ModelRefusal::missing_name(), vec![Segment::Name("unit")]))?,
+            )
+        }
+        Some(_) => return Err(malformed(vec![Segment::Name("unit")])),
+    };
+    Ok(bounds.map(|bounds| ValueBounds::Rational(bounds, unit)))
+}
+
+/// An FCD value type bound as `Int[lo, hi]`, Rational, or `Text[min, max; profile]`.
 // Reads a selected domain package document's value type.
 #[ix_trace_rs::string_edge]
 fn semantic_ir_value_type(value: &Value, unit_refs: &UnitRefs) -> Option<ValueBounds> {
@@ -2573,56 +2687,7 @@ fn semantic_ir_value_type(value: &Value, unit_refs: &UnitRefs) -> Option<ValueBo
             let (lower, upper) = (integer("min")?, integer("max")?);
             (lower <= upper).then_some(ValueBounds::Integer(IntegerBounds { lower, upper }))
         }
-        "rational" => {
-            let constraints = list(value, "constraints").ok()?;
-            if constraints.len() != 4 {
-                return None;
-            }
-            let identity = text(value, "identity").ok()?;
-            let keywords = [
-                "minNumerator",
-                "maxNumerator",
-                "minDenominator",
-                "maxDenominator",
-            ];
-            if constraints.iter().any(|constraint| {
-                !keywords.contains(
-                    &constraint
-                        .get("keyword")
-                        .and_then(Value::as_str)
-                        .unwrap_or(""),
-                ) || constraint.get("appliesTo").and_then(Value::as_str) != Some(identity)
-            }) {
-                return None;
-            }
-            let rational_integer = |keyword| -> Option<i128> {
-                let operands = constraint(keyword)?.get("operands")?.as_object()?;
-                if operands.len() != 1 {
-                    return None;
-                }
-                operands.get("value")?.as_i64().map(i128::from)
-            };
-            let bounds = RationalBounds {
-                numerator_min: rational_integer("minNumerator")?,
-                numerator_max: rational_integer("maxNumerator")?,
-                denominator_min: rational_integer("minDenominator")?,
-                denominator_max: rational_integer("maxDenominator")?,
-            };
-            let unit = match value.get("unit") {
-                None => None,
-                Some(Value::String(unit))
-                    if unit.starts_with("ix://quire/unit/")
-                        && unit.len() > "ix://quire/unit/".len() =>
-                {
-                    Some(unit_refs.get(unit.as_str())?.clone())
-                }
-                Some(_) => return None,
-            };
-            (bounds.numerator_min <= bounds.numerator_max
-                && bounds.denominator_min > 0
-                && bounds.denominator_min <= bounds.denominator_max)
-                .then_some(ValueBounds::Rational(bounds, unit))
-        }
+        "rational" => rational_value_type(value, unit_refs).ok().flatten(),
         "string" => {
             let (lower, upper) = (
                 u64::try_from(integer("minLength")?).ok()?,
@@ -3388,10 +3453,30 @@ pub(super) fn read_semantic_ir(
                 }
             }
             meaning::Kind::ValueType => {
-                model.value_types.insert(
-                    (*node).into(),
-                    semantic_ir_value_type(declared, &model.unit_refs),
-                );
+                let bounds = if declared.get("scalar").and_then(Value::as_str) == Some("rational") {
+                    match rational_value_type(declared, &model.unit_refs) {
+                        Ok(bounds) => bounds,
+                        Err((refusal, path)) => {
+                            let mut selected =
+                                SelectionRefusal::located(refusal, declared, budget)?;
+                            let type_index = *document_positions
+                                .get(node)
+                                .ok_or_else(ModelRefusal::malformed)?;
+                            let mut pointer = JsonPointer::root().key("types").index(type_index);
+                            for segment in path {
+                                pointer = match segment {
+                                    Segment::Name(name) => pointer.key(name),
+                                    Segment::Index(index) => pointer.index(index),
+                                };
+                            }
+                            selected.document_pointer = Some(pointer);
+                            return Err(selected.into());
+                        }
+                    }
+                } else {
+                    semantic_ir_value_type(declared, &model.unit_refs)
+                };
+                model.value_types.insert((*node).into(), bounds);
             }
             meaning::Kind::TupleValueType => {
                 model.tuple_types.insert((*node).into(), Vec::new());
