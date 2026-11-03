@@ -107,17 +107,10 @@ fn validate_rows(
         let (position, node) = selected.ok_or_else(|| invalid(at(index).key("application")))?;
         // A leaf owns its location on its graph node. Its occurrence and a
         // matching enclosing application location cannot make a row valid.
-        if matches!(
-            kinds.get(position),
-            Some(CheckedNodeKind::Value(_))
-                | Some(CheckedNodeKind::Expression(ExpressionForm::Reference))
-        ) {
-            return Err(invalid(at(index).key("application")));
-        }
-        if !matches!(kinds.get(position), Some(CheckedNodeKind::Expression(_)))
-            || !matches!(terms.get(position), Some(CheckedTerm::Application { .. }))
-        {
-            return Err(invalid(at(index).key("application")));
+        match (kinds.get(position), terms.get(position)) {
+            (Some(CheckedNodeKind::Expression(form)), Some(CheckedTerm::Application { .. }))
+                if *form != ExpressionForm::Reference => {}
+            _ => return Err(invalid(at(index).key("application"))),
         }
         let mut occurrence_found = false;
         for occurrence in &node.occurrences {
@@ -289,4 +282,63 @@ fn charge(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::ValueForm;
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[test]
+    #[trace("TC-048", "FR-038-AC-448")]
+    fn every_value_form_and_reference_is_ineligible_for_a_location_row() {
+        let id = json!({"package":"example","path":["value","literal","leaf"],"ordinal":0});
+        let node: RawSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id": id, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value", "semantic_form":"literal", "semantic_type":id,
+            "dependencies":[], "occurrences":[{"role":"expression","ordinal":0}],
+            "body":{"term":"reference","target":id}
+        }))
+        .unwrap();
+        let row: CheckedProtocolSemanticLocation = serde_json::from_value(json!({
+            "application":id, "occurrence":{"role":"expression","ordinal":0},
+            "term_ordinal":0,
+            "location":{"origin":{"kind":"type_declaration","name":"protocol P"},"path":[]}
+        }))
+        .unwrap();
+        let term = CheckedTerm::Reference {
+            target: node.node_id.clone(),
+        };
+        for kind in ValueForm::ALL
+            .iter()
+            .copied()
+            .map(CheckedNodeKind::Value)
+            .chain([CheckedNodeKind::Expression(ExpressionForm::Reference)])
+        {
+            let result = validate_rows(
+                "example",
+                std::slice::from_ref(&node),
+                &[kind],
+                std::slice::from_ref(&term),
+                &[],
+                std::slice::from_ref(&row),
+                &mut WorkMeter::new(u64::MAX),
+            );
+            let Err(ValidationFailure::Refused(refusal)) = result else {
+                panic!("{kind:?} must refuse its location row: {result:?}");
+            };
+            assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::InvalidValue)
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().unwrap().as_str(),
+                "/checked_term_data/protocol_locations/0/application",
+                "{kind:?}"
+            );
+        }
+    }
 }
