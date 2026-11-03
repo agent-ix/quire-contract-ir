@@ -2623,11 +2623,15 @@ fn rational_value_type(
     let bounds = if numbers.is_empty() {
         None
     } else {
+        let [numerator_min, numerator_max, denominator_min, denominator_max] = numbers.as_slice()
+        else {
+            return Err(malformed(vec![Segment::Name("constraints")]));
+        };
         let bounds = RationalBounds {
-            numerator_min: numbers[0],
-            numerator_max: numbers[1],
-            denominator_min: numbers[2],
-            denominator_max: numbers[3],
+            numerator_min: *numerator_min,
+            numerator_max: *numerator_max,
+            denominator_min: *denominator_min,
+            denominator_max: *denominator_max,
         };
         if bounds.numerator_min > bounds.numerator_max
             || bounds.denominator_min <= 0
@@ -4769,8 +4773,21 @@ mod structural_member_type_tests {
         );
         for bad in [json!("-3"), json!(-3.5), json!(null)] {
             assert!(
-                super::semantic_ir_value_type(&declared(constraints(bad)), &unit_refs).is_none(),
+                super::semantic_ir_value_type(&declared(constraints(bad.clone())), &unit_refs)
+                    .is_none(),
                 "wrong bound carrier must not become a bounded type"
+            );
+            let (refusal, path) =
+                super::rational_value_type(&declared(constraints(bad)), &unit_refs)
+                    .expect_err("wrong carrier must refuse before tuple or payload admission");
+            assert_eq!(refusal, super::ModelRefusal::malformed());
+            assert_eq!(
+                path,
+                vec![
+                    super::Segment::Name("constraints"),
+                    super::Segment::Index(0),
+                    super::Segment::Name("operands")
+                ]
             );
         }
         assert!(

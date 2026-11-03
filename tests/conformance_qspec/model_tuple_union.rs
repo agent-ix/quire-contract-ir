@@ -516,11 +516,18 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
                         "construct":{"identity":"value","meaning":"quire.meaning.model.value-type/v1","shape":"record","members":{}}
                     }));
                 }
-                document["types"].as_array_mut().expect("types").push(json!({
+                let mut value_type = json!({
                     "identity":identity,"displayName":identity.rsplit('/').next().expect("name"),
                     "kind":kind,"scalar":scalar,"constraints":constraints,"origin":origin,
                     "roles":[],"extensions":[],"unknownPolicy":"reject"
-                }));
+                });
+                if let Some(unit) = declared.get("unit") {
+                    value_type["unit"] = unit.clone();
+                }
+                document["types"]
+                    .as_array_mut()
+                    .expect("types")
+                    .push(value_type);
             }
             continue;
         }
