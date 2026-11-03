@@ -1168,6 +1168,7 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            temporal_clause_names: None,
             operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),
@@ -4794,6 +4795,7 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
             refinement_step_rows: admitted.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            temporal_clause_names: None,
             operation_effects: None,
             checked_term_data: admitted.checked_term_data(),
             temporal_bindings: admitted.temporal_bindings(),

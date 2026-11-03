@@ -2281,6 +2281,51 @@ pub fn refresh_temporal_bindings(package: &mut Value) {
         package["temporal_bindings"] =
             Value::Array(rows.into_iter().map(|(_, _, row)| row).collect());
     }
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let ids = nodes
+        .iter()
+        .map(|node| node["node_id"].clone())
+        .collect::<Vec<_>>();
+    let mut names = nodes
+        .iter()
+        .filter(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "temporal_clause")
+        .flat_map(|node| {
+            node["occurrences"]
+                .as_array()
+                .expect("clause occurrences")
+                .iter()
+                .filter(|occurrence| occurrence["role"] == "claim")
+                .map(|occurrence| {
+                    let ordinal = occurrence["ordinal"].as_u64().expect("claim ordinal");
+                    (
+                        node["node_id"].clone(),
+                        ordinal,
+                        json!({
+                            "declaration": node["node_id"],
+                            "occurrence": ordinal,
+                            "name": format!("Clause{ordinal}"),
+                        }),
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        package
+            .as_object_mut()
+            .expect("package")
+            .remove("temporal_clause_names");
+    } else {
+        names.sort_by_cached_key(|(declaration, ordinal, _)| {
+            (
+                structural_fixture_id_in_graph(declaration, &ids, &mut Default::default()),
+                *ordinal,
+            )
+        });
+        package["temporal_clause_names"] =
+            Value::Array(names.into_iter().map(|(_, _, row)| row).collect());
+    }
 }
 
 /// One entry per node, sourced from the node's own single occurrence rather

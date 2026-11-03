@@ -143,6 +143,7 @@ fn published_temporal_occurrence_rows_bind_exact_read_and_write() {
                         refinement_step_rows: admitted.refinement_step_rows(),
                     },
                     quire_contract_model::CheckedPackageSidecarsRef {
+                        temporal_clause_names: None,
                         operation_effects: None,
                         checked_term_data: admitted.checked_term_data(),
                         temporal_bindings: admitted.temporal_bindings(),
@@ -516,6 +517,7 @@ fn temporal_clock_writer_retains_a_configured_clause_row() {
             refinement_step_rows: read.refinement_step_rows(),
         },
         quire_contract_model::CheckedPackageSidecarsRef {
+            temporal_clause_names: None,
             operation_effects: None,
             checked_term_data: read.checked_term_data(),
             temporal_bindings: read.temporal_bindings(),
