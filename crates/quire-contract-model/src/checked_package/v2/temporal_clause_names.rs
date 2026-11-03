@@ -104,7 +104,7 @@ pub(super) fn validate(
             continue;
         }
         for occurrence in &node.occurrences {
-            meter.charge(1, || root())?;
+            meter.charge(1, root)?;
             if occurrence.role == CheckedOccurrenceRole::Claim
                 && !seen.contains(&(&node.node_id, occurrence.ordinal))
             {
