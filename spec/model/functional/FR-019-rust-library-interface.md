@@ -362,9 +362,8 @@ retain their two-member compile controls; `CheckedRevision` is absent. The API h
 with a keyed `SourceDocumentConflict` in the existing insertion-error enum;
 the public refusal retains a `CheckedArtifactLocator` pair when its cause is
 `source-integrity`. No QSL type, file lookup, digest catalog or unchecked
-admission constructor enters the public API. AC-6's `CheckedSourceRef`
-assertion and its compile controls must be updated together with AC-25's
-producer and consumer controls. This proposed API is not yet implemented.
+admission constructor enters the public API. AC-6's source-reference controls
+and AC-25's producer and consumer controls exercise this implemented API.
 
 ## Acceptance Criteria
 

@@ -896,16 +896,16 @@ each place the wire has one:
   `quire-verification-contracts`, publishes them as `{authority, identity}`;
   this reader holds no copy of it).
 
-A source reference in the current reader, until IR-1273 lands, is the closed
-shape `{authority, identity}`, with both members nonempty strings. The planned
-QSpec-conformant shape and byte check are specified above. This reader's source
-reference type is
+A source reference in the current reader is the closed
+shape `{authority, identity, source_integrity}`, with nonempty string
+authority and identity and a claim verified against the caller's raw source
+bytes as specified above. This reader's source reference type is
 `CheckedSourceRef`. It is the member type of
 `lock.sources` and the `source` of every `source_map` region and every
 `refinement_step_rows` region and `diagnostics.entries[].loci[]` region. Source
 references identify the producer's
 source and the source ranges still identify locations within it; the reader
-does not yet authenticate the source's bytes. A source reference has no `revision`,
+authenticates the source's bytes before admission. A source reference has no `revision`,
 `digest_domain` or `digest`. A changed source-map reference changes the complete canonical bytes of a lowered `ContractPackage` under FR-035; it changes no content-derived identifier.
 
 Both shapes are closed under `deny_unknown_fields`, so there is one refusal
@@ -1371,8 +1371,8 @@ equal, the diamond is admitted. The reader reports the first failing entry in
 lock order and no later one. Every direct entry is supplied before any
 `dependency_reference` check.
 
-Until IR-1273 lands, the reader reads no source bytes or replay
-`byte_provision`. A missing domain
+The reader verifies caller-supplied source bytes under the source-integrity
+phase above; it does not read replay `byte_provision`. A missing domain
 document still refuses at its model-root owner. There is no
 `stale_dependency`, `content-mismatch`, `digest_domain_mismatch` or
 `byte-digest-mismatch` refusal in this V2 read surface.
