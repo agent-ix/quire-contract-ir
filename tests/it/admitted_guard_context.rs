@@ -5,7 +5,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, family_key, fixture_source, node_id, refresh_identity, settle,
-    v2_all_families,
+    source_key, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -492,7 +492,7 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
         ));
     let result_without_guards = match plain_result_roots
         .result_context(
-            &integer_expression.node_id,
+            &source_key(&integer_expression.node_id),
             &integer_occurrence,
             Some(&narrow_occurrence),
             BoundedDomainForm::IntegerRange,
@@ -504,7 +504,7 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
     };
     let result_with_guards = match contextual
         .result_context(
-            &integer_expression.node_id,
+            &source_key(&integer_expression.node_id),
             &integer_occurrence,
             Some(&narrow_occurrence),
             BoundedDomainForm::IntegerRange,

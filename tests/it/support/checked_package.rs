@@ -272,6 +272,14 @@ pub fn node_id(path_label: &str) -> Value {
     json!({"package": FIXTURE_PACKAGE, "path": path, "ordinal": 0})
 }
 
+/// The typed source key of one structural test-authored node identity.
+pub fn source_key(
+    key: &quire_contract_model::CheckedNodeId,
+) -> quire_contract_model::ContractSourceKeyV1 {
+    quire_contract_model::ContractSourceKeyV1::from_structural(key)
+        .expect("fixture node id is structural")
+}
+
 /// A structural fixture identity with an explicit package, path and ordinal.
 pub fn structural_id(package: &str, path: Vec<Value>, ordinal: u64) -> Value {
     json!({"package": package, "path": path, "ordinal": ordinal})

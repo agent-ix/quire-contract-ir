@@ -6,7 +6,7 @@
 use crate::admitted_result_context::{
     admit, by_operation, fixture, package, package_with_profile, profile, sources_for,
 };
-use crate::support::checked_package::{family_key, node_id, refresh_identity, settle};
+use crate::support::checked_package::{family_key, node_id, refresh_identity, settle, source_key};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     BoundedDomainForm, CheckedOccurrenceRole, CheckedScalarOperandError, ContractOccurrenceKeyV1,
@@ -44,7 +44,12 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
         )
         .expect("reached before");
     let result = admitted
-        .result_context(&add.node_id, &add, None, BoundedDomainForm::IntegerRange)
+        .result_context(
+            &source_key(&add.node_id),
+            &add,
+            None,
+            BoundedDomainForm::IntegerRange,
+        )
         .expect("result before");
 
     let ContractScalarOperandViewV1::Lowered(view) = admitted
@@ -97,7 +102,12 @@ fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
     );
     assert_eq!(
         admitted
-            .result_context(&add.node_id, &add, None, BoundedDomainForm::IntegerRange)
+            .result_context(
+                &source_key(&add.node_id),
+                &add,
+                None,
+                BoundedDomainForm::IntegerRange
+            )
             .expect("result after"),
         result
     );

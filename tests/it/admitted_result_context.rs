@@ -5,7 +5,7 @@
 
 use crate::support::checked_package::{
     bounds_body, canonical, evidence_for, family_key, node_id, refresh_identity, settle,
-    v2_all_families,
+    source_key, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -293,7 +293,7 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
     let before = contextual.wire().clone();
     let ContractResultViewV1::Lowered(plain_view) = plain
         .result_context(
-            &add.node_id,
+            &source_key(&add.node_id),
             &add,
             Some(&narrow),
             BoundedDomainForm::IntegerRange,
@@ -308,7 +308,7 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
     );
     let ContractResultViewV1::Lowered(view) = contextual
         .result_context(
-            &add.node_id,
+            &source_key(&add.node_id),
             &add,
             Some(&narrow),
             BoundedDomainForm::IntegerRange,
@@ -354,7 +354,7 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
         .any(|entry| entry.node.body == bounds_body("0", "9")));
     let expected = contextual
         .result_context(
-            &add.node_id,
+            &source_key(&add.node_id),
             &add,
             Some(&narrow),
             BoundedDomainForm::IntegerRange,
@@ -364,7 +364,7 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
         for _ in 0..requests {
             assert_eq!(
                 contextual.result_context(
-                    &add.node_id,
+                    &source_key(&add.node_id),
                     &add,
                     Some(&narrow),
                     BoundedDomainForm::IntegerRange,
@@ -387,7 +387,7 @@ fn tc_447_none_and_invalid_occurrences_have_distinct_typed_outcomes() {
                  conversion: Option<&ContractOccurrenceKeyV1>,
                  expected| {
         let ContractResultViewV1::Lowered(view) = contextual
-            .result_context(&add.node_id, application, conversion, expected)
+            .result_context(&source_key(&add.node_id), application, conversion, expected)
             .expect("admitted query")
         else {
             panic!("add lowered");
@@ -473,7 +473,7 @@ fn tc_447_none_and_invalid_occurrences_have_distinct_typed_outcomes() {
     let own_package = package(&input, std::slice::from_ref(&parameter.node_id));
     let ContractResultViewV1::Lowered(own_view) = own_package
         .result_context(
-            &parameter.node_id,
+            &source_key(&parameter.node_id),
             &parameter_occurrence,
             None,
             BoundedDomainForm::IntegerRange,
@@ -494,7 +494,7 @@ fn tc_447_none_and_invalid_occurrences_have_distinct_typed_outcomes() {
     };
     assert_eq!(
         contextual.result_context(
-            &parameter.node_id,
+            &source_key(&parameter.node_id),
             &not_requested,
             None,
             BoundedDomainForm::IntegerRange,
@@ -506,7 +506,7 @@ fn tc_447_none_and_invalid_occurrences_have_distinct_typed_outcomes() {
         serde_json::from_value(node_id(&provisional('f'))).expect("absent structural node id");
     let with_refusal = package(&input, &[add.node_id.clone(), absent.clone()]);
     assert!(matches!(
-        with_refusal.result_context(&absent, &add, None, BoundedDomainForm::IntegerRange),
+        with_refusal.result_context(&source_key(&absent), &add, None, BoundedDomainForm::IntegerRange),
         Ok(ContractResultViewV1::NonLowered(ContractFeatureRecordV1::InvalidInput { node_id }))
             if node_id == &absent
     ));
@@ -675,7 +675,7 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
         );
         let ContractResultViewV1::Lowered(view) = emitted
             .result_context(
-                &add.node_id,
+                &source_key(&add.node_id),
                 &requested,
                 Some(&selected),
                 BoundedDomainForm::IntegerRange,
@@ -712,7 +712,7 @@ fn tc_447_exhausted_lowering_and_post_admission_edge_return_no_partial_context()
     ));
     assert!(matches!(
         exhausted.result_context(
-            &add.node_id,
+            &source_key(&add.node_id),
             &add,
             None,
             BoundedDomainForm::IntegerRange,
@@ -725,7 +725,7 @@ fn tc_447_exhausted_lowering_and_post_admission_edge_return_no_partial_context()
     let mut admitted = package(&input, &[add.node_id.clone(), narrow.node_id.clone()]);
     assert!(matches!(
         admitted.result_context(
-            &add.node_id,
+            &source_key(&add.node_id),
             &add,
             Some(&narrow),
             BoundedDomainForm::IntegerRange,
@@ -735,7 +735,7 @@ fn tc_447_exhausted_lowering_and_post_admission_edge_return_no_partial_context()
     assert!(admitted.fault_inject_missing_source_for_test(&add.node_id));
     assert_eq!(
         admitted.result_context(
-            &add.node_id,
+            &source_key(&add.node_id),
             &add,
             Some(&narrow),
             BoundedDomainForm::IntegerRange,
@@ -853,7 +853,12 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
     );
     let outcome = |selected: Option<&ContractOccurrenceKeyV1>, expected| {
         let ContractResultViewV1::Lowered(view) = emitted
-            .result_context(&expression.node_id, &application, selected, expected)
+            .result_context(
+                &source_key(&expression.node_id),
+                &application,
+                selected,
+                expected,
+            )
             .expect("admitted result")
         else {
             panic!("own-bounded expression lowered");
@@ -984,7 +989,7 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
     let result = |application: &ContractOccurrenceKeyV1, conversion: &ContractOccurrenceKeyV1| {
         let ContractResultViewV1::Lowered(view) = combined
             .result_context(
-                &add.node_id,
+                &source_key(&add.node_id),
                 application,
                 Some(conversion),
                 BoundedDomainForm::IntegerRange,
@@ -1115,7 +1120,7 @@ fn scalar_and_result_views_and_work_boundaries_hold_on_the_admitted_fixture() {
 
     let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
     let result = contract.result_context(
-        &add.node_id,
+        &source_key(&add.node_id),
         &add,
         Some(&narrow),
         BoundedDomainForm::IntegerRange,
@@ -1143,7 +1148,7 @@ fn scalar_and_result_views_and_work_boundaries_hold_on_the_admitted_fixture() {
         ..narrow.clone()
     };
     let missing_result = contract.result_context(
-        &add.node_id,
+        &source_key(&add.node_id),
         &add,
         Some(&missing_conversion),
         BoundedDomainForm::IntegerRange,
