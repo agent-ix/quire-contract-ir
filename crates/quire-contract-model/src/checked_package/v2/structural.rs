@@ -900,6 +900,7 @@ pub(super) fn validate_derived_type_shapes(
     Ok(())
 }
 
+#[ix_trace_rs::string_edge]
 fn carried_quantity_shape(
     node: &CheckedSemanticNodeV2,
     term: Option<&CheckedTerm>,
