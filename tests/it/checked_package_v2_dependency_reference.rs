@@ -13,7 +13,8 @@
 
 use crate::support::checked_package::{
     admitted_dependency, family_key, node_id, over_body, pointer, read_with_dependencies,
-    reassign_node_id, rebuild_source_map, refresh_identity, settle, v2_all_families, v2_nominal,
+    reassign_node_id, rebuild_source_map, refresh_identity, settle, source_key, v2_all_families,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -381,7 +382,12 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
         ordinal: 0,
     };
     let ContractResultViewV1::Lowered(contextual_view) = read_back
-        .result_context(&root, &application, None, BoundedDomainForm::IntegerRange)
+        .result_context(
+            &source_key(&root),
+            &application,
+            None,
+            BoundedDomainForm::IntegerRange,
+        )
         .expect("admitted result context")
     else {
         panic!("selected external call remains lowered");

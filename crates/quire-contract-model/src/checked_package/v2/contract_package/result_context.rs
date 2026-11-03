@@ -4,8 +4,8 @@
 //! FR-049: read-only result context for one QSL-checked application occurrence.
 
 use super::{
-    ContractDispositionV1, ContractFeatureRecordV1, ContractNodeSourcesV1, ContractPackageV1,
-    ContractProvenanceV1, ContractReachedClosureV1, ContractRootViewError, ContractRootViewV1,
+    ContractFeatureRecordV1, ContractNodeSourcesV1, ContractPackageV1, ContractProvenanceV1,
+    ContractReachedClosureV1, ContractRootViewError, ContractRootViewV1, ContractSourceKeyV1,
 };
 use crate::checked_package::shared::{CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry};
 use crate::checked_package::v2::{
@@ -169,17 +169,21 @@ pub enum ContractResultViewV1<'a> {
 
 impl ContractPackageV1 {
     /// Queries one lowered expression for the result bound selected by a
-    /// QSL-checked requirement occurrence. The caller passes QSL's exact
-    /// optional conversion occurrence; this method never discovers one by a
-    /// reverse graph walk. The admitted five-field wire is unchanged.
+    /// QSL-checked requirement occurrence. Derive `expression` from the V2
+    /// request with [`ContractSourceKeyV1::from_v2_request`]; map the checked
+    /// application and optional conversion to admitted V1 source occurrences
+    /// through each reached output root's [`Self::source_occurrences`]. The
+    /// direct conversion argument is checked in the output frame. This method
+    /// never discovers a conversion by a reverse graph walk, and leaves the
+    /// admitted six-field wire unchanged.
     pub fn result_context(
         &self,
-        expression: &CheckedNodeId,
+        expression: &ContractSourceKeyV1,
         application: &ContractOccurrenceKeyV1,
         conversion: Option<&ContractOccurrenceKeyV1>,
         expected: BoundedDomainForm,
     ) -> Result<ContractResultViewV1<'_>, ContractRootViewError> {
-        let reached = match self.reached_closure_source_wire(expression)? {
+        let reached = match self.reached_closure(expression)? {
             ContractRootViewV1::Absent => return Ok(ContractResultViewV1::Absent),
             ContractRootViewV1::NonLowered(record) => {
                 return Ok(ContractResultViewV1::NonLowered(record));
@@ -202,15 +206,15 @@ impl ContractPackageV1 {
     fn context_for<'a>(
         &'a self,
         reached: &ContractReachedClosureV1<'a>,
-        expression: &CheckedNodeId,
+        expression: &ContractSourceKeyV1,
         application: &ContractOccurrenceKeyV1,
         conversion: Option<&ContractOccurrenceKeyV1>,
         expected: BoundedDomainForm,
     ) -> Result<ContractResultContextV1<'a>, ContractRootViewError> {
-        let Some(expression_sources) = self.source_occurrences(expression) else {
+        let Some(expression_sources) = self.source_occurrences(&reached.root.node_id) else {
             return Err(ContractRootViewError::Inconsistent);
         };
-        if application.node_id != *expression
+        if self.frames.source(&application.node_id) != Some(expression.structural_key())
             || application.role != CheckedOccurrenceRole::Expression
             || !expression_sources
                 .iter()
@@ -228,30 +232,38 @@ impl ContractPackageV1 {
                 _ => None,
             });
 
-        let selected_type = if let Some(selected) = conversion {
-            if selected.role != CheckedOccurrenceRole::Expression
-                || !self.has_lowered(&selected.node_id)
-                || !self
-                    .source_occurrences(&selected.node_id)
-                    .is_some_and(|sources| sources.iter().any(|entry| selected.matches(entry)))
-            {
+        let converted = if let Some(selected) = conversion {
+            if selected.role != CheckedOccurrenceRole::Expression {
                 return Ok(ContractResultContextV1::IncompleteContext);
             }
+            let Some(conversion_key) = self.source_key_for_wire(&selected.node_id) else {
+                return Ok(ContractResultContextV1::IncompleteContext);
+            };
             // A context root is separately lowered. This validates its
             // admitted body and source edges before selecting its result type.
-            let converted = match self.reached_closure_source_wire(&selected.node_id)? {
+            let converted = match self.reached_closure(&conversion_key)? {
                 ContractRootViewV1::Lowered(converted) => converted,
                 ContractRootViewV1::Absent | ContractRootViewV1::NonLowered(_) => {
                     return Ok(ContractResultContextV1::IncompleteContext);
                 }
             };
-            if !direct_narrow_of(converted.root, expression) {
+            let Some(conversion_sources) = self.source_occurrences(&converted.root.node_id) else {
+                return Err(ContractRootViewError::Inconsistent);
+            };
+            if !conversion_sources
+                .iter()
+                .any(|entry| selected.matches(entry))
+                || !direct_narrow_of(converted.root, &reached.root.node_id)
+            {
                 return Ok(ContractResultContextV1::IncompleteContext);
             }
-            &converted.root.semantic_type
+            Some(converted)
         } else {
-            expression_type
+            None
         };
+        let selected_type = converted
+            .as_ref()
+            .map_or(expression_type, |view| &view.root.semantic_type);
 
         let Some(selected_node) = self.node(selected_type) else {
             return Ok(ContractResultContextV1::MissingBound {
@@ -280,13 +292,12 @@ impl ContractPackageV1 {
             node: selected_node,
             sources,
         };
-        match conversion {
+        match converted {
             None => Ok(ContractResultContextV1::DirectBounded { bound }),
-            Some(selected) => {
-                let Some(conversion_node) = self.node(&selected.node_id) else {
-                    return Err(ContractRootViewError::Inconsistent);
-                };
-                let Some(conversion_sources) = self.source_occurrences(&selected.node_id) else {
+            Some(converted) => {
+                let conversion_node = converted.root;
+                let Some(conversion_sources) = self.source_occurrences(&conversion_node.node_id)
+                else {
                     return Err(ContractRootViewError::Inconsistent);
                 };
                 Ok(ContractResultContextV1::Narrowed {
@@ -298,15 +309,11 @@ impl ContractPackageV1 {
         }
     }
 
-    /// Source occurrences for the first admitted source-map entry matching this node.
+    /// Source-frame occurrences attached to an admitted output-frame node.
+    /// The key is the represented output id; returned entries carry admitted
+    /// source ids whose rebuilt structural identity matches that output id.
     pub fn source_occurrences(&self, key: &CheckedNodeId) -> Option<&[CheckedSourceMapEntry]> {
         source_occurrences(&self.wire.source_map.nodes, &self.source_index, key)
-    }
-
-    fn has_lowered(&self, key: &CheckedNodeId) -> bool {
-        self.wire.feature_accounting.iter().any(|record| {
-            record.node_id() == key && record.disposition() == ContractDispositionV1::Lowered
-        })
     }
 }
 
