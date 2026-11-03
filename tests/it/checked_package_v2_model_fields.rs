@@ -35,6 +35,22 @@ fn orders(short: &str) -> String {
 }
 
 fn node_id(key: &str) -> Value {
+    if let Some(parts) = key.strip_prefix("carried_quantity:") {
+        let (unit, carrier) = parts.split_once(';').expect("carried Rational operands");
+        return structural_id(
+            "test/families",
+            vec![
+                json!("scalar_type"),
+                json!("carried_quantity"),
+                node_id(unit),
+                node_id(carrier),
+                json!("rounding"),
+                node_id("scalar_type/text"),
+                json!("exact"),
+            ],
+            0,
+        );
+    }
     if let Some(model) = key.strip_prefix("model:") {
         let mut parts = model.splitn(3, ':');
         let tag = parts.next().expect("model tag");
@@ -77,6 +93,29 @@ fn node_id(key: &str) -> Value {
                 json!(lower),
                 json!("max"),
                 json!(upper),
+            ],
+            0,
+        );
+    }
+    if let Some(bounds) = key.strip_prefix("bounded_domain/rational_range/") {
+        let parts = bounds.split('/').collect::<Vec<_>>();
+        let [nmin, nmax, dmin, dmax] = parts.as_slice() else {
+            panic!("rational range bounds");
+        };
+        return structural_id(
+            "test/families",
+            vec![
+                json!("bounded_domain"),
+                json!("rational_range"),
+                json!("numerator_min"),
+                node_id("scalar_type/integer"),
+                json!(nmin),
+                json!("numerator_max"),
+                json!(nmax),
+                json!("denominator_min"),
+                json!(dmin),
+                json!("denominator_max"),
+                json!(dmax),
             ],
             0,
         );
@@ -367,7 +406,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
                     "bounded_domain",
                     "rational_range",
                     &rational,
-                    &[&rational],
+                    &[],
                     body,
                 )
             });
@@ -379,7 +418,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
             nodes
                 .entry(text.clone())
                 .or_insert_with(|| wire_node(&text, "scalar_type", "text", &text, &[], empty()));
-            let key = format!("scalar_type/carried_quantity/{unit}/{carrier}/exact");
+            let key = format!("carried_quantity:{unit};{carrier}");
             let body = json!({"term":"aggregate","members":[
                 {"term":"binding","name":"unit","value":{"term":"reference","target":node_id(unit)}},
                 {"term":"binding","name":"carrier","value":{"term":"reference","target":node_id(&carrier)}},
