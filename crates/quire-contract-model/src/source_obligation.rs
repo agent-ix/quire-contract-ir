@@ -90,6 +90,10 @@ pub enum SourceInventoryIncompleteReason {
     /// QSL's type work stopped at its first unaffordable charge.
     TypeWorkExhausted(SourceTypeExhaustion),
     /// QSL reported unfinished type admission for a native declaration handle.
+    ///
+    /// Produced only by QSL's composed-lane inventory; the spine inventory
+    /// (QSL FR-514) has no such stop. Retired when the composed lane is
+    /// deleted (QSL-868).
     TypeAdmissionUnfinished {
         /// Native declaration handle whose type admission did not complete.
         declaration: SourceDeclarationHandle,
