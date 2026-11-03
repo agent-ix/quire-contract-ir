@@ -102,8 +102,11 @@ pub struct CheckedExtensionClauseSchema {
 
 type SourceDocuments = BTreeMap<Box<str>, BTreeMap<Box<str>, Box<[u8]>>>;
 
-/// Domain package documents, dependency packages and reader-supported
-/// features for one read.
+/// Raw source documents, domain package documents, dependency packages and
+/// reader-supported features for one read.
+///
+/// Source bytes are held under their exact authority and identity pair and
+/// verified against each reference's claim before package admission.
 ///
 /// A domain package is supplied as its document bytes, keyed by the domain
 /// package identity a `model_root` owner names; one document is held per
@@ -113,7 +116,6 @@ type SourceDocuments = BTreeMap<Box<str>, BTreeMap<Box<str>, Box<[u8]>>>;
 /// [`CheckedPackageV2`] under the identity its `import` names (FR-322
 /// `dependency_selections`); the reader binds it to the selection entry of
 /// that identity and never reads a dependency's bytes itself.
-
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CheckedPackageEvidence {
     source_documents: SourceDocuments,
