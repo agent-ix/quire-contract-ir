@@ -36,3 +36,11 @@ Inspected all seven native tests and their trace attributes. The computed matrix
 Controls cover unmapped criteria, edits and both row deletions, valid empty corpus, missing root, missing section/table/ID column, unusable row, unreadable UTF-8 and permission-denied document, actual failed directory discovery with healthy partial rows, stop boundaries 0/1/2/3 and interruption, duplicate ambiguity and foreign selection. Permission tests require a Unix process without permission-bypass privilege; the supplied focused run executed all seven tests without skips. No parser, schema, native inventory, enum or adapter implementation was copied. The root dependency is dev-only with default features disabled; the model and production API remain unchanged.
 
 Read supplied workspace all-targets/conformance-cli check and workspace lib/it Clippy logs and the seven-test passing log. Those logs support focused behavior only; the final local and hosted gates remain the lead's responsibility. Spec validation is performed independently. Additional spec analyses are inapplicable because only status narrative changed. Semantic inspection was explicitly requested for AC-16; no broad semantic audit ran.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | deny.toml now allows exactly the quire-rs and filament-core-data Git URLs while retaining unknown-git = deny. The supplied locked cargo-deny log reports advisories, bans, licenses and sources all OK. |
+
+Disposition round 1: PASS. Inspected the actual two-line allowlist fix and confirmed the only other changes are unchanged copies of the original review artifacts. Production code, native tests, dependency declarations and specification status are unchanged. No new finding. No Cargo or hosted gate was run by the reviewer.
