@@ -349,8 +349,8 @@ pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
 }
 
 /// Replay every published wire row, including rows added after this test.
-/// Trace: TC-048. The full FR-069-AC-8 stage oracle remains open.
-#[trace("TC-048")]
+/// Trace: TC-048, FR-069-AC-8.
+#[trace("TC-048", "FR-069-AC-8")]
 #[test]
 fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     let fixtures = fixtures_dir();
@@ -611,8 +611,8 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
 }
 
 /// Replay every published intake row through the selected document join.
-/// Trace: TC-048. The full FR-069-AC-8 stage oracle remains open.
-#[trace("TC-048")]
+/// Trace: TC-048, FR-069-AC-8.
+#[trace("TC-048", "FR-069-AC-8")]
 #[test]
 fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let fixtures = fixtures_dir();
@@ -674,6 +674,10 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
             continue;
         }
         let expected = &row["expected"]["refused"];
+        assert_eq!(
+            expected["stage"], "reader",
+            "{name}: published reader stage"
+        );
         let CheckedPackageV2ReadResult::Refused(refusal) = result else {
             panic!("{name}: expected published refusal, got {result:?}");
         };
@@ -722,6 +726,10 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
             "missing published intake case {id}"
         );
     }
+    assert!(
+        seen.contains("TK-36"),
+        "missing published bounded Rational intake case"
+    );
 }
 
 /// An admitted Duration position is usable as the
