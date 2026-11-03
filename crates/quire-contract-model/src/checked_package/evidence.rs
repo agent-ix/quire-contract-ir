@@ -10,6 +10,14 @@ use thiserror::Error;
 /// A repeated evidence declaration conflicts with the retained first value.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum CheckedPackageEvidenceInsertionError {
+    /// Different source bytes were supplied under an occupied exact pair.
+    #[error("conflicting source document under {authority}/{identity}")]
+    SourceDocumentConflict {
+        /// Source authority.
+        authority: Box<str>,
+        /// Source identity.
+        identity: Box<str>,
+    },
     /// Different extension definition under an occupied exact reference.
     #[error("conflicting extension definition under {authority}/{identity}")]
     ExtensionDefinitionConflict {
@@ -105,6 +113,7 @@ pub struct CheckedExtensionClauseSchema {
 /// that identity and never reads a dependency's bytes itself.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CheckedPackageEvidence {
+    source_documents: BTreeMap<Box<str>, BTreeMap<Box<str>, Box<[u8]>>>,
     domain_packages: BTreeMap<Box<str>, Box<[u8]>>,
     dependency_packages: BTreeMap<Box<str>, Arc<CheckedPackageV2>>,
     extension_definitions: BTreeMap<CheckedArtifactRef, CheckedExtensionDefinition>,
@@ -112,6 +121,40 @@ pub struct CheckedPackageEvidence {
 }
 
 impl CheckedPackageEvidence {
+    /// Supplies exact raw bytes for a source named by authority and identity.
+    /// Equal repeats retain the first bytes; conflicting repeats leave evidence unchanged.
+    pub fn insert_source_document(
+        &mut self,
+        authority: impl Into<Box<str>>,
+        identity: impl Into<Box<str>>,
+        bytes: impl Into<Box<[u8]>>,
+    ) -> Result<(), CheckedPackageEvidenceInsertionError> {
+        let authority = authority.into();
+        let identity = identity.into();
+        let bytes = bytes.into();
+        let documents = self.source_documents.entry(authority.clone()).or_default();
+        match documents.entry(identity) {
+            Entry::Vacant(entry) => {
+                entry.insert(bytes);
+                Ok(())
+            }
+            Entry::Occupied(entry) if entry.get() == &bytes => Ok(()),
+            Entry::Occupied(entry) => Err(
+                CheckedPackageEvidenceInsertionError::SourceDocumentConflict {
+                    authority,
+                    identity: entry.key().clone(),
+                },
+            ),
+        }
+    }
+
+    pub(super) fn source_document(&self, authority: &str, identity: &str) -> Option<&[u8]> {
+        self.source_documents
+            .get(authority)?
+            .get(identity)
+            .map(Box::as_ref)
+    }
+
     /// Supplies a caller-validated extension definition under its exact ref.
     /// Equal repeats retain the first definition; conflicting repeats fail.
     pub fn insert_extension_definition(

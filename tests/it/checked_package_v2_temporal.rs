@@ -1211,6 +1211,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::ConflictingDefinition => "conflicting-definition",
         Cause::InvalidSemanticGraph => "invalid-semantic-graph",
         Cause::InvalidValue => "invalid-value",
+        Cause::SourceIntegrity => "source-integrity",
         Cause::DuplicateMember => "duplicate-member",
         Cause::TypeMismatch => "type-mismatch",
         Cause::NonBooleanRoot => "non-boolean-root",

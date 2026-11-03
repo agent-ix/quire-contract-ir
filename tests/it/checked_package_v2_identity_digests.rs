@@ -7,15 +7,14 @@
 use ix_trace_rs::trace;
 use quire_canonical::{Error, LimitKind, Limits};
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedPackageEvidence, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    LoweringProfileRef,
+    encode_checked_package_v2, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CompleteLoweringProfileV2, CompleteLoweringRecordV2, LoweringProfileRef,
 };
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-use crate::support::checked_package::{index_fixture_node_ids, v2_all_families};
+use crate::support::checked_package::{evidence_for, index_fixture_node_ids, v2_all_families};
 
 /// Resolve a path inside this checkout for the V1 source-scan controls.
 pub(crate) fn repository_path(relative: &str) -> PathBuf {
@@ -128,8 +127,7 @@ fn derived_range_binding_name_is_validated_independently_of_its_id() {
         package["semantic_graph"]["nodes"][2]["node_id"],
         retained_id
     );
-    let mut evidence = CheckedPackageEvidence::new();
-    evidence.support_feature("quire.value.complete/v1");
+    let evidence = evidence_for(&package);
     let outcome = CheckedPackageV2::read(
         &quire_canonical::to_vec(&package, Limits::new(u64::MAX)).expect("canonical bytes"),
         CheckedPackageReadLimits::bounded(),
@@ -183,8 +181,7 @@ fn derived_range_type_and_literal_type_are_checked_independently_of_id() {
             changed["semantic_graph"]["nodes"][2]["node_id"],
             retained_id
         );
-        let mut evidence = CheckedPackageEvidence::new();
-        evidence.support_feature("quire.value.complete/v1");
+        let evidence = evidence_for(&changed);
         let outcome = CheckedPackageV2::read(
             &quire_canonical::to_vec(&changed, Limits::new(u64::MAX)).expect("canonical bytes"),
             CheckedPackageReadLimits::bounded(),
@@ -240,8 +237,7 @@ fn package_with_independent_requests() -> Value {
 }
 
 fn admit(value: &Value) -> Box<CheckedPackageV2> {
-    let mut evidence = CheckedPackageEvidence::new();
-    evidence.support_feature("quire.value.complete/v1");
+    let evidence = evidence_for(value);
     let bytes = quire_canonical::to_vec(value, Limits::new(u64::MAX)).expect("fixture bytes");
     match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
@@ -423,8 +419,7 @@ fn multi_request_lowering_preserves_independent_sibling_on_local_byte_failure() 
     let bytes = quire_canonical::to_vec(&wire, Limits::new(u64::MAX)).expect("input bytes");
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.bytes = bytes.len() as u64;
-    let mut evidence = CheckedPackageEvidence::new();
-    evidence.support_feature("quire.value.complete/v1");
+    let evidence = evidence_for(&wire);
     let CheckedPackageV2ReadResult::Admitted(package) =
         CheckedPackageV2::read(&bytes, limits, &evidence)
     else {

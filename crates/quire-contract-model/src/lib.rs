@@ -73,6 +73,7 @@
 //! let _ = CheckedSourceRef {
 //!     authority: "a".into(),
 //!     identity: "i".into(),
+//!     source_integrity: "claim".into(),
 //! };
 //! let _ = CheckedArtifactLocator {
 //!     authority: "a".into(),
@@ -100,6 +101,7 @@
 //! let _ = quire_contract_model::CheckedSourceRef {
 //!     authority: "a".into(),
 //!     identity: "i".into(),
+//!     source_integrity: "claim".into(),
 //!     revision: "r".into(),
 //! };
 //! ```

@@ -5,7 +5,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, family_model_document, refresh_identity,
-    refresh_identity_projection, select_model, v2_all_families, v2_nominal,
+    refresh_identity_projection, select_model, source_ref, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -455,8 +455,9 @@ fn root_only_package_keeps_the_root_key_when_its_source_alias_changes() {
     assert_eq!(first.graph().nodes[0].semantic_form.as_ref(), "model_root");
 
     let mut renamed = package;
-    renamed["lock"]["sources"][0]["identity"] = json!("test/renamed-source");
-    renamed["source_map"][0]["regions"][0]["source"]["identity"] = json!("test/renamed-source");
+    let renamed_source = source_ref("agent-ix", "test/renamed-source");
+    renamed["lock"]["sources"][0] = renamed_source.clone();
+    renamed["source_map"][0]["regions"][0]["source"] = renamed_source;
     refresh_identity_projection(&mut renamed);
     let second = admitted(&renamed);
     assert_eq!(

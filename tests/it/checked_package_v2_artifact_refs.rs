@@ -3,7 +3,7 @@
 
 //! FR-038 "Artifact references" (FR-038-AC-46 through FR-038-AC-61): a
 //! definition reference is exactly `{authority, identity}` and a source
-//! reference exactly `{authority, identity}`, each
+//! reference exactly `{authority, identity, source_integrity}`, each
 //! refused as the closed shape it is. The operation catalog's own read
 //! (FR-038-AC-58) and the value-role law join (FR-038-AC-56) are unit tests in
 //! `crates/quire-contract-model/src/checked_package/v2/`.
@@ -19,7 +19,7 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 
 const DEFINITION_MEMBERS: [&str; 2] = ["authority", "identity"];
-const SOURCE_MEMBERS: [&str; 2] = ["authority", "identity"];
+const SOURCE_MEMBERS: [&str; 3] = ["authority", "identity", "source_integrity"];
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
@@ -46,6 +46,30 @@ fn refused(package: &Value) -> CheckedPackageRefusal {
 /// The whole refusal `package` draws is `code` at `path`, with no cause.
 fn expect(package: &Value, code: CheckedPackageRefusalCode, path: &str, name: &str) {
     assert_eq!(refused(package), refusal(code, path), "{name}");
+}
+
+fn expect_integrity(package: &Value, path: &str, name: &str) {
+    let actual = refused(package);
+    assert_eq!(
+        actual.code,
+        CheckedPackageRefusalCode::InvalidPackage,
+        "{name}"
+    );
+    assert_eq!(
+        actual.cause,
+        Some(CheckedPackageRefusalCause::SourceIntegrity),
+        "{name}"
+    );
+    assert_eq!(actual.loci[0].path, Some(pointer(path)), "{name}");
+}
+
+fn refresh_claim(package: &mut Value, place: &str) {
+    let source = at(package, place);
+    let authority = source["authority"].as_str().expect("source authority");
+    let identity = source["identity"].as_str().expect("source identity");
+    source["source_integrity"] = json!(crate::support::checked_package::sha256_hex(
+        &crate::support::checked_package::fixture_source_bytes(authority, identity)
+    ));
 }
 
 fn at<'a>(package: &'a mut Value, path: &str) -> &'a mut Value {
@@ -150,7 +174,7 @@ fn tc_048_definition_references_of_exactly_authority_and_identity_admit() {
 
 #[trace("TC-048", "FR-038-AC-47")]
 #[test]
-fn tc_048_source_references_of_exactly_two_members_admit() {
+fn tc_048_source_references_of_exactly_three_members_admit() {
     for (package, place) in source_places() {
         assert_eq!(
             members(package.pointer(&place).expect("place")),
@@ -356,20 +380,28 @@ fn tc_048_a_source_reference_member_that_is_absent_or_not_a_string_is_malformed(
                 .as_object_mut()
                 .expect("object")
                 .remove(member);
-            expect(
-                &absent,
-                CheckedPackageRefusalCode::MalformedWire,
-                &place,
-                &format!("{place} {member} absent"),
-            );
+            if member == "source_integrity" {
+                expect_integrity(&absent, &place, &format!("{place} claim absent"));
+            } else {
+                expect(
+                    &absent,
+                    CheckedPackageRefusalCode::MalformedWire,
+                    &place,
+                    &format!("{place} {member} absent"),
+                );
+            }
             let mut wrong = package.clone();
             at(&mut wrong, &place)[member] = json!(7);
-            expect(
-                &wrong,
-                CheckedPackageRefusalCode::MalformedWire,
-                &format!("{place}/{member}"),
-                &format!("{place} {member} not a string"),
-            );
+            if member == "source_integrity" {
+                expect_integrity(&wrong, &place, &format!("{place} claim wrong kind"));
+            } else {
+                expect(
+                    &wrong,
+                    CheckedPackageRefusalCode::MalformedWire,
+                    &format!("{place}/{member}"),
+                    &format!("{place} {member} not a string"),
+                );
+            }
         }
     }
 }
@@ -389,6 +421,7 @@ fn tc_048_a_lock_source_digest_member_is_unknown_before_row_validation() {
             source[member] = value.clone();
             if empty_authority {
                 source["authority"] = json!("");
+                refresh_claim(&mut mutated, row);
             }
             expect(
                 &mutated,
@@ -404,9 +437,10 @@ fn tc_048_a_lock_source_digest_member_is_unknown_before_row_validation() {
 #[test]
 fn tc_048_a_lock_source_refuses_an_empty_authority_or_identity() {
     let base = v2_nominal();
-    for member in SOURCE_MEMBERS {
+    for member in ["authority", "identity"] {
         let mut mutated = base.clone();
         at(&mut mutated, "/lock/sources/0")[member] = json!("");
+        refresh_claim(&mut mutated, "/lock/sources/0");
         expect(
             &mutated,
             CheckedPackageRefusalCode::MalformedWire,
@@ -430,6 +464,7 @@ fn tc_048_a_region_or_locus_source_equal_to_no_lock_row_is_an_invalid_source_map
         for (member, value) in &edits {
             let mut mutated = package.clone();
             at(&mut mutated, &place)[member] = value.clone();
+            refresh_claim(&mut mutated, &place);
             expect(
                 &mutated,
                 CheckedPackageRefusalCode::InvalidSourceMap,
@@ -598,7 +633,7 @@ fn tc_048_nominal_owner_requires_a_selected_source_and_closed_kind() {
 ///
 /// Traced to TC-018, not TC-058: TC-058 verifies the planned FR-019-AC-5
 /// clauses, and tracing it here would make the strict gate count AC-5 backed.
-#[trace("TC-018", "FR-019-AC-6")]
+#[trace("TC-018", "FR-019-AC-6", "FR-019-AC-25")]
 #[test]
 fn tc_018_the_artifact_reference_member_sets_are_exact() {
     use quire_contract_model::{CheckedArtifactLocator, CheckedArtifactRef, CheckedSourceRef};
@@ -609,6 +644,7 @@ fn tc_018_the_artifact_reference_member_sets_are_exact() {
     let source = CheckedSourceRef {
         authority: "a".into(),
         identity: "i".into(),
+        source_integrity: "claim".into(),
     };
     let locator = CheckedArtifactLocator {
         authority: "a".into(),
@@ -623,4 +659,48 @@ fn tc_018_the_artifact_reference_member_sets_are_exact() {
         sorted(&SOURCE_MEMBERS)
     );
     assert_eq!((&*locator.authority, &*locator.identity), ("a", "i"));
+}
+
+#[trace("FR-019-AC-25", "FR-038-AC-440")]
+#[test]
+fn source_document_evidence_uses_exact_pair_and_retains_first_bytes() {
+    use quire_contract_model::CheckedPackageEvidenceInsertionError;
+    let mut package = v2_nominal();
+    let mut evidence = evidence_for(&package);
+    evidence
+        .insert_source_document("a", "i", b"first".to_vec())
+        .unwrap();
+    evidence
+        .insert_source_document("a", "i", b"first".to_vec())
+        .unwrap();
+    assert_eq!(
+        evidence.insert_source_document("a", "i", b"changed".to_vec()),
+        Err(
+            CheckedPackageEvidenceInsertionError::SourceDocumentConflict {
+                authority: "a".into(),
+                identity: "i".into(),
+            }
+        )
+    );
+    evidence
+        .insert_source_document("b", "i", b"changed".to_vec())
+        .unwrap();
+
+    package["lock"]["sources"][0] = crate::support::checked_package::source_ref("a", "i");
+    package["lock"]["sources"][0]["source_integrity"] =
+        json!(crate::support::checked_package::sha256_hex(b"first"));
+    let original = package["lock"]["sources"][0].clone();
+    let result = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("unmatched source map must refuse after integrity: {result:?}");
+    };
+    assert_ne!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::SourceIntegrity)
+    );
+    assert_eq!(package["lock"]["sources"][0], original);
 }

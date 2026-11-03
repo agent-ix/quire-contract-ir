@@ -347,6 +347,7 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     let upstream_source = CheckedSourceRef {
         authority: "qsl".into(),
         identity: "test:unknown-closure".into(),
+        source_integrity: "claim".into(),
     };
     let provenance = vec![CheckedSourceRegion {
         source: upstream_source.clone(),
@@ -378,6 +379,7 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
             source: CheckedSourceRef {
                 authority: "qsl".into(),
                 identity: "test:unknown-object".into(),
+                source_integrity: "claim".into(),
             },
             provenance: vec![],
         }),
@@ -390,6 +392,7 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
             source: CheckedSourceRef {
                 authority: "qsl".into(),
                 identity: "test:unknown-subtype".into(),
+                source_integrity: "claim".into(),
             },
             provenance: vec![],
         }),

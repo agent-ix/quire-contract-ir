@@ -55,6 +55,7 @@ mod runtime_type_projection;
 mod rust_spelling;
 mod scalar_operands;
 mod schedulability;
+mod source_integrity;
 mod state;
 mod step_relation;
 mod structural;
@@ -601,6 +602,8 @@ pub enum CheckedDiagnosticCause {
     WrongValueKind,
     /// `invalid-value`.
     InvalidValue,
+    /// `source-integrity`.
+    SourceIntegrity,
     /// `unsupported-wire`.
     UnsupportedWire,
     /// `unsupported-feature`.
@@ -1173,6 +1176,8 @@ impl CheckedPackageV2 {
         evidence: &CheckedPackageEvidence,
     ) -> Result<Self, ValidationFailure> {
         read_typed_prefix(bytes, limits)?;
+        let mut meter = WorkMeter::new(limits.work);
+        source_integrity::verify(bytes, limits, evidence, &mut meter)?;
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
             Some(Value::String(version))
                 if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {
@@ -1212,7 +1217,7 @@ impl CheckedPackageV2 {
             models,
             lowering_facts,
             structural_keys,
-        } = validate(&wire, bytes, limits, evidence)?;
+        } = validate(&wire, bytes, limits, evidence, &mut meter)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1425,6 +1430,7 @@ fn validate(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
+    meter: &mut WorkMeter,
 ) -> Result<ValidatedPackage, ValidationFailure> {
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
@@ -1432,11 +1438,10 @@ fn validate(
     let flat_kinds = flat_wire::check(wire)?;
     let structural_keys = node_index::check(bytes, wire, evidence)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds)?;
-    let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
         models,
         dependencies,
-    } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
+    } = validate_lock(wire, evidence, meter, limits.bytes)?;
     let ValidatedGraph {
         kinds,
         schedulability_claim_index,
@@ -1447,7 +1452,7 @@ fn validate(
     } = validate_graph(
         wire,
         limits,
-        &mut meter,
+        meter,
         &models,
         &dependencies,
         evidence,
@@ -1462,15 +1467,15 @@ fn validate(
         &wire.lock.sources,
         limits,
     )?;
-    identity::validate_equivalence_occurrences(wire, &kinds, &mut meter)?;
+    identity::validate_equivalence_occurrences(wire, &kinds, meter)?;
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
-    validate_diagnostics(wire, limits, &mut meter)?;
+    validate_diagnostics(wire, limits, meter)?;
     let models = RetainedModels::new(declarations, models);
-    operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
+    operation_effects::validate(wire.operation_effects.as_deref(), &models, meter)?;
     if let Some(data) = wire.checked_term_data.as_ref() {
         dispatch_projection::validate_checked_term_data(
-            data, wire, &kinds, &terms, &models, &mut meter,
+            data, wire, &kinds, &terms, &models, meter,
         )?;
     } else if kinds.contains(&CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)) {
         return Err(ValidationFailure::refused_because(

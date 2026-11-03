@@ -451,6 +451,7 @@ pub fn domain_package_document(identity: &str, version: &str, types: Vec<Value>)
 /// Evidence for a package: its domain package documents plus the complete-value feature.
 pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
     let mut evidence = CheckedPackageEvidence::new();
+    insert_fixture_sources(package, &mut evidence);
     // Each `model_root` owner selects a domain package by identity; the
     // evidence holds the document this helper builds for that identity.
     for identity in selected_model_identities(package) {
@@ -475,6 +476,7 @@ pub fn evidence_with_document(
     document: &Value,
 ) -> CheckedPackageEvidence {
     let mut evidence = CheckedPackageEvidence::new();
+    insert_fixture_sources(package, &mut evidence);
     for selected in selected_model_identities(package) {
         let supplied = if selected == identity {
             document.clone()
@@ -1231,11 +1233,54 @@ pub fn definition_ref(authority: &str, identity: &str) -> Value {
     })
 }
 
-/// A `CheckedSourceRef`-shaped locked source: exactly `{authority, identity}`.
+/// Synthetic source bytes owned by these locally generated test packages.
+pub fn fixture_source_bytes(authority: &str, identity: &str) -> Vec<u8> {
+    format!("source fixture {authority}\n{identity}\n").into_bytes()
+}
+
+fn insert_fixture_sources(package: &Value, evidence: &mut CheckedPackageEvidence) {
+    let mut refs = Vec::new();
+    if let Some(rows) = package["lock"]["sources"].as_array() {
+        refs.extend(rows.iter());
+    }
+    if let Some(rows) = package["source_map"].as_array() {
+        for row in rows {
+            if let Some(regions) = row["regions"].as_array() {
+                refs.extend(regions.iter().map(|region| &region["source"]));
+            }
+        }
+    }
+    if let Some(rows) = package["refinement_step_rows"].as_array() {
+        refs.extend(rows.iter().map(|row| &row["region"]["source"]));
+    }
+    if let Some(rows) = package["diagnostics"]["entries"].as_array() {
+        for row in rows {
+            if let Some(loci) = row["loci"].as_array() {
+                refs.extend(loci.iter().map(|locus| &locus["source"]));
+            }
+        }
+    }
+    for source in refs {
+        if let (Some(authority), Some(identity)) =
+            (source["authority"].as_str(), source["identity"].as_str())
+        {
+            evidence
+                .insert_source_document(
+                    authority,
+                    identity,
+                    fixture_source_bytes(authority, identity),
+                )
+                .expect("fixture source bytes agree for each pair");
+        }
+    }
+}
+
+/// A `CheckedSourceRef`-shaped locked source: exactly three members.
 pub fn source_ref(authority: &str, identity: &str) -> Value {
     json!({
         "authority": authority,
         "identity": identity,
+        "source_integrity": sha256_hex(&fixture_source_bytes(authority, identity)),
     })
 }
 

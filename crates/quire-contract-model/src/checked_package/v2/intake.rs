@@ -446,7 +446,7 @@ pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value>
 /// Locate a source value without deserializing its ancestors. A package can
 /// contain a valid term near serde_json's depth limit even when the requested
 /// member is shallow; deserializing the root as RawValue would reject it.
-fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a str> {
+pub(super) fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a str> {
     let mut current = bytes;
     let path = pointer.as_str();
     if !path.is_empty() {
@@ -761,7 +761,7 @@ fn compare_items<T: serde::Serialize>(
     Ok(())
 }
 
-fn raw_member<'a>(parent: Option<&'a RawValue>, key: &str) -> Option<&'a RawValue> {
+pub(super) fn raw_member<'a>(parent: Option<&'a RawValue>, key: &str) -> Option<&'a RawValue> {
     let members: BTreeMap<String, &'a RawValue> = serde_json::from_str(parent?.get()).ok()?;
     members.get(key).copied()
 }

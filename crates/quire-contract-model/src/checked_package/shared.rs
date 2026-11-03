@@ -207,6 +207,8 @@ pub enum CheckedPackageRefusalCause {
     /// `invalid-value`: a `dependency_selections` entry's identity is not
     /// strictly after its predecessor's in UTF-8 byte order.
     InvalidValue,
+    /// `source-integrity`: a source claim is malformed, missing, or disagrees with supplied bytes.
+    SourceIntegrity,
     /// `duplicate-member`: a `composite_type`/`union` node whose body names
     /// one member twice (QSpec FR-440 reader join 1); paired with
     /// `invalid_package`. The wire-level repeated object member is the code
@@ -1511,8 +1513,8 @@ pub struct CheckedArtifactRef {
     pub identity: Box<str>,
 }
 
-/// A source document named by the producer, with no byte authentication.
-/// The closed shape is `{authority, identity}`.
+/// A source document named by the producer, with a read-time claim over its raw bytes.
+/// The closed shape is `{authority, identity, source_integrity}`.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedSourceRef {
@@ -1520,6 +1522,8 @@ pub struct CheckedSourceRef {
     pub authority: Box<str>,
     /// Source identity.
     pub identity: Box<str>,
+    /// Lowercase SHA-256 of the caller-supplied, unmodified source bytes.
+    pub source_integrity: Box<str>,
 }
 
 /// A selected definition-role identity.
