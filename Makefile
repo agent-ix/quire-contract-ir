@@ -93,7 +93,7 @@ test:
 # they have no checkout.
 .PHONY: conformance-qspec-compile
 conformance-qspec-compile:
-	$(CARGO) test $(LOCKED) --workspace --no-run --test conformance_qspec --test monitor_plan_public --test temporal_binding_public --test it
+	$(CARGO) test $(LOCKED) --workspace --features conformance-cli --no-run --test conformance_qspec --test monitor_plan_public --test temporal_binding_public --test it
 
 .PHONY: conformance-qspec
 conformance-qspec:
