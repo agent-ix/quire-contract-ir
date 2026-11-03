@@ -935,6 +935,7 @@ fn carried_quantity_shape(
     };
     let carrier_valid = match carrier_kind {
         CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => true,
+        CheckedNodeKind::BoundedDomain(BoundedDomainForm::RationalRange) => rounding == "exact",
         CheckedNodeKind::BoundedDomain(BoundedDomainForm::DecimalRange) => graph
             .index
             .get(carrier)
