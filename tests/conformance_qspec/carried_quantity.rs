@@ -10,7 +10,8 @@ use crate::fixture_support::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, ScalarTypeForm,
+    BoundedDomainForm, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedTerm, LiteralKind, ScalarTypeForm,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -79,6 +80,66 @@ fn assert_carried_bindings(
         members[2]["value"]["value"], all[name]["rounding"],
         "{name}"
     );
+}
+
+fn assert_rational_carrier_bounds(
+    admitted: &CheckedPackageV2,
+    all: &Value,
+    ids: &BTreeMap<String, Value>,
+) {
+    let nodes = admitted
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| json!({ "node_id": node.node_id }))
+        .collect::<Vec<_>>();
+    let expected_id = resolved_fixture_id(&ids["rat_r"], &nodes);
+    let (carrier, kind) = admitted
+        .graph()
+        .nodes
+        .iter()
+        .zip(admitted.node_kinds())
+        .find(|(node, _)| {
+            let id = serde_json::to_value(&node.node_id).expect("admitted node ID");
+            resolved_fixture_id(&id, &nodes) == expected_id
+        })
+        .expect("admitted rational carrier");
+    assert_eq!(
+        *kind,
+        quire_contract_model::CheckedNodeKind::BoundedDomain(BoundedDomainForm::RationalRange)
+    );
+    let CheckedTerm::Aggregate { members } = &carrier.body else {
+        panic!("rational carrier body is not a typed aggregate");
+    };
+    let names = [
+        "numerator_min",
+        "numerator_max",
+        "denominator_min",
+        "denominator_max",
+    ];
+    assert_eq!(members.len(), names.len());
+    for (member, name) in members.iter().zip(names) {
+        let CheckedTerm::Binding {
+            name: actual,
+            value,
+        } = member
+        else {
+            panic!("rational carrier member is not a typed binding");
+        };
+        assert_eq!(actual.as_ref(), name);
+        let CheckedTerm::Literal {
+            value_kind, value, ..
+        } = value.as_ref()
+        else {
+            panic!("{name} is not a typed literal");
+        };
+        assert_eq!(*value_kind, LiteralKind::Integer, "{name}");
+        let expected = all["rat_r"][name]
+            .as_i64()
+            .expect("published rational bound")
+            .to_string();
+        assert_eq!(value.as_str(), Some(expected.as_str()), "{name}");
+    }
 }
 
 fn expand(value: &Value, ids: &BTreeMap<String, Value>) -> Value {
@@ -418,6 +479,9 @@ fn published_carried_quantity_vectors_read_as_wire() {
             } else if case["node"].is_string() {
                 let name = case["node"].as_str().expect("node name");
                 assert_carried_bindings(&admitted, name, all, &expected_ids);
+            }
+            if matches!(id, "CQ-W16" | "CQ-W18") {
+                assert_rational_carrier_bounds(&admitted, all, &expected_ids);
             }
         } else {
             let CheckedPackageV2ReadResult::Refused(refusal) = result else {
