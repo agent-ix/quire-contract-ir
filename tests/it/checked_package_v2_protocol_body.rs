@@ -6505,7 +6505,20 @@ fn compensation_clock_rows_follow_published_cases() {
             }
             CheckedPackageV2ReadResult::Refused(actual) if case["expected"] == "refused" => {
                 assert_eq!(case["code"], "invalid_package", "{id}");
-                assert_eq!(case["cause"], "timed-node-reference", "{id}");
+                let cause = if id == "CB-04" {
+                    CheckedPackageRefusalCause::ConflictingDefinition
+                } else {
+                    CheckedPackageRefusalCause::TimedNodeReference
+                };
+                assert_eq!(
+                    case["cause"],
+                    if id == "CB-04" {
+                        "conflicting-definition"
+                    } else {
+                        "timed-node-reference"
+                    },
+                    "{id}"
+                );
                 let key = match id {
                     "CB-03" | "CB-05" => &ids["k2"],
                     "CB-04" | "CB-06" => &ids["k1"],
@@ -6523,16 +6536,19 @@ fn compensation_clock_rows_follow_published_cases() {
                 } else {
                     case["locus"].as_str().expect("locus").to_owned()
                 };
-                assert_eq!(
-                    actual,
+                let expected = if id == "CB-04" {
+                    let mut expected = refusal(CheckedPackageRefusalCode::InvalidPackage, &pointer);
+                    expected.cause = Some(cause);
+                    expected
+                } else {
                     refusal_at_id(
                         CheckedPackageRefusalCode::InvalidPackage,
                         &pointer,
-                        Some(CheckedPackageRefusalCause::TimedNodeReference),
+                        Some(cause),
                         key,
-                    ),
-                    "{id}"
-                );
+                    )
+                };
+                assert_eq!(actual, expected, "{id}");
             }
             other => panic!("{id}: unexpected package result {other:?}"),
         }
