@@ -1611,43 +1611,83 @@ The reader tests SHALL use QSpec's `positive-timed-model-nodes.json` and
 `timed-model-node-vectors.json` through `QUIRE_SPECIFICATION_DIR`, without storing a copy
 of either fixture in this repository.
 
-### Compensation temporal binding rows (implemented)
+### Temporal binding occurrence rows (planned until IR-1279)
 
-The V2 reader SHALL admit a `temporal_bindings` row whose `declaration` equals
-the `node_id` of that `protocol`/`compensation` node with operator `compensate`.
-It SHALL use the existing `TemporalBinding` wire shape and borrowed
-`CheckedPackageV2::temporal_bindings()` read. A compensation row's `clock_name`
-SHALL equal the node's fifth, text-valued `clock` argument. Its clock
-configuration kind SHALL match the lock's `temporal_profile` selection; the
-reader SHALL NOT require a per-compensation temporal-profile law. When that
-selection is clock-configured, each compensation node SHALL have exactly one
-row. When it selects no clock configuration, compensation nodes require no
-row and an absent `temporal_bindings` member remains admitted.
+The V2 reader SHALL use QSpec FR-322's closed `TemporalBinding` row
+`{declaration, occurrence, clock, clock_name}` and its borrowed
+`CheckedPackageV2::temporal_bindings()` read. `occurrence` is a required,
+non-negative integer; omission refuses `malformed_wire` at the row, and a
+negative or noninteger value refuses `malformed_wire` at its `occurrence`
+member. The reader and writer SHALL neither default `occurrence` nor admit or
+emit a declaration-only row.
 
-Clause and compensation rows SHALL share the same array in ascending
-structural `NodeRef` order, with one row per distinct declaration even when
-model, selected profile and clock name coincide. After aggregate-order
-validation and before per-node joins, a missing required row SHALL refuse
-`invalid_package`/`timed-node-reference` at the declaration's own
-`/semantic_graph/nodes/{N}/body`, choosing the lowest graph index among
-missing clauses and compensations. A duplicate SHALL refuse at the second
-`/temporal_bindings/{i}` row. A row whose declaration is absent or is neither
-a temporal clause nor a compensation, including an `await`, SHALL refuse at
-`/temporal_bindings/{i}/declaration`. For an otherwise resolved row, the
-reader SHALL compare the clock name before the configuration kind: a name
-mismatch SHALL refuse at `/temporal_bindings/{i}/clock_name`; a kind mismatch
-SHALL refuse at `/temporal_bindings/{i}/clock/kind`. Each refusal SHALL carry
-the same code and cause above and the affected declaration's `CheckedNodeId`
-as its node locus; an absent or wrong-kind row uses its supplied declaration
-id. The reader SHALL expose admitted rows by their exact
-declaration ids without selecting by array position or clock name.
+Each clock-configured `temporal`/`temporal_clause` node SHALL have exactly one
+row for every one of its source-map `claim` occurrences. A
+`protocol`/`compensation` node with operator `compensate` SHALL have exactly
+one row for its source-map `declaration` occurrence when the lock's
+`temporal_profile` selects a clock configuration; no `await`, `attempt` or
+other control node qualifies. The key is the pair of the declaration's
+structural `node_id` (`NodeRef`) and that eligible occurrence's ordinal.
+Two claims may share one structural node and clock name yet select different
+valid configurations; both rows SHALL be preserved, including when their
+configurations happen to be equal. A compensation row's `declaration` is its
+own node id, not the referenced temporal window. The reader SHALL select a
+row by its exact pair, never by array position, clock name, formula, or
+path-name inference. Clause and compensation rows share one array ordered by
+ascending `(NodeRef, occurrence)`; each pair appears at most once. When no
+eligible clock-configured occurrence exists, `temporal_bindings` is absent;
+absence does not supply a clock or configuration for an eligible occurrence.
 
-QSpec's `temporal-clock-binding-vectors.json` publishes abstract compensation
-cases `CB-01` through `CB-08` under TC-233 `TB-01` through `TB-03`. IR reader
-tests SHALL build full compensation packages around those cases and read the
-published vector data through the selected QSpec checkout; they SHALL NOT
-copy the vector, schema or fixture into this repository. The
-`TemporalBinding` schema and existing clause-row payloads remain unchanged.
+After the earlier aggregate-order validation, the reader SHALL visit each
+row in array order and complete these checks before visiting the next row:
+resolve `declaration` to a temporal clause or compensation node; join
+`occurrence` to a `claim` occurrence of that clause or the `declaration`
+occurrence of that compensation; reject a repeated pair; then reject a pair
+that sorts before its predecessor. An absent or wrong-kind declaration refuses
+`invalid_package`/`timed-node-reference` at
+`/temporal_bindings/{i}/declaration`. An ordinal absent or of the wrong
+source-map role refuses the same pair at `/temporal_bindings/{i}/occurrence`.
+A repeated pair refuses `invalid_package`/`conflicting-definition` at the
+later `/temporal_bindings/{i}` row, even if it also descends. A descending
+pair refuses `invalid_package`/`timed-node-reference` at the later row's
+`declaration` member when its `NodeRef` descends, or its `occurrence` member
+when the `NodeRef`s are equal. These per-row checks precede coverage: the
+first defective row wins over a defect in any later row or an uncovered
+occurrence.
+
+Next, the reader SHALL require one row for every eligible occurrence. A
+missing row refuses `invalid_package`/`timed-node-reference` at its node's
+`/semantic_graph/nodes/{N}/body`, choosing the lowest graph index `N` among
+uncovered clauses and compensations. Only after complete coverage SHALL the
+reader check row values in array order. For each row, it SHALL compare
+`clock_name` with the clause body's clock text or the compensation node's
+fifth text-valued `clock` argument before comparing `clock.kind` with the
+selected `temporal_profile`. A name mismatch refuses
+`invalid_package`/`timed-node-reference` at
+`/temporal_bindings/{i}/clock_name`; a kind mismatch refuses the same pair at
+`/temporal_bindings/{i}/clock/kind`. A clause uses its selected profile law
+joined to `lock.profile_selections`; a compensation uses the lock selection
+without requiring a per-compensation profile law. Existing closed clock
+configuration schema and parameter validation apply to every row. Refusals
+carry the affected declaration's structural node locus; an unresolved or
+wrong-kind declaration uses the supplied declaration id.
+
+The reader SHALL bound this work by the finite caller-selected occurrence and
+validation-work limits. Source-map entries are already charged through the
+occurrence limit; each temporal binding row SHALL be charged before inspection
+through the work limit, and coverage traversal and lookup work SHALL use that
+same work meter. An exhausted limit yields `incomplete` at the first uncharged
+value under the existing limit rules, with no partial admitted row view.
+
+TC-048 SHALL read QSpec's
+`proposals/checked-package-v2/temporal-clock-occurrence-vectors.json` by
+reference through the selected checkout and check BO-P1, BO-P2, BO-S1..S3 and
+BO-R1..R9 against exact admission or code, cause, primary RFC 6901 pointer
+and node locus. It SHALL continue reading
+`proposals/checked-package-v2/temporal-clock-binding-vectors.json` by
+reference for CB-01..08 and the existing clause cases, constructing full
+compensation packages around the abstract cases. It SHALL keep no local copy
+of either vector, schema or fixture.
 
 ### Protocol node bodies and reader step
 
@@ -5525,11 +5565,11 @@ copying QSL execution semantics into IR.
 | FR-038-AC-409 | planned until IR-1260 lands. A root or nested `text` literal typed by `Text[min, max; profile]` admits exactly when its retained `value` is already normalized under `nfc`, `nfd`, `nfkc`, or `nfkd` when applicable and its scalar-count length (UTF-8 byte count for `binary-utf8`) is within the inclusive bounds. The reader does not normalize or coerce the value. A plain `scalar_type`/`text` literal remains unbounded. | Test (TC-048; QSpec TC-233 DL-07..DL-10) |
 | FR-038-AC-410 | planned until IR-1260 lands. A bounded Text literal below `min`, above `max`, or not in its declared normal form refuses `ill_typed`/`type-mismatch` at its exact `value` pointer, with the containing node as locus and no admitted package. A literal typed by a non-Text family refuses `ill_typed`/`operator-ineligible` at `type` first. No package refusal is reported as FR-141 runtime `text_length_out_of_domain`. | Test (TC-048; QSpec TC-233 DL-08..DL-10) |
 | FR-038-AC-411 | planned until IR-1260 lands. The conformance test reads QSpec `proposals/checked-package-v2/text-literal-vectors.json` at the selected checkout by reference and checks `TX-01`..`TX-14` plus `TX-13s`, including exact admission, refusal code/cause, primary RFC 6901 pointer and graph-node locus. It recomputes length and normalization with the reader's pinned Unicode 17.0.0 implementation and keeps no local vector, schema, table, or fixture copy. | Test (TC-048; QSpec TC-233 DL-07..DL-10) |
-| FR-038-AC-412 | Implemented. A clock-configured package with one temporal clause and two `protocol`/`compensation` nodes admits three `temporal_bindings` rows (`CB-01`), and a package with two compensations and no clause admits two (`CB-02`). Each compensation row is keyed by that node's own `node_id`; equal model, profile and clock names do not merge rows. The one array is in ascending structural `NodeRef` order. The borrowed reader returns the exact admitted declaration ids, names and closed configurations without a per-compensation profile law. | Test (TC-048; QSpec TC-233 TB-01) |
-| FR-038-AC-413 | Implemented. With a lock selection that has no clock configuration, two compensation nodes and no `temporal_bindings` member admit (`CB-08`); the reader exposes absence rather than synthesizing rows. Existing clause-row payloads retain their admitted values and the `TemporalBinding` wire schema is unchanged. | Test (TC-048; QSpec TC-233 TB-03) |
-| FR-038-AC-414 | Implemented. A missing required compensation row (`CB-03`) refuses `invalid_package`/`timed-node-reference` at that node's `/semantic_graph/nodes/{N}/body`, choosing the lowest graph index among missing clauses and compensations. A repeated row (`CB-04`) refuses at its second `/temporal_bindings/{i}` entry; an `await` or other non-clause, non-compensation declaration (`CB-07`) refuses at `/temporal_bindings/{i}/declaration`. Each refusal reports the relevant node as its structural locus and yields no admitted package. | Test (TC-048; QSpec TC-233 TB-02..TB-03) |
-| FR-038-AC-415 | Implemented. For a resolved compensation row, a changed `clock_name` (`CB-05`) refuses `invalid_package`/`timed-node-reference` at `/temporal_bindings/{i}/clock_name` before configuration checking; a configuration kind differing from the lock's `temporal_profile` selection (`CB-06`) refuses that pair at `/temporal_bindings/{i}/clock/kind`. The reader uses the node's fifth text-valued `clock` argument and the lock selection, with no per-node temporal-profile law. | Test (TC-048; QSpec TC-233 TB-02) |
-| FR-038-AC-416 | Implemented. TC-048 reads QSpec `proposals/checked-package-v2/temporal-clock-binding-vectors.json` by reference through the selected checkout and checks `CB-01` through `CB-08` against exact admission or code, cause, primary RFC 6901 pointer and node locus. Because the compensation cases are abstract, the test constructs full compensation packages around their published declarations and rows; it keeps no local copy of the vectors, schema or fixture. | Test (TC-048; QSpec TC-233 TB-01..TB-03) |
+| FR-038-AC-412 | planned until IR-1279 lands. A clock-configured package with one temporal clause and two `protocol`/`compensation` nodes admits three `temporal_bindings` rows (`CB-01`), and a package with two compensations and no clause admits two (`CB-02`). Each compensation row is keyed by its own node id and `declaration` occurrence ordinal; equal model, profile and clock names do not merge rows. The one array is in ascending `(NodeRef, occurrence)` order. The borrowed reader returns the exact admitted pairs, names and closed configurations without a per-compensation profile law. | Test (TC-048; QSpec TC-233 TB-01) |
+| FR-038-AC-413 | Implemented for the no-configuration case. With a lock selection that has no clock configuration, two compensation nodes and no `temporal_bindings` member admit (`CB-08`); the reader exposes absence rather than synthesizing rows. The row schema changes under IR-1279 as specified in AC-437. | Test (TC-048; QSpec TC-233 TB-03) |
+| FR-038-AC-414 | planned until IR-1279 lands. A missing required compensation row (`CB-03`) refuses `invalid_package`/`timed-node-reference` at that node's `/semantic_graph/nodes/{N}/body`, choosing the lowest graph index among missing clauses and compensations. A repeated `(declaration, occurrence)` pair (`CB-04`) refuses `invalid_package`/`conflicting-definition` at its second `/temporal_bindings/{i}` entry; an `await` or other non-clause, non-compensation declaration (`CB-07`) refuses `invalid_package`/`timed-node-reference` at `/temporal_bindings/{i}/declaration`. Each refusal reports the relevant node as its structural locus and yields no admitted package. | Test (TC-048; QSpec TC-233 TB-02..TB-03) |
+| FR-038-AC-415 | planned until IR-1279 lands. For a resolved compensation row, a changed `clock_name` (`CB-05`) refuses `invalid_package`/`timed-node-reference` at `/temporal_bindings/{i}/clock_name` before configuration checking; a configuration kind differing from the lock's `temporal_profile` selection (`CB-06`) refuses that pair at `/temporal_bindings/{i}/clock/kind`. The reader uses the node's fifth text-valued `clock` argument and the lock selection, with no per-node temporal-profile law. | Test (TC-048; QSpec TC-233 TB-02) |
+| FR-038-AC-416 | planned until IR-1279 lands. TC-048 reads QSpec `proposals/checked-package-v2/temporal-clock-binding-vectors.json` by reference through the selected checkout and checks `CB-01` through `CB-08` against exact admission or code, cause, primary RFC 6901 pointer and node locus, including the mandatory occurrence in each row. Because the compensation cases are abstract, the test constructs full compensation packages around their published declarations and rows; it keeps no local copy of the vectors, schema or fixture. | Test (TC-048; QSpec TC-233 TB-01..TB-03) |
 | FR-038-AC-417 | planned until IR-1263 lands. A `bounded_domain`/`text_bounds` node with exactly ordered `aggregate{min, max, text_profile}` admits when both bounds are canonical nonnegative integer literals with `min <= max` and the text profile is one of `unicode-scalars`, `nfc`, `nfd`, `nfkc`, `nfkd`, or `binary-utf8`. `Text[0, 64; nfc]` and the equal-bound `Text[2, 2; binary-utf8]` admit; no unbounded `Text[profile]` shape exists. | Test |
 | FR-038-AC-418 | planned until IR-1263 lands. A profile-only `Text[nfc]`, absent `min`, `max` or `text_profile`, an extra or reordered member, a noninteger or negative bound, `min > max`, or a profile outside the six refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}`, with that node as locus and no admitted package. Shape refusal precedes Text literal membership even when a literal typed by the malformed node would itself fail its length or normalization check. | Test |
 | FR-038-AC-419 | planned until IR-1263 lands. TC-048 reads QSpec `proposals/checked-package-v2/text-bounds-shape-vectors.json` from the selected checkout by reference, verifies the exact `TS-01` through `TS-10` case set, and checks each through the public strict reader for admission or the specified code, cause, primary RFC 6901 node pointer and structural node locus. It stores no local vector or schema copy; the existing profile-only recursive-leaves fixture gains explicit `min` and `max` so its positive read remains valid. | Test |
@@ -5550,6 +5590,11 @@ copying QSL execution semantics into IR.
 | FR-038-AC-434 | planned until IR-721 lands. TC-048 reads QSpec entry-key-vectors.json EK-01..EK-08 by reference: the published declaration-less function path has parameter count, ordered parameter indices, body-root index and optional measure index; equal content gives equal paths and a changed body, reordered parameter or measure gives a different path. Complete package controls admit genuine declaration-less pure_function bodies with exactly ordered parameters/body and an optional final measure, including EK-06 with typed parameter references, body-root reference and measure reference. Negative controls reject malformed measure, duplicate, extra, reordered and clause-only bindings under the existing ordinary validation precedence and exact refusal loci, without executing or semantically rechecking a measure. Those controls resolve the supplied keys, refuse EK-07's duplicate package/path/ordinal as invalid_semantic_graph at the second node_id, and admit EK-08's owner-chosen model accessor label unchanged. The reader recomputes no producer path and adds no refusal for a path differing from the derivation. Root plus four entry keys remain the identity; no independent PlanId or copied upstream vector is introduced. | Test |
 | FR-038-AC-435 | Every admitted `quire.op.protocol.control` body on a protocol member has `result_type` and node `semantic_type` equal to the package's Boolean scalar-type node; equality of those two references to another type is insufficient. A resolved non-Boolean type refuses `ill_typed`/`operator-ineligible` at the containing protocol node with no admitted package. TC-048 reads the merged QSpec STD-609 protocol-node mutation manifest and base fixture by reference, applies V13 unchanged, and checks that exact code and cause at `/semantic_graph/nodes/64`, with that node as structural locus. | Test |
 | FR-038-AC-436 | A state-clause body reference to a protocol member node other than a `protocol_clause` or `protocol_reference` carrier refuses `ill_typed`/`operator-ineligible` at the containing state-clause node with no admitted package, even when the referenced member is Boolean typed. The protocol step applies this placement rule after earlier graph and state defects. TC-048 reads the same merged manifest and base fixture by reference, applies V14 unchanged, and checks that exact code and cause at `/semantic_graph/nodes/54`, with that node as structural locus. | Test |
+| FR-038-AC-437 | planned until IR-1279 lands. The public strict reader admits only the closed `TemporalBinding` members `{declaration, occurrence, clock, clock_name}` and the canonical writer emits the mandatory non-negative integer `occurrence` without a declaration-only fallback. It refuses BO-S1's omitted occurrence as `malformed_wire` at `/temporal_bindings/{i}` and BO-S2/BO-S3's negative or noninteger occurrence as `malformed_wire` at `/temporal_bindings/{i}/occurrence`; no package or partial row view is admitted. | Test (TC-048; QSpec FR-322-AC-359..360) |
+| FR-038-AC-438 | planned until IR-1279 lands. BO-P1 admits two `claim` occurrences of one structural temporal-clause node, each with its own row and distinct valid clock configuration; BO-P2 admits the same twin shape with equal configurations without collapsing the rows. The borrowed read and canonical write/read-back retain each exact `(declaration NodeRef, occurrence ordinal)` key and configuration. Compensation rows use their node's `declaration` occurrence; clause and compensation rows share ascending pair order and are never selected by clock name, formula, array index or inferred path. | Test (TC-048; QSpec FR-322-AC-294, FR-322-AC-361) |
+| FR-038-AC-439 | planned until IR-1279 lands. After earlier aggregate-order checks, each temporal binding row completes declaration join, occurrence-role/ordinal join, repeated-pair check and pair-order check before the next row. An absent or wrong-kind declaration refuses `invalid_package`/`timed-node-reference` at `/temporal_bindings/{i}/declaration`; an unowned or wrong-role occurrence (BO-R2) refuses the same pair at `/temporal_bindings/{i}/occurrence`; a repeated pair (BO-R3) refuses `invalid_package`/`conflicting-definition` at the later row. A descent (BO-R4) refuses `invalid_package`/`timed-node-reference` at that row's `declaration` member if the NodeRef descends, or `occurrence` member if its NodeRef equals the predecessor. Repetition wins over descent (BO-R5), and an earlier repeated row wins over a later invalid declaration (BO-R6). | Test (TC-048; QSpec FR-322-AC-363..367) |
+| FR-038-AC-440 | planned until IR-1279 lands. After all row joins, duplicates and ordering, every eligible clock-configured `claim` or compensation `declaration` occurrence has one row. An uncovered occurrence (BO-R1) refuses `invalid_package`/`timed-node-reference` at the lowest-index missing node's `/semantic_graph/nodes/{N}/body`; a row-order descent wins over that gap (BO-R7). After coverage, rows are checked in array order, comparing the second occurrence's `clock_name` before `clock.kind`: BO-R8 refuses the same code/cause at `/temporal_bindings/{i}/clock_name`, and BO-R9 at `/temporal_bindings/{i}/clock/kind`. A clause's selected law or a compensation's lock selection supplies the profile; no row supplies a profile default. | Test (TC-048; QSpec FR-322-AC-362, FR-322-AC-368..370) |
+| FR-038-AC-441 | planned until IR-1279 lands. TC-048 reads QSpec `proposals/checked-package-v2/temporal-clock-occurrence-vectors.json` from the selected checkout by reference, verifies BO-P1/P2, BO-S1..S3 and BO-R1..R9, and checks each complete package against exact admission or refusal code, cause, primary RFC 6901 pointer and structural node locus. It also reads the updated binding vectors by reference for CB-01..08 and the single- and multi-clause positives. Source-map entries remain charged by the existing occurrence limit; the reader charges binding rows before inspection and coverage work to the validation-work limit, so a first exhausted limit returns `incomplete` with its existing setting and pointer and exposes no partial row view. No vector, schema or fixture is copied into IR. | Test (TC-048; QSpec TC-233) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
