@@ -107,7 +107,7 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
 }
 
 #[test]
-#[trace("TC-058", "FR-354-AC-9")]
+#[trace("TC-058", "TC-048", "FR-354-AC-9", "FR-038-AC-448")]
 fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
     let all = vectors();
     let positives = all["positive"]["protocol_locations"].as_array().unwrap();
@@ -206,6 +206,45 @@ fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
             "PL-R3-leaf-copies-enclosing-location",
         ])
     );
+}
+
+#[test]
+#[trace("TC-048", "FR-038-AC-449")]
+fn published_leaf_graphs_keep_their_application_location_admissible() {
+    let all = vectors();
+    for vector in all["reader_refusals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| {
+            row["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("PL-R3-"))
+        })
+    {
+        let id = vector["id"].as_str().unwrap();
+        let graph_application = vector["graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["node_tag"] == "expression" && node["body"]["term"] == "application")
+            .expect("published graph contains an application");
+        let row = vector["value"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["application"] == graph_application["node_id"])
+            .unwrap_or_else(|| &vector["value"][0]);
+        let (wire, position) = fixture(vec![row.clone()]);
+        let package = admitted(&wire);
+        let application = &package.graph().nodes[position];
+        assert!(
+            package
+                .protocol_location(&application.node_id, &application.occurrences[0], 0, 100)
+                .is_ok(),
+            "{id}: published application row must remain admissible"
+        );
+    }
 }
 
 #[test]
