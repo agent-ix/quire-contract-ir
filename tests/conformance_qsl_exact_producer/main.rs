@@ -375,7 +375,10 @@ fn assert_accessor_reads_only_admitted_terms() {
     calls.visit_block(&functions[0].block);
     assert_eq!(
         calls.functions,
-        ["Some", "error"].map(str::to_owned).into_iter().collect()
+        ["Some", "State", "error"]
+            .map(str::to_owned)
+            .into_iter()
+            .collect()
     );
     assert_eq!(calls.methods, ["clone", "cloned", "contains", "execution_point", "node", "node_kind", "ok_or_else", "term"].map(str::to_owned).into_iter().collect(), "the accessor obtains only admitted typed nodes/terms, never source bindings or a fallback producer path");
 }
