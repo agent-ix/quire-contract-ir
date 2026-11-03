@@ -243,19 +243,20 @@ fn native_qsl_identity_fields_and_stop_causes_remain_distinct() {
         8
     );
 
-    let exhaustion = SourceInventoryIncompleteReason::TypeWorkExhausted(SourceTypeExhaustion {
-        stage: None,
-        setting: None,
-        dimension: SourceTypeWorkDimension::Records,
-        limit: 4,
-        observed: None,
-        prior: Some(4),
-        requested: Some(1),
-        site: SourceTypeExhaustionSite {
-            native: Some(site()),
-            region: None,
-        },
-    });
+    let exhaustion =
+        SourceInventoryIncompleteReason::TypeWorkExhausted(Box::new(SourceTypeExhaustion {
+            stage: None,
+            setting: None,
+            dimension: SourceTypeWorkDimension::Records,
+            limit: 4,
+            observed: None,
+            prior: Some(4),
+            requested: Some(1),
+            site: SourceTypeExhaustionSite {
+                native: Some(site()),
+                region: None,
+            },
+        }));
     let unfinished = SourceInventoryIncompleteReason::TypeAdmissionUnfinished {
         declaration: SourceDeclarationHandle(1),
     };
@@ -444,14 +445,14 @@ fn spine_and_composed_exhaustion_preserve_only_owner_measured_fields() {
     for expected in [s1, s3, composed] {
         let mut enumerator = TestEnumerator::new(SourceInventoryOwner::Qsl, vec![]);
         enumerator.stop = Some(SourceInventoryIncompleteReason::TypeWorkExhausted(
-            expected.clone(),
+            Box::new(expected.clone()),
         ));
         let outcome =
             SourceInventoryOutcome::from_enumerator(enumerator).expect("QSL stop outcome");
         assert_eq!(
             outcome.completeness(),
             &SourceInventoryCompleteness::Incomplete(
-                SourceInventoryIncompleteReason::TypeWorkExhausted(expected)
+                SourceInventoryIncompleteReason::TypeWorkExhausted(Box::new(expected))
             )
         );
     }
@@ -602,19 +603,20 @@ fn terminal_boundary_distinguishes_empty_complete_partial_and_invalid_count() {
 #[trace("FR-052-AC-12", "FR-052-AC-13", "FR-052-AC-3")]
 #[test]
 fn terminal_boundary_preserves_typed_stops_and_rejects_mismatched_rows() {
-    let exhaustion = SourceInventoryIncompleteReason::TypeWorkExhausted(SourceTypeExhaustion {
-        stage: None,
-        setting: None,
-        dimension: SourceTypeWorkDimension::Records,
-        limit: 1,
-        observed: None,
-        prior: Some(1),
-        requested: Some(1),
-        site: SourceTypeExhaustionSite {
-            native: Some(site()),
-            region: None,
-        },
-    });
+    let exhaustion =
+        SourceInventoryIncompleteReason::TypeWorkExhausted(Box::new(SourceTypeExhaustion {
+            stage: None,
+            setting: None,
+            dimension: SourceTypeWorkDimension::Records,
+            limit: 1,
+            observed: None,
+            prior: Some(1),
+            requested: Some(1),
+            site: SourceTypeExhaustionSite {
+                native: Some(site()),
+                region: None,
+            },
+        }));
     let qsl_row = SourceInventoryRow::new(
         source(),
         SourceInventoryIdentity::PendingObligation(pending(
@@ -1161,19 +1163,21 @@ fn every_owner_position_refuses_missing_and_typed_incomplete_outcomes() {
                 }),
             ],
             SourceInventoryOwner::Qsl => vec![
-                SourceInventoryIncompleteReason::TypeWorkExhausted(SourceTypeExhaustion {
-                    stage: None,
-                    setting: None,
-                    dimension: SourceTypeWorkDimension::Records,
-                    limit: 4,
-                    observed: None,
-                    prior: Some(4),
-                    requested: Some(1),
-                    site: SourceTypeExhaustionSite {
-                        native: Some(site()),
-                        region: None,
+                SourceInventoryIncompleteReason::TypeWorkExhausted(Box::new(
+                    SourceTypeExhaustion {
+                        stage: None,
+                        setting: None,
+                        dimension: SourceTypeWorkDimension::Records,
+                        limit: 4,
+                        observed: None,
+                        prior: Some(4),
+                        requested: Some(1),
+                        site: SourceTypeExhaustionSite {
+                            native: Some(site()),
+                            region: None,
+                        },
                     },
-                }),
+                )),
                 SourceInventoryIncompleteReason::TypeAdmissionUnfinished {
                     declaration: SourceDeclarationHandle(7),
                 },

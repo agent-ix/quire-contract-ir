@@ -88,7 +88,7 @@ pub enum SourceInventoryIncompleteReason {
         cause: Box<str>,
     },
     /// QSL's type work stopped at its first unaffordable charge.
-    TypeWorkExhausted(SourceTypeExhaustion),
+    TypeWorkExhausted(Box<SourceTypeExhaustion>),
     /// QSL reported unfinished type admission for a native declaration handle.
     ///
     /// Produced only by QSL's composed-lane inventory; the spine inventory
