@@ -2232,23 +2232,44 @@ pub fn refresh_temporal_bindings(package: &mut Value) {
                 }
                 _ => return None,
             };
-            Some((
-                node["node_id"].clone(),
-                json!({
-                    "declaration": node["node_id"],
-                    "clock_name": name,
-                    "clock": clock,
-                }),
-            ))
+            Some(
+                node["occurrences"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(|occurrence| {
+                        let expected_role = if node["semantic_form"] == "compensation" {
+                            "declaration"
+                        } else {
+                            "claim"
+                        };
+                        (occurrence["role"] == expected_role).then(|| {
+                            (
+                                node["node_id"].clone(),
+                                occurrence["ordinal"].as_u64().expect("occurrence ordinal"),
+                                json!({
+                                    "declaration": node["node_id"],
+                                    "occurrence": occurrence["ordinal"],
+                                    "clock_name": name,
+                                    "clock": clock,
+                                }),
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
         })
+        .flatten()
         .collect::<Vec<_>>();
     if rows.len() > 1 {
         let ids = nodes
             .iter()
             .map(|node| node["node_id"].clone())
             .collect::<Vec<_>>();
-        rows.sort_by_cached_key(|(declaration, _)| {
-            structural_fixture_id_in_graph(declaration, &ids, &mut Default::default())
+        rows.sort_by_cached_key(|(declaration, occurrence, _)| {
+            (
+                structural_fixture_id_in_graph(declaration, &ids, &mut Default::default()),
+                *occurrence,
+            )
         });
     }
     if rows.is_empty() {
@@ -2257,7 +2278,8 @@ pub fn refresh_temporal_bindings(package: &mut Value) {
             .expect("package")
             .remove("temporal_bindings");
     } else {
-        package["temporal_bindings"] = Value::Array(rows.into_iter().map(|(_, row)| row).collect());
+        package["temporal_bindings"] =
+            Value::Array(rows.into_iter().map(|(_, _, row)| row).collect());
     }
 }
 

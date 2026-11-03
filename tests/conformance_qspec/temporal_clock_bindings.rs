@@ -62,6 +62,7 @@ fn selected_package(case: &Value) -> Value {
     fixture_support::reassign_node_id(&mut package, &old_id, &new_id);
     package["temporal_bindings"] = json!([{
         "declaration": new_id,
+        "occurrence": 0,
         "clock_name": case["clock_name"],
         "clock": case["clock"]
     }]);
