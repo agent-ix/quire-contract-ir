@@ -6,8 +6,9 @@
 use super::{fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedVariantPayloadType,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -20,6 +21,227 @@ fn selected_document(proposal: &Path) -> Value {
         &documents,
     )))
     .expect("selected tuple/union document")
+}
+
+fn read_selected_variant_package(package: &Value, document: &Value) -> Box<CheckedPackageV2> {
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence
+        .insert_domain_package_document(
+            document["package"]["identity"]
+                .as_str()
+                .expect("document identity"),
+            super::fixture_support::canonical(document),
+        )
+        .expect("selected document evidence");
+    evidence.support_feature("quire.value.complete/v1");
+    match CheckedPackageV2::read(
+        &super::fixture_support::canonical(package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        result => panic!("selected model package must admit: {result:?}"),
+    }
+}
+
+fn variant_node_id(package: &Value, identity: &str) -> CheckedNodeId {
+    let node = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "variant_type" && node["owner"]["node"] == identity)
+        .expect("published selected variant node");
+    serde_json::from_value(node["node_id"].clone()).expect("published variant node id")
+}
+
+type VariantCaseBody = (String, String, usize, usize, Option<String>);
+
+fn asserted_variant_body(
+    admitted: &CheckedPackageV2,
+    document: &Value,
+    node: &CheckedNodeId,
+    identity: &str,
+    expected_family: &str,
+) -> Vec<VariantCaseBody> {
+    let view = admitted
+        .model_variant_body(node)
+        .expect("selected variant body");
+    assert_eq!(
+        view.selected_document(),
+        document["package"]["identity"]
+            .as_str()
+            .expect("document identity")
+    );
+    assert_eq!(view.family(), expected_family, "{identity}: variant family");
+    let authored = document["types"]
+        .as_array()
+        .expect("selected types")
+        .iter()
+        .find(|declared| declared["identity"] == identity)
+        .expect("selected variant declaration");
+    let mut expected: Vec<VariantCaseBody> = authored["variants"]
+        .as_array()
+        .expect("authored variant cases")
+        .iter()
+        .enumerate()
+        .map(|(position, case)| {
+            let payload = case["payloadType"].as_str().map(str::to_owned);
+            (
+                case["name"].as_str().expect("case name").to_owned(),
+                case["identity"].as_str().expect("case identity").to_owned(),
+                position,
+                usize::from(payload.is_some()),
+                payload,
+            )
+        })
+        .collect();
+    expected.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let actual: Vec<VariantCaseBody> = view
+        .cases()
+        .map(|case| {
+            let payload = case.payload_type().map(|type_ref| match type_ref {
+                CheckedVariantPayloadType::Native(reference)
+                | CheckedVariantPayloadType::Unit(reference)
+                | CheckedVariantPayloadType::Declared(reference) => reference.to_owned(),
+            });
+            (
+                case.name().to_owned(),
+                case.identity().to_owned(),
+                case.position(),
+                case.arity(),
+                payload,
+            )
+        })
+        .collect();
+    assert_eq!(
+        actual, expected,
+        "{identity}: complete retained variant body"
+    );
+    actual
+}
+
+/// Trace: FR-069-AC-4. Compare every published case through the public reader,
+/// then change only the selected variant body while its authored node stays put.
+#[trace("FR-069-AC-4")]
+#[test]
+fn published_variant_bodies_and_first_payload_transition_are_retained() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple/union vectors");
+    let package = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let document = selected_document(&proposal);
+    let admitted = read_selected_variant_package(&package, &document);
+    let mut seen = BTreeSet::new();
+    for row in vectors["family_cases"]
+        .as_array()
+        .expect("published family cases")
+    {
+        let id = row["name"].as_str().expect("family case id");
+        if !matches!(id, "TF-02" | "TF-03") {
+            continue;
+        }
+        assert!(seen.insert(id), "duplicate published family case {id}");
+        let name = row["node"].as_str().expect("variant name");
+        let identity = format!("ix://acme/shapes/{name}");
+        let node = variant_node_id(&package, &identity);
+        let expected_family = row["expected"].as_str().expect("published family");
+        asserted_variant_body(&admitted, &document, &node, &identity, expected_family);
+    }
+    assert_eq!(seen, BTreeSet::from(["TF-02", "TF-03"]));
+
+    let color = "ix://acme/shapes/Color";
+    let node = variant_node_id(&package, color);
+    let original_path = node.path.clone();
+    assert_eq!(document["types"][6]["identity"], color);
+    let nullary_body = asserted_variant_body(&admitted, &document, &node, color, "enum");
+    let mut payload_document = document.clone();
+    payload_document["types"][6]["variants"][1]["payloadType"] = json!("ix://quire/native/Boolean");
+    assert_ne!(payload_document, document, "selected document must change");
+    let mut payload_package = package.clone();
+    let red = &mut payload_package["semantic_graph"]["nodes"][30];
+    assert_eq!(red["semantic_form"], "enum_value");
+    red["semantic_form"] = json!("union_value");
+    red["body"] = json!({"term":"aggregate", "members":[{
+        "term":"binding", "name":"Red", "value":{"term":"aggregate","members":[]}
+    }]});
+    red["dependencies"] = json!([]);
+    red["node_id"]["path"] = json!(["value", "union_value", "Red", {"node":4}]);
+    red["occurrences"][0]["role"] = json!("expression");
+    let removed = payload_package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .remove(36);
+    assert_eq!(removed["body"]["operation"]["identity"], "quire.op.enum.eq");
+    super::fixture_support::settle(&mut payload_package);
+    let payload_admitted = read_selected_variant_package(&payload_package, &payload_document);
+    let payload_body =
+        asserted_variant_body(&payload_admitted, &payload_document, &node, color, "union");
+    assert_ne!(
+        payload_body, nullary_body,
+        "first payload changes retained body"
+    );
+    assert_eq!(node.path, original_path, "authored declaration path");
+    assert_eq!(
+        admitted.structural_key(&node),
+        Some(&node),
+        "base authored structural identity"
+    );
+    assert_eq!(
+        payload_admitted.structural_key(&node),
+        Some(&node),
+        "authored structural identity remains stable"
+    );
+
+    let mut aliased_document = payload_document.clone();
+    let alias = "ix://acme/shapes/BoolAlias";
+    let origin = aliased_document["types"][6]["origin"].clone();
+    aliased_document["types"]
+        .as_array_mut()
+        .expect("selected types")
+        .push(json!({
+            "identity": alias, "displayName": "BoolAlias", "kind": "alias",
+            "target": "ix://quire/native/Boolean", "origin": origin,
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject"
+        }));
+    aliased_document["types"][6]["variants"][1]["payloadType"] = json!(alias);
+    let aliased = read_selected_variant_package(&payload_package, &aliased_document);
+    let green = aliased
+        .model_variant_body(&node)
+        .expect("aliased selected variant")
+        .cases()
+        .find(|case| case.name() == "Green")
+        .expect("Green case");
+    assert_eq!(
+        green.payload_type(),
+        Some(CheckedVariantPayloadType::Native(
+            "ix://quire/native/Boolean"
+        )),
+        "payload alias resolves before retention"
+    );
+
+    payload_document["types"][6]["variants"][1]
+        .as_object_mut()
+        .expect("authored case")
+        .remove("payloadType")
+        .expect("added payload");
+    assert_eq!(
+        payload_document, document,
+        "removed payload restores document"
+    );
+    let restored = read_selected_variant_package(&package, &payload_document);
+    assert_eq!(
+        asserted_variant_body(&restored, &payload_document, &node, color, "enum"),
+        nullary_body,
+        "removing first payload restores complete retained body"
+    );
+    assert!(admitted
+        .model_variant_body(&admitted.graph().nodes[0].node_id)
+        .is_none());
+    let mut unselected = node.clone();
+    unselected.ordinal += 1;
+    assert!(admitted.model_variant_body(&unselected).is_none());
 }
 
 /// The refusal pointer of the first selected model root: its owner.

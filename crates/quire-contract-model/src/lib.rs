@@ -230,6 +230,9 @@ pub use checked_package::{
     SelectedEqualityApplicationRow, SelectedEqualityFactRow,
 };
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
+pub use checked_package::{
+    CheckedModelVariantBody, CheckedModelVariantCase, CheckedVariantPayloadType,
+};
 
 pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,

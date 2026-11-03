@@ -18,8 +18,8 @@
 
 use super::model_members::{
     check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
-    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, Owner,
-    RelationshipDecl, SelectedVariantCase,
+    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, NativeTypeRef,
+    Owner, RelationshipDecl, SelectedTypeRef, SelectedVariantCase,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
@@ -541,6 +541,120 @@ pub(super) struct RetainedModels {
     relationships: BTreeMap<(usize, Box<str>), RetainedRelationship>,
 }
 
+/// The selected document's complete retained body for one admitted variant declaration.
+#[derive(Clone, Copy, Debug)]
+pub struct CheckedModelVariantBody<'a> {
+    document: &'a str,
+    cases: &'a BTreeMap<Box<str>, SelectedVariantCase>,
+}
+
+impl<'a> CheckedModelVariantBody<'a> {
+    /// The identity of the selected domain package document.
+    pub fn selected_document(&self) -> &'a str {
+        self.document
+    }
+
+    /// `union` when any case has a payload, otherwise `enum`.
+    pub fn family(&self) -> &'static str {
+        if self.cases.values().any(|case| case.payload.is_some()) {
+            "union"
+        } else {
+            "enum"
+        }
+    }
+
+    /// Every retained case, in ascending UTF-8 name order.
+    pub fn cases(&self) -> impl ExactSizeIterator<Item = CheckedModelVariantCase<'a>> + 'a {
+        self.cases
+            .iter()
+            .map(|(name, case)| CheckedModelVariantCase {
+                name,
+                identity: &case.identity,
+                position: case.position,
+                payload: case.payload.as_ref().map(CheckedVariantPayloadType::from),
+            })
+    }
+}
+
+/// One case of an admitted selected variant declaration.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CheckedModelVariantCase<'a> {
+    name: &'a str,
+    identity: &'a str,
+    position: usize,
+    payload: Option<CheckedVariantPayloadType<'a>>,
+}
+
+impl<'a> CheckedModelVariantCase<'a> {
+    /// The exact case name used for ascending UTF-8 ordering.
+    pub fn name(&self) -> &'a str {
+        self.name
+    }
+
+    /// The original identity of this case in the selected document.
+    pub fn identity(&self) -> &'a str {
+        self.identity
+    }
+
+    /// The case's authored zero-based position in the selected document.
+    pub fn position(&self) -> usize {
+        self.position
+    }
+
+    /// Zero for a nullary case, one for a case with a payload.
+    pub fn arity(&self) -> usize {
+        usize::from(self.payload.is_some())
+    }
+
+    /// The alias-resolved type at position zero, if this case has a payload.
+    pub fn payload_type(&self) -> Option<CheckedVariantPayloadType<'a>> {
+        self.payload
+    }
+}
+
+/// The admitted, alias-resolved form of a selected variant payload type.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedVariantPayloadType<'a> {
+    /// A native type named by its full `ix://quire/native/` reference.
+    Native(&'static str),
+    /// A selected unit's exact identity.
+    Unit(&'a str),
+    /// A selected declared type's exact identity.
+    Declared(&'a str),
+}
+
+impl<'a> From<&'a SelectedTypeRef> for CheckedVariantPayloadType<'a> {
+    fn from(value: &'a SelectedTypeRef) -> Self {
+        match value {
+            SelectedTypeRef::Native(native) => Self::Native(native_type_reference(native)),
+            SelectedTypeRef::Unit(unit) => Self::Unit(unit),
+            SelectedTypeRef::Declared(declared) => Self::Declared(declared),
+            SelectedTypeRef::Map(..) => {
+                unreachable!("selected variant admission refuses map payloads")
+            }
+        }
+    }
+}
+
+fn native_type_reference(native: &NativeTypeRef) -> &'static str {
+    match native {
+        NativeTypeRef::Boolean => "ix://quire/native/Boolean",
+        NativeTypeRef::Integer => "ix://quire/native/Integer",
+        NativeTypeRef::Rational => "ix://quire/native/Rational",
+        NativeTypeRef::Decimal => "ix://quire/native/Decimal",
+        NativeTypeRef::Float32 => "ix://quire/native/Float32",
+        NativeTypeRef::Float64 => "ix://quire/native/Float64",
+        NativeTypeRef::Text => "ix://quire/native/Text",
+        NativeTypeRef::String => "ix://quire/native/String",
+        NativeTypeRef::Uuid => "ix://quire/native/UUID",
+        NativeTypeRef::Timestamp => "ix://quire/native/Timestamp",
+        NativeTypeRef::Bytes => "ix://quire/native/Bytes",
+        NativeTypeRef::JsonObject => "ix://quire/native/JsonObject",
+        NativeTypeRef::Duration => "ix://quire/native/Duration",
+        NativeTypeRef::Clock => "ix://quire/native/Clock",
+    }
+}
+
 /// A selected owner has either one genuine declaration node or several.
 #[derive(Clone, Debug)]
 enum DeclaringNode {
@@ -728,6 +842,18 @@ impl RetainedModels {
             "union"
         } else {
             "enum"
+        })
+    }
+
+    pub(super) fn variant_body(&self, key: &CheckedNodeId) -> Option<CheckedModelVariantBody<'_>> {
+        let declared = self.index.0.get(key)?;
+        if declared.form != DeclarationForm::VariantType {
+            return None;
+        }
+        let model = self.models.get(declared.selection)?;
+        Some(CheckedModelVariantBody {
+            document: &model.identity,
+            cases: model.variant_types.get(&declared.node)?,
         })
     }
 
@@ -1194,6 +1320,13 @@ impl fmt::Display for CheckedModelFieldsError {
 impl std::error::Error for CheckedModelFieldsError {}
 
 impl CheckedPackageV2 {
+    /// The complete retained selected-variant body for an admitted declaration
+    /// node, borrowed from this package. A non-variant or unselected node has
+    /// no body. Cases appear in ascending UTF-8 name order.
+    pub fn model_variant_body(&self, node: &CheckedNodeId) -> Option<CheckedModelVariantBody<'_>> {
+        self.models.variant_body(node)
+    }
+
     /// The effective fields of the model object type whose model declaration
     /// node is `node`, in effective declaration order, each with the member type
     /// the reader derived from the selected domain package document at
