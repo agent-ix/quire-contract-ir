@@ -1689,6 +1689,79 @@ reference for CB-01..08 and the existing clause cases, constructing full
 compensation packages around the abstract cases. It SHALL keep no local copy
 of either vector, schema or fixture.
 
+### Temporal clause names (planned until IR-1278)
+
+The V2 reader SHALL admit QSpec FR-322's separate, closed
+`temporal_clause_names` carrier. It is absent exactly when the semantic graph
+has no `temporal`/`temporal_clause` node; otherwise it is a non-empty array
+with exactly one row for each `claim` occurrence of every such node. Each row
+is exactly `{declaration, occurrence, name}`: `declaration` is that clause's
+local structural `NodeRef`, `occurrence` is its source-map `claim` ordinal,
+and `name` is one non-empty identifier under the grammar for a
+`declaration.qualified_name` segment. The name is matched byte for byte.
+It is the source declaration's name, not the clause body's clock name. It
+SHALL NOT be inferred from a source region, source-map entry, `NodeRef` path,
+requirement label, or formula. A clause node SHALL carry no `declaration`
+member; such a member refuses `invalid_semantic_graph` at
+`/semantic_graph/nodes/{N}/declaration` before name-row validation.
+
+The row key is `(declaration NodeRef, occurrence ordinal)`, sorted in ascending
+pair order and unique. Two structurally equal declarations SHALL remain one
+node with two `claim` occurrences and two name rows; the names may be equal
+or distinct. Changing only a name SHALL change neither node nor `node_id`.
+The reader SHALL NOT impose cross-row name uniqueness: that is a source
+language rule. The `temporal_bindings` carrier remains separate, with one
+clock-configuration row per eligible claim occurrence under its own rules;
+neither carrier supplies a missing row or value of the other. A borrowed typed
+`CheckedPackageV2::temporal_clause_names()` read SHALL expose each admitted
+`TemporalClauseName` row by exact pair, and the canonical writer SHALL accept
+optional borrowed typed name rows in `CheckedPackageSidecarsRef`, emit their
+closed shape in supplied row order, and omit the member for `None`. If a
+clause exists, such omission produces a package the strict reader refuses. A
+strictly read, encoded and reread package SHALL preserve both names of a
+shared node without minting another node identity or parsing source text.
+
+The schema SHALL refuse a missing `declaration`, `occurrence` or `name`, or
+an extra member, as `malformed_wire` at `/temporal_clause_names/{i}`. An
+empty, qualified, non-string or otherwise invalid identifier SHALL refuse
+`malformed_wire` at `/temporal_clause_names/{i}/name`; a negative or
+noninteger occurrence SHALL refuse `malformed_wire` at
+`/temporal_clause_names/{i}/occurrence`. These are closed-shape checks before
+semantic row joins; no default or declaration-only row is admitted.
+
+After temporal-binding checks and before FR-370 clause-body joins, the reader
+SHALL visit name rows in array order and finish each row's checks before the
+next: join `declaration` to a local temporal-clause node; join `occurrence`
+to one of that node's `claim` occurrences; reject a repeated pair; then
+reject a descending pair. An absent or wrong-kind declaration SHALL refuse
+`invalid_package`/`invalid-value` at
+`/temporal_clause_names/{i}/declaration`; an ordinal absent or not owned by
+that node as a `claim` SHALL refuse the same pair at
+`/temporal_clause_names/{i}/occurrence`. A repeated pair SHALL refuse
+`invalid_package`/`conflicting-definition` at the later whole row
+`/temporal_clause_names/{i}`; a descending pair SHALL refuse
+`invalid_package`/`invalid-value` at that later whole row. Repetition SHALL
+win over descent within a row; a row's defect SHALL win over defects in all
+later rows and over missing coverage.
+
+After every row passes, the reader SHALL check complete coverage. A missing
+`temporal_clause_names` member when any clause exists, or any uncovered
+`claim` occurrence, SHALL refuse `invalid_package`/`invalid-value` at
+`/temporal_clause_names`. A descending row therefore wins over a missing
+row. Each visited row SHALL consume one validation-work visit before
+inspection, using the caller's finite work limit; source-map occurrences
+remain bounded by their existing occurrence limit. An exhausted limit SHALL
+return `incomplete` at the first uncharged value under the existing limit
+rules, without a partial admitted name view.
+
+TC-048 SHALL read QSpec
+`proposals/checked-package-v2/temporal-clause-name-vectors.json` through the
+selected checkout by reference for CN-P1..P3, CN-S1..S8, CN-R1..R11 and
+CN-G1, comparing exact admission or code, cause, primary RFC 6901 pointer
+and structural node locus. It SHALL also admit the QSpec temporal-clock
+occurrence positives whose second row names a different claim occurrence.
+No QSpec vector, schema or fixture is copied into IR.
+
 ### Protocol node bodies and reader step
 
 When a V2 package contains a `protocol` node other than the
@@ -5595,6 +5668,13 @@ copying QSL execution semantics into IR.
 | FR-038-AC-439 | planned until IR-1279 lands. After earlier aggregate-order checks, each temporal binding row completes declaration join, occurrence-role/ordinal join, repeated-pair check and pair-order check before the next row. An absent or wrong-kind declaration refuses `invalid_package`/`timed-node-reference` at `/temporal_bindings/{i}/declaration`; an unowned or wrong-role occurrence (BO-R2) refuses the same pair at `/temporal_bindings/{i}/occurrence`; a repeated pair (BO-R3) refuses `invalid_package`/`conflicting-definition` at the later row. A descent (BO-R4) refuses `invalid_package`/`timed-node-reference` at that row's `declaration` member if the NodeRef descends, or `occurrence` member if its NodeRef equals the predecessor. Repetition wins over descent (BO-R5), and an earlier repeated row wins over a later invalid declaration (BO-R6). | Test (TC-048; QSpec FR-322-AC-363..367) |
 | FR-038-AC-440 | planned until IR-1279 lands. After all row joins, duplicates and ordering, every eligible clock-configured `claim` or compensation `declaration` occurrence has one row. An uncovered occurrence (BO-R1) refuses `invalid_package`/`timed-node-reference` at the lowest-index missing node's `/semantic_graph/nodes/{N}/body`; a row-order descent wins over that gap (BO-R7). After coverage, rows are checked in array order, comparing the second occurrence's `clock_name` before `clock.kind`: BO-R8 refuses the same code/cause at `/temporal_bindings/{i}/clock_name`, and BO-R9 at `/temporal_bindings/{i}/clock/kind`. A clause's selected law or a compensation's lock selection supplies the profile; no row supplies a profile default. | Test (TC-048; QSpec FR-322-AC-362, FR-322-AC-368..370) |
 | FR-038-AC-441 | planned until IR-1279 lands. TC-048 reads QSpec `proposals/checked-package-v2/temporal-clock-occurrence-vectors.json` from the selected checkout by reference, verifies BO-P1/P2, BO-S1..S3 and BO-R1..R9, and checks each complete package against exact admission or refusal code, cause, primary RFC 6901 pointer and structural node locus. It also reads the updated binding vectors by reference for CB-01..08 and the single- and multi-clause positives. Source-map entries remain charged by the existing occurrence limit; the reader charges binding rows before inspection and coverage work to the validation-work limit, so a first exhausted limit returns `incomplete` with its existing setting and pointer and exposes no partial row view. No vector, schema or fixture is copied into IR. | Test (TC-048; QSpec TC-233) |
+
+| FR-038-AC-442 | planned until IR-1278 lands. The strict reader admits the separate closed `temporal_clause_names` rows `{declaration, occurrence, name}` only for local temporal-clause `claim` occurrences and exposes the exact admitted pair and identifier through borrowed typed rows. The canonical writer accepts optional typed borrowed rows, emits each member in the closed shape and supplied order, omits the member for `None`, and preserves both names across read/encode/read-back. It does not derive a name from a node path, source span, source map, formula, clock binding or requirement label. | Test (TC-048; QSpec FR-322-AC-342..345) |
+| FR-038-AC-443 | planned until IR-1278 lands. CN-P1 admits one named clause; CN-P2 admits one shared structural clause node with two `claim` occurrences and two distinct name rows; CN-P3 changes a name without changing its node or `node_id`. Two rows for one node may carry equal names as well, without reader uniqueness refusal. The member is absent exactly when no temporal-clause node exists; a clause node's own `declaration` member (CN-G1) refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{N}/declaration` before name-row checks. Name rows do not replace the independent per-occurrence `temporal_bindings` rows. | Test (TC-048; QSpec FR-322-AC-342..345) |
+| FR-038-AC-444 | planned until IR-1278 lands. CN-S1..S4 refuse a missing `name`, `occurrence` or `declaration`, or an extra row member, as `malformed_wire` at `/temporal_clause_names/{i}`. CN-S5..S7 refuse a non-string, empty or qualified name, and any other value outside the single identifier grammar, as `malformed_wire` at `/temporal_clause_names/{i}/name`; CN-S8 and a noninteger occurrence refuse `malformed_wire` at `/temporal_clause_names/{i}/occurrence`. No default, alias or declaration-only row is admitted. | Test (TC-048; QSpec FR-322-AC-348..350) |
+| FR-038-AC-445 | planned until IR-1278 lands. After temporal-binding checks and before FR-370 clause-body joins, each name row completes declaration join, occurrence join, repeated-pair check and pair-order check before the next. CN-R3/R4 refuse `invalid_package`/`invalid-value` at `/temporal_clause_names/{i}/declaration` for an absent or wrong-kind node; CN-R5 refuses that pair at `/temporal_clause_names/{i}/occurrence` for an ordinal absent or not a `claim` of that node. CN-R6 refuses `invalid_package`/`conflicting-definition` at the later whole row for a repeated `(NodeRef, occurrence)` key; CN-R7 refuses `invalid_package`/`invalid-value` at the later whole row for descending pair order. CN-R9 selects the earlier repeated key over a later absent declaration; CN-R10 selects repetition over descent within one row. | Test (TC-048; QSpec FR-322-AC-351..356) |
+| FR-038-AC-446 | planned until IR-1278 lands. After all name-row joins, duplicates and order checks, the reader requires one row for every temporal-clause `claim` occurrence. CN-R1's missing carrier and CN-R2's uncovered second occurrence refuse `invalid_package`/`invalid-value` at `/temporal_clause_names`; CN-R8's declaration-join failure and CN-R11's row descent take precedence over that missing coverage. A graph without a temporal clause admits absence, and the reader never manufactures a name or partial admitted view. | Test (TC-048; QSpec FR-322-AC-345..347, FR-322-AC-357..358) |
+| FR-038-AC-447 | planned until IR-1278 lands. TC-048 reads QSpec `proposals/checked-package-v2/temporal-clause-name-vectors.json` by reference from the selected checkout and checks the exact CN-P1..P3, CN-S1..S8, CN-R1..R11 and CN-G1 case sets for admission or exact code, cause, primary RFC 6901 pointer and structural node locus. It also reads the temporal-clock occurrence positives whose name rows cover distinct claim occurrences. Each name row consumes one validation-work visit before inspection, within the caller's finite work budget; an exhausted budget returns `incomplete` at the first uncharged row with no partial name view. No vector, schema or fixture is copied into IR. | Test (TC-048; QSpec TC-233) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
