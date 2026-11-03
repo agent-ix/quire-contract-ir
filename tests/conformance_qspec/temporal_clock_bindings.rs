@@ -16,6 +16,11 @@ fn occurrence_vectors() -> Value {
         .expect("published temporal occurrence vectors")
 }
 
+fn name_vectors() -> Value {
+    read_json(&proposal_dir_of(&fixtures_dir()).join("temporal-clause-name-vectors.json"))
+        .expect("published temporal clause name vectors")
+}
+
 fn replace_clause(value: &mut Value, clause: &Value) {
     match value {
         Value::String(text) if text == "<clause>" => *value = clause.clone(),
@@ -180,6 +185,100 @@ fn published_temporal_occurrence_vectors_bind_exact_read_and_write() {
                         .as_ref()
                         .expect("refusal pointer")
                         .to_string(),
+                    case["expected"]["locus"],
+                    "{id}"
+                );
+            }
+        }
+    }
+}
+
+/// Trace: FR-038-AC-442, FR-038-AC-443, FR-038-AC-444, FR-038-AC-445, FR-038-AC-446, TC-048.
+#[trace(
+    "TC-048",
+    "FR-038-AC-442",
+    "FR-038-AC-443",
+    "FR-038-AC-444",
+    "FR-038-AC-445",
+    "FR-038-AC-446"
+)]
+#[test]
+fn published_temporal_clause_names_admit_and_refuse_at_exact_loci() {
+    let published = name_vectors();
+    let proposal = proposal_dir_of(&fixtures_dir());
+    let base = read_json(&proposal.join(published["base"].as_str().expect("base")))
+        .expect("published clause package");
+    let clause = base["semantic_graph"]["nodes"][clause_index(&base)]["node_id"].clone();
+    for (group, count) in [
+        ("positive", 3),
+        ("schema_refusals", 8),
+        ("shape_refusals", 1),
+        ("semantic_refusals", 11),
+    ] {
+        let cases = published[group].as_array().expect("cases");
+        assert_eq!(cases.len(), count, "{group}");
+        for case in cases {
+            let mut package = base.clone();
+            for patch in case["patch"].as_array().expect("patches") {
+                apply_occurrence_patch(&mut package, patch, &clause);
+            }
+            let id = case["id"].as_str().expect("case id");
+            let outcome = read_temporal_package(&package);
+            if group == "positive" {
+                let CheckedPackageV2ReadResult::Admitted(admitted) = outcome else {
+                    panic!("{id}: expected admission, got {outcome:?}");
+                };
+                let names = admitted.temporal_clause_names().expect("admitted names");
+                let expected = case["names"].as_array().expect("expected names");
+                assert_eq!(names.len(), expected.len(), "{id}");
+                for (row, name) in names.iter().zip(expected) {
+                    assert_eq!(row.name.as_ref(), name.as_str().expect("name"), "{id}");
+                }
+                if names.len() == 2 {
+                    assert_eq!(names[0].declaration, names[1].declaration, "{id}");
+                    assert_eq!((names[0].occurrence, names[1].occurrence), (0, 1), "{id}");
+                }
+                let encoded = encode_checked_package_v2(
+                    admitted.name(),
+                    admitted.lock(),
+                    admitted.graph(),
+                    CheckedPackageSourceCorrespondenceRef {
+                        source_map: admitted.source_map(),
+                        refinement_step_rows: admitted.refinement_step_rows(),
+                    },
+                    quire_contract_model::CheckedPackageSidecarsRef {
+                        operation_effects: None,
+                        checked_term_data: admitted.checked_term_data(),
+                        temporal_bindings: admitted.temporal_bindings(),
+                        temporal_clause_names: admitted.temporal_clause_names(),
+                        schedulability_claims: None,
+                    },
+                    admitted.capability_report(),
+                    admitted.diagnostics(),
+                    quire_canonical::Limits::new(1 << 24),
+                )
+                .expect("encoded named package");
+                let output: Value = serde_json::from_slice(&encoded).expect("encoded package");
+                let CheckedPackageV2ReadResult::Admitted(round_trip) =
+                    read_temporal_package(&output)
+                else {
+                    panic!("{id}: writer read-back must admit");
+                };
+                assert_eq!(
+                    round_trip.temporal_clause_names(),
+                    admitted.temporal_clause_names(),
+                    "{id}"
+                );
+            } else {
+                let CheckedPackageV2ReadResult::Refused(refusal) = outcome else {
+                    panic!("{id}: expected refusal, got {outcome:?}");
+                };
+                assert_eq!(code_word(refusal.code), case["expected"]["code"], "{id}");
+                if let Some(cause) = case["expected"]["cause"].as_str() {
+                    assert_eq!(refusal.cause.map(cause_word), Some(cause), "{id}");
+                }
+                assert_eq!(
+                    refusal.loci[0].path.as_ref().expect("pointer").to_string(),
                     case["expected"]["locus"],
                     "{id}"
                 );
