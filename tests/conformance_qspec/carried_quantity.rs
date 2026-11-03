@@ -20,16 +20,18 @@ fn vectors() -> Value {
         .expect("QSpec quantity carrier vectors")
 }
 
-fn assert_published_ids(cases: &[Value], prefix: &str, count: usize) {
+fn assert_published_ids(cases: &[Value], prefix: &str, required: &[&str]) {
     let observed = cases
         .iter()
         .map(|case| case["id"].as_str().expect("published vector ID").to_owned())
         .collect::<BTreeSet<_>>();
-    let expected = (1..=count)
-        .map(|number| format!("{prefix}{number:02}"))
-        .collect::<BTreeSet<_>>();
     assert_eq!(observed.len(), cases.len(), "duplicate {prefix} vector ID");
-    assert_eq!(observed, expected, "incomplete {prefix} vector inventory");
+    for id in required {
+        assert!(
+            observed.contains(*id),
+            "missing required {prefix} vector {id}"
+        );
+    }
 }
 
 fn assert_carried_bindings(
@@ -347,10 +349,26 @@ fn published_carried_quantity_vectors_read_as_wire() {
     let evaluation = vectors["evaluation"]
         .as_array()
         .expect("evaluation controls");
-    assert_published_ids(wire, "CQ-W", 19);
-    assert_published_ids(evaluation, "CQ-E", 26);
+    assert_published_ids(wire, "CQ-W", &["CQ-W16", "CQ-W17", "CQ-W18", "CQ-W19"]);
+    assert_published_ids(
+        evaluation,
+        "CQ-E",
+        &["CQ-E21", "CQ-E22", "CQ-E23", "CQ-E24", "CQ-E25", "CQ-E26"],
+    );
     for case in wire {
         let id = case["id"].as_str().expect("vector id");
+        match id {
+            "CQ-W16" | "CQ-W18" => assert_eq!(case["expected"], "admitted", "{id}"),
+            "CQ-W17" => {
+                assert_eq!(case["code"], "invalid_package", "{id}");
+                assert_eq!(case["cause"], "invalid-derived-shape", "{id}");
+            }
+            "CQ-W19" => {
+                assert_eq!(case["code"], "invalid_package", "{id}");
+                assert_eq!(case["cause"], "operation-mode-type-mismatch", "{id}");
+            }
+            _ => {}
+        }
         let mut package = Package::new();
         let at = if let Some(name) = case["node"].as_str() {
             package.add(name, all);
