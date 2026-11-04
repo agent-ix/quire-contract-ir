@@ -450,16 +450,13 @@ impl CheckedPackageV2 {
             return Ok(());
         }
         meter.charge(id, 1)?;
-        if id.package.as_ref() != self.name() {
-            return Err(SelectedFactsError::new(
-                SelectedFactsErrorCode::ForeignNode,
-                id,
-                meter.used,
-            ));
-        }
         if self.node(id).is_none() {
             return Err(SelectedFactsError::new(
-                SelectedFactsErrorCode::UnknownNode,
+                if id.package.as_ref() == self.name() {
+                    SelectedFactsErrorCode::UnknownNode
+                } else {
+                    SelectedFactsErrorCode::ForeignNode
+                },
                 id,
                 meter.used,
             ));
