@@ -8101,9 +8101,8 @@ fn protocol_queue_rejects_negative_literal_capacity() {
 
 /// QSpec FR-465-AC-10 (TC-947 CH13a, CH14a): a channel's delivery text admits
 /// a canonical count interval `[lo,hi]` with `lo <= hi` beside the four policy
-/// words, and refuses every other spelling `malformed_wire` at the term.
-/// Trace: FR-038-AC-286
-#[trace("TC-947")]
+/// words, and refuses every other spelling `malformed_wire` at the channel node.
+#[trace("TC-947", "FR-038-AC-286")]
 #[test]
 fn protocol_channel_delivery_admits_canonical_count_interval() {
     let delivery = |spelling: &str| {
