@@ -50,3 +50,5 @@ The source call order is direct: validate_temporal_selection runs before structu
 | --- | --- | --- |
 | FND-001 | fixed | The early temporal-selection refusal is removed; the scan now returns only after structural and state validation inside the protocol step. The V14+V16 by-reference control confirms state precedence. |
 | FND-002 | still-open | V11+V16 combines two published mutations whose first refusal should be the earlier clause law defect; no interleaved step-2 check exists yet. |
+
+| FND-002 | fixed | The temporal-profile check is now inside the ascending node-id operator/law loop. The V11+V16 paired control confirms clause node 82 wins with the published code, cause, primary path, document pointer and locus. |

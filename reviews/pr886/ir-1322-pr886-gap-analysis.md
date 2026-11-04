@@ -50,3 +50,5 @@ Read the frozen PR diff and QSpec FR-464 Reader order, V14 and V16 manifest rows
 | --- | --- | --- |
 | FND-001 | fixed | The added by-reference V14+V16 test applies both published edits and asserts the earlier state code, cause, path and structural locus. |
 | FND-002 | still-open | The fix round adds V14+V16 only; V11+V16 step-2 precedence remains untested. |
+
+| FND-002 | fixed | The by-reference paired V11+V16 test asserts the published V11 refusal, including its document pointer and clause structural locus; the V14+V16 control remains. |
