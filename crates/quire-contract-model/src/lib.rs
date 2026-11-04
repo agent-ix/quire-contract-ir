@@ -235,8 +235,6 @@ pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefus
 pub use checked_package::{
     CheckedModelVariantBody, CheckedModelVariantCase, CheckedVariantPayloadType,
 };
-pub use quire_semantic_value::declaration::AdmittedEqualityDecision;
-
 pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
     CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
