@@ -827,6 +827,130 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
     assert!(reasons.contains(&OrphanReason::DuplicateArtifact));
 }
 
+#[trace("TC-017", "FR-017-AC-2")]
+#[test]
+fn coverage_valid_and_invalid_traces_keep_classes_and_reasons_distinct() {
+    let package = package_fixture("coverage_classes", false, false);
+    let source = source("coverage_traces");
+    let req_a = reference(&package, "REQ_a", 1);
+    let req_b = reference(&package, "REQ_b", 2);
+    let make_trace = |id: &str, target: RequirementRef, at: u64, deep: bool| {
+        let artifact_id = ArtifactId::new(id).unwrap();
+        if deep {
+            ArtifactTrace::deep(
+                artifact_id,
+                span(&source, at, at + 1),
+                target,
+                span(&source, at + 1, at + 2),
+            )
+        } else {
+            ArtifactTrace::shallow(
+                artifact_id,
+                span(&source, at, at + 1),
+                target,
+                span(&source, at + 1, at + 2),
+            )
+        }
+    };
+
+    let valid = classify_coverage(
+        &package,
+        &[
+            make_trace("valid_deep", req_a.clone(), 0, true),
+            make_trace("valid_shallow", req_b.clone(), 3, false),
+        ],
+    )
+    .unwrap();
+    assert!(valid.diagnostics().is_empty());
+    assert_eq!(
+        valid.report().requirements()[0].class(),
+        CoverageClass::Deep
+    );
+    assert_eq!(
+        valid.report().requirements()[1].class(),
+        CoverageClass::Shallow
+    );
+    assert_eq!(valid.report().artifacts()[0].class(), CoverageClass::Deep);
+    assert_eq!(
+        valid.report().artifacts()[1].class(),
+        CoverageClass::Shallow
+    );
+    assert!(valid
+        .report()
+        .artifacts()
+        .iter()
+        .all(|row| row.orphan_reason().is_none()));
+    assert_eq!(
+        serde_json::to_value(valid.report().artifacts()[0].target()).unwrap(),
+        serde_json::json!({"package": "agent-ix/pkg", "requirement": "REQ_a", "revision": 1})
+    );
+
+    let invalid = classify_coverage(
+        &package,
+        &[
+            make_trace(
+                "cross",
+                RequirementRef::parse("agent-ix/other", "REQ_b", 2).unwrap(),
+                6,
+                true,
+            ),
+            make_trace("missing", reference(&package, "REQ_missing", 2), 9, true),
+            make_trace("stale", reference(&package, "REQ_b", 9), 12, true),
+            make_trace("duplicate", req_b.clone(), 15, true),
+            make_trace("duplicate", req_b, 18, true),
+        ],
+    )
+    .unwrap();
+    assert!(invalid
+        .report()
+        .requirements()
+        .iter()
+        .all(|row| row.class() == CoverageClass::Uncovered));
+    assert_eq!(
+        invalid
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>(),
+        vec![
+            DiagnosticCode::CrossPackageReference,
+            DiagnosticCode::OrphanedRequirementReference,
+            DiagnosticCode::StaleRequirementRevision,
+            DiagnosticCode::DuplicateArtifactTrace,
+        ]
+    );
+    assert_eq!(
+        invalid
+            .report()
+            .artifacts()
+            .iter()
+            .map(|row| (row.artifact_id().as_str(), row.class(), row.orphan_reason()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "cross",
+                CoverageClass::Orphaned,
+                Some(OrphanReason::CrossPackage)
+            ),
+            (
+                "duplicate",
+                CoverageClass::Orphaned,
+                Some(OrphanReason::DuplicateArtifact)
+            ),
+            (
+                "missing",
+                CoverageClass::Orphaned,
+                Some(OrphanReason::MissingRequirement)
+            ),
+            (
+                "stale",
+                CoverageClass::Orphaned,
+                Some(OrphanReason::StaleRevision)
+            ),
+        ]
+    );
+}
+
 #[trace("TC-017", "FR-017-AC-3", "FR-017-AC-4")]
 #[test]
 fn coverage_sorts_out_of_order_inputs_and_deep_wins_in_both_orders() {
@@ -1012,7 +1136,7 @@ fn coverage_accepts_exactly_the_semantic_collection_limit() {
     assert!(result.diagnostics().is_empty());
 }
 
-#[trace("TC-018", "FR-019-AC-2")]
+#[trace("TC-018", "FR-017-AC-2", "FR-019-AC-2")]
 #[test]
 fn coverage_rejects_one_trace_past_the_semantic_collection_limit() {
     let package = package_fixture("coverage_over_limit", false, false);
