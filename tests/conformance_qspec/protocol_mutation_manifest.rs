@@ -281,6 +281,13 @@ fn current_qspec_protocol_enumerations_remain_admitted() {
         .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "text")
         .expect("text type")["node_id"]
         .clone();
+    let boolean_type = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("base nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
+        .expect("Boolean type")["node_id"]
+        .clone();
     let fields = [
         ("channel", "/properties/arguments/prefixItems/4/properties/value/properties/value", "/semantic_graph/nodes/62/body/arguments/4/value/value", false),
         ("queue", "/properties/arguments/prefixItems/2/properties/value/properties/value", "/semantic_graph/nodes/63/body/arguments/2/value/value", false),
@@ -346,7 +353,10 @@ fn current_qspec_protocol_enumerations_remain_admitted() {
             mode.clone();
         if spelling == "when" {
             changed["semantic_graph"]["nodes"][80]["body"]["arguments"][1]["value"]["members"] =
-                Value::Array(vec![protocol_text_term(&text_type, "condition")]);
+                Value::Array(vec![serde_json::json!({
+                    "term":"literal", "type":boolean_type,
+                    "value_kind":"boolean", "value":true
+                })]);
         }
         let result = read(&changed, &document);
         assert!(
