@@ -6,9 +6,10 @@
 use super::{fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    BoundedDomainForm, CheckedMemberType, CheckedNodeId, CheckedNodeKind, CheckedPackageEvidence,
-    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
+    encode_checked_package_v2, BoundedDomainForm, CheckedMemberType, CheckedNodeId,
+    CheckedNodeKind, CheckedPackageEvidence, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
     CheckedVariantPayloadType,
 };
 use serde_json::{json, Value};
@@ -25,6 +26,18 @@ fn selected_document(proposal: &Path) -> Value {
 }
 
 fn read_selected_variant_package(package: &Value, document: &Value) -> Box<CheckedPackageV2> {
+    let evidence = selected_evidence(document);
+    match CheckedPackageV2::read(
+        &super::fixture_support::canonical(package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        result => panic!("selected model package must admit: {result:?}"),
+    }
+}
+
+fn selected_evidence(document: &Value) -> CheckedPackageEvidence {
     let mut evidence = CheckedPackageEvidence::new();
     evidence
         .insert_domain_package_document(
@@ -35,14 +48,7 @@ fn read_selected_variant_package(package: &Value, document: &Value) -> Box<Check
         )
         .expect("selected document evidence");
     evidence.support_feature("quire.value.complete/v1");
-    match CheckedPackageV2::read(
-        &super::fixture_support::canonical(package),
-        CheckedPackageReadLimits::bounded(),
-        &evidence,
-    ) {
-        CheckedPackageV2ReadResult::Admitted(package) => package,
-        result => panic!("selected model package must admit: {result:?}"),
-    }
+    evidence
 }
 
 fn variant_node(package: &Value, identity: &str) -> (usize, CheckedNodeId) {
@@ -59,6 +65,47 @@ fn variant_node(package: &Value, identity: &str) -> (usize, CheckedNodeId) {
         position,
         serde_json::from_value(node["node_id"].clone()).expect("published variant node id"),
     )
+}
+
+fn tuple_node(package: &Value, identity: &str) -> (usize, CheckedNodeId) {
+    let (position, node) = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .enumerate()
+        .find(|(_, node)| {
+            node["semantic_form"] == "tuple_value_type" && node["owner"]["node"] == identity
+        })
+        .expect("published tuple declaration");
+    (
+        position,
+        serde_json::from_value(node["node_id"].clone()).expect("tuple node id"),
+    )
+}
+
+fn tuple_positions(document: &Value, identity: &str) -> Vec<(String, String)> {
+    document["types"]
+        .as_array()
+        .expect("selected types")
+        .iter()
+        .find(|declaration| declaration["identity"] == identity)
+        .expect("selected tuple")["positions"]
+        .as_array()
+        .expect("tuple positions")
+        .iter()
+        .map(|position| {
+            (
+                position["identity"]
+                    .as_str()
+                    .expect("position identity")
+                    .to_owned(),
+                position["typeRef"]
+                    .as_str()
+                    .expect("position type")
+                    .to_owned(),
+            )
+        })
+        .collect()
 }
 
 fn selected_type_position(document: &Value, identity: &str) -> usize {
@@ -1302,6 +1349,243 @@ fn published_model_tuple_union_fixture_admits() {
         matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
         "{result:?}"
     );
+}
+
+/// Trace: FR-069-AC-1, FR-069-AC-2, TC-940.
+#[trace("TC-940")]
+#[test]
+fn published_tuples_retain_named_identity_and_ordered_selected_positions() {
+    let fixtures = fixtures_dir();
+    let document = selected_document(&proposal_dir_of(&fixtures));
+    let package = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let admitted = read_selected_variant_package(&package, &document);
+    let names = ["Pair", "Swap", "Nest", "Cell"];
+    let mut paths = BTreeSet::new();
+    for name in names {
+        let identity = format!("ix://acme/shapes/{name}");
+        let (index, id) = tuple_node(&package, &identity);
+        let node = &admitted.graph().nodes[index];
+        assert_eq!(node.node_id, id, "{name}: structural id");
+        assert_eq!(node.node_id.package.as_ref(), "acme/shapes");
+        assert_eq!(
+            serde_json::to_value(&node.node_id.path).expect("path"),
+            json!(["model", "tuple_value_type", identity]),
+            "{name}: qualified structural path"
+        );
+        assert_eq!(
+            package["semantic_graph"]["nodes"][index]["owner"]["identity"],
+            "acme/shapes"
+        );
+        assert!(
+            paths.insert(id.path.clone()),
+            "{name}: unique declaration path"
+        );
+        let positions = tuple_positions(&document, &identity);
+        assert_eq!(positions.len(), 2, "{name}: published arity");
+        for (position, (position_identity, type_ref)) in positions.iter().enumerate() {
+            assert_eq!(position_identity, &format!("{identity}/p{position}"));
+            let expected = match type_ref.as_str() {
+                "ix://quire/native/Boolean" => CheckedMemberType::Boolean,
+                "ix://quire/native/Integer" => CheckedMemberType::Integer,
+                "ix://acme/shapes/Pair" => {
+                    CheckedMemberType::Tuple(tuple_node(&package, type_ref).1)
+                }
+                "ix://acme/shapes/Shape" | "ix://acme/shapes/List" => {
+                    CheckedMemberType::Variant(variant_node(&package, type_ref).1)
+                }
+                other => panic!("unexpected published position type {other}"),
+            };
+            assert_eq!(
+                admitted.model_tuple_position_type(&id, position),
+                Some(expected),
+                "{name} position {position}"
+            );
+            for id in package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .map(|node| &node["node_id"])
+                .chain(
+                    package["source_map"]
+                        .as_array()
+                        .expect("source map")
+                        .iter()
+                        .map(|entry| &entry["node_id"]),
+                )
+            {
+                assert!(
+                    !id["path"]
+                        .as_array()
+                        .expect("structural path")
+                        .iter()
+                        .any(|segment| segment == position_identity),
+                    "{name} position {position} must not be a graph or source-map node"
+                );
+            }
+        }
+        assert_eq!(
+            admitted.model_tuple_position_type(&id, positions.len()),
+            None
+        );
+    }
+
+    let pair = "ix://acme/shapes/Pair";
+    let (_, pair_id) = tuple_node(&package, pair);
+    let swap = "ix://acme/shapes/Swap";
+    let (_, swap_id) = tuple_node(&package, swap);
+    let mut same_shape = document.clone();
+    let swap_index = selected_type_position(&same_shape, swap);
+    let positions = same_shape["types"][swap_index]["positions"]
+        .as_array_mut()
+        .expect("Swap positions");
+    positions.swap(0, 1);
+    for (position, row) in positions.iter_mut().enumerate() {
+        row["identity"] = json!(format!("{swap}/p{position}"));
+    }
+    let same_shape_admitted = read_selected_variant_package(&package, &same_shape);
+    assert_eq!(
+        same_shape_admitted.graph().nodes[tuple_node(&package, swap).0].node_id,
+        swap_id
+    );
+    assert_ne!(
+        tuple_positions(&document, swap),
+        tuple_positions(&same_shape, swap)
+    );
+    assert_eq!(
+        tuple_positions(&same_shape, swap),
+        vec![
+            (format!("{swap}/p0"), "ix://quire/native/Boolean".to_owned()),
+            (format!("{swap}/p1"), "ix://quire/native/Integer".to_owned()),
+        ],
+        "reordered declaration retains its exact authored position content"
+    );
+    assert_ne!(
+        pair_id.path, swap_id.path,
+        "named tuple paths stay distinct"
+    );
+    for (position, expected) in [CheckedMemberType::Boolean, CheckedMemberType::Integer]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            same_shape_admitted.model_tuple_position_type(&swap_id, position),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            same_shape_admitted.model_tuple_position_type(&pair_id, position),
+            Some(expected)
+        );
+    }
+
+    let mut aliased_document = same_shape.clone();
+    let alias = "ix://acme/shapes/BoolAlias";
+    let origin = aliased_document["types"][swap_index]["origin"].clone();
+    aliased_document["types"]
+        .as_array_mut()
+        .expect("selected types")
+        .push(json!({
+            "identity": alias, "displayName": "BoolAlias", "kind": "alias",
+            "target": "ix://quire/native/Boolean", "origin": origin,
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject"
+        }));
+    aliased_document["types"][swap_index]["positions"][0]["typeRef"] = json!(alias);
+    let aliased = read_selected_variant_package(&package, &aliased_document);
+    let (swap_node_index, _) = tuple_node(&package, swap);
+    assert_eq!(aliased.graph().nodes[swap_node_index].node_id, swap_id);
+    assert_eq!(
+        serde_json::to_value(&aliased.graph().nodes[swap_node_index].node_id.path).expect("path"),
+        json!(["model", "tuple_value_type", swap]),
+        "alias must not replace the declared qualified name"
+    );
+    assert_eq!(
+        serde_json::to_value(&aliased.graph().nodes[swap_node_index].owner).expect("owner"),
+        json!({"kind":"model", "identity":"acme/shapes", "node":swap}),
+        "alias must not replace the admitted owner declaration"
+    );
+    assert_eq!(
+        aliased.model_tuple_position_type(&swap_id, 0),
+        Some(CheckedMemberType::Boolean)
+    );
+}
+
+/// Trace: FR-069-AC-7, TC-940.
+#[trace("TC-940")]
+#[test]
+fn published_tuple_union_typed_writer_round_trips() {
+    let fixtures = fixtures_dir();
+    let document = selected_document(&proposal_dir_of(&fixtures));
+    let package = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let admitted = read_selected_variant_package(&package, &document);
+    let encoded = encode_checked_package_v2(
+        admitted.name(),
+        admitted.lock(),
+        admitted.graph(),
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: admitted.source_map(),
+            refinement_step_rows: admitted.refinement_step_rows(),
+        },
+        quire_contract_model::CheckedPackageSidecarsRef {
+            temporal_clause_names: admitted.temporal_clause_names(),
+            operation_effects: None,
+            checked_term_data: admitted.checked_term_data(),
+            temporal_bindings: admitted.temporal_bindings(),
+            schedulability_claims: None,
+        },
+        admitted.capability_report(),
+        admitted.diagnostics(),
+        quire_canonical::Limits::new(1 << 24),
+    )
+    .expect("typed tuple and union package encodes");
+    assert_eq!(encoded, super::fixture_support::canonical(&package));
+    let evidence = selected_evidence(&document);
+    let reread =
+        match CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence) {
+            CheckedPackageV2ReadResult::Admitted(value) => value,
+            other => panic!("typed tuple and union readback: {other:?}"),
+        };
+    assert_eq!(reread.name(), admitted.name());
+    assert_eq!(reread.lock(), admitted.lock(), "selection rows");
+    for name in ["Pair", "Swap", "Nest", "Cell"] {
+        let identity = format!("ix://acme/shapes/{name}");
+        let (_, id) = tuple_node(&package, &identity);
+        assert!(reread.graph().nodes.iter().any(|node| node.node_id == id));
+        for position in 0..tuple_positions(&document, &identity).len() {
+            assert_eq!(
+                reread.model_tuple_position_type(&id, position),
+                admitted.model_tuple_position_type(&id, position)
+            );
+        }
+    }
+    for name in ["Shape", "Color", "List"] {
+        let identity = format!("ix://acme/shapes/{name}");
+        let (_, id) = variant_node(&package, &identity);
+        assert!(reread.graph().nodes.iter().any(|node| node.node_id == id));
+        let original = admitted.model_variant_body(&id).expect("original variant");
+        let roundtrip = reread.model_variant_body(&id).expect("roundtrip variant");
+        assert_eq!(roundtrip.selected_document(), original.selected_document());
+        assert_eq!(roundtrip.family(), original.family());
+        let original_cases: Vec<_> = original.cases().collect();
+        let roundtrip_cases: Vec<_> = roundtrip.cases().collect();
+        assert_eq!(roundtrip_cases, original_cases);
+    }
+    for invalid in [
+        json!("bad"),
+        package["semantic_graph"]["nodes"][0]["node_id"].clone(),
+    ] {
+        let mut malformed = package.clone();
+        malformed["semantic_graph"]["nodes"][1]["node_id"] = invalid;
+        let result = CheckedPackageV2::read(
+            &super::fixture_support::canonical(&malformed),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        );
+        assert!(
+            matches!(result, CheckedPackageV2ReadResult::Refused(_)),
+            "invalid node id must refuse: {result:?}"
+        );
+    }
 }
 
 /// Unsupported selected payloads fail at model intake with the selected
