@@ -303,6 +303,19 @@ as a dotted member path, such as `lock.sources`, the returned
 pointer names that member at its concrete indices, or the object that lacks
 it.
 
+For the protocol-node layout governed by QSpec FR-464-AC-24, the strict V2
+schema stage SHALL apply `ProtocolControlApplication` to every `protocol`
+node except a `protocol_reference` carrier before reader body and operation
+checks. An invalid operator argument name, order or count, Tuple-of-Groups
+record shape, or value outside the operator's enumerated set SHALL refuse
+`malformed_wire` with no cause and primary RFC 6901 pointer at the containing
+`/semantic_graph/nodes/{i}`. This node-level schema pointer is the published
+first-error path for those layout failures, rather than a pointer into `body`;
+no structural graph-node locus is assigned to a schema-stage refusal. The
+reader SHALL consume the current QSpec schema and published
+`proposals/checked-package-v2/fixtures/protocol-node-layout-rows.json` by
+reference, without maintaining a second layout or enumeration catalog.
+
 An `unknown_contract_version` refusal points at `/contract_version` and
 carries the version string read there.
 
@@ -5702,6 +5715,8 @@ copying QSL execution semantics into IR.
 | FR-038-AC-450 | Implemented. A `scalar_type`/`carried_quantity` node over a valid bounded `rational_range` carrier with `rounding` `exact` admits as the existing public quantity-family form (CQ-W16). Its exact unit, carrier and mode remain in the three typed bindings and structural path; its dependencies are the unit and carrier nodes in ascending structural order. The reader retains the carrier's existing numerator and denominator bounds without performing value conversion or changing the public-item inventory. | Test (TC-048; QSpec FR-322-AC-382, TC-981) |
 | FR-038-AC-451 | Implemented. A rational-range carried node with `rounding` other than `exact` (CQ-W17) refuses `invalid_package`/`invalid-derived-shape` at its `/semantic_graph/nodes/{N}/node_id`; an unbounded scalar rational carrier remains refused under AC-402. `quire.op.quantity.convert` from a same-dimension unit-typed quantity into the valid rational-range carried node with mode `exact` admits (CQ-W18), while the otherwise identical application with `nearest-even` mode (CQ-W19) refuses `invalid_package`/`operation-mode-type-mismatch` at `/semantic_graph/nodes/{N}` before any dimension check. | Test (TC-048; QSpec FR-322-AC-382, TC-981) |
 | FR-038-AC-452 | Implemented. TC-048 reads QSpec `proposals/checked-package-v2/quantity-carrier-vectors.json` by reference and replays every published wire case through a complete strict package read, comparing its published admission or refusal code, cause and primary node or application pointer. It explicitly exercises CQ-W16..W19 under AC-450/451. The test also reads every published evaluation case by reference and checks admission of its valid carried type and conversion wire, explicitly including CQ-E21..E26 independently of runtime completion, `rational_out_of_domain`/`outside-domain` or work-limit outcome. Those outcomes belong to evaluation under FR-142, never to the IR package reader. The test imposes no fixed total or frozen case set and copies no vector or schema into IR. | Test (TC-048; QSpec TC-981) |
+| FR-038-AC-453 | planned until IR-1274 lands. For every refusal row in the current QSpec `protocol-node-layout-rows.json`, TC-048 applies its published edit by reference to a complete package and the public strict reader returns `malformed_wire`, no cause, and the row's exact node-level primary pointer at the schema stage, before any reader body, structural or operation refusal. V12 specifically points to `/semantic_graph/nodes/64`, rather than `/semantic_graph/nodes/64/body`; the schema refusal has no structural graph-node locus. The test copies no QSpec schema, fixture or row into IR and freezes no row count. | Test (TC-048; QSpec FR-464-AC-24, TC-946) |
+| FR-038-AC-454 | planned until IR-1274 lands. Complete schema-valid protocol packages admit every published spelling of `delivery`, `overflow`, `loss`, `memory`, `outstanding`, `policy`, `ordering`, `scheduling` and `mode`, plus appended `fence`, `event` and `await` nodes with their published layouts. A `protocol_reference` carrier retains its separate admitted shape. The positive controls keep valid member sets, order and Tuple-of-Groups records; no narrower local enum or layout check rejects them after schema admission. | Test (TC-048; QSpec FR-464-AC-24, TC-946) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
