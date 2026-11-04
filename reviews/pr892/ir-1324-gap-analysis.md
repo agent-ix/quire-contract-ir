@@ -30,3 +30,10 @@ Compared the computed Quoin Test Matrix, corrected FR-352 PR #891 criteria, tagg
 ## Verdict
 
 CONDITIONAL. The projection code appears to handle the named shapes, but the tagged tests do not yet back the full corrected criteria. Existing general identity-join tests cover some wrong, foreign and conflicting rows without a nested projection and its required target locus.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At head 9a5284c9, the 64 type declarations alternate sequence and option; each option's inner is a sequence. The expected Exact value uses the same 64 wrappers, is compared field by field on a 256 KiB stack, and the exact/one-less allowance and clone assertions remain. |
+| FND-002 | fixed | At head 9a5284c9, the nested cyclic record fixture now feeds foreign, duplicate-conflicting and wrong-form target B rows into the stage join. Each asserts native code, requested and at locus, selected_identity form and work=0; the missing target projection still asserts B as its locus. |
