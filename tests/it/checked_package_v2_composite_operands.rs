@@ -1512,7 +1512,13 @@ fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_k
     }
 }
 
-#[trace("TC-048", "FR-038-AC-180", "FR-038-AC-179", "FR-038-AC-198")]
+#[trace(
+    "TC-048",
+    "FR-038-AC-180",
+    "FR-038-AC-179",
+    "FR-038-AC-198",
+    "FR-038-AC-234"
+)]
 #[test]
 fn tc_048_collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_order() {
     let mut f = Fixture::new();

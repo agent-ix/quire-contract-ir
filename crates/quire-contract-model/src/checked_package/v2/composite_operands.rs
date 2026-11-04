@@ -1097,21 +1097,7 @@ fn decimal_order(left: &str, right: &str) -> std::cmp::Ordering {
     let (right_negative, right_digits) = right
         .strip_prefix('-')
         .map_or((false, right), |s| (true, s));
-    match (left_negative, right_negative) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => {
-            let order = left_digits
-                .len()
-                .cmp(&right_digits.len())
-                .then_with(|| left_digits.cmp(right_digits));
-            if left_negative {
-                order.reverse()
-            } else {
-                order
-            }
-        }
-    }
+    super::temporal::compare_integer_parts(left_negative, left_digits, right_negative, right_digits)
 }
 
 /// The one closed-value conversion exception. No value is evaluated or copied.
