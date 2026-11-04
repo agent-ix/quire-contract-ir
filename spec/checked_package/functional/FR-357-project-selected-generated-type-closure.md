@@ -171,7 +171,7 @@ RT `ProgramParts` or IR-owned environment. The driver owns later canonical
 | FR-357-AC-6 | PLANNED/UNRUN (IR-721 subset). A missing, foreign, duplicate, conflicting or pre-rewrite declaration, field, equality application or fact row; wrong document, form, owner, role, occurrence or source-map correspondence; unresolved reached dependency; reached unsupported form; and native FR-353 refusal each produce a named typed outcome with first native locus and no partial view or invented identity. An unrelated unsupported declaration or missing witness outside the reached subset leaves the same successful result. | Test |
 | FR-357-AC-7 | PLANNED/UNRUN (IR-721 subset). A selected root amid unrelated graph nodes visits only reached graph nodes and edges with an iterative worklist. Locating reached witnesses in full-emission row slices charges every inspected row and index entry, including unrelated rows; adding unrelated rows either raises required work or causes a charged first-row-locus stop at the former allowance, without scanning unrelated graph nodes. The exact allowance succeeds and one less refuses with attempted work and first uncharged locus. Equal inputs and allowance, including a package clone, yield equal results or first stops. | Test |
 | FR-357-AC-8 | PLANNED/UNRUN (IR-721 subset). Public API and dependency inspection shows the read takes an admitted package, selected root, IR-owned row slices and a work allowance, performs no QSL/RT dependency or source recheck, and returns neither an IR environment nor `ProgramParts`. A caller adapts QSL-owned equality emission rows without changing their values; IR checks admitted joins but does not claim to authenticate arbitrary caller-created Exact payloads. | Inspection |
-| FR-357-AC-9 | PLANNED/UNRUN (cross-repo QSL integration after the IR subset API lands). The QSL-owned `qsl-analyze/tests/it/monitor_root.rs` test obtains a real final `PlanRoot.emission`, proves its selected declaration/field rows join through IR `SelectedExactIdentities::from_stage_rows`, translates its equality rows without changing their values and exercises IR `admitted_equality` to obtain a complete decision or its native typed missing-witness result, then proves the IR subset read refuses at the first reached source-owned form lacking QSL-1631 witness. It does not claim a complete generated-source closure, `TypeEnvironment` or RT `ProgramParts`, and it adds no QSL dependency to IR. | Test |
+| FR-357-AC-9 | PLANNED/UNRUN (cross-repo `quire-integration` test after the IR subset API lands). A `quire-integration` test obtains a real final `PlanRoot.emission` through QSL, proves its selected declaration/field rows join through IR `SelectedExactIdentities::from_stage_rows`, translates its equality rows without changing their values and exercises IR `admitted_equality` to obtain a complete decision or its native typed missing-witness result, then proves the IR subset read refuses at the first reached source-owned form lacking QSL-1631 witness. It does not claim a complete generated-source closure, `TypeEnvironment` or RT `ProgramParts`, and it adds no QSL dependency to IR. | Test |
 
 ## Dependencies
 
@@ -188,8 +188,9 @@ RT `ProgramParts` or IR-owned environment. The driver owns later canonical
   equality producer/fact rows. QSL-1631 remains pending for source-owned enum,
   collection and union witnesses required by AC-1 through AC-4. The first
   subset read uses only currently retained reached rows and does not satisfy
-  those complete-closure criteria. QSL owns AC-9's real-emission integration
-  test after the IR subset API lands; IR owns AC-5's supported-only fixture.
+  those complete-closure criteria. `quire-integration` owns AC-9's real-emission
+  QSL-to-IR integration test after the IR subset API lands; IR owns AC-5's
+  supported-only fixture.
 - RT FR-276 and its `ProgramParts` own the final immutable executable program.
   The driver consumes this IR projection to construct the canonical
   semantic-value `TypeEnvironment` passed to RT.
