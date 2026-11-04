@@ -61,3 +61,7 @@ At PR #881 head acd77e73, AC-5 names an IR-owned fixture and no longer requires 
 ## Review status after disposition pass 2
 
 PASS at PR #881 head acd77e73. The latest disposition for FND-001 and FND-002 is fixed. AC-5 and AC-9 remain Planned/Unrun until their respective implementation and integration evidence lands.
+
+## Review status after disposition pass 3
+
+PASS at PR #881 head d9807abf. The earlier base findings remain fixed: selected full-emission row inspection is charged under one allowance, and real-emission verification remains assigned to quire-integration in AC-9. The first read now uses explicit selected IDs rather than monitor-entry traversal; AC-1 through AC-4 remain Planned/Unrun for complete closure.

@@ -41,7 +41,22 @@ Reviewed the exact one-file PR diff and QSL main emission API by source inspecti
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | AC-5 now uses an admitted supported-only four-entry fixture for success and explicitly requires a real PlanRoot final-emission read to refuse at the first reached source-owned form lacking a QSL-1631 witness. |
+| FND-002 | fixed | The first read now takes explicit admitted model declaration/field and equality application/occurrence IDs, does not traverse a root or its signatures, and returns selected facts only. AC-9 composes a real emission through quire-integration; AC-1 through AC-4 retain the future complete closure. |
 
 ## Fix-round evidence
 
 At PR #881 head 932c8f68, AC-5 states: PLANNED/UNRUN (IR-721 subset). An admitted four-entry fixture whose entire reachable graph uses only supported model declarations/fields and equality forms succeeds through the public bounded read, retaining reached selected document, final structural node, original identities, field order/presence/type, exact equality occurrence and opaque FR-353 decision; shared references appear once. A test using a real final `PlanRoot.emission` first proves its selected declaration/field rows join through IR `SelectedExactIdentities::from_stage_rows` and its translated equality rows reach IR `admitted_equality` with a complete decision or its native typed missing-witness result, then proves the subset read refuses at the first reached source-owned form lacking QSL-1631 witness. Neither result claims a complete generated-source closure or `TypeEnvironment`.
+
+## New findings (disposition pass 3)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | The earlier supported-only four-entry success case is impossible: monitor-plan admission requires generated composite State, Inputs, Scope and tuple result signatures for every four-entry root, so an AC-5 success must use explicit fact selection rather than entry closure | FR-357-AC-5 |
+
+## Fix-round evidence (disposition pass 3)
+
+At PR #881 head d9807abf, the first read is an explicitly selected bounded fact set. AC-5's positive case names one selected model declaration, its field and one equality application/occurrence in an admitted package. AC-8's API takes those explicit IDs; AC-9 owns the real PlanRoot.emission integration without monitor-entry traversal. The complete four-entry generated-source closure remains Planned/Unrun in AC-1 through AC-4. No source-owned identity is inferred and no environment or ProgramParts is constructed.
+
+## Review status after disposition pass 3
+
+PASS at PR #881 head d9807abf. The latest disposition for FND-001 and FND-002 is fixed.
