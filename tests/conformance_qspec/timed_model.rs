@@ -2037,7 +2037,7 @@ fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().expect("locus").to_string(),
-        "/semantic_graph/nodes/45/body/members/0/value/target"
+        "/semantic_graph/nodes/45/dependencies"
     );
 
     let mut invalid_body = original.clone();
