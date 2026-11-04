@@ -36,3 +36,12 @@ Scoped to the six changed Rust files and FR-357 AC-5..8; no spec or CI workflow 
 ## Verification and Limits
 
 Source review of the frozen diff and computed Quire matrix. Coder focused test log shows the named tests passed; this reviewer did not rebuild a cleaned target. Aggregate gate belongs to the code lead after disposition.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The selected and stale paths both reject when the other claim was seen; mixed current and pre-rewrite rows now refuse at the conflicting row. |
+| FND-002 | fixed | The selected ID, row, field type and equality fact payload are charged through a streaming Debug writer before copying or materializing them. |
+
+Round 1 disposition: PASS. All original findings are fixed; no new finding arose from the fix diff.

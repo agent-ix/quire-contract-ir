@@ -36,3 +36,12 @@ Plan completion: not assessed. Computed Quire matrix reports AC-5..7 tagged and 
 ## Verification and Limits
 
 Source review of the frozen diff and computed Quire matrix. Coder focused test log shows the named tests passed; this reviewer did not rebuild a cleaned target. Aggregate gate belongs to the code lead after disposition.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | A second optional field is selected and its order, presence and type are asserted through the public read. |
+| FND-002 | fixed | The test selects an unsupported scalar declaration and an unrepresentable Float32 field, then checks the unselected form leaves the successful result unchanged. |
+
+Round 1 disposition: PASS. All original findings are fixed; no new finding arose from the fix diff.
