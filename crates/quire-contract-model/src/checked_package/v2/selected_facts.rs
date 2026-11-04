@@ -336,9 +336,6 @@ impl CheckedPackageV2 {
                 .get(&id.record)
                 .expect("joined record identity")
                 .clone();
-            let identities =
-                SelectedExactIdentities::from_stage_rows(self, [declaration], [row.clone()])
-                    .map_err(|error| exact_error(error, meter.used))?;
             let member_type = field.member_type.ok_or_else(|| {
                 SelectedFactsError::new(
                     SelectedFactsErrorCode::UnsupportedForm,
@@ -360,6 +357,38 @@ impl CheckedPackageV2 {
             } else {
                 member_type
             };
+            let mut declaration_rows = vec![declaration];
+            if let MemberType::Reference(target)
+            | MemberType::Record(target)
+            | MemberType::Quantity(target) = member_type
+            {
+                meter.charge(target, 1)?;
+                if target != &id.record {
+                    declaration_rows.push(find_declaration_row(
+                        rows.declarations,
+                        target,
+                        &mut meter,
+                    )?);
+                }
+            }
+            for declaration_row in &declaration_rows {
+                meter.text(
+                    &declaration_row.structural_node,
+                    &declaration_row.selected_document,
+                )?;
+                meter.text(
+                    &declaration_row.structural_node,
+                    &declaration_row.original_identity,
+                )?;
+                meter.charge(&declaration_row.structural_node, 1)?;
+            }
+            meter.text(&id.record, &row.selected_document)?;
+            meter.text(&id.record, &row.record_original_identity)?;
+            meter.text(&id.record, &row.field_original_identity)?;
+            meter.charge(&id.record, 1)?;
+            let identities =
+                SelectedExactIdentities::from_stage_rows(self, declaration_rows, [row.clone()])
+                    .map_err(|error| exact_error(error, meter.used))?;
             meter.charge(&id.record, 1)?;
             let value_type = project_record_field_type(self, &identities, member_type).map_err(
                 |(code, target)| {
@@ -377,6 +406,7 @@ impl CheckedPackageV2 {
                 },
             )?;
             meter.text(&id.record, field.name)?;
+            meter.charge(&id.record, 1)?;
             selected_fields.push(SelectedFactField {
                 row,
                 name: field.name.into(),
@@ -399,17 +429,21 @@ impl CheckedPackageV2 {
             let mut facts = Vec::new();
             for row in rows.equality_facts {
                 meter.charge(&row.structural_node, 1)?;
-                if row.checked_application == id.application && row.occurrence == id.occurrence {
+                if (row.checked_application == id.application && row.occurrence == id.occurrence)
+                    || row.application == application_row.node_key
+                {
                     facts.push(row.clone());
                 }
             }
             let mut units = Vec::new();
             for row in rows.source_units {
                 meter.charge(&row.structural_node, 1)?;
-                if facts
-                    .iter()
-                    .any(|fact| fact.structural_node == row.structural_node)
-                {
+                let mut selected = false;
+                for fact in &facts {
+                    meter.charge(&fact.structural_node, 1)?;
+                    selected |= fact.structural_node == row.structural_node;
+                }
+                if selected {
                     units.push(row.clone());
                 }
             }
@@ -474,6 +508,9 @@ impl CheckedPackageV2 {
             ));
         }
         let row = find_declaration_row(rows.declarations, id, meter)?;
+        meter.text(id, &row.selected_document)?;
+        meter.text(id, &row.original_identity)?;
+        meter.charge(id, 1)?;
         SelectedExactIdentities::from_stage_rows(self, [row.clone()], [])
             .map_err(|error| exact_error(error, meter.used))?;
         joined.insert(id.clone(), row);
@@ -539,9 +576,14 @@ fn find_equality_row(
     meter: &mut Meter,
 ) -> Result<SelectedEqualityApplicationRow, SelectedFactsError> {
     let mut selected = None;
+    let mut wrong_occurrence = None;
     for row in rows {
         meter.charge(&row.application, 1)?;
-        if row.application == id.application && row.occurrence == id.occurrence {
+        if row.application == id.application {
+            if row.occurrence != id.occurrence {
+                wrong_occurrence = Some(row.clone());
+                continue;
+            }
             if selected.is_some() {
                 let mut error = SelectedFactsError::new(
                     SelectedFactsErrorCode::DuplicateRow,
@@ -554,7 +596,7 @@ fn find_equality_row(
             selected = Some(row.clone());
         }
     }
-    selected.ok_or_else(|| {
+    selected.or(wrong_occurrence).ok_or_else(|| {
         let mut error = SelectedFactsError::new(
             SelectedFactsErrorCode::MissingRow,
             &id.application,

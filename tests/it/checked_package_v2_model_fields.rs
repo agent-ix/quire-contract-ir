@@ -1244,6 +1244,75 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     assert_eq!(longer.declarations, complete.declarations);
     assert_eq!(longer.fields, complete.fields);
     assert!(longer.work > complete.work);
+
+    let selected_once = || SelectedFactIds {
+        declarations: std::slice::from_ref(&record),
+        fields: std::slice::from_ref(&selected_field),
+        equalities: &[],
+    };
+    let with_rows = |declarations, fields| SelectedFactRows {
+        declarations,
+        fields,
+        source_units: &[],
+        equality_applications: &[],
+        equality_facts: &[],
+    };
+    assert_eq!(
+        admitted
+            .project_selected_facts(selected_once(), with_rows(&[], &fields), 1000)
+            .unwrap_err()
+            .code,
+        SelectedFactsErrorCode::MissingRow,
+    );
+    assert_eq!(
+        admitted
+            .project_selected_facts(selected_once(), with_rows(&declarations, &[]), 1000)
+            .unwrap_err()
+            .code,
+        SelectedFactsErrorCode::MissingRow,
+    );
+    let duplicate_declarations = [declarations[0].clone(), declarations[0].clone()];
+    assert_eq!(
+        admitted
+            .project_selected_facts(
+                selected_once(),
+                with_rows(&duplicate_declarations, &fields),
+                1000
+            )
+            .unwrap_err()
+            .code,
+        SelectedFactsErrorCode::DuplicateRow,
+    );
+    let mut wrong_document = declarations[0].clone();
+    wrong_document.selected_document = "wrong/document".into();
+    let wrong = admitted
+        .project_selected_facts(selected_once(), with_rows(&[wrong_document], &fields), 1000)
+        .unwrap_err();
+    assert_eq!(wrong.code, SelectedFactsErrorCode::Exact);
+    assert_eq!(
+        wrong.exact.as_ref().unwrap().code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    assert_eq!(wrong.at.as_ref(), &record);
+    let foreign: CheckedNodeId = serde_json::from_value(structural_id(
+        "foreign/document",
+        vec![json!("model"), json!("record_value_type"), json!("Receipt")],
+        0,
+    ))
+    .unwrap();
+    let foreign_result = admitted
+        .project_selected_facts(
+            SelectedFactIds {
+                declarations: std::slice::from_ref(&foreign),
+                fields: &[],
+                equalities: &[],
+            },
+            with_rows(&declarations, &fields),
+            1000,
+        )
+        .unwrap_err();
+    assert_eq!(foreign_result.code, SelectedFactsErrorCode::ForeignNode);
+    assert_eq!(foreign_result.at.as_ref(), &foreign);
 }
 
 /// A flattened field set cannot stand in for an authored redefinition link.
