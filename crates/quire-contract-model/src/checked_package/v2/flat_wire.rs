@@ -34,7 +34,7 @@ use super::{
 };
 use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
 use crate::checked_package::common::{
-    application_operator, body_term, Step, Trail, ValidationFailure, WireTerm,
+    application_operator, body_term, node_pointer, Step, Trail, ValidationFailure, WireTerm,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use crate::checked_package::terms::{subterms, subterms_of, At, Cursor};
@@ -236,7 +236,7 @@ pub(super) fn check(
                             }) {
                                 return Err(ValidationFailure::refused(
                                     CheckedPackageRefusalCode::MalformedWire,
-                                    crate::checked_package::common::node_pointer(position)
+                                    node_pointer(position)
                                         .key("occurrences")
                                         .index(ordinal)
                                         .key("role"),
@@ -253,7 +253,7 @@ pub(super) fn check(
                         {
                             let path = match defect {
                                 super::protocol_body::ProtocolLayoutWireDefect::Body => {
-                                    crate::checked_package::common::node_pointer(position)
+                                    node_pointer(position)
                                 }
                                 super::protocol_body::ProtocolLayoutWireDefect::NegativeQueueCapacity => {
                                     return Err(ValidationFailure::refused_at(

@@ -184,6 +184,8 @@ fn current_qspec_protocol_layout_rows_refuse_at_exact_node_pointer() {
         assert_eq!(row["base"], base_name, "{id}: selected base");
         assert_eq!(row["class"], "refuse", "{id}: refusal row");
         assert_eq!(row["expect"]["stage"], "schema", "{id}: schema stage");
+        assert_eq!(row["expect"]["code"], "malformed_wire", "{id}: schema code");
+        assert!(row["expect"]["cause"].is_null(), "{id}: no cause");
         let mut edited = base.clone();
         for edit in row["edit"].as_array().expect("published edits") {
             apply_layout_edit(&mut edited, edit);
