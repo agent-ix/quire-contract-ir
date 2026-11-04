@@ -253,7 +253,7 @@ pub(super) fn check(
                         {
                             let path = match defect {
                                 super::protocol_body::ProtocolLayoutWireDefect::Body => {
-                                    at.pointer()
+                                    crate::checked_package::common::node_pointer(position)
                                 }
                                 super::protocol_body::ProtocolLayoutWireDefect::NegativeQueueCapacity => {
                                     return Err(ValidationFailure::refused_at(
@@ -275,19 +275,8 @@ pub(super) fn check(
                                         node.node_id.clone(),
                                     ));
                                 }
-                                super::protocol_body::ProtocolLayoutWireDefect::EnumValue {
-                                    argument,
-                                    member,
-                                } => {
-                                    let mut path =
-                                        at.pointer().key("arguments").index(argument).key("value");
-                                    if let Some((position, binding)) = member {
-                                        path = path.key("members").index(position);
-                                        if binding {
-                                            path = path.key("value");
-                                        }
-                                    }
-                                    path
+                                super::protocol_body::ProtocolLayoutWireDefect::EnumValue { .. } => {
+                                    crate::checked_package::common::node_pointer(position)
                                 }
                             };
                             Err(ValidationFailure::refused(

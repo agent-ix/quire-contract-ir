@@ -103,8 +103,8 @@ fn role_target(package: &mut Value) -> Value {
     target
 }
 
-/// Trace: FR-038-AC-239, FR-038-AC-283
-#[trace("FR-038-AC-239", "FR-038-AC-283", "TC-048")]
+/// Trace: FR-038-AC-239, FR-038-AC-283, FR-038-AC-454
+#[trace("FR-038-AC-239", "FR-038-AC-283", "FR-038-AC-454", "TC-048")]
 #[test]
 fn protocol_reference_reads_both_protocol_target_forms_and_rekeys_on_retarget() {
     let mut package = v2_all_families();
