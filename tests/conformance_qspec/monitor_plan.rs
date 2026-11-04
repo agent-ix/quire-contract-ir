@@ -6,6 +6,7 @@
 use super::monitor_plan_fixtures::*;
 use super::*;
 use quire_contract_model::CheckedMonitorPlanRef;
+use std::collections::BTreeSet;
 
 fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
     match read_package(wire).expect("QSpec selection evidence") {
@@ -56,6 +57,37 @@ fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
     }
 }
 
+fn assert_activation_status_type(wire: &Value, expected: &str) {
+    let activation = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "composite_type"
+                && node["semantic_form"] == "record"
+                && node["body"]["members"][2]["name"] == "status"
+        })
+        .expect("activation record");
+    let status_id = &activation["body"]["members"][2]["value"]["target"];
+    let status = &wire["semantic_graph"]["nodes"][position(wire, status_id)];
+    match expected {
+        "integer" => assert_eq!(status["semantic_form"], "integer"),
+        "record{position:integer}" => {
+            assert_eq!(status["semantic_form"], "record");
+            let fields = status["body"]["members"].as_array().unwrap();
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0]["name"], "position");
+            let position_type = &fields[0]["value"]["target"];
+            assert_eq!(
+                wire["semantic_graph"]["nodes"][position(wire, position_type)]["semantic_form"],
+                "integer"
+            );
+        }
+        "text" => assert_eq!(status["semantic_form"], "text"),
+        other => panic!("unexpected status assertion type {other}"),
+    }
+}
+
 #[trace(
     "TC-048",
     "FR-038-AC-421",
@@ -71,12 +103,25 @@ fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
 #[test]
 fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
     let vectors = recipes();
-    assert_eq!(vectors["cases"].as_array().unwrap().len(), 63);
+    let mut status_cases = BTreeSet::new();
+    let mut position_refusals = BTreeSet::new();
     let mut base_key = None;
     for case in vectors["cases"].as_array().unwrap() {
+        if matches!(case["id"].as_str(), Some("MP-74" | "MP-75" | "MP-76")) {
+            assert!(position_refusals.insert(case["id"].as_str().unwrap()));
+            assert_eq!(case["expected"], "refused", "{}", case["id"]);
+        }
         let mut facts = vectors["base"].clone();
         patch(&mut facts, &case["set"]);
         let (wire, n) = materialize(&facts);
+        if matches!(case["id"].as_str(), Some("MP-01" | "MP-81" | "MP-82")) {
+            assert!(status_cases.insert(case["id"].as_str().unwrap()));
+            assert_eq!(case["expected"], "admitted", "{}", case["id"]);
+            assert_activation_status_type(
+                &wire,
+                facts["state"]["activation_status"].as_str().unwrap(),
+            );
+        }
         let result = read_package(&wire).expect("QSpec evidence");
         if case["expected"] == "admitted" {
             let CheckedPackageV2ReadResult::Admitted(package) = result else {
@@ -143,6 +188,11 @@ fn monitor_plan_published_reader_recipes_have_exact_outcomes() {
             );
         }
     }
+    assert_eq!(status_cases, BTreeSet::from(["MP-01", "MP-81", "MP-82"]));
+    assert_eq!(
+        position_refusals,
+        BTreeSet::from(["MP-74", "MP-75", "MP-76"])
+    );
     assert_eq!(
         vectors["gap_cases"]["calls"].as_array().unwrap().len(),
         3,
