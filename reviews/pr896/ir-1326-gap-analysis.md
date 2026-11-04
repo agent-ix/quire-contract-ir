@@ -30,3 +30,7 @@ FR-038-AC-461 and FR-038-AC-462 examined; QSpec FR-370-AC-17/18 and FR-322 tempo
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The positive replay now asserts the admitted argument equals the selected QSpec row argument and the admitted formula node_id equals the complete package node identity; focused replay passes. |
+
+## Follow-up scope on PR head d651e47b
+
+FR-038-AC-251 and TC-048 examined after the verification catalogue grew to 185 entries. The 12 current text/string conversions have admitted witnesses that retain typed identity, literal source family/value, member declaration and result type, plus the existing mismatched-result refusal loop. The native scalar equality census filters eq/ne only. The final live-catalog classification has no broad fallback and no exact identity or count inventory; every member-result or type-argument entry requires an admitted control. QSpec main 860e0890 remains the by-reference aggregate source. No new defect in this method.

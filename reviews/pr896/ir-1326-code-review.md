@@ -32,3 +32,7 @@ FR-038-AC-461 and FR-038-AC-462 examined; QSpec FR-370-AC-17/18 and FR-322 tempo
 | --- | --- | --- |
 | FND-001 | fixed | The reader gathers occurrence clock units by clause and retains one only when every binding agrees; the mixed ms/s case now refuses ill_typed/unit-mismatch at the lower bound, while two ms occurrences admit. |
 | FND-002 | fixed | make string-edge on pushed head 283af7a1 exits 0 with no unmarked or unlisted string comparisons. New aggregate kinds use typed enums and deliberate string-edge boundaries. |
+
+## Follow-up scope on PR head d651e47b
+
+FR-038-AC-251 and TC-048 examined after the verification catalogue grew to 185 entries. The 12 current text/string conversions have admitted witnesses that retain typed identity, literal source family/value, member declaration and result type, plus the existing mismatched-result refusal loop. The native scalar equality census filters eq/ne only. The final live-catalog classification has no broad fallback and no exact identity or count inventory; every member-result or type-argument entry requires an admitted control. QSpec main 860e0890 remains the by-reference aggregate source. No new defect in this method.
