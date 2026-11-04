@@ -103,3 +103,11 @@ PASS. Reviewed the representation adjustment following the aggregate canonical-t
 CanonicalBuffer is a private native Vec byte sink implementing quire-canonical::Sink. Its named bytes field holds only the original output buffer; canonicalize still calls the one quire-canonical::encode path. The test-only one-shot still calls the real Vec::try_reserve overflow and normal allocation-error mapping; no partial buffer is published. It wraps neither a quire-canonical Writer, Limits, Document nor Sink value, adds no alias/public surface and changes no logical charges. The architecture satisfies FR-038 canonical-encoding intent rather than merely evading the syntax guard.
 
 No new findings; the earlier two fixed findings remain fixed. This source review ran no Cargo. The earlier aggregate had failures and is not a PASS; the lead must run the necessary final-head gate after the representation fix.
+
+## Supplemental verification (disposition pass 3)
+
+PASS. Reviewed the content-versus-cache correction after the model-unit gate exposed two unchanged cache-independence assertions. Complete selected-document arenas now belong directly to CheckedPackageV2.selected_documents; the transient validation carriers propagate that semantic field into the admitted package, while RetainedModels returns to derived caches only. Package equality compares wire, kinds and the semantic selected documents independently of RetainedModels. Clearing derived field/relationship caches therefore cannot erase admitted content or change equality. The two original cache-independence test assertions are unchanged.
+
+The private equal_selections helper preserves length/order checks, Arc pointer fast paths and the same borrowed iterative complete-document comparator. Derived Clone shares flat Document arenas, and final drop remains nonrecursive; no extra input parse, numeric conversion, public API, encoder, cap or logical charge was introduced. Private manually built package fixtures explicitly initialize the new semantic field, with the model fixture retaining its actual authored selected document. No new findings; both original findings remain fixed.
+
+No Cargo was run by the reviewer. The earlier full IR target passed, but its following model-unit target failed and is not an aggregate PASS. The lead owns the necessary final-head checks.
