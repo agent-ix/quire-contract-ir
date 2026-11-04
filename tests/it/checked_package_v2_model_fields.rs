@@ -1285,8 +1285,9 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     );
     let mut wrong_document = declarations[0].clone();
     wrong_document.selected_document = "wrong/document".into();
+    let wrong_document_rows = [wrong_document];
     let wrong = admitted
-        .project_selected_facts(selected_once(), with_rows(&[wrong_document], &fields), 1000)
+        .project_selected_facts(selected_once(), with_rows(&wrong_document_rows, &fields), 1000)
         .unwrap_err();
     assert_eq!(wrong.code, SelectedFactsErrorCode::Exact);
     assert_eq!(
