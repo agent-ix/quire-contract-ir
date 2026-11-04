@@ -57,6 +57,12 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/TC-233
     type: references
+  - target: ix://agent-ix/quire-specification/TC-303
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-461
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-462
+    type: verifies
 ---
 # TC-048: CheckedPackage V2 strict reader validates structural identities
 
@@ -510,7 +516,7 @@ of one clause are swapped where the two defects' positions can be (the
 operator order of a formula tree); `over` and the fairness argument have one
 position each.
 Build, from this crate's own vocabulary and never from a copy of QSpec's
-fixtures, a package whose `temporal`/`formula` nodes apply each of the fifteen
+fixtures, a package whose `temporal`/`formula` nodes apply each of the original fifteen
 `temporal_formula` identities with their catalogued member and operands under a
 clause selecting a bounded profile, a `temporal`/`fairness` node applying
 `quire.op.temporal.fair` under a clause selecting `quire.temporal.infinite-trace/v1`,
@@ -643,6 +649,25 @@ recorded code, every body-grammar mutation refuses `malformed_wire` as recorded 
 its current refusal and owning ticket, each flattened form is not refused `malformed_wire`, and
 the version-free dependency selections retain their exact published identities and the reader joins each supplied package by name (AC-112 and AC-113); each fail-closed
 case above fails the run and never skips.
+
+## Window aggregate atom (FR-038-AC-461 and FR-038-AC-462)
+
+Planned until IR-1326 code. Read QSpec's current
+`proposals/checked-package-v2/temporal-aggregate-vectors.json` directly from
+the selected checkout. For each published positive argument, construct a
+complete strict package with the published clause profile, clock unit and
+expression target families, put the aggregate application at a
+`temporal`/`formula` node reached by the clause, and require admission with its
+structural node identity retained. For each reader mutation, build the
+complete context from its named base positive, use that reader case's own
+published `profile` and `argument` (including a profile override), and require the
+published exact code, cause and pointer relative to the application body,
+prefixed by that package's node-body pointer. Check that a profile or value
+defect precedes a later operation defect and that two reachable aggregates
+report the first defect in ascending formula node-id order. Every published
+row must run, and no vector, schema or frozen expected row count is copied
+into this repository. A mismatch, unexpected admission or partial admitted
+package fails the case.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
 
