@@ -1420,7 +1420,15 @@ fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
         (Code::InvalidPackage, Some(Cause::OperationLawMismatch)),
         "{refusal:?}"
     );
-    assert_locus(&refusal, protocol, "/body/operation/laws/0/role");
+    // QSpec protocol V10 separates the containing node's primary locus
+    // from the rejected law row's document pointer.
+    assert_locus(&refusal, protocol, "");
+    assert_eq!(
+        refusal.document_pointer.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{protocol}/body/operation/laws/0"
+        ))
+    );
 
     package["semantic_graph"]["nodes"][claim]["body"]["arguments"][1]["value"] = json!("wall-time");
     fixture_support::settle(&mut package);
