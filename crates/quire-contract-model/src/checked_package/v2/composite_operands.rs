@@ -1731,7 +1731,7 @@ mod tests {
                     equality_applications: std::slice::from_ref(&application_row),
                     equality_facts: fact_rows,
                 },
-                1000,
+                100_000,
             )
         };
         let complete = selected_read(&facts).expect("selected Text facts join");
