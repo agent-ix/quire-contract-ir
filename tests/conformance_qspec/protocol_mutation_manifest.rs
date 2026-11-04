@@ -217,6 +217,58 @@ fn current_qspec_protocol_reader_refusals_preserve_published_provenance() {
     }
 }
 
+#[test]
+#[trace("TC-048", "FR-038-AC-436", "FR-038-AC-457")]
+fn earlier_state_refusal_precedes_missing_protocol_temporal_selection() {
+    let fixtures = fixtures_dir();
+    let manifest = read_json(&fixtures.join("protocol-node-mutation-manifest.json"))
+        .expect("QSpec protocol mutation manifest");
+    let base =
+        read_json(&fixtures.join(manifest["base"]["fixture"].as_str().expect("base fixture")))
+            .expect("QSpec protocol base");
+    let document = fixtures.join(
+        manifest["base"]["domain_document"]
+            .as_str()
+            .expect("selected domain document"),
+    );
+    let mut edited = base;
+    let rows = manifest["rows"].as_array().expect("published rows");
+    for id in ["V14", "V16"] {
+        let row = rows
+            .iter()
+            .find(|row| row["id"] == id)
+            .expect("published row");
+        for edit in row["edit"].as_array().expect("published edits") {
+            apply_layout_edit(&mut edited, edit);
+        }
+    }
+    let state = rows.iter().find(|row| row["id"] == "V14").expect("V14");
+    let refusal = match read(&edited, &document) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("earlier state defect must refuse: {other:?}"),
+    };
+    assert_eq!(
+        serde_json::to_value(refusal.code).expect("code"),
+        state["expect"]["code"]
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.cause).expect("cause"),
+        state["expect"]["cause"]
+    );
+    assert_eq!(
+        refusal
+            .loci
+            .first()
+            .and_then(|at| at.path.as_ref())
+            .map(|at| at.as_str()),
+        state["expect"]["locus"].as_str(),
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.locus).expect("locus"),
+        edited["semantic_graph"]["nodes"][54]["node_id"],
+    );
+}
+
 fn apply_layout_edit(package: &mut Value, edit: &Value) {
     let path = edit["path"].as_str().expect("published edit path");
     let (parent, member) = path.rsplit_once('/').expect("absolute edit path");

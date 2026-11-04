@@ -5371,21 +5371,21 @@ fn check_clause_causality(
     Ok(())
 }
 
-/// `await` and `compensate` need the selected temporal profile before
-/// temporal binding validation can classify their clock references.
-pub(super) fn validate_temporal_selection(
+/// Find the missing temporal selection used by a protocol clock. The caller
+/// reports it after graph and state checks have had their required turn.
+pub(super) fn missing_temporal_selection(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
-) -> Result<(), ValidationFailure> {
+) -> Option<ValidationFailure> {
     if lock
         .profile_selections
         .iter()
         .any(|selection| selection.role == CheckedSelectionRole::TemporalProfile)
     {
-        return Ok(());
+        return None;
     }
     for &position in index.values() {
         if !matches!(kinds.get(position), Some(CheckedNodeKind::Protocol(_))) {
@@ -5402,7 +5402,7 @@ pub(super) fn validate_temporal_selection(
                 Some("await" | "compensate")
             )
         ) {
-            return Err(ValidationFailure::refused_at(
+            return Some(ValidationFailure::refused_at(
                 Code::MissingDeclaration,
                 node_pointer(position),
                 Some(Cause::MissingSelection),
@@ -5410,7 +5410,7 @@ pub(super) fn validate_temporal_selection(
             ));
         }
     }
-    Ok(())
+    None
 }
 
 /// Validate protocol placement, local members, membership and clause layout.
@@ -5477,6 +5477,10 @@ pub(super) fn validate_protocol_nodes(
                 ));
             }
         }
+    }
+
+    if let Some(failure) = missing_temporal_selection(nodes, kinds, terms, index, lock) {
+        return Err(failure);
     }
 
     for &position in index.values() {
