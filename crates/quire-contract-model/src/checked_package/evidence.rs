@@ -188,11 +188,8 @@ impl CheckedPackageEvidence {
     ///
     /// `identity` is only the caller's claim. The reader finds the package by
     /// `identity` (an identity no entry names is never looked up, and an
-    /// entry with no package under its identity refuses `missing_import`) and
-    /// binds the package by its `package_id` content digest: a
-    /// `CheckedPackageV2` can only be built by the reader's own `read`, so
-    /// that digest was recomputed from its identity preimage. The package is
-    /// shared, not cloned, when passed as an `Arc`.
+    /// entry with no package under its identity refuses `missing_import`).
+    /// The package is shared, not cloned, when passed as an `Arc`.
     pub fn insert_dependency_package(
         &mut self,
         identity: impl Into<Box<str>>,

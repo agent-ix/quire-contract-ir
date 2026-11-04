@@ -1324,6 +1324,12 @@ impl CheckedPackageV2 {
         &self.wire.lock
     }
 
+    /// The admitted direct dependency packages in lock selection order.
+    /// Dependencies selected by a child are available from that child's accessor.
+    pub fn direct_dependencies(&self) -> impl ExactSizeIterator<Item = &CheckedPackageV2> {
+        self.direct_dependencies.iter().map(std::sync::Arc::as_ref)
+    }
+
     /// The complete closed checked graph.
     pub fn graph(&self) -> &CheckedSemanticGraphV2 {
         &self.wire.semantic_graph
