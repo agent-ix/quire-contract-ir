@@ -312,9 +312,12 @@ record shape, or value outside the operator's enumerated set SHALL refuse
 `/semantic_graph/nodes/{i}`. This node-level schema pointer is the published
 first-error path for those layout failures, rather than a pointer into `body`;
 no structural graph-node locus is assigned to a schema-stage refusal. The
-reader SHALL consume the current QSpec schema and published
+reader SHALL implement these protocol layout and enumeration constraints in
+its local protocol-body tables, without requiring a QSpec checkout at runtime.
+TC-048 SHALL consume the current QSpec schema and published
 `proposals/checked-package-v2/fixtures/protocol-node-layout-rows.json` by
-reference, without maintaining a second layout or enumeration catalog.
+reference, without maintaining a second test-side layout or enumeration
+catalog.
 
 An `unknown_contract_version` refusal points at `/contract_version` and
 carries the version string read there.
