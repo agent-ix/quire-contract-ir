@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! By-reference reader reproduction for the QSpec STD-609 protocol mutations.
+//! By-reference reader conformance for QSpec protocol mutations and layouts.
 
 use super::{
     fixture_support, fixtures_dir, positive_document, proposal_dir_of, read_json,
@@ -262,6 +262,18 @@ fn protocol_text_term(type_id: &Value, spelling: &str) -> Value {
     })
 }
 
+fn protocol_node_index(package: &Value, operator: &str) -> usize {
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published graph nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "protocol"
+                && node["body"]["operation"]["member"]["operator"] == operator
+        })
+        .unwrap_or_else(|| panic!("published protocol {operator} node"))
+}
+
 #[test]
 #[trace("TC-048", "FR-038-AC-454")]
 fn current_qspec_protocol_enumerations_remain_admitted() {
@@ -291,24 +303,25 @@ fn current_qspec_protocol_enumerations_remain_admitted() {
         .expect("Boolean type")["node_id"]
         .clone();
     let fields = [
-        ("channel", "/properties/arguments/prefixItems/4/properties/value/properties/value", "/semantic_graph/nodes/62/body/arguments/4/value/value", false),
-        ("queue", "/properties/arguments/prefixItems/2/properties/value/properties/value", "/semantic_graph/nodes/63/body/arguments/2/value/value", false),
-        ("attempt", "/properties/arguments/prefixItems/2/properties/value/properties/members/items/properties/value", "/semantic_graph/nodes/66/body/arguments/2/value/members", true),
-        ("parallel", "/properties/arguments/prefixItems/0/properties/value/properties/members/items/properties/value", "/semantic_graph/nodes/70/body/arguments/0/value/members", true),
-        ("parallel", "/properties/arguments/prefixItems/4/properties/value/properties/members/items/properties/value", "/semantic_graph/nodes/70/body/arguments/4/value/members", true),
-        ("protocol", "/properties/arguments/prefixItems/10/properties/value/properties/members/items/properties/value", "/semantic_graph/nodes/82/body/arguments/10/value/members", true),
+        ("channel", "/properties/arguments/prefixItems/4/properties/value/properties/value", 4, false),
+        ("queue", "/properties/arguments/prefixItems/2/properties/value/properties/value", 2, false),
+        ("attempt", "/properties/arguments/prefixItems/2/properties/value/properties/members/items/properties/value", 2, true),
+        ("parallel", "/properties/arguments/prefixItems/0/properties/value/properties/members/items/properties/value", 0, true),
+        ("parallel", "/properties/arguments/prefixItems/4/properties/value/properties/members/items/properties/value", 4, true),
+        ("protocol", "/properties/arguments/prefixItems/10/properties/value/properties/members/items/properties/value", 10, true),
     ];
-    for (operator, schema_field, package_field, list) in fields {
+    for (operator, schema_field, ordinal, list) in fields {
         for value in protocol_enum_values(&schema, operator, schema_field) {
             let spelling = value.as_str().expect("text enum spelling");
             let mut changed = base.clone();
-            *changed
-                .pointer_mut(package_field)
-                .expect("published base field") = if list {
-                Value::Array(vec![protocol_text_term(&text_type, spelling)])
+            let position = protocol_node_index(&changed, operator);
+            let selected = &mut changed["semantic_graph"]["nodes"][position]["body"]["arguments"]
+                [ordinal]["value"];
+            if list {
+                selected["members"] = Value::Array(vec![protocol_text_term(&text_type, spelling)]);
             } else {
-                value.clone()
-            };
+                selected["value"] = value.clone();
+            }
             if operator == "queue" && spelling == "loss" {
                 let loss = protocol_enum_values(
                     &schema,
@@ -317,7 +330,7 @@ fn current_qspec_protocol_enumerations_remain_admitted() {
                 )[0]
                     .as_str()
                     .expect("loss spelling");
-                changed["semantic_graph"]["nodes"][63]["body"]["arguments"][3]["value"]
+                changed["semantic_graph"]["nodes"][position]["body"]["arguments"][3]["value"]
                     ["members"] = Value::Array(vec![protocol_text_term(&text_type, loss)]);
             }
             let result = read(&changed, &document);
@@ -335,9 +348,10 @@ fn current_qspec_protocol_enumerations_remain_admitted() {
     ) {
         let spelling = value.as_str().expect("loss spelling");
         let mut changed = base.clone();
-        changed["semantic_graph"]["nodes"][63]["body"]["arguments"][2]["value"]["value"] =
+        let position = protocol_node_index(&changed, "queue");
+        changed["semantic_graph"]["nodes"][position]["body"]["arguments"][2]["value"]["value"] =
             Value::from("loss");
-        changed["semantic_graph"]["nodes"][63]["body"]["arguments"][3]["value"]["members"] =
+        changed["semantic_graph"]["nodes"][position]["body"]["arguments"][3]["value"]["members"] =
             Value::Array(vec![protocol_text_term(&text_type, spelling)]);
         let result = read(&changed, &document);
         assert!(
@@ -351,14 +365,15 @@ fn current_qspec_protocol_enumerations_remain_admitted() {
     for mode in modes {
         let spelling = mode.as_str().expect("terminal mode");
         let mut changed = base.clone();
-        changed["semantic_graph"]["nodes"][80]["body"]["arguments"][0]["value"]["value"] =
+        let position = protocol_node_index(&changed, "terminal");
+        changed["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["value"]["value"] =
             mode.clone();
         if spelling == "when" {
-            changed["semantic_graph"]["nodes"][80]["body"]["arguments"][1]["value"]["members"] =
-                Value::Array(vec![serde_json::json!({
-                    "term":"literal", "type":boolean_type,
-                    "value_kind":"boolean", "value":true
-                })]);
+            changed["semantic_graph"]["nodes"][position]["body"]["arguments"][1]["value"]
+                ["members"] = Value::Array(vec![serde_json::json!({
+                "term":"literal", "type":boolean_type,
+                "value_kind":"boolean", "value":true
+            })]);
         }
         let result = read(&changed, &document);
         assert!(
@@ -368,17 +383,17 @@ fn current_qspec_protocol_enumerations_remain_admitted() {
     }
 }
 
-fn assert_appended_protocol_node_admits(
-    base: &Value,
-    node: Value,
-    document: &std::path::Path,
-    label: &str,
-) {
-    let mut package = base.clone();
+fn append_protocol_control(package: &mut Value, node: Value, name: &str) {
     let mut node = node;
-    node["node_id"]["path"] = serde_json::json!(["Example", "OrderFlow", "run", "Main", "Fence"]);
+    let run = protocol_node_index(package, "sequence");
+    let mut path = package["semantic_graph"]["nodes"][run]["node_id"]["path"]
+        .as_array()
+        .expect("published run path")
+        .clone();
+    path.push(Value::from(name));
+    node["node_id"]["path"] = Value::Array(path);
     node["declaration"]["qualified_name"] = node["node_id"]["path"].clone();
-    package["semantic_graph"]["nodes"][78]["body"]["arguments"][0]["value"]["members"]
+    package["semantic_graph"]["nodes"][run]["body"]["arguments"][0]["value"]["members"]
         .as_array_mut()
         .expect("run sequence children")
         .push(serde_json::json!({"term":"reference", "target":node["node_id"]}));
@@ -386,11 +401,305 @@ fn assert_appended_protocol_node_admits(
         .as_array_mut()
         .expect("graph nodes")
         .push(node);
-    fixture_support::settle(&mut package);
+    fixture_support::settle(package);
+}
+
+fn assert_appended_protocol_node_admits(
+    base: &Value,
+    node: Value,
+    document: &std::path::Path,
+    label: &str,
+) {
+    let mut package = base.clone();
+    append_protocol_control(&mut package, node, "Fence");
+    assert_current_qspec_protocol_bodies_valid(&package, "fence");
     let result = read(&package, document);
     assert!(
         matches!(&result, CheckedPackageV2ReadResult::Admitted(_)),
         "published {label} layout must admit: {result:?}"
+    );
+}
+
+fn fresh_parameter(package: &mut Value, template: &Value, name: &str, level: &str) -> Value {
+    let mut node = template.clone();
+    node["body"]["members"][0]["value"]["value"] = Value::from(name);
+    node["body"]["members"][1]["value"]["value"] = Value::from(level);
+    node["node_id"]["path"] = serde_json::json!(["value", "parameter", name, level]);
+    let target = node["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .push(node);
+    target
+}
+
+fn published_operator_arguments(fixtures: &std::path::Path, operator: &str) -> Vec<String> {
+    let vectors = read_json(&fixtures.join("protocol-node-vectors.json"))
+        .expect("current QSpec protocol vectors");
+    vectors["operators"]
+        .as_array()
+        .expect("published operators")
+        .iter()
+        .find(|row| row["operator"] == operator && row["semantic_form"] == "control")
+        .unwrap_or_else(|| panic!("published {operator} control"))["arguments"]
+        .as_array()
+        .expect("published arguments")
+        .iter()
+        .map(|name| name.as_str().expect("argument name").to_owned())
+        .collect()
+}
+
+fn published_bindings(fixtures: &std::path::Path, operator: &str, values: Vec<Value>) -> Value {
+    let names = published_operator_arguments(fixtures, operator);
+    assert_eq!(names.len(), values.len(), "{operator}: published arity");
+    Value::Array(
+        names
+            .into_iter()
+            .zip(values)
+            .map(|(name, value)| serde_json::json!({"term":"binding", "name":name, "value":value}))
+            .collect(),
+    )
+}
+
+fn assert_current_qspec_protocol_bodies_valid(package: &Value, operator: &str) {
+    let schema = read_json(&proposal_dir_of(&fixtures_dir()).join("schema.json"))
+        .expect("current QSpec checked-package schema");
+    let application_schema = serde_json::json!({
+        "$schema":schema["$schema"],
+        "$defs":schema["$defs"],
+        "$ref":"#/$defs/ProtocolControlApplication"
+    });
+    let validator = jsonschema::JSONSchema::options()
+        .with_draft(jsonschema::Draft::Draft202012)
+        .compile(&application_schema)
+        .expect("QSpec schema compiles");
+    let mut found = false;
+    for node in package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+    {
+        if node["node_tag"] != "protocol"
+            || node["body"]["operation"]["member"]["operator"] != operator
+        {
+            continue;
+        }
+        found = true;
+        if let Err(errors) = validator.validate(&node["body"]) {
+            let details = errors
+                .take(3)
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>();
+            panic!("{operator} body must satisfy current QSpec schema: {details:?}");
+        };
+    }
+    assert!(found, "published {operator} body exists");
+}
+
+fn qspec_event_package() -> (Value, std::path::PathBuf, Value) {
+    let fixtures = fixtures_dir();
+    let base = read_json(&fixtures.join("protocol-node-base.json")).expect("QSpec protocol base");
+    let manifest = read_json(&fixtures.join("protocol-node-mutation-manifest.json"))
+        .expect("QSpec protocol manifest");
+    let document = fixtures.join(
+        manifest["base"]["domain_document"]
+            .as_str()
+            .expect("selected domain document"),
+    );
+    let mut package = base.clone();
+    let finish = protocol_node_index(&package, "finish");
+    let finish_target = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let template = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_id"] == finish_target)
+        .expect("finish binder")
+        .clone();
+    let level = template["body"]["members"][1]["value"]["value"]
+        .as_str()
+        .expect("finish level")
+        .parse::<usize>()
+        .expect("finish level integer");
+    let binder = fresh_parameter(&mut package, &template, "event_result", &level.to_string());
+    let finish_parameter = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == finish_target)
+        .expect("finish parameter position");
+    package["semantic_graph"]["nodes"][finish_parameter]["body"]["members"][1]["value"]["value"] =
+        Value::from((level + 1).to_string());
+    let role = package["semantic_graph"]["nodes"][protocol_node_index(&package, "attempt")]["body"]
+        ["arguments"][0]["value"]
+        .clone();
+    let boolean_type = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
+        .expect("Boolean type")["node_id"]
+        .clone();
+    let mut event = read_json(&fixtures.join("protocol-node-layout-rows.json"))
+        .expect("layout rows")["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .find(|row| row["id"] == "L12")
+        .expect("fence template")["edit"][0]["value"]
+        .clone();
+    event["body"]["operation"]["member"]["operator"] = Value::from("event");
+    event["body"]["arguments"] = published_bindings(
+        &fixtures,
+        "event",
+        vec![
+            role,
+            serde_json::json!({"term":"aggregate","members":[]}),
+            serde_json::json!({"term":"reference","target":binder}),
+            serde_json::json!({"term":"aggregate","members":[]}),
+            serde_json::json!({"term":"literal","type":boolean_type,"value_kind":"boolean","value":true}),
+        ],
+    );
+    append_protocol_control(&mut package, event.clone(), "Event");
+    (package, document, event)
+}
+
+#[test]
+#[trace("TC-048", "FR-038-AC-454")]
+fn current_qspec_appended_event_layout_remains_admitted() {
+    let (package, document, _) = qspec_event_package();
+    assert_current_qspec_protocol_bodies_valid(&package, "event");
+    let result = read(&package, &document);
+    assert!(
+        matches!(&result, CheckedPackageV2ReadResult::Admitted(_)),
+        "published event layout must admit: {result:?}"
+    );
+}
+
+fn append_nested_control(
+    package: &mut Value,
+    mut node: Value,
+    parent: &[Value],
+    name: &str,
+) -> Value {
+    let mut path = parent.to_vec();
+    path.push(Value::from(name));
+    node["node_id"]["path"] = Value::Array(path);
+    node["declaration"]["qualified_name"] = node["node_id"]["path"].clone();
+    let target = node["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .push(node);
+    target
+}
+
+#[test]
+#[trace("TC-048", "FR-038-AC-454")]
+fn current_qspec_appended_await_layout_remains_admitted() {
+    let fixtures = fixtures_dir();
+    let (mut package, document, event_template) = qspec_event_package();
+    let anchor = package["semantic_graph"]["nodes"][protocol_node_index(&package, "event")]
+        ["node_id"]
+        .clone();
+    let finish = protocol_node_index(&package, "finish");
+    let finish_target = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let finish_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == finish_target)
+        .expect("finish binder");
+    let finish_template = package["semantic_graph"]["nodes"][finish_position].clone();
+    let level = finish_template["body"]["members"][1]["value"]["value"]
+        .as_str()
+        .expect("finish level")
+        .parse::<usize>()
+        .expect("integer level");
+    let awaited_binder = fresh_parameter(
+        &mut package,
+        &finish_template,
+        "await_result",
+        &level.to_string(),
+    );
+    let mut awaited_event = event_template;
+    awaited_event["body"]["arguments"][2]["value"]["target"] = awaited_binder;
+    let run = protocol_node_index(&package, "sequence");
+    let mut await_path = package["semantic_graph"]["nodes"][run]["node_id"]["path"]
+        .as_array()
+        .expect("run path")
+        .clone();
+    await_path.push(Value::from("Await"));
+    let event = append_nested_control(&mut package, awaited_event, &await_path, "Event");
+    let layout = read_json(&fixtures.join("protocol-node-layout-rows.json")).expect("layout rows");
+    let mut fence = layout["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .find(|row| row["id"] == "L12")
+        .expect("fence template")["edit"][0]["value"]
+        .clone();
+    let schema =
+        read_json(&proposal_dir_of(&fixtures).join("schema.json")).expect("current QSpec schema");
+    fence["body"]["arguments"][0]["value"]["value"] = protocol_enum_values(
+        &schema,
+        "fence",
+        "/properties/arguments/prefixItems/0/properties/value/properties/value",
+    )[0]
+    .clone();
+    let then = append_nested_control(&mut package, fence.clone(), &await_path, "Then");
+    let timeout = append_nested_control(&mut package, fence.clone(), &await_path, "Timeout");
+    let scalar = |form: &str| {
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == form)
+            .unwrap_or_else(|| panic!("{form} scalar type"))["node_id"]
+            .clone()
+    };
+    let text_type = scalar("text");
+    let integer_type = scalar("integer");
+    let text = |spelling: &str| protocol_text_term(&text_type, spelling);
+    let integer = |spelling: &str| {
+        serde_json::json!({
+            "term":"literal", "type":integer_type, "value_kind":"integer", "value":spelling
+        })
+    };
+    let binding = |name: &str, value: Value| serde_json::json!({"term":"binding", "name":name, "value":value});
+    let reference = |target: Value| serde_json::json!({"term":"reference", "target":target});
+    let group = |members: Vec<Value>| serde_json::json!({"term":"aggregate", "members":members});
+    let mut awaited = fence;
+    awaited["body"]["operation"]["member"]["operator"] = Value::from("await");
+    awaited["body"]["arguments"] = published_bindings(
+        &fixtures,
+        "await",
+        vec![
+            group(vec![
+                binding("kind", text("event")),
+                binding("target", reference(anchor)),
+            ]),
+            text("clock"),
+            group(vec![
+                binding("lower", integer("0")),
+                binding("upper", integer("1")),
+            ]),
+            reference(event),
+            reference(then),
+            reference(timeout),
+        ],
+    );
+    append_protocol_control(&mut package, awaited, "Await");
+    assert_current_qspec_protocol_bodies_valid(&package, "await");
+    assert_current_qspec_protocol_bodies_valid(&package, "event");
+    assert_current_qspec_protocol_bodies_valid(&package, "fence");
+    let result = read(&package, &document);
+    assert!(
+        matches!(&result, CheckedPackageV2ReadResult::Admitted(_)),
+        "published await layout must admit: {result:?}"
     );
 }
 
