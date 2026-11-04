@@ -225,6 +225,20 @@ fn published_temporal_aggregate_arguments_match_strict_reader() {
                 "{case_id}"
             );
             assert_eq!(arguments.len(), 1, "{case_id}: one aggregate argument");
+            assert_eq!(
+                serde_json::to_value(&arguments[0]).expect("typed argument"),
+                case["argument"],
+                "{case_id}: published aggregate bindings retained"
+            );
+            let expected_id: CheckedNodeId = serde_json::from_value(
+                package["semantic_graph"]["nodes"][position]["node_id"].clone(),
+            )
+            .expect("published formula identity");
+            assert_eq!(
+                admitted.graph().nodes[position].node_id,
+                expected_id,
+                "{case_id}: formula identity retained"
+            );
             matched += 1;
         } else {
             let CheckedPackageV2ReadResult::Refused(refusal) = result else {
@@ -325,6 +339,77 @@ fn interval_bounds_refusal_precedes_reached_aggregate_refusal() {
         refusal.loci[0].path.as_ref().map(ToString::to_string),
         Some("/semantic_graph/nodes/29/body".to_owned())
     );
+}
+
+/// One structural clause can represent claims with distinct clock-unit bindings.
+#[trace("TC-048", "FR-038-AC-462")]
+#[test]
+fn duration_bounds_match_every_occurrence_clock_unit() {
+    let published = vectors();
+    let case = published["positive"]
+        .as_array()
+        .expect("positive cases")
+        .iter()
+        .find(|case| case["id"] == "AG-07-duration-quantile")
+        .expect("published duration case");
+    let (mut package, formula) = package_for(case, &published);
+    let clause = 8;
+    let clause_id = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
+    package["semantic_graph"]["nodes"][clause]["occurrences"]
+        .as_array_mut()
+        .expect("clause occurrences")
+        .push(json!({"role": "claim", "ordinal": 1}));
+    let source_rows = package["source_map"].as_array_mut().expect("source map");
+    let source_at = source_rows
+        .iter()
+        .position(|row| row["node_id"] == clause_id)
+        .expect("clause source association");
+    let mut second_source = source_rows[source_at].clone();
+    second_source["ordinal"] = json!(1);
+    second_source["regions"][0]["start"] = json!(11);
+    second_source["regions"][0]["end"] = json!(12);
+    source_rows.insert(source_at + 1, second_source);
+    package["temporal_clause_names"]
+        .as_array_mut()
+        .expect("clause names")
+        .insert(
+            1,
+            json!({"declaration": clause_id, "occurrence": 1, "name": "Clause1"}),
+        );
+    let bindings = package["temporal_bindings"]
+        .as_array_mut()
+        .expect("bindings");
+    let mut second_binding = bindings[0].clone();
+    second_binding["occurrence"] = json!(1);
+    bindings.insert(1, second_binding);
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        read_package(&package).expect("complete package")
+    else {
+        panic!("both claim occurrences using ms must admit");
+    };
+    assert_eq!(
+        serde_json::to_value(&admitted.graph().nodes[formula].body).expect("typed formula"),
+        package["semantic_graph"]["nodes"][formula]["body"]
+    );
+
+    package["temporal_bindings"][1]["clock"]["timestamp_unit"] = json!("s");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&package).expect("complete package")
+    else {
+        panic!("second claim's s clock must refuse an ms bound");
+    };
+    assert_eq!(code_word(refusal.code), "ill_typed");
+    assert_eq!(refusal.cause.map(cause_word), Some("unit-mismatch"));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{formula}/body/arguments/0/members/5/value"
+        ))
+    );
+    let expected_id: CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][formula]["node_id"].clone())
+            .expect("formula identity");
+    assert_eq!(refusal.locus.as_ref(), Some(&expected_id));
 }
 
 /// Operand order does not choose the first aggregate refusal.

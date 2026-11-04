@@ -530,6 +530,7 @@ pub(super) fn validate_temporal(
         }
     }
     validate_diagnostic_references(nodes, kinds, context.diagnostics)?;
+    let clock_units = aggregate_clock_units(context.bindings);
     let mut covered = BTreeSet::new();
     for &position in index.values() {
         if graph.kinds.get(position)
@@ -540,7 +541,10 @@ pub(super) fn validate_temporal(
                 &graph,
                 terms,
                 context.lock,
-                context.bindings,
+                clock_units
+                    .get(&graph.nodes[position].node_id)
+                    .copied()
+                    .flatten(),
                 meter,
                 &mut covered,
             )?;
@@ -833,15 +837,16 @@ fn selected_under_another_role(
 }
 
 /// One clause's checks, in order: profile identity, `over`, fairness
-/// resolution, profile fit, interval bounds. A part of the clause the
+/// resolution, profile fit, interval bounds, aggregate arguments. A part of the clause the
 /// operation step refuses (an unreadable `operation`, a missing law, a
 /// missing argument) is skipped here.
+#[ix_trace_rs::string_edge]
 fn check_clause(
     position: usize,
     graph: &StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
     lock: &CheckedPackageLockV2,
-    temporal_bindings: Option<&[TemporalBinding]>,
+    clock_unit: Option<&str>,
     meter: &mut WorkMeter,
     covered: &mut BTreeSet<usize>,
 ) -> Result<(), ValidationFailure> {
@@ -1035,8 +1040,17 @@ fn check_clause(
         })
         .collect::<Vec<_>>();
     aggregates.sort_by(|&left, &right| graph.nodes[left].node_id.cmp(&graph.nodes[right].node_id));
+    let clock_unit = clock_unit.map(|name| CheckedNodeId {
+        package: node.node_id.package.clone(),
+        path: vec![
+            CheckedNodePathSegment::Name("scalar_type".into()),
+            CheckedNodePathSegment::Name("unit".into()),
+            CheckedNodePathSegment::Name(name.into()),
+        ],
+        ordinal: 0,
+    });
     for formula in aggregates {
-        check_aggregate(formula, position, profile, temporal_bindings, graph, meter)?;
+        check_aggregate(formula, profile, clock_unit.as_ref(), graph, meter)?;
     }
     Ok(())
 }
@@ -1082,6 +1096,7 @@ fn aggregate_refusal(
     ValidationFailure::refused_at(code, at, Some(cause), graph.nodes[position].node_id.clone())
 }
 
+#[ix_trace_rs::string_edge]
 fn aggregate_literal<'a>(term: &'a Value, kind: &str) -> Option<&'a str> {
     if term.get("term")?.as_str()? != "literal" || term.get("value_kind")?.as_str()? != kind {
         return None;
@@ -1095,55 +1110,163 @@ fn magnitude(text: &str) -> (&str, &str) {
 
 #[derive(Clone, Eq, PartialEq)]
 struct AggregateFamily {
-    name: &'static str,
+    kind: AggregateFamilyKind,
     unit: Option<CheckedNodeId>,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AggregateFamilyKind {
+    Boolean,
+    Integer,
+    Rational,
+    Quantity,
+}
+
+impl AggregateFamilyKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "boolean" => Some(Self::Boolean),
+            "integer" => Some(Self::Integer),
+            "rational" => Some(Self::Rational),
+            "quantity" => Some(Self::Quantity),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AggregateKind {
+    Count,
+    Sum,
+    Min,
+    Max,
+    Fraction,
+    Quantile,
+}
+
+impl AggregateKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "count" => Some(Self::Count),
+            "sum" => Some(Self::Sum),
+            "min" => Some(Self::Min),
+            "max" => Some(Self::Max),
+            "fraction" => Some(Self::Fraction),
+            "quantile" => Some(Self::Quantile),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AggregateWindow {
+    Positions,
+    Duration,
+}
+
+impl AggregateWindow {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "positions" => Some(Self::Positions),
+            "duration" => Some(Self::Duration),
+            _ => None,
+        }
+    }
+}
+
+#[ix_trace_rs::string_edge]
 fn aggregate_family(term: &Value, graph: &StepGraph<'_, '_>) -> Option<AggregateFamily> {
     let (family, type_id) = match term.get("term")?.as_str()? {
-        "literal" => {
-            let name = match term.get("value_kind")?.as_str()? {
-                "boolean" => "boolean",
-                "integer" => "integer",
-                "rational" => "rational",
-                "quantity" => "quantity",
-                _ => return None,
-            };
-            (name, CheckedNodeId::from_value(term.get("type")?)?)
-        }
+        "literal" => (
+            AggregateFamilyKind::from_wire(term.get("value_kind")?.as_str()?)?,
+            CheckedNodeId::from_value(term.get("type")?)?,
+        ),
         "reference" => {
             let target = reference_target(term)?;
             let (node, _) = graph.node(&target)?;
             let type_id = node.semantic_type.clone();
-            let family = resolve_family(&type_id, graph.nodes, graph.kinds, graph.index)?;
+            let family = AggregateFamilyKind::from_wire(resolve_family(
+                &type_id,
+                graph.nodes,
+                graph.kinds,
+                graph.index,
+            )?)?;
             (family, type_id)
         }
         _ => return None,
     };
     Some(AggregateFamily {
-        name: family,
-        unit: (family == "quantity").then_some(type_id),
+        kind: family,
+        unit: (family == AggregateFamilyKind::Quantity).then_some(type_id),
     })
 }
 
-fn aggregate_presence(kind: &str, name: &str) -> (bool, bool) {
+#[ix_trace_rs::string_edge]
+fn aggregate_presence(kind: AggregateKind, name: &str) -> (bool, bool) {
     match name {
-        "q" => (kind == "quantile", kind == "quantile"),
-        "predicate" => (kind == "fraction", kind == "fraction"),
+        "q" => (
+            kind == AggregateKind::Quantile,
+            kind == AggregateKind::Quantile,
+        ),
+        "predicate" => (
+            kind == AggregateKind::Fraction,
+            kind == AggregateKind::Fraction,
+        ),
         "value" => (
-            matches!(kind, "sum" | "min" | "max" | "quantile"),
-            matches!(kind, "sum" | "min" | "max" | "quantile"),
+            matches!(
+                kind,
+                AggregateKind::Sum
+                    | AggregateKind::Min
+                    | AggregateKind::Max
+                    | AggregateKind::Quantile
+            ),
+            matches!(
+                kind,
+                AggregateKind::Sum
+                    | AggregateKind::Min
+                    | AggregateKind::Max
+                    | AggregateKind::Quantile
+            ),
         ),
         "filter" => (true, false),
         _ => (true, true),
     }
 }
 
+/// One scan of the occurrence rows records a clock unit only if every row
+/// for a clause names the same timestamp unit. A mixed clock has no single
+/// duration encoding and its aggregate bounds must refuse.
+fn aggregate_clock_units(
+    bindings: Option<&[TemporalBinding]>,
+) -> BTreeMap<&CheckedNodeId, Option<&str>> {
+    let mut units = BTreeMap::new();
+    for row in bindings.into_iter().flatten() {
+        let unit = match &row.clock {
+            ClockConfiguration::TimestampedEvent { timestamp_unit } => {
+                Some(timestamp_unit.as_ref())
+            }
+            _ => None,
+        };
+        units
+            .entry(&row.declaration)
+            .and_modify(|shared| {
+                if *shared != unit {
+                    *shared = None;
+                }
+            })
+            .or_insert(unit);
+    }
+    units
+}
+
+#[ix_trace_rs::string_edge]
 fn check_aggregate(
     formula: usize,
-    clause: usize,
     profile: Option<TemporalProfile>,
-    bindings: Option<&[TemporalBinding]>,
+    clock_unit: Option<&CheckedNodeId>,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1154,8 +1277,8 @@ fn check_aggregate(
     let argument = body.clone().key("arguments").index(0);
     let fail = |code, cause, at| aggregate_refusal(formula, at, code, cause, graph);
     let window = match profile {
-        Some(TemporalProfile::EventPositionFalseExtension) => "positions",
-        Some(TemporalProfile::TimestampedEventFiniteWindow) => "duration",
+        Some(TemporalProfile::EventPositionFalseExtension) => AggregateWindow::Positions,
+        Some(TemporalProfile::TimestampedEventFiniteWindow) => AggregateWindow::Duration,
         _ => return Err(fail(Code::InvalidPackage, Cause::InvalidValue, body)),
     };
     let Some(members) = application_arguments(&graph.nodes[formula].body)
@@ -1193,23 +1316,20 @@ fn check_aggregate(
     };
     let value_of = |name: &str| &members[held[name]]["value"];
     let value_pointer = |at: usize| argument.clone().key("members").index(at).key("value");
-    let Some(kind) = aggregate_literal(value_of("kind"), "text") else {
+    let Some(kind_text) = aggregate_literal(value_of("kind"), "text") else {
         return Err(fail(
             Code::InvalidPackage,
             Cause::WrongValueKind,
             value_pointer(kind_at),
         ));
     };
-    if !matches!(
-        kind,
-        "count" | "sum" | "min" | "max" | "fraction" | "quantile"
-    ) {
+    let Some(kind) = AggregateKind::from_wire(kind_text) else {
         return Err(fail(
             Code::InvalidPackage,
             Cause::InvalidValue,
             value_pointer(kind_at),
         ));
-    }
+    };
     for (at, candidate) in members.iter().enumerate() {
         let name = candidate["name"].as_str().unwrap_or("");
         if !aggregate_presence(kind, name).0 {
@@ -1229,23 +1349,6 @@ fn check_aggregate(
     let value_family = held
         .get("value")
         .and_then(|_| aggregate_family(value_of("value"), graph));
-    let clock_unit = bindings
-        .and_then(|rows| {
-            rows.iter()
-                .find(|row| row.declaration == graph.nodes[clause].node_id)
-        })
-        .and_then(|row| match &row.clock {
-            ClockConfiguration::TimestampedEvent { timestamp_unit } => Some(CheckedNodeId {
-                package: graph.nodes[clause].node_id.package.clone(),
-                path: vec![
-                    CheckedNodePathSegment::Name("scalar_type".into()),
-                    CheckedNodePathSegment::Name("unit".into()),
-                    CheckedNodePathSegment::Name(timestamp_unit.clone()),
-                ],
-                ordinal: 0,
-            }),
-            _ => None,
-        });
     for name in AGGREGATE_NAMES {
         let Some(&at) = held.get(name) else { continue };
         let term = value_of(name);
@@ -1268,8 +1371,8 @@ fn check_aggregate(
             "predicate" | "filter" => {
                 if aggregate_family(term, graph)
                     .as_ref()
-                    .map(|family| family.name)
-                    != Some("boolean")
+                    .map(|family| family.kind)
+                    != Some(AggregateFamilyKind::Boolean)
                 {
                     return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
                 }
@@ -1278,7 +1381,12 @@ fn check_aggregate(
                 if !aggregate_family(term, graph)
                     .as_ref()
                     .is_some_and(|family| {
-                        matches!(family.name, "integer" | "rational" | "quantity")
+                        matches!(
+                            family.kind,
+                            AggregateFamilyKind::Integer
+                                | AggregateFamilyKind::Rational
+                                | AggregateFamilyKind::Quantity
+                        )
                     })
                 {
                     return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
@@ -1288,20 +1396,23 @@ fn check_aggregate(
                 let Some(text) = aggregate_literal(term, "text") else {
                     return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
                 };
+                let parsed_window = (name == "window_kind")
+                    .then(|| AggregateWindow::from_wire(text))
+                    .flatten();
                 let valid = if name == "window_kind" {
-                    matches!(text, "positions" | "duration")
+                    parsed_window.is_some()
                 } else {
                     matches!(text, "<" | "<=" | "=" | ">=" | ">")
                 };
                 if !valid {
                     return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
                 }
-                if name == "window_kind" && text != window {
+                if name == "window_kind" && parsed_window != Some(window) {
                     return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
             }
             "lower" | "upper" => {
-                let required = if window == "positions" {
+                let required = if window == AggregateWindow::Positions {
                     "integer"
                 } else {
                     "quantity"
@@ -1309,8 +1420,8 @@ fn check_aggregate(
                 let Some(text) = aggregate_literal(term, required) else {
                     return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
                 };
-                if required == "quantity" && CheckedNodeId::from_value(&term["type"]) != clock_unit
-                {
+                let bound_type = CheckedNodeId::from_value(&term["type"]);
+                if window == AggregateWindow::Duration && bound_type.as_ref() != clock_unit {
                     return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
                 if text.starts_with('-') {
@@ -1336,18 +1447,20 @@ fn check_aggregate(
                 let Some(text) = aggregate_literal(term, "integer") else {
                     return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
                 };
-                if text.starts_with('-') || (text == "0" && !matches!(kind, "count" | "sum")) {
+                if text.starts_with('-')
+                    || (text == "0" && !matches!(kind, AggregateKind::Count | AggregateKind::Sum))
+                {
                     return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
                 }
             }
             "threshold" => {
                 let expected = match kind {
-                    "count" => Some(AggregateFamily {
-                        name: "integer",
+                    AggregateKind::Count => Some(AggregateFamily {
+                        kind: AggregateFamilyKind::Integer,
                         unit: None,
                     }),
-                    "fraction" => Some(AggregateFamily {
-                        name: "rational",
+                    AggregateKind::Fraction => Some(AggregateFamily {
+                        kind: AggregateFamilyKind::Rational,
                         unit: None,
                     }),
                     _ => value_family.clone(),
@@ -1355,10 +1468,10 @@ fn check_aggregate(
                 let actual = aggregate_family(term, graph);
                 if expected
                     .as_ref()
-                    .is_some_and(|family| family.name == "quantity")
+                    .is_some_and(|family| family.kind == AggregateFamilyKind::Quantity)
                     && actual
                         .as_ref()
-                        .is_some_and(|family| family.name == "quantity")
+                        .is_some_and(|family| family.kind == AggregateFamilyKind::Quantity)
                     && expected != actual
                 {
                     return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
