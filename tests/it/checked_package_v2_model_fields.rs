@@ -1287,7 +1287,11 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     wrong_document.selected_document = "wrong/document".into();
     let wrong_document_rows = [wrong_document];
     let wrong = admitted
-        .project_selected_facts(selected_once(), with_rows(&wrong_document_rows, &fields), 1000)
+        .project_selected_facts(
+            selected_once(),
+            with_rows(&wrong_document_rows, &fields),
+            1000,
+        )
         .unwrap_err();
     assert_eq!(wrong.code, SelectedFactsErrorCode::Exact);
     assert_eq!(
@@ -1295,6 +1299,38 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
     );
     assert_eq!(wrong.at.as_ref(), &record);
+    let mut stale = declarations[0].clone();
+    stale.structural_node.package = "foreign/document".into();
+    let stale_rows = [stale];
+    let stale_error = admitted
+        .project_selected_facts(selected_once(), with_rows(&stale_rows, &fields), 1000)
+        .unwrap_err();
+    assert_eq!(stale_error.code, SelectedFactsErrorCode::Exact);
+    assert_eq!(
+        stale_error.exact.as_ref().unwrap().code,
+        ExactTypeProjectionErrorCode::ForeignNode
+    );
+    let mut wrong_field = fields[0].clone();
+    wrong_field.member_id = MemberId::new(
+        MemberOwner::Node(
+            NodeKey::new("other", vec![PathSegment::Text("owner".into())], 0).unwrap(),
+        ),
+        "total",
+    )
+    .unwrap();
+    let wrong_field_rows = [wrong_field];
+    let wrong_field_error = admitted
+        .project_selected_facts(
+            selected_once(),
+            with_rows(&declarations, &wrong_field_rows),
+            1000,
+        )
+        .unwrap_err();
+    assert_eq!(wrong_field_error.code, SelectedFactsErrorCode::Exact);
+    assert_eq!(
+        wrong_field_error.exact.as_ref().unwrap().code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
     let foreign: CheckedNodeId = serde_json::from_value(structural_id(
         "foreign/document",
         vec![json!("model"), json!("record_value_type"), json!("Receipt")],

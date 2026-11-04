@@ -280,6 +280,7 @@ impl CheckedPackageV2 {
                 continue;
             }
             self.selected_fact_declaration(id, &rows, &mut meter, &mut joined_declarations)?;
+            meter.charge(id, 1)?;
             selected_declarations.push(joined_declarations[id].clone());
         }
 
@@ -331,7 +332,11 @@ impl CheckedPackageV2 {
                 error.field = Some(id.original_identity.clone());
                 error
             })?;
-            let row = find_field_row(rows.fields, id, &mut meter)?;
+            let expected_declaration = joined_declarations
+                .get(&id.record)
+                .expect("joined record identity");
+            let row = find_field_row(rows.fields, id, expected_declaration, &mut meter)?;
+            meter.charge(&id.record, 1)?;
             let declaration = joined_declarations
                 .get(&id.record)
                 .expect("joined record identity")
@@ -367,6 +372,7 @@ impl CheckedPackageV2 {
                     declaration_rows.push(find_declaration_row(
                         rows.declarations,
                         target,
+                        None,
                         &mut meter,
                     )?);
                 }
@@ -480,10 +486,10 @@ impl CheckedPackageV2 {
         meter: &mut Meter,
         joined: &mut BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>,
     ) -> Result<(), SelectedFactsError> {
+        meter.charge(id, 1)?;
         if joined.contains_key(id) {
             return Ok(());
         }
-        meter.charge(id, 1)?;
         if self.node(id).is_none() {
             return Err(SelectedFactsError::new(
                 if id.package.as_ref() == self.name() {
@@ -507,7 +513,11 @@ impl CheckedPackageV2 {
                 meter.used,
             ));
         }
-        let row = find_declaration_row(rows.declarations, id, meter)?;
+        let expected = self
+            .models
+            .selected_declaration(id)
+            .map(|(document, original, _)| (document, original));
+        let row = find_declaration_row(rows.declarations, id, expected, meter)?;
         meter.text(id, &row.selected_document)?;
         meter.text(id, &row.original_identity)?;
         meter.charge(id, 1)?;
@@ -521,9 +531,11 @@ impl CheckedPackageV2 {
 fn find_declaration_row(
     rows: &[SelectedExactDeclarationRow],
     id: &CheckedNodeId,
+    expected: Option<(&str, &str)>,
     meter: &mut Meter,
 ) -> Result<SelectedExactDeclarationRow, SelectedFactsError> {
     let mut selected = None;
+    let mut stale = None;
     for row in rows {
         meter.charge(&row.structural_node, 1)?;
         if &row.structural_node == id {
@@ -535,18 +547,32 @@ fn find_declaration_row(
                 ));
             }
             selected = Some(row.clone());
+        } else if expected.is_some_and(|(document, original)| {
+            row.selected_document.as_ref() == document && row.original_identity.as_ref() == original
+        }) {
+            if stale.is_some() {
+                return Err(SelectedFactsError::new(
+                    SelectedFactsErrorCode::DuplicateRow,
+                    &row.structural_node,
+                    meter.used,
+                ));
+            }
+            stale = Some(row.clone());
         }
     }
     selected
+        .or(stale)
         .ok_or_else(|| SelectedFactsError::new(SelectedFactsErrorCode::MissingRow, id, meter.used))
 }
 
 fn find_field_row(
     rows: &[SelectedExactFieldRow],
     id: &SelectedFactFieldId,
+    declaration: &SelectedExactDeclarationRow,
     meter: &mut Meter,
 ) -> Result<SelectedExactFieldRow, SelectedFactsError> {
     let mut selected = None;
+    let mut stale = None;
     for row in rows {
         meter.charge(&row.record_node, 1)?;
         if row.record_node == id.record && row.field_original_identity == id.original_identity {
@@ -560,9 +586,23 @@ fn find_field_row(
                 return Err(error);
             }
             selected = Some(row.clone());
+        } else if row.selected_document == declaration.selected_document
+            && row.record_original_identity == declaration.original_identity
+            && row.field_original_identity == id.original_identity
+        {
+            if stale.is_some() {
+                let mut error = SelectedFactsError::new(
+                    SelectedFactsErrorCode::DuplicateRow,
+                    &row.record_node,
+                    meter.used,
+                );
+                error.field = Some(id.original_identity.clone());
+                return Err(error);
+            }
+            stale = Some(row.clone());
         }
     }
-    selected.ok_or_else(|| {
+    selected.or(stale).ok_or_else(|| {
         let mut error =
             SelectedFactsError::new(SelectedFactsErrorCode::MissingRow, &id.record, meter.used);
         error.field = Some(id.original_identity.clone());
@@ -581,7 +621,9 @@ fn find_equality_row(
         meter.charge(&row.application, 1)?;
         if row.application == id.application {
             if row.occurrence != id.occurrence {
-                wrong_occurrence = Some(row.clone());
+                if wrong_occurrence.is_none() {
+                    wrong_occurrence = Some(row.clone());
+                }
                 continue;
             }
             if selected.is_some() {
