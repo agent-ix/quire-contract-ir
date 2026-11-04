@@ -119,10 +119,7 @@ pub(super) enum ProtocolLayoutWireDefect {
         member: usize,
         binding: bool,
     },
-    EnumValue {
-        argument: usize,
-        member: Option<(usize, bool)>,
-    },
+    EnumValue,
 }
 
 #[derive(Clone, Copy)]
@@ -1088,10 +1085,7 @@ fn invalid_enum_at(
         }
     }
     let spelling = text_value(term)?;
-    (!allowed.contains(&spelling)).then_some(ProtocolLayoutWireDefect::EnumValue {
-        argument: argument_position,
-        member,
-    })
+    (!allowed.contains(&spelling)).then_some(ProtocolLayoutWireDefect::EnumValue)
 }
 
 #[string_edge]
@@ -1116,10 +1110,7 @@ fn enum_value_defect(
                 argument(arguments, 4)
                     .and_then(text_value)
                     .filter(|text| ChannelDelivery::parse(text).is_none())
-                    .map(|_| ProtocolLayoutWireDefect::EnumValue {
-                        argument: 4,
-                        member: None,
-                    })
+                    .map(|_| ProtocolLayoutWireDefect::EnumValue)
             })
         }
         (ProtocolForm::Queue, "queue") => {
@@ -1139,10 +1130,7 @@ fn enum_value_defect(
                     .and_then(|values| values.first())
                     .and_then(text_value)
                     .filter(|value| !allowed.contains(value))
-                    .map(|_| ProtocolLayoutWireDefect::EnumValue {
-                        argument: ordinal,
-                        member: Some((0, false)),
-                    })
+                    .map(|_| ProtocolLayoutWireDefect::EnumValue)
             };
             optional(0, &["sc", "tso", "ra"]).or_else(|| optional(4, &["continue", "cancel"]))
         }

@@ -3583,7 +3583,7 @@ fn protocol_clause_requires_the_selected_profile_law_in_the_public_reader() {
 
 #[trace("TC-048")]
 #[test]
-fn malformed_protocol_enum_names_the_offending_term() {
+fn malformed_protocol_enum_names_the_schema_node() {
     let mut package = v2_all_families();
     let position = clause_position(&package);
     package["semantic_graph"]["nodes"][position]["body"]["arguments"][1]["value"]["members"][0]
@@ -3592,7 +3592,7 @@ fn malformed_protocol_enum_names_the_offending_term() {
         read(&package),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            &format!("/semantic_graph/nodes/{position}/body/arguments/1/value/members/0/value"),
+            &format!("/semantic_graph/nodes/{position}"),
         )
     );
 
@@ -3606,7 +3606,7 @@ fn malformed_protocol_enum_names_the_offending_term() {
         read(&package),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            &format!("/semantic_graph/nodes/{position}/body/arguments/10/value/members/0"),
+            &format!("/semantic_graph/nodes/{position}"),
         )
     );
 }
@@ -4390,7 +4390,7 @@ fn choice_case_order_and_parallel_quorum_bounds_refuse() {
         read(&package),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            &format!("/semantic_graph/nodes/{holder}/body")
+            &format!("/semantic_graph/nodes/{holder}")
         )
     );
 
@@ -4512,9 +4512,7 @@ fn parallel_memory_and_outstanding_reject_unknown_spelling_at_wire_boundary() {
             read(&package),
             refusal(
                 CheckedPackageRefusalCode::MalformedWire,
-                &format!(
-                    "/semantic_graph/nodes/{holder}/body/arguments/{argument}/value/members/0"
-                )
+                &format!("/semantic_graph/nodes/{holder}")
             ),
             "{value}"
         );
@@ -4576,7 +4574,7 @@ fn repeat_checks_owner_body_exhausted_and_optional_pair() {
         read(&missing_exhausted),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            &format!("/semantic_graph/nodes/{holder}/body")
+            &format!("/semantic_graph/nodes/{holder}")
         )
     );
 
@@ -4658,7 +4656,7 @@ fn repeat_admits_proof_and_zero_maximum_and_refuses_both_unpaired_directions() {
             read(&unpaired),
             refusal(
                 CheckedPackageRefusalCode::MalformedWire,
-                &format!("/semantic_graph/nodes/{holder}/body")
+                &format!("/semantic_graph/nodes/{holder}")
             ),
             "unpaired argument {missing} must refuse"
         );
@@ -4828,7 +4826,7 @@ fn await_effect_event_requires_an_attempt_source() {
 }
 
 /// Trace: FR-038-AC-288, FR-038-AC-290
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-454")]
 #[test]
 fn await_admits_compensation_anchor_form() {
     let (mut state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
@@ -5950,7 +5948,7 @@ fn package_with_step_control_on(mut package: Value, operator: &str) -> (Value, u
 }
 
 /// Trace: FR-038-AC-288
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-454")]
 #[test]
 fn event_and_commit_check_local_references_and_boolean_constraints() {
     for operator in ["event", "commit"] {
@@ -6683,7 +6681,7 @@ fn compensation_nonempty_captures_admit_and_check_record_binders() {
         read(&wrong_shape),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            &format!("/semantic_graph/nodes/{compensation}/body"),
+            &format!("/semantic_graph/nodes/{compensation}"),
         )
     );
 }
@@ -7379,7 +7377,7 @@ fn attempt_ordering_rejects_an_unknown_spelling_at_wire_validation() {
         read(&package),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            &format!("/semantic_graph/nodes/{root}/body/arguments/2/value/members/0")
+            &format!("/semantic_graph/nodes/{root}")
         )
     );
 }
@@ -7432,7 +7430,7 @@ fn check_condition_refuses_non_boolean_at_its_slot_and_fence_rejects_relaxed() {
         read(&package),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            &format!("/semantic_graph/nodes/{root}/body/arguments/0/value"),
+            &format!("/semantic_graph/nodes/{root}"),
         )
     );
 }
@@ -7792,7 +7790,7 @@ fn send_related_records_require_exact_shape_and_canonical_order() {
         read(&package),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            &format!("/semantic_graph/nodes/{root}/body"),
+            &format!("/semantic_graph/nodes/{root}"),
         )
     );
 }
@@ -8162,9 +8160,9 @@ fn protocol_channel_delivery_admits_canonical_count_interval() {
             result,
             refusal(
                 CheckedPackageRefusalCode::MalformedWire,
-                &format!("/semantic_graph/nodes/{channel}/body/arguments/4/value"),
+                &format!("/semantic_graph/nodes/{channel}"),
             ),
-            "{refused} refuses malformed_wire at the delivery term"
+            "{refused} refuses malformed_wire at the channel node"
         );
     }
 }
@@ -8550,7 +8548,7 @@ fn protocol_role_model_rejects_non_reference_non_text_wire() {
         read(&package),
         refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            &format!("/semantic_graph/nodes/{role}/body"),
+            &format!("/semantic_graph/nodes/{role}"),
         )
     );
 }

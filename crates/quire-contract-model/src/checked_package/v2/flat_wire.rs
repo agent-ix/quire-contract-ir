@@ -34,7 +34,7 @@ use super::{
 };
 use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
 use crate::checked_package::common::{
-    application_operator, body_term, Step, Trail, ValidationFailure, WireTerm,
+    application_operator, body_term, node_pointer, Step, Trail, ValidationFailure, WireTerm,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use crate::checked_package::terms::{subterms, subterms_of, At, Cursor};
@@ -236,7 +236,7 @@ pub(super) fn check(
                             }) {
                                 return Err(ValidationFailure::refused(
                                     CheckedPackageRefusalCode::MalformedWire,
-                                    crate::checked_package::common::node_pointer(position)
+                                    node_pointer(position)
                                         .key("occurrences")
                                         .index(ordinal)
                                         .key("role"),
@@ -253,7 +253,7 @@ pub(super) fn check(
                         {
                             let path = match defect {
                                 super::protocol_body::ProtocolLayoutWireDefect::Body => {
-                                    at.pointer()
+                                    node_pointer(position)
                                 }
                                 super::protocol_body::ProtocolLayoutWireDefect::NegativeQueueCapacity => {
                                     return Err(ValidationFailure::refused_at(
@@ -275,19 +275,8 @@ pub(super) fn check(
                                         node.node_id.clone(),
                                     ));
                                 }
-                                super::protocol_body::ProtocolLayoutWireDefect::EnumValue {
-                                    argument,
-                                    member,
-                                } => {
-                                    let mut path =
-                                        at.pointer().key("arguments").index(argument).key("value");
-                                    if let Some((position, binding)) = member {
-                                        path = path.key("members").index(position);
-                                        if binding {
-                                            path = path.key("value");
-                                        }
-                                    }
-                                    path
+                                super::protocol_body::ProtocolLayoutWireDefect::EnumValue => {
+                                    crate::checked_package::common::node_pointer(position)
                                 }
                             };
                             Err(ValidationFailure::refused(
@@ -904,7 +893,7 @@ mod tests {
 
     /// QSpec FR-464 step 1 rejects a known operator's damaged fixed layout
     /// before semantic graph validation can report a later defect.
-    #[trace("TC-048")]
+    #[trace("TC-048", "FR-038-AC-453")]
     #[test]
     fn protocol_clause_rejects_short_layout_at_wire_boundary() {
         let mut node = header_node(
@@ -926,7 +915,7 @@ mod tests {
         header_refusal(
             vec![node],
             CheckedPackageRefusalCode::MalformedWire,
-            "/semantic_graph/nodes/0/body",
+            "/semantic_graph/nodes/0",
         );
     }
 
