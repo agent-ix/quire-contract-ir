@@ -2935,7 +2935,9 @@ fn validate_graph(
         });
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
-    temporal_binding::validate(
+    let missing_protocol_temporal_selection =
+        protocol_body::has_missing_temporal_selection(&kinds, &terms, &index, &wire.lock);
+    let binding_result = temporal_binding::validate(
         wire.temporal_bindings.as_deref(),
         &graph.nodes,
         &kinds,
@@ -2943,7 +2945,26 @@ fn validate_graph(
         structural_keys,
         &wire.lock,
         meter,
-    )?;
+    );
+    if let Err(failure) = binding_result {
+        // An absent temporal selection makes this clock-kind reference
+        // undecidable. Keep other binding refusals in their original order;
+        // the protocol selection refusal is reported after placement.
+        let deferred_clock_kind = missing_protocol_temporal_selection
+            && matches!(&failure, ValidationFailure::Refused(refusal)
+                if refusal.code == CheckedPackageRefusalCode::InvalidPackage
+                    && refusal.cause == Some(CheckedPackageRefusalCause::TimedNodeReference)
+                    && refusal.locus.as_ref()
+                        .and_then(|id| index.get(id))
+                        .and_then(|&position| kinds.get(position))
+                        == Some(&CheckedNodeKind::Protocol(ProtocolForm::Compensation))
+                    && refusal.primary_path().is_some_and(|path|
+                        path.as_str().starts_with("/temporal_bindings/")
+                            && path.as_str().ends_with("/clock/kind")));
+        if !deferred_clock_kind {
+            return Err(failure);
+        }
+    }
     temporal_clause_names::validate(
         wire.temporal_clause_names.as_deref(),
         &graph.nodes,

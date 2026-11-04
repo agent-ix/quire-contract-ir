@@ -113,6 +113,179 @@ fn qspec_protocol_mutation_v14_refuses_state_clause_protocol_member() {
     assert_manifest_refusal("V14", "/semantic_graph/nodes/54", 54);
 }
 
+#[test]
+#[trace(
+    "TC-048",
+    "FR-038-AC-455",
+    "FR-038-AC-456",
+    "FR-038-AC-457",
+    "FR-038-AC-458",
+    "FR-038-AC-459"
+)]
+fn current_qspec_protocol_reader_refusals_preserve_published_provenance() {
+    let fixtures = fixtures_dir();
+    let manifest = read_json(&fixtures.join("protocol-node-mutation-manifest.json"))
+        .expect("QSpec protocol mutation manifest");
+    let base_name = manifest["base"]["fixture"].as_str().expect("base fixture");
+    let base = read_json(&fixtures.join(base_name)).expect("QSpec protocol base");
+    let document = fixtures.join(
+        manifest["base"]["domain_document"]
+            .as_str()
+            .expect("selected domain document"),
+    );
+    assert!(
+        matches!(
+            read(&base, &document),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "published protocol base must admit"
+    );
+
+    let rows = manifest["rows"]
+        .as_array()
+        .expect("published manifest rows");
+    for id in ["V2", "V8", "V9", "V10", "V11", "RP6", "V16", "CP28", "C11"] {
+        let selected = rows
+            .iter()
+            .filter(|row| row["id"] == id)
+            .collect::<Vec<_>>();
+        assert_eq!(selected.len(), 1, "{id}: one published row");
+        let row = selected[0];
+        assert_eq!(row["expect"]["decision"], "refuse", "{id}");
+        let mut edited = base.clone();
+        for edit in row["edit"].as_array().expect("published edits") {
+            apply_layout_edit(&mut edited, edit);
+        }
+        let refusal = match read(&edited, &document) {
+            CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+            other => panic!("{id}: expected published refusal, got {other:?}"),
+        };
+        assert_eq!(
+            serde_json::to_value(refusal.code).expect("refusal code"),
+            row["expect"]["code"],
+            "{id}: code"
+        );
+        assert_eq!(
+            serde_json::to_value(refusal.cause).expect("refusal cause"),
+            row["expect"]["cause"],
+            "{id}: cause"
+        );
+        assert_eq!(
+            refusal
+                .loci
+                .first()
+                .and_then(|at| at.path.as_ref())
+                .map(|path| path.as_str()),
+            row["expect"]["locus"].as_str(),
+            "{id}: primary pointer"
+        );
+        assert_eq!(
+            refusal.document_pointer.as_ref().map(|path| path.as_str()),
+            row["expect"]["document_pointer"].as_str(),
+            "{id}: document pointer"
+        );
+        if row["expect"]["stage"] == "schema" {
+            assert!(
+                refusal.locus.is_none(),
+                "{id}: schema refusal has no graph locus"
+            );
+        } else {
+            assert!(
+                refusal.locus.is_some(),
+                "{id}: reader refusal has a graph locus"
+            );
+        }
+        if id == "C11" {
+            let target = &edited["semantic_graph"]["nodes"][82]["body"]["arguments"][4]["value"]
+                ["members"][0]["target"];
+            assert_eq!(
+                serde_json::to_value(refusal.locus).expect("retained graph target"),
+                *target,
+                "{id}: retained offending role target"
+            );
+            let role = edited["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("graph nodes")
+                .iter()
+                .find(|node| node["node_id"] == *target)
+                .expect("published target node");
+            assert_eq!(
+                role["semantic_form"],
+                row["expect"]["retains"]["actual_kind"]
+            );
+        }
+    }
+}
+
+#[test]
+#[trace("TC-048", "FR-038-AC-436", "FR-038-AC-457")]
+fn earlier_state_refusal_precedes_missing_protocol_temporal_selection() {
+    assert_paired_reader_refusal("V14", "V16", 54);
+}
+
+#[test]
+#[trace("TC-048", "FR-038-AC-456", "FR-038-AC-457")]
+fn earlier_protocol_law_refusal_precedes_missing_temporal_selection() {
+    assert_paired_reader_refusal("V11", "V16", 82);
+}
+
+fn assert_paired_reader_refusal(first: &str, second: &str, first_node: usize) {
+    let fixtures = fixtures_dir();
+    let manifest = read_json(&fixtures.join("protocol-node-mutation-manifest.json"))
+        .expect("QSpec protocol mutation manifest");
+    let base =
+        read_json(&fixtures.join(manifest["base"]["fixture"].as_str().expect("base fixture")))
+            .expect("QSpec protocol base");
+    let document = fixtures.join(
+        manifest["base"]["domain_document"]
+            .as_str()
+            .expect("selected domain document"),
+    );
+    let mut edited = base;
+    let rows = manifest["rows"].as_array().expect("published rows");
+    for id in [first, second] {
+        let row = rows
+            .iter()
+            .find(|row| row["id"] == id)
+            .expect("published row");
+        for edit in row["edit"].as_array().expect("published edits") {
+            apply_layout_edit(&mut edited, edit);
+        }
+    }
+    let expected = rows
+        .iter()
+        .find(|row| row["id"] == first)
+        .expect("first published row");
+    let refusal = match read(&edited, &document) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("earlier {first} defect must refuse: {other:?}"),
+    };
+    assert_eq!(
+        serde_json::to_value(refusal.code).expect("code"),
+        expected["expect"]["code"]
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.cause).expect("cause"),
+        expected["expect"]["cause"]
+    );
+    assert_eq!(
+        refusal
+            .loci
+            .first()
+            .and_then(|at| at.path.as_ref())
+            .map(|at| at.as_str()),
+        expected["expect"]["locus"].as_str(),
+    );
+    assert_eq!(
+        refusal.document_pointer.as_ref().map(|at| at.as_str()),
+        expected["expect"]["document_pointer"].as_str(),
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.locus).expect("locus"),
+        edited["semantic_graph"]["nodes"][first_node]["node_id"],
+    );
+}
+
 fn apply_layout_edit(package: &mut Value, edit: &Value) {
     let path = edit["path"].as_str().expect("published edit path");
     let (parent, member) = path.rsplit_once('/').expect("absolute edit path");

@@ -1176,37 +1176,54 @@ fn body_defect(
     node: &RawSemanticNodeV2,
     defect: ProtocolBodyDefect,
 ) -> ValidationFailure {
+    let node_at = node_pointer(position);
     let body = node_pointer(position).key("body");
-    let (code, cause, path) = match defect {
-        ProtocolBodyDefect::OperatorIneligible => {
-            (Code::IllTyped, Some(Cause::OperatorIneligible), body)
-        }
+    let (code, cause, path, document_pointer) = match defect {
+        ProtocolBodyDefect::OperatorIneligible => (
+            Code::IllTyped,
+            Some(Cause::OperatorIneligible),
+            node_at.clone(),
+            None,
+        ),
         ProtocolBodyDefect::MemberMismatch => (
             Code::InvalidPackage,
             Some(Cause::OperationMemberMismatch),
-            body.key("operation").key("member"),
+            node_at.clone(),
+            Some(body.key("operation").key("member")),
         ),
         ProtocolBodyDefect::LawMissing => (
             Code::InvalidPackage,
             Some(Cause::OperationLawMissing),
-            body.key("operation").key("laws"),
+            node_at.clone(),
+            Some(body.key("operation").key("laws")),
         ),
         ProtocolBodyDefect::LawMismatch => (
             Code::InvalidPackage,
             Some(Cause::OperationLawMismatch),
-            body.key("operation").key("laws").index(0).key("role"),
+            node_at.clone(),
+            Some(body.key("operation").key("laws").index(0)),
         ),
         ProtocolBodyDefect::LawUnselected => (
             Code::InvalidPackage,
             Some(Cause::OperationLawUnselected),
-            body.key("operation").key("laws").index(0).key("definition"),
+            node_at,
+            Some(body.key("operation").key("laws").index(0).key("definition")),
         ),
-        ProtocolBodyDefect::MalformedLayout => (Code::MalformedWire, None, body.key("arguments")),
-        ProtocolBodyDefect::NoncanonicalSet => {
-            (Code::InvalidSemanticGraph, None, node_pointer(position))
+        ProtocolBodyDefect::MalformedLayout => {
+            (Code::MalformedWire, None, body.key("arguments"), None)
         }
+        ProtocolBodyDefect::NoncanonicalSet => (
+            Code::InvalidSemanticGraph,
+            None,
+            node_pointer(position),
+            None,
+        ),
     };
-    ValidationFailure::refused_at(code, path, cause, node.node_id.clone())
+    let mut failure = ValidationFailure::refused_at(code, path, cause, node.node_id.clone());
+    if let ValidationFailure::Refused(ref mut refusal) = failure {
+        refusal.document_pointer = document_pointer;
+    }
+    failure
 }
 
 /// Checks name collisions involving a protocol declaration at reader step 3.
@@ -1446,6 +1463,21 @@ impl MemberCheck<'_> {
         } else {
             Err(self.refuse(Code::IllTyped, Some(Cause::NonBooleanRoot), path))
         }
+    }
+
+    fn boolean_at_node(
+        &self,
+        term: &CheckedTerm,
+        document_pointer: JsonPointer,
+    ) -> Result<(), ValidationFailure> {
+        self.boolean(term, document_pointer.clone())
+            .map_err(|mut failure| {
+                if let ValidationFailure::Refused(ref mut refusal) = failure {
+                    refusal.set_primary_path(Some(node_pointer(self.position)));
+                    refusal.document_pointer = Some(document_pointer);
+                }
+                failure
+            })
     }
 
     fn scalar_literal(
@@ -2212,7 +2244,7 @@ fn check_control_prefix(
                     check.argument_path(3).key("members").index(0).key("value"),
                 )?;
             }
-            check.boolean(check.at(arguments, 4), check.argument_path(4))?;
+            check.boolean_at_node(check.at(arguments, 4), check.argument_path(4))?;
         }
         "await" => {
             let after = check.at(arguments, 0);
@@ -3584,10 +3616,11 @@ fn check_clause(
                 } else {
                     Cause::MalformedDeclaration
                 };
-                return Err(check.refuse(
+                return Err(ValidationFailure::refused_at(
                     Code::InvalidModelBinding,
-                    Some(cause),
                     path.key("target"),
+                    Some(cause),
+                    check.nodes[position].node_id.clone(),
                 ));
             }
         }
@@ -5338,6 +5371,51 @@ fn check_clause_causality(
     Ok(())
 }
 
+fn uses_temporal_protocol_operator(body: &CheckedTerm) -> bool {
+    matches!(
+        body,
+        CheckedTerm::Application {
+            operator: ApplicationOperator::ProtocolControl,
+            operation,
+            ..
+        } if matches!(
+            operation.pointer("/member/operator").and_then(Value::as_str),
+            Some("await" | "compensate")
+        )
+    )
+}
+
+/// Whether protocol clock validation depends on a missing selection. This
+/// only defers the dependent temporal-binding clock-kind refusal; protocol
+/// step 2 reports the selection refusal in node order.
+pub(super) fn has_missing_temporal_selection(
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    lock: &CheckedPackageLockV2,
+) -> bool {
+    if lock
+        .profile_selections
+        .iter()
+        .any(|selection| selection.role == CheckedSelectionRole::TemporalProfile)
+    {
+        return false;
+    }
+    for &position in index.values() {
+        if !matches!(kinds.get(position), Some(CheckedNodeKind::Protocol(_))) {
+            continue;
+        }
+        if terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .is_some_and(uses_temporal_protocol_operator)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// Validate protocol placement, local members, membership and clause layout.
 pub(super) fn validate_protocol_nodes(
     nodes: &[RawSemanticNodeV2],
@@ -5424,6 +5502,14 @@ pub(super) fn validate_protocol_nodes(
                 ProtocolBodyDefect::OperatorIneligible,
             ));
         };
+        if !has_temporal_profile && uses_temporal_protocol_operator(body) {
+            return Err(ValidationFailure::refused_at(
+                Code::MissingDeclaration,
+                node_pointer(position),
+                Some(Cause::MissingSelection),
+                node.node_id.clone(),
+            ));
+        }
         let (operator, arguments) =
             validate_envelope(form, body, &node.semantic_type, selected_profile)
                 .map_err(|defect| body_defect(position, node, defect))?;
@@ -5440,15 +5526,6 @@ pub(super) fn validate_protocol_nodes(
             ));
         }
         validated[position] = Some((operator, arguments));
-
-        if !has_temporal_profile && matches!(operator, "await" | "compensate") {
-            return Err(ValidationFailure::refused_at(
-                Code::MissingDeclaration,
-                node_pointer(position),
-                Some(Cause::MissingSelection),
-                node.node_id.clone(),
-            ));
-        }
     }
     validate_protocol_declaration_names(nodes, kinds, index)?;
     validate_protocol_declaration_paths(nodes, kinds, &validated, index)?;

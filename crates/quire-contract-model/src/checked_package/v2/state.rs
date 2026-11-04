@@ -161,6 +161,7 @@ fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure
             let root = cursor.root(&node.body, true);
             let mut placement = StateApplicationPlacement {
                 node,
+                position,
                 root_admitted: kind
                     == CheckedNodeKind::State(if transition {
                         StateForm::Transition
@@ -184,6 +185,7 @@ fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure
 /// the body root's.
 struct StateApplicationPlacement<'a> {
     node: &'a CheckedSemanticNodeV2,
+    position: usize,
     root_admitted: bool,
     transition: bool,
     cursor: Cursor<'a>,
@@ -206,7 +208,12 @@ impl<'a> Walk for StateApplicationPlacement<'a> {
             is_state_clause_application(node.value)
         };
         if application && !(node.extra && self.root_admitted) {
-            return ControlFlow::Break(ineligible(self.node, self.cursor.trail().pointer()));
+            let path = if node.extra {
+                node_pointer(self.position)
+            } else {
+                self.cursor.trail().pointer()
+            };
+            return ControlFlow::Break(ineligible(self.node, path));
         }
         children.extend(subterms(node.value).map(|subterm| self.cursor.subterm(subterm, false)));
         ControlFlow::Continue(())
