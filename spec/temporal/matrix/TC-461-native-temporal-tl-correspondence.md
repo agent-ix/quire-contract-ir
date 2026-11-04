@@ -23,7 +23,7 @@ relationships:
 ## Description
 
 Verify the `agent-ix/quire-integration` temporal bridge (IR-1005) against QSL's
-admitted classification, strict `/2` package and `evaluate_v2` result, the TL
+admitted classification, admitted checked-package/v2 and `evaluate_v2` result, the TL
 owners' public readers and QSpec FR-095's correspondence meaning. Execute this
 case in `agent-ix/quire-integration`, where the QSL-typed bridge is owned; it
 does not require a QSL dependency or temporal bridge implementation in either
@@ -32,8 +32,17 @@ FR-092; strong previous is `once[1,1]`.
 
 ## Test Procedure
 
-1. For a strict `/2` package, obtain a `Supported` classification through QSL
-   `mapping_support_v2` and its retained package/declaration/profile selection (FR-350-AC-1).
+1. For an admitted checked-package/v2, obtain a `Supported` classification through QSL
+   `qsl_package::checked_views::temporal_subject` followed by `mapping_support`
+   and its retained package/declaration/profile selection (FR-350-AC-1).
+   Require `subject.belongs_to(package)` before comparing the entire supplied
+   classification with reclassification under the same surrounding closure.
+   Admit the same producer output twice: equal content and package names must
+   not authorize a subject borrowed from the other instance; a freshly read
+   subject belongs to its own instance. Alter support and retained definition
+   authority independently, then change the surrounding closure: each mismatch
+   refuses before projection. These binding controls alone do not establish
+   full projection or join coverage.
    Project a future-only event-position formula under complete and open
    surrounding execution. Require the corresponding closed-trace and
    online-prefix formulas, trace requests and owner-reader admissions (FR-350-AC-1).

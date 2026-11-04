@@ -11,6 +11,10 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-050
     type: depends_on
+  - target: ix://agent-ix/quire-spec-language/FR-515
+    type: depends_on
+  - target: ix://agent-ix/quire-spec-language/FR-527
+    type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-043
     type: depends_on
   - target: ix://agent-ix/quire-observation/FR-004
@@ -37,7 +41,7 @@ relationships:
 ## Description
 
 When QSL FR-045 returns a `Supported` classification for a temporal declaration
-in a strict `quire.compiled-protocol/2` package, the temporal bridge in
+in a strict `quire.checked-package/v2` package, the temporal bridge in
 `agent-ix/quire-integration` (IR-1005) SHALL construct and owner-read the TL
 formula and valuation request, then join the native and TL results through one
 bridge-owned correspondence record. The bridge SHALL take the target and
@@ -47,16 +51,17 @@ contract; it assigns no QSL-typed API to either Contract IR package.
 
 ## Inputs
 
-- The strict `/2` package and declaration admitted under QSL FR-050. The
-  concrete QSL admitted-package argument remains pending until the QSL-838
-  successor type is named.
-- The consumed QSL surface is
-  `quire_spec_language::temporal::{mapping_support_v2, Classification, Trace, Report, evaluate_v2}`:
-  the authenticated `Classification` returned by `mapping_support_v2` includes
-  its retained selection; the `Trace` used by native `evaluate_v2` carries
-  explicit Boolean valuation cells, clock and observation binding, captures,
-  anchor, closure and history boundary; and the `Report` is the native result
-  supplied to the join.
+- An admitted `quire_contract_model::CheckedPackageV2` and the borrowed
+  `qsl_package::checked_views::TemporalSubjectView` returned by
+  `temporal_subject(&package, &declaration)` (QSL FR-515).
+- The `qsl_package::checked_views::Classification` returned by
+  `mapping_support(&subject, surrounding)` (QSL FR-527), with its complete
+  support disposition, retained subject and sealed authenticated selection.
+- The native `quire_spec_language::temporal::{Trace, Report, evaluate_v2}`
+  surface supplies explicit Boolean valuation cells, clock and observation
+  binding, captures, anchor, closure and history boundary, and the native result
+  supplied to the join. The checked-view classifier replaces the legacy
+  classification input; it does not replace the native evaluation contract.
 - Exact selected public contracts for TL formula, trace or position history,
   request and mapped result.
 - Caller-configured byte, node, position, valuation, support, cause and work
@@ -76,15 +81,16 @@ result axes QSpec FR-095 names.
 
 The `agent-ix/quire-integration` bridge SHALL implement the public profile
 `quire.native-temporal-correspondence/v1`. It consumes
-`quire_spec_language::temporal::{mapping_support_v2, Classification, Trace, Report, evaluate_v2}`;
-its admitted-package argument's concrete QSL type remains pending until the
-QSL-838 successor is named. Its public operations SHALL be equivalent to:
+`qsl_package::checked_views::{temporal_subject, mapping_support, Classification,
+TemporalSubjectView}` and the native trace/report surface above. Its public
+operations SHALL be equivalent to:
 
 ```text
 temporal::project_tl(
-  admitted_package: /* QSL type pending QSL-838 successor */,
-  declaration,
-  &quire_spec_language::temporal::Classification,
+  admitted_package: &quire_contract_model::CheckedPackageV2,
+  subject: &qsl_package::checked_views::TemporalSubjectView,
+  &qsl_package::checked_views::Classification,
+  surrounding: qsl_package::checked_views::Closure,
   &quire_spec_language::temporal::Trace,
   TlSelection,
   TlLimits
@@ -115,12 +121,21 @@ validation and the cross-owner join. Neither `quire-contract-model` nor the
 
 ### Admission and support
 
-- The bridge SHALL accept only a `Supported` classification whose authenticated
-  selection names the same package name, declaration, definition identity and
-  version as the admitted `/2` package. It SHALL take the TL target exactly
-  from that classification. An `Unsupported` classification SHALL return
-  `unsupported` with every dimension the classification names and no formula,
-  request or correspondence record.
+- Before consuming mapping facts, the bridge SHALL require
+  `subject.belongs_to(admitted_package)`. A separately admitted package with
+  equal contents and the same name is a different instance and SHALL NOT
+  authorize the supplied subject. The bridge SHALL re-run `mapping_support`
+  on that subject with the supplied surrounding-execution closure and compare
+  the complete classification: support (including premises), retained
+  declaration/profile/activation and sealed package/clause/definition selection.
+  A changed disposition, retained field, definition authority or identity, or
+  closure-dependent target SHALL refuse before any TL artifact is constructed.
+  Matching package names alone SHALL NOT authorize the classification.
+- After that check, only `Supported` permits projection; its TL target SHALL
+  be taken exactly from the checked classification. `Unsupported` SHALL return
+  every dimension the classification names and no formula, request or
+  correspondence record. Successful input binding discharges none of the
+  outstanding projection premises below.
 - The support domain SHALL be exactly QSL FR-045 and QSpec FR-095's table. It
   SHALL include each bounded past operator defined by QSpec FR-092, individually
   under both false-extension profiles when no future operator is reachable.
@@ -141,7 +156,7 @@ validation and the cross-owner join. Neither `quire-contract-model` nor the
 
 ### Formula and valuation construction
 
-- Construction SHALL traverse the admitted `/2` temporal operation graph in
+- Construction SHALL traverse the admitted checked-package/v2 temporal operation graph in
   left-to-right postorder, preserve each occurrence without deduplication,
   assign contiguous operand-before-consumer ids, and preserve each inclusive
   `[a,b]` interval where `0 <= a <= b <= u32::MAX`.
@@ -225,7 +240,7 @@ The bridge-owned correspondence record SHALL retain exactly the following typed 
 
 | Axis | Retained value |
 | --- | --- |
-| `package` | the strict `/2` package `name` and version |
+| `package` | the admitted checked-package/v2 `name` and selected clause structural identity |
 | `source` | the selected `{authority, identity}` reference and exact clause span |
 | `declaration` | declaration index and declared clause name |
 | `models` | each selected model alias and package name in alias order |
@@ -276,7 +291,7 @@ an exact and one-over boundary without constructing a default-sized artifact.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-350-AC-1 | Given a strict `/2` package and QSL `Supported` classification, the projection takes its target from the classification, emits the required formula and valuation request for each supported row, and each generated artifact is admitted by its selected owner reader. Each bounded past operator defined by QSpec FR-092 is projected alone under both false-extension profiles with origin-complete history; a history cutoff yields `incomplete`/`missing-history`. | Test (TC-461) |
+| FR-350-AC-1 | Given a admitted checked-package/v2 and QSL `Supported` classification, the projection takes its target from the classification, emits the required formula and valuation request for each supported row, and each generated artifact is admitted by its selected owner reader. Each bounded past operator defined by QSpec FR-092 is projected alone under both false-extension profiles with origin-complete history; a history cutoff yields `incomplete`/`missing-history`. | Test (TC-461) |
 | FR-350-AC-2 | Timestamped-event, mixed past-and-future, infinite-trace unbounded and other unsupported classifications return `unsupported` with every named dimension and no formula, request or correspondence record; a finite-window-to-closed-trace equivalence claim is refused. | Test (TC-461) |
 | FR-350-AC-3 | Mutating any preserved source/span, package/declaration/profile, model/type/predicate binding, anchor, capture, clock, observation, interval, closure/history, TL selection or bridge-definition axis changes the corresponding exposed typed member and identifies that axis; a non-Boolean leaf never becomes a proposition. | Test (TC-461) |
 | FR-350-AC-4 | Fixed-sample projection retains epoch, period and unit, refuses a changed period or event-count reinterpretation with equal formula bytes, and reports a missing required sample as `incomplete`. | Test (TC-461) |
@@ -293,9 +308,10 @@ an exact and one-over boundary without constructing a default-sized artifact.
   contract for FR-350-AC-1 through FR-350-AC-6 and FR-350-AC-8; AC-7 remains
   withdrawn. FR-028-AC-3 and TC-041 keep both Contract IR packages free of
   QSL dependencies.
-- QSL FR-045 supplies `mapping_support_v2` classification and its retained
-  authenticated selection.
-- QSL FR-050 supplies the strict `/2` package and temporal binding.
+- QSL FR-045 defines the support table; FR-515 supplies the borrowed checked
+  temporal subject and exact instance membership; FR-527 supplies
+  `checked_views::mapping_support` and its retained authenticated selection.
+- QSL FR-050 supplies the admitted checked-package/v2 and temporal binding.
 - QSL FR-043 supplies `evaluate_v2`, trace valuation cells and the native
   result.
 - QSpec FR-095 owns the correspondence meaning; FR-092 owns the complete
