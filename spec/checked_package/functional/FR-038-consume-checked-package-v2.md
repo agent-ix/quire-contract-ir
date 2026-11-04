@@ -129,6 +129,10 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-370
     type: references
+  - target: ix://agent-ix/quire-specification/FR-370-AC-17
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-370-AC-18
+    type: references
   - target: ix://agent-ix/quire-specification/FR-481
     type: references
   - target: ix://agent-ix/quire-specification/FR-415
@@ -2083,8 +2087,8 @@ Decoding a word gives the reader its vocabulary, and admission gives it the
 checks of a catalogued entry; neither gives it the meaning. Three of the new
 words are operator classes: `case` (the union `case`, QSpec FR-440) and
 `temporal_formula` and `temporal_fairness` (the temporal formula and fairness
-operators, QSpec FR-370). The catalog carries them on sixteen temporal
-identities (fifteen `temporal_formula`, one `temporal_fairness`) and on
+operators, QSpec FR-370). The catalog carries them on seventeen temporal
+identities (sixteen `temporal_formula`, one `temporal_fairness`) and on
 `quire.op.control.case`, and the member kinds `temporal_interval` and
 `fairness` and the constraint kind `union_arms` appear only on those entries.
 The positive fixtures of QSpec's checked-package V2 proposal are the
@@ -2099,7 +2103,7 @@ so each word is admitted and read, and none is evaluated:
 | Word class | Catalogued on | Disposition |
 | --- | --- | --- |
 | operator `case` | `quire.op.control.case` (operand `union`, rest `binder`, result `arm_body`, constraint `union_arms`) | admitted at the body root of an `expression`/`case` node; `union_arms` enforced |
-| operator `temporal_formula` | the fifteen `quire.op.temporal.*` identities other than `clause` and `fair` (member `temporal_interval` on the eight interval operators, none on the other seven) | admitted at the body root of a `temporal`/`formula` node |
+| operator `temporal_formula` | the sixteen `quire.op.temporal.*` identities other than `clause` and `fair`, including `aggregate` (member `temporal_interval` on the eight interval operators, none on the other eight) | admitted at the body root of a `temporal`/`formula` node |
 | operator `temporal_fairness` | `quire.op.temporal.fair` (member `fairness`) | admitted at the body root of a `temporal`/`fairness` node |
 | member kinds `temporal_interval`, `fairness`; constraint kind `union_arms` | only the entries above | decoded, and each checked as its own rule below |
 
@@ -2108,9 +2112,14 @@ read for its closed wire shape, then the identity, the operator class, the laws,
 the mode, the member, the leaves and the operands, in the order the section above
 fixes, with these entry-specific rules and no `unsupported_construct`:
 
-- **No law, no mode, no leaves.** None of the sixteen temporal entries nor
+- **No law, no mode, no leaves.** None of the seventeen temporal entries nor
   `quire.op.control.case` catalogues a law, a mode or a leaf source, so a law, a
   mode or a leaf on one refuses as it does on any entry that catalogues none.
+- **The window aggregate atom** (QSpec FR-370-AC-17 and AC-18). The
+  `quire.op.temporal.aggregate` entry has operator class `temporal_formula`,
+  a `null` member, Boolean `result_type`, and one `aggregate` argument. The
+  temporal step checks the argument's bindings before the operation step
+  checks its catalogued operand and result forms, as specified below.
 - **The `temporal_interval` member** (QSpec FR-370). On each of the eight
   interval operators (`eventually`, `always`, `once`, `historically`, `until`,
   `release`, `since`, `triggered`) the member is `{kind: temporal_interval,
@@ -2155,7 +2164,7 @@ fixes, with these entry-specific rules and no `unsupported_construct`:
   body root, `/semantic_graph/nodes/{n}/body`). The two bounds are compared as
   integers of unbounded size, by sign, then digit count, then digits, never as
   strings and never through a fixed-width integer, so `{9, 10}` admits, `{10, 9}`
-  refuses and a pair beyond 2^64 compares as its value does. On the other seven
+  refuses and a pair beyond 2^64 compares as its value does. On the other eight
   `temporal_formula` entries and on `quire.op.temporal.clause`, any member
   refuses `operation-member-mismatch` at `operation.member`.
 - **The timed interval form** (QSpec FR-370 and FR-370-AC-8, FR-255; implemented,
@@ -2343,11 +2352,11 @@ of this order: placement of every temporal application and of every reference to
 Placement
 (1) is checked over the whole graph first, in ascending structural `node_id` order;
 the clause checks (2) then run clause by clause, in ascending structural `node_id`
-order of the clause node, and each clause is taken through its four checks (`over`,
-fairness resolution, profile fit, interval bounds) in that order before the next
-clause is read, as QSpec FR-370 "Reader order" nests them, so a earlier-structural-id
-clause's profile-fit defect is reported ahead of a later-structural-id clause's `over`
-defect:
+order of the clause node. Each clause is taken through its profile identity,
+`over`, fairness resolution, profile fit, interval bounds, and window aggregate
+argument checks in that order before the next clause is read, as QSpec FR-370
+"Reader order" nests them. An earlier-structural-id clause's aggregate defect is
+reported ahead of a later clause's `over` defect. All precede operation refusals:
 
 1. **Placement of every temporal application**, in ascending structural `node_id`
    order, for every node of the graph. The classes are `temporal`,
@@ -2412,16 +2421,18 @@ defect:
    - **Interval bounds**, the `lower > upper` refusal of the member rule above
      and, for the timed form, its `lower > upper` and open-end-with-equal-bounds
      refusals ("The timed interval form"), which run after
-     profile fit. The refusal is a property of the member, not of
-     a clause, so a formula node no clause reaches is checked too, in a sweep after
-     every clause has been read, in ascending structural `node_id` order (an IR reading;
-     a formula's interval is an interval all the same). A negative bound is not part of this stage: it is
+     profile fit, over the formula nodes this clause reaches in ascending
+     structural `node_id` order. A formula node no clause reaches is checked in
+     a sweep after every clause has been read (an IR reading: its interval is
+     still an interval). A negative bound is not part of this stage: it is
      a schema-pattern failure, refused in strict wire validation, before any
      temporal step, so `{lower: "-1", upper: null}` under a bounded profile refuses
      `invalid-value` at `lower` and never `operation-member-mismatch`, and
      `{lower: "0", upper: "-2"}` refuses at `upper` as a negative bound, not as
      `lower > upper` (merged FR-370-AC-9 and the stage order of its "Reader order":
      strict wire validation precedes the temporal step).
+   - **Window aggregate arguments** reached from this clause's formula, in
+     ascending structural formula node-id order, by the five checks below.
 
    The temporal step reads only a well-formed member: an interval member whose
    shape the member rules above refuse (a member of another kind, an interval with
@@ -2498,6 +2509,44 @@ defect:
    `CheckedPackageRefusalCause` today (measured): the code change adds the code
    `UnknownProfile` and both causes, with these pairings and no other. A formula tree is the set of `temporal`/`formula`
    nodes reachable from the clause's formula argument by operand references.
+
+**Window aggregate argument.** A `quire.op.temporal.aggregate` application at a
+`temporal`/`formula` node is an atom, and another temporal operator reaches it by
+reference to that node (QSpec FR-370 "Window aggregate atom"). Its argument is
+one aggregate of bindings in this order, omitting kind-inapplicable bindings:
+`kind`, `q`, `predicate`, `value`, `filter`, `window_kind`, `lower`, `upper`,
+`min_count`, `comparison`, `threshold`. `kind` names `count`, `sum`, `min`,
+`max`, `fraction` or `quantile`; `q` is required only for `quantile`,
+`predicate` only for `fraction`, and `value` only for `sum`, `min`, `max` and
+`quantile`. A source `where` contributes `filter`. `window_kind` is `positions`
+under the event-position false-extension profile or `duration` under the
+timestamped-event finite-window profile. The bounds are non-negative integer
+position literals or non-negative quantity literals of the clause's clock unit,
+respectively. `min_count` is a non-negative integer literal and is positive
+for `min`, `max`, `fraction` and `quantile`; `comparison` is one of `<`, `<=`,
+`=`, `>=`, `>`. `threshold` has the aggregate result family (`integer` for
+`count`, `rational` for `fraction`, otherwise the family of `value`) and the
+`value` unit for a quantity. The predicate and filter have Boolean family;
+the value has integer, rational or quantity family. `q` is rational with
+`0 < q < 1`. Every named expression is a binding value in the clause's binder
+scope, never a copied expression node.
+
+For an application body `B` at `/semantic_graph/nodes/{n}/body`, argument `A`
+at `B/arguments/0`, and member `M` at `A/members/{m}`, the reader follows
+QSpec FR-370's five checks in order: (1) profile eligibility, with
+`invalid_package`/`invalid-value` at `B`; (2) member names, duplicates and
+table order, with `unknown-member`, `duplicate-member` or `invalid-value` at
+`M`; (3) required and well-formed `kind`, with `missing-member` at `A` or
+`wrong-value-kind`/`invalid-value` at `M/value`; (4) kind-specific presence,
+with `unknown-member` at `M` or `missing-member` at `A`; then (5) each value
+in table order, with `wrong-value-kind`, `invalid-value`, `type-mismatch` or
+`unit-mismatch` at `M/value` as FR-370 assigns. These causes pair with
+`invalid_package` except `type-mismatch` and `unit-mismatch`, which pair with
+`ill_typed`. After `upper`, `lower > upper` refuses
+`invalid_package`/`invalid-value` at `A`. A duration bound in another unit of
+Time, a unit of another dimension, or a threshold quantity in another unit
+than `value` refuses `ill_typed`/`unit-mismatch` at the value. The first
+applicable refusal returns no admitted package or partial temporal view.
 
 **Path and locus.** Every refusal of the temporal step carries both a path (an
 RFC 6901 pointer) and a locus (a node key), as QSpec FR-047 requires of every
@@ -5432,7 +5481,7 @@ copying QSL execution semantics into IR.
 | FR-038-AC-93 | A selected model document holding the number `9007199254740993`, `-9007199254740993`, `9.007199254740993e15`, `1e20` or `18446744073709551617` at `/package/count` refuses `noncanonical_wire` at `/semantic_graph/nodes/<i>/owner/identity` with `document_pointer` equal to `/package/count`; a document holding such numbers at `/b` and then `/a/0` names `/b`, the first in document order (except that a number with no finite double is named when the reader reaches it, FR-038-AC-110); the same document holding `9007199254740992`, `-9007199254740992`, `9.007199254740992e15` or `0.5` at that pointer is not refused for it ; an integer value type whose upper bound is `9007199254740993` in a document that is otherwise admitted refuses the same way, where today it is admitted (the reader change); and a package document refused `noncanonical_wire` for its own bytes (FR-038-AC-79) carries no pointer and no `document_pointer`. | Test (TC-048) |
 | FR-038-AC-94 | A selected model document whose bytes are exactly `limits.bytes` long is read and admitted, with the package itself shorter than that limit; read with a `limits.bytes` one lower the same package returns `incomplete` for `bytes` with that limit and the document's length reported and no pointer, as FR-038-AC-26 states for the byte limit, while a `work` limit one below the work of the same read still returns the root pointer `/semantic_graph/nodes/<i>/owner` (FR-038-AC-30). | Test (TC-048) |
 | FR-038-AC-95 | PLANNED/UNRUN (IR-1141). Bounded canonical encoding of a complete typed node and package succeeds at the exact retained byte ceiling and returns a typed bytes-limit failure one byte below, without a partial value or panic. In a multi-request lowering call, a node-local byte failure preserves successfully lowered independent sibling records; a whole-package byte failure returns no lowered node, dependency node or package bytes. Each failure reports the configured limit and consumed work consistently; a work-budget failure remains distinct. No identity preimage or hash is constructed. | Test (TC-048) |
-| FR-038-AC-96 | Each of the fifteen `temporal_formula` identities (`holds`, `true`, `false`, `not`, `and`, `or`, `implies`, `eventually`, `always`, `once`, `historically`, `until`, `release`, `since`, `triggered`) admits as the body root of a `temporal`/`formula` node, with operator `temporal_formula`, no law, `mode` `null`, no leaves, its catalogued member (`temporal_interval` with a closed interval on the eight interval operators, `null` on the other seven, under a clause selecting a bounded `temporal_profile`) and its catalogued operands (`holds` over one `boolean` operand, `true` and `false` over none, `not` and the four unary interval operators over one `reference` to a `temporal`/`formula` node, `and`, `or`, `implies` and the four binary interval operators over two); each formula node is referenced from a clause's formula argument or a formula operand; `quire.op.temporal.fair` admits as the body root of a `temporal`/`fairness` node with a well-formed `fairness` member and no operand, referenced from the fairness argument of a clause selecting `quire.temporal.infinite-trace/v1` (a bounded profile admits no fairness argument); and a package holding a `quire.op.temporal.clause` node whose sixth argument references a `temporal`/`formula` node applying `quire.op.temporal.eventually` with the member `{kind: temporal_interval, interval: {lower: "0", upper: "3"}}` over a second formula node applying `quire.op.temporal.holds` admits with its exact complete bodies and structural node ids retained, and lowers under a profile that supports the `temporal` tag and returns `unsupported` naming `temporal` under one that does not. | Test (TC-048) |
+| FR-038-AC-96 | Each of the original fifteen `temporal_formula` identities (`holds`, `true`, `false`, `not`, `and`, `or`, `implies`, `eventually`, `always`, `once`, `historically`, `until`, `release`, `since`, `triggered`) admits as the body root of a `temporal`/`formula` node, with operator `temporal_formula`, no law, `mode` `null`, no leaves, its catalogued member (`temporal_interval` with a closed interval on the eight interval operators, `null` on the other seven, under a clause selecting a bounded `temporal_profile`) and its catalogued operands (`holds` over one `boolean` operand, `true` and `false` over none, `not` and the four unary interval operators over one `reference` to a `temporal`/`formula` node, `and`, `or`, `implies` and the four binary interval operators over two); each formula node is referenced from a clause's formula argument or a formula operand; `quire.op.temporal.fair` admits as the body root of a `temporal`/`fairness` node with a well-formed `fairness` member and no operand, referenced from the fairness argument of a clause selecting `quire.temporal.infinite-trace/v1` (a bounded profile admits no fairness argument); and a package holding a `quire.op.temporal.clause` node whose sixth argument references a `temporal`/`formula` node applying `quire.op.temporal.eventually` with the member `{kind: temporal_interval, interval: {lower: "0", upper: "3"}}` over a second formula node applying `quire.op.temporal.holds` admits with its exact complete bodies and structural node ids retained, and lowers under a profile that supports the `temporal` tag and returns `unsupported` naming `temporal` under one that does not. | Test (TC-048) |
 | FR-038-AC-97 | On each of the eight interval operators the member `{kind: temporal_interval, interval}` admits, under `quire.temporal.infinite-trace/v1`, with `interval` `{lower: "0", upper: "3"}`, `{lower: "9", upper: "10"}`, `{lower: "2", upper: null}` and `null`; `{lower: "-1", upper: "3"}` refuses `invalid_package`/`invalid-value` at the bound (`/semantic_graph/nodes/{n}/body/operation/member/interval/lower`), `{lower: "0", upper: "-2"}` refuses the same way at `.../interval/upper`, and `{lower: "-5", upper: "-2"}` refuses at `.../interval/lower`, the first bound in member order, each in strict wire validation, before any identity check and any temporal step and under every profile (merged QSpec FR-370-AC-9 and the schema's non-negative bound pattern); every other bound outside the pattern (`"1.5"`, `"01"`, `"+1"`, `""`, `"3x"`, and the JSON integer `0`, which is no string) refuses `invalid_package`/`invalid-value` at that bound, `{lower: "1.5", upper: "0"}` at `.../interval/lower`, in the same early stage and first in member order (`lower`, then `upper`), never `operation-member-mismatch` (merged FR-370: "a bound outside its form's pattern ... refuses `invalid_package`/`invalid-value` at that bound's pointer during strict wire validation"); `{lower: "3", upper: "0"}` and `{lower: "10", upper: "9"}` refuse `invalid_package`/`invalid-value` at the application (`/semantic_graph/nodes/{n}/body`), also when the formula node is reached by no clause (the sweep after every clause, an IR reading) and `{lower: "18446744073709551617", upper: "18446744073709551616"}` refuses the same way, so the comparison is numeric and neither lexicographic nor fixed-width; a member of kind `fairness` and an interval holding a third member each refuse `invalid_package`/`operation-member-mismatch` at `operation.member` (an IR reading, merged text silent), and a `null` member on an interval-capable operator refuses `invalid_package`/`operation-member-mismatch` at the application (`/semantic_graph/nodes/{n}/body`, merged FR-370); and any member on `quire.op.temporal.holds`, `quire.op.temporal.not` or `quire.op.temporal.clause` refuses `operation-member-mismatch` at `operation.member`. | Test (TC-048) |
 | FR-038-AC-98 | The `fairness` member of `quire.op.temporal.fair` admits as `{kind: fairness, fairness_kind: weak, granularity: whole, target: {kind: operation, declaration, name}}` and as `strong` with `each`, with a `declaration` and `name` that resolve (the resolution refusals are FR-038-AC-103's); a `fairness_kind` of `medium`, a `granularity` of `part`, an operation target lacking `name`, a member holding an extra member, a `null` member and a member of kind `temporal_interval` each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`; the closed protocol-root, attempt, parallel-branch, compensation-template and hybrid-transition targets preserve their exact identity and selected target data in the canonical typed read, while a missing or unknown target kind, extra target member or malformed structural identity never admits; and a `fairness` member on `quire.op.boolean.not` refuses the same way. | Test (TC-048) |
 | FR-038-AC-99 | A package holding a `composite_type`/`union` node `Shape` with the members `Circle(Integer)`, `Rect(Integer, Integer)` and `Empty`, a `value`/`union_value` node `Shape::Rect(2, 3)` and an `expression`/`case` node whose body root applies `quire.op.control.case` over the scrutinee and the arms `Circle`, `Rect` and `Empty` in member declaration order, the binders `r`, `w` and `h` as `value`/`parameter` nodes typed `Integer` and every arm body of the `result_type`, admits, the three forms decoded and the operand family of the `Shape` node `union`; the same `case` with its arms out of member order, with the `Empty` arm omitted, with the `Circle` arm repeated, with the `Rect` binder aggregate holding one reference, with the `Circle` binder typed `Text` and with one arm body of another type than the `result_type` each refuse `ill_typed`/`operator-ineligible` at the `case` node (`/semantic_graph/nodes/{n}`); a union with no member and a union value with two bindings each refuse `invalid_semantic_graph` at the node's `body`; a union type with `Circle` twice refuses `invalid_package`/`duplicate-member` and a payload reference to a node that is not a type refuses `ill_typed`/`operator-ineligible`, each at the union node; and a union value naming `Triangle`, a `Rect` with one payload term and a `Circle` over a `Text` payload each refuse `ill_typed`/`type-mismatch` at the node. | Test (TC-048) |
@@ -5760,6 +5809,8 @@ copying QSL execution semantics into IR.
 | FR-038-AC-458 | Implemented. QSpec C11's clause `relationships` target changed to a role refuses `invalid_model_binding`/`wrong-export` at `/semantic_graph/nodes/82/body/arguments/4/value/members/0/target`, retaining required kind `relationship` and actual kind `role` with their published keys; it does not report the containing `protocol_clause` as the target form. | Test (TC-048; QSpec FR-464-AC-6, TC-946) |
 | FR-038-AC-459 | Implemented. TC-048 reads the current QSpec protocol mutation manifest and base package directly from the selected checkout, applies V2, V8, V9, V10, V11, RP6, V16, CP28 and C11 without a local fixture copy, and checks each published reader stage, code, cause, primary pointer, applicable `document_pointer` and retained target kind. The test fails for an unexpectedly admitted row or an unmatched refusal. QSpec's schema-stage V3, V4, V5, V7 and L19 and the already matching C12 are not reader-fix cases for this criterion. | Test (TC-048; QSpec TC-946, TC-948) |
 | FR-038-AC-460 | Implemented. A public read-only `CheckedPackageV2::direct_dependencies()` iteration borrows each admitted direct dependency package in `lock.dependency_selections` order. A package selecting `geometry` then `units` yields the two corresponding complete admitted values, including distinct non-name content, and no clone or identity-only surrogate; a root selecting one child whose own lock selects a grandchild yields only that child, whose accessor yields the grandchild. A package with no direct selections yields no item. The returned borrows cannot outlive their owning package. | Test (TC-048) |
+| FR-038-AC-461 | Planned until IR-1326 code. The public strict reader admits a complete package whose `temporal`/`formula` node applies catalogued `quire.op.temporal.aggregate` with the exact Boolean result, one aggregate argument, and each of QSpec's published valid count, sum, min, max, fraction and quantile binding shapes. It retains the node's structural identity and admits the aggregate as a formula atom under the matching event-position or timestamped-event profile, without treating an unsupported profile as a valid atom. | Test (TC-048; QSpec FR-370-AC-17, TC-303) |
+| FR-038-AC-462 | Planned until IR-1326 code. For every reader mutation in the current QSpec `temporal-aggregate-vectors.json`, the strict reader of a complete package returns the published code, cause and body-relative pointer after adding the application's `/semantic_graph/nodes/{n}/body` prefix, with no admitted package or partial temporal view. The temporal step checks a clause's reachable aggregate arguments after its interval bounds and before operation refusals, by ascending formula node id and FR-370's profile, names/order, kind, presence and value precedence. TC-048 reads the QSpec argument fragments by reference from the selected checkout, constructs their complete package context, and fails if any published positive or reader row is skipped or disagrees. It copies no vector or schema into IR and freezes no row count. | Test (TC-048; QSpec FR-370-AC-18, TC-303) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
