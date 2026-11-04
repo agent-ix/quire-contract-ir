@@ -1979,6 +1979,99 @@ fn timed_source_occurrence_reordering_retains_structural_node_ids() {
     assert_eq!(after, before);
 }
 
+/// Trace: FR-038-AC-319, TC-048.
+#[trace("TC-048", "FR-038-AC-319")]
+#[test]
+fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
+    let original = published();
+    assert!(matches!(
+        read_package(&original).expect("published timed package"),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let timed = &original["semantic_graph"]["nodes"];
+    for index in [44, 45, 46, 47, 48, 49, 51, 52] {
+        assert!(
+            timed[index]["dependencies"].as_array().is_some(),
+            "timed node {index} has a dependency list"
+        );
+    }
+
+    let mut stale_dependencies = original.clone();
+    stale_dependencies["semantic_graph"]["nodes"][45]["dependencies"] = json!([]);
+    fixture_support::settle(&mut stale_dependencies);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&stale_dependencies).expect("stale graph read")
+    else {
+        panic!("stale dependencies must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().expect("locus").to_string(),
+        "/semantic_graph/nodes/45/dependencies"
+    );
+
+    let mut dangling_reference = original.clone();
+    let old = dangling_reference["semantic_graph"]["nodes"][45]["body"]["members"][0]["value"]
+        ["target"]
+        .clone();
+    let missing = fixture_support::node_id("missing-timed-model");
+    dangling_reference["semantic_graph"]["nodes"][45]["body"]["members"][0]["value"]["target"] =
+        missing.clone();
+    replace_dependency(
+        &mut dangling_reference["semantic_graph"]["nodes"][45],
+        &old,
+        &missing,
+    );
+    fixture_support::settle(&mut dangling_reference);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&dangling_reference).expect("dangling graph read")
+    else {
+        panic!("dangling timed reference must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().expect("locus").to_string(),
+        "/semantic_graph/nodes/45/body/members/0/value/target"
+    );
+
+    let mut invalid_body = original.clone();
+    invalid_body["semantic_graph"]["nodes"][45]["body"]["members"][2]["value"]["members"][0]
+        ["members"][2]["value"]["value"] = json!("ix://acme/orders/Order/absent-clock");
+    fixture_support::settle(&mut invalid_body);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&invalid_body).expect("invalid body read")
+    else {
+        panic!("meaning-bearing timed body edit must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::MalformedClockPlace))
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().expect("locus").to_string(),
+        "/semantic_graph/nodes/45/body/members/2/value/members/0"
+    );
+
+    let mut invalid_owner = original;
+    invalid_owner["semantic_graph"]["nodes"][45]["owner"]["identity"] = json!("other-source");
+    fixture_support::settle(&mut invalid_owner);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&invalid_owner).expect("invalid owner read")
+    else {
+        panic!("meaning-bearing timed owner edit must refuse");
+    };
+    assert_eq!(
+        refusal.loci[0].path.as_ref().expect("locus").to_string(),
+        "/semantic_graph/nodes/45/owner"
+    );
+}
+
 #[trace("TC-048")]
 #[test]
 fn timed_model_repeated_reference_precedes_later_quantity_validation() {
