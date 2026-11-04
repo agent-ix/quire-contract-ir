@@ -1436,8 +1436,13 @@ fn published_tuples_retain_named_identity_and_ordered_selected_positions() {
     let (_, swap_id) = tuple_node(&package, swap);
     let mut same_shape = document.clone();
     let swap_index = selected_type_position(&same_shape, swap);
-    same_shape["types"][swap_index]["positions"][0]["typeRef"] = json!("ix://quire/native/Boolean");
-    same_shape["types"][swap_index]["positions"][1]["typeRef"] = json!("ix://quire/native/Integer");
+    let positions = same_shape["types"][swap_index]["positions"]
+        .as_array_mut()
+        .expect("Swap positions");
+    positions.swap(0, 1);
+    for (position, row) in positions.iter_mut().enumerate() {
+        row["identity"] = json!(format!("{swap}/p{position}"));
+    }
     let same_shape_admitted = read_selected_variant_package(&package, &same_shape);
     assert_eq!(
         same_shape_admitted.graph().nodes[tuple_node(&package, swap).0].node_id,
@@ -1447,17 +1452,61 @@ fn published_tuples_retain_named_identity_and_ordered_selected_positions() {
         tuple_positions(&document, swap),
         tuple_positions(&same_shape, swap)
     );
+    assert_eq!(
+        tuple_positions(&same_shape, swap),
+        vec![
+            (format!("{swap}/p0"), "ix://quire/native/Boolean".to_owned()),
+            (format!("{swap}/p1"), "ix://quire/native/Integer".to_owned()),
+        ],
+        "reordered declaration retains its exact authored position content"
+    );
     assert_ne!(
         pair_id.path, swap_id.path,
         "named tuple paths stay distinct"
     );
-    for position in 0..2 {
+    for (position, expected) in [CheckedMemberType::Boolean, CheckedMemberType::Integer]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            same_shape_admitted.model_tuple_position_type(&swap_id, position),
+            Some(expected.clone())
+        );
         assert_eq!(
             same_shape_admitted.model_tuple_position_type(&pair_id, position),
-            same_shape_admitted.model_tuple_position_type(&swap_id, position),
-            "same shape at position {position}"
+            Some(expected)
         );
     }
+
+    let mut aliased_document = same_shape.clone();
+    let alias = "ix://acme/shapes/BoolAlias";
+    let origin = aliased_document["types"][swap_index]["origin"].clone();
+    aliased_document["types"]
+        .as_array_mut()
+        .expect("selected types")
+        .push(json!({
+            "identity": alias, "displayName": "BoolAlias", "kind": "alias",
+            "target": "ix://quire/native/Boolean", "origin": origin,
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject"
+        }));
+    aliased_document["types"][swap_index]["positions"][0]["typeRef"] = json!(alias);
+    let aliased = read_selected_variant_package(&package, &aliased_document);
+    let (swap_node_index, _) = tuple_node(&package, swap);
+    assert_eq!(aliased.graph().nodes[swap_node_index].node_id, swap_id);
+    assert_eq!(
+        serde_json::to_value(&aliased.graph().nodes[swap_node_index].node_id.path).expect("path"),
+        json!(["model", "tuple_value_type", swap]),
+        "alias must not replace the declared qualified name"
+    );
+    assert_eq!(
+        serde_json::to_value(&aliased.graph().nodes[swap_node_index].owner).expect("owner"),
+        json!({"kind":"model", "identity":"acme/shapes", "node":swap}),
+        "alias must not replace the admitted owner declaration"
+    );
+    assert_eq!(
+        aliased.model_tuple_position_type(&swap_id, 0),
+        Some(CheckedMemberType::Boolean)
+    );
 }
 
 /// Trace: FR-069-AC-7, TC-940.
