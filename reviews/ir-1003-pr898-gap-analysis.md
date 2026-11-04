@@ -17,7 +17,7 @@ The computed matrix marks all 15 selected criteria tagged, but whole-criterion e
 
 ## Verdict
 
-CONDITIONAL
+PASS after disposition round 1. The original finding is preserved below; its fixed outcome is recorded separately.
 
 ## Findings
 
@@ -85,3 +85,13 @@ Semantic binding review was explicitly requested in the dispatch. Quire matrix r
 ### Analysis selection
 
 Code review includes the Rust lane. Gap analysis includes the explicitly requested intent-to-test check. Base and integrity cover the changed criterion/status text. EARS is not applicable because no requirement Description/Behavior/Constraints statement changes; dependency and object lenses are not applicable because no new relationship or public domain object is introduced. Credential and cross-platform workflow changes are outside this PR.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The existing unchanged collection/enum control now carries FR-038-AC-234. Its parameter_domain assertion verifies successful Parameter projection, and its enum-containing record verifies Literal plus the original GraphChild; the other AC-234 binders continue covering narrow refusals and closed tuple/Option/collection paths. |
+
+### Disposition verification
+
+Inspected the frozen fix diff and unchanged assertions directly. No additional findings. The final local aggregate gate remains the lead’s responsibility.

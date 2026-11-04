@@ -17,7 +17,7 @@ Rust production and test review found one duplicate numeric-ordering implementat
 
 ## Verdict
 
-CONDITIONAL
+PASS after disposition round 1. The original finding is preserved below; its fixed outcome is recorded separately.
 
 ## Findings
 
@@ -85,3 +85,13 @@ Semantic binding review was explicitly requested in the dispatch. Quire matrix r
 ### Analysis selection
 
 Code review includes the Rust lane. Gap analysis includes the explicitly requested intent-to-test check. Base and integrity cover the changed criterion/status text. EARS is not applicable because no requirement Description/Behavior/Constraints statement changes; dependency and object lenses are not applicable because no new relationship or public domain object is introduced. Credential and cross-platform workflow changes are outside this PR.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The narrow wrapper and IntegerString::cmp now call the same borrowed compare_integer_parts implementation. The shared helper performs only sign, digit-length and digit comparisons; no allocation, numeric conversion or meter change was introduced. |
+
+### Disposition verification
+
+Inspected the frozen fix diff and unchanged assertions directly. No additional findings. The final local aggregate gate remains the lead’s responsibility.
