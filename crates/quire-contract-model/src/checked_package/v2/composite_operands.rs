@@ -1627,7 +1627,7 @@ mod tests {
         assert_eq!(selected_error.equality.as_deref(), Some(&missing));
     }
 
-    /// Trace: FR-353-AC-1, FR-353-AC-7.
+    /// Trace: FR-353-AC-1, FR-353-AC-7, FR-357-AC-5, FR-357-AC-6.
     /// Provenance: IR-1209 QSL per-fact Text type rows.
     #[test]
     fn bounded_text_equality_reads_joined_type_rows() {
@@ -1713,7 +1713,43 @@ mod tests {
         assert!(matches!(admitted.left().source(), ValueType::Text(_)));
         assert_eq!(admitted.left().source(), admitted.right().source());
 
+        let selected = super::super::SelectedFactEqualityId {
+            application: application.clone(),
+            occurrence: occurrence.clone(),
+        };
+        let selected_read = |fact_rows: &[super::super::SelectedEqualityFactRow]| {
+            package.project_selected_facts(
+                super::super::SelectedFactIds {
+                    declarations: &[],
+                    fields: &[],
+                    equalities: std::slice::from_ref(&selected),
+                },
+                super::super::SelectedFactRows {
+                    declarations: &[],
+                    fields: &[],
+                    source_units: &[],
+                    equality_applications: std::slice::from_ref(&application_row),
+                    equality_facts: fact_rows,
+                },
+                1000,
+            )
+        };
+        let complete = selected_read(&facts).expect("selected Text facts join");
+        assert_eq!(complete.equalities.len(), 1);
+        assert_eq!(complete.equalities[0].decision, admitted);
+
         facts.push(facts[0].clone());
+        let duplicate_selected =
+            selected_read(&facts).expect_err("selected duplicate fact refuses");
+        assert_eq!(
+            duplicate_selected.code,
+            super::super::SelectedFactsErrorCode::Equality
+        );
+        assert_eq!(
+            duplicate_selected.equality.as_ref().unwrap().code,
+            super::super::AdmittedEqualityReadErrorCode::DuplicateEqualityWitness
+        );
+        assert_eq!(duplicate_selected.at.as_ref(), &type_id);
         let duplicate = package
             .admitted_equality(
                 &application,
