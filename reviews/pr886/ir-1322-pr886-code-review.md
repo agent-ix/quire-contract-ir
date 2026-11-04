@@ -37,3 +37,16 @@ Reviewed every changed Rust and test file in PR 886. Rust review covered protoco
 ## Verification and Limits
 
 The source call order is direct: validate_temporal_selection runs before structural::validate_structural_nodes_with_keys and state::validate_state. QSpec FR-464 Reader order puts the protocol step after both; QSpec V14 independently requires the state refusal and V16 independently requires the missing-selection refusal. Computed Quire matrix tags AC-455 through AC-459 to the changed by-reference test. The coder's focused tests passed; this reviewer did not rerun the aggregate gate before disposition.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The fix reports a missing temporal selection for the compensation globally before the step-2 operator/law scan. Apply QSpec V11 and V16 together: V11 removes the protocol profile and independently refuses `invalid_package`/`operation-law-unselected` at the clause node 82; V16 removes the temporal profile and independently refuses `missing_declaration`/`missing-selection` at compensation node 81. The clause identity `Example::OrderFlow` sorts before `Example::OrderFlow::compensate::Refund`, so FR-464 step 2 requires V11 first. The global scan instead returns V16 before checking any operator/law. Run the missing-selection check when its node is reached in the ascending-id step-2 loop. | crates/quire-contract-model/src/checked_package/v2/protocol_body.rs:5482; QSpec FR-464 Reader order step 2; QSpec protocol-node-mutation-manifest.json V11 and V16 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The early temporal-selection refusal is removed; the scan now returns only after structural and state validation inside the protocol step. The V14+V16 by-reference control confirms state precedence. |
+| FND-002 | still-open | V11+V16 combines two published mutations whose first refusal should be the earlier clause law defect; no interleaved step-2 check exists yet. |

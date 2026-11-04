@@ -220,6 +220,16 @@ fn current_qspec_protocol_reader_refusals_preserve_published_provenance() {
 #[test]
 #[trace("TC-048", "FR-038-AC-436", "FR-038-AC-457")]
 fn earlier_state_refusal_precedes_missing_protocol_temporal_selection() {
+    assert_paired_reader_refusal("V14", "V16", 54);
+}
+
+#[test]
+#[trace("TC-048", "FR-038-AC-456", "FR-038-AC-457")]
+fn earlier_protocol_law_refusal_precedes_missing_temporal_selection() {
+    assert_paired_reader_refusal("V11", "V16", 82);
+}
+
+fn assert_paired_reader_refusal(first: &str, second: &str, first_node: usize) {
     let fixtures = fixtures_dir();
     let manifest = read_json(&fixtures.join("protocol-node-mutation-manifest.json"))
         .expect("QSpec protocol mutation manifest");
@@ -233,7 +243,7 @@ fn earlier_state_refusal_precedes_missing_protocol_temporal_selection() {
     );
     let mut edited = base;
     let rows = manifest["rows"].as_array().expect("published rows");
-    for id in ["V14", "V16"] {
+    for id in [first, second] {
         let row = rows
             .iter()
             .find(|row| row["id"] == id)
@@ -242,18 +252,21 @@ fn earlier_state_refusal_precedes_missing_protocol_temporal_selection() {
             apply_layout_edit(&mut edited, edit);
         }
     }
-    let state = rows.iter().find(|row| row["id"] == "V14").expect("V14");
+    let expected = rows
+        .iter()
+        .find(|row| row["id"] == first)
+        .expect("first published row");
     let refusal = match read(&edited, &document) {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
-        other => panic!("earlier state defect must refuse: {other:?}"),
+        other => panic!("earlier {first} defect must refuse: {other:?}"),
     };
     assert_eq!(
         serde_json::to_value(refusal.code).expect("code"),
-        state["expect"]["code"]
+        expected["expect"]["code"]
     );
     assert_eq!(
         serde_json::to_value(refusal.cause).expect("cause"),
-        state["expect"]["cause"]
+        expected["expect"]["cause"]
     );
     assert_eq!(
         refusal
@@ -261,11 +274,15 @@ fn earlier_state_refusal_precedes_missing_protocol_temporal_selection() {
             .first()
             .and_then(|at| at.path.as_ref())
             .map(|at| at.as_str()),
-        state["expect"]["locus"].as_str(),
+        expected["expect"]["locus"].as_str(),
+    );
+    assert_eq!(
+        refusal.document_pointer.as_ref().map(|at| at.as_str()),
+        expected["expect"]["document_pointer"].as_str(),
     );
     assert_eq!(
         serde_json::to_value(refusal.locus).expect("locus"),
-        edited["semantic_graph"]["nodes"][54]["node_id"],
+        edited["semantic_graph"]["nodes"][first_node]["node_id"],
     );
 }
 

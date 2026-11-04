@@ -37,3 +37,16 @@ Plan completion: not assessed. The computed Quire matrix tags FR-038-AC-455..459
 ## Verification and Limits
 
 Read the frozen PR diff and QSpec FR-464 Reader order, V14 and V16 manifest rows. The aggregate gate belongs to the code lead after review disposition.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The new V14+V16 control covers the state-before-protocol boundary, but no paired control covers FR-464 step-2 ascending node-id order. Apply published V11 and V16 together and assert V11's `invalid_package`/`operation-law-unselected` at clause node 82, including its `/body/operation/laws/0/definition` document pointer, before V16's missing selection at compensation node 81. The clause structural identity sorts first. | tests/conformance_qspec/protocol_mutation_manifest.rs:219; QSpec FR-464 Reader order step 2; QSpec protocol-node-mutation-manifest.json V11 and V16 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The added by-reference V14+V16 test applies both published edits and asserts the earlier state code, cause, path and structural locus. |
+| FND-002 | still-open | The fix round adds V14+V16 only; V11+V16 step-2 precedence remains untested. |

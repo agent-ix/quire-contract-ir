@@ -5371,46 +5371,49 @@ fn check_clause_causality(
     Ok(())
 }
 
-/// Find the missing temporal selection used by a protocol clock. The caller
-/// reports it after graph and state checks have had their required turn.
-pub(super) fn missing_temporal_selection(
-    nodes: &[RawSemanticNodeV2],
+fn uses_temporal_protocol_operator(body: &CheckedTerm) -> bool {
+    matches!(
+        body,
+        CheckedTerm::Application {
+            operator: ApplicationOperator::ProtocolControl,
+            operation,
+            ..
+        } if matches!(
+            operation.pointer("/member/operator").and_then(Value::as_str),
+            Some("await" | "compensate")
+        )
+    )
+}
+
+/// Whether protocol clock validation depends on a missing selection. This
+/// only defers the dependent temporal-binding clock-kind refusal; protocol
+/// step 2 reports the selection refusal in node order.
+pub(super) fn has_missing_temporal_selection(
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
-) -> Option<ValidationFailure> {
+) -> bool {
     if lock
         .profile_selections
         .iter()
         .any(|selection| selection.role == CheckedSelectionRole::TemporalProfile)
     {
-        return None;
+        return false;
     }
     for &position in index.values() {
         if !matches!(kinds.get(position), Some(CheckedNodeKind::Protocol(_))) {
             continue;
         }
-        if matches!(
-            terms.get(position).and_then(Option::as_ref),
-            Some(CheckedTerm::Application {
-                operator: ApplicationOperator::ProtocolControl,
-                operation,
-                ..
-            }) if matches!(
-                operation.pointer("/member/operator").and_then(Value::as_str),
-                Some("await" | "compensate")
-            )
-        ) {
-            return Some(ValidationFailure::refused_at(
-                Code::MissingDeclaration,
-                node_pointer(position),
-                Some(Cause::MissingSelection),
-                nodes[position].node_id.clone(),
-            ));
+        if terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .is_some_and(uses_temporal_protocol_operator)
+        {
+            return true;
         }
     }
-    None
+    false
 }
 
 /// Validate protocol placement, local members, membership and clause layout.
@@ -5429,6 +5432,10 @@ pub(super) fn validate_protocol_nodes(
         .iter()
         .find(|selection| selection.role == CheckedSelectionRole::ProtocolProfile)
         .map(|selection| &selection.definition);
+    let has_temporal_profile = lock
+        .profile_selections
+        .iter()
+        .any(|selection| selection.role == CheckedSelectionRole::TemporalProfile);
 
     // Placement is one complete pass, so it precedes every operator defect.
     let mut validated = vec![None; nodes.len()];
@@ -5479,10 +5486,6 @@ pub(super) fn validate_protocol_nodes(
         }
     }
 
-    if let Some(failure) = missing_temporal_selection(nodes, kinds, terms, index, lock) {
-        return Err(failure);
-    }
-
     for &position in index.values() {
         let Some(CheckedNodeKind::Protocol(form)) = kinds.get(position).copied() else {
             continue;
@@ -5499,6 +5502,14 @@ pub(super) fn validate_protocol_nodes(
                 ProtocolBodyDefect::OperatorIneligible,
             ));
         };
+        if !has_temporal_profile && uses_temporal_protocol_operator(body) {
+            return Err(ValidationFailure::refused_at(
+                Code::MissingDeclaration,
+                node_pointer(position),
+                Some(Cause::MissingSelection),
+                node.node_id.clone(),
+            ));
+        }
         let (operator, arguments) =
             validate_envelope(form, body, &node.semantic_type, selected_profile)
                 .map_err(|defect| body_defect(position, node, defect))?;
