@@ -107,12 +107,12 @@ conformance-qspec:
 	[ "$$status" -eq 0 ] || exit "$$status"; \
 	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
 	[ "$$passed" -eq 1 ] || { echo 'required QSpec positive package identity test did not run exactly once' >&2; exit 1; }
-	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --test it checked_package_v2_owners::tc_229_qspec_ 2>&1); \
+	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --features conformance-cli --test it checked_package_v2_owners::tc_229_qspec_ 2>&1); \
 	status=$$?; printf '%s\n' "$$output"; \
 	[ "$$status" -eq 0 ] || exit "$$status"; \
 	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 2 passed; 0 failed; 0 ignored; 0 measured;' || true); \
 	[ "$$passed" -eq 1 ] || { echo 'required QSpec population fixture tests did not run exactly once' >&2; exit 1; }
-	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --test it checked_package_v2_protocol_body::compensation_clock_rows_follow_published_cases -- --exact 2>&1); \
+	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --features conformance-cli --test it checked_package_v2_protocol_body::compensation_clock_rows_follow_published_cases -- --exact 2>&1); \
 	status=$$?; printf '%s\n' "$$output"; \
 	[ "$$status" -eq 0 ] || exit "$$status"; \
 	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
