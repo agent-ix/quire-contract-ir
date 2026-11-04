@@ -178,6 +178,7 @@ fn current_qspec_protocol_layout_rows_refuse_at_exact_node_pointer() {
     );
     let rows = layout["rows"].as_array().expect("published layout rows");
     assert!(!rows.is_empty(), "QSpec layout rows must be present");
+    let mut failures = Vec::new();
     for row in rows {
         let id = row["id"].as_str().expect("row id");
         assert_eq!(row["base"], base_name, "{id}: selected base");
@@ -188,34 +189,31 @@ fn current_qspec_protocol_layout_rows_refuse_at_exact_node_pointer() {
             apply_layout_edit(&mut edited, edit);
         }
         let result = read(&edited, &document);
-        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
-            panic!("{id}: published layout row must refuse: {result:?}");
-        };
-        assert_eq!(
-            serde_json::to_value(refusal.code).unwrap(),
-            row["expect"]["code"],
-            "{id}: code"
-        );
-        assert_eq!(
-            serde_json::to_value(refusal.cause).unwrap(),
-            row["expect"]["cause"],
-            "{id}: cause"
-        );
-        assert_eq!(
-            refusal.locus, None,
-            "{id}: schema refusal has no structural locus"
-        );
-        assert_eq!(refusal.loci.len(), 1, "{id}: one primary pointer");
-        assert_eq!(
-            refusal.loci[0]
-                .path
-                .as_ref()
-                .expect("primary path")
-                .as_str(),
-            row["expect"]["locus"].as_str().expect("published locus"),
-            "{id}: primary pointer"
-        );
+        match result {
+            CheckedPackageV2ReadResult::Refused(refusal) => {
+                let code = serde_json::to_value(refusal.code).expect("code");
+                let cause = serde_json::to_value(refusal.cause).expect("cause");
+                let path = refusal
+                    .loci
+                    .first()
+                    .and_then(|locus| locus.path.as_ref())
+                    .map(|path| path.as_str());
+                if code != row["expect"]["code"]
+                    || cause != row["expect"]["cause"]
+                    || path != row["expect"]["locus"].as_str()
+                    || refusal.locus.is_some()
+                    || refusal.loci.len() != 1
+                {
+                    failures.push(format!(
+                        "{id}: expected {:?}, got code={code} cause={cause} path={path:?} structural_locus={:?}",
+                        row["expect"], refusal.locus
+                    ));
+                }
+            }
+            other => failures.push(format!("{id}: expected schema refusal, got {other:?}")),
+        }
     }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 #[test]
