@@ -1324,6 +1324,16 @@ equal, the diamond is admitted. The reader reports the first failing entry in
 lock order and no later one. Every direct entry is supplied before any
 `dependency_reference` check.
 
+After admission, `CheckedPackageV2::direct_dependencies()` SHALL expose the
+retained admitted dependency package values as immutable borrows in the same
+order as `lock.dependency_selections`. The accessor SHALL yield only direct
+dependencies of that package: a child's selected dependencies remain available
+through that child's accessor and SHALL NOT be inserted into its parent's
+iteration. An empty direct selection yields an empty iteration. The accessor
+SHALL borrow the packages already retained by the reader; it SHALL NOT copy
+their complete values, rebuild a dependency closure, or return only the
+selection identities.
+
 The reader reads no source bytes or replay `byte_provision`. A missing domain
 document still refuses at its model-root owner. There is no
 `stale_dependency`, `content-mismatch`, `digest_domain_mismatch` or
@@ -5749,6 +5759,7 @@ copying QSL execution semantics into IR.
 | FR-038-AC-457 | Implemented. QSpec V16 and CP28 each remove the selected `temporal_profile` while a compensation reads a clock role; the first refusal is `missing_declaration`/`missing-selection` at `/semantic_graph/nodes/81`, before an `invalid_package` operation-law refusal. Both cases retain the same code, cause and primary pointer without a partial package. | Test (TC-048; QSpec FR-464-AC-11, TC-946, TC-948) |
 | FR-038-AC-458 | Implemented. QSpec C11's clause `relationships` target changed to a role refuses `invalid_model_binding`/`wrong-export` at `/semantic_graph/nodes/82/body/arguments/4/value/members/0/target`, retaining required kind `relationship` and actual kind `role` with their published keys; it does not report the containing `protocol_clause` as the target form. | Test (TC-048; QSpec FR-464-AC-6, TC-946) |
 | FR-038-AC-459 | Implemented. TC-048 reads the current QSpec protocol mutation manifest and base package directly from the selected checkout, applies V2, V8, V9, V10, V11, RP6, V16, CP28 and C11 without a local fixture copy, and checks each published reader stage, code, cause, primary pointer, applicable `document_pointer` and retained target kind. The test fails for an unexpectedly admitted row or an unmatched refusal. QSpec's schema-stage V3, V4, V5, V7 and L19 and the already matching C12 are not reader-fix cases for this criterion. | Test (TC-048; QSpec TC-946, TC-948) |
+| FR-038-AC-460 | PLANNED/UNRUN (IR-1325). A public read-only `CheckedPackageV2::direct_dependencies()` iteration borrows each admitted direct dependency package in `lock.dependency_selections` order. A package selecting `geometry` then `units` yields the two corresponding complete admitted values, including distinct non-name content, and no clone or identity-only surrogate; a root selecting one child whose own lock selects a grandchild yields only that child, whose accessor yields the grandchild. A package with no direct selections yields no item. The returned borrows cannot outlive their owning package. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
