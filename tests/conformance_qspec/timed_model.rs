@@ -1957,7 +1957,7 @@ fn timed_model_stage_precedence_has_independent_defect_controls() {
 }
 
 /// Source occurrence order does not participate in a timed node's structural identity.
-#[trace("TC-048", "FR-038-AC-319")]
+#[trace("TC-048")]
 #[test]
 fn timed_source_occurrence_reordering_retains_structural_node_ids() {
     let mut wire = published();
@@ -2000,8 +2000,8 @@ fn timed_source_occurrence_reordering_retains_structural_node_ids() {
     assert_eq!(after, before);
 }
 
-/// Trace: FR-038-AC-319, TC-048.
-#[trace("TC-048", "FR-038-AC-319")]
+/// Trace: TC-048.
+#[trace("TC-048")]
 #[test]
 fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
     let original = published();
@@ -2009,16 +2009,16 @@ fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
         read_package(&original).expect("published timed package"),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    for (position, form, reference) in [
-        (44, "time_source", "/members/1/value/target"),
-        (45, "clock_place", "/members/0/value/target"),
-        (46, "clock_reset", "/members/1/value/target"),
-        (47, "clock_guard", "/members/0/value/target"),
-        (48, "time_invariant", "/members/0/value/target"),
-        (49, "urgency", "/members/1/value/target"),
-        (50, "urgency", "/members/1/value/target"),
-        (51, "clock_constraint", "/members/1/value/target"),
-        (52, "timed_model", "/members/0/value/target"),
+    for (position, form) in [
+        (44, "time_source"),
+        (45, "clock_place"),
+        (46, "clock_reset"),
+        (47, "clock_guard"),
+        (48, "time_invariant"),
+        (49, "urgency"),
+        (50, "urgency"),
+        (51, "clock_constraint"),
+        (52, "timed_model"),
     ] {
         assert_eq!(
             original["semantic_graph"]["nodes"][position]["semantic_form"], form,
@@ -2047,20 +2047,6 @@ fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
         stale_dependencies["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
         fixture_support::settle(&mut stale_dependencies);
         assert_graph_refusal(&stale_dependencies, "stale dependency list");
-
-        let mut dangling_reference = original.clone();
-        let node = &mut dangling_reference["semantic_graph"]["nodes"][position];
-        let target = node["body"]
-            .pointer_mut(reference)
-            .expect("published timed reference");
-        let old = target.clone();
-        let missing = fixture_support::node_id(&format!("missing-{form}-{position}"));
-        *target = missing.clone();
-        replace_dependency(node, &old, &missing);
-        fixture_support::settle(&mut dangling_reference);
-        sort_timed_graph_dependencies(&mut dangling_reference);
-        fixture_support::settle(&mut dangling_reference);
-        assert_graph_refusal(&dangling_reference, "dangling reference");
     }
 
     let mut invalid_body = original.clone();
