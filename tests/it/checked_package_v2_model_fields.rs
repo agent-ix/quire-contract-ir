@@ -1105,7 +1105,11 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         "Receipt",
         "record",
         &[],
-        &[field("total", "ix://quire/native/Integer")],
+        &[
+            field("total", "ix://quire/native/Integer"),
+            field("note", "ix://quire/native/String").optional(),
+            field("raw", "ix://quire/native/Float32"),
+        ],
     )]);
     selected["constructs"].as_array_mut().unwrap().push(json!({
         "kind": {"module": IDENTITY, "name": "record"},
@@ -1174,11 +1178,33 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         IDENTITY,
         orders("Receipt"),
         format!("{}/total", orders("Receipt")),
-        MemberId::new(MemberOwner::Node(record_key), "total").unwrap(),
+        MemberId::new(MemberOwner::Node(record_key.clone()), "total").unwrap(),
+    );
+    let optional_row = SelectedExactFieldRow::new(
+        record.clone(),
+        IDENTITY,
+        orders("Receipt"),
+        format!("{}/note", orders("Receipt")),
+        MemberId::new(MemberOwner::Node(record_key.clone()), "note").unwrap(),
+    );
+    let raw_row = SelectedExactFieldRow::new(
+        record.clone(),
+        IDENTITY,
+        orders("Receipt"),
+        format!("{}/raw", orders("Receipt")),
+        MemberId::new(MemberOwner::Node(record_key), "raw").unwrap(),
     );
     let selected_field = SelectedFactFieldId {
         record: record.clone(),
         original_identity: format!("{}/total", orders("Receipt")).into(),
+    };
+    let optional_field = SelectedFactFieldId {
+        record: record.clone(),
+        original_identity: format!("{}/note", orders("Receipt")).into(),
+    };
+    let raw_field = SelectedFactFieldId {
+        record: record.clone(),
+        original_identity: format!("{}/raw", orders("Receipt")).into(),
     };
     let ids = SelectedFactIds {
         declarations: std::slice::from_ref(&record),
@@ -1195,7 +1221,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         ),
     );
     let declarations = [declaration.clone()];
-    let fields = [field_row.clone()];
+    let fields = [field_row.clone(), optional_row.clone(), raw_row];
     let rows = SelectedFactRows {
         declarations: &declarations,
         fields: &fields,
@@ -1203,7 +1229,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         equality_applications: &[],
         equality_facts: &[],
     };
-    let complete = admitted.project_selected_facts(ids, rows, 1000).unwrap();
+    let complete = admitted.project_selected_facts(ids, rows, 100_000).unwrap();
     assert_eq!(complete.declarations, vec![declaration.clone()]);
     assert_eq!(complete.fields.len(), 1);
     assert_eq!(complete.fields[0].row, field_row);
@@ -1244,9 +1270,10 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         occurrence: occurrence.clone(),
     };
     let application_rows = [application_row];
+    let combined_fields = [selected_field.clone(), optional_field.clone()];
     let combined_ids = || SelectedFactIds {
         declarations: std::slice::from_ref(&record),
-        fields: std::slice::from_ref(&selected_field),
+        fields: &combined_fields,
         equalities: std::slice::from_ref(&selected_equality),
     };
     let combined_rows = || SelectedFactRows {
@@ -1257,10 +1284,15 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         equality_facts: &[],
     };
     let combined = admitted
-        .project_selected_facts(combined_ids(), combined_rows(), 1000)
+        .project_selected_facts(combined_ids(), combined_rows(), 100_000)
         .expect("one admitted read retains model, field and equality facts");
     assert_eq!(combined.declarations, complete.declarations);
-    assert_eq!(combined.fields, complete.fields);
+    assert_eq!(combined.fields.len(), 2);
+    assert_eq!(combined.fields[0], complete.fields[0]);
+    assert_eq!(combined.fields[1].row, optional_row);
+    assert_eq!(combined.fields[1].order, 1);
+    assert_eq!(combined.fields[1].presence, Presence::Optional);
+    assert_eq!(combined.fields[1].value_type, ValueType::String);
     assert_eq!(combined.equalities.len(), 1);
     assert_eq!(combined.equalities[0].id, selected_equality);
     assert_eq!(
@@ -1295,7 +1327,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
                 equality_applications: &[],
                 equality_facts: &[],
             },
-            1000,
+            100_000,
         )
         .unwrap();
     assert_eq!(exact.declarations.len(), 1);
@@ -1355,7 +1387,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             equality_applications: &[],
             equality_facts: &[],
         },
-        1000,
+        100_000,
     );
     let longer = longer.unwrap();
     assert_eq!(longer.declarations, complete.declarations);
@@ -1376,14 +1408,14 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     };
     assert_eq!(
         admitted
-            .project_selected_facts(selected_once(), with_rows(&[], &fields), 1000)
+            .project_selected_facts(selected_once(), with_rows(&[], &fields), 100_000)
             .unwrap_err()
             .code,
         SelectedFactsErrorCode::MissingRow,
     );
     assert_eq!(
         admitted
-            .project_selected_facts(selected_once(), with_rows(&declarations, &[]), 1000)
+            .project_selected_facts(selected_once(), with_rows(&declarations, &[]), 100_000)
             .unwrap_err()
             .code,
         SelectedFactsErrorCode::MissingRow,
@@ -1394,7 +1426,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             .project_selected_facts(
                 selected_once(),
                 with_rows(&duplicate_declarations, &fields),
-                1000
+                100_000
             )
             .unwrap_err()
             .code,
@@ -1407,7 +1439,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         .project_selected_facts(
             selected_once(),
             with_rows(&wrong_document_rows, &fields),
-            1000,
+            100_000,
         )
         .unwrap_err();
     assert_eq!(wrong.code, SelectedFactsErrorCode::Exact);
@@ -1420,7 +1452,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     stale.structural_node.package = "foreign/document".into();
     let stale_rows = [stale];
     let stale_error = admitted
-        .project_selected_facts(selected_once(), with_rows(&stale_rows, &fields), 1000)
+        .project_selected_facts(selected_once(), with_rows(&stale_rows, &fields), 100_000)
         .unwrap_err();
     assert_eq!(stale_error.code, SelectedFactsErrorCode::Exact);
     assert_eq!(
@@ -1440,7 +1472,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         .project_selected_facts(
             selected_once(),
             with_rows(&declarations, &wrong_field_rows),
-            1000,
+            100_000,
         )
         .unwrap_err();
     assert_eq!(wrong_field_error.code, SelectedFactsErrorCode::Exact);
@@ -1462,11 +1494,99 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
                 equalities: &[],
             },
             with_rows(&declarations, &fields),
-            1000,
+            100_000,
         )
         .unwrap_err();
     assert_eq!(foreign_result.code, SelectedFactsErrorCode::ForeignNode);
     assert_eq!(foreign_result.at.as_ref(), &foreign);
+
+    let mixed_declarations = [declarations[0].clone(), stale_rows[0].clone()];
+    let mixed_declaration = admitted
+        .project_selected_facts(
+            selected_once(),
+            with_rows(&mixed_declarations, &fields),
+            100_000,
+        )
+        .unwrap_err();
+    assert_eq!(mixed_declaration.code, SelectedFactsErrorCode::DuplicateRow);
+    assert_eq!(
+        mixed_declaration.at.as_ref(),
+        &stale_rows[0].structural_node
+    );
+    let mut stale_field = fields[0].clone();
+    stale_field.record_node.package = "foreign/document".into();
+    let mixed_fields = [fields[0].clone(), stale_field.clone()];
+    let mixed_field = admitted
+        .project_selected_facts(
+            selected_once(),
+            with_rows(&declarations, &mixed_fields),
+            100_000,
+        )
+        .unwrap_err();
+    assert_eq!(mixed_field.code, SelectedFactsErrorCode::DuplicateRow);
+    assert_eq!(mixed_field.at.as_ref(), &stale_field.record_node);
+    assert_eq!(
+        mixed_field.field.as_deref(),
+        Some(selected_field.original_identity.as_ref())
+    );
+
+    let mut oversized = declarations[0].clone();
+    oversized.original_identity = "x".repeat(1_000_000).into();
+    let oversized_rows = [oversized];
+    let denied = admitted
+        .project_selected_facts(selected_once(), with_rows(&oversized_rows, &fields), 10)
+        .unwrap_err();
+    assert_eq!(denied.code, SelectedFactsErrorCode::ExhaustedWork);
+    assert_eq!(denied.at.as_ref(), &record);
+    assert!(denied.attempted_work > 0);
+
+    let unsupported: CheckedNodeId = serde_json::from_value(node_id(boolean)).unwrap();
+    let unsupported_error = admitted
+        .project_selected_facts(
+            SelectedFactIds {
+                declarations: std::slice::from_ref(&unsupported),
+                fields: &[],
+                equalities: &[],
+            },
+            with_rows(&declarations, &fields),
+            100_000,
+        )
+        .unwrap_err();
+    assert_eq!(
+        unsupported_error.code,
+        SelectedFactsErrorCode::UnsupportedForm
+    );
+    assert_eq!(unsupported_error.at.as_ref(), &unsupported);
+    let unrepresentable = admitted
+        .project_selected_facts(
+            SelectedFactIds {
+                declarations: std::slice::from_ref(&record),
+                fields: std::slice::from_ref(&raw_field),
+                equalities: &[],
+            },
+            with_rows(&declarations, &fields),
+            100_000,
+        )
+        .unwrap_err();
+    assert_eq!(unrepresentable.code, SelectedFactsErrorCode::Exact);
+    assert_eq!(
+        unrepresentable.exact_code,
+        Some(ExactTypeProjectionErrorCode::UnsupportedExactType)
+    );
+    assert_eq!(unrepresentable.at.as_ref(), &record);
+    assert_eq!(
+        unrepresentable.field.as_deref(),
+        Some(raw_field.original_identity.as_ref())
+    );
+    assert_eq!(
+        admitted.project_selected_facts(
+            selected_once(),
+            with_rows(&declarations, &fields),
+            complete.work
+        ),
+        Ok(complete),
+        "unselected unsupported forms and fields must not change the selected result",
+    );
 }
 
 /// A flattened field set cannot stand in for an authored redefinition link.

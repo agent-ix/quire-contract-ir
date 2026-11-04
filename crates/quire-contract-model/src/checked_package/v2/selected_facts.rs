@@ -14,6 +14,7 @@ use super::{
 use quire_exact::{Presence, ValueType};
 use quire_semantic_value::declaration::AdmittedEqualityDecision;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{self, Write as _};
 
 /// An explicitly selected original field of an admitted record declaration.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -223,6 +224,43 @@ impl Meter {
     }
 }
 
+struct ChargedDebug<'a> {
+    meter: &'a mut Meter,
+    at: &'a CheckedNodeId,
+    denied: Option<SelectedFactsError>,
+}
+
+impl fmt::Write for ChargedDebug<'_> {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        match self.meter.text(self.at, value) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.denied = Some(error);
+                Err(fmt::Error)
+            }
+        }
+    }
+}
+
+fn charge_material(
+    meter: &mut Meter,
+    at: &CheckedNodeId,
+    value: &impl fmt::Debug,
+) -> Result<(), SelectedFactsError> {
+    meter.charge(at, 1)?;
+    let mut writer = ChargedDebug {
+        meter,
+        at,
+        denied: None,
+    };
+    if write!(&mut writer, "{value:?}").is_err() {
+        return Err(writer.denied.unwrap_or_else(|| {
+            SelectedFactsError::new(SelectedFactsErrorCode::ExhaustedWork, at, writer.meter.used)
+        }));
+    }
+    Ok(())
+}
+
 fn exact_error(error: ExactTypeProjectionError, prior: u64) -> SelectedFactsError {
     SelectedFactsError {
         code: SelectedFactsErrorCode::Exact,
@@ -367,6 +405,7 @@ impl CheckedPackageV2 {
             } else {
                 member_type
             };
+            charge_material(&mut meter, &id.record, member_type)?;
             let mut declaration_rows = vec![declaration];
             if let MemberType::Reference(target)
             | MemberType::Record(target)
@@ -431,6 +470,7 @@ impl CheckedPackageV2 {
             if !seen_equalities.insert(id) {
                 continue;
             }
+            charge_material(&mut meter, &id.application, id)?;
             meter.charge(&id.application, 1)?;
             if self.node(&id.application).is_none() {
                 return Err(SelectedFactsError::new(
@@ -450,6 +490,7 @@ impl CheckedPackageV2 {
                 if (row.checked_application == id.application && row.occurrence == id.occurrence)
                     || row.application == application_row.node_key
                 {
+                    charge_material(&mut meter, &row.structural_node, row)?;
                     facts.push(row.clone());
                 }
             }
@@ -463,6 +504,7 @@ impl CheckedPackageV2 {
                         || matches!(&fact.fact, EqualityFactWitness::Unit { unit_id, .. } if unit_id == &row.unit_id);
                 }
                 if selected {
+                    charge_material(&mut meter, &row.structural_node, row)?;
                     units.push(row.clone());
                 }
             }
@@ -552,24 +594,26 @@ fn find_declaration_row(
     for row in rows {
         meter.charge(&row.structural_node, 1)?;
         if &row.structural_node == id {
-            if selected.is_some() {
-                return Err(SelectedFactsError::new(
-                    SelectedFactsErrorCode::DuplicateRow,
-                    id,
-                    meter.used,
-                ));
-            }
-            selected = Some(row.clone());
-        } else if expected.is_some_and(|(document, original)| {
-            row.selected_document.as_ref() == document && row.original_identity.as_ref() == original
-        }) {
-            if stale.is_some() {
+            if selected.is_some() || stale.is_some() {
                 return Err(SelectedFactsError::new(
                     SelectedFactsErrorCode::DuplicateRow,
                     &row.structural_node,
                     meter.used,
                 ));
             }
+            charge_material(meter, &row.structural_node, row)?;
+            selected = Some(row.clone());
+        } else if expected.is_some_and(|(document, original)| {
+            row.selected_document.as_ref() == document && row.original_identity.as_ref() == original
+        }) {
+            if stale.is_some() || selected.is_some() {
+                return Err(SelectedFactsError::new(
+                    SelectedFactsErrorCode::DuplicateRow,
+                    &row.structural_node,
+                    meter.used,
+                ));
+            }
+            charge_material(meter, &row.structural_node, row)?;
             stale = Some(row.clone());
         }
     }
@@ -589,21 +633,7 @@ fn find_field_row(
     for row in rows {
         meter.charge(&row.record_node, 1)?;
         if row.record_node == id.record && row.field_original_identity == id.original_identity {
-            if selected.is_some() {
-                let mut error = SelectedFactsError::new(
-                    SelectedFactsErrorCode::DuplicateRow,
-                    &id.record,
-                    meter.used,
-                );
-                error.field = Some(id.original_identity.clone());
-                return Err(error);
-            }
-            selected = Some(row.clone());
-        } else if row.selected_document == declaration.selected_document
-            && row.record_original_identity == declaration.original_identity
-            && row.field_original_identity == id.original_identity
-        {
-            if stale.is_some() {
+            if selected.is_some() || stale.is_some() {
                 let mut error = SelectedFactsError::new(
                     SelectedFactsErrorCode::DuplicateRow,
                     &row.record_node,
@@ -612,6 +642,22 @@ fn find_field_row(
                 error.field = Some(id.original_identity.clone());
                 return Err(error);
             }
+            charge_material(meter, &row.record_node, row)?;
+            selected = Some(row.clone());
+        } else if row.selected_document == declaration.selected_document
+            && row.record_original_identity == declaration.original_identity
+            && row.field_original_identity == id.original_identity
+        {
+            if stale.is_some() || selected.is_some() {
+                let mut error = SelectedFactsError::new(
+                    SelectedFactsErrorCode::DuplicateRow,
+                    &row.record_node,
+                    meter.used,
+                );
+                error.field = Some(id.original_identity.clone());
+                return Err(error);
+            }
+            charge_material(meter, &row.record_node, row)?;
             stale = Some(row.clone());
         }
     }
@@ -635,6 +681,7 @@ fn find_equality_row(
         if row.application == id.application {
             if row.occurrence != id.occurrence {
                 if wrong_occurrence.is_none() {
+                    charge_material(meter, &row.application, row)?;
                     wrong_occurrence = Some(row.clone());
                 }
                 continue;
@@ -648,6 +695,7 @@ fn find_equality_row(
                 error.occurrence = Some(id.occurrence.clone());
                 return Err(error);
             }
+            charge_material(meter, &row.application, row)?;
             selected = Some(row.clone());
         }
     }
