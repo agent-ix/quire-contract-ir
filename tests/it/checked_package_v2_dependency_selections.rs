@@ -86,15 +86,26 @@ fn expect_refusal(package: &Value, code: Code, path: &str, cause: Option<Cause>)
     );
 }
 
-/// FR-038-AC-31/218: two selected packages bind by their admitted names, and
-/// the exact structural entries survive reading without an identity preimage.
-#[trace("TC-048", "FR-038-AC-31", "FR-038-AC-218", "FR-038-AC-366")]
+/// FR-038-AC-31/218/460: two selected packages retain complete values in lock
+/// order, including source material that differs beyond their names.
+#[trace(
+    "TC-048",
+    "FR-038-AC-31",
+    "FR-038-AC-218",
+    "FR-038-AC-366",
+    "FR-038-AC-460"
+)]
 #[test]
 fn ascending_dependency_names_admit_and_are_retained() {
     let geometry_wire = empty_package("test/geometry");
-    let units_wire = empty_package("test/units");
+    let mut units_wire = empty_package("test/units");
+    units_wire["source_map"][0]["regions"][0]["end"] = json!(100);
     let (_, geometry) = admitted_dependency(&geometry_wire);
     let (_, units) = admitted_dependency(&units_wire);
+    assert_ne!(
+        geometry.source_map()[0].regions[0].end,
+        units.source_map()[0].regions[0].end
+    );
     let entries = vec![entry("test/geometry"), entry("test/units")];
     let importer = with_selections(empty_package("test/importer"), entries.clone());
     let CheckedPackageV2ReadResult::Admitted(admitted) = read_with_dependencies(
@@ -108,8 +119,43 @@ fn ascending_dependency_names_admit_and_are_retained() {
         json!(entries)
     );
     assert_eq!(admitted.name(), "test/importer");
+    assert_eq!(
+        admitted.direct_dependencies().collect::<Vec<_>>(),
+        vec![&geometry, &units]
+    );
+    assert_eq!(admitted.direct_dependencies().len(), 2);
+    assert_eq!(geometry.direct_dependencies().len(), 0);
     assert!(importer.get("package_id").is_none());
     assert!(importer.get("identity_preimage").is_none());
+}
+
+/// FR-038-AC-460: a parent exposes its child while the child's own accessor
+/// exposes the grandchild; neither iteration fabricates a transitive edge.
+#[trace("TC-048", "FR-038-AC-460")]
+#[test]
+fn direct_dependency_accessor_stops_at_one_edge() {
+    let (_, grandchild) = admitted_dependency(&empty_package("test/grandchild"));
+    let child_wire = with_selections(empty_package("test/child"), vec![entry(grandchild.name())]);
+    let CheckedPackageV2ReadResult::Admitted(child) =
+        read_with_dependencies(&child_wire, &[(grandchild.name(), &grandchild)])
+    else {
+        panic!("child with a grandchild must admit");
+    };
+    let root_wire = with_selections(empty_package("test/root"), vec![entry(child.name())]);
+    let CheckedPackageV2ReadResult::Admitted(root) =
+        read_with_dependencies(&root_wire, &[(child.name(), &child)])
+    else {
+        panic!("root with a child must admit");
+    };
+    assert_eq!(
+        root.direct_dependencies().collect::<Vec<_>>(),
+        vec![child.as_ref()]
+    );
+    assert_eq!(
+        child.direct_dependencies().collect::<Vec<_>>(),
+        vec![&grandchild]
+    );
+    assert_eq!(grandchild.direct_dependencies().len(), 0);
 }
 
 /// FR-038-AC-32/63: `{identity}` is the complete selection entry. An absent
