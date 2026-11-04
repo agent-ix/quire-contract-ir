@@ -1541,7 +1541,7 @@ mod tests {
         wire
     }
 
-    /// Trace: FR-353-AC-7.
+    /// Trace: FR-353-AC-7, FR-357-AC-6.
     #[test]
     fn bounded_text_equality_names_missing_text_identity() {
         use quire_exact::{Location, NodeKey, Origin, PathSegment, Role};
@@ -1574,7 +1574,14 @@ mod tests {
             Location::new(original, Origin::new(Role::from("expression"), 0)),
         );
         let missing = package
-            .admitted_equality(&application, &occurrence, &[row], &[], &[], 1000)
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                &[],
+                1000,
+            )
             .expect_err("Text identity row remains required");
         assert_eq!(
             missing.code,
@@ -1591,6 +1598,33 @@ mod tests {
             )
             .expect("Text node")
         );
+        let selected = super::super::SelectedFactEqualityId {
+            application: application.clone(),
+            occurrence: occurrence.clone(),
+        };
+        let selected_error = package
+            .project_selected_facts(
+                super::super::SelectedFactIds {
+                    declarations: &[],
+                    fields: &[],
+                    equalities: std::slice::from_ref(&selected),
+                },
+                super::super::SelectedFactRows {
+                    declarations: &[],
+                    fields: &[],
+                    source_units: &[],
+                    equality_applications: &[row],
+                    equality_facts: &[],
+                },
+                1000,
+            )
+            .expect_err("selected-fact read preserves the native Text witness refusal");
+        assert_eq!(
+            selected_error.code,
+            super::super::SelectedFactsErrorCode::Equality
+        );
+        assert_eq!(selected_error.at, missing.at);
+        assert_eq!(selected_error.equality.as_deref(), Some(&missing));
     }
 
     /// Trace: FR-353-AC-1, FR-353-AC-7.
