@@ -43,6 +43,7 @@
 use super::model_fields::{
     DeclarationIndex, DeclaredNode, FieldTables, RecordBinderTypes, Selected,
 };
+use super::selected_document::{json_number, SelectedDocument};
 use super::{
     CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm, ValidationFailure,
     WorkMeter,
@@ -2105,7 +2106,7 @@ pub(super) fn admit_document(
     supplied: Option<&[u8]>,
     identity_of: fn(&Value) -> Option<&str>,
     budget: &mut Budget<'_>,
-) -> Result<Value, SelectionFailure> {
+) -> Result<(Value, SelectedDocument), SelectionFailure> {
     use CheckedPackageRefusalCause as Cause;
     use CheckedPackageRefusalCode as Code;
     let Some(bytes) = supplied else {
@@ -2163,7 +2164,9 @@ pub(super) fn admit_document(
     // `Value` view of it: the document is not parsed a second time.
     let document = document_value(&reading);
     let refusal = match identity_of(&document) {
-        Some(found) if found == identity => return Ok(document),
+        Some(found) if found == identity => {
+            return Ok((document, SelectedDocument::new(reading)));
+        }
         Some(_) | None => SelectionFailure::from(SelectionRefusal::at(
             Code::InvalidModelBinding,
             Cause::WrongModelSelection,
@@ -2194,13 +2197,7 @@ fn document_value(document: &quire_canonical::Document) -> Value {
                 Node::Null => finished = Some(Value::Null),
                 Node::Bool(flag) => finished = Some(Value::Bool(flag)),
                 Node::Number(number) => {
-                    let text = number.text();
-                    let value = text
-                        .parse::<i64>()
-                        .map(serde_json::Number::from)
-                        .or_else(|_| text.parse::<u64>().map(serde_json::Number::from))
-                        .ok()
-                        .or_else(|| serde_json::Number::from_f64(number.value()));
+                    let value = json_number(number);
                     finished = Some(value.map_or(Value::Null, Value::Number));
                 }
                 Node::String(text) => finished = Some(Value::String(text.to_owned())),
@@ -2459,8 +2456,8 @@ pub(super) fn admit_selection(
     evidence: &CheckedPackageEvidence,
     budget: &mut Budget<'_>,
     unit_refs: &UnitRefs,
-) -> Result<DomainModel, SelectionFailure> {
-    let document = admit_document(
+) -> Result<(DomainModel, SelectedDocument), SelectionFailure> {
+    let (document, selected) = admit_document(
         identity,
         evidence.domain_package_document(identity),
         semantic_ir_identity,
@@ -2468,7 +2465,7 @@ pub(super) fn admit_selection(
     )?;
     let model = read_semantic_ir(&document, checked_package, budget, unit_refs);
     quire_canonical::drop_value(document);
-    model
+    model.map(|model| (model, selected))
 }
 
 /// Whether `text` is an FR-154 object id, `^[A-Za-z][A-Za-z0-9_]*$`.

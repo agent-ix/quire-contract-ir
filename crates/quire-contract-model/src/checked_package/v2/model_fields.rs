@@ -21,6 +21,7 @@ use super::model_members::{
     DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, NativeTypeRef,
     Owner, RelationshipDecl, SelectedTypeRef, SelectedVariantCase,
 };
+use super::selected_document::SelectedDocument;
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
 use std::collections::{BTreeMap, BTreeSet};
@@ -528,10 +529,11 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNo
 /// the declaration index, each document's field tables, the selected
 /// operation parameter types needed for clause-context reads, and each
 /// selected relationship's [`RetainedRelationship`] record.
-/// Not part of the package's equality, which is the equality of its admitted
-/// content.
+/// Only the complete admitted documents take part in package equality;
+/// the derived tables, indexes and read limits do not.
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
+    documents: Vec<SelectedDocument>,
     index: DeclarationIndex,
     object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>>,
     /// Admitted selected documents, including their field tables, for
@@ -926,7 +928,15 @@ impl RetainedModels {
             .fields
             .exposed_names(&declared.node)
     }
-    pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
+    pub(super) fn same_documents(&self, other: &Self) -> bool {
+        self.documents == other.documents
+    }
+
+    pub(super) fn new(
+        index: DeclarationIndex,
+        models: Vec<DomainModel>,
+        documents: Vec<SelectedDocument>,
+    ) -> Self {
         let mut object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>> =
             BTreeMap::new();
         for (key, declared) in &index.0 {
@@ -975,6 +985,7 @@ impl RetainedModels {
             }
         }
         Self {
+            documents,
             index,
             object_declarations,
             models,

@@ -1096,7 +1096,17 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             terms,
             kinds,
             bytes: BYTES,
-            models: RetainedModels::new(index, vec![model]),
+            models: RetainedModels::new(
+                index,
+                vec![model],
+                vec![super::super::selected_document::SelectedDocument::new(
+                    quire_canonical::read(
+                        &serde_json::to_vec(document).expect("selected JSON"),
+                        BYTES,
+                    )
+                    .expect("flat selected document"),
+                )],
+            ),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
         },

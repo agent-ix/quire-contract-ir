@@ -1203,7 +1203,7 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
             &Arc::new(BTreeMap::new()),
         )
     };
-    let admitted = admit("acme/orders", &evidence).expect("admitted");
+    let (admitted, _) = admit("acme/orders", &evidence).expect("admitted");
     assert!(admitted.object_types.contains_key(WIDGET));
     let refusal =
         |identity: &str, evidence: &CheckedPackageEvidence| match admit(identity, evidence) {

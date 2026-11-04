@@ -55,6 +55,7 @@ mod runtime_type_projection;
 mod rust_spelling;
 mod scalar_operands;
 mod schedulability;
+mod selected_document;
 mod selected_facts;
 mod state;
 mod step_relation;
@@ -194,6 +195,7 @@ use model_members::{
     DURATION_RESOLVED_PREFIX,
 };
 use quire_canonical::FixedShape;
+use selected_document::SelectedDocument;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -919,14 +921,17 @@ impl Drop for CheckedPackageV2 {
     }
 }
 
-/// Equality is the equality of the admitted content. The read limit a package
+/// Equality includes each selected document's complete admitted JSON value.
+/// The read limit a package
 /// retains for its lowering is not content, so two admissions of the same bytes
 /// under different limits are equal; nor are the retained field tables,
 /// declaration index, operation parameter types and relationship records, which
 /// are derived from the same admitted documents.
 impl PartialEq for CheckedPackageV2 {
     fn eq(&self, other: &Self) -> bool {
-        self.wire == other.wire && self.kinds == other.kinds
+        self.wire == other.wire
+            && self.kinds == other.kinds
+            && self.models.same_documents(&other.models)
     }
 }
 
@@ -1466,6 +1471,7 @@ fn validate(
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
         models,
+        documents,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
     let ValidatedGraph {
@@ -1497,7 +1503,7 @@ fn validate(
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
-    let models = RetainedModels::new(declarations, models);
+    let models = RetainedModels::new(declarations, models, documents);
     operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
     if let Some(data) = wire.checked_term_data.as_ref() {
         dispatch_projection::validate_checked_term_data(
@@ -1525,6 +1531,7 @@ fn validate(
 /// in lock order, and each selected dependency's supplied package.
 struct LockAdmission<'a> {
     models: Vec<DomainModel>,
+    documents: Vec<SelectedDocument>,
     dependencies: SuppliedDependencies<'a>,
 }
 
@@ -1631,7 +1638,7 @@ fn validate_lock<'a>(
     } else {
         checked_unit_refs(&wire.semantic_graph.nodes, meter)?
     };
-    let mut models =
+    let (mut models, documents) =
         validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
     if !models.is_empty() {
         let mut resolved = (*unit_refs).clone();
@@ -1680,6 +1687,7 @@ fn validate_lock<'a>(
     build_field_tables(&mut models, meter)?;
     Ok(LockAdmission {
         models,
+        documents,
         dependencies,
     })
 }
@@ -1822,7 +1830,7 @@ fn validate_domain_packages(
     meter: &mut WorkMeter,
     bytes: u64,
     unit_refs: &UnitRefs,
-) -> Result<Vec<DomainModel>, ValidationFailure> {
+) -> Result<(Vec<DomainModel>, Vec<SelectedDocument>), ValidationFailure> {
     let row = |root: usize| node_pointer(root).key("owner");
     let at = |root: usize, member: &str| row(root).key(member);
     roots
