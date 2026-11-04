@@ -1700,12 +1700,29 @@ fn published_tuple_positions_execute_the_reader_application_join() {
             .as_array_mut()
             .expect("nodes");
         nodes.retain(|node| node["node_tag"] != "expression");
-        nodes
-            .iter_mut()
+        // The published receiver also feeds union payload examples. Give this
+        // position control its own receiver so changing its tuple type cannot
+        // corrupt an unrelated authoritative payload.
+        let mut receiver = nodes
+            .iter()
             .find(|node| node["node_id"] == parameter_id)
-            .expect("projection parameter")["semantic_type"] =
-            serde_json::to_value(&declaration).expect("id");
+            .expect("projection parameter")
+            .clone();
+        let receiver_id = super::fixture_support::structural_id(
+            "example",
+            vec![
+                json!("value"),
+                json!("parameter"),
+                json!("tuple-position-receiver"),
+                json!(name),
+            ],
+            0,
+        );
+        receiver["node_id"] = receiver_id.clone();
+        receiver["semantic_type"] = serde_json::to_value(&declaration).expect("id");
+        nodes.push(receiver);
         let mut application = template.clone();
+        application["body"]["arguments"][0]["target"] = receiver_id;
         application["body"]["operation"]["member"]["declaration"] =
             serde_json::to_value(&declaration).expect("id");
         application["body"]["operation"]["member"]["position"] = row["position"].clone();
@@ -1750,9 +1767,16 @@ fn published_tuple_positions_execute_the_reader_application_join() {
                 refusal.loci[0]
                     .path
                     .as_ref()
-                    .expect("member locus")
+                    .expect("application locus")
                     .to_string()
-                    .ends_with("/body/operation/member"),
+                    == format!(
+                        "/semantic_graph/nodes/{}",
+                        package["semantic_graph"]["nodes"]
+                            .as_array()
+                            .expect("nodes")
+                            .len()
+                            - 1
+                    ),
                 "{name}: {refusal:?}"
             );
         } else {

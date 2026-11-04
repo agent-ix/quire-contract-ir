@@ -2314,3 +2314,31 @@ fn timed_root_without_guards_keeps_the_place_template() {
         "{result:?}"
     );
 }
+
+/// Whole timed-reference criterion: graph shape remains earlier than typed
+/// timed interpretation, while occurrence presentation does not name a node.
+#[trace("TC-048", "FR-038-AC-319")]
+#[test]
+fn timed_reference_shape_and_meaning_are_independent_admission_controls() {
+    timed_graph_shape_and_body_edits_refuse_at_their_own_stage();
+    timed_source_occurrence_reordering_retains_structural_node_ids();
+    // A dependency-consistent missing tick target belongs to the typed join,
+    // not the stale-dependency refusal tested above. The owning vector supplies
+    // its independently specified code, cause and exact member locus.
+    timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus();
+}
+
+/// Read the owner's positive models and every semantic refusal, including the
+/// separate dense/base-Time group, through the production reader. The vector
+/// loci are authoritative; mutation pointers are never used as an oracle.
+#[trace("TC-048", "FR-038-AC-320")]
+#[test]
+fn timed_selected_model_reconstruction_obeys_all_published_paired_refusals() {
+    timed_model_published_fixture_round_trips_complete_nodes();
+    timed_model_published_tick_retains_typed_operation_anchor();
+    timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus();
+    timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity();
+    timed_model_missing_root_precedes_later_quantity_validation();
+    timed_model_repeated_reference_precedes_later_quantity_validation();
+    timed_model_rebuilt_semantic_defects_keep_paired_causes();
+}

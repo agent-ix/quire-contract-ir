@@ -805,7 +805,8 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
     "FR-038-AC-181",
     "FR-038-AC-197",
     "FR-038-AC-198",
-    "FR-038-AC-199"
+    "FR-038-AC-199",
+    "FR-038-AC-234"
 )]
 #[test]
 fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_refuse() {

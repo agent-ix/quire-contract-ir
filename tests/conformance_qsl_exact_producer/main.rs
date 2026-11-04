@@ -22,7 +22,17 @@ impl Drop for Scratch {
 }
 
 fn cargo(helper: &Path, target: &Path, arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO"))
+    Command::new("flock")
+        .args([
+            "/tmp/titan-cargo.lock",
+            "nice",
+            "-n",
+            "10",
+            "ionice",
+            "-c2",
+            "-n7",
+        ])
+        .arg(env!("CARGO"))
         .current_dir(helper)
         .args(arguments)
         .env("CARGO_TARGET_DIR", target)
@@ -360,4 +370,27 @@ fn assert_accessor_reads_only_admitted_terms() {
             .collect()
     );
     assert_eq!(calls.methods, ["clone", "cloned", "contains", "execution_point", "node", "node_kind", "ok_or_else", "term"].map(str::to_owned).into_iter().collect(), "the accessor obtains only admitted typed nodes/terms, never source bindings or a fallback producer path");
+}
+
+#[trace("TC-048", "FR-038-AC-232")]
+#[test]
+fn fresh_qsl_bounded_record_narrow_is_a_closed_composite_literal() {
+    let (_scratch, helper, target) = prepare_consumer(
+        "narrow-record",
+        "tests/conformance_qsl_exact_producer/narrow_record.rs",
+        &["qsl-replay"],
+    );
+    let result = cargo(
+        &helper,
+        &target,
+        &["run", "--offline", "--locked", "-j2", "--bin", "producer"],
+    );
+    assert!(
+        result.status.success(),
+        "fresh narrow producer/reader: {}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8_lossy(&result.stdout)
+        .contains("fresh bounded-record eq and ne preserve closed authentic operands"));
 }

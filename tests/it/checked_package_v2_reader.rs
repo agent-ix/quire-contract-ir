@@ -1176,7 +1176,7 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_doc
     }
 }
 
-#[trace("TC-048", "FR-038-AC-129")]
+#[trace("TC-048", "TC-226", "FR-038-AC-129")]
 #[test]
 fn selected_documents_remain_complete_structural_values_after_admission() {
     let wire = model_owned_package(
@@ -1234,7 +1234,7 @@ fn selected_documents_remain_complete_structural_values_after_admission() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-129")]
+#[trace("TC-048", "TC-226", "FR-038-AC-129")]
 #[test]
 fn selected_document_value_equality_ignores_object_order_and_wire_spacing() {
     let wire = model_owned_package(
@@ -1266,7 +1266,8 @@ fn selected_document_value_equality_ignores_object_order_and_wire_spacing() {
     .into_bytes();
     assert_ne!(first_bytes, second_bytes);
     let admit_bytes = |bytes: Vec<u8>| {
-        let mut evidence = evidence_for(&wire);
+        let mut evidence = CheckedPackageEvidence::new();
+        evidence.support_feature(COMPLETE_VALUE_FEATURE);
         evidence
             .insert_domain_package_document("test/orders", bytes)
             .expect("one selected document");
@@ -1278,7 +1279,7 @@ fn selected_document_value_equality_ignores_object_order_and_wire_spacing() {
     assert_eq!(admit_bytes(first_bytes), admit_bytes(second_bytes));
 }
 
-#[trace("TC-048", "FR-038-AC-129")]
+#[trace("TC-048", "TC-226", "FR-038-AC-129")]
 #[test]
 fn selected_document_clone_comparison_and_final_drop_use_a_bounded_native_stack() {
     std::thread::Builder::new()
@@ -1296,7 +1297,8 @@ fn selected_document_clone_comparison_and_final_drop_use_a_bounded_native_stack(
             bytes.extend(std::iter::repeat_n(b']', 20_000));
             bytes.push(b'}');
             let admit = |bytes: Vec<u8>| {
-                let mut evidence = evidence_for(&wire);
+                let mut evidence = CheckedPackageEvidence::new();
+                evidence.support_feature(COMPLETE_VALUE_FEATURE);
                 evidence
                     .insert_domain_package_document("test/orders", bytes)
                     .expect("selected input");
