@@ -1740,7 +1740,7 @@ mod tests {
         let mut oversized_facts = facts.clone();
         oversized_facts[0].structural_key = NodeKey::new(
             "composite",
-            vec![PathSegment::Text("x".repeat(1_000_000).into())],
+            vec![PathSegment::Text("x".repeat(1_000_000))],
             0,
         )
         .unwrap();
