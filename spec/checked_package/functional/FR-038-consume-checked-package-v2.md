@@ -2432,7 +2432,7 @@ reported ahead of a later clause's `over` defect. All precede operation refusals
      `lower > upper` (merged FR-370-AC-9 and the stage order of its "Reader order":
      strict wire validation precedes the temporal step).
    - **Window aggregate arguments** reached from this clause's formula, in
-     ascending structural formula node-id order, by the five checks below.
+     ascending structural formula node-id order, by QSpec FR-370's five checks.
 
    The temporal step reads only a well-formed member: an interval member whose
    shape the member rules above refuse (a member of another kind, an interval with
