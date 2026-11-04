@@ -1765,6 +1765,7 @@ mod tests {
     }
 
     fn step(nodes: &[CheckedSemanticNodeV2]) -> Result<(), ValidationFailure> {
+        let package_lock = lock();
         let kinds: Vec<CheckedNodeKind> = nodes
             .iter()
             .map(|node| {
@@ -1783,8 +1784,11 @@ mod tests {
             &kinds,
             &index,
             &ModelOwners::default(),
-            &lock(),
-            &[],
+            TemporalContext {
+                lock: &package_lock,
+                diagnostics: &[],
+                bindings: None,
+            },
             &mut WorkMeter::new(1_000),
         )
     }

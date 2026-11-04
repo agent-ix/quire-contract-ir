@@ -1213,6 +1213,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::InvalidValue => "invalid-value",
         Cause::DuplicateMember => "duplicate-member",
         Cause::TypeMismatch => "type-mismatch",
+        Cause::UnitMismatch => "unit-mismatch",
         Cause::NonBooleanRoot => "non-boolean-root",
         Cause::MissingTimedModel => "missing-timed-model",
         Cause::TimedNodeReference => "timed-node-reference",
