@@ -4,8 +4,8 @@
 //! By-reference reader reproduction for the QSpec STD-609 protocol mutations.
 
 use super::{
-    fixtures_dir, positive_document, proposal_dir_of, read_json, read_package_with_document,
-    read_positive, vector_selected_documents,
+    fixture_support, fixtures_dir, positive_document, proposal_dir_of, read_json,
+    read_package_with_document, read_positive, vector_selected_documents,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::CheckedPackageV2ReadResult;
@@ -391,24 +391,11 @@ fn assert_appended_protocol_node_admits(
     label: &str,
 ) {
     let mut package = base.clone();
-    let position = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("base nodes")
-        .len();
-    let occurrence = &node["occurrences"][0];
-    let source = package["source_map"][0]["regions"][0]["source"].clone();
-    package["source_map"]
-        .as_array_mut()
-        .expect("source map")
-        .push(serde_json::json!({
-            "node_id":node["node_id"], "role":occurrence["role"],
-            "ordinal":occurrence["ordinal"],
-            "regions":[{"source":source,"start":position,"end":position+1}]
-        }));
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("graph nodes")
         .push(node);
+    fixture_support::settle(&mut package);
     let result = read(&package, document);
     assert!(
         matches!(&result, CheckedPackageV2ReadResult::Admitted(_)),
