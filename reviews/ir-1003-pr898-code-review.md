@@ -95,3 +95,11 @@ Code review includes the Rust lane. Gap analysis includes the explicitly request
 ### Disposition verification
 
 Inspected the frozen fix diff and unchanged assertions directly. No additional findings. The final local aggregate gate remains the lead’s responsibility.
+
+## Supplemental verification (disposition pass 2)
+
+PASS. Reviewed the representation adjustment following the aggregate canonical-type guard failure. The guard and its assertions are unchanged. The selected-document newtype is removed entirely: existing RetainedModels now retains the original flat quire-canonical arenas directly in Arc<Document>, with a borrowed iterative free comparator and an Arc pointer fast path. This preserves complete JSON semantics, clone/final-drop depth independence and the absence of another canonical encoder or buffer. The comparator remains a semantic equality walk over flat Document nodes, not a recursive serde_json::Value owner or canonicalization implementation.
+
+CanonicalBuffer is a private native Vec byte sink implementing quire-canonical::Sink. Its named bytes field holds only the original output buffer; canonicalize still calls the one quire-canonical::encode path. The test-only one-shot still calls the real Vec::try_reserve overflow and normal allocation-error mapping; no partial buffer is published. It wraps neither a quire-canonical Writer, Limits, Document nor Sink value, adds no alias/public surface and changes no logical charges. The architecture satisfies FR-038 canonical-encoding intent rather than merely evading the syntax guard.
+
+No new findings; the earlier two fixed findings remain fixed. This source review ran no Cargo. The earlier aggregate had failures and is not a PASS; the lead must run the necessary final-head gate after the representation fix.
