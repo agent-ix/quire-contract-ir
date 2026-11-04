@@ -174,6 +174,76 @@ fn ieee_law(f: &mut Fixture, position: usize) {
         json!([{"role":"ieee_profile", "definition":definition}]);
     settle(&mut f.package);
 }
+
+fn selected_catalog_law(f: &mut Fixture, position: usize, role: &str) {
+    let catalog: Value = serde_json::from_str(
+        quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
+    )
+    .expect("reader catalog");
+    let definition = catalog["law_roles"][role][0].clone();
+    f.package["lock"]["definition_selections"]
+        .as_array_mut()
+        .expect("selections")
+        .push(definition.clone());
+    f.package["semantic_graph"]["nodes"][position]["body"]["operation"]["laws"]
+        .as_array_mut()
+        .expect("laws")
+        .push(json!({"role": role, "definition": definition}));
+    settle(&mut f.package);
+}
+
+fn text_or_string_conversion(identity: &str) -> Option<Value> {
+    let (source, destination) = identity
+        .strip_prefix("quire.op.text.to_")
+        .map(|to| ("text", to))
+        .or_else(|| {
+            identity
+                .strip_prefix("quire.op.string.to_")
+                .map(|to| ("string", to))
+        })?;
+    if !matches!(
+        destination,
+        "integer" | "decimal" | "rational" | "float32" | "float64" | "quantity"
+    ) {
+        return None;
+    }
+    let mut f = fixture();
+    let source_type = if source == "text" {
+        f.text.clone()
+    } else {
+        scalar(&mut f, "string")
+    };
+    let destination_type = match destination {
+        "integer" => f.integer.clone(),
+        "rational" => f.rational.clone(),
+        "quantity" => f.unit.clone(),
+        other => scalar(&mut f, other),
+    };
+    let rounding = matches!(destination, "decimal" | "float32" | "float64" | "quantity");
+    let mode = if rounding {
+        json!({"kind": "rounding", "value": "exact"})
+    } else {
+        Value::Null
+    };
+    let at = application(
+        &mut f,
+        "convert",
+        "conversion",
+        identity,
+        mode,
+        &destination_type,
+        &destination_type,
+        vec![json!({"term": "literal", "type": node_id(&source_type),
+            "value_kind": source, "value": "1"})],
+    );
+    if source == "text" {
+        selected_catalog_law(&mut f, at, "text_profile");
+    }
+    if matches!(destination, "float32" | "float64") {
+        selected_catalog_law(&mut f, at, "ieee_profile");
+    }
+    Some(f.package)
+}
 fn numeric_literal(ty: &str, form: &str) -> Value {
     match form {
         "float32" => json!({"term":"literal", "type":node_id(ty),
@@ -311,6 +381,9 @@ fn unavailable_class(identity: &str) -> &'static str {
 // A fresh package is built for each identity. These are the entries for which
 // the existing nominal/structural fixture helpers produce a valid source.
 pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
+    if let Some(package) = text_or_string_conversion(identity) {
+        return Some(package);
+    }
     if identity == "quire.op.numeric.narrow" {
         return Some(crate::admitted_result_context::fixture());
     }
@@ -924,11 +997,35 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
             );
             admitted.insert(identity.to_owned());
         } else if let Some(package) = admitted_fixture(identity).or_else(|| simple_fixture(entry)) {
-            assert!(
-                matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-                "{identity}: {:?}",
-                read(&package)
-            );
+            let result = read(&package);
+            let CheckedPackageV2ReadResult::Admitted(admitted_package) = result else {
+                panic!("{identity}: {result:?}");
+            };
+            if identity.starts_with("quire.op.text.to_")
+                || identity.starts_with("quire.op.string.to_")
+            {
+                let position = package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("nodes")
+                    .iter()
+                    .position(|node| node["body"]["operation"]["identity"] == identity)
+                    .expect("conversion application");
+                let body = serde_json::to_value(&admitted_package.graph().nodes[position].body)
+                    .expect("typed conversion body");
+                let source = identity.split('.').nth(2).expect("source family");
+                assert_eq!(body["operation"]["identity"], identity);
+                assert_eq!(body["arguments"][0]["value_kind"], source);
+                assert_eq!(body["arguments"][0]["value"], "1");
+                assert_eq!(
+                    body["operation"]["member"]["declaration"],
+                    body["result_type"]
+                );
+                assert_eq!(
+                    serde_json::to_value(&admitted_package.graph().nodes[position].semantic_type)
+                        .expect("typed result"),
+                    body["result_type"]
+                );
+            }
             admitted.insert(identity.to_owned());
         } else {
             assert!(
@@ -941,30 +1038,20 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
                 .or_insert(0usize) += 1;
         }
     }
-    assert_eq!(entries.len(), 160, "catalogue entry count changed");
     assert_eq!(
-        admitted.len(),
-        57,
-        "57 of 160 entries have behavioral controls"
+        admitted.len() + unavailable.len(),
+        entries.len(),
+        "each catalog entry has an admitted control or an explicit unavailable reason"
     );
-    assert_eq!(unavailable.len(), 103, "unavailable fixture count changed");
     assert_eq!(
-        unavailable_classes,
-        BTreeMap::from([
-            (
-                "requires control, temporal, state, claim, or protocol context not built here",
-                25
-            ),
-            (
-                "requires an IEEE profile and typed operands not built here",
-                15
-            ),
-            ("requires selected model declarations not built here", 3),
-            (
-                "requires typed operands or member fixtures not built here",
-                60
-            ),
-        ])
+        unavailable_classes.keys().copied().collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            "requires control, temporal, state, claim, or protocol context not built here",
+            "requires an IEEE profile and typed operands not built here",
+            "requires selected model declarations not built here",
+            "requires typed operands or member fixtures not built here",
+        ]),
+        "every unavailable entry has a classified fixture gap"
     );
     assert_eq!(
         unavailable,
@@ -994,6 +1081,7 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
             | "quire.op.collection.count"
             | "quire.op.collection.sum.integer"
             | "quire.op.collection.size" => "rational",
+            "quire.op.text.to_integer" | "quire.op.string.to_integer" => "rational",
             _ => "integer",
         };
         let key = if identity == "quire.op.numeric.narrow" {
@@ -1201,6 +1289,19 @@ fn expected_unavailable() -> BTreeSet<String> {
         "quire.op.text.lt",
         "quire.op.text.ne",
         "quire.op.text.size",
+        "quire.op.bytes.concat",
+        "quire.op.bytes.eq",
+        "quire.op.bytes.length",
+        "quire.op.bytes.ne",
+        "quire.op.collection.ordered_set.drop_first",
+        "quire.op.collection.remove_one",
+        "quire.op.collection.sequence.drop_first",
+        "quire.op.ieee.float32.negate",
+        "quire.op.ieee.float64.negate",
+        "quire.op.json_object.eq",
+        "quire.op.json_object.ne",
+        "quire.op.quantity.negate",
+        "quire.op.temporal.aggregate",
     ]
     .into_iter()
     .map(str::to_owned)

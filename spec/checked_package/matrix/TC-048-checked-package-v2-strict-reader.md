@@ -416,14 +416,12 @@ applying the type-argument equality rule to either kind must fail this check.
 For AC-251, read every entry from the published catalogue used by the reader.
 Build a fresh, previously admitted package for each identity supported by the
 fixture helpers and require continued admission. Compare the remaining identity
-set with an explicitly named and counted unavailable set, with its fixture
-limitation stated, so a new catalogue entry cannot silently escape the test.
-The differential currently has behavioral controls for 56 of 160 entries;
-the remaining 104 are classified by the fixture they require: 25 need
-control, temporal, state, claim or protocol context; 15 need IEEE profile and typed operands;
-3 need selected model declarations; and 61 need other typed operands or member
-fixtures. These counts describe this differential's controls, not a complete
-baseline for the catalogue.
+set with an explicitly named and classified unavailable set, with each
+fixture limitation stated, so a new catalogue entry cannot silently escape
+the test. The test reads the current catalogue without freezing its entry
+count: every member-result/type-argument entry requires an admitted control,
+and every remaining unavailable identity must be named in the fixture-gap
+inventory.
 The admitted controls must include `model.lookup` and `model.all_instances`,
 whose result forms are not `member`, and `collection.fold` and
 `collection.reduce`, which have no `member_family` and admit when their
