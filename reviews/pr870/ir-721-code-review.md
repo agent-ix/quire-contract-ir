@@ -64,3 +64,19 @@ scope:
 ## Coverage
 
 Reviewed changed files: tests/conformance_qspec/monitor_plan.rs and tests/it/support/monitor_plan.rs. CI workflow diff empty. No applicable AssuranceProfile was found under spec/. Repo AGENTS.md, CLAUDE.md, Rust style, code-review, and rust-review were applied. QSpec main supplies MP-01, MP-81 and MP-82. Focused checks were already run by the coder; aggregate gates are owned by the lead.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The initial adapter allowed MP-82 to share MP-01’s resolved public root key because the activation-status change was absent from Activation, Activations, and State structural paths; the test exempted MP-81/82 from the key inequality assertion. | tests/it/support/monitor_plan.rs:336; tests/conformance_qspec/monitor_plan.rs:146 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | The existing content-bearing rekey helper is applied to Activation, Activations, and State in dependency order. The public `plan.structural_key()` inequality assertion runs for MP-81/82 again, and the focused recipe test passes. |
+
+## Follow-up review
+
+Targeted review of the follow-up diff. The root path resolves the rekeyed State reference, whose path resolves the rekeyed Activations and Activation types, so changing status type is represented by structural operands. The adapter uses the existing path and graph-index convention; it adds no hash, digest, pin, copied upstream fixture, or case-ID-derived identity. MP-74..76 are now explicitly required to appear and refuse, while the generic loop continues to assert their exact code, cause, pointer, and root locus. No production reader code or CI workflow changed. The artifact’s original clean row and initial verdict are historical; this section records the later-discovered defect and its current fixed outcome.
