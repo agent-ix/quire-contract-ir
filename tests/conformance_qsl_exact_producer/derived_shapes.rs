@@ -424,7 +424,7 @@ fn main() {
     let frame = WireGraph::new(&ids).expect("producer's public indexed representation");
     let mut evidence = CheckedPackageEvidence::new();
     evidence
-        .insert_domain_package_document(MODEL, &document_bytes)
+        .insert_domain_package_document(MODEL, document_bytes.as_slice())
         .expect("same selected document");
     for feature in wire["lock"]["required_features"]
         .as_array()
