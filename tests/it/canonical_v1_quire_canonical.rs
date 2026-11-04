@@ -182,8 +182,8 @@ fn expression_fixture() -> TypedExpression {
 type Budgeted<'a> =
     Box<dyn Fn(u64) -> Result<CanonicalOutput, quire_contract_model::Diagnostic> + 'a>;
 
-/// ACs: FR-016-AC-5, FR-016-AC-6
-#[trace("TC-017", "FR-016-AC-5", "FR-016-AC-6")]
+/// ACs: FR-016-AC-1, FR-016-AC-5, FR-016-AC-6
+#[trace("TC-017", "FR-016-AC-1", "FR-016-AC-5", "FR-016-AC-6")]
 #[test]
 fn tc_017_the_five_kinds_equal_their_written_out_bytes_and_limits() {
     let package = package_with_revision(1);
@@ -248,8 +248,8 @@ fn tc_017_the_five_kinds_equal_their_written_out_bytes_and_limits() {
     }
 }
 
-/// ACs: FR-016-AC-5
-#[trace("TC-017", "FR-016-AC-5")]
+/// ACs: FR-016-AC-1, FR-016-AC-5
+#[trace("TC-017", "FR-016-AC-1", "FR-016-AC-5")]
 #[test]
 fn tc_017_the_eight_integer_members_are_strings_and_the_rest_stay_numbers() {
     // An integer type of 0 and 0 holds "0" and "0".
