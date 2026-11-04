@@ -22,8 +22,9 @@ use quire_contract_model::{
     SelectedFactIds, SelectedFactRows, SelectedFactsErrorCode, SelectedTupleDeclarationRow,
 };
 use quire_exact::{
-    record, ConstructionCause, EffectiveId, FieldValue, Integer, MemberId, MemberOwner, NodeKey,
-    OriginalDeclarationKey, PathSegment, Presence, UnitId, Value as ExactValue, ValueType,
+    record, CardinalityBound, CollectionKind, CollectionType, ConstructionCause, EffectiveId,
+    FieldValue, Integer, MemberId, MemberOwner, NodeKey, OriginalDeclarationKey, PathSegment,
+    Presence, UnitId, Value as ExactValue, ValueType,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -31,6 +32,242 @@ use std::collections::BTreeMap;
 const IDENTITY: &str = "acme/orders";
 const OBJECT: &str = "object_type";
 const INTERFACE: &str = "systems_interface";
+
+#[trace("FR-352-AC-12", "FR-352-AC-13", "FR-352-AC-15")]
+#[test]
+fn selected_record_projects_nested_collection_and_option_members_with_bounded_work() {
+    std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(|| {
+            let mut selected = document(vec![
+                json!({"identity": orders("OptInt"), "kind": "option", "inner": "ix://quire/native/Integer"}),
+                typed_object("Wrapped", "record", &[], &[
+                    field("sequence", "ix://quire/native/Integer").many((0, None, true, false)),
+                    field("set", "ix://quire/native/Integer").many((0, None, false, true)),
+                    field("bag", "ix://quire/native/Integer").many((0, None, false, false)),
+                    field("ordered", "ix://quire/native/Integer").many((0, Some(3), true, true)),
+                    field("nested", &orders("OptInt")).many((0, Some(3), true, false)),
+                    field("option", &orders("OptInt")),
+                    field("optional_collection", "ix://quire/native/Integer").optional().many((0, Some(3), false, true)),
+                    field("optional_string", "ix://quire/native/String").optional(),
+                ]),
+            ]);
+            selected["constructs"].as_array_mut().unwrap().push(json!({
+                "kind": {"module": IDENTITY, "name": "record"},
+                "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+            }));
+            let mut item = "ix://quire/native/Integer".to_owned();
+            for depth in 0..64 {
+                let identity = orders(&format!("Deep{depth}"));
+                selected["types"].as_array_mut().unwrap().push(if depth % 2 == 0 {
+                    json!({"identity": identity, "kind": "sequence", "items": item})
+                } else {
+                    json!({"identity": identity, "kind": "option", "inner": item})
+                });
+                item = identity;
+            }
+            selected["types"][1]["fields"].as_array_mut().unwrap().push(json!({
+                "identity": format!("{}/deep", orders("Wrapped")), "name": "deep",
+                "typeRef": item, "presence": "required", "nullable": false,
+                "defaultKind": "none", "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+            }));
+            let admitted = admit(&selected, &[("Wrapped", "record_value_type")], &[]);
+            let structural: CheckedNodeId = serde_json::from_value(node_id(&declaration_key("Wrapped", "record_value_type"))).unwrap();
+            let key = NodeKey::new("checked", vec![PathSegment::Text("Wrapped".into())], 0).unwrap();
+            let names = ["sequence", "set", "bag", "ordered", "nested", "option", "optional_collection", "optional_string", "deep"];
+            let declaration = SelectedExactDeclarationRow::new(
+                structural.clone(), IDENTITY, SelectedExactDeclarationForm::RecordValueType,
+                orders("Wrapped"), SelectedExactIdentity::Record(key.clone()),
+            );
+            let fields = names.map(|name| SelectedExactFieldRow::new(
+                structural.clone(), IDENTITY, orders("Wrapped"),
+                format!("{}/{name}", orders("Wrapped")),
+                MemberId::new(MemberOwner::Node(key.clone()), name).unwrap(),
+            ));
+            let identities = SelectedExactIdentities::from_stage_rows(&admitted, [declaration], fields).unwrap();
+            let clone = admitted.clone();
+            let projection = admitted.project_exact_type(&structural, &identities, 200).unwrap();
+            let work = projection.work();
+            assert_eq!(admitted.project_exact_type(&structural, &identities, work), Ok(projection.clone()));
+            assert_eq!(clone.project_exact_type(&structural, &identities, work), Ok(projection.clone()));
+            let view = projection.record_view().unwrap();
+            assert_eq!(view.record_key(), &key);
+            let bounded = Some(CardinalityBound::new(0, 3).unwrap());
+            let collection = |kind, element, bound| ValueType::collection(CollectionType::new(kind, element, bound));
+            let mut expected = vec![
+                collection(CollectionKind::Sequence, ValueType::Integer, None),
+                collection(CollectionKind::Set, ValueType::Integer, None),
+                collection(CollectionKind::Bag, ValueType::Integer, None),
+                collection(CollectionKind::OrderedSet, ValueType::Integer, bounded),
+                collection(CollectionKind::Sequence, ValueType::option(ValueType::Integer), bounded),
+                ValueType::option(ValueType::Integer),
+                collection(CollectionKind::Set, ValueType::Integer, bounded),
+                ValueType::String,
+            ];
+            let mut deep = ValueType::Integer;
+            for depth in 0..64 {
+                deep = if depth % 2 == 0 {
+                    collection(CollectionKind::Sequence, deep, None)
+                } else {
+                    ValueType::option(deep)
+                };
+            }
+            expected.push(deep);
+            assert_eq!(view.fields().len(), names.len());
+            for (index, field) in view.fields().iter().enumerate() {
+                let name = names[index];
+                assert_eq!(field.ir_identity(), format!("{}/{name}", orders("Wrapped")));
+                assert_eq!(field.name(), name);
+                assert_eq!(field.member_id(), &MemberId::new(MemberOwner::Node(key.clone()), name).unwrap());
+                assert_eq!(field.value_type(), &expected[index]);
+                assert_eq!(field.presence(), if (6..8).contains(&index) { Presence::Optional } else { Presence::Required });
+            }
+            let exhausted = admitted.project_exact_type(&structural, &identities, work - 1).unwrap_err();
+            assert_eq!(clone.project_exact_type(&structural, &identities, work - 1), Err(exhausted.clone()));
+            assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+            assert_eq!(exhausted.requested.as_ref(), &structural);
+            assert_eq!(exhausted.at.as_deref(), Some(&structural));
+            assert_eq!(exhausted.form.as_ref(), "record_field_collection");
+            assert_eq!(exhausted.work, work - 1);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[trace("FR-352-AC-14")]
+#[test]
+fn nested_collection_of_nominal_record_keeps_target_identity_and_refuses_missing_witness() {
+    let mut selected = document(vec![
+        typed_object(
+            "A",
+            "record",
+            &[],
+            &[field("next", &orders("B")).many((0, None, true, false))],
+        ),
+        typed_object("B", "record", &[], &[field("next", &orders("A"))]),
+        typed_object(
+            "Bad",
+            "record",
+            &[],
+            &[field("float", "ix://quire/native/Float32").many((0, None, false, true))],
+        ),
+    ]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind": {"module": IDENTITY, "name": "record"},
+        "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+    }));
+    let admitted = admit(
+        &selected,
+        &[
+            ("A", "record_value_type"),
+            ("B", "record_value_type"),
+            ("Bad", "record_value_type"),
+        ],
+        &[],
+    );
+    let structural = |name| -> CheckedNodeId {
+        serde_json::from_value(node_id(&declaration_key(name, "record_value_type"))).unwrap()
+    };
+    let key =
+        |name: &str| NodeKey::new("checked", vec![PathSegment::Text(name.into())], 0).unwrap();
+    let rows = ["A", "B", "Bad"].map(|name| {
+        SelectedExactDeclarationRow::new(
+            structural(name),
+            IDENTITY,
+            SelectedExactDeclarationForm::RecordValueType,
+            orders(name),
+            SelectedExactIdentity::Record(key(name)),
+        )
+    });
+    let fields = [("A", "next"), ("B", "next"), ("Bad", "float")].map(|(owner, name)| {
+        SelectedExactFieldRow::new(
+            structural(owner),
+            IDENTITY,
+            orders(owner),
+            format!("{}/{name}", orders(owner)),
+            MemberId::new(MemberOwner::Node(key(owner)), name).unwrap(),
+        )
+    });
+    let witnesses =
+        SelectedExactIdentities::from_stage_rows(&admitted, rows.clone(), fields.clone()).unwrap();
+    let projection = admitted
+        .project_exact_type(&structural("A"), &witnesses, 100)
+        .unwrap();
+    assert_eq!(
+        projection.record_view().unwrap().fields()[0].value_type(),
+        &ValueType::collection(CollectionType::new(
+            CollectionKind::Sequence,
+            ValueType::Composite(key("B")),
+            None
+        ))
+    );
+    let missing = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        rows.clone()
+            .into_iter()
+            .filter(|row| row.structural_node != structural("B")),
+        fields
+            .clone()
+            .into_iter()
+            .filter(|row| row.record_node != structural("B")),
+    )
+    .unwrap();
+    let refused = admitted
+        .project_exact_type(&structural("A"), &missing, 100)
+        .unwrap_err();
+    assert_eq!(
+        refused.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    assert_eq!(refused.at.as_deref(), Some(&structural("B")));
+    assert_eq!(refused.requested.as_ref(), &structural("A"));
+    assert_eq!(refused.form.as_ref(), "model/record_value_type");
+
+    let assert_stage_refusal = |declarations: Vec<SelectedExactDeclarationRow>,
+                                expected_code,
+                                expected_node: &CheckedNodeId| {
+        let error = SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            declarations,
+            Vec::<SelectedExactFieldRow>::new(),
+        )
+        .expect_err("invalid target identity cannot produce projection witnesses");
+        assert_eq!(error.code, expected_code);
+        assert_eq!(error.requested.as_ref(), expected_node);
+        assert_eq!(error.at.as_deref(), Some(expected_node));
+        assert_eq!(error.form.as_ref(), "selected_identity");
+        assert_eq!(error.work, 0);
+    };
+    let mut foreign = rows[1].clone();
+    foreign.structural_node.package = "foreign/package".into();
+    let foreign_node = foreign.structural_node.clone();
+    assert_stage_refusal(
+        vec![rows[0].clone(), foreign],
+        ExactTypeProjectionErrorCode::ForeignNode,
+        &foreign_node,
+    );
+    assert_stage_refusal(
+        vec![rows[0].clone(), rows[1].clone(), rows[1].clone()],
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+        &structural("B"),
+    );
+    let mut wrong_form = rows[1].clone();
+    wrong_form.form = SelectedExactDeclarationForm::ObjectType;
+    assert_stage_refusal(
+        vec![rows[0].clone(), wrong_form],
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+        &structural("B"),
+    );
+    let unsupported = admitted
+        .project_exact_type(&structural("Bad"), &witnesses, 100)
+        .unwrap_err();
+    assert_eq!(
+        unsupported.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    assert_eq!(unsupported.requested.as_ref(), &structural("Bad"));
+}
 
 fn orders(short: &str) -> String {
     format!("ix://acme/orders/{short}")
