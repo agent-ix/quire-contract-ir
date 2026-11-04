@@ -1767,8 +1767,7 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
 /// the chain of bounded domains is. The walk is iterative and follows each node
 /// once, so a chain has no length limit and a cycle of bounded domains, which
 /// ends at no type, names no family (`None`), as an unresolved type does.
-#[cfg(test)]
-fn resolve_family(
+pub(super) fn resolve_family(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],

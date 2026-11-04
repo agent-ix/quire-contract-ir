@@ -2590,6 +2590,7 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         Cause::InsufficientNextCharge => false,
         Cause::OperatorIneligible
         | Cause::TypeMismatch
+        | Cause::UnitMismatch
         | Cause::NonBooleanRoot
         | Cause::InvalidTimeQuantity => code == Code::IllTyped,
         Cause::MissingName => code == Code::MissingDeclaration,

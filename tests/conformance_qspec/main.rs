@@ -69,6 +69,7 @@ mod reaches_population;
 mod schedulability;
 mod selection_vectors;
 mod single_body;
+mod temporal_aggregate;
 mod temporal_clock_bindings;
 mod text_literals;
 mod timed_model;
@@ -551,6 +552,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::InvalidDerivedShape => "invalid-derived-shape",
         Cause::DuplicateMember => "duplicate-member",
         Cause::TypeMismatch => "type-mismatch",
+        Cause::UnitMismatch => "unit-mismatch",
         Cause::NonBooleanRoot => "non-boolean-root",
         Cause::MissingTimedModel => "missing-timed-model",
         Cause::TimedNodeReference => "timed-node-reference",

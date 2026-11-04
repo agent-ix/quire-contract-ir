@@ -174,7 +174,7 @@ use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
-use temporal::{validate_temporal, validate_timed_bounds_reduced};
+use temporal::{validate_temporal, validate_timed_bounds_reduced, TemporalContext};
 
 use super::common::{
     count, exceeds, is_nonempty, node_pointer, read_typed_prefix, validate_definition_ref,
@@ -3100,8 +3100,11 @@ fn validate_graph(
         &kinds,
         &index,
         &owners,
-        &wire.lock,
-        &wire.diagnostics.entries,
+        TemporalContext {
+            lock: &wire.lock,
+            diagnostics: &wire.diagnostics.entries,
+            bindings: wire.temporal_bindings.as_deref(),
+        },
         meter,
     )?;
     if kinds.contains(&CheckedNodeKind::Temporal(TemporalForm::MonitorPlan)) {

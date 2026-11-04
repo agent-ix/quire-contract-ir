@@ -652,7 +652,7 @@ case above fails the run and never skips.
 
 ## Window aggregate atom (FR-038-AC-461 and FR-038-AC-462)
 
-Planned until IR-1326 code. Read QSpec's current
+Implemented (IR-1326). Read QSpec's current
 `proposals/checked-package-v2/temporal-aggregate-vectors.json` directly from
 the selected checkout. For each published positive argument, construct a
 complete strict package with the published clause profile, clock unit and
