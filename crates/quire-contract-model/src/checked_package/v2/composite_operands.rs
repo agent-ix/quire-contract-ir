@@ -1616,7 +1616,7 @@ mod tests {
                     equality_applications: &[row],
                     equality_facts: &[],
                 },
-                1000,
+                100_000,
             )
             .expect_err("selected-fact read preserves the native Text witness refusal");
         assert_eq!(
@@ -3069,7 +3069,7 @@ mod tests {
         };
         let application_rows = [row.clone()];
         let complete = package
-            .project_selected_facts(ids(), rows(&application_rows), 100)
+            .project_selected_facts(ids(), rows(&application_rows), 100_000)
             .unwrap();
         assert!(complete.declarations.is_empty());
         assert!(complete.fields.is_empty());
@@ -3092,7 +3092,7 @@ mod tests {
         );
         assert_eq!(short.occurrence, Some(occurrence));
         let missing = package
-            .project_selected_facts(ids(), rows(&[]), 100)
+            .project_selected_facts(ids(), rows(&[]), 100_000)
             .unwrap_err();
         assert_eq!(
             missing.code,
@@ -3105,7 +3105,7 @@ mod tests {
         );
         let mismatched_rows = [wrong_location];
         let mismatch = package
-            .project_selected_facts(ids(), rows(&mismatched_rows), 100)
+            .project_selected_facts(ids(), rows(&mismatched_rows), 100_000)
             .unwrap_err();
         assert_eq!(
             mismatch.code,
@@ -3119,13 +3119,13 @@ mod tests {
         unrelated.application = self::id('1');
         let more_rows = [unrelated, row.clone()];
         let more = package
-            .project_selected_facts(ids(), rows(&more_rows), 100)
+            .project_selected_facts(ids(), rows(&more_rows), 100_000)
             .unwrap();
         assert_eq!(more.equalities, complete.equalities);
         assert!(more.work > complete.work);
         let duplicate_rows = [row.clone(), row];
         let duplicate = package
-            .project_selected_facts(ids(), rows(&duplicate_rows), 100)
+            .project_selected_facts(ids(), rows(&duplicate_rows), 100_000)
             .unwrap_err();
         assert_eq!(
             duplicate.code,
@@ -3141,7 +3141,7 @@ mod tests {
                     equalities: &[foreign.clone()],
                 },
                 rows(&application_rows),
-                100,
+                100_000,
             )
             .unwrap_err();
         assert_eq!(
@@ -3159,7 +3159,7 @@ mod tests {
                     equalities: &[wrong_occurrence],
                 },
                 rows(&application_rows),
-                100,
+                100_000,
             )
             .unwrap_err();
         assert_eq!(
