@@ -1099,7 +1099,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             models: RetainedModels::new(
                 index,
                 vec![model],
-                vec![super::super::selected_document::SelectedDocument::new(
+                vec![std::sync::Arc::new(
                     quire_canonical::read(
                         &serde_json::to_vec(document).expect("selected JSON"),
                         BYTES,

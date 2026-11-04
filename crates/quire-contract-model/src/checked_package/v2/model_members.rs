@@ -43,7 +43,7 @@
 use super::model_fields::{
     DeclarationIndex, DeclaredNode, FieldTables, RecordBinderTypes, Selected,
 };
-use super::selected_document::{json_number, SelectedDocument};
+use super::selected_document::json_number;
 use super::{
     CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm, ValidationFailure,
     WorkMeter,
@@ -2106,7 +2106,7 @@ pub(super) fn admit_document(
     supplied: Option<&[u8]>,
     identity_of: fn(&Value) -> Option<&str>,
     budget: &mut Budget<'_>,
-) -> Result<(Value, SelectedDocument), SelectionFailure> {
+) -> Result<(Value, Arc<quire_canonical::Document>), SelectionFailure> {
     use CheckedPackageRefusalCause as Cause;
     use CheckedPackageRefusalCode as Code;
     let Some(bytes) = supplied else {
@@ -2165,7 +2165,7 @@ pub(super) fn admit_document(
     let document = document_value(&reading);
     let refusal = match identity_of(&document) {
         Some(found) if found == identity => {
-            return Ok((document, SelectedDocument::new(reading)));
+            return Ok((document, Arc::new(reading)));
         }
         Some(_) | None => SelectionFailure::from(SelectionRefusal::at(
             Code::InvalidModelBinding,
@@ -2456,7 +2456,7 @@ pub(super) fn admit_selection(
     evidence: &CheckedPackageEvidence,
     budget: &mut Budget<'_>,
     unit_refs: &UnitRefs,
-) -> Result<(DomainModel, SelectedDocument), SelectionFailure> {
+) -> Result<(DomainModel, Arc<quire_canonical::Document>), SelectionFailure> {
     let (document, selected) = admit_document(
         identity,
         evidence.domain_package_document(identity),

@@ -21,7 +21,7 @@ use super::model_members::{
     DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, NativeTypeRef,
     Owner, RelationshipDecl, SelectedTypeRef, SelectedVariantCase,
 };
-use super::selected_document::SelectedDocument;
+use super::selected_document::equal_documents;
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
 use std::collections::{BTreeMap, BTreeSet};
@@ -533,7 +533,7 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNo
 /// the derived tables, indexes and read limits do not.
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
-    documents: Vec<SelectedDocument>,
+    documents: Vec<Arc<quire_canonical::Document>>,
     index: DeclarationIndex,
     object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>>,
     /// Admitted selected documents, including their field tables, for
@@ -929,13 +929,18 @@ impl RetainedModels {
             .exposed_names(&declared.node)
     }
     pub(super) fn same_documents(&self, other: &Self) -> bool {
-        self.documents == other.documents
+        self.documents.len() == other.documents.len()
+            && self
+                .documents
+                .iter()
+                .zip(&other.documents)
+                .all(|(left, right)| Arc::ptr_eq(left, right) || equal_documents(left, right))
     }
 
     pub(super) fn new(
         index: DeclarationIndex,
         models: Vec<DomainModel>,
-        documents: Vec<SelectedDocument>,
+        documents: Vec<Arc<quire_canonical::Document>>,
     ) -> Self {
         let mut object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>> =
             BTreeMap::new();

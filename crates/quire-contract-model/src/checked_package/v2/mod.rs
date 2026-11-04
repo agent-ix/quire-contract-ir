@@ -195,10 +195,10 @@ use model_members::{
     DURATION_RESOLVED_PREFIX,
 };
 use quire_canonical::FixedShape;
-use selected_document::SelectedDocument;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 // Explicit null is a value; an absent member must remain a schema refusal.
 fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -1532,7 +1532,7 @@ fn validate(
 /// in lock order, and each selected dependency's supplied package.
 struct LockAdmission<'a> {
     models: Vec<DomainModel>,
-    documents: Vec<SelectedDocument>,
+    documents: Vec<Arc<quire_canonical::Document>>,
     dependencies: SuppliedDependencies<'a>,
 }
 
@@ -1831,7 +1831,7 @@ fn validate_domain_packages(
     meter: &mut WorkMeter,
     bytes: u64,
     unit_refs: &UnitRefs,
-) -> Result<(Vec<DomainModel>, Vec<SelectedDocument>), ValidationFailure> {
+) -> Result<(Vec<DomainModel>, Vec<Arc<quire_canonical::Document>>), ValidationFailure> {
     let row = |root: usize| node_pointer(root).key("owner");
     let at = |root: usize, member: &str| row(root).key(member);
     roots

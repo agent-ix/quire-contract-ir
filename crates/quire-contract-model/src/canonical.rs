@@ -318,38 +318,40 @@ fn canonicalize<V: Encode + ?Sized>(
     path: &str,
     span: Option<&SourceSpan>,
 ) -> Result<CanonicalOutput, Diagnostic> {
-    let mut output = CanonicalSink(Vec::new());
+    let mut output = CanonicalBuffer { bytes: Vec::new() };
     quire_canonical::encode(
         &mut output,
         &Envelope { kind, value },
         Limits::new(maximum_bytes),
     )
     .map_err(|error| encoder_refusal(&error, path, span))?;
-    let bytes = CanonicalBytes(output.0);
+    let bytes = CanonicalBytes(output.bytes);
     Ok(CanonicalOutput { kind, bytes })
 }
 
 /// The native byte sink, kept private until the entire encoding succeeds.
-struct CanonicalSink(Vec<u8>);
+struct CanonicalBuffer {
+    bytes: Vec<u8>,
+}
 
 #[cfg(test)]
 std::thread_local! {
     static FAIL_NEXT_RESERVATION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-impl Sink for CanonicalSink {
+impl Sink for CanonicalBuffer {
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
         #[cfg(test)]
         if FAIL_NEXT_RESERVATION.with(|pending| pending.replace(false)) {
             // Vec<u8> cannot have a capacity above isize::MAX. This reservation
             // therefore fails before an allocator is called, on every target.
-            self.0
+            self.bytes
                 .try_reserve(usize::MAX)
                 .map_err(|_| Error::Allocation {
                     requested: usize::MAX,
                 })?;
         }
-        self.0.write_bytes(bytes)
+        self.bytes.write_bytes(bytes)
     }
 }
 
