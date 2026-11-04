@@ -1838,7 +1838,6 @@ fn timed_model_missing_root_precedes_later_quantity_validation() {
     );
 }
 
-/// Trace: FR-038-AC-321, TC-048.
 #[trace("TC-048", "FR-038-AC-321")]
 #[test]
 fn timed_model_stage_precedence_has_independent_defect_controls() {

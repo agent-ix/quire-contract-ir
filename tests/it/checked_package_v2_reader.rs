@@ -1290,7 +1290,7 @@ fn selected_document_clone_comparison_and_final_drop_use_a_bounded_native_stack(
                 &["test/orders"],
             );
             let base = serde_json::to_string(&model_document("1")).expect("selected document");
-            let mut bytes = base[..base.len() - 1].as_bytes().to_vec();
+            let mut bytes = base.as_bytes()[..base.len() - 1].to_vec();
             bytes.extend_from_slice(b",\"annotation\":");
             bytes.extend(std::iter::repeat_n(b'[', 20_000));
             bytes.extend_from_slice(b"true");

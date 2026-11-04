@@ -1824,6 +1824,99 @@ fn published_tuple_positions_execute_the_reader_application_join() {
             );
         }
     }
+    // An anonymous tuple with the same two scalar positions is a different
+    // type from the selected declaration. Neither direction may impersonate it.
+    let (_, pair) = tuple_node(&base, "ix://acme/shapes/Pair");
+    let scalar = |form: &str| {
+        base["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == form)
+            .expect("published scalar")["node_id"]
+            .clone()
+    };
+    for anonymous_receiver in [false, true] {
+        let mut package = base.clone();
+        let nodes = package["semantic_graph"]["nodes"].as_array_mut().unwrap();
+        nodes.retain(|node| node["node_tag"] != "expression");
+        let key = super::fixture_support::structural_id(
+            "example",
+            vec![
+                json!("composite_type"),
+                json!("tuple"),
+                json!("anonymous-position-control"),
+            ],
+            0,
+        );
+        let mut anonymous = nodes
+            .iter()
+            .find(|node| node["node_id"] == serde_json::to_value(&pair).unwrap())
+            .unwrap()
+            .clone();
+        anonymous.as_object_mut().unwrap().remove("owner");
+        anonymous.as_object_mut().unwrap().remove("declaration");
+        anonymous["node_id"] = key.clone();
+        anonymous["node_tag"] = json!("composite_type");
+        anonymous["semantic_form"] = json!("tuple");
+        anonymous["semantic_type"] = key.clone();
+        anonymous["body"] = json!({"term":"aggregate","members":[{"term":"reference","target":scalar("boolean")},{"term":"reference","target":scalar("integer")}]});
+        let mut dependencies = vec![scalar("boolean"), scalar("integer")];
+        dependencies
+            .sort_by_key(|key| serde_json::from_value::<CheckedNodeId>(key.clone()).unwrap());
+        anonymous["dependencies"] = json!(dependencies);
+        nodes.push(anonymous);
+        let mut receiver = nodes
+            .iter()
+            .find(|node| node["node_id"] == parameter_id)
+            .unwrap()
+            .clone();
+        let receiver_key = super::fixture_support::structural_id(
+            "example",
+            vec![
+                json!("value"),
+                json!("parameter"),
+                json!("anonymous-position-receiver"),
+            ],
+            0,
+        );
+        receiver["node_id"] = receiver_key.clone();
+        receiver["semantic_type"] = if anonymous_receiver {
+            key.clone()
+        } else {
+            serde_json::to_value(&pair).unwrap()
+        };
+        nodes.push(receiver);
+        let mut application = template.clone();
+        application["body"]["arguments"][0]["target"] = receiver_key;
+        application["body"]["operation"]["member"]["declaration"] = if anonymous_receiver {
+            serde_json::to_value(&pair).unwrap()
+        } else {
+            key
+        };
+        application["body"]["operation"]["member"]["position"] = json!(0);
+        application["body"]["result_type"] = scalar("boolean");
+        application["semantic_type"] = scalar("boolean");
+        let application_position = nodes.len();
+        nodes.push(application);
+        super::fixture_support::settle(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+            &super::fixture_support::canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &selected_evidence(&document),
+        ) else {
+            panic!("anonymous tuple cannot name the selected Pair")
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::IllTyped, Some(Cause::OperatorIneligible)),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().to_string(),
+            format!("/semantic_graph/nodes/{application_position}")
+        );
+    }
     assert_eq!(seen.len(), 7, "all published position controls");
 }
 

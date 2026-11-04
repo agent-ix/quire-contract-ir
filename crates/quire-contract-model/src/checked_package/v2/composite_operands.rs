@@ -3784,9 +3784,8 @@ mod tests {
                 consumed: 12
             })
         );
-        let outside = narrow_record("0", "9", "4");
+        let mut outside = narrow_record("0", "9", "4");
         // Make the inclusive maximum smaller without changing decimal lengths.
-        let mut outside = outside;
         edit_body(&mut outside, 6, |body| {
             body["members"][1]["value"]["value"] = json!("3")
         });
