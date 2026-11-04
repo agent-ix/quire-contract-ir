@@ -33,3 +33,13 @@ The published positive package is admitted and so checks its current dependencie
 - Computed Quire matrix: AC-319 tagged by `timed_source_occurrence_reordering_retains_structural_node_ids` and `timed_graph_shape_and_body_edits_refuse_at_their_own_stage`; AC-321 tagged by `timed_model_stage_precedence_has_independent_defect_controls`. Semantic inspection found the adverse control gap above and the code-review gaps in the companion artifact.
 - Reverse gap: no production code changed. Stub and vendoring checks: no new stub or copied fixture; tests consume the QSpec checkout.
 - Plan completion: not assessed
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | deferred | The fix adds stale-dependency controls for every published timed form, resolving that part. Independent dangling-reference controls for those forms remain absent, and source-reference behavior still reaches timed validation. The coder removed both AC-319 trace tags; Quire computes AC-319 as untagged, so this PR no longer claims its completion. AC-319 remains planned for a later reader fix and evidence. |
+
+## Disposition verdict
+
+Round 1, PR head 408b3629b4ea1af366f70bd76ca1b9e6f76aacd8: **PASS for the remaining claimed FR-038-AC-321**. The deferred AC-319 gap is explicit and no longer concealed by a tagged matrix row. Plan completion: not assessed.

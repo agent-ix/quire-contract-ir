@@ -35,3 +35,14 @@ The AC-321 `protocol` control mutates node 9, whose tag/form is `protocol`/`prot
 - FR-038-AC-321 (role: examined; excerpt): A package with both a timed-model defect and a protocol or operation defect reports the timed defect; one with a hybrid defect and a timed defect reports the hybrid defect. Strict-wire and graph-shape defects continue to precede either body step.
 - Computed `quire matrix --scope . --format json` marks both criteria tagged to the three added functions. The tags identify relevant tests but do not establish full semantic coverage.
 - Focused review was read-only; aggregate gates and compilation are owned by the lead on the final reviewed head.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Root node 52 retains its valid source-owner shape; changing only the owner identity reaches `MissingDeclaration`/`MissingSelection` at the node identity, rather than strict wire refusal. |
+| FND-002 | fixed | Node 5's standalone function operation identity independently refuses `UnknownOperation`; pairing it with the timed defect refuses `MalformedClockPlace` at the timed locus. |
+
+## Disposition verdict
+
+Round 1, PR head 408b3629b4ea1af366f70bd76ca1b9e6f76aacd8: **PASS for the remaining claimed FR-038-AC-321**. Its protocol, operation, and hybrid dual-defect controls each assert independent refusal and timed/hybrid precedence; malformed wire and graph shape remain earlier. FR-038-AC-319 is now untagged and is not claimed as complete. The computed Quire matrix confirms AC-319 untagged and AC-321 tagged. Aggregate gates remain with the lead.
