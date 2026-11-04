@@ -1110,7 +1110,54 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         "kind": {"module": IDENTITY, "name": "record"},
         "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
     }));
-    let admitted = admit(&selected, &[("Receipt", "record_value_type")], &[]);
+    let (mut wire, evidence, _) =
+        self::package(&selected, &[("Receipt", "record_value_type")], &[]);
+    let boolean = "scalar_type/boolean";
+    let equality = "selected/equality";
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(wire_node(
+            boolean,
+            "scalar_type",
+            "boolean",
+            boolean,
+            &[],
+            empty(),
+        ));
+    let mut equality_node = wire_node(
+        equality,
+        "expression",
+        "binary",
+        boolean,
+        &[boolean],
+        json!({"term":"application", "operator":"binary",
+            "operation":{"identity":"quire.op.boolean.eq", "laws":[], "mode":null,
+                "member":null, "leaves":[]},
+            "result_type":node_id(boolean),
+            "arguments":[reference(boolean), reference(boolean)]}),
+    );
+    equality_node["occurrences"] = json!([{"role":"expression", "ordinal":0}]);
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(equality_node);
+    wire["checked_term_data"] = json!({
+        "equality_decisions":[{
+            "application":node_id(equality),
+            "occurrence":{"role":"expression","ordinal":0},
+            "term_path":[], "operator":"equal", "schedule":"plan",
+            "left":{"operand":0,"source_type":node_id(boolean),"conversion_target":null},
+            "right":{"operand":1,"source_type":node_id(boolean),"conversion_target":null},
+            "units":[],"enum_members":[]
+        }],
+        "protocol_locations":[],"dispatch_tables":[],"probabilistic_claims":[]
+    });
+    settle(&mut wire);
+    let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("selected model and equality fixture must admit: {other:?}"),
+    };
     let record: CheckedNodeId =
         serde_json::from_value(node_id(&declaration_key("Receipt", "record_value_type"))).unwrap();
     let record_key = NodeKey::new("checked", vec![PathSegment::Text("Receipt".into())], 0).unwrap();
