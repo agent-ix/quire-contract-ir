@@ -35,6 +35,22 @@ fn orders(short: &str) -> String {
 }
 
 fn node_id(key: &str) -> Value {
+    if let Some(parts) = key.strip_prefix("carried_quantity:") {
+        let (unit, carrier) = parts.split_once(';').expect("carried Rational operands");
+        return structural_id(
+            "test/families",
+            vec![
+                json!("scalar_type"),
+                json!("carried_quantity"),
+                node_id(unit),
+                node_id(carrier),
+                json!("rounding"),
+                node_id("scalar_type/text"),
+                json!("exact"),
+            ],
+            0,
+        );
+    }
     if let Some(model) = key.strip_prefix("model:") {
         let mut parts = model.splitn(3, ':');
         let tag = parts.next().expect("model tag");
@@ -77,6 +93,29 @@ fn node_id(key: &str) -> Value {
                 json!(lower),
                 json!("max"),
                 json!(upper),
+            ],
+            0,
+        );
+    }
+    if let Some(bounds) = key.strip_prefix("bounded_domain/rational_range/") {
+        let parts = bounds.split('/').collect::<Vec<_>>();
+        let [nmin, nmax, dmin, dmax] = parts.as_slice() else {
+            panic!("rational range bounds");
+        };
+        return structural_id(
+            "test/families",
+            vec![
+                json!("bounded_domain"),
+                json!("rational_range"),
+                json!("numerator_min"),
+                node_id("scalar_type/integer"),
+                json!(nmin),
+                json!("numerator_max"),
+                json!(nmax),
+                json!("denominator_min"),
+                json!(dmin),
+                json!("denominator_max"),
+                json!(dmax),
             ],
             0,
         );
@@ -192,6 +231,7 @@ enum Ty {
     JsonObject,
     Clock,
     Range(i128, i128),
+    RationalRange(i128, i128, i128, i128),
     TextBounds(u64, u64, String),
     /// `Reference<O>`, by the key of `O`'s model declaration node.
     Reference(String),
@@ -199,6 +239,7 @@ enum Ty {
     Tuple(String),
     Variant(String),
     Quantity(String),
+    CarriedRational(String, Box<Ty>),
     Option(Box<Ty>),
     Collection(Kind, Box<Ty>, Option<(u64, u64)>),
 }
@@ -235,6 +276,17 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         CheckedMemberType::JsonObject => Ty::JsonObject,
         CheckedMemberType::Clock => Ty::Clock,
         CheckedMemberType::IntRange { lower, upper } => Ty::Range(*lower, *upper),
+        CheckedMemberType::RationalRange {
+            numerator_min,
+            numerator_max,
+            denominator_min,
+            denominator_max,
+        } => Ty::RationalRange(
+            *numerator_min,
+            *numerator_max,
+            *denominator_min,
+            *denominator_max,
+        ),
         CheckedMemberType::TextBounds {
             lower,
             upper,
@@ -245,6 +297,9 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         CheckedMemberType::Tuple(target) => Ty::Tuple(path_label(target)),
         CheckedMemberType::Variant(target) => Ty::Variant(path_label(target)),
         CheckedMemberType::Quantity(target) => Ty::Quantity(path_label(target)),
+        CheckedMemberType::CarriedRational { unit, carrier } => {
+            Ty::CarriedRational(path_label(unit), Box::new(ty_of(carrier)))
+        }
         CheckedMemberType::Option(element) => Ty::Option(Box::new(ty_of(element))),
         CheckedMemberType::Collection {
             kind,
@@ -319,6 +374,66 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
                 body,
             );
             nodes.entry(key.clone()).or_insert(node);
+            key
+        }
+        Ty::RationalRange(numerator_min, numerator_max, denominator_min, denominator_max) => {
+            let integer = type_nodes(&Ty::Integer, nodes);
+            let rational = "scalar_type/rational".to_owned();
+            nodes.entry(rational.clone()).or_insert_with(|| {
+                wire_node(
+                    &rational,
+                    "scalar_type",
+                    "rational",
+                    &rational,
+                    &[],
+                    empty(),
+                )
+            });
+            let binding = |name: &str, value: i128| {
+                json!({"term":"binding","name":name,
+                "value":{"term":"literal","type":node_id(&integer),
+                "value":value.to_string(),"value_kind":"integer"}})
+            };
+            let body = json!({"term":"aggregate","members":[
+                binding("numerator_min", *numerator_min),
+                binding("numerator_max", *numerator_max),
+                binding("denominator_min", *denominator_min),
+                binding("denominator_max", *denominator_max)]});
+            let key = format!("bounded_domain/rational_range/{numerator_min}/{numerator_max}/{denominator_min}/{denominator_max}");
+            nodes.entry(key.clone()).or_insert_with(|| {
+                wire_node(
+                    &key,
+                    "bounded_domain",
+                    "rational_range",
+                    &rational,
+                    &[],
+                    body,
+                )
+            });
+            key
+        }
+        Ty::CarriedRational(unit, carrier) => {
+            let carrier = type_nodes(carrier, nodes);
+            let text = "scalar_type/text".to_owned();
+            nodes
+                .entry(text.clone())
+                .or_insert_with(|| wire_node(&text, "scalar_type", "text", &text, &[], empty()));
+            let key = format!("carried_quantity:{unit};{carrier}");
+            let body = json!({"term":"aggregate","members":[
+                {"term":"binding","name":"unit","value":{"term":"reference","target":node_id(unit)}},
+                {"term":"binding","name":"carrier","value":{"term":"reference","target":node_id(&carrier)}},
+                {"term":"binding","name":"rounding","value":{"term":"literal","type":node_id(&text),"value":"exact","value_kind":"text"}}
+            ]});
+            nodes.entry(key.clone()).or_insert_with(|| {
+                wire_node(
+                    &key,
+                    "scalar_type",
+                    "carried_quantity",
+                    &key,
+                    &[unit, &carrier],
+                    body,
+                )
+            });
             key
         }
         Ty::TextBounds(lower, upper, profile) => {
@@ -3525,6 +3640,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
         Ty::Range(lower, upper) if upper > lower => Ty::Range(*lower, upper - 1),
         Ty::Range(lower, upper) if *lower < i128::MAX => Ty::Range(*lower, upper + 1),
         Ty::Range(lower, upper) => Ty::Range(lower - 1, *upper),
+        Ty::RationalRange(..) => Ty::Boolean,
         Ty::TextBounds(lower, upper, profile) if upper > lower => {
             Ty::TextBounds(*lower, upper - 1, profile.clone())
         }
@@ -3537,6 +3653,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
         Ty::Tuple(_) => Ty::Tuple(other.to_owned()),
         Ty::Variant(_) => Ty::Variant(other.to_owned()),
         Ty::Quantity(_) => Ty::Quantity(other.to_owned()),
+        Ty::CarriedRational(..) => Ty::Boolean,
         Ty::Option(element) => Ty::Option(Box::new(perturbed(element, other))),
         Ty::Collection(kind, element, Some((lower, upper))) => {
             let bounds = if upper > lower {
@@ -3822,12 +3939,14 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::JsonObject => 18,
             CheckedMemberType::Clock => 12,
             CheckedMemberType::IntRange { .. } => 2,
+            CheckedMemberType::RationalRange { .. } => 19,
             CheckedMemberType::TextBounds { .. } => 13,
             CheckedMemberType::Reference(_) => 3,
             CheckedMemberType::Record(_) => 6,
             CheckedMemberType::Tuple(_) => 14,
             CheckedMemberType::Variant(_) => 7,
             CheckedMemberType::Quantity(_) => 11,
+            CheckedMemberType::CarriedRational { .. } => 20,
             CheckedMemberType::Option(_) => 4,
             CheckedMemberType::Collection { .. } => 5,
         }

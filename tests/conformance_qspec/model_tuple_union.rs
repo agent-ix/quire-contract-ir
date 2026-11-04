@@ -6,9 +6,10 @@
 use super::{fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedVariantPayloadType,
+    BoundedDomainForm, CheckedMemberType, CheckedNodeId, CheckedNodeKind, CheckedPackageEvidence,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
+    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedVariantPayloadType,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -315,6 +316,156 @@ fn root_owner_pointer(package: &Value) -> String {
     format!("/semantic_graph/nodes/{position}/owner")
 }
 
+/// The published TK-36 bounds, retained in its selected value type and in a
+/// real rational-range graph node so public package views can be compared.
+fn tk36_rational_shape(package: &mut Value, row: &Value, integer_node: &Value) -> CheckedNodeId {
+    let value_type = row["patch"]
+        .as_array()
+        .expect("TK-36 patches")
+        .iter()
+        .find(|patch| patch["path"] == "/value_types")
+        .expect("TK-36 selected value type")["value"]
+        .as_array()
+        .expect("TK-36 value types")
+        .first()
+        .expect("TK-36 Ratio");
+    let bound = |name: &str| value_type[name].as_str().expect("published Rational bound");
+    let bounds = [
+        bound("numerator_min"),
+        bound("numerator_max"),
+        bound("denominator_min"),
+        bound("denominator_max"),
+    ];
+    assert_eq!(bounds, ["-3", "7", "1", "12"], "published TK-36 bounds");
+    let integer_index = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("model nodes")
+        .len();
+    let integer_id = integer_node["node_id"].clone();
+    let mut rational_node = integer_node.clone();
+    rational_node["node_id"]["path"] = json!(["scalar_type", "rational"]);
+    let rational_id = rational_node["node_id"].clone();
+    rational_node["semantic_type"] = rational_id.clone();
+    rational_node["semantic_form"] = json!("rational");
+    let mut range_node = integer_node.clone();
+    range_node["node_id"]["path"] = json!([
+        "bounded_domain",
+        "rational_range",
+        "numerator_min",
+        {"node":integer_index},
+        bounds[0],
+        "numerator_max",
+        bounds[1],
+        "denominator_min",
+        bounds[2],
+        "denominator_max",
+        bounds[3]
+    ]);
+    let range_id = range_node["node_id"].clone();
+    range_node["node_tag"] = json!("bounded_domain");
+    range_node["semantic_form"] = json!("rational_range");
+    range_node["semantic_type"] = rational_id;
+    let members = [
+        "numerator_min",
+        "numerator_max",
+        "denominator_min",
+        "denominator_max",
+    ]
+    .into_iter()
+    .zip(bounds)
+    .map(|(name, value)| {
+        json!({
+            "term":"binding","name":name,"value":{
+                "term":"literal","type":integer_id,"value_kind":"integer","value":value
+            }
+        })
+    })
+    .collect::<Vec<_>>();
+    range_node["body"] = json!({"term":"aggregate","members":members});
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .extend([integer_node.clone(), rational_node, range_node]);
+    serde_json::from_value(range_id).expect("TK-36 rational range node ID")
+}
+
+fn assert_tk36_resolved(
+    admitted: &CheckedPackageV2,
+    package: &Value,
+    document: &Value,
+    range_id: &CheckedNodeId,
+) {
+    let tuple_identity = document["types"][1]["identity"]
+        .as_str()
+        .expect("Pair identity");
+    let tuple = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "tuple_value_type" && node["owner"]["node"] == tuple_identity
+        })
+        .expect("Pair model node");
+    let tuple_id: CheckedNodeId =
+        serde_json::from_value(tuple["node_id"].clone()).expect("Pair node ID");
+    let variant_identity = document["types"][5]["identity"]
+        .as_str()
+        .expect("Shape identity");
+    let (_, variant_id) = variant_node(package, variant_identity);
+    let payload_case = document["types"][5]["variants"][0]["name"]
+        .as_str()
+        .expect("Shape first case");
+    let expected = Some(CheckedMemberType::RationalRange {
+        numerator_min: -3,
+        numerator_max: 7,
+        denominator_min: 1,
+        denominator_max: 12,
+    });
+    assert_eq!(
+        admitted.model_tuple_position_type(&tuple_id, 0),
+        expected,
+        "TK-36 tuple position retains exact Rational bounds"
+    );
+    assert_eq!(
+        admitted.model_variant_payload_member_type(&variant_id, payload_case),
+        expected,
+        "TK-36 variant payload retains exact Rational bounds"
+    );
+    let (range, kind) = admitted
+        .graph()
+        .nodes
+        .iter()
+        .zip(admitted.node_kinds())
+        .find(|(node, _)| &node.node_id == range_id)
+        .expect("admitted rational range node");
+    assert_eq!(
+        *kind,
+        CheckedNodeKind::BoundedDomain(BoundedDomainForm::RationalRange)
+    );
+    let body = serde_json::to_value(&range.body).expect("typed rational range body");
+    assert_eq!(body["term"], "aggregate");
+    assert_eq!(
+        body["members"]
+            .as_array()
+            .expect("rational range members")
+            .len(),
+        4
+    );
+    for (index, (name, value)) in [
+        ("numerator_min", "-3"),
+        ("numerator_max", "7"),
+        ("denominator_min", "1"),
+        ("denominator_max", "12"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(body["members"][index]["name"], name);
+        assert_eq!(body["members"][index]["value"]["value_kind"], "integer");
+        assert_eq!(body["members"][index]["value"]["value"], value);
+    }
+}
+
 /// Apply one published RFC 6902 operation. The vector's patch is the source of
 /// both the mutation and its expected package identity.
 pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
@@ -349,8 +500,8 @@ pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
 }
 
 /// Replay every published wire row, including rows added after this test.
-/// Trace: TC-048. The full FR-069-AC-8 stage oracle remains open.
-#[trace("TC-048")]
+/// Trace: TC-048, FR-069-AC-8.
+#[trace("TC-048", "FR-069-AC-8")]
 #[test]
 fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     let fixtures = fixtures_dir();
@@ -481,6 +632,22 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
                         }));
                     }
                 }
+                for (member, keyword) in [
+                    ("numerator_min", "minNumerator"),
+                    ("numerator_max", "maxNumerator"),
+                    ("denominator_min", "minDenominator"),
+                    ("denominator_max", "maxDenominator"),
+                ] {
+                    if let Some(bound) = declared[member].as_str() {
+                        let bound = bound.parse::<i64>().expect("published rational bound");
+                        constraints.push(json!({
+                            "identity":format!("{identity}/constraint/{keyword}"),
+                            "appliesTo":identity,
+                            "diagnosticCode":format!("acme.shapes.{}_{}", identity.rsplit('/').next().expect("name").to_ascii_uppercase(), keyword.to_ascii_uppercase()),
+                            "keyword":keyword,"operands":{"value":bound},"origin":origin
+                        }));
+                    }
+                }
                 if let Some(profile) = declared["profile"].as_str() {
                     constraints.push(json!({
                         "identity":format!("{identity}/constraint/format"),"appliesTo":identity,
@@ -500,11 +667,18 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
                         "construct":{"identity":"value","meaning":"quire.meaning.model.value-type/v1","shape":"record","members":{}}
                     }));
                 }
-                document["types"].as_array_mut().expect("types").push(json!({
+                let mut value_type = json!({
                     "identity":identity,"displayName":identity.rsplit('/').next().expect("name"),
                     "kind":kind,"scalar":scalar,"constraints":constraints,"origin":origin,
                     "roles":[],"extensions":[],"unknownPolicy":"reject"
-                }));
+                });
+                if let Some(unit) = declared.get("unit") {
+                    value_type["unit"] = unit.clone();
+                }
+                document["types"]
+                    .as_array_mut()
+                    .expect("types")
+                    .push(value_type);
             }
             continue;
         }
@@ -595,8 +769,8 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
 }
 
 /// Replay every published intake row through the selected document join.
-/// Trace: TC-048. The full FR-069-AC-8 stage oracle remains open.
-#[trace("TC-048")]
+/// Trace: TC-048, FR-069-AC-8.
+#[trace("TC-048", "FR-069-AC-8")]
 #[test]
 fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let fixtures = fixtures_dir();
@@ -607,6 +781,13 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let selected = selected_document(&proposal);
     let mut base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
+    let integer_node = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "integer")
+        .expect("published Integer node")
+        .clone();
     // Intake mutations can change the types of the published expression
     // controls. Keep the model declarations and root for this reader replay.
     base["semantic_graph"]["nodes"]
@@ -633,6 +814,8 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
         let mut document = selected.clone();
         let mut package = base.clone();
         apply_published_intake_patch(&mut document, row);
+        let tk36_range =
+            (name == "TK-36").then(|| tk36_rational_shape(&mut package, row, &integer_node));
         super::fixture_support::settle(&mut package);
 
         let mut evidence = CheckedPackageEvidence::new();
@@ -651,13 +834,19 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
             &evidence,
         );
         if row["expected"]["admitted"] == true {
-            assert!(
-                matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
-                "{name}: {result:?}"
-            );
+            let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+                panic!("{name}: expected admission, got {result:?}");
+            };
+            if let Some(range_id) = tk36_range.as_ref() {
+                assert_tk36_resolved(&admitted, &package, &document, range_id);
+            }
             continue;
         }
         let expected = &row["expected"]["refused"];
+        assert_eq!(
+            expected["stage"], "reader",
+            "{name}: published reader stage"
+        );
         let CheckedPackageV2ReadResult::Refused(refusal) = result else {
             panic!("{name}: expected published refusal, got {result:?}");
         };
@@ -706,6 +895,10 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
             "missing published intake case {id}"
         );
     }
+    assert!(
+        seen.contains("TK-36"),
+        "missing published bounded Rational intake case"
+    );
 }
 
 /// An admitted Duration position is usable as the

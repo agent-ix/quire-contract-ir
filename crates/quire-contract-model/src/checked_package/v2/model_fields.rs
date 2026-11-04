@@ -857,6 +857,45 @@ impl RetainedModels {
         })
     }
 
+    pub(super) fn tuple_position_type(
+        &self,
+        key: &CheckedNodeId,
+        position: usize,
+    ) -> Option<CheckedMemberType> {
+        let declared = self.index.0.get(key)?;
+        if declared.form != DeclarationForm::TupleValueType {
+            return None;
+        }
+        let model = self.models.get(declared.selection)?;
+        let type_ref = model.tuple_types.get(&declared.node)?.get(position)?;
+        model
+            .element_type(type_ref)
+            .as_ref()
+            .map(CheckedMemberType::from)
+    }
+
+    pub(super) fn variant_payload_member_type(
+        &self,
+        key: &CheckedNodeId,
+        case: &str,
+    ) -> Option<CheckedMemberType> {
+        let declared = self.index.0.get(key)?;
+        if declared.form != DeclarationForm::VariantType {
+            return None;
+        }
+        let model = self.models.get(declared.selection)?;
+        let type_ref = model
+            .variant_types
+            .get(&declared.node)?
+            .get(case)?
+            .payload
+            .as_ref()?;
+        model
+            .element_type(type_ref)
+            .as_ref()
+            .map(CheckedMemberType::from)
+    }
+
     /// The admitted selected variant case for this declaration and exact case label.
     pub(super) fn selected_variant_case(
         &self,
@@ -1083,6 +1122,24 @@ pub enum CheckedMemberType {
         /// The inclusive upper bound.
         upper: i128,
     },
+    /// `Rational[numerator_min, numerator_max; denominator_min, denominator_max]`.
+    RationalRange {
+        /// Inclusive minimum numerator.
+        numerator_min: i128,
+        /// Inclusive maximum numerator.
+        numerator_max: i128,
+        /// Inclusive minimum denominator.
+        denominator_min: i128,
+        /// Inclusive maximum denominator.
+        denominator_max: i128,
+    },
+    /// A bounded Rational magnitude carried by an exact unit.
+    CarriedRational {
+        /// The checked unit node.
+        unit: CheckedNodeId,
+        /// The rational carrier's exact bounds.
+        carrier: Box<CheckedMemberType>,
+    },
     /// `Text[min, max; profile]` from a selected value type.
     TextBounds {
         /// Inclusive minimum text length.
@@ -1155,6 +1212,16 @@ impl From<&MemberType> for CheckedMemberType {
             MemberType::IntRange(range) => Self::IntRange {
                 lower: range.lower,
                 upper: range.upper,
+            },
+            MemberType::RationalRange(bounds) => Self::RationalRange {
+                numerator_min: bounds.numerator_min,
+                numerator_max: bounds.numerator_max,
+                denominator_min: bounds.denominator_min,
+                denominator_max: bounds.denominator_max,
+            },
+            MemberType::CarriedRational(bounds, unit) => Self::CarriedRational {
+                unit: unit.clone(),
+                carrier: Box::new(Self::from(&MemberType::RationalRange(*bounds))),
             },
             MemberType::TextBounds(bounds) => Self::TextBounds {
                 lower: bounds.lower,
@@ -1320,6 +1387,26 @@ impl fmt::Display for CheckedModelFieldsError {
 impl std::error::Error for CheckedModelFieldsError {}
 
 impl CheckedPackageV2 {
+    /// The admitted selected type at one tuple position, or `None` for an
+    /// unknown declaration or position or an unmapped type.
+    pub fn model_tuple_position_type(
+        &self,
+        node: &CheckedNodeId,
+        position: usize,
+    ) -> Option<CheckedMemberType> {
+        self.models.tuple_position_type(node, position)
+    }
+
+    /// The admitted selected payload type of one variant case, or `None` for
+    /// an unknown declaration, nullary case, or unmapped type.
+    pub fn model_variant_payload_member_type(
+        &self,
+        node: &CheckedNodeId,
+        case: &str,
+    ) -> Option<CheckedMemberType> {
+        self.models.variant_payload_member_type(node, case)
+    }
+
     /// The complete retained selected-variant body for an admitted declaration
     /// node, borrowed from this package. A non-variant or unselected node has
     /// no body. Cases appear in ascending UTF-8 name order.
