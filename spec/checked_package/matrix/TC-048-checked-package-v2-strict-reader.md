@@ -658,8 +658,9 @@ the selected checkout. For each published positive argument, construct a
 complete strict package with the published clause profile, clock unit and
 expression target families, put the aggregate application at a
 `temporal`/`formula` node reached by the clause, and require admission with its
-structural node identity retained. For each reader mutation, build the same
-context from its named base positive and mutation argument; require the
+structural node identity retained. For each reader mutation, build the
+complete context from its named base positive, use that reader case's own
+published `profile` and `argument` (including a profile override), and require the
 published exact code, cause and pointer relative to the application body,
 prefixed by that package's node-body pointer. Check that a profile or value
 defect precedes a later operation defect and that two reachable aggregates

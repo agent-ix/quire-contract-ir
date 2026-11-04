@@ -2510,43 +2510,15 @@ reported ahead of a later clause's `over` defect. All precede operation refusals
    `UnknownProfile` and both causes, with these pairings and no other. A formula tree is the set of `temporal`/`formula`
    nodes reachable from the clause's formula argument by operand references.
 
-**Window aggregate argument.** A `quire.op.temporal.aggregate` application at a
-`temporal`/`formula` node is an atom, and another temporal operator reaches it by
-reference to that node (QSpec FR-370 "Window aggregate atom"). Its argument is
-one aggregate of bindings in this order, omitting kind-inapplicable bindings:
-`kind`, `q`, `predicate`, `value`, `filter`, `window_kind`, `lower`, `upper`,
-`min_count`, `comparison`, `threshold`. `kind` names `count`, `sum`, `min`,
-`max`, `fraction` or `quantile`; `q` is required only for `quantile`,
-`predicate` only for `fraction`, and `value` only for `sum`, `min`, `max` and
-`quantile`. A source `where` contributes `filter`. `window_kind` is `positions`
-under the event-position false-extension profile or `duration` under the
-timestamped-event finite-window profile. The bounds are non-negative integer
-position literals or non-negative quantity literals of the clause's clock unit,
-respectively. `min_count` is a non-negative integer literal and is positive
-for `min`, `max`, `fraction` and `quantile`; `comparison` is one of `<`, `<=`,
-`=`, `>=`, `>`. `threshold` has the aggregate result family (`integer` for
-`count`, `rational` for `fraction`, otherwise the family of `value`) and the
-`value` unit for a quantity. The predicate and filter have Boolean family;
-the value has integer, rational or quantity family. `q` is rational with
-`0 < q < 1`. Every named expression is a binding value in the clause's binder
-scope, never a copied expression node.
-
-For an application body `B` at `/semantic_graph/nodes/{n}/body`, argument `A`
-at `B/arguments/0`, and member `M` at `A/members/{m}`, the reader follows
-QSpec FR-370's five checks in order: (1) profile eligibility, with
-`invalid_package`/`invalid-value` at `B`; (2) member names, duplicates and
-table order, with `unknown-member`, `duplicate-member` or `invalid-value` at
-`M`; (3) required and well-formed `kind`, with `missing-member` at `A` or
-`wrong-value-kind`/`invalid-value` at `M/value`; (4) kind-specific presence,
-with `unknown-member` at `M` or `missing-member` at `A`; then (5) each value
-in table order, with `wrong-value-kind`, `invalid-value`, `type-mismatch` or
-`unit-mismatch` at `M/value` as FR-370 assigns. These causes pair with
-`invalid_package` except `type-mismatch` and `unit-mismatch`, which pair with
-`ill_typed`. After `upper`, `lower > upper` refuses
-`invalid_package`/`invalid-value` at `A`. A duration bound in another unit of
-Time, a unit of another dimension, or a threshold quantity in another unit
-than `value` refuses `ill_typed`/`unit-mismatch` at the value. The first
-applicable refusal returns no admitted package or partial temporal view.
+**Window aggregate argument.** For every `quire.op.temporal.aggregate` atom
+reachable from a clause's formula, the temporal step applies QSpec FR-370
+"Window aggregate atom" in that clause's check order and ascending formula
+node-id order. QSpec owns the ordered binding vocabulary, profile fit, five
+checks, first-refusal code/cause and body-relative pointer. This reader adds
+the containing `/semantic_graph/nodes/{n}/body` prefix and returns that first
+refusal with no admitted package or partial temporal view. The operation step
+subsequently checks the catalogued operand and result forms. TC-048 builds
+complete packages from the published QSpec argument fragments by reference.
 
 **Path and locus.** Every refusal of the temporal step carries both a path (an
 RFC 6901 pointer) and a locus (a node key), as QSpec FR-047 requires of every
@@ -5809,8 +5781,8 @@ copying QSL execution semantics into IR.
 | FR-038-AC-458 | Implemented. QSpec C11's clause `relationships` target changed to a role refuses `invalid_model_binding`/`wrong-export` at `/semantic_graph/nodes/82/body/arguments/4/value/members/0/target`, retaining required kind `relationship` and actual kind `role` with their published keys; it does not report the containing `protocol_clause` as the target form. | Test (TC-048; QSpec FR-464-AC-6, TC-946) |
 | FR-038-AC-459 | Implemented. TC-048 reads the current QSpec protocol mutation manifest and base package directly from the selected checkout, applies V2, V8, V9, V10, V11, RP6, V16, CP28 and C11 without a local fixture copy, and checks each published reader stage, code, cause, primary pointer, applicable `document_pointer` and retained target kind. The test fails for an unexpectedly admitted row or an unmatched refusal. QSpec's schema-stage V3, V4, V5, V7 and L19 and the already matching C12 are not reader-fix cases for this criterion. | Test (TC-048; QSpec TC-946, TC-948) |
 | FR-038-AC-460 | Implemented. A public read-only `CheckedPackageV2::direct_dependencies()` iteration borrows each admitted direct dependency package in `lock.dependency_selections` order. A package selecting `geometry` then `units` yields the two corresponding complete admitted values, including distinct non-name content, and no clone or identity-only surrogate; a root selecting one child whose own lock selects a grandchild yields only that child, whose accessor yields the grandchild. A package with no direct selections yields no item. The returned borrows cannot outlive their owning package. | Test (TC-048) |
-| FR-038-AC-461 | Planned until IR-1326 code. The public strict reader admits a complete package whose `temporal`/`formula` node applies catalogued `quire.op.temporal.aggregate` with the exact Boolean result, one aggregate argument, and each of QSpec's published valid count, sum, min, max, fraction and quantile binding shapes. It retains the node's structural identity and admits the aggregate as a formula atom under the matching event-position or timestamped-event profile, without treating an unsupported profile as a valid atom. | Test (TC-048; QSpec FR-370-AC-17, TC-303) |
-| FR-038-AC-462 | Planned until IR-1326 code. For every reader mutation in the current QSpec `temporal-aggregate-vectors.json`, the strict reader of a complete package returns the published code, cause and body-relative pointer after adding the application's `/semantic_graph/nodes/{n}/body` prefix, with no admitted package or partial temporal view. The temporal step checks a clause's reachable aggregate arguments after its interval bounds and before operation refusals, by ascending formula node id and FR-370's profile, names/order, kind, presence and value precedence. TC-048 reads the QSpec argument fragments by reference from the selected checkout, constructs their complete package context, and fails if any published positive or reader row is skipped or disagrees. It copies no vector or schema into IR and freezes no row count. | Test (TC-048; QSpec FR-370-AC-18, TC-303) |
+| FR-038-AC-461 | Planned until IR-1326 code. The public strict reader admits a complete package whose `temporal`/`formula` node applies catalogued `quire.op.temporal.aggregate` with the exact Boolean result, one aggregate argument, and every published positive argument under its published clause profile. It retains the node's structural identity and exposes the aggregate as a formula atom. | Test (TC-048; QSpec FR-370-AC-17, TC-303) |
+| FR-038-AC-462 | Planned until IR-1326 code. For every reader mutation in the current QSpec `temporal-aggregate-vectors.json`, the strict reader of a complete package returns the published code, cause and body-relative pointer after adding the application's `/semantic_graph/nodes/{n}/body` prefix, with no admitted package or partial temporal view. The temporal step checks a clause's reachable aggregate arguments after its interval bounds and before operation refusals, by ascending formula node id and QSpec FR-370's first-refusal precedence. TC-048 reads the QSpec argument fragments by reference from the selected checkout, constructs each complete package with that row's published profile and argument (including reader profile overrides), and fails if any published positive or reader row is skipped or disagrees. It copies no vector or schema into IR and freezes no row count. | Test (TC-048; QSpec FR-370-AC-18, TC-303) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
