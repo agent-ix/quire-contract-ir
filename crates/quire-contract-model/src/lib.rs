@@ -212,6 +212,8 @@ pub use checked_package::{
     SelectedEnumDeclarationRow, SelectedEnumMemberRow, SelectedExactDeclarationForm,
     SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
     SelectedExactIdentity, SelectedModelEnumDeclarationRow, SelectedModelEnumError,
+    SelectedFactEquality, SelectedFactEqualityId, SelectedFactField, SelectedFactFieldId,
+    SelectedFactIds, SelectedFactRows, SelectedFacts, SelectedFactsError, SelectedFactsErrorCode,
     SelectedModelEnumErrorCode, SelectedModelEnumMemberRow, SelectedModelEnums,
     SelectedOperationIdentity, SelectedOperationMemberError, SelectedOperationMemberErrorCode,
     SelectedOperationMemberRow, SelectedOperationMembers, SelectedRecordFieldView,

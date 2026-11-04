@@ -1908,6 +1908,26 @@ impl CheckedPackageV2 {
         source_unit_rows: &[SelectedSourceUnitRow],
         work_limit: u64,
     ) -> Result<AdmittedEqualityDecision, AdmittedEqualityReadError> {
+        self.admitted_equality_metered(
+            application,
+            occurrence,
+            application_rows,
+            fact_rows,
+            source_unit_rows,
+            work_limit,
+        )
+        .map(|(decision, _)| decision)
+    }
+
+    pub(super) fn admitted_equality_metered(
+        &self,
+        application: &CheckedNodeId,
+        occurrence: &CheckedOccurrence,
+        application_rows: &[SelectedEqualityApplicationRow],
+        fact_rows: &[SelectedEqualityFactRow],
+        source_unit_rows: &[SelectedSourceUnitRow],
+        work_limit: u64,
+    ) -> Result<(AdmittedEqualityDecision, u64), AdmittedEqualityReadError> {
         let mut work = ReadWork {
             consumed: 0,
             limit: work_limit,
@@ -2155,14 +2175,15 @@ impl CheckedPackageV2 {
             enum_members,
         };
         let mut meter = exact_meter(work.limit - work.consumed);
-        mint_admitted_equality_decision(ReaderSeal, descriptor, &mut meter).map_err(|cause| {
+        let decision = mint_admitted_equality_decision(ReaderSeal, descriptor, &mut meter).map_err(|cause| {
             materialization_refusal(
                 application,
                 work.consumed,
                 meter.consumed(LimitKind::WorkUnits),
                 cause,
             )
-        })
+        })?;
+        Ok((decision, work.consumed + meter.consumed(LimitKind::WorkUnits)))
     }
 }
 
