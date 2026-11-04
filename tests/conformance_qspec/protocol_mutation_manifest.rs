@@ -303,7 +303,7 @@ fn current_qspec_protocol_enumerations_remain_admitted() {
         .expect("Boolean type")["node_id"]
         .clone();
     let fields = [
-        ("channel", "/properties/arguments/prefixItems/4/properties/value/properties/value", 4, false),
+        ("channel", "/properties/arguments/prefixItems/4/properties/value/properties/value/anyOf/0", 4, false),
         ("queue", "/properties/arguments/prefixItems/2/properties/value/properties/value", 2, false),
         ("attempt", "/properties/arguments/prefixItems/2/properties/value/properties/members/items/properties/value", 2, true),
         ("parallel", "/properties/arguments/prefixItems/0/properties/value/properties/members/items/properties/value", 0, true),
@@ -402,6 +402,46 @@ fn append_protocol_control(package: &mut Value, node: Value, name: &str) {
         .expect("graph nodes")
         .push(node);
     fixture_support::settle(package);
+}
+
+#[test]
+#[trace("TC-048", "FR-038-AC-286")]
+fn current_qspec_schema_valid_delivery_bounds_refuse_at_channel_node() {
+    let fixtures = fixtures_dir();
+    let base = read_json(&fixtures.join("protocol-node-base.json")).expect("QSpec protocol base");
+    let manifest = read_json(&fixtures.join("protocol-node-mutation-manifest.json"))
+        .expect("QSpec protocol manifest");
+    let document = fixtures.join(
+        manifest["base"]["domain_document"]
+            .as_str()
+            .expect("selected domain document"),
+    );
+
+    for spelling in ["[4,3]", "[0,18446744073709551616]"] {
+        let mut package = base.clone();
+        let channel = protocol_node_index(&package, "channel");
+        package["semantic_graph"]["nodes"][channel]["body"]["arguments"][4]["value"]["value"] =
+            Value::from(spelling);
+        assert_current_qspec_protocol_bodies_valid(&package, "channel");
+
+        let result = read(&package, &document);
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("{spelling}: schema-valid invalid interval must refuse: {result:?}");
+        };
+        let pointer = format!("/semantic_graph/nodes/{channel}");
+        assert_eq!(
+            serde_json::to_value(refusal.code).expect("code"),
+            "malformed_wire"
+        );
+        assert!(refusal.cause.is_none(), "{spelling}: no semantic cause");
+        assert_eq!(refusal.loci.len(), 1, "{spelling}: one primary locus");
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+            Some(pointer.as_str()),
+            "{spelling}: channel node pointer"
+        );
+        assert!(refusal.locus.is_none(), "{spelling}: no structural locus");
+    }
 }
 
 fn assert_appended_protocol_node_admits(
