@@ -74,7 +74,7 @@ fn reference(package: &ContractPackage<ReferenceBody>, id: &str, revision: u64) 
     RequirementRef::parse(package.id().as_str(), id, revision).unwrap()
 }
 
-#[trace("TC-017", "FR-016-AC-2", "FR-016-AC-4")]
+#[trace("TC-017", "FR-016-AC-1", "FR-016-AC-2", "FR-016-AC-4")]
 #[test]
 fn tc_017_canonical_bytes_ordering_and_resource_failure_conform() {
     let package = package_fixture("canonical_a", false, false);
@@ -278,7 +278,7 @@ fn tc_017_canonical_bytes_ordering_and_resource_failure_conform() {
     );
 }
 
-#[trace("TC-017", "FR-016-AC-4")]
+#[trace("TC-017", "FR-016-AC-1", "FR-016-AC-4")]
 #[test]
 fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
     let owner = RequirementRef::parse("agent-ix/pkg", "REQ_a", 1).unwrap();
@@ -544,16 +544,37 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
             false,
         )
         .unwrap();
-    let record_text = String::from_utf8(
-        typed_record
+    let record_output = typed_record
+        .canonical_expression(CanonicalProfile::V1)
+        .unwrap();
+    let record_text = std::str::from_utf8(record_output.bytes().as_slice()).unwrap();
+    assert!(record_text.find("first").unwrap() < record_text.find("second").unwrap());
+    let mut permuted_kind = record_expression.kind().clone();
+    let ExpressionKind::RecordLiteral { fields, .. } = &mut permuted_kind else {
+        panic!("the constructed record literal changed kind");
+    };
+    fields.reverse();
+    let permuted_record = Expression::new(permuted_kind, span(&source_b, 20, 23));
+    let typed_permuted_record = environment
+        .check_expression(
+            &permuted_record,
+            &ValueType::Record {
+                name: SymbolName::new("Record").unwrap(),
+            },
+            &ExecutionPoint::Pre {
+                operation: AnchorName::new("render").unwrap().into(),
+            },
+            false,
+        )
+        .unwrap();
+    assert_eq!(
+        record_output.bytes(),
+        typed_permuted_record
             .canonical_expression(CanonicalProfile::V1)
             .unwrap()
-            .bytes()
-            .as_slice()
-            .to_vec(),
-    )
-    .unwrap();
-    assert!(record_text.find("first").unwrap() < record_text.find("second").unwrap());
+            .bytes(),
+        "record fields are a semantic set, independent of authored order and source"
+    );
 
     let scalar_environment = DeclarationEnvironment::new(
         RequirementRef::parse("agent-ix/pkg", "REQ_scalar", 1).unwrap(),
@@ -655,16 +676,22 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
             false,
         )
         .unwrap();
-    let collection_text = String::from_utf8(
-        typed_collection
-            .canonical_expression(CanonicalProfile::V1)
-            .unwrap()
-            .bytes()
-            .as_slice()
-            .to_vec(),
-    )
-    .unwrap();
-    assert!(collection_text.find("z_item").unwrap() < collection_text.find("a_item").unwrap());
+    let collection_output = typed_collection
+        .canonical_expression(CanonicalProfile::V1)
+        .unwrap();
+    let collection_text = std::str::from_utf8(collection_output.bytes().as_slice()).unwrap();
+    assert_eq!(
+        collection_text,
+        concat!(
+            "{\"kind\":\"expression\",\"profile\":\"quire.contract.canonical-json/v1\",",
+            "\"value\":{\"result_type\":{\"kind\":\"collection\",\"value\":",
+            "{\"element\":{\"kind\":\"text\"},\"maximum_items\":2}},\"tree\":{\"kind\":",
+            "{\"items\":[{\"kind\":{\"node\":\"text_literal\",\"value\":\"z_item\"}},",
+            "{\"kind\":{\"node\":\"text_literal\",\"value\":\"a_item\"}}],",
+            "\"node\":\"collection_literal\",\"value_type\":",
+            "{\"element\":{\"kind\":\"text\"},\"maximum_items\":2}}}}}"
+        )
+    );
 }
 
 #[trace("TC-017", "FR-017-AC-1", "StR-002-VC-2")]

@@ -61,6 +61,35 @@ fn package_with_revision(revision: u64) -> ContractPackage<ReferenceBody> {
     ContractPackage::new(package, SchemaVersion::V1_1, source(), vec![requirement]).unwrap()
 }
 
+fn package_with_clause_order(reverse: bool) -> ContractPackage<ReferenceBody> {
+    let package = PackageId::new("agent-ix/pkg").unwrap();
+    let mut clauses = ["zeta", "alpha"]
+        .into_iter()
+        .map(|id| {
+            Clause::new(
+                ClauseId::new(id).unwrap(),
+                ClauseKind::Information,
+                None,
+                span(1, 2),
+                ReferenceBody::Literal,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    if reverse {
+        clauses.reverse();
+    }
+    let requirement = Requirement::new(
+        &package,
+        RequirementId::new("REQ_a").unwrap(),
+        RequirementRevision::new(1).unwrap(),
+        span(0, 10),
+        clauses,
+    )
+    .unwrap();
+    ContractPackage::new(package, SchemaVersion::V1_1, source(), vec![requirement]).unwrap()
+}
+
 fn typed(expression: Expression, expected: &ValueType) -> TypedExpression {
     DeclarationEnvironment::new(owner(), vec![], vec![], vec![])
         .unwrap()
@@ -182,8 +211,8 @@ fn expression_fixture() -> TypedExpression {
 type Budgeted<'a> =
     Box<dyn Fn(u64) -> Result<CanonicalOutput, quire_contract_model::Diagnostic> + 'a>;
 
-/// ACs: FR-016-AC-5, FR-016-AC-6
-#[trace("TC-017", "FR-016-AC-5", "FR-016-AC-6")]
+/// ACs: FR-016-AC-1, FR-016-AC-5, FR-016-AC-6
+#[trace("TC-017", "FR-016-AC-1", "FR-016-AC-5", "FR-016-AC-6")]
 #[test]
 fn tc_017_the_five_kinds_equal_their_written_out_bytes_and_limits() {
     let package = package_with_revision(1);
@@ -248,8 +277,68 @@ fn tc_017_the_five_kinds_equal_their_written_out_bytes_and_limits() {
     }
 }
 
-/// ACs: FR-016-AC-5
-#[trace("TC-017", "FR-016-AC-5")]
+/// ACs: FR-016-AC-1
+#[trace("TC-017", "FR-016-AC-1")]
+#[test]
+fn tc_017_clause_order_is_canonical_in_requirement_and_package_bytes() {
+    const EXPECTED_REQUIREMENT: &str = concat!(
+        "{\"kind\":\"requirement\",\"profile\":\"quire.contract.canonical-json/v1\",\"value\":",
+        "{\"clauses\":[{\"body\":{\"node\":\"literal\"},\"id\":\"alpha\",\"kind\":\"information\",",
+        "\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_a\",\"revision\":1}},",
+        "{\"body\":{\"node\":\"literal\"},\"id\":\"zeta\",\"kind\":\"information\",",
+        "\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_a\",\"revision\":1}}],",
+        "\"id\":\"REQ_a\",\"package\":\"agent-ix/pkg\",\"revision\":1}}"
+    );
+    const EXPECTED_PACKAGE: &str = concat!(
+        "{\"kind\":\"package\",\"profile\":\"quire.contract.canonical-json/v1\",\"value\":",
+        "{\"id\":\"agent-ix/pkg\",\"requirements\":[{\"clauses\":[",
+        "{\"body\":{\"node\":\"literal\"},\"id\":\"alpha\",\"kind\":\"information\",",
+        "\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_a\",\"revision\":1}},",
+        "{\"body\":{\"node\":\"literal\"},\"id\":\"zeta\",\"kind\":\"information\",",
+        "\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_a\",\"revision\":1}}],",
+        "\"id\":\"REQ_a\",\"package\":\"agent-ix/pkg\",\"revision\":1}],",
+        "\"schema_version\":{\"major\":1,\"minor\":1}}}"
+    );
+
+    let authored = package_with_clause_order(false);
+    let reversed = package_with_clause_order(true);
+    assert_eq!(
+        authored.requirements()[0].clauses()[0].id().as_str(),
+        "zeta"
+    );
+    assert_eq!(
+        reversed.requirements()[0].clauses()[0].id().as_str(),
+        "alpha"
+    );
+    for package in [&authored, &reversed] {
+        let requirement = &package.requirements()[0];
+        assert_eq!(
+            text(
+                &package
+                    .canonical_requirement(requirement, CanonicalProfile::V1)
+                    .unwrap()
+            ),
+            EXPECTED_REQUIREMENT
+        );
+        assert_eq!(
+            text(&package.canonical_package(CanonicalProfile::V1).unwrap()),
+            EXPECTED_PACKAGE
+        );
+    }
+    assert_eq!(
+        authored
+            .canonical_package(CanonicalProfile::V1)
+            .unwrap()
+            .bytes(),
+        reversed
+            .canonical_package(CanonicalProfile::V1)
+            .unwrap()
+            .bytes()
+    );
+}
+
+/// ACs: FR-016-AC-1, FR-016-AC-5
+#[trace("TC-017", "FR-016-AC-1", "FR-016-AC-5")]
 #[test]
 fn tc_017_the_eight_integer_members_are_strings_and_the_rest_stay_numbers() {
     // An integer type of 0 and 0 holds "0" and "0".
