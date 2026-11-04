@@ -6,8 +6,9 @@
 use quire_canonical::{Document, Node, Number};
 use std::{collections::BTreeMap, sync::Arc};
 
-/// One already-read selected document. The canonical reader's arena keeps
-/// clone, comparison and final-owner drop independent of document depth.
+/// One already-read selected document. Flat ownership and explicit comparison
+/// keep native stack use independent of document depth during clone,
+/// comparison and final-owner drop.
 #[derive(Clone, Debug)]
 pub(super) struct SelectedDocument(Arc<Document>);
 

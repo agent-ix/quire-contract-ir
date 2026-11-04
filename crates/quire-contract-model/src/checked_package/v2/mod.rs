@@ -921,10 +921,11 @@ impl Drop for CheckedPackageV2 {
     }
 }
 
-/// Equality includes each selected document's complete admitted JSON value.
-/// The read limit a package
-/// retains for its lowering is not content, so two admissions of the same bytes
-/// under different limits are equal; nor are the retained field tables,
+/// Equality includes each selected document's complete admitted JSON value,
+/// using the numeric values consumed by model intake rather than authored
+/// number spelling, object member order or wire whitespace.
+/// The read limit retained for lowering is not content, so two admissions of
+/// the same bytes under different limits are equal; nor are the retained field tables,
 /// declaration index, operation parameter types and relationship records, which
 /// are derived from the same admitted documents.
 impl PartialEq for CheckedPackageV2 {
