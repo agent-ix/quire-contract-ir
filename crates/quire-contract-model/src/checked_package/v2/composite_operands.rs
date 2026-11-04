@@ -1627,7 +1627,7 @@ mod tests {
         assert_eq!(selected_error.equality.as_deref(), Some(&missing));
     }
 
-    /// Trace: FR-353-AC-1, FR-353-AC-7, FR-357-AC-5, FR-357-AC-6.
+    /// Trace: FR-353-AC-1, FR-353-AC-7, FR-357-AC-5, FR-357-AC-6, FR-357-AC-7.
     /// Provenance: IR-1209 QSL per-fact Text type rows.
     #[test]
     fn bounded_text_equality_reads_joined_type_rows() {
@@ -1737,6 +1737,21 @@ mod tests {
         let complete = selected_read(&facts).expect("selected Text facts join");
         assert_eq!(complete.equalities.len(), 1);
         assert_eq!(complete.equalities[0].decision, admitted);
+        let mut oversized_facts = facts.clone();
+        oversized_facts[0].structural_key = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("x".repeat(1_000_000).into())],
+            0,
+        )
+        .unwrap();
+        let denied =
+            selected_read(&oversized_facts).expect_err("fact material is charged before copying");
+        assert_eq!(
+            denied.code,
+            super::super::SelectedFactsErrorCode::ExhaustedWork
+        );
+        assert_eq!(denied.at.as_ref(), &type_id);
+        assert!(denied.attempted_work > 0);
 
         facts.push(facts[0].clone());
         let duplicate_selected =
