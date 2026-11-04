@@ -214,10 +214,8 @@ fn fixture_source_ref_key(wire: &Value, reference: &Value) -> CheckedNodeId {
     fixture_structural_key_from_ids(&ids, position)
 }
 
-/// Trace: FR-330-AC-16
-/// QSpec FR-330-AC-4 follows FR-322-AC-95's producer-chosen graph order at
-/// agent-ix/quire-specification@da7ecb373141693ccc32ecff76377ce453113570.
-#[trace("TC-934", "FR-330-AC-16")]
+// Source and output frames retain independently chosen graph orders.
+#[trace("TC-934", "FR-330-AC-16", "FR-035-AC-34")]
 #[test]
 fn contract_source_and_output_index_tables_permute_independently() {
     let mut source_wire = read_json(&fixtures_dir().join("positive-operation-identities.json"))
@@ -325,7 +323,7 @@ fn contract_source_and_output_index_tables_permute_independently() {
             "lowered source root joins output graph"
         );
     }
-    for (output, source_table) in [(false, true), (true, false), (true, true)] {
+    for (output, source_table) in [(false, false), (false, true), (true, false), (true, true)] {
         let mut wire = original_wire.clone();
         if output {
             wire["semantic_graph"]["nodes"]
@@ -390,7 +388,110 @@ fn contract_source_and_output_index_tables_permute_independently() {
             ),
             "refusal pointer compares the requested structural key"
         );
+        let output_ids = fixture_graph_ids(&wire);
+        for (position, mapped) in wire["source_map"]["nodes"]
+            .as_array()
+            .expect("node sources")
+            .iter()
+            .enumerate()
+        {
+            let output_key = fixture_structural_key_from_ids(&output_ids, position);
+            let mapped_id: CheckedNodeId =
+                serde_json::from_value(mapped["node_id"].clone()).expect("mapped output id");
+            assert_eq!(
+                fixture_structural_key_for_id(&output_ids, &mapped_id),
+                output_key
+            );
+            for occurrence in mapped["occurrences"]
+                .as_array()
+                .expect("source occurrences")
+            {
+                assert_eq!(
+                    fixture_source_ref_key(&wire, &occurrence["node_id"]),
+                    output_key,
+                    "output={output} source={source_table}: cross-frame occurrence {position}"
+                );
+            }
+        }
+        let first = wire["feature_accounting"][0]["node_id"].clone();
+        let second = wire["feature_accounting"][1]["node_id"].clone();
+        assert_ne!(
+            fixture_source_ref_key(&wire, &first),
+            fixture_source_ref_key(&wire, &second)
+        );
+        // Unequal keys must not join even when both local references are in range.
+        for path in [
+            "/feature_accounting/0/node_id",
+            "/source_map/refusals/0/requested_item",
+        ] {
+            let mut unequal = wire.clone();
+            *unequal.pointer_mut(path).expect("source-frame join") = second.clone();
+            assert_v1_refusal(
+                &unequal,
+                "invalid_package",
+                Some("invalid-value"),
+                "/feature_accounting",
+            );
+        }
+        let mut unequal_output = wire.clone();
+        unequal_output["source_map"]["nodes"][0]["node_id"] =
+            wire["semantic_graph"]["nodes"][1]["node_id"].clone();
+        assert_v1_refusal(
+            &unequal_output,
+            "invalid_package",
+            Some("invalid-value"),
+            "/source_map/nodes/0/node_id",
+        );
+        let (position, mapped) = wire["source_map"]["nodes"]
+            .as_array()
+            .expect("node sources")
+            .iter()
+            .enumerate()
+            .find(|(_, mapped)| {
+                !mapped["occurrences"]
+                    .as_array()
+                    .expect("source occurrences")
+                    .is_empty()
+            })
+            .expect("a real cross-frame source occurrence");
+        let current = fixture_source_ref_key(&wire, &mapped["occurrences"][0]["node_id"]);
+        let wrong = if current == fixture_source_ref_key(&wire, &first) {
+            second
+        } else {
+            first
+        };
+        let mut unequal_occurrence = wire.clone();
+        unequal_occurrence["source_map"]["nodes"][position]["occurrences"][0]["node_id"] = wrong;
+        assert_v1_refusal(
+            &unequal_occurrence,
+            "invalid_package",
+            Some("invalid-value"),
+            &format!("/source_map/nodes/{position}/occurrences/0"),
+        );
     }
+}
+
+fn assert_v1_refusal(wire: &Value, code: &str, cause: Option<&str>, path: &str) {
+    let outcome = ContractPackageWireV1::read(
+        &super::fixture_support::canonical(wire),
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+    );
+    let ContractPackageReadResult::Refused(refusal) = outcome else {
+        panic!("{path}: unequal or malformed frame must refuse: {outcome:?}");
+    };
+    assert_eq!(code_word(refusal.code), code, "{path}: {refusal:?}");
+    assert_eq!(refusal.cause.map(cause_word), cause, "{path}: {refusal:?}");
+    assert_eq!(refusal.loci.len(), 1, "{path}: {refusal:?}");
+    assert_eq!(
+        refusal.loci[0]
+            .path
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some(path),
+        "{refusal:?}"
+    );
 }
 
 #[trace("TC-047", "FR-035-AC-23")]
@@ -522,8 +623,7 @@ fn v1_indexed_frame_joins_use_resolved_node_keys() {
     );
 }
 
-/// Trace: FR-330-AC-2, FR-330-AC-14
-#[trace("TC-933", "TC-934", "FR-330-AC-2", "FR-330-AC-14")]
+#[trace("TC-933", "TC-934", "FR-330-AC-2", "FR-330-AC-14", "FR-035-AC-32")]
 #[test]
 fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
     let wire = read_json(&fixtures_dir().join("positive-operation-identities.json"))
@@ -560,8 +660,9 @@ fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
     let bytes = result
         .package
         .canonical_bytes()
-        .expect("canonical refusal package");
-    let emitted: Value = serde_json::from_slice(bytes).expect("canonical package value");
+        .expect("canonical refusal package")
+        .to_vec();
+    let emitted: Value = serde_json::from_slice(&bytes).expect("canonical package value");
     assert_eq!(emitted["semantic_graph"]["nodes"], json!([]));
     let source_keys = emitted["source_keys"].as_array().expect("source-key table");
     let request_index = emitted["feature_accounting"][0]["node_id"]["source_key"]
@@ -613,14 +714,79 @@ fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
         emitted["source_map"]["refusals"][0]["requested_item"],
         json!({"source_key": request_index})
     );
+    // No emitted reference can depend on the source package remaining available.
+    drop(result);
+    drop(source);
+    drop(wire);
     let read_back = ContractPackageWireV1::read(
-        bytes,
+        &bytes,
         CheckedPackageReadLimits::bounded(),
         &ContractDependencies::new(),
     );
     let ContractPackageReadResult::Admitted(read_back) = read_back else {
-        panic!("reader admits exact invalid-input record: {read_back:?}");
+        panic!("reader admits exact invalid-input record without its source: {read_back:?}");
     };
+    let mut with_extra = emitted.clone();
+    let extra_position = with_extra["source_keys"]
+        .as_array()
+        .expect("source keys")
+        .len();
+    let extra = json!({"package":"example", "path":["unused-source-key"], "ordinal":0});
+    with_extra["source_keys"]
+        .as_array_mut()
+        .expect("source keys")
+        .push(extra.clone());
+    let extra_read = ContractPackageWireV1::read(
+        &super::fixture_support::canonical(&with_extra),
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+    );
+    let ContractPackageReadResult::Admitted(extra_read) = extra_read else {
+        panic!("unused unique source keys are permitted: {extra_read:?}");
+    };
+    assert_eq!(
+        serde_json::to_value(&extra_read.wire().source_keys[extra_position]).expect("extra key"),
+        extra
+    );
+    assert!(extra_read.wire().semantic_graph.nodes.is_empty());
+    for (bad, code, cause, suffix) in [
+        (
+            emitted["source_keys"][0].clone(),
+            "invalid_package",
+            Some("invalid-value"),
+            "",
+        ),
+        (
+            json!({"package":"example", "path":["unused-source-key"], "ordinal":-1}),
+            "invalid_package",
+            Some("invalid-value"),
+            "/ordinal",
+        ),
+        (
+            json!({"package":"example", "path":[{"node":extra_position + 1}], "ordinal":0}),
+            "malformed_wire",
+            None,
+            "/path/0/node",
+        ),
+    ] {
+        let mut invalid = with_extra.clone();
+        invalid["source_keys"][extra_position] = bad;
+        assert_v1_refusal(
+            &invalid,
+            code,
+            cause,
+            &format!("/source_keys/{extra_position}{suffix}"),
+        );
+    }
+    // Every source-frame ID position remains an explicit source-key reference.
+    for reference in [
+        &emitted["feature_accounting"][0]["node_id"],
+        &emitted["source_map"]["requested_items"][0]["requested_item"],
+        &emitted["source_map"]["refusals"][0]["requested_item"],
+    ] {
+        assert_eq!(reference.as_object().expect("reference").len(), 1);
+        assert_eq!(fixture_source_ref_key(&emitted, reference), expected_absent);
+    }
     assert!(read_back.wire().semantic_graph.nodes.is_empty());
     assert!(matches!(
         read_back.wire().feature_accounting[0].disposition(),
