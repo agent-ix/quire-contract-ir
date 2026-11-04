@@ -47,6 +47,7 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
                     field("bag", "ix://quire/native/Integer").many((0, None, false, false)),
                     field("ordered", "ix://quire/native/Integer").many((0, Some(3), true, true)),
                     field("nested", &orders("OptInt")).many((0, Some(3), true, false)),
+                    field("option", &orders("OptInt")),
                     field("optional_collection", "ix://quire/native/Integer").optional().many((0, Some(3), false, true)),
                     field("optional_string", "ix://quire/native/String").optional(),
                 ]),
@@ -71,7 +72,7 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
             let admitted = admit(&selected, &[("Wrapped", "record_value_type")], &[]);
             let structural: CheckedNodeId = serde_json::from_value(node_id(&declaration_key("Wrapped", "record_value_type"))).unwrap();
             let key = NodeKey::new("checked", vec![PathSegment::Text("Wrapped".into())], 0).unwrap();
-            let names = ["sequence", "set", "bag", "ordered", "nested", "optional_collection", "optional_string", "deep"];
+            let names = ["sequence", "set", "bag", "ordered", "nested", "option", "optional_collection", "optional_string", "deep"];
             let declaration = SelectedExactDeclarationRow::new(
                 structural.clone(), IDENTITY, SelectedExactDeclarationForm::RecordValueType,
                 orders("Wrapped"), SelectedExactIdentity::Record(key.clone()),
@@ -97,6 +98,7 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
                 collection(CollectionKind::Bag, ValueType::Integer, None),
                 collection(CollectionKind::OrderedSet, ValueType::Integer, bounded),
                 collection(CollectionKind::Sequence, ValueType::option(ValueType::Integer), bounded),
+                ValueType::option(ValueType::Integer),
                 collection(CollectionKind::Set, ValueType::Integer, bounded),
                 ValueType::String,
             ];
@@ -112,7 +114,7 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
                 assert_eq!(field.name(), name);
                 assert_eq!(field.member_id(), &MemberId::new(MemberOwner::Node(key.clone()), name).unwrap());
                 assert_eq!(field.value_type(), &expected[index]);
-                assert_eq!(field.presence(), if (5..7).contains(&index) { Presence::Optional } else { Presence::Required });
+                assert_eq!(field.presence(), if (6..8).contains(&index) { Presence::Optional } else { Presence::Required });
             }
             let exhausted = admitted.project_exact_type(&structural, &identities, work - 1).unwrap_err();
             assert_eq!(clone.project_exact_type(&structural, &identities, work - 1), Err(exhausted.clone()));
