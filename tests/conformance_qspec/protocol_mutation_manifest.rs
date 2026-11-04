@@ -110,25 +110,59 @@ fn qspec_protocol_mutation_v14_refuses_state_clause_protocol_member() {
     assert_manifest_refusal("V14", "/semantic_graph/nodes/54", 54);
 }
 
+fn apply_layout_edit(package: &mut Value, edit: &Value) {
+    let path = edit["path"].as_str().expect("published edit path");
+    let (parent, member) = path.rsplit_once('/').expect("absolute edit path");
+    let target = package
+        .pointer_mut(parent)
+        .unwrap_or_else(|| panic!("published edit parent exists: {parent}"));
+    let operation = edit["op"].as_str().expect("published edit operation");
+    match (operation, target) {
+        ("add", Value::Array(values)) => {
+            let index = if member == "-" {
+                values.len()
+            } else {
+                member.parse().expect("array index")
+            };
+            values.insert(index, edit["value"].clone());
+        }
+        ("add", Value::Object(fields)) | ("replace", Value::Object(fields)) => {
+            if operation == "replace" {
+                assert!(
+                    fields.contains_key(member),
+                    "{path}: replaced member exists"
+                );
+            }
+            fields.insert(member.to_owned(), edit["value"].clone());
+        }
+        ("replace", Value::Array(values)) => {
+            let index: usize = member.parse().expect("array index");
+            values[index] = edit["value"].clone();
+        }
+        ("remove", Value::Array(values)) => {
+            let index: usize = member.parse().expect("array index");
+            values.remove(index);
+        }
+        ("remove", Value::Object(fields)) => {
+            assert!(
+                fields.remove(member).is_some(),
+                "{path}: removed member exists"
+            );
+        }
+        _ => panic!("{path}: unsupported published edit"),
+    }
+}
+
 #[test]
-#[trace("TC-946")]
-fn scratch_qspec_protocol_layout_v12_reader_locus() {
+#[trace("TC-048", "FR-038-AC-453")]
+fn current_qspec_protocol_layout_rows_refuse_at_exact_node_pointer() {
     let fixtures = fixtures_dir();
     let layout = read_json(&fixtures.join("protocol-node-layout-rows.json"))
         .expect("current QSpec protocol layout rows");
-    let rows = layout["rows"].as_array().expect("layout rows");
-    let selected: Vec<_> = rows.iter().filter(|row| row["id"] == "V12").collect();
-    assert_eq!(selected.len(), 1, "one published V12 row");
-    let row = selected[0];
-    assert_eq!(row["expect"]["code"], "malformed_wire");
-    assert_eq!(row["expect"]["cause"], Value::Null);
-    assert_eq!(row["expect"]["locus"], "/semantic_graph/nodes/64");
-
     let manifest = read_json(&fixtures.join("protocol-node-mutation-manifest.json"))
         .expect("QSpec protocol mutation manifest");
-    assert_eq!(row["base"], manifest["base"]["fixture"]);
-    let base = read_json(&fixtures.join(row["base"].as_str().expect("base filename")))
-        .expect("QSpec protocol base");
+    let base_name = manifest["base"]["fixture"].as_str().expect("base fixture");
+    let base = read_json(&fixtures.join(base_name)).expect("QSpec protocol base");
     let document = fixtures.join(
         manifest["base"]["domain_document"]
             .as_str()
@@ -137,46 +171,46 @@ fn scratch_qspec_protocol_layout_v12_reader_locus() {
     let base_result = read(&base, &document);
     assert!(
         matches!(base_result, CheckedPackageV2ReadResult::Admitted(_)),
-        "V12 base must admit: {base_result:?}"
+        "QSpec protocol base must admit: {base_result:?}"
     );
-
-    let mut mutated = base;
-    let edits = row["edit"].as_array().expect("V12 edits");
-    assert_eq!(edits.len(), 1, "one V12 edit");
-    let edit = &edits[0];
-    assert_eq!(edit["op"], "add");
-    let path = edit["path"].as_str().expect("add path");
-    let parent = path.strip_suffix("/-").expect("append to laws array");
-    mutated
-        .pointer_mut(parent)
-        .expect("published V12 laws pointer")
-        .as_array_mut()
-        .expect("laws array")
-        .push(edit["value"].clone());
-    assert_eq!(
-        mutated["semantic_graph"]["nodes"][64]["body"]["operation"]["laws"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-
-    let result = read(&mutated, &document);
-    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
-        panic!("V12 should refuse: {result:?}");
-    };
-    let actual_code = serde_json::to_value(refusal.code).expect("code value");
-    let actual_cause = serde_json::to_value(refusal.cause).expect("cause value");
-    let actual_path = refusal.loci[0]
-        .path
-        .as_ref()
-        .expect("primary path")
-        .as_str();
-    println!(
-        "QSpec V12 expected code={} cause={} path={}",
-        row["expect"]["code"], row["expect"]["cause"], row["expect"]["locus"]
-    );
-    println!("IR V12 actual code={actual_code} cause={actual_cause} path={actual_path} structural_locus={:?}", refusal.locus);
-    assert_eq!(actual_code, row["expect"]["code"]);
-    assert_eq!(actual_cause, row["expect"]["cause"]);
+    let rows = layout["rows"].as_array().expect("published layout rows");
+    assert!(!rows.is_empty(), "QSpec layout rows must be present");
+    for row in rows {
+        let id = row["id"].as_str().expect("row id");
+        assert_eq!(row["base"], base_name, "{id}: selected base");
+        assert_eq!(row["class"], "refuse", "{id}: refusal row");
+        assert_eq!(row["expect"]["stage"], "schema", "{id}: schema stage");
+        let mut edited = base.clone();
+        for edit in row["edit"].as_array().expect("published edits") {
+            apply_layout_edit(&mut edited, edit);
+        }
+        let result = read(&edited, &document);
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("{id}: published layout row must refuse: {result:?}");
+        };
+        assert_eq!(
+            serde_json::to_value(refusal.code).unwrap(),
+            row["expect"]["code"],
+            "{id}: code"
+        );
+        assert_eq!(
+            serde_json::to_value(refusal.cause).unwrap(),
+            row["expect"]["cause"],
+            "{id}: cause"
+        );
+        assert_eq!(
+            refusal.locus, None,
+            "{id}: schema refusal has no structural locus"
+        );
+        assert_eq!(refusal.loci.len(), 1, "{id}: one primary pointer");
+        assert_eq!(
+            refusal.loci[0]
+                .path
+                .as_ref()
+                .expect("primary path")
+                .as_str(),
+            row["expect"]["locus"].as_str().expect("published locus"),
+            "{id}: primary pointer"
+        );
+    }
 }
