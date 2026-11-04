@@ -893,7 +893,7 @@ mod tests {
 
     /// QSpec FR-464 step 1 rejects a known operator's damaged fixed layout
     /// before semantic graph validation can report a later defect.
-    #[trace("TC-048")]
+    #[trace("TC-048", "FR-038-AC-453")]
     #[test]
     fn protocol_clause_rejects_short_layout_at_wire_boundary() {
         let mut node = header_node(
@@ -915,7 +915,7 @@ mod tests {
         header_refusal(
             vec![node],
             CheckedPackageRefusalCode::MalformedWire,
-            "/semantic_graph/nodes/0/body",
+            "/semantic_graph/nodes/0",
         );
     }
 
