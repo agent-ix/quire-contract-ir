@@ -45,6 +45,20 @@ pub struct CheckedProtocolActivationRow {
 }
 
 impl CheckedPackageV2 {
+    /// The borrowed selected package and original Port declaration of an admitted role.
+    ///
+    /// A legacy role without a member, an unknown node, or a non-role returns `None`.
+    pub fn protocol_role_model_member(&self, role: &CheckedNodeId) -> Option<(&str, &str)> {
+        let position = *self.node_index.get(role)?;
+        if self.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::Role) {
+            return None;
+        }
+        let CheckedTerm::Application { arguments, .. } = &self.terms[position] else {
+            return None;
+        };
+        role_member_texts(binding_value(arguments, "model_member")?)
+    }
+
     /// Derives every local clause's activation requirements from the admitted graph.
     ///
     /// The rows are ordered by clause and then required temporal node identity.
@@ -915,11 +929,19 @@ fn validate_layout(
     let Some(expected) = layout(form, operator) else {
         return Err(D::OperatorIneligible);
     };
-    if arguments.len() != expected.len()
-        || !arguments.iter().zip(expected).all(|(argument, binding)| {
-            matches!(argument, CheckedTerm::Binding { name, value }
+    let optional_role_member = form == ProtocolForm::Role
+        && arguments.len() == expected.len() + 1
+        && matches!(arguments.last(), Some(CheckedTerm::Binding { name, value })
+            if name.as_ref() == "model_member" && shape_fits(value, Shape::Group));
+    if (arguments.len() != expected.len() && !optional_role_member)
+        || !arguments
+            .iter()
+            .take(expected.len())
+            .zip(expected)
+            .all(|(argument, binding)| {
+                matches!(argument, CheckedTerm::Binding { name, value }
                 if name.as_ref() == binding.name && shape_fits(value, binding.shape))
-        })
+            })
     {
         return Err(D::MalformedLayout);
     }
@@ -2528,6 +2550,60 @@ fn check_compensation(
 }
 
 #[string_edge]
+#[string_edge]
+fn role_member_texts(term: &CheckedTerm) -> Option<(&str, &str)> {
+    if !group_fields_fit(term, &[("package", Shape::Text), ("node", Shape::Text)]) {
+        return None;
+    }
+    let package = group_value(term, "package").and_then(text_value)?;
+    let node = group_value(term, "node").and_then(text_value)?;
+    (!package.is_empty() && !node.is_empty()).then_some((package, node))
+}
+
+fn check_role_member(
+    check: &MemberCheck<'_>,
+    arguments: &[CheckedTerm],
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let Some(member) = argument(arguments, 2) else {
+        return Ok(());
+    };
+    meter.charge(1, || node_pointer(check.position))?;
+    let texts = role_member_texts(member);
+    let invalid = || {
+        let mut failure = check.refuse(
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            node_pointer(check.position),
+        );
+        if let (ValidationFailure::Refused(ref mut refusal), Some((package, node))) =
+            (&mut failure, texts)
+        {
+            refusal.protocol_detail = Some(Box::new(CheckedProtocolRefusalDetail::ModelMember {
+                package: package.into(),
+                node: node.into(),
+            }));
+        }
+        failure
+    };
+    // The model/selection check has already run. A selected whole-model text
+    // still cannot carry a member, before the member's contents are considered.
+    let Some(model) = argument(arguments, 0).and_then(reference_target) else {
+        return Err(invalid());
+    };
+    let Some((package, node)) = texts else {
+        return Err(check.refuse(Code::MalformedWire, None, node_pointer(check.position)));
+    };
+    let Some(owner) = owners.owner_by_key(model) else {
+        return Err(invalid());
+    };
+    if owner.package.identity.as_ref() != package || !owner.package.is_systems_port(node) {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
 fn check_member(
     check: &MemberCheck<'_>,
     form: ProtocolForm,
@@ -2617,6 +2693,7 @@ fn check_member(
                     }
                 }
             }
+            check_role_member(check, arguments, owners, meter)?;
         }
         ProtocolForm::Channel => {
             for ordinal in [0, 1] {
@@ -3968,44 +4045,116 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         capture: Option<usize>,
         meter: &mut WorkMeter,
     ) -> Result<(), ValidationFailure> {
-        let mut pending = Vec::new();
-        if let CheckedTerm::Reference { target } = term {
-            if let Some(&position) = self.check.index.get(target) {
-                pending.push(position);
-            }
-        }
+        let mut pending = vec![SlotWalk::Term(term, None)];
         let mut visited = BTreeSet::new();
+        let mut locals = SlotLocals::default();
         let mut reads = BTreeSet::new();
         let mut state_read = None;
-        while let Some(position) = pending.pop() {
+        while let Some(item) = pending.pop() {
             meter.charge(1, || node_pointer(owner))?;
-            if !visited.insert(position) {
-                continue;
-            }
-            if self
-                .check
-                .is(position, CheckedNodeKind::Value(ValueForm::Parameter))
-            {
-                reads.insert(position);
-                continue;
-            }
-            if matches!(self.check.kinds[position], CheckedNodeKind::Function(_)) {
-                continue;
-            }
-            if let Some(CheckedTerm::Application { operation, .. }) = &self.check.terms[position] {
-                if operation
-                    .get("identity")
-                    .and_then(Value::as_str)
-                    .is_some_and(model_state_operation)
-                {
-                    state_read = Some(position);
+            match item {
+                SlotWalk::Node(position, scope) => {
+                    if !visited.insert((position, scope)) {
+                        continue;
+                    }
+                    if self
+                        .check
+                        .is(position, CheckedNodeKind::Value(ValueForm::Parameter))
+                    {
+                        let name = self.check.terms[position]
+                            .as_ref()
+                            .and_then(|body| group_value(body, "name"))
+                            .and_then(text_value)
+                            .expect("validated parameter name");
+                        // A same-name lexical binding cannot launder an actual
+                        // protocol-stage parameter into a local one.
+                        if self.known.contains_key(&position)
+                            || !locals.contains(scope, name, meter, owner)?
+                        {
+                            reads.insert(position);
+                        }
+                        continue;
+                    }
+                    if matches!(self.check.kinds[position], CheckedNodeKind::Function(_)) {
+                        continue;
+                    }
+                    if let Some(CheckedTerm::Application { operation, .. }) =
+                        &self.check.terms[position]
+                    {
+                        if operation
+                            .get("identity")
+                            .and_then(Value::as_str)
+                            .is_some_and(model_state_operation)
+                        {
+                            state_read = Some(position);
+                        }
+                    }
+                    if let Some(body) = &self.check.terms[position] {
+                        pending.push(SlotWalk::Term(body, scope));
+                    }
                 }
-            }
-            for target in &self.check.nodes[position].dependencies {
-                meter.charge(1, || node_pointer(owner))?;
-                if let Some(&next) = self.check.index.get(target) {
-                    pending.push(next);
+                SlotWalk::Bind(CheckedTerm::Binding { name, value }, scope) => {
+                    let scope = Some(locals.bind(scope, name.as_ref()));
+                    if matches!(value.as_ref(), CheckedTerm::Binding { .. }) {
+                        pending.push(SlotWalk::Bind(value, scope));
+                    } else {
+                        pending.push(SlotWalk::Term(value, scope));
+                    }
                 }
+                SlotWalk::Bind(term, scope) => pending.push(SlotWalk::Term(term, scope)),
+                SlotWalk::Term(term, scope) => match term {
+                    CheckedTerm::Reference { target } => {
+                        if let Some(&position) = self.check.index.get(target) {
+                            pending.push(SlotWalk::Node(position, scope));
+                        }
+                    }
+                    CheckedTerm::Application {
+                        operator,
+                        operation,
+                        arguments,
+                        ..
+                    } => {
+                        let entry = operation
+                            .get("identity")
+                            .and_then(Value::as_str)
+                            .and_then(|id| super::operation_catalog::operation_catalog().entry(id))
+                            .filter(|entry| entry.operator == *operator);
+                        if entry.is_some() && *operator == ApplicationOperator::Let {
+                            if let [CheckedTerm::Binding { name, value }, body] =
+                                arguments.as_slice()
+                            {
+                                let inner = Some(locals.bind(scope, name.as_ref()));
+                                pending.push(SlotWalk::Term(body, inner));
+                                pending.push(SlotWalk::Term(value, scope));
+                                continue;
+                            }
+                        }
+                        for (ordinal, argument) in arguments.iter().enumerate().rev() {
+                            if entry
+                                .and_then(|entry| entry.operands.get(ordinal))
+                                .is_some_and(|family| &**family == "binder")
+                            {
+                                pending.push(SlotWalk::Bind(argument, scope));
+                            } else {
+                                pending.push(SlotWalk::Term(argument, scope));
+                            }
+                        }
+                    }
+                    CheckedTerm::Aggregate { members } => {
+                        pending.extend(members.iter().rev().map(|term| SlotWalk::Term(term, scope)))
+                    }
+                    CheckedTerm::Binding { value, .. } => {
+                        pending.push(SlotWalk::Term(value, scope))
+                    }
+                    CheckedTerm::Literal { .. }
+                    | CheckedTerm::DependencyReference { .. }
+                    | CheckedTerm::Frame { .. }
+                    | CheckedTerm::AbstractionRelation { .. }
+                    | CheckedTerm::Refinement { .. }
+                    | CheckedTerm::ExtensionForm { .. }
+                    | CheckedTerm::NominalBody(_)
+                    | CheckedTerm::OperationAnchorBody(_) => {}
+                },
             }
         }
         if let Some(slot) = barred_slot {
@@ -4756,6 +4905,48 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             )?;
         }
         Ok(())
+    }
+}
+
+enum SlotWalk<'a> {
+    Node(usize, Option<usize>),
+    Term(&'a CheckedTerm, Option<usize>),
+    Bind(&'a CheckedTerm, Option<usize>),
+}
+
+#[derive(Default)]
+struct SlotLocals<'a> {
+    nodes: Vec<(Option<usize>, &'a str)>,
+    index: BTreeMap<(Option<usize>, &'a str), usize>,
+}
+
+impl<'a> SlotLocals<'a> {
+    fn bind(&mut self, parent: Option<usize>, name: &'a str) -> usize {
+        if let Some(&id) = self.index.get(&(parent, name)) {
+            return id;
+        }
+        let id = self.nodes.len();
+        self.nodes.push((parent, name));
+        self.index.insert((parent, name), id);
+        id
+    }
+
+    fn contains(
+        &self,
+        mut scope: Option<usize>,
+        name: &str,
+        meter: &mut WorkMeter,
+        owner: usize,
+    ) -> Result<bool, ValidationFailure> {
+        while let Some(id) = scope {
+            meter.charge(1, || node_pointer(owner))?;
+            let (parent, local) = self.nodes[id];
+            if local == name {
+                return Ok(true);
+            }
+            scope = parent;
+        }
+        Ok(false)
     }
 }
 

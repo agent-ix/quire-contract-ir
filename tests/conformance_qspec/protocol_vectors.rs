@@ -326,3 +326,196 @@ fn qspec_k10_acyclic_protocol_member_admits_a_lone_group_label() {
         original_id
     );
 }
+
+#[trace("TC-947", "FR-038-AC-463", "FR-038-AC-464")]
+#[test]
+fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+        CheckedProtocolRefusalDetail,
+    };
+    let path = proposal_dir_of(&fixtures_dir()).join("fixtures/protocol-node-vectors.json");
+    let vectors = read_json(&path).expect("QSpec protocol vectors");
+    let mut exercised = std::collections::BTreeSet::new();
+    for row in vectors["cases"].as_array().unwrap().iter().filter(|row| {
+        row["section"] == "Role vectors"
+            && row["id"]
+                .as_str()
+                .and_then(|id| id.strip_prefix("RL"))
+                .and_then(|suffix| suffix.parse::<u32>().ok())
+                .is_some_and(|n| n >= 26)
+    }) {
+        let id = row["id"].as_str().unwrap();
+        assert!(exercised.insert(id));
+        assert_eq!(row["test_case"], "TC-947");
+        let (base, document, role) = fixture_support::role_port_fixture();
+        let read = |package: &Value| {
+            CheckedPackageV2::read(
+                &fixture_support::canonical(package),
+                CheckedPackageReadLimits::bounded(),
+                &fixture_support::evidence_with_document(package, "test/families", &document),
+            )
+        };
+        let refuse = |package: &Value, code: Code, cause: Option<Cause>| {
+            assert!(
+                row["Expected"].as_str().unwrap().contains(code.as_str()),
+                "owner oracle {id}: {row}"
+            );
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
+                panic!("{id} must refuse")
+            };
+            assert_eq!(refusal.code, code, "{id}: {refusal:?}");
+            assert_eq!(refusal.cause, cause, "{id}");
+            assert_eq!(
+                refusal.loci[0].path.as_ref().unwrap().as_str(),
+                format!("/semantic_graph/nodes/{role}"),
+                "{id}"
+            );
+            refusal
+        };
+        match id {
+            "RL26" => {
+                assert!(row["Expected"].as_str().unwrap().starts_with("admitted:"));
+                let mut package = base.clone();
+                let first = package["semantic_graph"]["nodes"][role]["node_id"].clone();
+                let mut second = package["semantic_graph"]["nodes"][role].clone();
+                *second["declaration"]["qualified_name"]
+                    .as_array_mut()
+                    .unwrap()
+                    .last_mut()
+                    .unwrap() = json!("Inlet");
+                second["node_id"] = fixture_support::node_id("fixture/protocol-port/inlet");
+                second["body"]["arguments"][2]["value"]["members"][1]["value"]["value"] =
+                    json!("ix://test/families/PumpInlet");
+                let second_id = second["node_id"].clone();
+                let second_position = package["semantic_graph"]["nodes"].as_array().unwrap().len();
+                package["semantic_graph"]["nodes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(second);
+                let clause = package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .position(|node| node["semantic_form"] == "protocol_clause")
+                    .unwrap();
+                package["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]
+                    ["members"] = json!([{"term":"reference","target":first},{"term":"reference","target":second_id}]);
+                fixture_support::settle(&mut package);
+                let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+                    panic!("{id} positive: {:?}", read(&package))
+                };
+                let first = serde_json::from_value(
+                    package["semantic_graph"]["nodes"][role]["node_id"].clone(),
+                )
+                .unwrap();
+                let second = serde_json::from_value(
+                    package["semantic_graph"]["nodes"][second_position]["node_id"].clone(),
+                )
+                .unwrap();
+                assert_ne!(first, second);
+                assert_eq!(
+                    admitted.protocol_role_model_member(&first),
+                    Some(("test/families", "ix://test/families/PumpOutlet"))
+                );
+                assert_eq!(
+                    admitted.protocol_role_model_member(&second),
+                    Some(("test/families", "ix://test/families/PumpInlet"))
+                );
+                assert_eq!(
+                    package["semantic_graph"]["nodes"][role]["body"]["arguments"][0],
+                    package["semantic_graph"]["nodes"][second_position]["body"]["arguments"][0]
+                );
+            }
+            "RL27" => {
+                assert!(row["Expected"].as_str().unwrap().starts_with("admitted"));
+                for whole in [false, true] {
+                    let mut package = base.clone();
+                    package["semantic_graph"]["nodes"][role]["body"]["arguments"]
+                        .as_array_mut()
+                        .unwrap()
+                        .pop();
+                    if whole {
+                        package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"] = json!({"term":"literal","type":fixture_support::node_id(&fixture_support::family_key("a1a1")),"value_kind":"text","value":"test/families"});
+                    }
+                    fixture_support::settle(&mut package);
+                    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+                        panic!("{id} legacy")
+                    };
+                    let role = serde_json::from_value(
+                        package["semantic_graph"]["nodes"][role]["node_id"].clone(),
+                    )
+                    .unwrap();
+                    assert_eq!(admitted.protocol_role_model_member(&role), None);
+                }
+            }
+            "RL28" => {
+                for (package_name, node) in [
+                    ("other/package", "ix://test/families/PumpOutlet"),
+                    ("test/families", "ix://test/families/Account"),
+                    ("test/families", "ix://test/families/PortNamedPart"),
+                    ("test/families", "ix://test/families/PortNamedConnection"),
+                    ("test/families", "missing-declaration"),
+                ] {
+                    let mut package = base.clone();
+                    package["semantic_graph"]["nodes"][role]["body"]["arguments"][2]["value"]
+                        ["members"][0]["value"]["value"] = json!(package_name);
+                    package["semantic_graph"]["nodes"][role]["body"]["arguments"][2]["value"]
+                        ["members"][1]["value"]["value"] = json!(node);
+                    fixture_support::settle(&mut package);
+                    let failure = refuse(
+                        &package,
+                        Code::InvalidModelBinding,
+                        Some(Cause::MalformedDeclaration),
+                    );
+                    assert!(
+                        matches!(failure.protocol_detail.as_deref(),Some(CheckedProtocolRefusalDetail::ModelMember{package,node:actual}) if package.as_ref()==package_name && actual.as_ref()==node)
+                    );
+                }
+            }
+            "RL29" => {
+                for variant in 0..4 {
+                    let mut package = base.clone();
+                    let group = &mut package["semantic_graph"]["nodes"][role]["body"]["arguments"]
+                        [2]["value"]["members"];
+                    match variant {
+                        0 | 1 => group[variant]["value"]["value"] = json!(""),
+                        2 => {
+                            let extra = group[0].clone();
+                            group.as_array_mut().unwrap().push(extra);
+                        }
+                        3 => *group = json!([]),
+                        _ => unreachable!(),
+                    }
+                    fixture_support::settle(&mut package);
+                    refuse(&package, Code::MalformedWire, None);
+                }
+            }
+            "RL30" | "RL31" => {
+                let mut package = base.clone();
+                package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"] = json!({"term":"literal","type":fixture_support::node_id(&fixture_support::family_key("a1a1")),"value_kind":"text","value":if id=="RL30" {"test/families"} else {"missing/model"}});
+                fixture_support::settle(&mut package);
+                if id == "RL30" {
+                    refuse(
+                        &package,
+                        Code::InvalidModelBinding,
+                        Some(Cause::MalformedDeclaration),
+                    );
+                } else {
+                    refuse(
+                        &package,
+                        Code::MissingDeclaration,
+                        Some(Cause::MissingSelection),
+                    );
+                }
+            }
+            _ => panic!("unhandled published Port-role vector {id}"),
+        }
+    }
+    for id in ["RL26", "RL27", "RL28", "RL29", "RL30", "RL31"] {
+        assert!(
+            exercised.contains(id),
+            "QSpec Port-role vector {id} missing"
+        );
+    }
+}
