@@ -46,9 +46,10 @@ establish producer authority. This requirement defines no new QSL witness
 carrier.
 
 For the first subset read, the caller SHALL supply the admitted package, one
-admitted selected monitor root, `SelectedExactDeclarationRow` and
-`SelectedExactFieldRow` slices from that root's final QSL emission,
-same-emission equality application and fact witnesses, and a finite work
+admitted selected monitor root, `SelectedExactDeclarationRow`,
+`SelectedExactFieldRow` and `SelectedSourceUnitRow` slices from that root's
+final QSL emission, same-emission equality application and fact witnesses,
+and a finite work
 allowance. The caller SHALL translate QSL's `EqualityProducerEmissionRow` and
 `EqualityFactWitnessRow` into IR's `SelectedEqualityApplicationRow` and
 `SelectedEqualityFactRow` without altering identity, occurrence, source map,
@@ -118,8 +119,13 @@ preserve its selected document, final structural node, form and original
 identity. For each reached record field it SHALL preserve the declaring
 record, original field identity, QSL-issued `MemberId`, producer order,
 presence and admitted field type. Repeated references SHALL share one
-declaration and one equality application identity. This read SHALL NOT claim
-complete generated-source closure or construct a `TypeEnvironment`.
+declaration and one equality application identity. The read SHALL succeed
+only if every reached form and required witness belongs to this supported
+subset. QSL's current generated PlanRoot reaches source-owned record,
+collection, tuple and union forms without the remaining QSL-1631 witnesses;
+the first read SHALL refuse that root at its first reached unsupported or
+unwitnessed locus. This read SHALL NOT claim complete generated-source
+closure or construct a `TypeEnvironment`.
 
 For each reached model declaration and field, IR SHALL join the supplied row
 against the selected admitted document, full final structural node, admitted
@@ -141,9 +147,13 @@ foreign, duplicate, conflicting or stale-after-rewrite row, unresolved
 dependency, unrepresentable type or underlying FR-353 refusal SHALL return a
 named typed outcome at the first failing native node, occurrence or member,
 with the native cause and no partial authoritative view. IR SHALL use an
-iterative worklist and charge each visited node, edge, identity, row and
-mapped value before using it under the single caller allowance; exhaustion
-SHALL name attempted work and its locus. Equal admitted inputs, rows and
+iterative worklist and charge each visited graph node, edge, identity and
+mapped value before use. It MAY locate reached witnesses by indexing or
+searching the supplied full-emission row slices, but SHALL charge every
+inspected row and index entry, including unrelated rows, under the same
+caller allowance before use. It SHALL NOT scan unrelated graph nodes to
+construct that index. Exhaustion SHALL name attempted work and the first
+uncharged row or graph locus. Equal admitted inputs, rows and
 allowance SHALL produce equal results or equal first stops. The public API
 SHALL remain in IR's cycle-free model, take no QSL or RT type, and return no
 RT `ProgramParts` or IR-owned environment. The driver owns later canonical
@@ -157,9 +167,9 @@ RT `ProgramParts` or IR-owned environment. The driver owns later canonical
 | FR-357-AC-2 | PLANNED/UNRUN (IR-721 and QSL same-acquisition witness retention). A missing, foreign, duplicate, conflicting or stale-after-rewrite producer row, unresolved reachable declaration, unrepresentable type or native nominal/Exact refusal returns its typed cause and first locus, with no partial view or invented identity. | Test |
 | FR-357-AC-3 | PLANNED/UNRUN (IR-721). A large selected closure amid unrelated graph nodes and unsupported declarations visits only its reachable nodes/edges and charged identity/value material using an iterative worklist. Equal inputs and allowances give equal complete results or first work stops; one below the required work refuses without a partial view. | Test |
 | FR-357-AC-4 | PLANNED/UNRUN (IR-721). Public API and dependency inspection finds a bounded IR projection over admitted package facts and original QSL witnesses; it finds no IR-owned `TypeEnvironment`, second plan/evaluator, RT dependency, source reparse or witness fabrication. | Inspection |
-| FR-357-AC-5 | PLANNED/UNRUN (IR-721 subset). Given one admitted selected root and its final QSL emission's model declaration/field rows and translated equality rows, the public bounded IR read returns only reached model declarations/fields and opaque FR-353 equality decisions from the four entries, preserving selected document, final structural node, original identities, field order/presence/type, exact equality occurrence and producer facts. Shared references appear once. The result is a subset, not a complete generated-source closure or `TypeEnvironment`. | Test |
+| FR-357-AC-5 | PLANNED/UNRUN (IR-721 subset). An admitted four-entry fixture whose entire reachable graph uses only supported model declarations/fields and equality forms succeeds through the public bounded read, retaining reached selected document, final structural node, original identities, field order/presence/type, exact equality occurrence and opaque FR-353 decision; shared references appear once. A test using a real final `PlanRoot.emission` first proves its selected declaration/field rows join through IR `SelectedExactIdentities::from_stage_rows` and its translated equality rows reach IR `admitted_equality` with a complete decision or its native typed missing-witness result, then proves the subset read refuses at the first reached source-owned form lacking QSL-1631 witness. Neither result claims a complete generated-source closure or `TypeEnvironment`. | Test |
 | FR-357-AC-6 | PLANNED/UNRUN (IR-721 subset). A missing, foreign, duplicate, conflicting or pre-rewrite declaration, field, equality application or fact row; wrong document, form, owner, role, occurrence or source-map correspondence; unresolved reached dependency; reached unsupported form; and native FR-353 refusal each produce a named typed outcome with first native locus and no partial view or invented identity. An unrelated unsupported declaration or missing witness outside the reached subset leaves the same successful result. | Test |
-| FR-357-AC-7 | PLANNED/UNRUN (IR-721 subset). A selected root amid unrelated graph nodes visits only reached nodes, edges and required rows with an iterative worklist; the exact work allowance succeeds and one less refuses with attempted work and locus. Equal inputs and allowance, including a package clone, yield equal results or first stops. | Test |
+| FR-357-AC-7 | PLANNED/UNRUN (IR-721 subset). A selected root amid unrelated graph nodes visits only reached graph nodes and edges with an iterative worklist. Locating reached witnesses in full-emission row slices charges every inspected row and index entry, including unrelated rows; adding unrelated rows either raises required work or causes a charged first-row-locus stop at the former allowance, without scanning unrelated graph nodes. The exact allowance succeeds and one less refuses with attempted work and first uncharged locus. Equal inputs and allowance, including a package clone, yield equal results or first stops. | Test |
 | FR-357-AC-8 | PLANNED/UNRUN (IR-721 subset). Public API and dependency inspection shows the read takes an admitted package, selected root, IR-owned row slices and a work allowance, performs no QSL/RT dependency or source recheck, and returns neither an IR environment nor `ProgramParts`. A caller adapts QSL-owned equality emission rows without changing their values; IR checks admitted joins but does not claim to authenticate arbitrary caller-created Exact payloads. | Inspection |
 
 ## Dependencies
