@@ -1858,6 +1858,11 @@ fn timed_model_stage_precedence_has_independent_defect_controls() {
         json!("temporal_profile");
     fixture_support::settle(&mut protocol);
 
+    let mut operation = original.clone();
+    operation["semantic_graph"]["nodes"][5]["body"]["operation"]["identity"] =
+        json!("quire.op.unknown");
+    fixture_support::settle(&mut operation);
+
     let mut hybrid = original.clone();
     hybrid["semantic_graph"]["nodes"][41]["body"]["members"][0]["value"]["members"][0]["members"]
         [1]["value"]["value"] = json!("clock");
@@ -1889,6 +1894,12 @@ fn timed_model_stage_precedence_has_independent_defect_controls() {
         "/semantic_graph/nodes/9/body/operation/laws/0/role",
     );
     assert_refusal(
+        &operation,
+        Code::InvalidPackage,
+        Some(Cause::UnknownOperation),
+        "/semantic_graph/nodes/5/body/operation/identity",
+    );
+    assert_refusal(
         &hybrid,
         Code::InvalidPackage,
         Some(Cause::InvalidValue),
@@ -1900,6 +1911,16 @@ fn timed_model_stage_precedence_has_independent_defect_controls() {
     fixture_support::settle(&mut timed_protocol);
     assert_refusal(
         &timed_protocol,
+        Code::InvalidPackage,
+        Some(Cause::MalformedClockPlace),
+        timed_locus,
+    );
+
+    let mut timed_operation = timed.clone();
+    timed_operation["semantic_graph"]["nodes"][5] = operation["semantic_graph"]["nodes"][5].clone();
+    fixture_support::settle(&mut timed_operation);
+    assert_refusal(
+        &timed_operation,
         Code::InvalidPackage,
         Some(Cause::MalformedClockPlace),
         timed_locus,
@@ -1988,49 +2009,59 @@ fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
         read_package(&original).expect("published timed package"),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    let mut stale_dependencies = original.clone();
-    stale_dependencies["semantic_graph"]["nodes"][45]["dependencies"] = json!([]);
-    fixture_support::settle(&mut stale_dependencies);
-    let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_package(&stale_dependencies).expect("stale graph read")
-    else {
-        panic!("stale dependencies must refuse");
-    };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidSemanticGraph, None)
-    );
-    assert_eq!(
-        refusal.loci[0].path.as_ref().expect("locus").to_string(),
-        "/semantic_graph/nodes/45/dependencies"
-    );
+    for (position, form, reference) in [
+        (44, "time_source", "/members/1/value/target"),
+        (45, "clock_place", "/members/0/value/target"),
+        (46, "clock_reset", "/members/1/value/target"),
+        (47, "clock_guard", "/members/0/value/target"),
+        (48, "time_invariant", "/members/0/value/target"),
+        (49, "urgency", "/members/1/value/target"),
+        (50, "urgency", "/members/1/value/target"),
+        (51, "clock_constraint", "/members/1/value/target"),
+        (52, "timed_model", "/members/0/value/target"),
+    ] {
+        assert_eq!(
+            original["semantic_graph"]["nodes"][position]["semantic_form"], form,
+            "published timed form at node {position}"
+        );
+        let dependency_locus = format!("/semantic_graph/nodes/{position}/dependencies");
+        let assert_graph_refusal = |candidate: &Value, defect: &str| {
+            let CheckedPackageV2ReadResult::Refused(refusal) =
+                read_package(candidate).expect("timed graph shape read")
+            else {
+                panic!("{form} {defect} must refuse");
+            };
+            assert_eq!(
+                (refusal.code, refusal.cause),
+                (Code::InvalidSemanticGraph, None),
+                "{form} {defect}"
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().expect("locus").to_string(),
+                dependency_locus,
+                "{form} {defect}"
+            );
+        };
 
-    let mut dangling_reference = original.clone();
-    let old = dangling_reference["semantic_graph"]["nodes"][45]["body"]["members"][0]["value"]
-        ["target"]
-        .clone();
-    let missing = fixture_support::node_id("missing-timed-model");
-    dangling_reference["semantic_graph"]["nodes"][45]["body"]["members"][0]["value"]["target"] =
-        missing.clone();
-    replace_dependency(
-        &mut dangling_reference["semantic_graph"]["nodes"][45],
-        &old,
-        &missing,
-    );
-    fixture_support::settle(&mut dangling_reference);
-    let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_package(&dangling_reference).expect("dangling graph read")
-    else {
-        panic!("dangling timed reference must refuse");
-    };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidSemanticGraph, None)
-    );
-    assert_eq!(
-        refusal.loci[0].path.as_ref().expect("locus").to_string(),
-        "/semantic_graph/nodes/45/dependencies"
-    );
+        let mut stale_dependencies = original.clone();
+        stale_dependencies["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
+        fixture_support::settle(&mut stale_dependencies);
+        assert_graph_refusal(&stale_dependencies, "stale dependency list");
+
+        let mut dangling_reference = original.clone();
+        let node = &mut dangling_reference["semantic_graph"]["nodes"][position];
+        let target = node["body"]
+            .pointer_mut(reference)
+            .expect("published timed reference");
+        let old = target.clone();
+        let missing = fixture_support::node_id(&format!("missing-{form}-{position}"));
+        *target = missing.clone();
+        replace_dependency(node, &old, &missing);
+        fixture_support::settle(&mut dangling_reference);
+        sort_timed_graph_dependencies(&mut dangling_reference);
+        fixture_support::settle(&mut dangling_reference);
+        assert_graph_refusal(&dangling_reference, "dangling reference");
+    }
 
     let mut invalid_body = original.clone();
     invalid_body["semantic_graph"]["nodes"][45]["body"]["members"][2]["value"]["members"][0]
@@ -2051,21 +2082,20 @@ fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
     );
 
     let mut invalid_owner = original;
-    invalid_owner["semantic_graph"]["nodes"][45]["owner"] = json!({
-        "kind": "model",
-        "identity": "acme/orders",
-        "node": "ix://acme/orders/Order"
-    });
+    invalid_owner["semantic_graph"]["nodes"][52]["owner"]["identity"] = json!("missing-source");
     fixture_support::settle(&mut invalid_owner);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&invalid_owner).expect("invalid owner read")
     else {
         panic!("meaning-bearing timed owner edit must refuse");
     };
-    assert_eq!((refusal.code, refusal.cause), (Code::MalformedWire, None));
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::MissingDeclaration, Some(Cause::MissingSelection))
+    );
     assert_eq!(
         refusal.loci[0].path.as_ref().expect("locus").to_string(),
-        "/semantic_graph/nodes/45/owner"
+        "/semantic_graph/nodes/52/node_id"
     );
 }
 
