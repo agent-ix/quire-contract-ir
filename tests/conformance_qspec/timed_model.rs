@@ -2059,7 +2059,11 @@ fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
     );
 
     let mut invalid_owner = original;
-    invalid_owner["semantic_graph"]["nodes"][45]["owner"]["identity"] = json!("other-source");
+    invalid_owner["semantic_graph"]["nodes"][45]["owner"] = json!({
+        "kind": "model",
+        "identity": "acme/orders",
+        "node": "ix://acme/orders/Order"
+    });
     fixture_support::settle(&mut invalid_owner);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&invalid_owner).expect("invalid owner read")
