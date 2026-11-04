@@ -367,15 +367,66 @@ fn simple_fixture(entry: &Value) -> Option<Value> {
     Some(f.package)
 }
 
-fn unavailable_class(identity: &str) -> &'static str {
-    match identity.split('.').nth(2).expect("operation family") {
-        "control" | "temporal" | "state" | "claim" | "protocol" => {
-            "requires control, temporal, state, claim, or protocol context not built here"
-        }
-        "ieee" => "requires an IEEE profile and typed operands not built here",
-        "model" => "requires selected model declarations not built here",
-        _ => "requires typed operands or member fixtures not built here",
+fn unavailable_reason(entry: &Value) -> Option<&'static str> {
+    let operator = entry["operator"].as_str()?;
+    let laws = entry["laws"].as_array()?;
+    let operands = entry["operands"].as_array()?;
+    if matches!(
+        operator,
+        "temporal" | "temporal_formula" | "temporal_fairness"
+    ) {
+        return Some("requires a reached temporal formula or clause context");
     }
+    if matches!(
+        operator,
+        "state_clause" | "state_transition" | "pre" | "claim" | "protocol_control"
+    ) {
+        return Some("requires a state, claim or protocol context");
+    }
+    if matches!(operator, "case" | "conditional" | "let") {
+        return Some("requires a control-flow binder or branch context");
+    }
+    if matches!(operator, "deref" | "reaches") {
+        return Some("requires selected model declarations and reference targets");
+    }
+    if matches!(operator, "collection" | "quantify") {
+        return Some("requires a typed collection and member or binder context");
+    }
+    for (role, reason) in [
+        (
+            "ieee_profile",
+            "requires a selected IEEE profile and typed float operands",
+        ),
+        (
+            "text_profile",
+            "requires a selected text profile and typed text operands",
+        ),
+        (
+            "integer_division",
+            "requires a selected integer division law",
+        ),
+    ] {
+        if laws.iter().any(|law| law == role) {
+            return Some(reason);
+        }
+    }
+    for operand in operands {
+        let reason = match operand.as_str()? {
+            "decimal" => "requires a typed decimal operand",
+            "quantity" => "requires a typed quantity operand",
+            "enum_kind" | "ordered_enum" => "requires a declared enum operand",
+            "structural_kind" => "requires a structural operand",
+            "string" | "uuid" | "timestamp" => "requires a typed native scalar operand",
+            "bytes" => "requires a typed byte sequence operand",
+            "json_object" => "requires a typed JSON object operand",
+            "reference" => "requires a typed reference operand",
+            "option" => "requires a typed option operand",
+            "function" => "requires a typed function operand",
+            _ => continue,
+        };
+        return Some(reason);
+    }
+    None
 }
 
 // A fresh package is built for each identity. These are the entries for which
@@ -976,8 +1027,14 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
     .expect("reader's catalogue is JSON");
     let entries = catalog["operations"].as_array().expect("operations");
     let mut admitted = BTreeSet::new();
-    let mut unavailable = BTreeSet::new();
-    let mut unavailable_classes = BTreeMap::new();
+    let mut unavailable = BTreeMap::new();
+    assert!(
+        unavailable_reason(&json!({
+            "operator": "binary", "operands": ["integer", "integer"], "laws": []
+        }))
+        .is_none(),
+        "an arbitrary new operation needs an admitted control or a specific fixture gap"
+    );
     for entry in entries {
         let identity = entry["identity"].as_str().expect("identity");
         let external = match identity {
@@ -1032,31 +1089,16 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
                 entry["result"] != "member" && entry["member"] != "type_argument",
                 "member-result or type-argument lookalike {identity} needs an admitted control"
             );
-            unavailable.insert(identity.to_owned());
-            *unavailable_classes
-                .entry(unavailable_class(identity))
-                .or_insert(0usize) += 1;
+            let reason = unavailable_reason(entry)
+                .unwrap_or_else(|| panic!("{identity} needs an admitted control or a catalog-derived fixture gap: {entry}"));
+            assert!(!reason.is_empty(), "{identity}: empty fixture-gap reason");
+            unavailable.insert(identity.to_owned(), reason);
         }
     }
     assert_eq!(
         admitted.len() + unavailable.len(),
         entries.len(),
         "each catalog entry has an admitted control or an explicit unavailable reason"
-    );
-    assert_eq!(
-        unavailable_classes.keys().copied().collect::<BTreeSet<_>>(),
-        BTreeSet::from([
-            "requires control, temporal, state, claim, or protocol context not built here",
-            "requires an IEEE profile and typed operands not built here",
-            "requires selected model declarations not built here",
-            "requires typed operands or member fixtures not built here",
-        ]),
-        "every unavailable entry has a classified fixture gap"
-    );
-    assert_eq!(
-        unavailable,
-        expected_unavailable(),
-        "an entry needs an admitted fixture or an explicit gap reason"
     );
 
     // Each selected entry has an admitted witness and a mismatched-result
@@ -1180,130 +1222,4 @@ fn tc_048_member_kind_mismatch_precedes_member_result_check() {
         serde_json::to_value(refusal.locus).expect("locus"),
         package["semantic_graph"]["nodes"][position]["node_id"]
     );
-}
-
-fn expected_unavailable() -> BTreeSet<String> {
-    // Every identity here is outside the member-result selector. The exact
-    // inventory ensures a new or newly selected entry needs an admission control.
-    [
-        "quire.op.control.case",
-        "quire.op.string.eq",
-        "quire.op.string.ne",
-        "quire.op.temporal.always",
-        "quire.op.temporal.and",
-        "quire.op.temporal.eventually",
-        "quire.op.temporal.fair",
-        "quire.op.temporal.false",
-        "quire.op.temporal.historically",
-        "quire.op.temporal.holds",
-        "quire.op.temporal.implies",
-        "quire.op.temporal.not",
-        "quire.op.temporal.once",
-        "quire.op.temporal.or",
-        "quire.op.temporal.release",
-        "quire.op.temporal.since",
-        "quire.op.temporal.triggered",
-        "quire.op.temporal.true",
-        "quire.op.temporal.until",
-        "quire.op.timestamp.eq",
-        "quire.op.timestamp.ne",
-        "quire.op.uuid.eq",
-        "quire.op.uuid.ne",
-        "quire.op.claim.clause",
-        "quire.op.collection.bag",
-        "quire.op.collection.contains",
-        "quire.op.collection.exists",
-        "quire.op.collection.filter",
-        "quire.op.collection.flat_map",
-        "quire.op.collection.flatten",
-        "quire.op.collection.forall",
-        "quire.op.collection.map",
-        "quire.op.collection.ordered_set",
-        "quire.op.collection.sequence",
-        "quire.op.collection.set",
-        "quire.op.control.if",
-        "quire.op.control.let",
-        "quire.op.decimal.add",
-        "quire.op.decimal.div",
-        "quire.op.decimal.eq",
-        "quire.op.decimal.ge",
-        "quire.op.decimal.gt",
-        "quire.op.decimal.le",
-        "quire.op.decimal.lt",
-        "quire.op.decimal.mul",
-        "quire.op.decimal.ne",
-        "quire.op.decimal.negate",
-        "quire.op.decimal.sub",
-        "quire.op.enum.eq",
-        "quire.op.enum.ge",
-        "quire.op.enum.gt",
-        "quire.op.enum.le",
-        "quire.op.enum.lt",
-        "quire.op.enum.ne",
-        "quire.op.function.call",
-        "quire.op.ieee.bit_identical",
-        "quire.op.ieee.float32.add",
-        "quire.op.ieee.float32.div",
-        "quire.op.ieee.float32.fma",
-        "quire.op.ieee.float32.mul",
-        "quire.op.ieee.float32.sqrt",
-        "quire.op.ieee.float32.sub",
-        "quire.op.ieee.float64.add",
-        "quire.op.ieee.float64.div",
-        "quire.op.ieee.float64.fma",
-        "quire.op.ieee.float64.mul",
-        "quire.op.ieee.float64.sqrt",
-        "quire.op.ieee.float64.sub",
-        "quire.op.ieee.numeric_equal",
-        "quire.op.ieee.total_order",
-        "quire.op.integer.div",
-        "quire.op.integer.rem",
-        "quire.op.model.deref",
-        "quire.op.model.reaches",
-        "quire.op.model.reaches_field",
-        "quire.op.option.present",
-        "quire.op.option.value",
-        "quire.op.protocol.control",
-        "quire.op.quantity.add",
-        "quire.op.quantity.div",
-        "quire.op.quantity.eq",
-        "quire.op.quantity.ge",
-        "quire.op.quantity.gt",
-        "quire.op.quantity.le",
-        "quire.op.quantity.lt",
-        "quire.op.quantity.mul",
-        "quire.op.quantity.ne",
-        "quire.op.quantity.pow",
-        "quire.op.quantity.sub",
-        "quire.op.reference.ne",
-        "quire.op.state.clause",
-        "quire.op.state.pre",
-        "quire.op.state.transition",
-        "quire.op.structural.eq",
-        "quire.op.structural.ne",
-        "quire.op.temporal.clause",
-        "quire.op.text.eq",
-        "quire.op.text.ge",
-        "quire.op.text.gt",
-        "quire.op.text.le",
-        "quire.op.text.lt",
-        "quire.op.text.ne",
-        "quire.op.text.size",
-        "quire.op.bytes.concat",
-        "quire.op.bytes.eq",
-        "quire.op.bytes.length",
-        "quire.op.bytes.ne",
-        "quire.op.collection.ordered_set.drop_first",
-        "quire.op.collection.remove_one",
-        "quire.op.collection.sequence.drop_first",
-        "quire.op.ieee.float32.negate",
-        "quire.op.ieee.float64.negate",
-        "quire.op.json_object.eq",
-        "quire.op.json_object.ne",
-        "quire.op.quantity.negate",
-        "quire.op.temporal.aggregate",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
 }

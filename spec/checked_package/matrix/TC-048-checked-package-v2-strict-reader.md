@@ -416,12 +416,12 @@ applying the type-argument equality rule to either kind must fail this check.
 For AC-251, read every entry from the published catalogue used by the reader.
 Build a fresh, previously admitted package for each identity supported by the
 fixture helpers and require continued admission. Compare the remaining identity
-set with an explicitly named and classified unavailable set, with each
-fixture limitation stated, so a new catalogue entry cannot silently escape
-the test. The test reads the current catalogue without freezing its entry
-count: every member-result/type-argument entry requires an admitted control,
-and every remaining unavailable identity must be named in the fixture-gap
-inventory.
+set with a nonempty fixture-gap reason derived from each live entry's
+catalogued operator, law or operand family. An entry with no admitted control
+and no specific catalog-derived reason fails. The test reads the current
+catalogue without freezing its entry count: every member-result or
+type-argument entry requires an admitted control, and an arbitrary new
+operation cannot fall into a generic unavailable category.
 The admitted controls must include `model.lookup` and `model.all_instances`,
 whose result forms are not `member`, and `collection.fold` and
 `collection.reduce`, which have no `member_family` and admit when their
