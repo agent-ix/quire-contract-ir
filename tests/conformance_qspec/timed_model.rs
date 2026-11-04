@@ -1935,6 +1935,50 @@ fn timed_model_stage_precedence_has_independent_defect_controls() {
     );
 }
 
+/// Source occurrence order does not participate in a timed node's structural identity.
+#[trace("TC-048")]
+#[test]
+fn timed_source_occurrence_reordering_retains_structural_node_ids() {
+    let mut wire = published();
+    let before: Vec<_> = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .map(|node| node["node_id"].clone())
+        .collect();
+    let source = wire["semantic_graph"]["nodes"][44]["node_id"].clone();
+    let first = wire["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == source)
+        .expect("source occurrence")
+        .clone();
+    let mut second = first.clone();
+    second["ordinal"] = json!(1);
+    second["regions"][0]["start"] = json!(2000);
+    second["regions"][0]["end"] = json!(2001);
+    wire["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(second);
+    wire["semantic_graph"]["nodes"][44]["occurrences"] = json!([
+        {"role":"expression","ordinal":1},
+        {"role":"expression","ordinal":0}
+    ]);
+    let read = read_package(&wire).expect("source occurrence order read");
+    let CheckedPackageV2ReadResult::Admitted(package) = read else {
+        panic!("reordered source occurrences must admit: {read:?}");
+    };
+    let after: Vec<_> = package
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| serde_json::to_value(&node.node_id).expect("node id JSON"))
+        .collect();
+    assert_eq!(after, before);
+}
+
 #[trace("TC-048")]
 #[test]
 fn timed_model_repeated_reference_precedes_later_quantity_validation() {
