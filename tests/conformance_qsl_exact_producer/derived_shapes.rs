@@ -61,6 +61,15 @@ fn selected_document(mut document: Value) -> Value {
         .find(|field| field["name"] == "floor")
         .expect("published Integer field")
         .clone();
+    // This is an authored positive model over FR-154's entity/value-type
+    // constructs and FR-322 "Model-owned members" step 4. The omnibus source
+    // also contains adverse Folded/Inverted types and unsupported bare Text
+    // and Clock fields. They are not any of AC-130's ten derived forms; its
+    // published adverse controls remain unchanged in their own reader lane.
+    // Retain the exact positive range, optional Boolean and object-reference
+    // declarations, then add every collection kind from the multiplicity
+    // table. No required form is replaced by a more permissive one.
+    fields.retain(|field| matches!(field["name"].as_str(), Some("total" | "note" | "invoice")));
     // FR-322 step 4's multiplicity truth table: these are ordinary authored
     // model fields, including the two kinds absent from the published Order.
     for (name, native, ordered, unique, upper) in [
@@ -81,6 +90,45 @@ fn selected_document(mut document: Value) -> Value {
             "upper":upper, "ordered":ordered, "unique":unique});
         fields.push(field);
     }
+    assert_eq!(
+        fields.len(),
+        9,
+        "the positive model still selects every required member type"
+    );
+    // A native required Integer is an ordinary positive entity identity.
+    // The omnibus Order's identity was its unrelated Text `sku` field.
+    order["identityFields"] = json!(["ix://acme/orders/Order/shape_integer"]);
+    order["operations"] = json!([]);
+    order["relationships"] = json!([]);
+    document["types"]
+        .as_array_mut()
+        .expect("selected types")
+        .retain(|declaration| {
+            matches!(
+                declaration["identity"].as_str(),
+                Some(
+                    "ix://acme/orders/Order"
+                        | "ix://acme/orders/Invoice"
+                        | "ix://acme/orders/OrderTotal"
+                )
+            )
+        });
+    assert_eq!(
+        document["types"]
+            .as_array()
+            .expect("positive declarations")
+            .len(),
+        3
+    );
+    document["constructs"]
+        .as_array_mut()
+        .expect("published constructs")
+        .retain(|construct| {
+            matches!(
+                construct["kind"]["name"].as_str(),
+                Some("entity" | "value_type")
+            )
+        });
     document
 }
 
