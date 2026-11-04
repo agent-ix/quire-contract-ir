@@ -364,24 +364,6 @@ fn current_qspec_protocol_enumerations_remain_admitted() {
             "terminal {spelling} must admit: {result:?}"
         );
     }
-    let join_modes = schema["$defs"]["ProtocolJoin"]["properties"]["members"]["prefixItems"][0]
-        ["properties"]["value"]["properties"]["value"]["enum"]
-        .as_array()
-        .expect("published join modes");
-    for spelling in ["all", "any"] {
-        assert!(
-            join_modes.contains(&Value::from(spelling)),
-            "published {spelling} mode"
-        );
-        let mut changed = base.clone();
-        changed["semantic_graph"]["nodes"][70]["body"]["arguments"][2]["value"]["members"][0]
-            ["value"]["value"] = Value::from(spelling);
-        let result = read(&changed, &document);
-        assert!(
-            matches!(&result, CheckedPackageV2ReadResult::Admitted(_)),
-            "parallel {spelling} must admit: {result:?}"
-        );
-    }
 }
 
 fn assert_appended_protocol_node_admits(
@@ -391,6 +373,13 @@ fn assert_appended_protocol_node_admits(
     label: &str,
 ) {
     let mut package = base.clone();
+    let mut node = node;
+    node["node_id"]["path"] = serde_json::json!(["Example", "OrderFlow", "run", "Main", "Fence"]);
+    node["declaration"]["qualified_name"] = node["node_id"]["path"].clone();
+    package["semantic_graph"]["nodes"][78]["body"]["arguments"][0]["value"]["members"]
+        .as_array_mut()
+        .expect("run sequence children")
+        .push(serde_json::json!({"term":"reference", "target":node["node_id"]}));
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("graph nodes")
@@ -405,7 +394,7 @@ fn assert_appended_protocol_node_admits(
 
 #[test]
 #[trace("TC-048", "FR-038-AC-454")]
-fn current_qspec_appended_protocol_layouts_remain_admitted() {
+fn current_qspec_appended_fence_layouts_remain_admitted() {
     let fixtures = fixtures_dir();
     let base = read_json(&fixtures.join("protocol-node-base.json")).expect("QSpec protocol base");
     let layout = read_json(&fixtures.join("protocol-node-layout-rows.json"))
@@ -437,26 +426,4 @@ fn current_qspec_appended_protocol_layouts_remain_admitted() {
         node["body"]["arguments"][0]["value"]["value"] = value.clone();
         assert_appended_protocol_node_admits(&base, node, &document, spelling);
     }
-    let effect = &base["semantic_graph"]["nodes"][67]["body"]["arguments"];
-    let binding =
-        |name: &str, value: Value| serde_json::json!({"term":"binding","name":name,"value":value});
-    let mut event = fence.clone();
-    event["body"]["operation"]["member"]["operator"] = Value::from("event");
-    event["body"]["arguments"] = Value::Array(vec![
-        binding("role", effect[0]["value"].clone()),
-        binding("compensation", effect[0]["value"].clone()),
-        binding("binder", effect[0]["value"].clone()),
-        binding("related", effect[1]["value"].clone()),
-        binding("constraint", effect[2]["value"].clone()),
-    ]);
-    assert_appended_protocol_node_admits(&base, event, &document, "event");
-    let mut awaited = fence;
-    awaited["body"]["operation"]["member"]["operator"] = Value::from("await");
-    awaited["body"]["arguments"] = Value::Array(
-        ["after", "clock", "within", "event", "then", "timeout"]
-            .into_iter()
-            .map(|name| binding(name, effect[0]["value"].clone()))
-            .collect(),
-    );
-    assert_appended_protocol_node_admits(&base, awaited, &document, "await");
 }

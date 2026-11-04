@@ -4828,7 +4828,7 @@ fn await_effect_event_requires_an_attempt_source() {
 }
 
 /// Trace: FR-038-AC-288, FR-038-AC-290
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-454")]
 #[test]
 fn await_admits_compensation_anchor_form() {
     let (mut state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
@@ -5950,7 +5950,7 @@ fn package_with_step_control_on(mut package: Value, operator: &str) -> (Value, u
 }
 
 /// Trace: FR-038-AC-288
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-454")]
 #[test]
 fn event_and_commit_check_local_references_and_boolean_constraints() {
     for operator in ["event", "commit"] {
