@@ -318,7 +318,7 @@ impl CheckedPackageV2 {
         let mut joined_declarations = BTreeMap::new();
 
         for id in ids.declarations {
-            meter.charge(id, 1)?;
+            charge_material(&mut meter, id, id)?;
             if !seen_declarations.insert(id) {
                 continue;
             }
@@ -328,7 +328,7 @@ impl CheckedPackageV2 {
         }
 
         for id in ids.fields {
-            meter.charge(&id.record, 1)?;
+            charge_material(&mut meter, &id.record, id)?;
             meter.text(&id.record, &id.original_identity)?;
             if !seen_fields.insert(id) {
                 continue;
@@ -595,6 +595,7 @@ fn find_declaration_row(
         meter.charge(&row.structural_node, 1)?;
         if &row.structural_node == id {
             if selected.is_some() || stale.is_some() {
+                charge_material(meter, &row.structural_node, row)?;
                 return Err(SelectedFactsError::new(
                     SelectedFactsErrorCode::DuplicateRow,
                     &row.structural_node,
@@ -607,6 +608,7 @@ fn find_declaration_row(
             row.selected_document.as_ref() == document && row.original_identity.as_ref() == original
         }) {
             if stale.is_some() || selected.is_some() {
+                charge_material(meter, &row.structural_node, row)?;
                 return Err(SelectedFactsError::new(
                     SelectedFactsErrorCode::DuplicateRow,
                     &row.structural_node,
@@ -634,6 +636,7 @@ fn find_field_row(
         meter.charge(&row.record_node, 1)?;
         if row.record_node == id.record && row.field_original_identity == id.original_identity {
             if selected.is_some() || stale.is_some() {
+                charge_material(meter, &row.record_node, row)?;
                 let mut error = SelectedFactsError::new(
                     SelectedFactsErrorCode::DuplicateRow,
                     &row.record_node,
@@ -649,6 +652,7 @@ fn find_field_row(
             && row.field_original_identity == id.original_identity
         {
             if stale.is_some() || selected.is_some() {
+                charge_material(meter, &row.record_node, row)?;
                 let mut error = SelectedFactsError::new(
                     SelectedFactsErrorCode::DuplicateRow,
                     &row.record_node,
@@ -687,6 +691,7 @@ fn find_equality_row(
                 continue;
             }
             if selected.is_some() {
+                charge_material(meter, &row.application, row)?;
                 let mut error = SelectedFactsError::new(
                     SelectedFactsErrorCode::DuplicateRow,
                     &id.application,
