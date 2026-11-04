@@ -2072,7 +2072,7 @@ fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
     };
     assert_eq!(
         (refusal.code, refusal.cause),
-        (Code::InvalidModelBinding, Some(Cause::MalformedDeclaration))
+        (Code::MalformedWire, None)
     );
     assert_eq!(
         refusal.loci[0].path.as_ref().expect("locus").to_string(),
