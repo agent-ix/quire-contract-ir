@@ -31,7 +31,8 @@ fn selected(document: Value, work: u64) -> (Result<DomainModel, SelectionFailure
         &evidence,
         &mut Budget::new(&mut meter, 3, BYTES),
         &Arc::new(BTreeMap::new()),
-    );
+    )
+    .map(|(model, _)| model);
     // Both this input and intake's own parsed document are gone before assertions.
     quire_canonical::drop_value(document);
     (result, meter.consumed())

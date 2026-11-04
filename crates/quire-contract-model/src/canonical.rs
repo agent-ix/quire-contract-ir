@@ -318,10 +318,41 @@ fn canonicalize<V: Encode + ?Sized>(
     path: &str,
     span: Option<&SourceSpan>,
 ) -> Result<CanonicalOutput, Diagnostic> {
-    let encoded = quire_canonical::to_vec(&Envelope { kind, value }, Limits::new(maximum_bytes))
-        .map_err(|error| encoder_refusal(&error, path, span))?;
-    let bytes = CanonicalBytes(encoded);
+    let mut output = CanonicalBuffer { bytes: Vec::new() };
+    quire_canonical::encode(
+        &mut output,
+        &Envelope { kind, value },
+        Limits::new(maximum_bytes),
+    )
+    .map_err(|error| encoder_refusal(&error, path, span))?;
+    let bytes = CanonicalBytes(output.bytes);
     Ok(CanonicalOutput { kind, bytes })
+}
+
+/// The native byte sink, kept private until the entire encoding succeeds.
+struct CanonicalBuffer {
+    bytes: Vec<u8>,
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static FAIL_NEXT_RESERVATION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+impl Sink for CanonicalBuffer {
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        #[cfg(test)]
+        if FAIL_NEXT_RESERVATION.with(|pending| pending.replace(false)) {
+            // Vec<u8> cannot have a capacity above isize::MAX. This reservation
+            // therefore fails before an allocator is called, on every target.
+            self.bytes
+                .try_reserve(usize::MAX)
+                .map_err(|_| Error::Allocation {
+                    requested: usize::MAX,
+                })?;
+        }
+        self.bytes.write_bytes(bytes)
+    }
 }
 
 /// The refusal for an encoder error. STD-001 registers one code for a failed
@@ -1038,6 +1069,43 @@ mod tests {
     use quire_canonical::{LimitExceeded, LimitKind, ProtocolViolation};
 
     use super::*;
+
+    #[trace("TC-017", "FR-016-AC-3")]
+    #[test]
+    fn tc_017_reservation_failure_exposes_no_partial_canonical_output() {
+        let owner = RequirementRef::new(
+            crate::PackageId::new("agent-ix/canonical").expect("package"),
+            crate::RequirementId::new("FR-016").expect("requirement"),
+            crate::RequirementRevision::new(1).expect("revision"),
+        );
+        let declaration = DeclarationEnvironment::new(owner, vec![], vec![], vec![])
+            .expect("empty declaration environment");
+        let expected = declaration
+            .canonical_declaration(CanonicalProfile::V1)
+            .expect("healthy native sink");
+        FAIL_NEXT_RESERVATION.with(|pending| pending.set(true));
+        let refusal = declaration
+            .canonical_declaration(CanonicalProfile::V1)
+            .expect_err("failed reservation must not expose CanonicalOutput or bytes");
+        assert_eq!(
+            refusal.code,
+            DiagnosticCode::CanonicalizationResourceExhausted
+        );
+        assert_eq!(
+            refusal.message,
+            "canonical byte allocation exceeded available resources"
+        );
+        assert!(
+            !FAIL_NEXT_RESERVATION.with(std::cell::Cell::get),
+            "the real sink write consumed the fault"
+        );
+        assert_eq!(
+            declaration
+                .canonical_declaration(CanonicalProfile::V1)
+                .expect("one-shot failure leaves subsequent calls healthy"),
+            expected
+        );
+    }
 
     #[trace("TC-017")]
     #[test]

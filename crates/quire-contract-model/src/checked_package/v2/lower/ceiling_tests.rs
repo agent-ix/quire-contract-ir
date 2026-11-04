@@ -143,6 +143,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         kinds,
         bytes,
         models: Default::default(),
+        selected_documents: Vec::new(),
         direct_dependencies: Vec::new(),
         closure_index: Default::default(),
     };

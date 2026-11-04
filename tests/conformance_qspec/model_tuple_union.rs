@@ -10,7 +10,7 @@ use quire_contract_model::{
     CheckedNodeKind, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
     CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedVariantPayloadType,
+    CheckedTerm, CheckedVariantPayloadType,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -547,8 +547,7 @@ pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
 }
 
 /// Replay every published wire row, including rows added after this test.
-/// Trace: TC-048, FR-069-AC-8.
-#[trace("TC-048", "FR-069-AC-8")]
+#[trace("TC-048", "FR-069-AC-3", "FR-069-AC-5", "FR-069-AC-8")]
 #[test]
 fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     let fixtures = fixtures_dir();
@@ -1665,4 +1664,401 @@ fn unsupported_selected_variant_payloads_refuse_at_document_member() {
             "{payload_type}",
         );
     }
+}
+
+/// Published projection rows drive the selected declaration and result type;
+/// unrelated expression controls are removed so they cannot mask the join.
+#[trace("TC-940", "FR-069-AC-3")]
+#[test]
+fn published_tuple_positions_execute_the_reader_application_join() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple vectors");
+    let document = selected_document(&proposal);
+    let base =
+        read_json(&fixtures.join("positive-model-tuple-union.json")).expect("published package");
+    let template = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.tuple.project")
+        .expect("published projection")
+        .clone();
+    let parameter_id = template["body"]["arguments"][0]["target"].clone();
+    let mut seen = BTreeSet::new();
+    for row in vectors["position_cases"]
+        .as_array()
+        .expect("published positions")
+    {
+        let name = row["name"].as_str().expect("row name");
+        assert!(seen.insert(name), "duplicate {name}");
+        let identity = format!("ix://acme/shapes/{}", row["tuple"].as_str().expect("tuple"));
+        let (_, declaration) = tuple_node(&base, &identity);
+        let mut package = base.clone();
+        let nodes = package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        nodes.retain(|node| node["node_tag"] != "expression");
+        // The published receiver also feeds union payload examples. Give this
+        // position control its own receiver so changing its tuple type cannot
+        // corrupt an unrelated authoritative payload.
+        let mut receiver = nodes
+            .iter()
+            .find(|node| node["node_id"] == parameter_id)
+            .expect("projection parameter")
+            .clone();
+        let receiver_id = super::fixture_support::structural_id(
+            "example",
+            vec![
+                json!("value"),
+                json!("parameter"),
+                json!("tuple-position-receiver"),
+                json!(name),
+            ],
+            0,
+        );
+        receiver["node_id"] = receiver_id.clone();
+        receiver["semantic_type"] = serde_json::to_value(&declaration).expect("id");
+        nodes.push(receiver);
+        let mut application = template.clone();
+        application["body"]["arguments"][0]["target"] = receiver_id;
+        application["body"]["operation"]["member"]["declaration"] =
+            serde_json::to_value(&declaration).expect("id");
+        application["body"]["operation"]["member"]["position"] = row["position"].clone();
+        if let Some(position) = row["position"]
+            .as_u64()
+            .and_then(|position| usize::try_from(position).ok())
+        {
+            if let Some((_, type_ref)) = tuple_positions(&document, &identity).get(position) {
+                let result = base["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("nodes")
+                    .iter()
+                    .find(|node| match type_ref.as_str() {
+                        "ix://quire/native/Boolean" => {
+                            node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean"
+                        }
+                        "ix://quire/native/Integer" => {
+                            node["node_tag"] == "scalar_type" && node["semantic_form"] == "integer"
+                        }
+                        _ => node["node_tag"] == "model" && node["owner"]["node"] == *type_ref,
+                    })
+                    .expect("published result type")["node_id"]
+                    .clone();
+                application["semantic_type"] = result.clone();
+                application["body"]["result_type"] = result;
+            }
+        }
+        nodes.push(application);
+        super::fixture_support::settle(&mut package);
+        let result = CheckedPackageV2::read(
+            &super::fixture_support::canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &selected_evidence(&document),
+        );
+        if row["expected"].get("refused").is_some() {
+            let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+                panic!("{name}: must refuse: {result:?}")
+            };
+            assert_eq!(refusal.code, Code::IllTyped, "{name}");
+            assert_eq!(refusal.cause, Some(Cause::OperatorIneligible), "{name}");
+            assert!(
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .expect("application locus")
+                    .to_string()
+                    == format!(
+                        "/semantic_graph/nodes/{}",
+                        package["semantic_graph"]["nodes"]
+                            .as_array()
+                            .expect("nodes")
+                            .len()
+                            - 1
+                    ),
+                "{name}: {refusal:?}"
+            );
+        } else {
+            let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+                panic!("{name}: {result:?}")
+            };
+            let position = usize::try_from(row["position"].as_u64().expect("position"))
+                .expect("host position");
+            let expected = &row["expected"]["member_type"];
+            let expected_type = match expected["type"].as_str() {
+                Some("Boolean") => CheckedMemberType::Boolean,
+                Some("Integer") => CheckedMemberType::Integer,
+                Some(other) => panic!("{name}: unsupported native position {other}"),
+                None => {
+                    let identity = format!(
+                        "ix://acme/shapes/{}",
+                        expected["declaration"].as_str().expect("declared position")
+                    );
+                    if document["types"]
+                        .as_array()
+                        .expect("selected types")
+                        .iter()
+                        .any(|declaration| {
+                            declaration["identity"] == identity
+                                && declaration["kind"]["name"] == "tuple"
+                        })
+                    {
+                        CheckedMemberType::Tuple(tuple_node(&base, &identity).1)
+                    } else {
+                        CheckedMemberType::Variant(variant_node(&base, &identity).1)
+                    }
+                }
+            };
+            assert_eq!(
+                admitted.model_tuple_position_type(&declaration, position),
+                Some(expected_type),
+                "{name}: exact published selected type"
+            );
+            assert_eq!(
+                tuple_positions(&document, &identity)[position].0,
+                row["expected"]["resolves"]
+                    .as_str()
+                    .expect("published position identity"),
+                "{name}"
+            );
+        }
+    }
+    // An anonymous tuple with the same two scalar positions is a different
+    // type from the selected declaration. Neither direction may impersonate it.
+    let (_, pair) = tuple_node(&base, "ix://acme/shapes/Pair");
+    let scalar = |form: &str| {
+        base["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == form)
+            .expect("published scalar")["node_id"]
+            .clone()
+    };
+    for anonymous_receiver in [false, true] {
+        let mut package = base.clone();
+        let nodes = package["semantic_graph"]["nodes"].as_array_mut().unwrap();
+        nodes.retain(|node| node["node_tag"] != "expression");
+        let key = super::fixture_support::structural_id(
+            "example",
+            vec![
+                json!("composite_type"),
+                json!("tuple"),
+                json!("anonymous-position-control"),
+            ],
+            0,
+        );
+        let mut anonymous = nodes
+            .iter()
+            .find(|node| node["node_id"] == serde_json::to_value(&pair).unwrap())
+            .unwrap()
+            .clone();
+        anonymous.as_object_mut().unwrap().remove("owner");
+        anonymous.as_object_mut().unwrap().remove("declaration");
+        anonymous["node_id"] = key.clone();
+        anonymous["node_tag"] = json!("composite_type");
+        anonymous["semantic_form"] = json!("tuple");
+        anonymous["semantic_type"] = key.clone();
+        anonymous["body"] = json!({"term":"aggregate","members":[{"term":"reference","target":scalar("boolean")},{"term":"reference","target":scalar("integer")}]});
+        let mut dependencies = vec![scalar("boolean"), scalar("integer")];
+        dependencies
+            .sort_by_key(|key| serde_json::from_value::<CheckedNodeId>(key.clone()).unwrap());
+        anonymous["dependencies"] = json!(dependencies);
+        nodes.push(anonymous);
+        let mut receiver = nodes
+            .iter()
+            .find(|node| node["node_id"] == parameter_id)
+            .unwrap()
+            .clone();
+        let receiver_key = super::fixture_support::structural_id(
+            "example",
+            vec![
+                json!("value"),
+                json!("parameter"),
+                json!("anonymous-position-receiver"),
+            ],
+            0,
+        );
+        receiver["node_id"] = receiver_key.clone();
+        receiver["semantic_type"] = if anonymous_receiver {
+            key.clone()
+        } else {
+            serde_json::to_value(&pair).unwrap()
+        };
+        nodes.push(receiver);
+        let mut application = template.clone();
+        application["body"]["arguments"][0]["target"] = receiver_key;
+        application["body"]["operation"]["member"]["declaration"] = if anonymous_receiver {
+            serde_json::to_value(&pair).unwrap()
+        } else {
+            key
+        };
+        application["body"]["operation"]["member"]["position"] = json!(0);
+        application["body"]["result_type"] = scalar("boolean");
+        application["semantic_type"] = scalar("boolean");
+        let application_position = nodes.len();
+        nodes.push(application);
+        super::fixture_support::settle(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+            &super::fixture_support::canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &selected_evidence(&document),
+        ) else {
+            panic!("anonymous tuple cannot name the selected Pair")
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::IllTyped, Some(Cause::OperatorIneligible)),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().to_string(),
+            format!("/semantic_graph/nodes/{application_position}")
+        );
+    }
+    assert_eq!(seen.len(), 7, "all published position controls");
+}
+
+#[trace("TC-940", "FR-069-AC-5")]
+#[test]
+fn published_recursive_tuple_union_declarations_keep_finite_structural_identity() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published recursion controls");
+    let document = selected_document(&proposal);
+    let package = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let admitted = read_selected_variant_package(&package, &document);
+    let (_, cell) = tuple_node(&package, "ix://acme/shapes/Cell");
+    let (_, list) = variant_node(&package, "ix://acme/shapes/List");
+    assert_eq!(
+        admitted.model_tuple_position_type(&cell, 0),
+        Some(CheckedMemberType::Integer)
+    );
+    assert_eq!(
+        admitted.model_tuple_position_type(&cell, 1),
+        Some(CheckedMemberType::Variant(list.clone()))
+    );
+    let list_body = admitted
+        .model_variant_body(&list)
+        .expect("recursive List body");
+    let cons = list_body
+        .cases()
+        .find(|case| case.name() == "Cons")
+        .expect("Cons");
+    assert_eq!(
+        cons.payload_type(),
+        Some(CheckedVariantPayloadType::Declared("ix://acme/shapes/Cell"))
+    );
+    for id in [&cell, &list] {
+        let node = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| {
+                serde_json::from_value::<CheckedNodeId>(node["node_id"].clone()).expect("id") == *id
+            })
+            .expect("recursive declaration");
+        assert!(node.get("recursion_group").is_none_or(Value::is_null));
+        assert_eq!(id.path.len(), 3, "owner-only declaration identity");
+    }
+    let recursion = vectors["recursion_cases"]
+        .as_array()
+        .expect("recursion cases");
+    assert_eq!(recursion.len(), 4);
+    let leaf_control = recursion
+        .iter()
+        .find(|row| row["name"] == "TR-04")
+        .expect("leaf control");
+    assert_eq!(leaf_control["expected"]["leaves"], json!([]));
+    let list_key = serde_json::to_value(&list).expect("list id");
+    let equality = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["body"]["operation"]["identity"] == leaf_control["operation"]
+                && node["body"]["arguments"].as_array().is_some_and(|args| {
+                    args.iter().all(|argument| {
+                        package["semantic_graph"]["nodes"]
+                            .as_array()
+                            .expect("nodes")
+                            .iter()
+                            .any(|operand| {
+                                operand["node_id"] == argument["target"]
+                                    && operand["semantic_type"] == list_key
+                            })
+                    })
+                })
+        })
+        .expect("admitted recursive structural equality");
+    assert_eq!(
+        equality["body"]["operation"]["leaves"],
+        leaf_control["expected"]["leaves"]
+    );
+    let equality_id: CheckedNodeId =
+        serde_json::from_value(equality["node_id"].clone()).expect("recursive equality identity");
+    let Some(CheckedTerm::Application { operation, .. }) = admitted.term(&equality_id) else {
+        panic!("retained recursive application")
+    };
+    let operation = operation.read().expect("reader admitted operation view");
+    assert_eq!(operation.identity, "quire.op.structural.eq");
+    assert!(
+        operation.leaves.is_empty(),
+        "published recursive no-text leaf walk terminates"
+    );
+
+    // TQ-05's selected Pair equality complements the published Shape, List
+    // and Color applications. Give it independent operands so the published
+    // recursive and union payload controls retain their original types.
+    let (_, pair) = tuple_node(&package, "ix://acme/shapes/Pair");
+    let mut tuple_equality = package.clone();
+    let nodes = tuple_equality["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let parameter = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "parameter")
+        .expect("parameter template")
+        .clone();
+    let mut arguments = Vec::new();
+    for name in ["tuple-equality-left", "tuple-equality-right"] {
+        let mut operand = parameter.clone();
+        let key = super::fixture_support::structural_id(
+            "example",
+            vec![json!("value"), json!("parameter"), json!(name)],
+            0,
+        );
+        operand["node_id"] = key.clone();
+        operand["semantic_type"] = serde_json::to_value(&pair).expect("Pair identity");
+        nodes.push(operand);
+        arguments.push(json!({"term":"reference", "target":key}));
+    }
+    let mut application = equality.clone();
+    let application_key = super::fixture_support::structural_id(
+        "example",
+        vec![
+            json!("expression"),
+            json!("binary"),
+            json!("tuple-equality"),
+        ],
+        0,
+    );
+    application["node_id"] = application_key.clone();
+    application["body"]["arguments"] = json!(arguments);
+    nodes.push(application);
+    super::fixture_support::settle(&mut tuple_equality);
+    let admitted = read_selected_variant_package(&tuple_equality, &document);
+    let application_key = serde_json::from_value(application_key).expect("application identity");
+    let Some(CheckedTerm::Application { operation, .. }) = admitted.term(&application_key) else {
+        panic!("retained Pair equality")
+    };
+    let operation = operation.read().expect("admitted tuple operation");
+    assert_eq!(operation.identity, "quire.op.structural.eq");
+    assert!(
+        operation.leaves.is_empty(),
+        "Pair has no reachable text leaves"
+    );
 }

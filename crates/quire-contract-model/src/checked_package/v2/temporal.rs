@@ -141,23 +141,37 @@ impl IntegerString {
     fn is_zero(&self) -> bool {
         self.zero
     }
+}
 
-    fn magnitude_cmp(&self, other: &Self) -> Ordering {
-        self.digits
-            .len()
-            .cmp(&other.digits.len())
-            .then_with(|| self.digits.cmp(&other.digits))
+/// Compare borrowed, canonical signed-decimal parts without numeric conversion.
+/// Callers retain ownership and account for examining digits in their own meter.
+#[ix_trace_rs::string_edge]
+pub(super) fn compare_integer_parts(
+    left_negative: bool,
+    left_digits: &str,
+    right_negative: bool,
+    right_digits: &str,
+) -> Ordering {
+    match (left_negative, right_negative) {
+        (false, true) => Ordering::Greater,
+        (true, false) => Ordering::Less,
+        _ => {
+            let magnitude = left_digits
+                .len()
+                .cmp(&right_digits.len())
+                .then_with(|| left_digits.cmp(right_digits));
+            if left_negative {
+                magnitude.reverse()
+            } else {
+                magnitude
+            }
+        }
     }
 }
 
 impl Ord for IntegerString {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (self.negative, other.negative) {
-            (false, true) => Ordering::Greater,
-            (true, false) => Ordering::Less,
-            (false, false) => self.magnitude_cmp(other),
-            (true, true) => other.magnitude_cmp(self),
-        }
+        compare_integer_parts(self.negative, &self.digits, other.negative, &other.digits)
     }
 }
 

@@ -528,8 +528,8 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNo
 /// the declaration index, each document's field tables, the selected
 /// operation parameter types needed for clause-context reads, and each
 /// selected relationship's [`RetainedRelationship`] record.
-/// Not part of the package's equality, which is the equality of its admitted
-/// content.
+/// These are derived caches and do not take part in package equality.
+/// The package separately retains complete admitted documents as content.
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
     index: DeclarationIndex,

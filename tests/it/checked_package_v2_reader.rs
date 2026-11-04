@@ -1176,6 +1176,150 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_doc
     }
 }
 
+#[trace("TC-048", "TC-226", "FR-038-AC-129")]
+#[test]
+fn selected_documents_remain_complete_structural_values_after_admission() {
+    let wire = model_owned_package(
+        model_owner("test/orders", "ix://test/orders/Length"),
+        &["test/orders"],
+    );
+    let mut document = model_document("1");
+    document["annotation"] = json!({"tags":["first","second"], "nested":{"number":1}});
+    let admit = |document: &Value, limits| {
+        let evidence = evidence_with_document(&wire, "test/orders", document);
+        let CheckedPackageV2ReadResult::Admitted(package) =
+            CheckedPackageV2::read(&canonical(&wire), limits, &evidence)
+        else {
+            panic!("the selected document must independently admit");
+        };
+        package
+    };
+    let first = admit(&document, CheckedPackageReadLimits::bounded());
+    let mut other = document.clone();
+    other["annotation"]["tags"][1] = json!("changed");
+    let second = admit(&other, CheckedPackageReadLimits::bounded());
+    assert_eq!(first.name(), second.name());
+    assert_eq!(first.graph(), second.graph());
+    assert_ne!(first, second, "unused selected JSON is admitted content");
+
+    let mut other = document.clone();
+    other["package"]["version"] = json!("2");
+    assert_ne!(first, admit(&other, CheckedPackageReadLimits::bounded()));
+
+    let mut generous = CheckedPackageReadLimits::bounded();
+    generous.bytes *= 2;
+    generous.work *= 2;
+    assert_eq!(
+        first,
+        admit(&document, generous),
+        "read limits are not content"
+    );
+    assert_eq!(first.as_ref(), &first.as_ref().clone());
+
+    let wrong_document = domain_package_document("test/other", "1", Vec::new());
+    let wrong = evidence_with_document(&wire, "test/orders", &wrong_document);
+    let root = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("selected root");
+    assert_eq!(
+        refused(&wire, &wrong),
+        refusal_cause(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &format!("/semantic_graph/nodes/{root}/owner/identity"),
+            CheckedPackageRefusalCause::WrongModelSelection,
+        )
+    );
+}
+
+#[trace("TC-048", "TC-226", "FR-038-AC-129")]
+#[test]
+fn selected_document_value_equality_ignores_object_order_and_wire_spacing() {
+    let wire = model_owned_package(
+        model_owner("test/orders", "ix://test/orders/Length"),
+        &["test/orders"],
+    );
+    let mut document = model_document("1");
+    document["annotation"] = json!({"z":1.0, "a":[true,null,"x"]});
+    let first_bytes = serde_json::to_vec(&document).expect("selected document");
+    let mut entries = document
+        .as_object()
+        .expect("document object")
+        .iter()
+        .collect::<Vec<_>>();
+    entries.reverse();
+    let second_bytes = format!(
+        "{{\n{}\n}}",
+        entries
+            .iter()
+            .map(|(key, value)| format!(
+                "  {} : {}",
+                serde_json::to_string(key).unwrap(),
+                serde_json::to_string(value).unwrap()
+            ))
+            .collect::<Vec<_>>()
+            .join(",\n")
+    )
+    .replace("1.0", "1e0")
+    .into_bytes();
+    assert_ne!(first_bytes, second_bytes);
+    let admit_bytes = |bytes: Vec<u8>| {
+        let mut evidence = CheckedPackageEvidence::new();
+        evidence.support_feature(COMPLETE_VALUE_FEATURE);
+        evidence
+            .insert_domain_package_document("test/orders", bytes)
+            .expect("one selected document");
+        let CheckedPackageV2ReadResult::Admitted(package) = read(&wire, &evidence) else {
+            panic!("independently spelled document must admit");
+        };
+        package
+    };
+    assert_eq!(admit_bytes(first_bytes), admit_bytes(second_bytes));
+}
+
+#[trace("TC-048", "TC-226", "FR-038-AC-129")]
+#[test]
+fn selected_document_clone_comparison_and_final_drop_use_a_bounded_native_stack() {
+    std::thread::Builder::new()
+        .stack_size(512 * 1024)
+        .spawn(|| {
+            let wire = model_owned_package(
+                model_owner("test/orders", "ix://test/orders/Length"),
+                &["test/orders"],
+            );
+            let base = serde_json::to_string(&model_document("1")).expect("selected document");
+            let mut bytes = base.as_bytes()[..base.len() - 1].to_vec();
+            bytes.extend_from_slice(b",\"annotation\":");
+            bytes.extend(std::iter::repeat_n(b'[', 20_000));
+            bytes.extend_from_slice(b"true");
+            bytes.extend(std::iter::repeat_n(b']', 20_000));
+            bytes.push(b'}');
+            let admit = |bytes: Vec<u8>| {
+                let mut evidence = CheckedPackageEvidence::new();
+                evidence.support_feature(COMPLETE_VALUE_FEATURE);
+                evidence
+                    .insert_domain_package_document("test/orders", bytes)
+                    .expect("selected input");
+                let CheckedPackageV2ReadResult::Admitted(package) = read(&wire, &evidence) else {
+                    panic!("deep unused metadata must admit without a new depth cap");
+                };
+                package
+            };
+            let first = admit(bytes.clone());
+            let second = admit(bytes);
+            let retained = first.clone();
+            drop(first);
+            assert_eq!(retained, second);
+            drop(retained);
+            drop(second);
+        })
+        .expect("bounded-stack test thread")
+        .join()
+        .expect("admitted selected-document operations do not recurse");
+}
+
 /// AC-367 selected-declaration edit slice: a retained model-owned dimension
 /// cannot silently bind to a different selected declaration under the same
 /// domain-package identity and structural node id.

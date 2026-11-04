@@ -1090,6 +1090,158 @@ fn project_type(
     Ok((shape, positions))
 }
 
+/// Compare already validated canonical signed decimal strings without narrowing.
+#[ix_trace_rs::string_edge]
+fn decimal_order(left: &str, right: &str) -> std::cmp::Ordering {
+    let (left_negative, left_digits) = left.strip_prefix('-').map_or((false, left), |s| (true, s));
+    let (right_negative, right_digits) = right
+        .strip_prefix('-')
+        .map_or((false, right), |s| (true, s));
+    super::temporal::compare_integer_parts(left_negative, left_digits, right_negative, right_digits)
+}
+
+/// The one closed-value conversion exception. No value is evaluated or copied.
+#[ix_trace_rs::string_edge]
+fn closed_narrow(
+    graph: &Graph<'_>,
+    node: &CheckedSemanticNodeV2,
+    ordinal: u64,
+    meter: &mut Meter,
+) -> Result<bool> {
+    let Some(CheckedTerm::Application {
+        operator,
+        operation,
+        result_type,
+        arguments,
+    }) = graph.term(node)
+    else {
+        return Ok(false);
+    };
+    if operation.identity() != Some("quire.op.numeric.narrow") {
+        return Ok(false);
+    }
+    meter.charge(1)?;
+    let malformed = || type_error(ordinal, Some(node.semantic_type.clone()));
+    let record = operation.record();
+    let member = record.get("member").ok_or_else(malformed)?;
+    if graph.kind(node)
+        != Some(CheckedNodeKind::Expression(
+            super::ExpressionForm::Conversion,
+        ))
+        || *operator != super::ApplicationOperator::Convert
+        || record
+            .get("laws")
+            .and_then(Value::as_array)
+            .is_none_or(|a| !a.is_empty())
+        || record
+            .get("leaves")
+            .and_then(Value::as_array)
+            .is_none_or(|a| !a.is_empty())
+        || !record.get("mode").is_some_and(Value::is_null)
+        || member.get("kind").and_then(Value::as_str) != Some("type_argument")
+        || member.get("declaration")
+            != Some(&serde_json::to_value(result_type).expect("typed node identity"))
+        || result_type != &node.semantic_type
+        || arguments.len() != 1
+    {
+        return Err(malformed());
+    }
+    let range = graph.node(result_type, meter)?.ok_or_else(malformed)?;
+    meter.charge(1)?;
+    if graph.kind(range)
+        != Some(CheckedNodeKind::BoundedDomain(
+            BoundedDomainForm::IntegerRange,
+        ))
+    {
+        return Err(malformed());
+    }
+    let range_error = || type_error(ordinal, Some(range.node_id.clone()));
+    let integer = graph
+        .node(&range.semantic_type, meter)?
+        .ok_or_else(range_error)?;
+    meter.charge(1)?;
+    if graph.kind(integer) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Integer)) {
+        return Err(range_error());
+    }
+    let Some(CheckedTerm::Aggregate { members }) = graph.term(range) else {
+        return Err(range_error());
+    };
+    if members.len() != 2 {
+        return Err(range_error());
+    }
+    let mut endpoints = Vec::with_capacity(2);
+    for (term, expected) in members.iter().zip(["min", "max"]) {
+        meter.charge(1)?;
+        let CheckedTerm::Binding { name, value } = term else {
+            return Err(range_error());
+        };
+        meter.charge(1)?;
+        let CheckedTerm::Literal {
+            type_id,
+            value_kind,
+            value,
+        } = value.as_ref()
+        else {
+            return Err(range_error());
+        };
+        let Some(text) = value.as_str() else {
+            return Err(range_error());
+        };
+        meter.length(text.len())?;
+        if name.as_ref() != expected
+            || *value_kind != LiteralKind::Integer
+            || type_id != &integer.node_id
+            || !is_integer_bound(text)
+        {
+            return Err(range_error());
+        }
+        endpoints.push(text);
+    }
+    if decimal_order(endpoints[0], endpoints[1]).is_gt() {
+        return Err(range_error());
+    }
+    meter.charge(1)?;
+    let CheckedTerm::Reference { target } = &arguments[0] else {
+        return Err(malformed());
+    };
+    let literal = graph.node(target, meter)?.ok_or_else(malformed)?;
+    meter.charge(1)?;
+    let nonliteral = || {
+        unsupported(
+            ordinal,
+            Some(literal.semantic_type.clone()),
+            CheckedUnsupportedCompositeOperand::NonliteralGraphValue,
+        )
+    };
+    if graph.kind(literal) != Some(CheckedNodeKind::Value(ValueForm::Literal)) {
+        return Err(nonliteral());
+    }
+    let Some(CheckedTerm::Literal {
+        type_id,
+        value_kind,
+        value,
+    }) = graph.term(literal)
+    else {
+        return Err(type_error(ordinal, Some(literal.semantic_type.clone())));
+    };
+    let literal_error = || type_error(ordinal, Some(type_id.clone()));
+    let Some(text) = value.as_str() else {
+        return Err(literal_error());
+    };
+    meter.length(text.len())?;
+    if *value_kind != LiteralKind::Integer
+        || type_id != &integer.node_id
+        || literal.semantic_type != integer.node_id
+        || !is_integer_bound(text)
+    {
+        return Err(literal_error());
+    }
+    if decimal_order(text, endpoints[0]).is_lt() || decimal_order(text, endpoints[1]).is_gt() {
+        return Err(range_error());
+    }
+    Ok(true)
+}
+
 fn closed_literal(
     graph: &Graph<'_>,
     root: &CheckedSemanticNodeV2,
@@ -1137,6 +1289,9 @@ fn closed_literal(
                 };
                 if ancestors.contains(&&node.node_id) {
                     return Err(nonliteral());
+                }
+                if closed_narrow(graph, node, ordinal, meter)? {
+                    continue;
                 }
                 match graph.kind(node) {
                     Some(CheckedNodeKind::Value(ValueForm::UnionValue)) => {
@@ -3286,6 +3441,375 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    // Start from a real reader admission; edit only at the expressly private
+    // post-admission seam, where malformed wrapper controls are reachable.
+    fn narrow_record(lower: &str, upper: &str, literal: &str) -> CheckedPackageV2 {
+        let mut p = package();
+        let set = |p: &mut CheckedPackageV2, position: usize, kind, semantic_type, body: Value| {
+            p.kinds[position] = kind;
+            p.wire.semantic_graph.nodes[position].semantic_type = semantic_type;
+            p.wire.semantic_graph.nodes[position].body =
+                CheckedTerm::decode_admitted(&body).expect("closed private control term");
+            sync_term(p, position);
+        };
+        let integer_literal = |text: &str| json!({"term":"literal","type":id('2'),"value_kind":"integer","value":text});
+        set(
+            &mut p,
+            6,
+            CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange),
+            id('2'),
+            json!({"term":"aggregate","members":[
+            {"term":"binding","name":"min","value":integer_literal(lower)},
+            {"term":"binding","name":"max","value":integer_literal(upper)}]}),
+        );
+        set(
+            &mut p,
+            8,
+            CheckedNodeKind::Value(ValueForm::Literal),
+            id('2'),
+            integer_literal(literal),
+        );
+        set(
+            &mut p,
+            7,
+            CheckedNodeKind::Expression(super::super::ExpressionForm::Conversion),
+            id('7'),
+            json!({"term":"application","operator":"convert",
+            "operation":{"identity":"quire.op.numeric.narrow","laws":[],"leaves":[],"mode":null,"member":{"kind":"type_argument","declaration":id('7')}},
+            "result_type":id('7'),"arguments":[{"term":"reference","target":id('a')}]}),
+        );
+        set(
+            &mut p,
+            3,
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Record),
+            id('4'),
+            json!({"term":"aggregate","members":[{"term":"binding","name":"x","value":{"term":"reference","target":id('7')}}]}),
+        );
+        set(
+            &mut p,
+            4,
+            CheckedNodeKind::Value(ValueForm::RecordValue),
+            id('4'),
+            json!({"term":"aggregate","members":[{"term":"binding","name":"x","value":{"term":"reference","target":id('8')}}]}),
+        );
+        application_arguments(&mut p)[1] = CheckedTerm::Reference { target: id('5') };
+        p
+    }
+
+    #[trace("TC-048", "FR-038-AC-232")]
+    #[test]
+    fn narrow_closed_record_preserves_original_graph_child_and_signed_arbitrary_precision_bounds() {
+        for (lower, upper, values) in [
+            ("0", "9", vec!["0", "3", "9"]),
+            (
+                "340282366920938463463374607431768211456",
+                "340282366920938463463374607431768211459",
+                vec![
+                    "340282366920938463463374607431768211456",
+                    "340282366920938463463374607431768211459",
+                ],
+            ),
+            (
+                "-340282366920938463463374607431768211459",
+                "-340282366920938463463374607431768211456",
+                vec![
+                    "-340282366920938463463374607431768211459",
+                    "-340282366920938463463374607431768211456",
+                ],
+            ),
+        ] {
+            for value in values {
+                let p = narrow_record(lower, upper, value);
+                let operands = read(&p).expect("closed narrow field");
+                for operand in operands.operands {
+                    assert_eq!(
+                        operand.child,
+                        CheckedScalarOperandChild::GraphChild(id('5'))
+                    );
+                    assert_eq!(operand.semantic_type, id('4'));
+                    assert_eq!(operand.domain, CheckedCompositeOperandDomain::Literal);
+                }
+            }
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn narrow_rejects_outside_signed_large_bounds_without_rounding() {
+        for (lower, upper, outside) in [
+            (
+                "340282366920938463463374607431768211456",
+                "340282366920938463463374607431768211459",
+                [
+                    "340282366920938463463374607431768211455",
+                    "340282366920938463463374607431768211460",
+                ],
+            ),
+            (
+                "-340282366920938463463374607431768211459",
+                "-340282366920938463463374607431768211456",
+                [
+                    "-340282366920938463463374607431768211460",
+                    "-340282366920938463463374607431768211455",
+                ],
+            ),
+        ] {
+            for value in outside {
+                assert_eq!(
+                    read(&narrow_record(lower, upper, value)),
+                    Err(type_error(0, Some(id('7'))))
+                );
+            }
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn narrow_exact_budget_and_one_less_preserve_first_failure() {
+        let p = narrow_record("0", "9", "3");
+        let success = read(&p).expect("closed narrow");
+        // One selected application resolution, then per operand: argument,
+        // child and family resolutions (3); root resolution+visit (2); the
+        // record member, binding and reference edges (3); narrow resolution+
+        // visit+wrapper (3); range and Integer resolution+visit (4); two range
+        // member+binding edges (4); narrow argument edge (1); literal
+        // resolution+visit (2); and each of the three decimal bytes (3).
+        assert_eq!(
+            success.consumed_work,
+            1 + 2 * (3 + 2 + 3 + 3 + 4 + 4 + 1 + 2 + 3)
+        );
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        assert_eq!(
+            p.composite_application_operands(&id('6'), &occurrence, success.consumed_work),
+            Ok(success.clone())
+        );
+        assert!(matches!(
+            p.composite_application_operands(&id('6'), &occurrence, success.consumed_work - 1),
+            Err(Error::WorkLimit { .. })
+        ));
+        assert_eq!(
+            p.composite_application_operands(&id('6'), &occurrence, 0),
+            Err(Error::WorkLimit {
+                limit: 0,
+                consumed: 1
+            })
+        );
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn narrow_wrapper_range_and_literal_defects_keep_exact_typed_loci() {
+        // Each candidate starts from the same admitted-then-mutated control;
+        // only one independently named condition changes per iteration.
+        for (pointer, replacement) in [
+            ("/operator", json!("binary")),
+            (
+                "/operation/laws",
+                json!([{"role":"integer_division","definition":{"authority":"test","identity":"law"}}]),
+            ),
+            ("/operation/leaves", json!([{}])),
+            (
+                "/operation/mode",
+                json!({"kind":"rounding","value":"floor"}),
+            ),
+            ("/operation/member/kind", json!("element")),
+            ("/operation/member/declaration", json!(id('2'))),
+            ("/result_type", json!(id('2'))),
+            ("/arguments", json!([])),
+            (
+                "/arguments",
+                json!([{"term":"literal","type":id('2'),"value_kind":"integer","value":"3"}]),
+            ),
+        ] {
+            let mut p = narrow_record("0", "9", "3");
+            edit_body(&mut p, 7, |body| {
+                *body.pointer_mut(pointer).expect("wrapper field") = replacement
+            });
+            sync_term(&mut p, 7);
+            assert_eq!(read(&p), Err(type_error(0, Some(id('7')))), "{pointer}");
+        }
+        let mut p = narrow_record("0", "9", "3");
+        p.wire.semantic_graph.nodes[7].semantic_type = id('2');
+        assert_eq!(read(&p), Err(type_error(0, Some(id('2')))));
+        for (pointer, replacement) in [
+            ("/members", json!([])),
+            ("/members/0/name", json!("max")),
+            ("/members/0/value", json!({"term":"aggregate","members":[]})),
+            ("/members/0/value/type", json!(id('1'))),
+            ("/members/0/value/value_kind", json!("text")),
+            ("/members/0/value/value", json!("00")),
+            ("/members/0/value/value", json!("10")),
+        ] {
+            let mut p = narrow_record("0", "9", "3");
+            edit_body(&mut p, 6, |body| {
+                *body.pointer_mut(pointer).expect("range field") = replacement
+            });
+            sync_term(&mut p, 6);
+            assert_eq!(read(&p), Err(type_error(0, Some(id('7')))), "{pointer}");
+        }
+        let mut p = narrow_record("0", "9", "3");
+        p.wire.semantic_graph.nodes[6].semantic_type = id('1');
+        assert_eq!(read(&p), Err(type_error(0, Some(id('7')))));
+        for (pointer, replacement, locus) in [
+            ("/value_kind", json!("text"), id('2')),
+            ("/type", json!(id('1')), id('1')),
+            ("/value", json!(3), id('2')),
+            ("/value", json!("03"), id('2')),
+            ("/value", json!("-0"), id('2')),
+        ] {
+            let mut p = narrow_record("0", "9", "3");
+            edit_body(&mut p, 8, |body| {
+                *body.pointer_mut(pointer).expect("literal field") = replacement
+            });
+            sync_term(&mut p, 8);
+            assert_eq!(read(&p), Err(type_error(0, Some(locus))), "{pointer}");
+        }
+        let mut p = narrow_record("0", "9", "3");
+        p.wire.semantic_graph.nodes[8].semantic_type = id('1');
+        assert_eq!(read(&p), Err(type_error(0, Some(id('2')))));
+    }
+
+    #[trace("TC-048", "FR-038-AC-234")]
+    #[test]
+    fn narrow_exception_never_evaluates_parameters_nested_applications_or_cycles() {
+        for (target, expected_type) in [('5', '4'), ('8', '7'), ('6', '1')] {
+            let mut p = narrow_record("0", "9", "3");
+            edit_body(&mut p, 7, |body| {
+                body["arguments"][0]["target"] = json!(id(target))
+            });
+            sync_term(&mut p, 7);
+            assert_eq!(
+                read(&p),
+                Err(unsupported(
+                    0,
+                    Some(id(expected_type)),
+                    CheckedUnsupportedCompositeOperand::NonliteralGraphValue
+                ))
+            );
+        }
+        let mut p = narrow_record("0", "9", "3");
+        p.kinds[8] = CheckedNodeKind::Value(ValueForm::Parameter);
+        assert_eq!(
+            read(&p),
+            Err(unsupported(
+                0,
+                Some(id('2')),
+                CheckedUnsupportedCompositeOperand::NonliteralGraphValue
+            ))
+        );
+        let mut p = narrow_record("0", "9", "3");
+        edit_body(&mut p, 7, |body| {
+            body["operation"]["identity"] = json!("quire.op.quantity.convert")
+        });
+        sync_term(&mut p, 7);
+        assert_eq!(
+            read(&p),
+            Err(unsupported(
+                0,
+                Some(id('7')),
+                CheckedUnsupportedCompositeOperand::NonliteralGraphValue
+            ))
+        );
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn narrow_full_decimal_bytes_and_graph_order_have_independent_exact_work() {
+        let lower = format!("-{}", "9".repeat(300));
+        let upper = "8".repeat(400);
+        let p = narrow_record(&lower, &upper, "0");
+        let expected = 1 + 2 * (22 + lower.len() as u64 + upper.len() as u64 + 1);
+        let result = read(&p).expect("long endpoints checked without narrowing");
+        assert_eq!(result.consumed_work, expected);
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        assert_eq!(
+            p.composite_application_operands(&id('6'), &occurrence, expected),
+            Ok(result.clone())
+        );
+        assert!(matches!(
+            p.composite_application_operands(&id('6'), &occurrence, expected - 1),
+            Err(Error::WorkLimit { .. })
+        ));
+        let mut permuted = p;
+        permuted.wire.semantic_graph.nodes.reverse();
+        permuted.kinds.reverse();
+        permuted.terms.reverse();
+        permuted.node_index = permuted
+            .wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (node.node_id.clone(), position))
+            .collect();
+        assert_eq!(read(&permuted), Ok(result));
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn narrow_work_exhaustion_precedes_wrapper_membership_and_later_operand_errors() {
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let mut malformed = narrow_record("0", "9", "3");
+        edit_body(&mut malformed, 7, |body| body["operator"] = json!("binary"));
+        sync_term(&mut malformed, 7);
+        assert_eq!(
+            malformed.composite_application_operands(&id('6'), &occurrence, 11),
+            Err(Error::WorkLimit {
+                limit: 11,
+                consumed: 12
+            })
+        );
+        let mut outside = narrow_record("0", "9", "4");
+        // Make the inclusive maximum smaller without changing decimal lengths.
+        edit_body(&mut outside, 6, |body| {
+            body["members"][1]["value"]["value"] = json!("3")
+        });
+        sync_term(&mut outside, 6);
+        assert_eq!(
+            outside.composite_application_operands(&id('6'), &occurrence, 25),
+            Err(Error::WorkLimit {
+                limit: 25,
+                consumed: 26
+            })
+        );
+        let mut later = narrow_record("0", "9", "3");
+        application_arguments(&mut later)[1] = CheckedTerm::Literal {
+            type_id: id('2'),
+            value_kind: LiteralKind::Integer,
+            value: json!("1"),
+        };
+        assert_eq!(
+            later.composite_application_operands(&id('6'), &occurrence, 26),
+            Err(Error::WorkLimit {
+                limit: 26,
+                consumed: 27
+            })
+        );
+    }
+
+    #[trace("TC-048", "FR-038-AC-233")]
+    #[test]
+    fn narrow_all_malformed_controls_preserve_signed_bounds_and_first_typed_locus() {
+        narrow_wrapper_range_and_literal_defects_keep_exact_typed_loci();
+        narrow_closed_record_preserves_original_graph_child_and_signed_arbitrary_precision_bounds();
+        narrow_rejects_outside_signed_large_bounds_without_rounding();
+        let mut absent = narrow_record("0", "9", "3");
+        absent.node_index.remove(&id('7'));
+        assert_eq!(read(&absent), Err(type_error(0, Some(id('7')))));
+        let mut wrong_kind = narrow_record("0", "9", "3");
+        wrong_kind.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Option);
+        assert_eq!(read(&wrong_kind), Err(type_error(0, Some(id('7')))));
     }
 
     fn application_arguments(package: &mut CheckedPackageV2) -> &mut Vec<CheckedTerm> {

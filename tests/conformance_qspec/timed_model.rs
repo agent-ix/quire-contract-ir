@@ -1838,7 +1838,6 @@ fn timed_model_missing_root_precedes_later_quantity_validation() {
     );
 }
 
-/// Trace: FR-038-AC-321, TC-048.
 #[trace("TC-048", "FR-038-AC-321")]
 #[test]
 fn timed_model_stage_precedence_has_independent_defect_controls() {
@@ -1875,6 +1874,18 @@ fn timed_model_stage_precedence_has_independent_defect_controls() {
             panic!("combined stage defect must refuse");
         };
         assert_eq!((refusal.code, refusal.cause), (code, cause));
+        if cause == Some(Cause::OperationLawMismatch) {
+            // QSpec protocol V10 keeps the primary node and independently
+            // supplies the law-row document pointer, not the role pointer.
+            assert_eq!(
+                refusal
+                    .document_pointer
+                    .as_ref()
+                    .expect("law row detail")
+                    .to_string(),
+                "/semantic_graph/nodes/9/body/operation/laws/0"
+            );
+        }
         assert_eq!(
             refusal.loci[0].path.as_ref().expect("locus").to_string(),
             locus
@@ -1891,7 +1902,7 @@ fn timed_model_stage_precedence_has_independent_defect_controls() {
         &protocol,
         Code::InvalidPackage,
         Some(Cause::OperationLawMismatch),
-        "/semantic_graph/nodes/9/body/operation/laws/0/role",
+        "/semantic_graph/nodes/9",
     );
     assert_refusal(
         &operation,
@@ -2313,4 +2324,116 @@ fn timed_root_without_guards_keeps_the_place_template() {
         matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
         "{result:?}"
     );
+}
+
+/// Whole timed-reference criterion: graph shape remains earlier than typed
+/// timed interpretation, while occurrence presentation does not name a node.
+#[trace("TC-048", "FR-038-AC-319")]
+#[test]
+fn timed_reference_shape_and_meaning_are_independent_admission_controls() {
+    timed_graph_shape_and_body_edits_refuse_at_their_own_stage();
+    timed_source_occurrence_reordering_retains_structural_node_ids();
+    // A dependency-consistent missing tick target belongs to the typed join,
+    // not the stale-dependency refusal tested above. The owning vector supplies
+    // its independently specified code, cause and exact member locus.
+    timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus();
+}
+
+/// Read the owner's positive models and every semantic refusal, including the
+/// separate dense/base-Time group, through the production reader. The vector
+/// loci are authoritative; mutation pointers are never used as an oracle.
+#[trace("TC-048", "FR-038-AC-320")]
+#[test]
+fn timed_selected_model_reconstruction_obeys_all_published_paired_refusals() {
+    timed_model_published_fixture_round_trips_complete_nodes();
+    timed_model_published_tick_retains_typed_operation_anchor();
+    timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus();
+    timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity();
+    timed_model_missing_root_precedes_later_quantity_validation();
+    timed_model_repeated_reference_precedes_later_quantity_validation();
+    timed_model_rebuilt_semantic_defects_keep_paired_causes();
+}
+
+#[trace("TC-048", "FR-038-AC-320")]
+#[test]
+fn timed_model_two_bad_places_choose_structural_order_before_wire_position() {
+    let mut wire = published();
+    let mut second = wire["semantic_graph"]["nodes"][45].clone();
+    let key = fixture_support::structural_id("example", vec![json!("0"), json!("clock_place")], 0);
+    let original_key = wire["semantic_graph"]["nodes"][45]["node_id"].clone();
+    assert!(
+        serde_json::from_value::<CheckedNodeId>(key.clone()).unwrap()
+            < serde_json::from_value(wire["semantic_graph"]["nodes"][52]["node_id"].clone())
+                .unwrap(),
+        "the bad place itself precedes the root's aggregate interpretation"
+    );
+    assert!(
+        serde_json::from_value::<CheckedNodeId>(key.clone()).unwrap()
+            < serde_json::from_value(original_key.clone()).unwrap()
+    );
+    second["node_id"] = key.clone();
+    second["semantic_type"] = key.clone();
+    // A place's model target is checked at that place's own visit. In contrast,
+    // resolved-path rows belong to the root's ordered aggregate interpretation.
+    let wrong_model = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "integer")
+        .expect("Integer control target")["node_id"]
+        .clone();
+    let model = second["body"]["members"][0]["value"]["target"].clone();
+    second["body"]["members"][0]["value"]["target"] = wrong_model.clone();
+    replace_dependency(&mut second, &model, &wrong_model);
+    let mut source = wire["source_map"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["node_id"] == original_key)
+        .unwrap()
+        .clone();
+    source["node_id"] = key.clone();
+    source["regions"][0]["start"] = json!(9000);
+    source["regions"][0]["end"] = json!(9001);
+    let second_position = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(second);
+    wire["source_map"].as_array_mut().unwrap().push(source);
+    wire["semantic_graph"]["nodes"][52]["body"]["members"][3]["value"]["members"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"term":"reference","target":key}));
+    wire["semantic_graph"]["nodes"][52]["dependencies"]
+        .as_array_mut()
+        .expect("root dependencies")
+        .push(key.clone());
+    let mut both = wire.clone();
+    both["semantic_graph"]["nodes"][45]["body"]["members"][0]["value"]["target"] =
+        wrong_model.clone();
+    replace_dependency(
+        &mut both["semantic_graph"]["nodes"][45],
+        &model,
+        &wrong_model,
+    );
+    for candidate in [&mut wire, &mut both] {
+        fixture_support::settle(candidate);
+        sort_timed_graph_dependencies(candidate);
+        fixture_support::settle(candidate);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package(candidate).expect("two-place control")
+        else {
+            panic!("bad place must refuse")
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(Cause::TimedNodeReference)),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().to_string(),
+            format!("/semantic_graph/nodes/{second_position}/body/members/0/value")
+        );
+    }
 }

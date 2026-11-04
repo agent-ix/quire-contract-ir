@@ -1133,9 +1133,11 @@ fn transition_application_at_a_binary_expression_root_refuses_before_anchor_join
     };
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
+    // FR-067-AC-2 locates a misplaced body-root application at the node,
+    // before inspecting its independently wrong anchor.
     assert_eq!(
         refusal.loci[0].path.as_ref().map(ToString::to_string),
-        Some("/semantic_graph/nodes/9/body".into())
+        Some("/semantic_graph/nodes/9".into())
     );
 }
 

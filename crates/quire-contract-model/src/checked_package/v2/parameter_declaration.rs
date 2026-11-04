@@ -156,6 +156,7 @@ mod tests {
             kinds,
             bytes: 1 << 20,
             models: RetainedModels::default(),
+            selected_documents: Vec::new(),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
         }

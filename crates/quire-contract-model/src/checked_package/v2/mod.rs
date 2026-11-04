@@ -55,6 +55,7 @@ mod runtime_type_projection;
 mod rust_spelling;
 mod scalar_operands;
 mod schedulability;
+mod selected_document;
 mod selected_facts;
 mod state;
 mod step_relation;
@@ -197,6 +198,7 @@ use quire_canonical::FixedShape;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 // Explicit null is a value; an absent member must remain a schema refusal.
 fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -859,10 +861,9 @@ pub enum CheckedPackageV2ReadResult {
 
 /// Immutable, admitted `quire.checked-package/v2` data.
 ///
-/// Every value an admitted package holds nests to a depth the closed body
-/// grammar fixes, whatever the package's node count, so its clone,
-/// comparison, `Debug` rendering, lowering and drop need no stack that follows
-/// the package's size.
+/// The closed body grammar and flat ownership of complete selected documents
+/// keep native stack use independent of package size during clone, comparison,
+/// `Debug` rendering, lowering and drop.
 #[derive(Clone)]
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
@@ -886,6 +887,8 @@ pub struct CheckedPackageV2 {
     /// keeps: the declaration index, the field tables, the operation parameter
     /// types and the relationship records.
     models: RetainedModels,
+    /// Complete admitted selected JSON values are content, not derived caches.
+    selected_documents: Vec<Arc<quire_canonical::Document>>,
     /// Direct admitted edges; their recursively derived closure is not copied.
     direct_dependencies: Vec<std::sync::Arc<CheckedPackageV2>>,
     /// Exact identities reachable through the direct edges, shared with children.
@@ -919,14 +922,21 @@ impl Drop for CheckedPackageV2 {
     }
 }
 
-/// Equality is the equality of the admitted content. The read limit a package
-/// retains for its lowering is not content, so two admissions of the same bytes
-/// under different limits are equal; nor are the retained field tables,
+/// Equality includes each selected document's complete admitted JSON value,
+/// using the numeric values consumed by model intake rather than authored
+/// number spelling, object member order or wire whitespace.
+/// The read limit retained for lowering is not content, so two admissions of
+/// the same bytes under different limits are equal; nor are the retained field tables,
 /// declaration index, operation parameter types and relationship records, which
 /// are derived from the same admitted documents.
 impl PartialEq for CheckedPackageV2 {
     fn eq(&self, other: &Self) -> bool {
-        self.wire == other.wire && self.kinds == other.kinds
+        self.wire == other.wire
+            && self.kinds == other.kinds
+            && selected_document::equal_selections(
+                &self.selected_documents,
+                &other.selected_documents,
+            )
     }
 }
 
@@ -1228,6 +1238,7 @@ impl CheckedPackageV2 {
             monitor_plan_index,
             terms,
             models,
+            selected_documents,
             lowering_facts,
             structural_keys,
         } = validate(&wire, bytes, limits, evidence)?;
@@ -1309,6 +1320,7 @@ impl CheckedPackageV2 {
             lowering_facts,
             bytes: limits.bytes,
             models,
+            selected_documents,
             direct_dependencies,
             closure_index,
         })
@@ -1438,6 +1450,7 @@ struct ValidatedPackage {
     monitor_plan_index: Vec<monitor_plan::Plan>,
     terms: Vec<CheckedTerm>,
     models: RetainedModels,
+    selected_documents: Vec<Arc<quire_canonical::Document>>,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
     structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
 }
@@ -1466,6 +1479,7 @@ fn validate(
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
         models,
+        documents,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
     let ValidatedGraph {
@@ -1516,6 +1530,7 @@ fn validate(
         monitor_plan_index,
         terms,
         models,
+        selected_documents: documents,
         lowering_facts,
         structural_keys,
     })
@@ -1525,6 +1540,7 @@ fn validate(
 /// in lock order, and each selected dependency's supplied package.
 struct LockAdmission<'a> {
     models: Vec<DomainModel>,
+    documents: Vec<Arc<quire_canonical::Document>>,
     dependencies: SuppliedDependencies<'a>,
 }
 
@@ -1631,7 +1647,7 @@ fn validate_lock<'a>(
     } else {
         checked_unit_refs(&wire.semantic_graph.nodes, meter)?
     };
-    let mut models =
+    let (mut models, documents) =
         validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
     if !models.is_empty() {
         let mut resolved = (*unit_refs).clone();
@@ -1680,6 +1696,7 @@ fn validate_lock<'a>(
     build_field_tables(&mut models, meter)?;
     Ok(LockAdmission {
         models,
+        documents,
         dependencies,
     })
 }
@@ -1822,7 +1839,7 @@ fn validate_domain_packages(
     meter: &mut WorkMeter,
     bytes: u64,
     unit_refs: &UnitRefs,
-) -> Result<Vec<DomainModel>, ValidationFailure> {
+) -> Result<(Vec<DomainModel>, Vec<Arc<quire_canonical::Document>>), ValidationFailure> {
     let row = |root: usize| node_pointer(root).key("owner");
     let at = |root: usize, member: &str| row(root).key(member);
     roots
@@ -4181,6 +4198,7 @@ mod tests {
                     kinds: Vec::new(),
                     bytes: 0,
                     models: Default::default(),
+                    selected_documents: Vec::new(),
                     direct_dependencies: Vec::new(),
                     closure_index: Default::default(),
                 };
