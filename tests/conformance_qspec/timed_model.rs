@@ -1838,6 +1838,103 @@ fn timed_model_missing_root_precedes_later_quantity_validation() {
     );
 }
 
+/// Trace: FR-038-AC-321, TC-048.
+#[trace("TC-048", "FR-038-AC-321")]
+#[test]
+fn timed_model_stage_precedence_has_independent_defect_controls() {
+    let original = published();
+    assert!(matches!(
+        read_package(&original).expect("published timed package"),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let mut timed = original.clone();
+    timed["semantic_graph"]["nodes"][45]["body"]["members"][2]["value"]["members"][0]["members"]
+        [2]["value"]["value"] = json!("ix://acme/orders/Order/absent-clock");
+    fixture_support::settle(&mut timed);
+
+    let mut protocol = original.clone();
+    protocol["semantic_graph"]["nodes"][9]["body"]["operation"]["laws"][0]["role"] =
+        json!("temporal_profile");
+    fixture_support::settle(&mut protocol);
+
+    let mut hybrid = original.clone();
+    hybrid["semantic_graph"]["nodes"][41]["body"]["members"][0]["value"]["members"][0]["members"]
+        [1]["value"]["value"] = json!("clock");
+    fixture_support::settle(&mut hybrid);
+
+    let assert_refusal = |candidate: &Value, code, cause, locus: &str| {
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package(candidate).expect("combined stage package")
+        else {
+            panic!("combined stage defect must refuse");
+        };
+        assert_eq!((refusal.code, refusal.cause), (code, cause));
+        assert_eq!(
+            refusal.loci[0].path.as_ref().expect("locus").to_string(),
+            locus
+        );
+    };
+    let timed_locus = "/semantic_graph/nodes/45/body/members/2/value/members/0";
+    assert_refusal(
+        &timed,
+        Code::InvalidPackage,
+        Some(Cause::MalformedClockPlace),
+        timed_locus,
+    );
+    assert_refusal(
+        &protocol,
+        Code::InvalidPackage,
+        Some(Cause::OperationLawMismatch),
+        "/semantic_graph/nodes/9/body/operation/laws/0/role",
+    );
+    assert_refusal(
+        &hybrid,
+        Code::InvalidPackage,
+        Some(Cause::InvalidValue),
+        "/semantic_graph/nodes/41/body/members/0/value/members/0/members/1/value/value",
+    );
+
+    let mut timed_protocol = timed.clone();
+    timed_protocol["semantic_graph"]["nodes"][9] = protocol["semantic_graph"]["nodes"][9].clone();
+    fixture_support::settle(&mut timed_protocol);
+    assert_refusal(
+        &timed_protocol,
+        Code::InvalidPackage,
+        Some(Cause::MalformedClockPlace),
+        timed_locus,
+    );
+
+    let mut hybrid_timed = timed.clone();
+    hybrid_timed["semantic_graph"]["nodes"][41] = hybrid["semantic_graph"]["nodes"][41].clone();
+    fixture_support::settle(&mut hybrid_timed);
+    assert_refusal(
+        &hybrid_timed,
+        Code::InvalidPackage,
+        Some(Cause::InvalidValue),
+        "/semantic_graph/nodes/41/body/members/0/value/members/0/members/1/value/value",
+    );
+
+    let mut malformed = hybrid_timed.clone();
+    malformed["semantic_graph"]["nodes"][45]["occurrences"] = json!("not-an-array");
+    assert_refusal(
+        &malformed,
+        Code::MalformedWire,
+        None,
+        "/semantic_graph/nodes/45/occurrences",
+    );
+
+    let mut missing_dependency = hybrid_timed;
+    missing_dependency["semantic_graph"]["nodes"][45]["dependencies"] = json!([]);
+    fixture_support::settle(&mut missing_dependency);
+    assert_refusal(
+        &missing_dependency,
+        Code::InvalidSemanticGraph,
+        None,
+        "/semantic_graph/nodes/45/dependencies",
+    );
+}
+
 #[trace("TC-048")]
 #[test]
 fn timed_model_repeated_reference_precedes_later_quantity_validation() {
