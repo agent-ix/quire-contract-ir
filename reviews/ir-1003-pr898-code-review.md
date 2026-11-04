@@ -111,3 +111,12 @@ PASS. Reviewed the content-versus-cache correction after the model-unit gate exp
 The private equal_selections helper preserves length/order checks, Arc pointer fast paths and the same borrowed iterative complete-document comparator. Derived Clone shares flat Document arenas, and final drop remains nonrecursive; no extra input parse, numeric conversion, public API, encoder, cap or logical charge was introduced. Private manually built package fixtures explicitly initialize the new semantic field, with the model fixture retaining its actual authored selected document. No new findings; both original findings remain fixed.
 
 No Cargo was run by the reviewer. The earlier full IR target passed, but its following model-unit target failed and is not an aggregate PASS. The lead owns the necessary final-head checks.
+
+## Supplemental verification (disposition pass 4)
+
+PASS. Examined only the two test-oracle corrections in tests/conformance_qspec/hybrid.rs and tests/conformance_qspec/transition.rs. No production change, skipped case, removed control or refusal-kind relaxation is present.
+
+- FR-038 protocol-pointer mapping (examined): “A node-level protocol refusal names the containing node as its primary pointer even when document_pointer names the specific offending operation or argument member.” QSpec fixtures/protocol-node-mutation-manifest.json V10 independently records invalid_package/operation-law-mismatch, the containing node locus and the law-row document_pointer. The hybrid wrong-protocol-role control now asserts both independent pointers, preserving its code/cause and the subsequent hybrid-before-protocol precedence control.
+- FR-067-AC-2 (examined): “A nested transition application refuses at the nested application, and a root application on another node refuses at that node before anchor checks.” The transition wrong-root test now asserts the expression node rather than its body; its independently wrong anchor, ill_typed/operator-ineligible assertions and early-placement condition are unchanged.
+
+Both corrections are grounded in existing owner text and the published pointer oracle rather than in the implementation's actual output. No new findings; all prior fixed findings remain fixed. No Cargo was run by the reviewer. The earlier QSpec full-target failure is not a PASS; the lead owns the final-head gates.
