@@ -179,6 +179,33 @@ If any field lacks a unique witnessed identity or representable complete type,
 the entire projection SHALL return a typed refusal without a partial record
 view. The view SHALL neither infer fields from expression reads nor substitute
 display names for member identities.
+For a selected record field, Contract IR SHALL project the complete
+admission-retained member type into the corresponding Exact `ValueType`.
+`Collection<Integer>` SHALL retain its admitted sequence, set, bag or ordered-set
+kind, integer element and exact cardinality bound, including the distinction
+between no bound and an admitted `[0,3]` bound. A collection element that is
+`Option<Integer>` SHALL remain `Option<Integer>` inside the Exact collection;
+an `Option` nested inside another member type SHALL remain an Exact `Option`.
+When the admitted field is optional, the view SHALL consume exactly the one
+outer `Option` that represents field presence and report `Presence::Optional`;
+it SHALL preserve any further nested `Option` and collection layers in the
+field's Exact `ValueType`. A required field SHALL retain
+`Presence::Required`. The projection SHALL NOT discard a wrapper, flatten a
+collection, change its kind or bounds, or treat an admitted complete member
+type as unsupported merely because it contains an `Option` or collection.
+
+The projection SHALL inspect nested member types with bounded iterative work,
+charging each inspected wrapper, element and referenced declaration before
+using it. A cyclic nominal record reference SHALL retain its witnessed Exact
+`NodeKey` without recursively expanding the record's fields at that reference.
+The caller's finite work allowance SHALL bound both successful projection and
+the first exhausted member; nesting depth SHALL NOT grow the host call stack.
+An unavailable or conflicting opaque identity for a nested referenced record,
+tuple, object or unit SHALL retain the corresponding native typed witness
+refusal and first failing referenced declaration. An unrepresentable nested
+leaf SHALL retain `UnsupportedExactType` and its form. Either refusal SHALL
+expose no partial record view. This read uses the admitted selected field and
+type facts and introduces no new checked-package wire member or source recheck.
 A selected `model/object_type` SHALL contribute its witnessed
 `EffectiveId` as object-type identity for a `composite_type/reference` whose
 admitted target is that exact object type; the reference SHALL map to
@@ -233,6 +260,10 @@ AC-6 and AC-11; this projection alone does not satisfy those criteria.
 | FR-352-AC-9 | A QSL-side selected-model identity producer supplies `SelectedExactIdentities` alongside a checked package; an external caller passes it to the public projection API. The IR join accepts identities only for matching admitted selected-document, declaration form and original IR declaration or field identities. Absent, conflicting, foreign-document and wrong-form entries return the named typed outcome; a caller-supplied bare `NodeKey`, `EffectiveId`, `MemberId`, or node-name pair cannot enter the projection as an authoritative witness. | Test, Inspection |
 | FR-352-AC-10 | A QSL-stage `SelectedOperationMemberRow` for an admitted model-owned operation anchor joins its full structural node, selected document, declaring model form and original model/operation member identities to the selected operation identity; the FR-354 callable read uses the joined row to find the admitted body and frame. Two admitted anchors of one operation at distinct execution points remain distinct rows. A missing row, wrong document/form/member, foreign anchor, duplicate conflicting row, or name-only match returns a named typed outcome without a callable view. A source-declared anchor with no selected model member returns typed unavailable-witness rather than accepting a same-name model-member row; no new QSpec wire member or invented Exact operation key is used. | Test, Inspection |
 | FR-352-AC-11 | QSL checking/emission supplies one original application `NodeKey` and authored `Location` per emitted equality application occurrence, and original dimension-declaration, base-dimension-term and ordered conversion-edge-target `NodeKey`s for every selected quantity fact. Each row carries a full emitted structural node, selected producer document/context and its fact role; application rows also carry exact occurrence. The FR-353 join refuses absent, foreign, wrong-form, duplicate, conflicting or mismatched rows with a typed structural locus and bounded work. Neither `CheckedNodeId`, display name nor the general FR-352 type projection produces a missing key. QSV privately unwraps the already witnessed `UnitId` for a declared key or compound root terms and obtains a declared root from the retained path, without checking or minting identity in IR. No row is added to QSpec V2 wire. | Test, Inspection |
+| FR-352-AC-12 | PLANNED/UNRUN (IR-1324). For an admitted selected record with a plain `Collection<Integer>` member, the public record view returns a witnessed Exact `MemberId`, the original IR field identity and `Presence::Required`, and an Exact collection whose kind, integer element and cardinality bound equal the admitted member. Distinct sequence, set, bag and ordered-set kinds remain distinct, as do unbounded and `[0,3]` cardinality. The complete view can be formed from checked-package bytes and selected producer rows without a source recheck. | Test |
+| FR-352-AC-13 | PLANNED/UNRUN (IR-1324). An admitted selected record containing `Collection<Option<Integer>>` returns an Exact collection with the admitted kind and bound and an Exact `Option<Integer>` element. An optional field with a collection or another nested `Option` reports `Presence::Optional` after consuming exactly its outer presence layer and retains all inner wrappers in its Exact value type. The already supported optional `Option<String>` field still reports `Presence::Optional` and Exact `String`. | Test |
+| FR-352-AC-14 | PLANNED/UNRUN (IR-1324). A nested member reference to a witnessed record in a selected cyclic nominal graph retains `Composite` with that record's original Exact `NodeKey` and terminates without expanding the cycle. A missing, foreign, conflicting or wrong-form nested identity refuses with its native typed cause and first referenced declaration; an unrepresentable nested leaf refuses as `UnsupportedExactType`. Neither refusal exposes a partial record view. | Test |
+| FR-352-AC-15 | PLANNED/UNRUN (IR-1324). A selected record with deeply nested admitted Option and Collection members projects using bounded iterative work and a small host stack. At the exact work allowance it returns the complete view; one less refuses with typed work exhaustion, charged work and first uncharged member locus. Equal admitted inputs and allowances, including a package clone, return equal views or equal first stops. | Test |
 
 ## Dependencies
 
