@@ -55,6 +55,7 @@ mod runtime_type_projection;
 mod rust_spelling;
 mod scalar_operands;
 mod schedulability;
+mod selected_facts;
 mod state;
 mod step_relation;
 mod structural;
@@ -117,6 +118,10 @@ pub use model_fields::{
 };
 pub use monitor_plan::{CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef};
 pub use protocol_locations::CheckedProtocolLocationReadError;
+pub use selected_facts::{
+    SelectedFactEquality, SelectedFactEqualityId, SelectedFactField, SelectedFactFieldId,
+    SelectedFactIds, SelectedFactRows, SelectedFacts, SelectedFactsError, SelectedFactsErrorCode,
+};
 mod exact_projection;
 pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,

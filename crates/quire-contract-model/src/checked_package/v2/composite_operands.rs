@@ -1541,7 +1541,7 @@ mod tests {
         wire
     }
 
-    /// Trace: FR-353-AC-7.
+    /// Trace: FR-353-AC-7, FR-357-AC-6.
     #[test]
     fn bounded_text_equality_names_missing_text_identity() {
         use quire_exact::{Location, NodeKey, Origin, PathSegment, Role};
@@ -1574,7 +1574,14 @@ mod tests {
             Location::new(original, Origin::new(Role::from("expression"), 0)),
         );
         let missing = package
-            .admitted_equality(&application, &occurrence, &[row], &[], &[], 1000)
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                &[],
+                1000,
+            )
             .expect_err("Text identity row remains required");
         assert_eq!(
             missing.code,
@@ -1591,9 +1598,36 @@ mod tests {
             )
             .expect("Text node")
         );
+        let selected = super::super::SelectedFactEqualityId {
+            application: application.clone(),
+            occurrence: occurrence.clone(),
+        };
+        let selected_error = package
+            .project_selected_facts(
+                super::super::SelectedFactIds {
+                    declarations: &[],
+                    fields: &[],
+                    equalities: std::slice::from_ref(&selected),
+                },
+                super::super::SelectedFactRows {
+                    declarations: &[],
+                    fields: &[],
+                    source_units: &[],
+                    equality_applications: &[row],
+                    equality_facts: &[],
+                },
+                100_000,
+            )
+            .expect_err("selected-fact read preserves the native Text witness refusal");
+        assert_eq!(
+            selected_error.code,
+            super::super::SelectedFactsErrorCode::Equality
+        );
+        assert_eq!(selected_error.at, missing.at);
+        assert_eq!(selected_error.equality.as_deref(), Some(&missing));
     }
 
-    /// Trace: FR-353-AC-1, FR-353-AC-7.
+    /// Trace: FR-353-AC-1, FR-353-AC-7, FR-357-AC-5, FR-357-AC-6, FR-357-AC-7.
     /// Provenance: IR-1209 QSL per-fact Text type rows.
     #[test]
     fn bounded_text_equality_reads_joined_type_rows() {
@@ -1679,7 +1713,58 @@ mod tests {
         assert!(matches!(admitted.left().source(), ValueType::Text(_)));
         assert_eq!(admitted.left().source(), admitted.right().source());
 
+        let selected = super::super::SelectedFactEqualityId {
+            application: application.clone(),
+            occurrence: occurrence.clone(),
+        };
+        let selected_read = |fact_rows: &[super::super::SelectedEqualityFactRow]| {
+            package.project_selected_facts(
+                super::super::SelectedFactIds {
+                    declarations: &[],
+                    fields: &[],
+                    equalities: std::slice::from_ref(&selected),
+                },
+                super::super::SelectedFactRows {
+                    declarations: &[],
+                    fields: &[],
+                    source_units: &[],
+                    equality_applications: std::slice::from_ref(&application_row),
+                    equality_facts: fact_rows,
+                },
+                100_000,
+            )
+        };
+        let complete = selected_read(&facts).expect("selected Text facts join");
+        assert_eq!(complete.equalities.len(), 1);
+        assert_eq!(complete.equalities[0].decision, admitted);
+        let mut oversized_facts = facts.clone();
+        oversized_facts[0].structural_key = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("x".repeat(1_000_000))],
+            0,
+        )
+        .unwrap();
+        let denied =
+            selected_read(&oversized_facts).expect_err("fact material is charged before copying");
+        assert_eq!(
+            denied.code,
+            super::super::SelectedFactsErrorCode::ExhaustedWork
+        );
+        assert_eq!(denied.at.as_ref(), &type_id);
+        assert!(denied.attempted_work > 0);
+
         facts.push(facts[0].clone());
+        let duplicate_selected =
+            selected_read(&facts).expect_err("selected duplicate fact refuses");
+        assert_eq!(
+            duplicate_selected.code,
+            super::super::SelectedFactsErrorCode::Equality
+        );
+        assert_eq!(
+            duplicate_selected.equality.as_ref().unwrap().code,
+            super::super::AdmittedEqualityReadErrorCode::DuplicateEqualityWitness
+        );
+        assert_eq!(duplicate_selected.at.as_ref(), &type_id);
         let duplicate = package
             .admitted_equality(
                 &application,
@@ -2931,6 +3016,159 @@ mod tests {
                 .expect_err("application without producer decision refuses")
                 .code,
             super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityDecision
+        );
+    }
+
+    /// Trace: FR-357-AC-5, FR-357-AC-6, FR-357-AC-7.
+    #[test]
+    fn selected_facts_keep_opaque_equality_and_native_refusal() {
+        use quire_exact::{Location, NodeKey, Origin, PathSegment, Role};
+
+        let wire = boolean_equality_wire();
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).unwrap(),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("equality fixture must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("selected-equality".into())],
+            0,
+        )
+        .unwrap();
+        let row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).unwrap(),
+            original.clone(),
+            Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
+        );
+        let id = super::super::SelectedFactEqualityId {
+            application: application.clone(),
+            occurrence: occurrence.clone(),
+        };
+        let ids = || super::super::SelectedFactIds {
+            declarations: &[],
+            fields: &[],
+            equalities: std::slice::from_ref(&id),
+        };
+        let rows = |application_rows| super::super::SelectedFactRows {
+            declarations: &[],
+            fields: &[],
+            source_units: &[],
+            equality_applications: application_rows,
+            equality_facts: &[],
+        };
+        let application_rows = [row.clone()];
+        let complete = package
+            .project_selected_facts(ids(), rows(&application_rows), 100_000)
+            .unwrap();
+        assert!(complete.declarations.is_empty());
+        assert!(complete.fields.is_empty());
+        assert_eq!(complete.equalities.len(), 1);
+        assert_eq!(complete.equalities[0].id, id);
+        assert_eq!(complete.equalities[0].decision.application(), &original);
+        assert_eq!(
+            package
+                .clone()
+                .project_selected_facts(ids(), rows(&application_rows), complete.work),
+            Ok(complete.clone()),
+        );
+        let short = package
+            .project_selected_facts(ids(), rows(&application_rows), complete.work - 1)
+            .expect_err("one below complete allowance refuses");
+        assert_eq!(short.code, super::super::SelectedFactsErrorCode::Equality);
+        assert_eq!(
+            short.equality.as_ref().unwrap().code,
+            super::super::AdmittedEqualityReadErrorCode::WorkLimit
+        );
+        assert_eq!(short.occurrence, Some(occurrence));
+        let missing = package
+            .project_selected_facts(ids(), rows(&[]), 100_000)
+            .unwrap_err();
+        assert_eq!(
+            missing.code,
+            super::super::SelectedFactsErrorCode::MissingRow
+        );
+        let mut wrong_location = row.clone();
+        wrong_location.location = Location::new(
+            NodeKey::new("other", vec![PathSegment::Text("wrong".into())], 0).unwrap(),
+            Origin::new(Role::from("expression"), 0),
+        );
+        let mismatched_rows = [wrong_location];
+        let mismatch = package
+            .project_selected_facts(ids(), rows(&mismatched_rows), 100_000)
+            .unwrap_err();
+        assert_eq!(
+            mismatch.code,
+            super::super::SelectedFactsErrorCode::Equality
+        );
+        assert_eq!(
+            mismatch.equality.as_ref().unwrap().code,
+            super::super::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness
+        );
+        let mut unrelated = row.clone();
+        unrelated.application = self::id('1');
+        let more_rows = [unrelated, row.clone()];
+        let more = package
+            .project_selected_facts(ids(), rows(&more_rows), 100_000)
+            .unwrap();
+        assert_eq!(more.equalities, complete.equalities);
+        assert!(more.work > complete.work);
+        let duplicate_rows = [row.clone(), row];
+        let duplicate = package
+            .project_selected_facts(ids(), rows(&duplicate_rows), 100_000)
+            .unwrap_err();
+        assert_eq!(
+            duplicate.code,
+            super::super::SelectedFactsErrorCode::DuplicateRow
+        );
+        let mut foreign = id.clone();
+        foreign.application.package = "foreign".into();
+        let foreign_error = package
+            .project_selected_facts(
+                super::super::SelectedFactIds {
+                    declarations: &[],
+                    fields: &[],
+                    equalities: &[foreign.clone()],
+                },
+                rows(&application_rows),
+                100_000,
+            )
+            .unwrap_err();
+        assert_eq!(
+            foreign_error.code,
+            super::super::SelectedFactsErrorCode::ForeignNode
+        );
+        assert_eq!(foreign_error.at.as_ref(), &foreign.application);
+        let mut wrong_occurrence = id.clone();
+        wrong_occurrence.occurrence.ordinal = 1;
+        let wrong_occurrence_error = package
+            .project_selected_facts(
+                super::super::SelectedFactIds {
+                    declarations: &[],
+                    fields: &[],
+                    equalities: &[wrong_occurrence],
+                },
+                rows(&application_rows),
+                100_000,
+            )
+            .unwrap_err();
+        assert_eq!(
+            wrong_occurrence_error.code,
+            super::super::SelectedFactsErrorCode::Equality
+        );
+        assert_eq!(
+            wrong_occurrence_error.equality.as_ref().unwrap().code,
+            super::super::AdmittedEqualityReadErrorCode::WrongOccurrence
         );
     }
 
