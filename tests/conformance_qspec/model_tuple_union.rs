@@ -10,7 +10,7 @@ use quire_contract_model::{
     CheckedNodeKind, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
     CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedVariantPayloadType,
+    CheckedTerm, CheckedVariantPayloadType,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -1904,5 +1904,68 @@ fn published_recursive_tuple_union_declarations_keep_finite_structural_identity(
     assert_eq!(
         equality["body"]["operation"]["leaves"],
         leaf_control["expected"]["leaves"]
+    );
+    let equality_id: CheckedNodeId =
+        serde_json::from_value(equality["node_id"].clone()).expect("recursive equality identity");
+    let Some(CheckedTerm::Application { operation, .. }) = admitted.term(&equality_id) else {
+        panic!("retained recursive application")
+    };
+    let operation = operation.read().expect("reader admitted operation view");
+    assert_eq!(operation.identity, "quire.op.structural.eq");
+    assert!(
+        operation.leaves.is_empty(),
+        "published recursive no-text leaf walk terminates"
+    );
+
+    // TQ-05's selected Pair equality complements the published Shape, List
+    // and Color applications. Give it independent operands so the published
+    // recursive and union payload controls retain their original types.
+    let (_, pair) = tuple_node(&package, "ix://acme/shapes/Pair");
+    let mut tuple_equality = package.clone();
+    let nodes = tuple_equality["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let parameter = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "parameter")
+        .expect("parameter template")
+        .clone();
+    let mut arguments = Vec::new();
+    for name in ["tuple-equality-left", "tuple-equality-right"] {
+        let mut operand = parameter.clone();
+        let key = super::fixture_support::structural_id(
+            "example",
+            vec![json!("value"), json!("parameter"), json!(name)],
+            0,
+        );
+        operand["node_id"] = key.clone();
+        operand["semantic_type"] = serde_json::to_value(&pair).expect("Pair identity");
+        nodes.push(operand);
+        arguments.push(json!({"term":"reference", "target":key}));
+    }
+    let mut application = equality.clone();
+    let application_key = super::fixture_support::structural_id(
+        "example",
+        vec![
+            json!("expression"),
+            json!("binary"),
+            json!("tuple-equality"),
+        ],
+        0,
+    );
+    application["node_id"] = application_key.clone();
+    application["body"]["arguments"] = json!(arguments);
+    nodes.push(application);
+    super::fixture_support::settle(&mut tuple_equality);
+    let admitted = read_selected_variant_package(&tuple_equality, &document);
+    let application_key = serde_json::from_value(application_key).expect("application identity");
+    let Some(CheckedTerm::Application { operation, .. }) = admitted.term(&application_key) else {
+        panic!("retained Pair equality")
+    };
+    let operation = operation.read().expect("admitted tuple operation");
+    assert_eq!(operation.identity, "quire.op.structural.eq");
+    assert!(
+        operation.leaves.is_empty(),
+        "Pair has no reachable text leaves"
     );
 }
