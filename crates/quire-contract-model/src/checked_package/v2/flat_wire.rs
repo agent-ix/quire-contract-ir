@@ -275,7 +275,7 @@ pub(super) fn check(
                                         node.node_id.clone(),
                                     ));
                                 }
-                                super::protocol_body::ProtocolLayoutWireDefect::EnumValue { .. } => {
+                                super::protocol_body::ProtocolLayoutWireDefect::EnumValue => {
                                     crate::checked_package::common::node_pointer(position)
                                 }
                             };
