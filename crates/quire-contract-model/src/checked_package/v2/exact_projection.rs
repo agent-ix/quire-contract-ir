@@ -3,15 +3,15 @@
 
 use super::extension::integer_range_bounds;
 use super::model_members::DeclarationForm;
-use super::model_members::MemberType;
+use super::model_members::{CollectionKind as CheckedCollectionKind, MemberType};
 use super::structural::reference_type_target_typed;
 use super::{
     BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
     CompositeTypeForm, ModelForm, ScalarTypeForm,
 };
 use quire_exact::{
-    EffectiveId, FieldDeclaration, Integer, IntegerInterval, MemberId, MemberOwner, NodeKey,
-    Presence, UnitId, ValueType,
+    CardinalityBound, CollectionKind, CollectionType, EffectiveId, FieldDeclaration, Integer,
+    IntegerInterval, MemberId, MemberOwner, NodeKey, Presence, UnitId, ValueType,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -856,6 +856,98 @@ pub(super) fn project_record_field_type(
     }
 }
 
+enum FieldWrapper {
+    Option,
+    Collection(CheckedCollectionKind, Option<(u64, u64)>),
+}
+
+fn project_wrapped_record_field_type(
+    package: &CheckedPackageV2,
+    identities: &SelectedExactIdentities,
+    requested: &CheckedNodeId,
+    record: &CheckedNodeId,
+    member_type: &MemberType,
+    work: &mut u64,
+    work_limit: u64,
+) -> Result<ValueType, ExactTypeProjectionError> {
+    let mut wrappers = Vec::new();
+    let mut leaf = member_type;
+    loop {
+        match leaf {
+            MemberType::Option(inner) => {
+                charge_work(requested, record, "record_field_option", work, work_limit)?;
+                wrappers.push(FieldWrapper::Option);
+                leaf = inner;
+            }
+            MemberType::Collection {
+                kind,
+                element,
+                bounds,
+            } => {
+                charge_work(
+                    requested,
+                    record,
+                    "record_field_collection",
+                    work,
+                    work_limit,
+                )?;
+                wrappers.push(FieldWrapper::Collection(*kind, *bounds));
+                leaf = element;
+            }
+            _ => break,
+        }
+    }
+    if let MemberType::Reference(target)
+    | MemberType::Record(target)
+    | MemberType::Quantity(target) = leaf
+    {
+        charge_work(requested, target, "record_field_target", work, work_limit)?;
+    }
+    let mut value =
+        project_record_field_type(package, identities, leaf).map_err(|(code, target)| {
+            let mut error = ExactTypeProjectionError {
+                code,
+                requested: Box::new(requested.clone()),
+                at: Some(Box::new(record.clone())),
+                form: "model/record_value_type".into(),
+                work: *work,
+            };
+            if let Some(target) = target {
+                error.form = package.node(&target).map_or_else(
+                    || "unresolved_selected_declaration".into(),
+                    |node| format!("{}/{}", node.node_tag, node.semantic_form).into(),
+                );
+                error.at = Some(Box::new(target));
+            }
+            error
+        })?;
+    for wrapper in wrappers.into_iter().rev() {
+        value = match wrapper {
+            FieldWrapper::Option => ValueType::option(value),
+            FieldWrapper::Collection(kind, bounds) => {
+                let kind = match kind {
+                    CheckedCollectionKind::Sequence => CollectionKind::Sequence,
+                    CheckedCollectionKind::Set => CollectionKind::Set,
+                    CheckedCollectionKind::Bag => CollectionKind::Bag,
+                    CheckedCollectionKind::OrderedSet => CollectionKind::OrderedSet,
+                };
+                let bound = bounds
+                    .map(|(lower, upper)| CardinalityBound::new(lower, upper))
+                    .transpose()
+                    .map_err(|_| ExactTypeProjectionError {
+                        code: ExactTypeProjectionErrorCode::UnsupportedExactType,
+                        requested: Box::new(requested.clone()),
+                        at: Some(Box::new(record.clone())),
+                        form: "record_field_collection".into(),
+                        work: *work,
+                    })?;
+                ValueType::collection(CollectionType::new(kind, value, bound))
+            }
+        };
+    }
+    Ok(value)
+}
+
 impl CheckedPackageV2 {
     /// Read one admitted node's semantic type without reparsing its source.
     ///
@@ -1044,32 +1136,15 @@ impl CheckedPackageV2 {
                     } else {
                         member_type
                     };
-                    if let MemberType::Reference(target)
-                    | MemberType::Record(target)
-                    | MemberType::Quantity(target) = member_type
-                    {
-                        charge_work(
-                            requested,
-                            target,
-                            "record_field_target",
-                            &mut work,
-                            work_limit,
-                        )?;
-                    }
-                    let value_type = project_record_field_type(self, identities, member_type)
-                        .map_err(|(code, target)| {
-                            let mut error = refuse(code, work);
-                            if let Some(target) = target {
-                                error.form = self.node(&target).map_or_else(
-                                    || "unresolved_selected_declaration".into(),
-                                    |node| {
-                                        format!("{}/{}", node.node_tag, node.semantic_form).into()
-                                    },
-                                );
-                                error.at = Some(Box::new(target));
-                            }
-                            error
-                        })?;
+                    let value_type = project_wrapped_record_field_type(
+                        self,
+                        identities,
+                        requested,
+                        type_id,
+                        member_type,
+                        &mut work,
+                        work_limit,
+                    )?;
                     projected_fields.push(SelectedRecordFieldView {
                         ir_identity: field.identity.into(),
                         name: field.name.into(),
