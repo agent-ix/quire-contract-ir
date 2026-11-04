@@ -20,9 +20,14 @@ relationships:
 
 ## Description
 
-Planned until IR-721 implements this read and QSL retains the required
-same-acquisition producer witnesses. When a consumer prepares one independently
-selected, admitted monitor root, Contract IR SHALL expose the complete ordinary
+The complete closure remains planned until IR-721 implements it and QSL-1631
+supplies the remaining source-owned enum, collection and union witnesses.
+Merged QSL-1463 retains final-emission model declaration/field, source-unit
+and equality producer/fact rows. A separately testable first IR-721 slice SHALL
+read an explicitly selected, bounded set of witnessed model declaration/field
+and equality facts, as specified below. It does not traverse a monitor root.
+When a consumer prepares one independently selected, admitted monitor root,
+Contract IR SHALL expose the complete ordinary
 type and declaration closure needed to form the canonical semantic-value
 `TypeEnvironment` for that root's four entry bodies. The read SHALL preserve
 admitted facts and original producer identities; it SHALL make no new semantic
@@ -41,6 +46,21 @@ occurrences. A caller-created name, structural key or Exact key alone SHALL NOT
 establish producer authority. This requirement defines no new QSL witness
 carrier.
 
+For the first selected-fact read, the caller SHALL supply an admitted package;
+an explicit finite selection of full admitted model declaration node IDs,
+record-node/original-field identities and equality application node/occurrence
+pairs; `SelectedExactDeclarationRow`, `SelectedExactFieldRow` and
+`SelectedSourceUnitRow` slices from one final QSL emission; same-emission
+equality application and fact witnesses; and a finite work allowance. The
+caller SHALL translate QSL's `EqualityProducerEmissionRow` and
+`EqualityFactWitnessRow` into IR's `SelectedEqualityApplicationRow` and
+`SelectedEqualityFactRow` without altering identity, occurrence, source map,
+owner, fact role or order. IR SHALL accept these IR-owned row types and SHALL
+NOT depend on QSL or assume caller construction authenticates Exact payloads.
+The caller SHALL keep all rows tied to the same final emission; IR SHALL check
+their admitted structural correspondences. The selected IDs SHALL NOT assert
+entry reachability or producer authority by themselves.
+
 ## Outputs
 
 A read-only, complete selected closure of admitted type/declaration facts and
@@ -51,6 +71,11 @@ environment, an IR-owned environment or a second executable plan. Runtime
 `ProgramParts` and its `TypeEnvironment` remain owned by RT and semantic-value;
 IR does not depend on RT. A refused projection supplies no material from which
 the driver may publish a partial owner.
+
+The first selected-fact read SHALL return a complete view of only the
+explicitly selected, representable witnessed model and equality facts, or a
+typed refusal. That view SHALL NOT certify that any monitor root, entry body
+or generated-source declaration closure is complete.
 
 ## Behavior
 
@@ -90,6 +115,57 @@ this selected generated-source closure. Implementations may reuse its admitted
 joins, but SHALL expose the complete selected result through one bounded read
 without a second plan, evaluator, type vocabulary or QSL source recheck.
 
+### First bounded selected-fact read
+
+IR SHALL expose a separate public, read-only bounded projection for the
+explicitly selected model declaration nodes, record fields and equality
+application/occurrence pairs in one admitted package. It SHALL verify each
+selected ID against that package and preserve the selected document, final
+structural node, admitted form and original declaration or field identity.
+For a selected record field it SHALL preserve the declaring record,
+QSL-issued `MemberId`, producer order, presence and admitted field type.
+Repeated selected IDs SHALL produce one item. The read SHALL inspect only the selected facts and the
+admitted facts needed to validate them; it SHALL NOT traverse the selected
+monitor root, its four entry signatures or bodies, or infer a reachable
+declaration closure. QSL's current generated PlanRoot reaches source-owned
+record, collection, tuple and union forms without the remaining QSL-1631
+witnesses, so this read SHALL NOT report that root's closure as complete or
+construct a `TypeEnvironment`.
+
+For each selected model declaration and field, IR SHALL join the supplied row
+against the selected admitted document, full final structural node, admitted
+form and original declaration or field identity. For each selected equality,
+IR SHALL join its application row by full final application node and exact
+occurrence, then each required fact row by selected source-map correspondence,
+structural node and key, owner where present, fact role and the admitted
+decision's referenced type, unit or enum fact. It SHALL use the FR-353
+admitted equality read and preserve its opaque decision or native typed
+refusal, passing the remaining caller allowance to that read and charging its
+reported work within the same limit. IR SHALL NOT derive an Exact identity or equality schedule from a
+name, node index, structural key, operand type or missing row. IR's joins
+cannot authenticate a caller-supplied opaque Exact value; the caller remains
+responsible for supplying the final QSL emission's rows.
+
+The selected-fact result SHALL contain only complete selected, representable
+witnessed items. An unsupported graph form or absent witness outside the
+explicit selection SHALL NOT refuse it. A selected unsupported form, missing,
+foreign, duplicate, conflicting or stale-after-rewrite row, unresolved
+selected dependency, unrepresentable selected type or underlying FR-353
+refusal SHALL return a named typed outcome at the first failing native node,
+occurrence or member, with the native cause and no partial authoritative
+view. IR SHALL charge each selected ID, inspected admitted fact, identity and
+mapped value before use. It MAY locate selected witnesses by indexing or
+searching the supplied full-emission row slices, but SHALL charge every
+inspected row and index entry, including unrelated rows, under the same
+caller allowance before use. It SHALL NOT scan unrelated graph nodes to
+discover selected facts. Exhaustion SHALL name attempted work and the first
+uncharged row or graph locus. Equal admitted inputs, rows and
+allowance SHALL produce equal results or equal first stops. The public API
+SHALL remain in IR's cycle-free model, take no QSL or RT type, and return no
+RT `ProgramParts` or IR-owned environment. The driver owns later canonical
+`TypeEnvironment` assembly and `ProgramParts` construction; the selected-fact
+result alone SHALL NOT authorize either construction.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -98,6 +174,11 @@ without a second plan, evaluator, type vocabulary or QSL source recheck.
 | FR-357-AC-2 | PLANNED/UNRUN (IR-721 and QSL same-acquisition witness retention). A missing, foreign, duplicate, conflicting or stale-after-rewrite producer row, unresolved reachable declaration, unrepresentable type or native nominal/Exact refusal returns its typed cause and first locus, with no partial view or invented identity. | Test |
 | FR-357-AC-3 | PLANNED/UNRUN (IR-721). A large selected closure amid unrelated graph nodes and unsupported declarations visits only its reachable nodes/edges and charged identity/value material using an iterative worklist. Equal inputs and allowances give equal complete results or first work stops; one below the required work refuses without a partial view. | Test |
 | FR-357-AC-4 | PLANNED/UNRUN (IR-721). Public API and dependency inspection finds a bounded IR projection over admitted package facts and original QSL witnesses; it finds no IR-owned `TypeEnvironment`, second plan/evaluator, RT dependency, source reparse or witness fabrication. | Inspection |
+| FR-357-AC-5 | PLANNED/UNRUN (IR-721 selected facts; IR-owned fixture). Given an admitted package, explicit IDs for one selected model declaration, its selected record field and one equality application/occurrence, and matching IR-owned same-emission rows, the public bounded read returns exactly those complete facts. It preserves selected document, final structural node, original identities, field order/presence/type, exact equality occurrence and opaque FR-353 decision. No monitor-entry traversal or generated-source closure is claimed. | Test |
+| FR-357-AC-6 | PLANNED/UNRUN (IR-721 selected facts). A missing, foreign, duplicate, conflicting or pre-rewrite selected declaration, field, equality application or fact row; wrong document, form, owner, role, occurrence or source-map correspondence; selected unsupported form or unrepresentable type; and native FR-353 refusal each produce a named typed outcome with first native locus and no partial view or invented identity. An unrelated unsupported graph form or absent witness outside the explicit selection leaves the same successful result. Duplicate selected IDs produce one item. | Test |
+| FR-357-AC-7 | PLANNED/UNRUN (IR-721 selected facts). The bounded read inspects the explicitly selected admitted facts without traversing monitor entries or scanning unrelated graph nodes. Locating selected witnesses in full-emission row slices charges every inspected row and index entry, including unrelated rows; adding unrelated rows either raises required work or causes a charged first-row-locus stop at the former allowance. The exact allowance succeeds and one less refuses with attempted work and first uncharged locus. Equal inputs and allowance, including a package clone, yield equal results or first stops. | Test |
+| FR-357-AC-8 | PLANNED/UNRUN (IR-721 selected facts). Public API and dependency inspection shows the read takes an admitted package, explicit selected model declaration/field IDs and equality application/occurrence pairs, IR-owned row slices and a work allowance, performs no QSL/RT dependency or source recheck, and returns neither an IR environment nor `ProgramParts`. A caller adapts QSL-owned equality emission rows without changing their values; IR checks admitted joins but does not claim to authenticate arbitrary caller-created Exact payloads. | Inspection |
+| FR-357-AC-9 | PLANNED/UNRUN (cross-repo `quire-integration` test after the IR selected-fact API lands). A `quire-integration` test obtains a real final `PlanRoot.emission` through QSL, selects admitted IDs from its available model declaration/field rows and one equality application/occurrence pair, translates QSL equality rows without changing their values, and exercises the public IR selected-fact read on those explicit IDs. It verifies successful joins for representable selected model facts and an opaque FR-353 equality decision or its native typed missing-witness result for the selected equality. It does not traverse four monitor entries or claim a complete generated-source closure, `TypeEnvironment` or RT `ProgramParts`, and it adds no QSL dependency to IR. | Test |
 
 ## Dependencies
 
@@ -109,10 +190,14 @@ without a second plan, evaluator, type vocabulary or QSL source recheck.
   selected model declaration and nominal joins. Its whole-graph
   `project_selected_type_declarations` output is insufficient for generated
   source closure and remains an independent read.
-- QSL FR-251 owns generation of the ordinary entry bodies. Its current
-  `emit_plan_root` result does not retain all final same-acquisition equality
-  and source-unit witness rows. QSL must retain those rows for IR's joins;
-  their shape and carrier remain QSL-owned.
+- QSL FR-251 owns generation of the ordinary entry bodies. Merged QSL-1463
+  retains final `emit_plan_root` model declaration/field, source-unit and
+  equality producer/fact rows. QSL-1631 remains pending for source-owned enum,
+  collection and union witnesses required by AC-1 through AC-4. The first
+  selected-fact read uses only currently retained explicitly selected rows and
+  does not satisfy those complete-closure criteria. `quire-integration` owns
+  AC-9's real-emission QSL-to-IR integration test after the IR selected-fact
+  API lands; IR owns AC-5's explicitly selected fixture.
 - RT FR-276 and its `ProgramParts` own the final immutable executable program.
-  The driver consumes this IR projection to construct the canonical
+  The driver consumes the future complete-closure IR projection to construct the canonical
   semantic-value `TypeEnvironment` passed to RT.
