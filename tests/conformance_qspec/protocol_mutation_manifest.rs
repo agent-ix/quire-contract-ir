@@ -109,3 +109,74 @@ fn qspec_protocol_mutation_v13_refuses_wrong_result_type() {
 fn qspec_protocol_mutation_v14_refuses_state_clause_protocol_member() {
     assert_manifest_refusal("V14", "/semantic_graph/nodes/54", 54);
 }
+
+#[test]
+#[trace("TC-946")]
+fn scratch_qspec_protocol_layout_v12_reader_locus() {
+    let fixtures = fixtures_dir();
+    let layout = read_json(&fixtures.join("protocol-node-layout-rows.json"))
+        .expect("current QSpec protocol layout rows");
+    let rows = layout["rows"].as_array().expect("layout rows");
+    let selected: Vec<_> = rows.iter().filter(|row| row["id"] == "V12").collect();
+    assert_eq!(selected.len(), 1, "one published V12 row");
+    let row = selected[0];
+    assert_eq!(row["expect"]["code"], "malformed_wire");
+    assert_eq!(row["expect"]["cause"], Value::Null);
+    assert_eq!(row["expect"]["locus"], "/semantic_graph/nodes/64");
+
+    let manifest = read_json(&fixtures.join("protocol-node-mutation-manifest.json"))
+        .expect("QSpec protocol mutation manifest");
+    assert_eq!(row["base"], manifest["base"]["fixture"]);
+    let base = read_json(&fixtures.join(row["base"].as_str().expect("base filename")))
+        .expect("QSpec protocol base");
+    let document = fixtures.join(
+        manifest["base"]["domain_document"]
+            .as_str()
+            .expect("selected domain document"),
+    );
+    let base_result = read(&base, &document);
+    assert!(
+        matches!(base_result, CheckedPackageV2ReadResult::Admitted(_)),
+        "V12 base must admit: {base_result:?}"
+    );
+
+    let mut mutated = base;
+    let edits = row["edit"].as_array().expect("V12 edits");
+    assert_eq!(edits.len(), 1, "one V12 edit");
+    let edit = &edits[0];
+    assert_eq!(edit["op"], "add");
+    let path = edit["path"].as_str().expect("add path");
+    let parent = path.strip_suffix("/-").expect("append to laws array");
+    mutated
+        .pointer_mut(parent)
+        .expect("published V12 laws pointer")
+        .as_array_mut()
+        .expect("laws array")
+        .push(edit["value"].clone());
+    assert_eq!(
+        mutated["semantic_graph"]["nodes"][64]["body"]["operation"]["laws"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let result = read(&mutated, &document);
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("V12 should refuse: {result:?}");
+    };
+    let actual_code = serde_json::to_value(refusal.code).expect("code value");
+    let actual_cause = serde_json::to_value(refusal.cause).expect("cause value");
+    let actual_path = refusal.loci[0]
+        .path
+        .as_ref()
+        .expect("primary path")
+        .as_str();
+    println!(
+        "QSpec V12 expected code={} cause={} path={}",
+        row["expect"]["code"], row["expect"]["cause"], row["expect"]["locus"]
+    );
+    println!("IR V12 actual code={actual_code} cause={actual_cause} path={actual_path} structural_locus={:?}", refusal.locus);
+    assert_eq!(actual_code, row["expect"]["code"]);
+    assert_eq!(actual_cause, row["expect"]["cause"]);
+}
