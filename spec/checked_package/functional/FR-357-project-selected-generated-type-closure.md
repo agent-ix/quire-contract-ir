@@ -8,7 +8,7 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-353
-    type: depends_on
+    type: references
   - target: ix://agent-ix/quire-contract-ir/FR-354
     type: depends_on
   - target: ix://agent-ix/quire-contract-runtime/FR-276
