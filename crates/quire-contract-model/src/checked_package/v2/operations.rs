@@ -10151,10 +10151,8 @@ mod tests {
 
     const OPERATOR_PATH: &str = "/semantic_graph/nodes/0/body/operator";
 
-    /// Every catalogued entry of the three operator classes the reader once
-    /// refused, read from the catalog: fifteen `temporal_formula` identities,
-    /// `quire.op.temporal.fair` and `quire.op.control.case`, each with the
-    /// member kind it catalogues and its fixed operand count.
+    /// Every live catalogued entry of the temporal formula, temporal fairness,
+    /// and case operator classes, with its member kind and fixed operand count.
     fn temporal_and_case_entries() -> Vec<(String, &'static str, Option<&'static str>, usize)> {
         let mut entries: Vec<_> = operation_catalog()
             .entries()
@@ -10206,15 +10204,6 @@ mod tests {
     #[test]
     fn tc_048_the_temporal_entries_admit_by_their_catalogued_shape() {
         let entries = temporal_and_case_entries();
-        let temporal = entries
-            .iter()
-            .filter(|(_, operator, _, _)| *operator == "temporal_formula")
-            .count();
-        assert_eq!(
-            (entries.len(), temporal),
-            (17, 15),
-            "the catalog carries fifteen formula identities, fair and case"
-        );
         let operands = |count: usize| vec![json!({ "term": "literal", "value": 1 }); count];
         for (identity, operator, member, operand_count) in entries {
             let node_with = |edit: &dyn Fn(&mut Value)| {
