@@ -18,6 +18,7 @@ use quire_contract_model::{
     CheckedPackageV2, CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode,
     SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
     SelectedExactIdentities, SelectedExactIdentity, SelectedTupleDeclarationRow,
+    SelectedFactFieldId, SelectedFactIds, SelectedFactRows, SelectedFactsErrorCode,
 };
 use quire_exact::{
     record, ConstructionCause, EffectiveId, FieldValue, Integer, MemberId, MemberOwner, NodeKey,
@@ -1094,6 +1095,113 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
         .expect_err("finite work limit is charged before a view exists");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(exhausted.work, 1);
+}
+
+/// Trace: FR-357-AC-5, FR-357-AC-6, FR-357-AC-7.
+#[test]
+fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows() {
+    let mut selected = document(vec![typed_object(
+        "Receipt",
+        "record",
+        &[],
+        &[field("total", "ix://quire/native/Integer")],
+    )]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind": {"module": IDENTITY, "name": "record"},
+        "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+    }));
+    let admitted = admit(&selected, &[("Receipt", "record_value_type")], &[]);
+    let record: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key("Receipt", "record_value_type")))
+            .unwrap();
+    let record_key = NodeKey::new("checked", vec![PathSegment::Text("Receipt".into())], 0)
+        .unwrap();
+    let declaration = SelectedExactDeclarationRow::new(
+        record.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        orders("Receipt"),
+        SelectedExactIdentity::Record(record_key.clone()),
+    );
+    let field_row = SelectedExactFieldRow::new(
+        record.clone(),
+        IDENTITY,
+        orders("Receipt"),
+        format!("{}/total", orders("Receipt")),
+        MemberId::new(MemberOwner::Node(record_key), "total").unwrap(),
+    );
+    let selected_field = SelectedFactFieldId {
+        record: record.clone(),
+        original_identity: format!("{}/total", orders("Receipt")).into(),
+    };
+    let ids = SelectedFactIds {
+        declarations: std::slice::from_ref(&record),
+        fields: std::slice::from_ref(&selected_field),
+        equalities: &[],
+    };
+    let extra = SelectedExactDeclarationRow::new(
+        serde_json::from_value(node_id("scalar_type/integer")).unwrap(),
+        "unrelated/document",
+        SelectedExactDeclarationForm::RecordValueType,
+        "unrelated/declaration",
+        SelectedExactIdentity::Record(
+            NodeKey::new("other", vec![PathSegment::Text("unrelated".into())], 0).unwrap(),
+        ),
+    );
+    let declarations = [declaration.clone()];
+    let fields = [field_row.clone()];
+    let rows = SelectedFactRows {
+        declarations: &declarations,
+        fields: &fields,
+        source_units: &[],
+        equality_applications: &[],
+        equality_facts: &[],
+    };
+    let complete = admitted.project_selected_facts(ids, rows, 1000).unwrap();
+    assert_eq!(complete.declarations, vec![declaration.clone()]);
+    assert_eq!(complete.fields.len(), 1);
+    assert_eq!(complete.fields[0].row, field_row);
+    assert_eq!(complete.fields[0].name.as_ref(), "total");
+    assert_eq!(complete.fields[0].order, 0);
+    assert_eq!(complete.fields[0].presence, Presence::Required);
+    assert_eq!(complete.fields[0].value_type, ValueType::Integer);
+    assert!(complete.equalities.is_empty());
+    let exact = admitted.project_selected_facts(
+        SelectedFactIds {
+            declarations: &[record.clone(), record.clone()],
+            fields: &[selected_field.clone(), selected_field.clone()],
+            equalities: &[],
+        },
+        SelectedFactRows { declarations: &declarations, fields: &fields, source_units: &[], equality_applications: &[], equality_facts: &[] },
+        1000,
+    ).unwrap();
+    assert_eq!(exact.declarations.len(), 1);
+    assert_eq!(exact.fields.len(), 1);
+    let replay = admitted.clone().project_selected_facts(
+        SelectedFactIds { declarations: std::slice::from_ref(&record), fields: std::slice::from_ref(&selected_field), equalities: &[] },
+        SelectedFactRows { declarations: &declarations, fields: &fields, source_units: &[], equality_applications: &[], equality_facts: &[] },
+        complete.work,
+    ).unwrap();
+    assert_eq!(replay, complete);
+    let exhausted = admitted.project_selected_facts(
+        SelectedFactIds { declarations: std::slice::from_ref(&record), fields: std::slice::from_ref(&selected_field), equalities: &[] },
+        SelectedFactRows { declarations: &declarations, fields: &fields, source_units: &[], equality_applications: &[], equality_facts: &[] },
+        complete.work - 1,
+    ).unwrap_err();
+    assert_eq!(exhausted.code, SelectedFactsErrorCode::ExhaustedWork);
+    assert_eq!(exhausted.work, complete.work - 1);
+    assert_eq!(exhausted.at.as_ref(), &record);
+    assert!(exhausted.attempted_work > 0);
+    let longer_rows = [extra, declaration];
+    let longer = admitted.project_selected_facts(
+        SelectedFactIds { declarations: std::slice::from_ref(&record), fields: std::slice::from_ref(&selected_field), equalities: &[] },
+        SelectedFactRows { declarations: &longer_rows, fields: &fields, source_units: &[], equality_applications: &[], equality_facts: &[] },
+        1000,
+    );
+    let longer = longer.unwrap();
+    assert_eq!(longer.declarations, complete.declarations);
+    assert_eq!(longer.fields, complete.fields);
+    assert!(longer.work > complete.work);
 }
 
 /// A flattened field set cannot stand in for an authored redefinition link.

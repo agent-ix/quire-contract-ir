@@ -387,7 +387,7 @@ impl CheckedPackageV2 {
             return Ok(());
         }
         meter.charge(id, 1)?;
-        if id.package != self.name() {
+        if id.package.as_ref() != self.name() {
             return Err(SelectedFactsError::new(SelectedFactsErrorCode::ForeignNode, id, meter.used));
         }
         if self.node(id).is_none() {
