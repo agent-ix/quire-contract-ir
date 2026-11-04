@@ -49,6 +49,9 @@ fn published_key(keys: &Value, name: &str) -> NodeKey {
 }
 
 fn selected_document(mut document: Value) -> Value {
+    // The genuine FCD intake requires its canonicalization algorithm carrier;
+    // the reader-only QSpec fixture omits that ordinary document member.
+    document["canonicalization"] = json!({"algorithm":"rfc8785-v1"});
     let order = document["types"]
         .as_array_mut()
         .expect("selected types")
@@ -256,17 +259,17 @@ fn main() {
     let document_bytes = serde_json::to_vec(&document).expect("selected document");
     let packages = intake::package_input([document_bytes.as_slice()]).expect("public model intake");
     let source = "language \"ix:native\" edition \"1-draft\";\n\
-        profile v = \"quire.value.complete/v1\";\n\
+        profile v = \"quire.model.complete/v1\";\n\
         model Domain = \"acme/orders\";\n\
-        function read_boolean using v(o: Domain::Order): Boolean pure { o.shape_boolean }\n\
-        function read_integer using v(o: Domain::Order): Integer pure { o.shape_integer }\n\
-        function read_option using v(o: Domain::Order): Option<Boolean> pure { o.note }\n\
-        function read_reference using v(o: Domain::Order): Domain::Invoice pure { o.invoice }\n\
-        function read_range using v(o: Domain::Order): Int[0, 9] pure { o.total }\n\
-        function read_set using v(o: Domain::Order): Set<Integer>[0, 8] pure { o.shape_set }\n\
-        function read_bag using v(o: Domain::Order): Bag<Integer>[0, 8] pure { o.shape_bag }\n\
-        function read_sequence using v(o: Domain::Order): Sequence<Integer>[0, 8] pure { o.shape_sequence }\n\
-        function read_ordered_set using v(o: Domain::Order): OrderedSet<Integer>[0, 8] pure { o.shape_ordered_set }\n";
+        function read_boolean using v(o: Domain::Order): Boolean pure { deref(o).shape_boolean }\n\
+        function read_integer using v(o: Domain::Order): Integer pure { deref(o).shape_integer }\n\
+        function read_option using v(o: Domain::Order): Option<Boolean> pure { deref(o).note }\n\
+        function read_reference using v(o: Domain::Order): Domain::Invoice pure { deref(o).invoice }\n\
+        function read_range using v(o: Domain::Order): Int[0, 9] pure { deref(o).total }\n\
+        function read_set using v(o: Domain::Order): Set<Integer>[0, 8] pure { deref(o).shape_set }\n\
+        function read_bag using v(o: Domain::Order): Bag<Integer>[0, 8] pure { deref(o).shape_bag }\n\
+        function read_sequence using v(o: Domain::Order): Sequence<Integer>[0, 8] pure { deref(o).shape_sequence }\n\
+        function read_ordered_set using v(o: Domain::Order): OrderedSet<Integer>[0, 8] pure { deref(o).shape_ordered_set }\n";
     let parsed = qsl_cst::parse(
         SourceIdentity::new("agent-ix", "test:derived-shape-correspondence"),
         "derived-shapes.native",

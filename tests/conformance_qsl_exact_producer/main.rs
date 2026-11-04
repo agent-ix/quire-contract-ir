@@ -394,3 +394,38 @@ fn fresh_qsl_bounded_record_narrow_is_a_closed_composite_literal() {
     assert!(String::from_utf8_lossy(&result.stdout)
         .contains("fresh bounded-record eq and ne preserve closed authentic operands"));
 }
+
+#[trace("TC-226", "FR-038-AC-130")]
+#[test]
+fn fresh_qsl_all_ten_derived_shapes_match_selected_model_members() {
+    let (_scratch, helper, target) = prepare_consumer(
+        "derived-shapes",
+        "tests/conformance_qsl_exact_producer/derived_shapes.rs",
+        &[],
+    );
+    let result = cargo(
+        &helper,
+        &target,
+        &["run", "--offline", "--locked", "-j2", "--bin", "producer"],
+    );
+    assert!(
+        result.status.success(),
+        "genuine derived producer/reader: {}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8_lossy(&result.stdout)
+        .contains("correspondence passed for all ten derived shapes"));
+    for (name, source, code) in [
+        ("member_node_key", "fn consume(member: &quire_contract_model::CheckedMemberType) { let _ = member.node_key(); } fn main() {}", "E0599"),
+        ("private_member_type", "use quire_contract_model::MemberType; fn main() {}", "E0432"),
+    ] {
+        fs::write(helper.join(format!("src/bin/{name}.rs")), source).expect("negative public consumer");
+        let result = cargo(&helper, &target, &["check", "--offline", "--locked", "-j2", "--bin", name, "--message-format=json"]);
+        assert!(!result.status.success(), "{name}: private type-to-key surface must not be exported");
+        let messages = String::from_utf8(result.stdout).expect("compiler JSON");
+        let errors = messages.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|message| message["reason"] == "compiler-message" && message["message"]["level"] == "error").collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{name}: {errors:?}\n{}", String::from_utf8_lossy(&result.stderr));
+        assert_eq!(errors[0]["message"]["code"]["code"], code, "{name}: intended public boundary");
+    }
+}
