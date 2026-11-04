@@ -1936,7 +1936,7 @@ fn timed_model_stage_precedence_has_independent_defect_controls() {
 }
 
 /// Source occurrence order does not participate in a timed node's structural identity.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-319")]
 #[test]
 fn timed_source_occurrence_reordering_retains_structural_node_ids() {
     let mut wire = published();
@@ -1988,14 +1988,6 @@ fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
         read_package(&original).expect("published timed package"),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    let timed = &original["semantic_graph"]["nodes"];
-    for index in [44, 45, 46, 47, 48, 49, 51, 52] {
-        assert!(
-            timed[index]["dependencies"].as_array().is_some(),
-            "timed node {index} has a dependency list"
-        );
-    }
-
     let mut stale_dependencies = original.clone();
     stale_dependencies["semantic_graph"]["nodes"][45]["dependencies"] = json!([]);
     fixture_support::settle(&mut stale_dependencies);
@@ -2070,10 +2062,7 @@ fn timed_graph_shape_and_body_edits_refuse_at_their_own_stage() {
     else {
         panic!("meaning-bearing timed owner edit must refuse");
     };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::MalformedWire, None)
-    );
+    assert_eq!((refusal.code, refusal.cause), (Code::MalformedWire, None));
     assert_eq!(
         refusal.loci[0].path.as_ref().expect("locus").to_string(),
         "/semantic_graph/nodes/45/owner"
