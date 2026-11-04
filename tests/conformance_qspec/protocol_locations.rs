@@ -3,7 +3,8 @@
 //! Vector origin/path/term facts remain authoritative owner data, read in place.
 
 use crate::fixture_support::{
-    canonical, evidence_for, positive_operation_identities, refresh_identity,
+    canonical, evidence_for, positive_operation_identities, refresh_identity, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::CheckedProtocolLocationReadError;
@@ -51,6 +52,59 @@ fn fixture(mut rows: Vec<Value>) -> (Value, usize) {
     refresh_identity(&mut wire);
     (wire, position)
 }
+
+fn published_leaf_fixture(vector: &Value) -> Value {
+    let mut wire = v2_all_families();
+    let call = positive_operation_identities()["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["body"]["term"] == "application")
+        .unwrap()
+        .clone();
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(call);
+    settle(&mut wire);
+    let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
+    let application = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["body"]["term"] == "application")
+        .unwrap();
+    let published_nodes = vector["graph"]["nodes"].as_array().unwrap();
+    let rows = vector["value"].as_array().unwrap();
+    let bound_rows: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            let published = published_nodes
+                .iter()
+                .find(|node| node["node_id"] == row["application"])
+                .expect("published row names a graph node");
+            let selected =
+                if published["node_tag"] == "value" || published["semantic_form"] == "reference" {
+                    nodes
+                        .iter()
+                        .find(|node| {
+                            node["node_tag"] == published["node_tag"]
+                                && node["semantic_form"] == published["semantic_form"]
+                        })
+                        .expect("admitted fixture contains the published leaf form")
+                } else {
+                    assert_eq!(published["node_tag"], "expression");
+                    assert_eq!(published["body"]["term"], "application");
+                    application
+                };
+            let mut bound = row.clone();
+            bound["application"] = selected["node_id"].clone();
+            bound["occurrence"] = selected["occurrences"][0].clone();
+            bound
+        })
+        .collect();
+    wire["checked_term_data"] = json!({"equality_decisions":[], "protocol_locations":bound_rows, "dispatch_tables":[], "probabilistic_claims":[]});
+    refresh_identity(&mut wire);
+    wire
+}
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
         &canonical(wire),
@@ -66,7 +120,7 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
 }
 
 #[test]
-#[trace("TC-058", "FR-354-AC-9")]
+#[trace("TC-058", "TC-048", "FR-354-AC-9", "FR-038-AC-448")]
 fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
     let all = vectors();
     let positives = all["positive"]["protocol_locations"].as_array().unwrap();
@@ -120,7 +174,11 @@ fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
                 .as_array()
                 .cloned()
                 .unwrap_or_else(|| vec![vector["value"].clone()]);
-            let (wire, _) = fixture(rows);
+            let wire = if id.starts_with("PL-R3-") {
+                published_leaf_fixture(vector)
+            } else {
+                fixture(rows).0
+            };
             let result = read(&wire);
             let CheckedPackageV2ReadResult::Refused(refusal) = result else {
                 panic!("{id} must refuse: {result:?}");
@@ -155,8 +213,64 @@ fn every_published_protocol_location_vector_runs_through_the_strict_reader() {
             "PL-S1-unknown-origin",
             "PL-R1-duplicate-term",
             "PL-R2-missing-term-mapping",
+            "PL-R3-leaf-literal",
+            "PL-R3-leaf-local",
+            "PL-R3-leaf-reference",
+            "PL-R3-leaf-copies-enclosing-location",
         ])
     );
+}
+
+#[test]
+#[trace("TC-048", "FR-038-AC-449")]
+fn published_leaf_graphs_keep_their_application_location_admissible() {
+    let all = vectors();
+    for vector in all["reader_refusals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| {
+            row["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("PL-R3-"))
+        })
+    {
+        let id = vector["id"].as_str().unwrap();
+        let graph_application = vector["graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["node_tag"] == "expression" && node["body"]["term"] == "application")
+            .expect("published graph contains an application");
+        let row = vector["value"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["application"] == graph_application["node_id"])
+            .unwrap_or_else(|| &vector["value"][0]);
+        let mut application_row = row.clone();
+        application_row["application"] = graph_application["node_id"].clone();
+        application_row["occurrence"] = graph_application["occurrences"][0].clone();
+        let mut application_vector = vector.clone();
+        application_vector["value"] = json!([application_row]);
+        let wire = published_leaf_fixture(&application_vector);
+        let position = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|node| {
+                node["node_id"] == wire["checked_term_data"]["protocol_locations"][0]["application"]
+            })
+            .unwrap();
+        let package = admitted(&wire);
+        let application = &package.graph().nodes[position];
+        assert!(
+            package
+                .protocol_location(&application.node_id, &application.occurrences[0], 0, 100)
+                .is_ok(),
+            "{id}: published application row must remain admissible"
+        );
+    }
 }
 
 #[test]
