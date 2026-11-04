@@ -6,10 +6,10 @@
 use super::exact_projection::project_record_field_type;
 use super::model_members::MemberType;
 use super::{
-    AdmittedEqualityReadError, CheckedNodeId, CheckedNodeKind, CheckedOccurrence,
-    CheckedPackageV2, ExactTypeProjectionError, ModelForm,
-    SelectedEqualityApplicationRow, SelectedEqualityFactRow, SelectedExactDeclarationRow,
-    SelectedExactFieldRow, SelectedExactIdentities, SelectedSourceUnitRow,
+    AdmittedEqualityReadError, CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedPackageV2,
+    ExactTypeProjectionError, ModelForm, SelectedEqualityApplicationRow, SelectedEqualityFactRow,
+    SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
+    SelectedSourceUnitRow,
 };
 use quire_exact::{Presence, ValueType};
 use quire_semantic_value::declaration::AdmittedEqualityDecision;
@@ -150,7 +150,10 @@ impl SelectedFactsErrorCode {
 
     /// Decode a stable refusal code.
     pub fn from_code(code: &str) -> Option<Self> {
-        Self::all().iter().copied().find(|value| value.as_str() == code)
+        Self::all()
+            .iter()
+            .copied()
+            .find(|value| value.as_str() == code)
     }
 }
 
@@ -198,8 +201,13 @@ struct Meter {
 
 impl Meter {
     fn charge(&mut self, at: &CheckedNodeId, amount: u64) -> Result<(), SelectedFactsError> {
-        if self.used.checked_add(amount).is_none_or(|next| next > self.limit) {
-            let mut error = SelectedFactsError::new(SelectedFactsErrorCode::ExhaustedWork, at, self.used);
+        if self
+            .used
+            .checked_add(amount)
+            .is_none_or(|next| next > self.limit)
+        {
+            let mut error =
+                SelectedFactsError::new(SelectedFactsErrorCode::ExhaustedWork, at, self.used);
             error.attempted_work = amount;
             return Err(error);
         }
@@ -254,7 +262,10 @@ impl CheckedPackageV2 {
         rows: SelectedFactRows<'_>,
         work_limit: u64,
     ) -> Result<SelectedFacts, SelectedFactsError> {
-        let mut meter = Meter { used: 0, limit: work_limit };
+        let mut meter = Meter {
+            used: 0,
+            limit: work_limit,
+        };
         let mut selected_declarations = Vec::new();
         let mut selected_fields = Vec::new();
         let mut selected_equalities = Vec::new();
@@ -278,14 +289,30 @@ impl CheckedPackageV2 {
             if !seen_fields.insert(id) {
                 continue;
             }
-            self.selected_fact_declaration(&id.record, &rows, &mut meter, &mut joined_declarations)?;
-            let (ambiguous, fields) = self.models.selected_record_fields(&id.record).ok_or_else(|| {
-                let mut error = SelectedFactsError::new(SelectedFactsErrorCode::UnsupportedForm, &id.record, meter.used);
-                error.field = Some(id.original_identity.clone());
-                error
-            })?;
+            self.selected_fact_declaration(
+                &id.record,
+                &rows,
+                &mut meter,
+                &mut joined_declarations,
+            )?;
+            let (ambiguous, fields) =
+                self.models
+                    .selected_record_fields(&id.record)
+                    .ok_or_else(|| {
+                        let mut error = SelectedFactsError::new(
+                            SelectedFactsErrorCode::UnsupportedForm,
+                            &id.record,
+                            meter.used,
+                        );
+                        error.field = Some(id.original_identity.clone());
+                        error
+                    })?;
             if ambiguous.is_some() {
-                return Err(SelectedFactsError::new(SelectedFactsErrorCode::UnsupportedForm, &id.record, meter.used));
+                return Err(SelectedFactsError::new(
+                    SelectedFactsErrorCode::UnsupportedForm,
+                    &id.record,
+                    meter.used,
+                ));
             }
             let mut selected = None;
             for (order, field) in fields.enumerate() {
@@ -296,45 +323,69 @@ impl CheckedPackageV2 {
                 }
             }
             let (order, field) = selected.ok_or_else(|| {
-                let mut error = SelectedFactsError::new(SelectedFactsErrorCode::UnknownField, &id.record, meter.used);
+                let mut error = SelectedFactsError::new(
+                    SelectedFactsErrorCode::UnknownField,
+                    &id.record,
+                    meter.used,
+                );
                 error.field = Some(id.original_identity.clone());
                 error
             })?;
             let row = find_field_row(rows.fields, id, &mut meter)?;
-            let declaration = joined_declarations.get(&id.record).expect("joined record identity").clone();
-            let identities = SelectedExactIdentities::from_stage_rows(self, [declaration], [row.clone()])
-                .map_err(|error| exact_error(error, meter.used))?;
-            let member_type = field.member_type.ok_or_else(|| SelectedFactsError::new(
-                SelectedFactsErrorCode::UnsupportedForm, &id.record, meter.used
-            ))?;
+            let declaration = joined_declarations
+                .get(&id.record)
+                .expect("joined record identity")
+                .clone();
+            let identities =
+                SelectedExactIdentities::from_stage_rows(self, [declaration], [row.clone()])
+                    .map_err(|error| exact_error(error, meter.used))?;
+            let member_type = field.member_type.ok_or_else(|| {
+                SelectedFactsError::new(
+                    SelectedFactsErrorCode::UnsupportedForm,
+                    &id.record,
+                    meter.used,
+                )
+            })?;
             let member_type = if field.optional {
                 match member_type {
                     MemberType::Option(inner) => inner.as_ref(),
-                    _ => return Err(SelectedFactsError::new(SelectedFactsErrorCode::UnsupportedForm, &id.record, meter.used)),
+                    _ => {
+                        return Err(SelectedFactsError::new(
+                            SelectedFactsErrorCode::UnsupportedForm,
+                            &id.record,
+                            meter.used,
+                        ))
+                    }
                 }
             } else {
                 member_type
             };
             meter.charge(&id.record, 1)?;
-            let value_type = project_record_field_type(self, &identities, member_type).map_err(|(code, target)| {
-                let at = target.as_ref().unwrap_or(&id.record);
-                let native = ExactTypeProjectionError {
-                    code,
-                    requested: Box::new(id.record.clone()),
-                    at: Some(Box::new(at.clone())),
-                    form: "record_field_type".into(),
-                    work: 0,
-                };
-                let mut error = exact_error(native, meter.used);
-                error.field = Some(id.original_identity.clone());
-                error
-            })?;
+            let value_type = project_record_field_type(self, &identities, member_type).map_err(
+                |(code, target)| {
+                    let at = target.as_ref().unwrap_or(&id.record);
+                    let native = ExactTypeProjectionError {
+                        code,
+                        requested: Box::new(id.record.clone()),
+                        at: Some(Box::new(at.clone())),
+                        form: "record_field_type".into(),
+                        work: 0,
+                    };
+                    let mut error = exact_error(native, meter.used);
+                    error.field = Some(id.original_identity.clone());
+                    error
+                },
+            )?;
             meter.text(&id.record, field.name)?;
             selected_fields.push(SelectedFactField {
                 row,
                 name: field.name.into(),
                 order,
-                presence: if field.optional { Presence::Optional } else { Presence::Required },
+                presence: if field.optional {
+                    Presence::Optional
+                } else {
+                    Presence::Required
+                },
                 value_type,
             });
         }
@@ -355,17 +406,29 @@ impl CheckedPackageV2 {
             let mut units = Vec::new();
             for row in rows.source_units {
                 meter.charge(&row.structural_node, 1)?;
-                if facts.iter().any(|fact| fact.structural_node == row.structural_node) {
+                if facts
+                    .iter()
+                    .any(|fact| fact.structural_node == row.structural_node)
+                {
                     units.push(row.clone());
                 }
             }
             let prior = meter.used;
-            let (decision, work) = self.admitted_equality_metered(
-                &id.application, &id.occurrence, &[application_row], &facts, &units,
-                work_limit.saturating_sub(meter.used),
-            ).map_err(|error| equality_error(error, &id.occurrence, prior))?;
+            let (decision, work) = self
+                .admitted_equality_metered(
+                    &id.application,
+                    &id.occurrence,
+                    &[application_row],
+                    &facts,
+                    &units,
+                    work_limit.saturating_sub(meter.used),
+                )
+                .map_err(|error| equality_error(error, &id.occurrence, prior))?;
             meter.charge(&id.application, work)?;
-            selected_equalities.push(SelectedFactEquality { id: id.clone(), decision });
+            selected_equalities.push(SelectedFactEquality {
+                id: id.clone(),
+                decision,
+            });
         }
 
         Ok(SelectedFacts {
@@ -388,13 +451,30 @@ impl CheckedPackageV2 {
         }
         meter.charge(id, 1)?;
         if id.package.as_ref() != self.name() {
-            return Err(SelectedFactsError::new(SelectedFactsErrorCode::ForeignNode, id, meter.used));
+            return Err(SelectedFactsError::new(
+                SelectedFactsErrorCode::ForeignNode,
+                id,
+                meter.used,
+            ));
         }
         if self.node(id).is_none() {
-            return Err(SelectedFactsError::new(SelectedFactsErrorCode::UnknownNode, id, meter.used));
+            return Err(SelectedFactsError::new(
+                SelectedFactsErrorCode::UnknownNode,
+                id,
+                meter.used,
+            ));
         }
-        if !matches!(self.node_kind(id), Some(CheckedNodeKind::Model(ModelForm::RecordValueType | ModelForm::ObjectType))) {
-            return Err(SelectedFactsError::new(SelectedFactsErrorCode::UnsupportedForm, id, meter.used));
+        if !matches!(
+            self.node_kind(id),
+            Some(CheckedNodeKind::Model(
+                ModelForm::RecordValueType | ModelForm::ObjectType
+            ))
+        ) {
+            return Err(SelectedFactsError::new(
+                SelectedFactsErrorCode::UnsupportedForm,
+                id,
+                meter.used,
+            ));
         }
         let row = find_declaration_row(rows.declarations, id, meter)?;
         SelectedExactIdentities::from_stage_rows(self, [row.clone()], [])
@@ -414,12 +494,17 @@ fn find_declaration_row(
         meter.charge(&row.structural_node, 1)?;
         if &row.structural_node == id {
             if selected.is_some() {
-                return Err(SelectedFactsError::new(SelectedFactsErrorCode::DuplicateRow, id, meter.used));
+                return Err(SelectedFactsError::new(
+                    SelectedFactsErrorCode::DuplicateRow,
+                    id,
+                    meter.used,
+                ));
             }
             selected = Some(row.clone());
         }
     }
-    selected.ok_or_else(|| SelectedFactsError::new(SelectedFactsErrorCode::MissingRow, id, meter.used))
+    selected
+        .ok_or_else(|| SelectedFactsError::new(SelectedFactsErrorCode::MissingRow, id, meter.used))
 }
 
 fn find_field_row(
@@ -432,7 +517,11 @@ fn find_field_row(
         meter.charge(&row.record_node, 1)?;
         if row.record_node == id.record && row.field_original_identity == id.original_identity {
             if selected.is_some() {
-                let mut error = SelectedFactsError::new(SelectedFactsErrorCode::DuplicateRow, &id.record, meter.used);
+                let mut error = SelectedFactsError::new(
+                    SelectedFactsErrorCode::DuplicateRow,
+                    &id.record,
+                    meter.used,
+                );
                 error.field = Some(id.original_identity.clone());
                 return Err(error);
             }
@@ -440,7 +529,8 @@ fn find_field_row(
         }
     }
     selected.ok_or_else(|| {
-        let mut error = SelectedFactsError::new(SelectedFactsErrorCode::MissingRow, &id.record, meter.used);
+        let mut error =
+            SelectedFactsError::new(SelectedFactsErrorCode::MissingRow, &id.record, meter.used);
         error.field = Some(id.original_identity.clone());
         error
     })
@@ -456,7 +546,11 @@ fn find_equality_row(
         meter.charge(&row.application, 1)?;
         if row.application == id.application && row.occurrence == id.occurrence {
             if selected.is_some() {
-                let mut error = SelectedFactsError::new(SelectedFactsErrorCode::DuplicateRow, &id.application, meter.used);
+                let mut error = SelectedFactsError::new(
+                    SelectedFactsErrorCode::DuplicateRow,
+                    &id.application,
+                    meter.used,
+                );
                 error.occurrence = Some(id.occurrence.clone());
                 return Err(error);
             }
@@ -464,7 +558,11 @@ fn find_equality_row(
         }
     }
     selected.ok_or_else(|| {
-        let mut error = SelectedFactsError::new(SelectedFactsErrorCode::MissingRow, &id.application, meter.used);
+        let mut error = SelectedFactsError::new(
+            SelectedFactsErrorCode::MissingRow,
+            &id.application,
+            meter.used,
+        );
         error.occurrence = Some(id.occurrence.clone());
         error
     })

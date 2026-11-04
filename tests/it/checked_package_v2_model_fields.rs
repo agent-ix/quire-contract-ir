@@ -17,8 +17,8 @@ use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageV2, CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode,
     SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
-    SelectedExactIdentities, SelectedExactIdentity, SelectedTupleDeclarationRow,
-    SelectedFactFieldId, SelectedFactIds, SelectedFactRows, SelectedFactsErrorCode,
+    SelectedExactIdentities, SelectedExactIdentity, SelectedFactFieldId, SelectedFactIds,
+    SelectedFactRows, SelectedFactsErrorCode, SelectedTupleDeclarationRow,
 };
 use quire_exact::{
     record, ConstructionCause, EffectiveId, FieldValue, Integer, MemberId, MemberOwner, NodeKey,
@@ -1112,10 +1112,8 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     }));
     let admitted = admit(&selected, &[("Receipt", "record_value_type")], &[]);
     let record: CheckedNodeId =
-        serde_json::from_value(node_id(&declaration_key("Receipt", "record_value_type")))
-            .unwrap();
-    let record_key = NodeKey::new("checked", vec![PathSegment::Text("Receipt".into())], 0)
-        .unwrap();
+        serde_json::from_value(node_id(&declaration_key("Receipt", "record_value_type"))).unwrap();
+    let record_key = NodeKey::new("checked", vec![PathSegment::Text("Receipt".into())], 0).unwrap();
     let declaration = SelectedExactDeclarationRow::new(
         record.clone(),
         IDENTITY,
@@ -1166,36 +1164,79 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     assert_eq!(complete.fields[0].presence, Presence::Required);
     assert_eq!(complete.fields[0].value_type, ValueType::Integer);
     assert!(complete.equalities.is_empty());
-    let exact = admitted.project_selected_facts(
-        SelectedFactIds {
-            declarations: &[record.clone(), record.clone()],
-            fields: &[selected_field.clone(), selected_field.clone()],
-            equalities: &[],
-        },
-        SelectedFactRows { declarations: &declarations, fields: &fields, source_units: &[], equality_applications: &[], equality_facts: &[] },
-        1000,
-    ).unwrap();
+    let exact = admitted
+        .project_selected_facts(
+            SelectedFactIds {
+                declarations: &[record.clone(), record.clone()],
+                fields: &[selected_field.clone(), selected_field.clone()],
+                equalities: &[],
+            },
+            SelectedFactRows {
+                declarations: &declarations,
+                fields: &fields,
+                source_units: &[],
+                equality_applications: &[],
+                equality_facts: &[],
+            },
+            1000,
+        )
+        .unwrap();
     assert_eq!(exact.declarations.len(), 1);
     assert_eq!(exact.fields.len(), 1);
-    let replay = admitted.clone().project_selected_facts(
-        SelectedFactIds { declarations: std::slice::from_ref(&record), fields: std::slice::from_ref(&selected_field), equalities: &[] },
-        SelectedFactRows { declarations: &declarations, fields: &fields, source_units: &[], equality_applications: &[], equality_facts: &[] },
-        complete.work,
-    ).unwrap();
+    let replay = admitted
+        .clone()
+        .project_selected_facts(
+            SelectedFactIds {
+                declarations: std::slice::from_ref(&record),
+                fields: std::slice::from_ref(&selected_field),
+                equalities: &[],
+            },
+            SelectedFactRows {
+                declarations: &declarations,
+                fields: &fields,
+                source_units: &[],
+                equality_applications: &[],
+                equality_facts: &[],
+            },
+            complete.work,
+        )
+        .unwrap();
     assert_eq!(replay, complete);
-    let exhausted = admitted.project_selected_facts(
-        SelectedFactIds { declarations: std::slice::from_ref(&record), fields: std::slice::from_ref(&selected_field), equalities: &[] },
-        SelectedFactRows { declarations: &declarations, fields: &fields, source_units: &[], equality_applications: &[], equality_facts: &[] },
-        complete.work - 1,
-    ).unwrap_err();
+    let exhausted = admitted
+        .project_selected_facts(
+            SelectedFactIds {
+                declarations: std::slice::from_ref(&record),
+                fields: std::slice::from_ref(&selected_field),
+                equalities: &[],
+            },
+            SelectedFactRows {
+                declarations: &declarations,
+                fields: &fields,
+                source_units: &[],
+                equality_applications: &[],
+                equality_facts: &[],
+            },
+            complete.work - 1,
+        )
+        .unwrap_err();
     assert_eq!(exhausted.code, SelectedFactsErrorCode::ExhaustedWork);
     assert_eq!(exhausted.work, complete.work - 1);
     assert_eq!(exhausted.at.as_ref(), &record);
     assert!(exhausted.attempted_work > 0);
     let longer_rows = [extra, declaration];
     let longer = admitted.project_selected_facts(
-        SelectedFactIds { declarations: std::slice::from_ref(&record), fields: std::slice::from_ref(&selected_field), equalities: &[] },
-        SelectedFactRows { declarations: &longer_rows, fields: &fields, source_units: &[], equality_applications: &[], equality_facts: &[] },
+        SelectedFactIds {
+            declarations: std::slice::from_ref(&record),
+            fields: std::slice::from_ref(&selected_field),
+            equalities: &[],
+        },
+        SelectedFactRows {
+            declarations: &longer_rows,
+            fields: &fields,
+            source_units: &[],
+            equality_applications: &[],
+            equality_facts: &[],
+        },
         1000,
     );
     let longer = longer.unwrap();

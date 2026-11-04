@@ -54,8 +54,8 @@ mod relationship_end;
 mod runtime_type_projection;
 mod rust_spelling;
 mod scalar_operands;
-mod selected_facts;
 mod schedulability;
+mod selected_facts;
 mod state;
 mod step_relation;
 mod structural;
@@ -117,11 +117,11 @@ pub use model_fields::{
     CheckedVariantPayloadType,
 };
 pub use monitor_plan::{CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef};
+pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use selected_facts::{
     SelectedFactEquality, SelectedFactEqualityId, SelectedFactField, SelectedFactFieldId,
     SelectedFactIds, SelectedFactRows, SelectedFacts, SelectedFactsError, SelectedFactsErrorCode,
 };
-pub use protocol_locations::CheckedProtocolLocationReadError;
 mod exact_projection;
 pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,

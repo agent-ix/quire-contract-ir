@@ -2175,15 +2175,19 @@ impl CheckedPackageV2 {
             enum_members,
         };
         let mut meter = exact_meter(work.limit - work.consumed);
-        let decision = mint_admitted_equality_decision(ReaderSeal, descriptor, &mut meter).map_err(|cause| {
-            materialization_refusal(
-                application,
-                work.consumed,
-                meter.consumed(LimitKind::WorkUnits),
-                cause,
-            )
-        })?;
-        Ok((decision, work.consumed + meter.consumed(LimitKind::WorkUnits)))
+        let decision = mint_admitted_equality_decision(ReaderSeal, descriptor, &mut meter)
+            .map_err(|cause| {
+                materialization_refusal(
+                    application,
+                    work.consumed,
+                    meter.consumed(LimitKind::WorkUnits),
+                    cause,
+                )
+            })?;
+        Ok((
+            decision,
+            work.consumed + meter.consumed(LimitKind::WorkUnits),
+        ))
     }
 }
 
