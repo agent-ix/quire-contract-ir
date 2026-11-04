@@ -33,7 +33,7 @@ const IDENTITY: &str = "acme/orders";
 const OBJECT: &str = "object_type";
 const INTERFACE: &str = "systems_interface";
 
-#[trace("FR-352-AC-12", "FR-352-AC-13")]
+#[trace("FR-352-AC-12", "FR-352-AC-13", "FR-352-AC-15")]
 #[test]
 fn selected_record_projects_nested_collection_and_option_members_with_bounded_work() {
     std::thread::Builder::new()
@@ -55,10 +55,23 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
                 "kind": {"module": IDENTITY, "name": "record"},
                 "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
             }));
+            let mut item = "ix://quire/native/Integer".to_owned();
+            for depth in 0..64 {
+                let identity = orders(&format!("Deep{depth}"));
+                selected["types"].as_array_mut().unwrap().push(json!({
+                    "identity": identity, "kind": "sequence", "items": item,
+                }));
+                item = identity;
+            }
+            selected["types"][1]["fields"].as_array_mut().unwrap().push(json!({
+                "identity": format!("{}/deep", orders("Wrapped")), "name": "deep",
+                "typeRef": item, "presence": "required", "nullable": false,
+                "defaultKind": "none", "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+            }));
             let admitted = admit(&selected, &[("Wrapped", "record_value_type")], &[]);
             let structural: CheckedNodeId = serde_json::from_value(node_id(&declaration_key("Wrapped", "record_value_type"))).unwrap();
             let key = NodeKey::new("checked", vec![PathSegment::Text("Wrapped".into())], 0).unwrap();
-            let names = ["sequence", "set", "bag", "ordered", "nested", "optional_collection", "optional_string"];
+            let names = ["sequence", "set", "bag", "ordered", "nested", "optional_collection", "optional_string", "deep"];
             let declaration = SelectedExactDeclarationRow::new(
                 structural.clone(), IDENTITY, SelectedExactDeclarationForm::RecordValueType,
                 orders("Wrapped"), SelectedExactIdentity::Record(key.clone()),
@@ -70,7 +83,7 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
             ));
             let identities = SelectedExactIdentities::from_stage_rows(&admitted, [declaration], fields).unwrap();
             let clone = admitted.clone();
-            let projection = admitted.project_exact_type(&structural, &identities, 100).unwrap();
+            let projection = admitted.project_exact_type(&structural, &identities, 200).unwrap();
             let work = projection.work();
             assert_eq!(admitted.project_exact_type(&structural, &identities, work), Ok(projection.clone()));
             assert_eq!(clone.project_exact_type(&structural, &identities, work), Ok(projection.clone()));
@@ -78,7 +91,7 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
             assert_eq!(view.record_key(), &key);
             let bounded = Some(CardinalityBound::new(0, 3).unwrap());
             let collection = |kind, element, bound| ValueType::collection(CollectionType::new(kind, element, bound));
-            let expected = [
+            let mut expected = vec![
                 collection(CollectionKind::Sequence, ValueType::Integer, None),
                 collection(CollectionKind::Set, ValueType::Integer, None),
                 collection(CollectionKind::Bag, ValueType::Integer, None),
@@ -87,6 +100,11 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
                 collection(CollectionKind::Set, ValueType::Integer, bounded),
                 ValueType::String,
             ];
+            let mut deep = ValueType::Integer;
+            for _ in 0..64 {
+                deep = collection(CollectionKind::Sequence, deep, None);
+            }
+            expected.push(deep);
             assert_eq!(view.fields().len(), names.len());
             for (index, field) in view.fields().iter().enumerate() {
                 let name = names[index];
@@ -101,7 +119,7 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
             assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
             assert_eq!(exhausted.requested.as_ref(), &structural);
             assert_eq!(exhausted.at.as_deref(), Some(&structural));
-            assert_eq!(exhausted.form.as_ref(), "record_field");
+            assert_eq!(exhausted.form.as_ref(), "record_field_collection");
             assert_eq!(exhausted.work, work - 1);
         })
         .unwrap()
