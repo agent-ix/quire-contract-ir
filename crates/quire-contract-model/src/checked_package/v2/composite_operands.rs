@@ -3080,6 +3080,45 @@ mod tests {
             duplicate.code,
             super::super::SelectedFactsErrorCode::DuplicateRow
         );
+        let mut foreign = id.clone();
+        foreign.application.package = "foreign".into();
+        let foreign_error = package
+            .project_selected_facts(
+                super::super::SelectedFactIds {
+                    declarations: &[],
+                    fields: &[],
+                    equalities: &[foreign.clone()],
+                },
+                rows(&application_rows),
+                100,
+            )
+            .unwrap_err();
+        assert_eq!(
+            foreign_error.code,
+            super::super::SelectedFactsErrorCode::ForeignNode
+        );
+        assert_eq!(foreign_error.at.as_ref(), &foreign.application);
+        let mut wrong_occurrence = id.clone();
+        wrong_occurrence.occurrence.ordinal = 1;
+        let wrong_occurrence_error = package
+            .project_selected_facts(
+                super::super::SelectedFactIds {
+                    declarations: &[],
+                    fields: &[],
+                    equalities: &[wrong_occurrence],
+                },
+                rows(&application_rows),
+                100,
+            )
+            .unwrap_err();
+        assert_eq!(
+            wrong_occurrence_error.code,
+            super::super::SelectedFactsErrorCode::Equality
+        );
+        assert_eq!(
+            wrong_occurrence_error.equality.as_ref().unwrap().code,
+            super::super::AdmittedEqualityReadErrorCode::WrongOccurrence
+        );
     }
 
     /// Trace: FR-353-AC-2.

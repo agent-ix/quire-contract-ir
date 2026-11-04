@@ -7,9 +7,9 @@ use super::exact_projection::project_record_field_type;
 use super::model_members::MemberType;
 use super::{
     AdmittedEqualityReadError, CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedPackageV2,
-    EqualityFactWitness, ExactTypeProjectionError, ModelForm, SelectedEqualityApplicationRow,
-    SelectedEqualityFactRow, SelectedExactDeclarationRow, SelectedExactFieldRow,
-    SelectedExactIdentities, SelectedSourceUnitRow,
+    EqualityFactWitness, ExactTypeProjectionError, ExactTypeProjectionErrorCode, ModelForm,
+    SelectedEqualityApplicationRow, SelectedEqualityFactRow, SelectedExactDeclarationRow,
+    SelectedExactFieldRow, SelectedExactIdentities, SelectedSourceUnitRow,
 };
 use quire_exact::{Presence, ValueType};
 use quire_semantic_value::declaration::AdmittedEqualityDecision;
@@ -175,6 +175,8 @@ pub struct SelectedFactsError {
     pub attempted_work: u64,
     /// Native Exact refusal, when one occurred.
     pub exact: Option<Box<ExactTypeProjectionError>>,
+    /// Exact type or identity code returned by the selected field type helper.
+    pub exact_code: Option<ExactTypeProjectionErrorCode>,
     /// Native FR-353 refusal, when one occurred.
     pub equality: Option<Box<AdmittedEqualityReadError>>,
 }
@@ -189,6 +191,7 @@ impl SelectedFactsError {
             work,
             attempted_work: 0,
             exact: None,
+            exact_code: None,
             equality: None,
         }
     }
@@ -229,6 +232,7 @@ fn exact_error(error: ExactTypeProjectionError, prior: u64) -> SelectedFactsErro
         work: prior.saturating_add(error.work),
         attempted_work: 0,
         exact: Some(Box::new(error)),
+        exact_code: None,
         equality: None,
     }
 }
@@ -246,6 +250,7 @@ fn equality_error(
         work: prior.saturating_add(error.consumed_work),
         attempted_work: error.attempted_work,
         exact: None,
+        exact_code: None,
         equality: Some(Box::new(error)),
     }
 }
@@ -399,15 +404,10 @@ impl CheckedPackageV2 {
             let value_type = project_record_field_type(self, &identities, member_type).map_err(
                 |(code, target)| {
                     let at = target.as_ref().unwrap_or(&id.record);
-                    let native = ExactTypeProjectionError {
-                        code,
-                        requested: Box::new(id.record.clone()),
-                        at: Some(Box::new(at.clone())),
-                        form: "record_field_type".into(),
-                        work: 0,
-                    };
-                    let mut error = exact_error(native, meter.used);
+                    let mut error =
+                        SelectedFactsError::new(SelectedFactsErrorCode::Exact, at, meter.used);
                     error.field = Some(id.original_identity.clone());
+                    error.exact_code = Some(code);
                     error
                 },
             )?;
@@ -430,6 +430,18 @@ impl CheckedPackageV2 {
             meter.charge(&id.application, 1)?;
             if !seen_equalities.insert(id) {
                 continue;
+            }
+            meter.charge(&id.application, 1)?;
+            if self.node(&id.application).is_none() {
+                return Err(SelectedFactsError::new(
+                    if id.application.package.as_ref() == self.name() {
+                        SelectedFactsErrorCode::UnknownNode
+                    } else {
+                        SelectedFactsErrorCode::ForeignNode
+                    },
+                    &id.application,
+                    meter.used,
+                ));
             }
             let application_row = find_equality_row(rows.equality_applications, id, &mut meter)?;
             let mut facts = Vec::new();
