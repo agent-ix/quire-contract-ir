@@ -3561,7 +3561,7 @@ fn listed_clause_targets_missing_from_graph_reach_their_body_joins() {
     );
 }
 
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-456")]
 #[test]
 fn protocol_clause_requires_the_selected_profile_law_in_the_public_reader() {
     let mut package = v2_all_families();
@@ -3570,15 +3570,22 @@ fn protocol_clause_requires_the_selected_profile_law_in_the_public_reader() {
     settle(&mut package);
     refresh_identity(&mut package);
     let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
-    assert_eq!(
-        read(&package),
-        refusal_at_id(
-            CheckedPackageRefusalCode::InvalidPackage,
-            &format!("/semantic_graph/nodes/{position}/body/operation/laws"),
-            Some(CheckedPackageRefusalCause::OperationLawMissing),
-            &key,
-        )
+    let CheckedPackageV2ReadResult::Refused(actual) = read(&package) else {
+        panic!("missing law must refuse");
+    };
+    let mut expected = refusal_at_id(
+        CheckedPackageRefusalCode::InvalidPackage,
+        &format!("/semantic_graph/nodes/{position}"),
+        Some(CheckedPackageRefusalCause::OperationLawMissing),
+        &key,
     );
+    expected.document_pointer = Some(
+        quire_contract_model::JsonPointer::parse(&format!(
+            "/semantic_graph/nodes/{position}/body/operation/laws"
+        ))
+        .expect("test pointer"),
+    );
+    assert_eq!(actual, expected);
 }
 
 #[trace("TC-048")]

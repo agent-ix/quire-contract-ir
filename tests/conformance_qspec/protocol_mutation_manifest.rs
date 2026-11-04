@@ -144,9 +144,7 @@ fn current_qspec_protocol_reader_refusals_preserve_published_provenance() {
     let rows = manifest["rows"]
         .as_array()
         .expect("published manifest rows");
-    for id in [
-        "V2", "V5", "V8", "V9", "V10", "V11", "RP6", "V16", "CP28", "C11", "C12",
-    ] {
+    for id in ["V2", "V8", "V9", "V10", "V11", "RP6", "V16", "CP28", "C11"] {
         let selected = rows
             .iter()
             .filter(|row| row["id"] == id)

@@ -2935,6 +2935,7 @@ fn validate_graph(
         });
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
+    protocol_body::validate_temporal_selection(&graph.nodes, &kinds, &terms, &index, &wire.lock)?;
     temporal_binding::validate(
         wire.temporal_bindings.as_deref(),
         &graph.nodes,
