@@ -2430,7 +2430,7 @@ fn tc_056_a_state_clause_application_stands_only_as_a_clause_body_root() {
         &misplaced,
         Code::IllTyped,
         Some(Cause::OperatorIneligible),
-        &format!("/semantic_graph/nodes/{claim}/body"),
+        &format!("/semantic_graph/nodes/{claim}"),
         None,
     );
     // A non-Boolean condition refuses at the operation step.

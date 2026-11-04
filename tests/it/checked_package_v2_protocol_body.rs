@@ -3095,8 +3095,8 @@ fn clause_references_check_dependencies_before_target_forms() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-285
-#[trace("TC-048")]
+/// Trace: FR-038-AC-284, FR-038-AC-285, FR-038-AC-458
+#[trace("TC-048", "FR-038-AC-458")]
 #[test]
 fn clause_relationship_wrong_export_has_distinct_cause() {
     let mut package = v2_all_families();
@@ -3107,14 +3107,13 @@ fn clause_relationship_wrong_export_has_distinct_cause() {
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][4]["value"]["members"] =
         json!([{"term": "reference", "target": over}]);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
     assert_eq!(
         read(&package),
         refusal_at_id(
             CheckedPackageRefusalCode::InvalidModelBinding,
             &format!("/semantic_graph/nodes/{clause}/body/arguments/4/value/members/0/target"),
             Some(CheckedPackageRefusalCause::WrongExport),
-            &key,
+            &over,
         )
     );
 }
@@ -3630,7 +3629,7 @@ fn protocol_operator_refusal_precedes_duplicate_declaration() {
         read(&package),
         refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
-            &format!("/semantic_graph/nodes/{position}/body"),
+            &format!("/semantic_graph/nodes/{position}"),
             Some(CheckedPackageRefusalCause::OperatorIneligible),
             &key,
         )
@@ -4685,8 +4684,8 @@ fn repeat_admits_proof_and_zero_maximum_and_refuses_both_unpaired_directions() {
     ));
 }
 
-/// Trace: FR-038-AC-288
-#[trace("TC-048")]
+/// Trace: FR-038-AC-288, FR-038-AC-456
+#[trace("TC-048", "FR-038-AC-456")]
 #[test]
 fn repeat_non_boolean_guard_refuses_at_guard_not_wire() {
     let (mut package, _) = protocol_holder_case("repeat");
@@ -4695,12 +4694,20 @@ fn repeat_non_boolean_guard_refuses_at_guard_not_wire() {
         "term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "yes"
     });
     settle(&mut package);
-    holder_refusal(
-        &package,
+    let key = package["semantic_graph"]["nodes"][holder]["node_id"].clone();
+    let mut expected = refusal_at_id(
         CheckedPackageRefusalCode::IllTyped,
+        &format!("/semantic_graph/nodes/{holder}"),
         Some(CheckedPackageRefusalCause::NonBooleanRoot),
-        "/body/arguments/4/value",
+        &key,
     );
+    expected.document_pointer = Some(
+        quire_contract_model::JsonPointer::parse(&format!(
+            "/semantic_graph/nodes/{holder}/body/arguments/4/value"
+        ))
+        .expect("guard pointer"),
+    );
+    assert_eq!(read(&package), expected);
 }
 
 /// Trace: FR-038-AC-288
@@ -5648,7 +5655,7 @@ fn protocol_application_placement_precedes_duplicate_declaration() {
         read(&package),
         refusal_at_id(
             CheckedPackageRefusalCode::IllTyped,
-            &format!("/semantic_graph/nodes/{function}/body"),
+            &format!("/semantic_graph/nodes/{function}"),
             Some(CheckedPackageRefusalCause::OperatorIneligible),
             &key,
         )

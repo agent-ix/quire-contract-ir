@@ -972,9 +972,7 @@ fn tc_225_an_application_at_the_body_root_refuses_as_operator_ineligible() {
             {"term": "reference", "target": node_id(INTEGER)},
         ],
     });
-    // The abstraction step's shape check and the temporal step refuse at the
-    // node; the state step, as for every node it places a clause application
-    // at (FR-040-AC-10), refuses at the node's body.
+    // Each body-root placement refusal names the holding node (FR-040-AC-10).
     for (case, root, suffix) in [
         (
             "an ordinary class",
@@ -986,7 +984,7 @@ fn tc_225_an_application_at_the_body_root_refuses_as_operator_ineligible() {
             application("temporal_formula", "quire.op.temporal.holds"),
             "",
         ),
-        ("the state clause class", state_clause, "/body"),
+        ("the state clause class", state_clause, ""),
     ] {
         let (value, n) = rooted_in(root);
         expect(
