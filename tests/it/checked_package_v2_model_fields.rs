@@ -59,9 +59,11 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
             let mut item = "ix://quire/native/Integer".to_owned();
             for depth in 0..64 {
                 let identity = orders(&format!("Deep{depth}"));
-                selected["types"].as_array_mut().unwrap().push(json!({
-                    "identity": identity, "kind": "sequence", "items": item,
-                }));
+                selected["types"].as_array_mut().unwrap().push(if depth % 2 == 0 {
+                    json!({"identity": identity, "kind": "sequence", "items": item})
+                } else {
+                    json!({"identity": identity, "kind": "option", "inner": item})
+                });
                 item = identity;
             }
             selected["types"][1]["fields"].as_array_mut().unwrap().push(json!({
@@ -103,8 +105,12 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
                 ValueType::String,
             ];
             let mut deep = ValueType::Integer;
-            for _ in 0..64 {
-                deep = collection(CollectionKind::Sequence, deep, None);
+            for depth in 0..64 {
+                deep = if depth % 2 == 0 {
+                    collection(CollectionKind::Sequence, deep, None)
+                } else {
+                    ValueType::option(deep)
+                };
             }
             expected.push(deep);
             assert_eq!(view.fields().len(), names.len());
@@ -198,9 +204,11 @@ fn nested_collection_of_nominal_record_keeps_target_identity_and_refuses_missing
     );
     let missing = SelectedExactIdentities::from_stage_rows(
         &admitted,
-        rows.into_iter()
+        rows.clone()
+            .into_iter()
             .filter(|row| row.structural_node != structural("B")),
         fields
+            .clone()
             .into_iter()
             .filter(|row| row.record_node != structural("B")),
     )
@@ -213,6 +221,44 @@ fn nested_collection_of_nominal_record_keeps_target_identity_and_refuses_missing
         ExactTypeProjectionErrorCode::UnavailableIdentityWitness
     );
     assert_eq!(refused.at.as_deref(), Some(&structural("B")));
+    assert_eq!(refused.requested.as_ref(), &structural("A"));
+    assert_eq!(refused.form.as_ref(), "model/record_value_type");
+
+    let assert_stage_refusal = |declarations: Vec<SelectedExactDeclarationRow>,
+                                expected_code,
+                                expected_node: &CheckedNodeId| {
+        let error = SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            declarations,
+            Vec::<SelectedExactFieldRow>::new(),
+        )
+        .expect_err("invalid target identity cannot produce projection witnesses");
+        assert_eq!(error.code, expected_code);
+        assert_eq!(error.requested.as_ref(), expected_node);
+        assert_eq!(error.at.as_deref(), Some(expected_node));
+        assert_eq!(error.form.as_ref(), "selected_identity");
+        assert_eq!(error.work, 0);
+    };
+    let mut foreign = rows[1].clone();
+    foreign.structural_node.package = "foreign/package".into();
+    let foreign_node = foreign.structural_node.clone();
+    assert_stage_refusal(
+        vec![rows[0].clone(), foreign],
+        ExactTypeProjectionErrorCode::ForeignNode,
+        &foreign_node,
+    );
+    assert_stage_refusal(
+        vec![rows[0].clone(), rows[1].clone(), rows[1].clone()],
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+        &structural("B"),
+    );
+    let mut wrong_form = rows[1].clone();
+    wrong_form.form = SelectedExactDeclarationForm::ObjectType;
+    assert_stage_refusal(
+        vec![rows[0].clone(), wrong_form],
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+        &structural("B"),
+    );
     let unsupported = admitted
         .project_exact_type(&structural("Bad"), &witnesses, 100)
         .unwrap_err();
