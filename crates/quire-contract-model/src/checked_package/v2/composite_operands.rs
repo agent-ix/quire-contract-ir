@@ -3013,6 +3013,31 @@ mod tests {
             missing.code,
             super::super::SelectedFactsErrorCode::MissingRow
         );
+        let mut wrong_location = row.clone();
+        wrong_location.location = Location::new(
+            NodeKey::new("other", vec![PathSegment::Text("wrong".into())], 0).unwrap(),
+            Origin::new(Role::from("expression"), 0),
+        );
+        let mismatched_rows = [wrong_location];
+        let mismatch = package
+            .project_selected_facts(ids(), rows(&mismatched_rows), 100)
+            .unwrap_err();
+        assert_eq!(
+            mismatch.code,
+            super::super::SelectedFactsErrorCode::Equality
+        );
+        assert_eq!(
+            mismatch.equality.as_ref().unwrap().code,
+            super::super::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness
+        );
+        let mut unrelated = row.clone();
+        unrelated.application = self::id('1');
+        let more_rows = [unrelated, row.clone()];
+        let more = package
+            .project_selected_facts(ids(), rows(&more_rows), 100)
+            .unwrap();
+        assert_eq!(more.equalities, complete.equalities);
+        assert!(more.work > complete.work);
         let duplicate_rows = [row.clone(), row];
         let duplicate = package
             .project_selected_facts(ids(), rows(&duplicate_rows), 100)

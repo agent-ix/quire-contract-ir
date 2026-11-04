@@ -7,9 +7,9 @@ use super::exact_projection::project_record_field_type;
 use super::model_members::MemberType;
 use super::{
     AdmittedEqualityReadError, CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedPackageV2,
-    ExactTypeProjectionError, ModelForm, SelectedEqualityApplicationRow, SelectedEqualityFactRow,
-    SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
-    SelectedSourceUnitRow,
+    EqualityFactWitness, ExactTypeProjectionError, ModelForm, SelectedEqualityApplicationRow,
+    SelectedEqualityFactRow, SelectedExactDeclarationRow, SelectedExactFieldRow,
+    SelectedExactIdentities, SelectedSourceUnitRow,
 };
 use quire_exact::{Presence, ValueType};
 use quire_semantic_value::declaration::AdmittedEqualityDecision;
@@ -447,7 +447,8 @@ impl CheckedPackageV2 {
                 let mut selected = false;
                 for fact in &facts {
                     meter.charge(&fact.structural_node, 1)?;
-                    selected |= fact.structural_node == row.structural_node;
+                    selected |= fact.structural_node == row.structural_node
+                        || matches!(&fact.fact, EqualityFactWitness::Unit { unit_id, .. } if unit_id == &row.unit_id);
                 }
                 if selected {
                     units.push(row.clone());
