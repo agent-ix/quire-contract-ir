@@ -2934,6 +2934,95 @@ mod tests {
         );
     }
 
+    /// Trace: FR-357-AC-5, FR-357-AC-6, FR-357-AC-7.
+    #[test]
+    fn selected_facts_keep_opaque_equality_and_native_refusal() {
+        use quire_exact::{Location, NodeKey, Origin, PathSegment, Role};
+
+        let wire = boolean_equality_wire();
+        let package = match CheckedPackageV2::read(
+            &serde_json::to_vec(&wire).unwrap(),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("equality fixture must admit: {other:?}"),
+        };
+        let application = id('6');
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let original = NodeKey::new(
+            "composite",
+            vec![PathSegment::Text("selected-equality".into())],
+            0,
+        )
+        .unwrap();
+        let row = super::super::SelectedEqualityApplicationRow::new(
+            application.clone(),
+            occurrence.clone(),
+            serde_json::from_value(wire["source_map"][5].clone()).unwrap(),
+            original.clone(),
+            Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
+        );
+        let id = super::super::SelectedFactEqualityId {
+            application: application.clone(),
+            occurrence: occurrence.clone(),
+        };
+        let ids = || super::super::SelectedFactIds {
+            declarations: &[],
+            fields: &[],
+            equalities: std::slice::from_ref(&id),
+        };
+        let rows = |application_rows| super::super::SelectedFactRows {
+            declarations: &[],
+            fields: &[],
+            source_units: &[],
+            equality_applications: application_rows,
+            equality_facts: &[],
+        };
+        let application_rows = [row.clone()];
+        let complete = package
+            .project_selected_facts(ids(), rows(&application_rows), 100)
+            .unwrap();
+        assert!(complete.declarations.is_empty());
+        assert!(complete.fields.is_empty());
+        assert_eq!(complete.equalities.len(), 1);
+        assert_eq!(complete.equalities[0].id, id);
+        assert_eq!(complete.equalities[0].decision.application(), &original);
+        assert_eq!(
+            package
+                .clone()
+                .project_selected_facts(ids(), rows(&application_rows), complete.work),
+            Ok(complete.clone()),
+        );
+        let short = package
+            .project_selected_facts(ids(), rows(&application_rows), complete.work - 1)
+            .expect_err("one below complete allowance refuses");
+        assert_eq!(short.code, super::super::SelectedFactsErrorCode::Equality);
+        assert_eq!(
+            short.equality.as_ref().unwrap().code,
+            super::super::AdmittedEqualityReadErrorCode::WorkLimit
+        );
+        assert_eq!(short.occurrence, Some(occurrence));
+        let missing = package
+            .project_selected_facts(ids(), rows(&[]), 100)
+            .unwrap_err();
+        assert_eq!(
+            missing.code,
+            super::super::SelectedFactsErrorCode::MissingRow
+        );
+        let duplicate_rows = [row.clone(), row];
+        let duplicate = package
+            .project_selected_facts(ids(), rows(&duplicate_rows), 100)
+            .unwrap_err();
+        assert_eq!(
+            duplicate.code,
+            super::super::SelectedFactsErrorCode::DuplicateRow
+        );
+    }
+
     /// Trace: FR-353-AC-2.
     /// Provenance: IR-1209 application and operand admission join.
     #[test]

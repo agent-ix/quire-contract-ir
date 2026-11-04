@@ -1220,7 +1220,8 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         )
         .unwrap_err();
     assert_eq!(exhausted.code, SelectedFactsErrorCode::ExhaustedWork);
-    assert_eq!(exhausted.work, complete.work - 1);
+    assert!(exhausted.work < complete.work);
+    assert_eq!(exhausted.work + exhausted.attempted_work, complete.work);
     assert_eq!(exhausted.at.as_ref(), &record);
     assert!(exhausted.attempted_work > 0);
     let longer_rows = [extra, declaration];
