@@ -13,12 +13,13 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelFieldsError, CheckedModelObjectFields,
-    CheckedNodeId, CheckedNodePathSegment, CheckedPackageEvidence, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode,
+    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode, SelectedEqualityApplicationRow,
     SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
-    SelectedExactIdentities, SelectedExactIdentity, SelectedFactFieldId, SelectedFactIds,
-    SelectedFactRows, SelectedFactsErrorCode, SelectedTupleDeclarationRow,
+    SelectedExactIdentities, SelectedExactIdentity, SelectedFactEqualityId, SelectedFactFieldId,
+    SelectedFactIds, SelectedFactRows, SelectedFactsErrorCode, SelectedTupleDeclarationRow,
 };
 use quire_exact::{
     record, ConstructionCause, EffectiveId, FieldValue, Integer, MemberId, MemberOwner, NodeKey,
@@ -1211,6 +1212,75 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     assert_eq!(complete.fields[0].presence, Presence::Required);
     assert_eq!(complete.fields[0].value_type, ValueType::Integer);
     assert!(complete.equalities.is_empty());
+    let application: CheckedNodeId = serde_json::from_value(node_id(equality)).unwrap();
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let original_application = NodeKey::new(
+        "selected",
+        vec![PathSegment::Text("boolean-equality".into())],
+        0,
+    )
+    .unwrap();
+    let source_map_entry = admitted
+        .source_map()
+        .iter()
+        .find(|row| row.node_id == application && row.role == CheckedOccurrenceRole::Expression)
+        .expect("admitted equality source map")
+        .clone();
+    let application_row = SelectedEqualityApplicationRow::new(
+        application.clone(),
+        occurrence.clone(),
+        source_map_entry,
+        original_application.clone(),
+        quire_exact::Location::new(
+            original_application.clone(),
+            quire_exact::Origin::new(quire_exact::Role::from("expression"), 0),
+        ),
+    );
+    let selected_equality = SelectedFactEqualityId {
+        application: application.clone(),
+        occurrence: occurrence.clone(),
+    };
+    let application_rows = [application_row];
+    let combined_ids = || SelectedFactIds {
+        declarations: std::slice::from_ref(&record),
+        fields: std::slice::from_ref(&selected_field),
+        equalities: std::slice::from_ref(&selected_equality),
+    };
+    let combined_rows = || SelectedFactRows {
+        declarations: &declarations,
+        fields: &fields,
+        source_units: &[],
+        equality_applications: &application_rows,
+        equality_facts: &[],
+    };
+    let combined = admitted
+        .project_selected_facts(combined_ids(), combined_rows(), 1000)
+        .expect("one admitted read retains model, field and equality facts");
+    assert_eq!(combined.declarations, complete.declarations);
+    assert_eq!(combined.fields, complete.fields);
+    assert_eq!(combined.equalities.len(), 1);
+    assert_eq!(combined.equalities[0].id, selected_equality);
+    assert_eq!(
+        combined.equalities[0].decision.application(),
+        &original_application
+    );
+    assert_eq!(
+        admitted
+            .clone()
+            .project_selected_facts(combined_ids(), combined_rows(), combined.work),
+        Ok(combined.clone()),
+    );
+    let combined_short = admitted
+        .project_selected_facts(combined_ids(), combined_rows(), combined.work - 1)
+        .expect_err("one less than complete selected-fact work refuses");
+    assert_eq!(combined_short.code, SelectedFactsErrorCode::Equality);
+    assert_eq!(
+        combined_short.equality.as_ref().unwrap().code,
+        quire_contract_model::AdmittedEqualityReadErrorCode::WorkLimit
+    );
     let exact = admitted
         .project_selected_facts(
             SelectedFactIds {
