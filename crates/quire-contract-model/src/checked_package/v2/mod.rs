@@ -861,10 +861,9 @@ pub enum CheckedPackageV2ReadResult {
 
 /// Immutable, admitted `quire.checked-package/v2` data.
 ///
-/// Every value an admitted package holds nests to a depth the closed body
-/// grammar fixes, whatever the package's node count, so its clone,
-/// comparison, `Debug` rendering, lowering and drop need no stack that follows
-/// the package's size.
+/// The closed body grammar and flat ownership of complete selected documents
+/// keep native stack use independent of package size during clone, comparison,
+/// `Debug` rendering, lowering and drop.
 #[derive(Clone)]
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
@@ -888,6 +887,8 @@ pub struct CheckedPackageV2 {
     /// keeps: the declaration index, the field tables, the operation parameter
     /// types and the relationship records.
     models: RetainedModels,
+    /// Complete admitted selected JSON values are content, not derived caches.
+    selected_documents: Vec<Arc<quire_canonical::Document>>,
     /// Direct admitted edges; their recursively derived closure is not copied.
     direct_dependencies: Vec<std::sync::Arc<CheckedPackageV2>>,
     /// Exact identities reachable through the direct edges, shared with children.
@@ -932,7 +933,10 @@ impl PartialEq for CheckedPackageV2 {
     fn eq(&self, other: &Self) -> bool {
         self.wire == other.wire
             && self.kinds == other.kinds
-            && self.models.same_documents(&other.models)
+            && selected_document::equal_selections(
+                &self.selected_documents,
+                &other.selected_documents,
+            )
     }
 }
 
@@ -1234,6 +1238,7 @@ impl CheckedPackageV2 {
             monitor_plan_index,
             terms,
             models,
+            selected_documents,
             lowering_facts,
             structural_keys,
         } = validate(&wire, bytes, limits, evidence)?;
@@ -1315,6 +1320,7 @@ impl CheckedPackageV2 {
             lowering_facts,
             bytes: limits.bytes,
             models,
+            selected_documents,
             direct_dependencies,
             closure_index,
         })
@@ -1444,6 +1450,7 @@ struct ValidatedPackage {
     monitor_plan_index: Vec<monitor_plan::Plan>,
     terms: Vec<CheckedTerm>,
     models: RetainedModels,
+    selected_documents: Vec<Arc<quire_canonical::Document>>,
     lowering_facts: Vec<lower::LoweringNodeFacts>,
     structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
 }
@@ -1504,7 +1511,7 @@ fn validate(
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
-    let models = RetainedModels::new(declarations, models, documents);
+    let models = RetainedModels::new(declarations, models);
     operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
     if let Some(data) = wire.checked_term_data.as_ref() {
         dispatch_projection::validate_checked_term_data(
@@ -1523,6 +1530,7 @@ fn validate(
         monitor_plan_index,
         terms,
         models,
+        selected_documents: documents,
         lowering_facts,
         structural_keys,
     })
@@ -4190,6 +4198,7 @@ mod tests {
                     kinds: Vec::new(),
                     bytes: 0,
                     models: Default::default(),
+                    selected_documents: Vec::new(),
                     direct_dependencies: Vec::new(),
                     closure_index: Default::default(),
                 };

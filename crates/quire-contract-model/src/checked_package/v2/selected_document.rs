@@ -4,7 +4,16 @@
 //! Complete selected JSON comparison without recursive ownership or traversal.
 
 use quire_canonical::{Document, Node, Number};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
+
+/// Compare semantic selected inputs independently of admission-derived caches.
+pub(super) fn equal_selections(left: &[Arc<Document>], right: &[Arc<Document>]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| Arc::ptr_eq(left, right) || equal_documents(left, right))
+}
 
 /// Compare the admitted JSON views while borrowing the original flat arenas.
 /// Native stack use does not depend on document depth.

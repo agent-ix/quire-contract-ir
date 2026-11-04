@@ -1096,17 +1096,11 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             terms,
             kinds,
             bytes: BYTES,
-            models: RetainedModels::new(
-                index,
-                vec![model],
-                vec![std::sync::Arc::new(
-                    quire_canonical::read(
-                        &serde_json::to_vec(document).expect("selected JSON"),
-                        BYTES,
-                    )
+            models: RetainedModels::new(index, vec![model]),
+            selected_documents: vec![std::sync::Arc::new(
+                quire_canonical::read(&serde_json::to_vec(document).expect("selected JSON"), BYTES)
                     .expect("flat selected document"),
-                )],
-            ),
+            )],
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
         },

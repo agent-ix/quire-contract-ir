@@ -21,7 +21,6 @@ use super::model_members::{
     DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, NativeTypeRef,
     Owner, RelationshipDecl, SelectedTypeRef, SelectedVariantCase,
 };
-use super::selected_document::equal_documents;
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
 use std::collections::{BTreeMap, BTreeSet};
@@ -529,11 +528,10 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNo
 /// the declaration index, each document's field tables, the selected
 /// operation parameter types needed for clause-context reads, and each
 /// selected relationship's [`RetainedRelationship`] record.
-/// Only the complete admitted documents take part in package equality;
-/// the derived tables, indexes and read limits do not.
+/// These are derived caches and do not take part in package equality.
+/// The package separately retains complete admitted documents as content.
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
-    documents: Vec<Arc<quire_canonical::Document>>,
     index: DeclarationIndex,
     object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>>,
     /// Admitted selected documents, including their field tables, for
@@ -928,20 +926,7 @@ impl RetainedModels {
             .fields
             .exposed_names(&declared.node)
     }
-    pub(super) fn same_documents(&self, other: &Self) -> bool {
-        self.documents.len() == other.documents.len()
-            && self
-                .documents
-                .iter()
-                .zip(&other.documents)
-                .all(|(left, right)| Arc::ptr_eq(left, right) || equal_documents(left, right))
-    }
-
-    pub(super) fn new(
-        index: DeclarationIndex,
-        models: Vec<DomainModel>,
-        documents: Vec<Arc<quire_canonical::Document>>,
-    ) -> Self {
+    pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
         let mut object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>> =
             BTreeMap::new();
         for (key, declared) in &index.0 {
@@ -990,7 +975,6 @@ impl RetainedModels {
             }
         }
         Self {
-            documents,
             index,
             object_declarations,
             models,
