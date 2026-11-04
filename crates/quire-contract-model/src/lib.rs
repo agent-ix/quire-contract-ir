@@ -231,10 +231,6 @@ pub use checked_package::{
     EqualityFactWitness, EqualityOperandTypeRole, EqualityUnitRole, EqualityWitnessKind,
     SelectedEqualityApplicationRow, SelectedEqualityFactRow,
 };
-pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
-pub use checked_package::{
-    CheckedModelVariantBody, CheckedModelVariantCase, CheckedVariantPayloadType,
-};
 pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
     CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
@@ -255,6 +251,10 @@ pub use checked_package::{
 #[cfg(feature = "test-support")]
 pub use checked_package::{
     CheckedApplicationOperationFixture, CheckedApplicationOperationFixtureError,
+};
+pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
+pub use checked_package::{
+    CheckedModelVariantBody, CheckedModelVariantCase, CheckedVariantPayloadType,
 };
 pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{
