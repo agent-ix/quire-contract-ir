@@ -58,6 +58,15 @@ admission authority.
   binding with its ordered final-emission IR payload `CheckedNodeId`s and
   corresponding QSL-issued payload `ValueType`s. The type handle and settled
   key are distinct roles even when their values happen to agree.
+- For a source-owned selected tuple, one QSL checking/emission-stage
+  `SelectedSourceTupleRow` from the same final emission. It carries the final
+  admitted tuple node, selected source authority and identity, original
+  qualified declaration, QSL-issued `AdmittedComposite::key()` type handle,
+  and every position in declaration order. Each `SelectedTuplePositionRow`
+  carries its zero-based original ordinal, final emitted IR type node and
+  QSL-issued opaque Exact `ValueType`. A tuple position has no invented field
+  name or `MemberId`; `AdmittedComposite::node()` is not substituted for the
+  type handle.
 - For an admitted equality application, QSL checking/emission-stage identity
   rows from the same package construction. An application row carries the full
   emitted `CheckedNodeId`, its exact authored occurrence, the selected producer
@@ -264,6 +273,17 @@ caller's projection work limit. No union row is added to the QSpec wire.
 The missing-witness refusal does not satisfy QSL's required successful union
 reader and evaluation parity under
 [FR-390](ix://agent-ix/quire-spec-language/FR-390) AC-27.
+For a source-owned tuple, IR SHALL join the complete selected tuple row to the
+admitted tuple's full structural node, selected source, source owner, original
+qualified declaration and exact tuple form. It SHALL compare every admitted
+position with one row in source order by ordinal and final type-node reference,
+require a complete equal-length census, and refuse a missing, foreign, stale,
+wrong-form, duplicate, reordered or incomplete row before projecting
+`Composite` with the QSL-issued type handle. The row SHALL retain the ordered
+opaque position `ValueType`s for a downstream `TypeEnvironment`; IR SHALL NOT
+infer them, mint the handle or treat arbitrary caller rows as producer authority.
+The join and projection SHALL charge every inspected row and position under a
+finite allowance and expose no partial tuple view on refusal.
 The projection SHALL
 terminate or report work exhaustion within the caller's finite limit;
 neither recursion depth nor expansion of a cyclic type may bypass the limit.
@@ -296,6 +316,7 @@ AC-6 and AC-11; this projection alone does not satisfy those criteria.
 | FR-352-AC-15 | IMPLEMENTED (IR-1324). A selected record with a deep admitted chain of sequence member types, including an alternating sequence and option chain in which each option's inner target is a sequence rather than an option directly or through aliases, projects using bounded iterative work and a small host stack. At the exact work allowance it returns the complete view; one less refuses with typed work exhaustion, charged work and first uncharged member locus. Equal admitted inputs and allowances, including a package clone, return equal views or equal first stops. | Test |
 | FR-352-AC-16 | A complete IR-side selected source union row joins one admitted union by structural node, selected source authority and identity, source owner, original qualified declaration, QSL-issued type handle and settled key, and all sealed members with ordered final-emission payload `CheckedNodeId`s and corresponding `ValueType`s. An IR caller can inspect the validated settled key and ordered bindings; the general projection returns `Composite` with the type handle, including when it differs from the settled key. A projection at the exact finite allowance succeeds, one unit less exhausts with charged work, and equal reads of a package clone agree. This IR-side row test does not assert that QSL currently emits the row. | Test |
 | FR-352-AC-17 | A missing row or a bare union declaration key returns `UnavailableIdentityWitness`. A foreign or stale structural node or payload node, unselected or mismatched source, wrong declaration form or qualified name, duplicate union row, missing/reordered/extra member, wrong member identifier, settled-key owner or payload count refuses with a named typed outcome before `Composite` or a partial union view. A caller-created row is not authenticated as QSL output by the IR join. | Test |
+| FR-352-AC-18 | A complete IR-owned selected source tuple row joins the selected source, admitted tuple form and original qualified declaration, one QSL-issued `AdmittedComposite::key()` type handle, and every ordered zero-based position with its final emitted type node and opaque `ValueType`. Exact projection returns `Composite` of that handle and the complete ordered tuple view, with exact-limit and clone equality. Missing, foreign, duplicate, stale, wrong-form, reordered, changed-type or incomplete rows refuse at a typed structural locus with no partial view; a bare key and caller-created opaque values do not establish QSL producer authority. This IR-owned row qualification does not claim the final QSL producer supplies positions or satisfy FR-357's monitor closure. | Test |
 
 ## Dependencies
 

@@ -362,6 +362,37 @@ pub struct SelectedSourceRecordRow {
     pub members: Vec<SelectedSourceRecordMemberRow>,
 }
 
+/// One source tuple position, in original zero-based declaration order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedTuplePositionRow {
+    /// Original positional identity in the source declaration.
+    pub ordinal: u64,
+    /// Final emitted IR node of this position's type.
+    pub type_node: CheckedNodeId,
+    /// QSL-issued opaque Exact type of this position.
+    pub value_type: ValueType,
+}
+
+/// Complete selected source tuple declaration and ordered position witness.
+///
+/// IR verifies structural correspondence. Caller-created opaque Exact values
+/// do not thereby acquire QSL producer authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedSourceTupleRow {
+    /// Final admitted tuple declaration node.
+    pub structural_node: CheckedNodeId,
+    /// Selected raw source authority.
+    pub source_authority: Box<str>,
+    /// Selected raw source identity.
+    pub source_identity: Box<str>,
+    /// Original qualified declaration segments.
+    pub qualified_declaration: Vec<Box<str>>,
+    /// QSL-issued `AdmittedComposite::key()` Exact type handle.
+    pub type_handle: NodeKey,
+    /// Every position in original declaration order.
+    pub positions: Vec<SelectedTuplePositionRow>,
+}
+
 impl SelectedSourceUnionRow {
     /// Carry the complete selected source-union claim.
     pub fn new(
@@ -494,6 +525,42 @@ fn source_record_row_matches(package: &CheckedPackageV2, row: &SelectedSourceRec
             })
 }
 
+fn source_tuple_row_matches(package: &CheckedPackageV2, row: &SelectedSourceTupleRow) -> bool {
+    let Some(node) = package.node(&row.structural_node) else {
+        return false;
+    };
+    let selected_source = package.lock().sources.iter().any(|source| {
+        source.authority == row.source_authority && source.identity == row.source_identity
+    });
+    let matching_owner = matches!(
+        &node.owner,
+        Some(CheckedNodeOwner::Source { authority, identity })
+            if authority == &row.source_authority && identity == &row.source_identity
+    );
+    let matching_declaration = node
+        .declaration
+        .as_ref()
+        .is_some_and(|declaration| declaration.qualified_name == row.qualified_declaration);
+    let Some(admitted) = package.term(&row.structural_node).and_then(typed_aggregate) else {
+        return false;
+    };
+    package.node_kind(&row.structural_node)
+        == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple))
+        && selected_source
+        && matching_owner
+        && matching_declaration
+        && admitted.len() == row.positions.len()
+        && admitted
+            .iter()
+            .zip(&row.positions)
+            .enumerate()
+            .all(|(ordinal, (term, position))| {
+                u64::try_from(ordinal) == Ok(position.ordinal)
+                    && matches!(term, CheckedTerm::Reference { target }
+                        if target == &position.type_node && package.node(target).is_some())
+            })
+}
+
 /// One source-owned enum case's QSL-stage Exact member identity.
 ///
 /// The enum-member form is fixed by this row type. A later admitted join must
@@ -551,6 +618,7 @@ pub struct SelectedExactIdentities {
     admitted_source_units: BTreeMap<CheckedNodeId, UnitId>,
     source_unions: Arc<BTreeMap<CheckedNodeId, SelectedSourceUnionRow>>,
     source_records: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceRecordRow>>>,
+    source_tuples: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceTupleRow>>>,
 }
 
 impl SelectedExactIdentities {
@@ -714,6 +782,12 @@ impl SelectedExactIdentities {
                 .values()
                 .map(|row| row.record_key.clone()),
         );
+        handles.extend(
+            selected
+                .source_tuples
+                .values()
+                .map(|row| row.type_handle.clone()),
+        );
         for row in rows {
             let id = &row.structural_node;
             if package.node(id).is_none() {
@@ -843,6 +917,16 @@ impl SelectedExactIdentities {
                 )?;
                 conflicting_handle |= record.record_key == row.record_key;
             }
+            for tuple in selected.source_tuples.values() {
+                charge_work(
+                    id,
+                    &tuple.structural_node,
+                    "record_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= tuple.type_handle == row.record_key;
+            }
             if selected.source_records.contains_key(id) || conflicting_handle {
                 let mut error =
                     witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
@@ -857,6 +941,115 @@ impl SelectedExactIdentities {
     /// Validated source record rows, keyed by the final admitted node.
     pub fn source_record_rows(&self) -> impl Iterator<Item = &SelectedSourceRecordRow> {
         self.source_records.values().map(Arc::as_ref)
+    }
+
+    /// Join complete source tuple rows under a finite allowance.
+    ///
+    /// This checks structural correspondence; opaque Exact values remain QSL
+    /// producer claims and are not authenticated by this join.
+    pub fn with_source_tuple_rows(
+        &self,
+        package: &CheckedPackageV2,
+        rows: impl IntoIterator<Item = SelectedSourceTupleRow>,
+        work_limit: u64,
+    ) -> Result<Self, ExactTypeProjectionError> {
+        let mut selected = self.clone();
+        let mut work = 0;
+        for row in rows {
+            let id = &row.structural_node;
+            charge_work(id, id, "source_tuple_row", &mut work, work_limit)?;
+            for _ in &package.lock().sources {
+                charge_work(id, id, "selected_source", &mut work, work_limit)?;
+            }
+            for segment in &row.qualified_declaration {
+                charge_work_amount(
+                    id,
+                    id,
+                    "tuple_declaration",
+                    &mut work,
+                    work_limit,
+                    u64::try_from(segment.len()).unwrap_or(u64::MAX),
+                )?;
+            }
+            for position in &row.positions {
+                charge_work(
+                    id,
+                    &position.type_node,
+                    "tuple_position",
+                    &mut work,
+                    work_limit,
+                )?;
+            }
+            if package.node(id).is_none() {
+                let mut error = selected_declaration_error(package, id);
+                error.work = work;
+                return Err(error);
+            }
+            if !source_tuple_row_matches(package, &row) {
+                let mut error =
+                    witness_error(id, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
+                error.work = work;
+                return Err(error);
+            }
+            let mut conflicting_handle = false;
+            for declaration in selected.declarations.values() {
+                charge_work(
+                    id,
+                    &declaration.structural_node,
+                    "tuple_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= matches!(&declaration.exact_identity,
+                    SelectedExactIdentity::Record(key)
+                    | SelectedExactIdentity::Union(key)
+                    | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key))
+                    if key == &row.type_handle);
+            }
+            for union in selected.source_unions.values() {
+                charge_work(
+                    id,
+                    &union.structural_node,
+                    "tuple_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= union.type_handle == row.type_handle;
+            }
+            for record in selected.source_records.values() {
+                charge_work(
+                    id,
+                    &record.structural_node,
+                    "tuple_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= record.record_key == row.type_handle;
+            }
+            for tuple in selected.source_tuples.values() {
+                charge_work(
+                    id,
+                    &tuple.structural_node,
+                    "tuple_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= tuple.type_handle == row.type_handle;
+            }
+            if selected.source_tuples.contains_key(id) || conflicting_handle {
+                let mut error =
+                    witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
+                error.work = work;
+                return Err(error);
+            }
+            Arc::make_mut(&mut selected.source_tuples).insert(id.clone(), Arc::new(row));
+        }
+        Ok(selected)
+    }
+
+    /// Structurally joined source tuple rows, keyed by final admitted node.
+    pub fn source_tuple_rows(&self) -> impl Iterator<Item = &SelectedSourceTupleRow> {
+        self.source_tuples.values().map(Arc::as_ref)
     }
 
     pub(super) fn with_admitted_type_rows(
@@ -977,6 +1170,7 @@ pub struct ExactTypeProjection {
     value_type: ValueType,
     record_view: Option<SelectedRecordView>,
     source_record_view: Option<Arc<SelectedSourceRecordRow>>,
+    source_tuple_view: Option<Arc<SelectedSourceTupleRow>>,
     work: u64,
 }
 
@@ -1006,6 +1200,11 @@ impl ExactTypeProjection {
     /// Its opaque key and member types remain QSL producer claims.
     pub fn source_record_view(&self) -> Option<&SelectedSourceRecordRow> {
         self.source_record_view.as_deref()
+    }
+
+    /// Complete structurally joined source tuple row, when this type is a source tuple.
+    pub fn source_tuple_view(&self) -> Option<&SelectedSourceTupleRow> {
+        self.source_tuple_view.as_deref()
     }
 
     /// Work units charged by this complete projection.
@@ -1426,6 +1625,7 @@ impl CheckedPackageV2 {
         };
         let mut record_view = None;
         let mut source_record_view = None;
+        let mut source_tuple_view = None;
         let value_type = match kind {
             CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => ValueType::Boolean,
             CheckedNodeKind::ScalarType(ScalarTypeForm::Integer) => ValueType::Integer,
@@ -1647,6 +1847,45 @@ impl CheckedPackageV2 {
                 }
                 ValueType::Composite(row.type_handle.clone())
             }
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => {
+                let row = identities.source_tuples.get(type_id).ok_or_else(|| {
+                    refuse(
+                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                        work,
+                    )
+                })?;
+                charge_work(requested, type_id, "source_tuple", &mut work, work_limit)?;
+                for _ in &self.lock().sources {
+                    charge_work(requested, type_id, "selected_source", &mut work, work_limit)?;
+                }
+                for segment in &row.qualified_declaration {
+                    charge_work_amount(
+                        requested,
+                        type_id,
+                        "tuple_declaration",
+                        &mut work,
+                        work_limit,
+                        u64::try_from(segment.len()).unwrap_or(u64::MAX),
+                    )?;
+                }
+                for position in &row.positions {
+                    charge_work(
+                        requested,
+                        &position.type_node,
+                        "tuple_position",
+                        &mut work,
+                        work_limit,
+                    )?;
+                }
+                if !source_tuple_row_matches(self, row) {
+                    return Err(refuse(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                        work,
+                    ));
+                }
+                source_tuple_view = Some(Arc::clone(row));
+                ValueType::Composite(row.type_handle.clone())
+            }
             CheckedNodeKind::ScalarType(ScalarTypeForm::Unit) => {
                 match identities
                     .declaration_identity(self, type_id)
@@ -1676,6 +1915,7 @@ impl CheckedPackageV2 {
             value_type,
             record_view,
             source_record_view,
+            source_tuple_view,
             work,
         })
     }
