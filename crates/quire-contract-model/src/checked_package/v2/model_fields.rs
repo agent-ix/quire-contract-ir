@@ -4,6 +4,8 @@
 //! [`CheckedPackageV2`] retains, and the accessor
 //! [`CheckedPackageV2::model_object_fields`] that reads the field tables (the
 //! relationship records are read by `CheckedPackageV2::relationship_end`).
+//! [`CheckedPackageV2::model_record_fields`] reads the same retained tables
+//! for selected model record declarations without projecting Exact types.
 //!
 //! A model declaration node's body is `aggregate{[]}` and carries no member,
 //! so the field set of a model object type is in the selected domain package
@@ -1336,6 +1338,85 @@ impl CheckedModelObjectFields {
     }
 }
 
+/// One effective field of an admitted selected model record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedModelRecordField {
+    identity: Box<str>,
+    name: Box<str>,
+    optional: bool,
+    member_type: Option<CheckedMemberType>,
+}
+
+impl CheckedModelRecordField {
+    /// The selected IR identity of this field.
+    pub fn identity(&self) -> &str {
+        &self.identity
+    }
+
+    /// The field's declared name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Whether the field may be absent, independently of an `Option` member type.
+    pub fn optional(&self) -> bool {
+        self.optional
+    }
+
+    /// The member type derived at admission, if the selected type has one.
+    pub fn member_type(&self) -> Option<&CheckedMemberType> {
+        self.member_type.as_ref()
+    }
+}
+
+/// The complete effective fields of a selected model record, in declaration order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedModelRecordFields {
+    fields: Vec<CheckedModelRecordField>,
+}
+
+impl CheckedModelRecordFields {
+    /// Every effective field, including inherited and unread fields.
+    pub fn fields(&self) -> &[CheckedModelRecordField] {
+        &self.fields
+    }
+
+    /// The field named `name`, or `None` when no effective field has that name.
+    pub fn field(&self, name: &str) -> Option<&CheckedModelRecordField> {
+        self.fields.iter().find(|field| field.name() == name)
+    }
+}
+
+/// Why a selected model record's effective field set cannot be returned.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CheckedModelRecordFieldsError {
+    /// The admitted graph has no node with the requested identity.
+    UnknownNode,
+    /// The node is not a selected model record declaration.
+    NotModelRecordType,
+    /// Two effective fields share this retained ambiguous name.
+    AmbiguousField(Box<str>),
+}
+
+impl fmt::Display for CheckedModelRecordFieldsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownNode => formatter.write_str("the graph holds no node with that identity"),
+            Self::NotModelRecordType => {
+                formatter.write_str("the node is not a selected model record declaration")
+            }
+            Self::AmbiguousField(name) => {
+                write!(
+                    formatter,
+                    "two effective record fields share the name `{name}`"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for CheckedModelRecordFieldsError {}
+
 /// Why [`CheckedPackageV2::model_object_fields`] returned no fields.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedModelFieldsError {
@@ -1412,6 +1493,39 @@ impl CheckedPackageV2 {
     /// no body. Cases appear in ascending UTF-8 name order.
     pub fn model_variant_body(&self, node: &CheckedNodeId) -> Option<CheckedModelVariantBody<'_>> {
         self.models.variant_body(node)
+    }
+
+    /// The retained effective fields of a selected model record. This read
+    /// does not require an Exact identity witness for each member type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CheckedModelRecordFieldsError::UnknownNode`] for a missing
+    /// graph node, [`CheckedModelRecordFieldsError::NotModelRecordType`] for a
+    /// non-record node, or [`CheckedModelRecordFieldsError::AmbiguousField`]
+    /// when effective fields share a name.
+    pub fn model_record_fields(
+        &self,
+        record: &CheckedNodeId,
+    ) -> Result<CheckedModelRecordFields, CheckedModelRecordFieldsError> {
+        self.node(record)
+            .ok_or(CheckedModelRecordFieldsError::UnknownNode)?;
+        let (ambiguous, selected) = self
+            .models
+            .selected_record_fields(record)
+            .ok_or(CheckedModelRecordFieldsError::NotModelRecordType)?;
+        if let Some(name) = ambiguous {
+            return Err(CheckedModelRecordFieldsError::AmbiguousField(name.into()));
+        }
+        let fields = selected
+            .map(|field| CheckedModelRecordField {
+                identity: field.identity.into(),
+                name: field.name.into(),
+                optional: field.optional,
+                member_type: field.member_type.map(CheckedMemberType::from),
+            })
+            .collect();
+        Ok(CheckedModelRecordFields { fields })
     }
 
     /// The effective fields of the model object type whose model declaration

@@ -13,8 +13,8 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelFieldsError, CheckedModelObjectFields,
-    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole,
-    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedModelRecordFieldsError, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence,
+    CheckedOccurrenceRole, CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode, SelectedEqualityApplicationRow,
     SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
@@ -32,6 +32,106 @@ use std::collections::BTreeMap;
 const IDENTITY: &str = "acme/orders";
 const OBJECT: &str = "object_type";
 const INTERFACE: &str = "systems_interface";
+
+/// Trace: FR-038-AC-467, FR-038-AC-468.
+#[trace("FR-038-AC-467", "FR-038-AC-468")]
+#[test]
+fn selected_record_fields_expose_presence_and_shape_without_exact_member_projection() {
+    let mut selected = document(vec![
+        json!({"identity": orders("OptInt"), "kind": "option", "inner": "ix://quire/native/Integer"}),
+        typed_object(
+            "Receipt",
+            "record",
+            &[],
+            &[
+                field("link", &orders("Other")),
+                field("note", "ix://quire/native/String").optional(),
+                field("maybe_count", &orders("OptInt")),
+                field("nested", &orders("OptInt")).many((0, Some(3), true, false)),
+            ],
+        ),
+        object("Other", &[], &[]),
+    ]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind": {"module": IDENTITY, "name": "record"},
+        "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+    }));
+    let admitted = admit(&selected, &[("Receipt", "record_value_type")], &[]);
+    let receipt: CheckedNodeId =
+        serde_json::from_value(node_id(&declaration_key("Receipt", "record_value_type")))
+            .expect("record node id");
+    let fields = admitted
+        .model_record_fields(&receipt)
+        .expect("selected record fields");
+    assert_eq!(
+        fields
+            .fields()
+            .iter()
+            .map(|field| field.name())
+            .collect::<Vec<_>>(),
+        ["link", "note", "maybe_count", "nested"]
+    );
+    let link = fields.field("link").expect("link field");
+    assert_eq!(link.identity(), format!("{}/link", orders("Receipt")));
+    assert!(!link.optional());
+    assert_eq!(
+        link.member_type(),
+        Some(&CheckedMemberType::Reference(declaration_id("Other")))
+    );
+    let note = fields.field("note").expect("optional note");
+    assert!(note.optional());
+    assert_eq!(note.member_type(), Some(&CheckedMemberType::String));
+    let maybe_count = fields.field("maybe_count").expect("required option");
+    assert!(!maybe_count.optional());
+    assert_eq!(
+        maybe_count.member_type(),
+        Some(&CheckedMemberType::Option(Box::new(
+            CheckedMemberType::Integer
+        )))
+    );
+    let nested = fields.field("nested").expect("nested collection");
+    assert!(!nested.optional());
+    assert_eq!(
+        nested.member_type(),
+        Some(&CheckedMemberType::Collection {
+            kind: CheckedCollectionKind::Sequence,
+            element: Box::new(CheckedMemberType::Option(Box::new(
+                CheckedMemberType::Integer
+            ))),
+            bounds: Some((0, 3)),
+        })
+    );
+    assert_eq!(fields.field("absent"), None);
+    assert_eq!(admitted.clone().model_record_fields(&receipt), Ok(fields));
+
+    let key = NodeKey::new("checked", vec![PathSegment::Text("Receipt".into())], 0).unwrap();
+    let names = ["link", "note", "maybe_count", "nested"];
+    let declaration = SelectedExactDeclarationRow::new(
+        receipt.clone(),
+        IDENTITY,
+        SelectedExactDeclarationForm::RecordValueType,
+        orders("Receipt"),
+        SelectedExactIdentity::Record(key.clone()),
+    );
+    let field_rows = names.map(|name| {
+        SelectedExactFieldRow::new(
+            receipt.clone(),
+            IDENTITY,
+            orders("Receipt"),
+            format!("{}/{name}", orders("Receipt")),
+            MemberId::new(MemberOwner::Node(key.clone()), name).unwrap(),
+        )
+    });
+    let identities = SelectedExactIdentities::from_stage_rows(&admitted, [declaration], field_rows)
+        .expect("record identity rows");
+    let refusal = admitted
+        .project_exact_type(&receipt, &identities, 100)
+        .expect_err("unselected object member cannot complete Exact projection");
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+    );
+}
 
 #[trace("FR-352-AC-12", "FR-352-AC-13", "FR-352-AC-15")]
 #[test]
