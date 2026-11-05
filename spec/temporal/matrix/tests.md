@@ -15,4 +15,13 @@ type: TestMatrix
 
 | Test ID | Title | Type | Traces To | Status |
 |---|---|---|---|---|
-| TC-461 | Project native temporal subjects and join owner results through correspondence | Integration | FR-350-AC-1, FR-350-AC-2, FR-350-AC-3, FR-350-AC-4, FR-350-AC-5, FR-350-AC-6, FR-350-AC-8 | 🚧 Planned in `agent-ix/quire-integration` (IR-358); covers QSL classification, strict `/2` inputs, every bounded past operator, TL owner readers, native/TL joins, mutations and limits. |
+| TC-461 | Project native temporal subjects and join owner results through correspondence | Integration | FR-350-AC-1, FR-350-AC-2, FR-350-AC-3, FR-350-AC-4, FR-350-AC-5, FR-350-AC-6, FR-350-AC-8 | 🚧 Planned in `agent-ix/quire-integration` (IR-358); covers QSL classification, admitted checked-package/v2 inputs, every bounded past operator, TL owner readers, native/TL joins, mutations and limits. |
+
+## Input-binding evidence
+
+The instance-binding control in `agent-ix/quire-integration`
+`tests/temporal_mapping_binding.rs` exercises the checked-view input boundary:
+foreign but equal admitted instances, altered disposition, retained definition
+authority and surrounding closure. It is partial TC-461 evidence only. The
+projection, TL reader, native-result join and limit controls above remain Planned;
+this input check does not confer whole-criterion coverage.
