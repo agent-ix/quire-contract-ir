@@ -60,19 +60,21 @@ node key.
 Under a bounds-required profile, lower a record whose field is typed at a
 `unit` node, a parameter typed at a `compound_unit` node, and
 `Sequence<Quantity>[0,3]` whose element type is a `unit` node. From the
-published QSpec FR-322 `Quantity<u, C>` form, lower a record whose field is
-declared at a self-typed `scalar_type`/`carried_quantity` with an admitted
-bounded numeric carrier, and lower a parameter declared at the same form.
-Lower a record with both a field declared directly at that `unit` and a field
-declared at the carried quantity. Lower a `unit` declaration and a
+published QSpec FR-322 `Quantity<u, C>` form, lower three separate positive
+value positions declared at self-typed `scalar_type`/`carried_quantity` nodes:
+a record field with an admitted `integer_range` carrier, a parameter with an
+admitted `decimal_range` carrier, and a record field with an admitted
+`rational_range` carrier. Lower a record with both a field declared directly
+at the integer-carried field's `unit` and a field declared at that carried
+quantity. Lower a `unit` declaration and a
 `compound_unit` node as requested nodes, a record with no quantity position
 whose closure reaches a unit only as a `literal.type` annotation, and an
 application whose `result_type` is a quantity over parameters typed at the
 carried quantity.
 
 The first three return `requires_bound` naming the exact `unit` or
-`compound_unit` node at the offending position. The carried-typed record and
-parameter each lower. The mixed record returns `requires_bound` naming its
+`compound_unit` node at the offending position. Each of the three
+carried-typed controls lowers. The mixed record returns `requires_bound` naming its
 directly used `unit`, despite the bounded carrier elsewhere in its closure. The
 requested nodes, the annotation-only record and the application lower.
 
