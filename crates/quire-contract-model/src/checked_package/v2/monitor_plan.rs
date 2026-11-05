@@ -256,6 +256,8 @@ pub enum CheckedMonitorClockReadErrorCode {
     WrongRole,
     /// The clause has no such admitted claim occurrence.
     UnknownOccurrence,
+    /// The admitted claim has no clock binding.
+    MissingClock,
     /// The next inspection exceeds the caller's allowance.
     WorkLimit,
 }
@@ -417,7 +419,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             |row| (&row.declaration, row.occurrence),
             &mut budget,
         )?
-        .expect("strict admission requires a clock for every configured claim");
+        .ok_or_else(|| budget.error(CheckedMonitorClockReadErrorCode::MissingClock, clause))?;
         let name = selected_row(
             self.package,
             self.package.temporal_clause_names().unwrap_or_default(),

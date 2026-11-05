@@ -149,6 +149,36 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     assert_eq!(unknown.occurrence, missing);
     assert_eq!(unknown.attempted_work, 0);
 
+    fn use_infinite_trace(value: &mut Value) {
+        match value {
+            Value::String(text) if text == "quire.temporal.event-position.false-extension/v1" => {
+                *text = "quire.temporal.infinite-trace/v1".into();
+            }
+            Value::Array(values) => values.iter_mut().for_each(use_infinite_trace),
+            Value::Object(values) => values.values_mut().for_each(use_infinite_trace),
+            _ => {}
+        }
+    }
+    let mut unconfigured = wire.clone();
+    use_infinite_trace(&mut unconfigured);
+    finish(&mut unconfigured);
+    unconfigured
+        .as_object_mut()
+        .unwrap()
+        .remove("temporal_bindings");
+    let no_clock_package = admitted(&unconfigured);
+    let no_clock_plan = no_clock_package.monitor_plans().next().unwrap();
+    let no_clock = no_clock_plan
+        .clock_for_claim(no_clock_plan.clause(), &second, 100)
+        .unwrap_err();
+    assert_eq!(
+        no_clock.code,
+        CheckedMonitorClockReadErrorCode::MissingClock
+    );
+    assert_eq!(no_clock.at.as_ref(), no_clock_plan.clause());
+    assert_eq!(no_clock.occurrence, second);
+    assert_eq!(no_clock.attempted_work, 0);
+
     let mut extended = wire.clone();
     append(
         &mut extended,
