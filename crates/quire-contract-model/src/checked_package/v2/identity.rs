@@ -741,11 +741,23 @@ impl NominalBody {
         &'a self,
         visitor: &mut impl FnMut(&'a CheckedNodeId),
     ) {
+        self.try_visit_reference_targets(&mut |id| {
+            visitor(id);
+            Ok::<_, std::convert::Infallible>(())
+        })
+        .unwrap_or_else(|never| match never {});
+    }
+
+    /// Visit each flat nominal reference and stop immediately on visitor refusal.
+    pub(super) fn try_visit_reference_targets<'a, E>(
+        &'a self,
+        visitor: &mut impl FnMut(&'a CheckedNodeId) -> Result<(), E>,
+    ) -> Result<(), E> {
         match &self.kind {
             NominalBodyKind::Enum { .. } => {}
             NominalBodyKind::Dimension { terms } => {
                 for term in terms {
-                    visitor(&term.dimension_node_id);
+                    visitor(&term.dimension_node_id)?;
                 }
             }
             NominalBodyKind::Unit {
@@ -753,9 +765,9 @@ impl NominalBody {
                 target_unit_node_id,
                 ..
             } => {
-                visitor(dimension_node_id);
+                visitor(dimension_node_id)?;
                 if let Some(id) = target_unit_node_id {
-                    visitor(id);
+                    visitor(id)?;
                 }
             }
             NominalBodyKind::DimensionEquivalence {
@@ -763,11 +775,12 @@ impl NominalBody {
             } => {
                 for operand in dimension_node_ids {
                     if let CheckedDimensionOperand::Local(id) = operand {
-                        visitor(id);
+                        visitor(id)?;
                     }
                 }
             }
         }
+        Ok(())
     }
 }
 

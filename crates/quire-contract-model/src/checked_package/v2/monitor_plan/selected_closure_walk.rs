@@ -85,10 +85,13 @@ impl Walk<'_> {
         role: EdgeRole,
         to: &CheckedNodeId,
     ) -> Result<(), SelectedGraphWalkError> {
-        self.charge(to)?;
-        if self.seen_edges.insert((from.clone(), role, to.clone())) {
-            self.pending.push(to.clone());
+        let edge = (from.clone(), role, to.clone());
+        if self.seen_edges.contains(&edge) {
+            return Ok(());
         }
+        self.charge(to)?;
+        self.seen_edges.insert(edge);
+        self.pending.push(to.clone());
         Ok(())
     }
 
@@ -378,6 +381,111 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, SelectedGraphWalkErrorCode::UnsupportedTerm);
         assert_eq!(error.at, entry);
+    }
+
+    /// Trace: FR-357-AC-12. A second identical reference visits one more
+    /// term, while the already visited graph edge costs no additional work.
+    #[test]
+    #[ignore = "requires QUIRE_SPECIFICATION_DIR checkout; run in QSpec conformance lane"]
+    fn repeated_reference_edge_is_charged_once() {
+        let mut single = admitted_seeded_package(false);
+        let entry = single
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .init()
+            .node_id()
+            .clone();
+        let target = single.monitor_plans().next().unwrap().state().clone();
+        let position = single
+            .graph()
+            .nodes
+            .iter()
+            .position(|node| node.node_id == entry)
+            .unwrap();
+        single.terms[position] =
+            CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
+        let mut repeated = single.clone();
+        repeated.terms[position] = CheckedTerm::aggregate(vec![
+            CheckedTerm::reference(target.clone()),
+            CheckedTerm::reference(target),
+        ]);
+        let once = single
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .selected_graph_walk(u64::MAX)
+            .unwrap();
+        let twice = repeated
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .selected_graph_walk(u64::MAX)
+            .unwrap();
+        assert_eq!(twice.nodes, once.nodes);
+        assert_eq!(twice.work, once.work + 1);
+    }
+
+    /// Trace: FR-357-AC-12. A wide ordinary body stops on its first
+    /// uncharged child; the visitor does not need a worklist entry per child.
+    #[test]
+    fn wide_ordinary_term_stops_at_low_limit() {
+        let id = CheckedNodeId {
+            package: "test/package".into(),
+            path: vec![crate::CheckedNodePathSegment::Name("wide".into())],
+            ordinal: 0,
+        };
+        let term = CheckedTerm::aggregate(
+            (0..100_000)
+                .map(|_| CheckedTerm::reference(id.clone()))
+                .collect(),
+        );
+        let mut work = 0;
+        let result = term.visit_selected_edges(&id, |_| {
+            if work == 2 {
+                return Err(());
+            }
+            work += 1;
+            Ok(())
+        });
+        assert_eq!(result, Err(()));
+        assert_eq!(work, 2);
+    }
+
+    /// Trace: FR-357-AC-12. Flat nominal IDs also stop at the first refused
+    /// edge without collecting the other IDs.
+    #[test]
+    fn wide_nominal_term_stops_at_first_edge() {
+        let id = CheckedNodeId {
+            package: "test/package".into(),
+            path: vec![crate::CheckedNodePathSegment::Name("dimension".into())],
+            ordinal: 0,
+        };
+        let body = crate::NominalBody::try_dimension(
+            (0..10_000)
+                .map(|ordinal| {
+                    let mut dimension_node_id = id.clone();
+                    dimension_node_id.ordinal = ordinal;
+                    crate::DimensionTerm {
+                        dimension_node_id,
+                        exponent: "1".into(),
+                    }
+                })
+                .collect(),
+        )
+        .unwrap();
+        let term = CheckedTerm::NominalBody(Box::new(body));
+        let mut edges = 0;
+        let result = term.visit_selected_edges(&id, |event| match event {
+            SelectedTermVisit::Term => Ok(()),
+            SelectedTermVisit::Edge(SelectedTermEdge::Reference, _) => {
+                edges += 1;
+                Err(())
+            }
+            SelectedTermVisit::Edge(_, _) => panic!("unexpected nominal edge"),
+        });
+        assert_eq!(result, Err(()));
+        assert_eq!(edges, 1);
     }
 
     /// Trace: FR-357-AC-12.

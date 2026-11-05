@@ -1666,8 +1666,23 @@ impl CheckedTerm {
         at: &'a CheckedNodeId,
         mut visit: impl FnMut(SelectedTermVisit<'a>) -> Result<(), E>,
     ) -> Result<(), E> {
-        let mut pending = vec![self];
-        while let Some(current) = pending.pop() {
+        enum Pending<'a> {
+            Term(&'a CheckedTerm),
+            Children(std::slice::Iter<'a, CheckedTerm>),
+        }
+
+        let mut pending = vec![Pending::Term(self)];
+        while let Some(next) = pending.pop() {
+            let current = match next {
+                Pending::Term(term) => term,
+                Pending::Children(mut children) => {
+                    if let Some(child) = children.next() {
+                        pending.push(Pending::Children(children));
+                        pending.push(Pending::Term(child));
+                    }
+                    continue;
+                }
+            };
             visit(SelectedTermVisit::Term)?;
             match current {
                 Self::Literal { type_id, .. } => {
@@ -1734,10 +1749,10 @@ impl CheckedTerm {
                             | CheckedOperationMember::TemporalInterval { .. } => {}
                         }
                     }
-                    pending.extend(arguments.iter().rev());
+                    pending.push(Pending::Children(arguments.iter()));
                 }
-                Self::Aggregate { members } => pending.extend(members.iter().rev()),
-                Self::Binding { value, .. } => pending.push(value),
+                Self::Aggregate { members } => pending.push(Pending::Children(members.iter())),
+                Self::Binding { value, .. } => pending.push(Pending::Term(value)),
                 Self::DependencyReference { package, node } => {
                     visit(SelectedTermVisit::Edge(
                         SelectedTermEdge::Dependency(package),
@@ -1752,11 +1767,10 @@ impl CheckedTerm {
                     visit(SelectedTermVisit::Edge(SelectedTermEdge::Unsupported, at))?
                 }
                 Self::NominalBody(body) => {
-                    let mut targets = Vec::new();
-                    body.visit_reference_targets(&mut |id| targets.push(id));
-                    for id in targets {
+                    body.try_visit_reference_targets(&mut |id| {
                         visit(SelectedTermVisit::Edge(SelectedTermEdge::Reference, id))?;
-                    }
+                        Ok(())
+                    })?;
                 }
             }
         }
