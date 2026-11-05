@@ -1,0 +1,39 @@
+---
+id: SR-2026110414560029
+title: "IR-1345 PR 909 spec-review/base review"
+type: SpecReview
+analysis: base
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md"
+review_set: subset
+---
+
+## Summary
+
+The unit case, bare-unit refusal, exact node identity, and existing exemptions are internally consistent. The new positive rule also names compound_unit, but AC-73 and TC-050 only exercise a domain over unit. Review of frozen head 3f4054a915ee343fa880abb3d993dfa5a38cc4f1. No applicable AssuranceProfile under spec/.
+
+## Scope and evidence
+
+| Unit | Path | Role | Excerpt |
+| --- | --- | --- | --- |
+| FR-038 quantity policy | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | examined | A position declared at a bounded_domain whose base chain ends at a unit or compound_unit is bounded and does not raise requires_bound for that underlying type. |
+| FR-038-AC-73 | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | examined | A record field declared at a bounded_domain over a unit lowers; a second field declared directly at that unit in the same closure still refuses naming the unit. |
+| TC-050 quantity procedure | spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md | examined | Lower a record whose field is declared at a bounded_domain over a unit node. Lower a record with both a field declared directly at that unit and a field declared at the domain over it. |
+| TC-050 quantity expected | spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md | examined | The domain-typed record lowers. The mixed record returns requires_bound naming its directly used unit, despite the domain elsewhere in its closure. |
+| FR-038-AC-39 | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | context_only | A literal.type annotation is not a value position. |
+| FR-038-AC-40 | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | context_only | A bounded_domain elsewhere in the closure does not bound a separately declared unbounded type position. |
+
+## Verdict
+
+FAIL — acceptance evidence omits the compound_unit half of the new positive rule.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | medium | AC-73 and TC-050 omit a bounded_domain over compound_unit positive case despite FR-038 permitting both underlying forms. Add the compound-unit domain control and expected lower outcome. | FR-038-AC-73; TC-050 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-73 now states both bounded unit and bounded compound-unit positive cases; TC-050 calls and expects both to lower. Fixed AC excerpt: A record field declared at a `bounded_domain` over a `unit` and a parameter declared at a `bounded_domain` over a `compound_unit` each lower; a second record field declared directly at that `unit` in the same closure still refuses naming the `unit`, so the domain elsewhere never covers it. |
