@@ -36,6 +36,9 @@ test = false
 fault-injection = []
 # Typed operation inputs for downstream test consumers only.
 test-support = []
+# Strict selected monitor unit tests use QSpec fixtures by reference only in
+# the explicit conformance-qspec lane, not the default workspace test gate.
+qspec-conformance = []
 
 [dependencies]
 ix-trace-rs = { version = "0.1", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
