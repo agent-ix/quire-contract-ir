@@ -154,6 +154,17 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
     let identities = SelectedExactIdentities::empty()
         .with_source_record_rows(&package, [row.clone()], 100)
         .expect("complete source row");
+    let join_exact = (0..=100)
+        .find(|&limit| {
+            SelectedExactIdentities::empty()
+                .with_source_record_rows(&package, [row.clone()], limit)
+                .is_ok()
+        })
+        .expect("bounded join succeeds");
+    assert!(join_exact > 0);
+    assert!(SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [row.clone()], join_exact - 1)
+        .is_err_and(|error| error.code == ExactTypeProjectionErrorCode::ExhaustedWork));
     assert_eq!(identities.source_record_rows().next(), Some(&row));
     let projected = package
         .project_exact_type(&record, &identities, 100)
@@ -172,7 +183,8 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         .project_exact_type(&record, &identities, exact - 1)
         .unwrap_err();
     assert_eq!(denied.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(denied.work, exact - 1);
+    assert!(denied.work < exact);
+    assert_eq!(denied.at.as_deref(), Some(&row.members[1].type_node));
     let cloned = package.clone();
     assert_eq!(
         cloned
